@@ -81,7 +81,7 @@ export function ModelRouteControl({
         onValueChange={(value) => void changeRoute(value)}
         buttonTestId={(value) => `model-route-${value}`}
       />
-      {!selection.can_mutate && <p className="settings-help">You do not have permission to change this route.</p>}
+      {!selection.can_mutate && <p className="form-hint">You do not have permission to change this route.</p>}
       {error && <p className="engine-selector__route-error" role="alert">{error}</p>}
     </div>
   </section>;

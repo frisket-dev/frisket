@@ -1,4 +1,4 @@
-import { AlertTriangle } from 'lucide-react';
+import { ConfirmDialog } from './Modal';
 import type { RunEstimate } from '../api/open';
 import { formatUsd } from '../actions/model';
 import { quotedUsd } from '../actions/quotedCost';
@@ -22,17 +22,8 @@ export function CostGateModal({ estimate, message, onConfirm, onCancel }: CostGa
   const quoted = quotedUsd(estimate);
 
   return (
-    <div className="modal-backdrop" data-testid="cost-gate-modal">
-      <form
-        className="modal-card"
-        onSubmit={(e) => {
-          e.preventDefault();
-          onConfirm();
-        }}
-      >
-        <div className="modal-title">
-          <AlertTriangle size={15} className="modal-warn-icon" /> Cost gate
-        </div>
+    <ConfirmDialog title="Cost gate" onConfirm={onConfirm} onCancel={onCancel} confirmLabel="Run it"
+      testId="cost-gate-modal" confirmTestId="cost-gate-confirm" cancelTestId="cost-gate-cancel">
         <p className="modal-body-text">{message}</p>
         {(estimate.claims?.length ?? 0) > 0 && (
           <ul className="modal-body-text" data-testid="cost-gate-claims">
@@ -53,19 +44,6 @@ export function CostGateModal({ estimate, message, onConfirm, onCancel }: CostGa
             <> · ~{estimate.avg_input_tokens.toLocaleString()} input tok/row</>
           )}
         </div>
-        <div className="form-actions">
-          <button type="button" className="btn" onClick={onCancel} data-testid="cost-gate-cancel">
-            Cancel
-          </button>
-          <button
-            type="submit"
-            className="btn btn-primary"
-            data-testid="cost-gate-confirm"
-          >
-            Run it
-          </button>
-        </div>
-      </form>
-    </div>
+    </ConfirmDialog>
   );
 }

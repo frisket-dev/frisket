@@ -1,4 +1,5 @@
-import { TextInput, TextArea } from './FormControls';
+import { Button } from './Button';
+import { FormField, TextInput, TextArea } from './FormControls';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type DragEvent } from 'react';
 import {
   AtSign,
@@ -1519,7 +1520,7 @@ function OpenImportWorkspaceSession({
         onDecisionChange={() => {}} onExecute={() => {}}
       />}
       {preparationReceipt.bulkOutputs.length > 1 && (
-        <label>
+        <label className="form-field">
           Review imported sheet
           <PanelSelect
             ariaLabel="Review imported sheet"
@@ -1787,16 +1788,16 @@ function OpenImportWorkspaceSession({
                       && importSessionStatus?.state !== 'removed' && <p>
                       Files are saved. Search preparation is not available for this import.
                     </p>}
-                    {importSessionStatus?.error && <div className="import-field-error" role="alert">{importSessionStatus.error}</div>}
-                    {preparationFollowupError && <div className="import-field-error" role="alert">{preparationFollowupError}</div>}
+                    {importSessionStatus?.error && <div className="panel-error" role="alert">{importSessionStatus.error}</div>}
+                    {preparationFollowupError && <div className="panel-error" role="alert">{preparationFollowupError}</div>}
                   </div>
                   <footer className="search-preparation-actions">
                     {canReviewPreparation ? (
-                      <button type="button" className="btn btn-primary" data-testid="import-files-next"
-                        onClick={() => setPreparationStep('review')}>Next</button>
+                      <Button type="button" className="btn-primary" data-testid="import-files-next"
+                        onClick={() => setPreparationStep('review')}>Next</Button>
                     ) : !summaryWaiting ? (
-                      <button type="button" className="btn btn-primary" data-testid="search-preparation-done"
-                        onClick={closeWorkspace}>Done</button>
+                      <Button type="button" className="btn-primary" data-testid="search-preparation-done"
+                        onClick={closeWorkspace}>Done</Button>
                     ) : null}
                   </footer>
                 </section>
@@ -1825,8 +1826,8 @@ function OpenImportWorkspaceSession({
                       <p>Files imported. Search preparation is not available for this sheet.</p>
                     </div>
                     <footer className="search-preparation-actions">
-                      <button type="button" className="btn btn-primary" data-testid="search-preparation-done"
-                        onClick={closeWorkspace}>Done</button>
+                      <Button type="button" className="btn-primary" data-testid="search-preparation-done"
+                        onClick={closeWorkspace}>Done</Button>
                     </footer>
                   </section>
                 )
@@ -1856,13 +1857,13 @@ function OpenImportWorkspaceSession({
                     onChange={(event) => setFtmDatasetName(event.currentTarget.value)}
                   />
                   <div className="import-step-actions">
-                    <button type="button" className="btn" disabled={busy} onClick={() => {
+                    <Button type="button" disabled={busy} onClick={() => {
                       setFtmFile(null);
                       setSingleFileFormat('csv');
-                    }}>Back</button>
-                    <button type="button" className="btn btn-primary" disabled={busy} onClick={() => {
+                    }}>Back</Button>
+                    <Button type="button" className="btn-primary" disabled={busy} onClick={() => {
                       void uploadFiles('ftm', [ftmFile], undefined, ftmDatasetName).then(finishFileImport);
-                    }}>{busy ? 'Importing…' : 'Import'}</button>
+                    }}>{busy ? 'Importing…' : 'Import'}</Button>
                   </div>
                 </section>
               ) : mode === 'pdf_split' ? (
@@ -1891,9 +1892,9 @@ function OpenImportWorkspaceSession({
                     placeholder="https://example.com/file.pdf"
                     onChange={(e) => dispatch({ type: 'setUrlText', value: e.target.value })}
                   />
-                  <button
+                  <Button
                     type="button"
-                    className="btn btn-primary import-primary"
+                    className="btn-primary import-primary"
                     data-testid="import-url-submit"
                     disabled={busy}
                     onClick={() => {
@@ -1903,7 +1904,7 @@ function OpenImportWorkspaceSession({
                     }}
                   >
                     <Link2 size={13} /> Import URLs
-                  </button>
+                  </Button>
                 </>
               ) : mode === 'feed' ? (
                 <FeedSourceForm onCreated={onClose} onImported={onImported} onError={onError} />
@@ -1934,9 +1935,9 @@ function OpenImportWorkspaceSession({
                     <h2>Drop files here</h2>
                     <p>Drop files or a ZIP archive here, or choose a folder.</p>
                     <div className="import-files-chooser-actions">
-                      <button type="button" className="btn btn-primary" data-testid="import-file-picker" disabled={busy || bulkBusy || selectionPreparing} onClick={() => inputRef.current?.click()}>Pick files</button>
-                      <button type="button" className="btn" disabled={busy || bulkBusy || selectionPreparing} onClick={() => folderInputRef.current?.click()}>Choose folder</button>
-                      <button type="button" className="btn" disabled={busy || bulkBusy || selectionPreparing} onClick={() => zipInputRef.current?.click()}>Upload ZIP</button>
+                      <Button type="button" className="btn-primary" data-testid="import-file-picker" disabled={busy || bulkBusy || selectionPreparing} onClick={() => inputRef.current?.click()}>Pick files</Button>
+                      <Button type="button" disabled={busy || bulkBusy || selectionPreparing} onClick={() => folderInputRef.current?.click()}>Choose folder</Button>
+                      <Button type="button" disabled={busy || bulkBusy || selectionPreparing} onClick={() => zipInputRef.current?.click()}>Upload ZIP</Button>
                     </div>
                   </div>
                   {(bulkPlan || bulkBusy || bulkError || bulkSuccessMessage || bulkWarnings.length || bulkFailures.length || bulkFailuresOmitted > 0) && (
@@ -2005,7 +2006,7 @@ function BulkImportPlanPanel({
     return (
       <>
         {busy ? <div role="status">Preparing import plan…</div> : null}
-        {error ? <div className="import-field-error" role="alert">{error}</div> : null}
+        {error ? <div className="panel-error" role="alert">{error}</div> : null}
         {successMessage ? <div role="status">{successMessage}</div> : null}
         {(failures.length || failuresOmitted > 0) ? (
           <section aria-label="Import failures" data-testid="bulk-import-failures">
@@ -2040,7 +2041,7 @@ function BulkImportPlanPanel({
     );
   }
   if (validationError) {
-    return <div className="import-field-error" role="alert">{validationError}</div>;
+    return <div className="panel-error" role="alert">{validationError}</div>;
   }
   if (!plan.proposed_outputs.length) {
     return (
@@ -2052,7 +2053,7 @@ function BulkImportPlanPanel({
   return (
     <section aria-label="Bulk import plan">
       {busy ? <div role="status">Executing import…</div> : null}
-      {error ? <div className="import-field-error" role="alert">{error}</div> : null}
+      {error ? <div className="panel-error" role="alert">{error}</div> : null}
       {plan.message ? <div role="status">{plan.message}</div> : null}
       <h3>Proposed outputs</h3>
       <ul aria-label="Proposed outputs">
@@ -2096,14 +2097,14 @@ function BulkImportPlanPanel({
           </fieldset>
         );
       })}
-      <button
+      <Button
         type="button"
-        className="btn btn-primary import-primary"
+        className="btn-primary import-primary"
         disabled={busy}
         onClick={onExecute}
       >
         {busy ? 'Importing…' : 'Execute import'}
-      </button>
+      </Button>
     </section>
   );
 }
@@ -2129,23 +2130,23 @@ function MediaDownloadPrompt({
         always run it later from the column's header menu.
       </p>
       <div className="import-step-actions">
-        <button
+        <Button
           type="button"
-          className="btn"
+
           data-testid="media-download-dismiss"
           onClick={onDismiss}
         >
           Not now
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className="btn btn-primary import-primary"
+          className="btn-primary import-primary"
           data-testid="media-download-run"
           onClick={onRun}
         >
           <ListVideo size={13} />
           Download
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -2176,23 +2177,23 @@ function NerExtractPrompt({
         {offer.free ? ', using a model that runs on this machine' : ''}?
       </p>
       <div className="import-step-actions">
-        <button
+        <Button
           type="button"
-          className="btn"
+
           data-testid="ner-import-dismiss"
           onClick={onDismiss}
         >
           Not now
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className="btn btn-primary import-primary"
+          className="btn-primary import-primary"
           data-testid="ner-import-run"
           onClick={onRun}
         >
           <AtSign size={13} />
           Extract entities
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -2338,28 +2339,28 @@ function FeedSourceForm({
           later either way.
         </p>
         {populate.error && (
-          <div className="import-field-error" role="alert">{populate.error}</div>
+          <div className="panel-error" role="alert">{populate.error}</div>
         )}
         <div className="import-step-actions">
-          <button
+          <Button
             type="button"
-            className="btn"
+
             data-testid="feed-populate-dismiss"
             disabled={populate.busy}
             onClick={dismissPopulate}
           >
             Not now
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="btn btn-primary import-primary"
+            className="btn-primary import-primary"
             data-testid="feed-populate-run"
             disabled={populate.busy}
             onClick={() => void runPopulate()}
           >
             <RefreshCw size={13} className={populate.busy ? 'spin' : undefined} />
             {populate.busy ? 'Running...' : 'Run'}
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -2424,68 +2425,68 @@ function FeedSourceForm({
 
       {(kind === 'youtube_playlist' || kind === 'youtube_channel') && (
         <div className="sources-form-grid">
-          <label>
-            <span>Max pages</span>
+          <FormField label="Max pages" >
+
             <TextInput
               aria-label="YouTube max pages"
               data-testid="source-youtube-max-pages"
               value={youtubeMaxPages}
               onChange={(e) => dispatch({ type: 'setYoutubeMaxPages', value: e.target.value })}
             />
-          </label>
-          <label>
-            <span>Max items</span>
+          </FormField>
+          <FormField label="Max items" >
+
             <TextInput
               aria-label="YouTube max items"
               data-testid="source-youtube-max-items"
               value={youtubeMaxItems}
               onChange={(e) => dispatch({ type: 'setYoutubeMaxItems', value: e.target.value })}
             />
-          </label>
+          </FormField>
         </div>
       )}
 
       {kind === 'api_list_dicts' && (
         <>
           <div className="sources-form-grid">
-            <label>
-              <span>Response list path</span>
+            <FormField label="Response list path" >
+
               <TextInput
                 aria-label="API response list path"
                 data-testid="source-api-list-path"
                 value={apiListPath}
                 onChange={(e) => dispatch({ type: 'setApiListPath', value: e.target.value })}
               />
-            </label>
-            <label>
-              <span>Item ID path</span>
+            </FormField>
+            <FormField label="Item ID path" >
+
               <TextInput
                 aria-label="API item ID path"
                 data-testid="source-api-item-id-path"
                 value={apiItemIdPath}
                 onChange={(e) => dispatch({ type: 'setApiItemIdPath', value: e.target.value })}
               />
-            </label>
+            </FormField>
           </div>
           <div className="sources-form-grid">
-            <label>
-              <span>Updated path</span>
+            <FormField label="Updated path" >
+
               <TextInput
                 aria-label="API updated-at path"
                 data-testid="source-api-updated-at-path"
                 value={apiUpdatedAtPath}
                 onChange={(e) => dispatch({ type: 'setApiUpdatedAtPath', value: e.target.value })}
               />
-            </label>
-            <label>
-              <span>Max items</span>
+            </FormField>
+            <FormField label="Max items" >
+
               <TextInput
                 aria-label="API max items"
                 data-testid="source-api-max-items"
                 value={apiMaxItems}
                 onChange={(e) => dispatch({ type: 'setApiMaxItems', value: e.target.value })}
               />
-            </label>
+            </FormField>
           </div>
         </>
       )}
@@ -2520,7 +2521,7 @@ function FeedSourceForm({
               Documents
             </label>
           </div>
-          <label className="import-field-label">
+          <label className="import-field-label form-field">
             Max entries
             <TextInput
               aria-label="CourtListener max entries"
@@ -2548,19 +2549,19 @@ function FeedSourceForm({
         ))}
       </PanelSelect>
       {(validationError || error) && (
-        <div className="import-field-error" role="alert">
+        <div className="panel-error" role="alert">
           {validationError ?? error}
         </div>
       )}
-      <button
+      <Button
         type="button"
-        className="btn btn-primary import-primary"
+        className="btn-primary import-primary"
         data-testid="source-create"
         disabled={busy || !url.trim() || Boolean(validationError)}
         onClick={() => void create()}
       >
         {busy ? 'Adding...' : 'Add feed'}
-      </button>
+      </Button>
     </div>
   );
 }
@@ -2631,15 +2632,15 @@ export function ImportDropzone(props: ImportHandlers & {
         {preparing ? 'Preparing selected files…' : rich.busy ? 'Importing...' : 'Start with data'}
       </div>
       <div className="dropzone-sub">Files, URLs, pasted rows, and feeds</div>
-      <button
+      <Button
         type="button"
-        className="btn btn-primary import-primary dropzone-import-open"
+        className="btn-primary import-primary dropzone-import-open"
         data-testid="import-workspace-open"
         disabled={rich.busy}
         onClick={() => onOpenWorkspace()}
       >
         <Upload size={13} /> Open import
-      </button>
+      </Button>
     </div>
   );
 }

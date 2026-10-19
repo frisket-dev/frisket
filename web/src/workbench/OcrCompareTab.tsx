@@ -1,3 +1,4 @@
+import { Button } from '../components/Button';
 import { TextInput } from '../components/FormControls';
 import { useEffect, useMemo, useRef } from 'react';
 import { Loader2, Play, Plus, RotateCw, Settings2, X } from 'lucide-react';
@@ -302,7 +303,7 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
         data-running={runningCount > 0 ? 'true' : 'false'}
       >
         <div className="ocr-compare-controls-row" data-testid="ocr-compare-controls-row">
-          <button
+          <Button
             type="button"
             className={`btn ocr-compare-run${runState === 'pending' ? ' btn-primary' : ''}`}
             data-testid="ocr-compare-run"
@@ -338,7 +339,7 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
             {runState === 'running' ? (
               <span className="ocr-compare-run-progress" data-testid="ocr-compare-run-progress" />
             ) : null}
-          </button>
+          </Button>
           <SegmentedToggle
             testId="ocr-compare-mode-switch"
             className="ocr-compare-mode-switch"
@@ -568,7 +569,7 @@ function OcrOptionFields({
           higher = sharper, slower · default {DEFAULT_DPI}
         </span>
       </div>
-      <label className="ocr-compare-configure-field">
+      <label className="ocr-compare-configure-field form-field">
         <span className="ocr-compare-configure-label">Language</span>
         <PanelSelect
           className="row-height-select"
@@ -583,7 +584,7 @@ function OcrOptionFields({
           ))}
         </PanelSelect>
       </label>
-      <label className="ocr-compare-configure-field">
+      <label className="ocr-compare-configure-field form-field">
         <span className="ocr-compare-configure-label">Pages</span>
         <TextInput
           data-testid="ocr-compare-configure-pages"
@@ -596,7 +597,7 @@ function OcrOptionFields({
         <span id="ocr-compare-pages-hint" className="ocr-compare-configure-hint muted">
           comma-separated · up to {MAX_SAMPLE_PAGES} pages · default 1
         </span>
-        {pagesProblem ? <span className="form-error" role="alert">{pagesProblem}</span> : null}
+        {pagesProblem ? <span className="panel-error" role="alert">{pagesProblem}</span> : null}
       </label>
       <label className="ocr-compare-configure-field">
         <span>

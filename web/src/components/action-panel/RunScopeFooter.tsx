@@ -1,3 +1,4 @@
+import { Button } from '../Button';
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { Eye, Play, RefreshCcw } from 'lucide-react';
 import { DropdownIndicator } from '../DropdownIndicator';
@@ -137,32 +138,32 @@ export function RunScopeFooter({
           : `${selectedCount.toLocaleString()} selected rows will run`}
       </p>
       <div className="run-actions-row">
-        <button
+        <Button
           type="button"
-          className="btn"
+
           disabled={!canPreview || !scopeAvailable}
           title={!canPreview ? previewDisabledReason ?? disabledTitle : disabledTitle}
           data-testid={`${testIdPrefix}-preview`}
           onClick={() => onPreview(effectiveScope)}
         >
           <Eye size={13} /> {previewLabel}
-        </button>
+        </Button>
           <div className="run-scope-control" ref={menuRef}>
             <div className="run-scope-button-row">
-            <button
+            <Button
               type={primaryButtonType}
-              className="btn btn-primary run-primary"
+              className="btn-primary run-primary"
               disabled={!canRun || !scopeAvailable}
               title={disabledTitle}
               data-testid={primaryTestId ?? `${testIdPrefix}-run`}
               onClick={primaryButtonType === 'button' ? () => onRun(effectiveScope) : undefined}
             >
               <Play size={13} /> {visiblePrimaryLabel}
-            </button>
-            {hasScopeMenu && <button
+            </Button>
+            {hasScopeMenu && <Button
               ref={toggleRef}
               type="button"
-              className="btn btn-primary run-scope-toggle"
+              className="btn-primary run-scope-toggle"
               aria-label="Choose run scope"
               aria-expanded={menuOpen}
               aria-controls={scopePopupId}
@@ -177,7 +178,7 @@ export function RunScopeFooter({
               }}
             >
               <DropdownIndicator className="run-scope-indicator" />
-            </button>}
+            </Button>}
           </div>
           {hasScopeMenu && menuOpen && (
             <div

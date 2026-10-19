@@ -1,3 +1,5 @@
+import { FormField } from '../components/FormControls';
+import { Button } from '../components/Button';
 import {
   lazy,
   Suspense,
@@ -363,15 +365,15 @@ export function AnswersView({
             })}
           </div>
           {list.rows.length < list.total && (
-            <button
+            <Button
               type="button"
-              className="mini-btn answers-row-list-more"
+              className="answers-row-list-more"
               data-testid="answers-row-list-more"
               disabled={list.loading}
               onClick={() => void loadMore()}
             >
               {list.loading ? 'Loading…' : 'Load more'}
-            </button>
+            </Button>
           )}
         </div>
       </aside>
@@ -379,8 +381,8 @@ export function AnswersView({
       <section className="answers-column" data-testid="answers-column" aria-label="Answers">
         <div className="answers-column-header">
           {citedColumns.length > 1 ? (
-            <label className="answers-column-picker-row">
-              <span>Column</span>
+            <FormField label="Column" className="answers-column-picker-row">
+
               <PanelSelect
                 className="row-height-select"
                 data-testid="answers-column-picker"
@@ -393,7 +395,7 @@ export function AnswersView({
                   </option>
                 ))}
               </PanelSelect>
-            </label>
+            </FormField>
           ) : (
             <span className="answers-column-picker-static" data-testid="answers-column-picker">
               {chosenColumn?.name ?? ''}

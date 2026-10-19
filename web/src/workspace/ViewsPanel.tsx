@@ -1,3 +1,4 @@
+import { Button } from '../components/Button';
 import { TextInput } from '../components/FormControls';
 // Saved-views panel. This is intentionally presentational: persistence and
 // successful-create/update transitions belong to the workspace controller.
@@ -145,48 +146,48 @@ export function ViewsPanel({
           {nameIsBlank && <span id={nameErrorId}>Enter a name to continue.</span>}
           <div className="views-editor-actions">
             {editor.kind === 'edit' ? (
-              <button
+              <Button
                 type="button"
-                className="btn btn-primary"
+                className="btn-primary"
                 data-testid="update-view-button"
                 disabled={nameIsBlank || isSaving}
                 onClick={onUpdate}
               >
                 <Save size={14} /> {isSaving ? 'Renaming…' : 'Rename view'}
-              </button>
+              </Button>
             ) : (
-              <button
+              <Button
                 type="button"
-                className="btn btn-primary"
+                className="btn-primary"
                 data-testid="save-view-button"
                 disabled={nameIsBlank || isSaving}
                 onClick={onSave}
               >
                 <Save size={14} /> {isSaving ? 'Saving…' : 'Save view'}
-              </button>
+              </Button>
             )}
-            <button
+            <Button
               type="button"
-              className="btn"
+
               data-testid="saved-view-editor-cancel"
               disabled={isSaving}
               onClick={onCancel}
             >
               <X size={14} /> Cancel
-            </button>
+            </Button>
           </div>
         </div>
       ) : (
         canEdit && (
-          <button
+          <Button
             type="button"
-            className="btn btn-primary"
+            className="btn-primary"
             data-testid="create-saved-view"
             disabled={isSaving}
             onClick={onStartCreating}
           >
             <Plus size={14} /> Save current view
-          </button>
+          </Button>
         )
       )}
       <div className="saved-views-list" data-testid="saved-views-list" ref={listRef} tabIndex={-1}>
@@ -348,17 +349,17 @@ function SavedViewConfirmationDialog({
             ? 'Deleting this Saved View cannot be undone.'
             : 'Replace this Saved View’s filters, sorting, displayed columns, and column groups with the current display.'}
         </p>
-        {error && <div className="form-error" role="alert">{error}</div>}
+        {error && <div className="panel-error" role="alert">{error}</div>}
         <div className="form-actions">
-          <button autoFocus type="button" className="btn" disabled={busy} onClick={close}>Cancel</button>
-          <button
+          <Button autoFocus type="button" disabled={busy} onClick={close}>Cancel</Button>
+          <Button
             type="submit"
             className={`btn ${isDelete ? 'btn-reject' : 'btn-primary'}`}
             data-testid={isDelete ? 'confirm-delete-saved-view' : 'confirm-update-saved-view'}
             disabled={busy}
           >
             {busy ? (isDelete ? 'Deleting…' : 'Saving…') : (isDelete ? 'Delete Saved View' : 'Save changes')}
-          </button>
+          </Button>
         </div>
       </form>
     </dialog>

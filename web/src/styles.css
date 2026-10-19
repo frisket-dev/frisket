@@ -6,6 +6,7 @@
    a @layer block here keeps today's plain source-order/specificity cascade as-is. */
 @layer base, action-panel;
 @import './components/FormControls.css';
+@import './components/Button.css';
 
 :root {
   /* The theme is the data-frisket-theme attribute, NEVER the OS preference:
@@ -771,22 +772,7 @@ kbd {
 .discover-tabs {
   flex: 1; min-width: 0; gap: var(--space-2);
 }
-.discover-tab {
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 8px 9px; border-radius: var(--radius-8) var(--radius-8) 0 0;
-  font-size: 12px; font-weight: 550; color: var(--text-mid);
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px; white-space: nowrap; flex-shrink: 0;
-}
-.discover-tab:hover { background: var(--bg-hover); color: var(--text); }
 /* Full teal accent on the active tab: background + text + underline. */
-.discover-tab-active,
-.discover-tab-active:hover {
-  color: var(--discover);
-  background: var(--discover-bg);
-  border-bottom-color: var(--discover);
-  font-weight: 650;
-}
 .discover-overflow-btn {
   display: inline-flex; align-items: center; justify-content: center;
   width: 28px; border-radius: var(--radius-7) var(--radius-7) 0 0;
@@ -929,35 +915,10 @@ kbd {
   border-bottom: 1px solid var(--border);
   background: var(--bg-panel);
 }
-.workbench-bottom-tab {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 29px;
-  margin-bottom: -1px;
-  padding: 0 10px;
-  border: 1px solid transparent;
-  border-bottom: 0;
-  border-radius: var(--radius-6) var(--radius-6) 0 0;
-  color: var(--text-mid);
-  font-size: 12px;
-  font-weight: 600;
-}
-.workbench-bottom-tab:hover { background: var(--bg-hover); color: var(--text); }
 /* The Monitor tab strip sits ABOVE its panel, so the active tab is a card
    joined to the surface below: top-edge accent, square/open bottom edge, and
    one layer above the strip border. An inset bottom underline made these read
    as detached pills and put the accent on the wrong side. */
-.workbench-bottom-tab.active,
-.workbench-bottom-tab.active:hover {
-  z-index: 1;
-  border-color: var(--border);
-  border-top: 2px solid var(--monitor);
-  border-bottom: 0;
-  background: var(--bg);
-  color: var(--monitor);
-}
 /* Mono count chip (e.g. Errors (2)). */
 .workbench-bottom-tab-chip {
   font-family: var(--mono);
@@ -2820,7 +2781,6 @@ kbd {
   align-items: stretch;
   min-width: 0;
 }
-.views-create .form-input { min-width: 0; margin-top: 0; }
 .views-editor-actions,
 .saved-view-actions {
   display: flex;
@@ -2889,17 +2849,6 @@ kbd {
   margin-left: auto;
   align-self: center;
 }
-.grid-control-panel label {
-  display: inline-flex;
-  flex-direction: column;
-  gap: 3px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-light);
-}
-.grid-control-panel .form-input {
-  min-width: 160px;
-}
 .grid-active-bar {
   display: flex;
   align-items: center;
@@ -2928,7 +2877,7 @@ kbd {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
 }
-.active-grid-filter .mini-btn { flex: 0 0 auto; align-self: flex-start; }
+.active-grid-filter .btn { flex: 0 0 auto; align-self: flex-start; }
 .grid-header-menu {
   position: fixed;
   z-index: 80;
@@ -3093,10 +3042,12 @@ li.panel-empty { list-style: none; }
   word-break: break-word;
 }
 .panel-error { color: var(--red); background: var(--red-bg); }
-.panel-notice { display: flex; align-items: center; gap: 7px; color: var(--text-mid); background: var(--bg-hover); }
+.panel-notice { color: var(--text-mid); background: var(--bg-hover); }
 .panel-notice > svg { flex-shrink: 0; }
 .panel-notice[data-tone='success'] { color: var(--green); background: var(--green-bg); }
 .panel-notice[data-tone='warning'] { color: var(--amber); background: var(--amber-bg); }
+.panel-notice[data-tone='error'] { color: var(--red); background: var(--red-bg); }
+.compare-discard-verdict { white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.5 var(--mono); padding: 8px; background: var(--bg-panel); border-radius: var(--radius-6); }
 /* THE one status/state chip (ui-chips-segmented-v1 / C4,
    components/PanelPrimitives.tsx StatusChip). Replaces the five re-declared
    tone->color pairs (.notification-status-pill, .ollama-badge,
@@ -3201,16 +3152,10 @@ li.panel-empty { list-style: none; }
 .action-form { display: flex; flex-direction: column; padding: 0 14px 16px; }
 }
 @layer base {
-.form-label {
-  font-size: var(--font-size-meta); font-weight: 650; color: var(--text-mid);
-  margin: var(--space-12) 0 var(--space-4);
-  display: block;
-}
 .form-label-row {
   display: flex; align-items: center; justify-content: space-between;
   margin: var(--space-12) 0 var(--space-4);
 }
-.form-label-row .form-label { margin: 0; }
 }
 /* Two fields side by side (design card 5b: target sheet/column, match/confident
    threshold) — each child owns its own label + input stack. */
@@ -3231,16 +3176,10 @@ li.panel-empty { list-style: none; }
   overflow-y: auto;
 }
 @layer base {
-.form-input + .form-input { margin-top: 6px; }
-}
-@layer base {
 .form-check {
   display: flex; align-items: center; gap: 7px;
   margin-top: 12px; font-size: 12px; color: var(--text-mid);
 }
-}
-@layer base {
-.form-hint { font-size: var(--font-size-meta); color: var(--text-light); margin: var(--space-6) 0 0; }
 }
 @layer action-panel {
 .action-advanced {
@@ -3260,20 +3199,10 @@ li.panel-empty { list-style: none; }
   border-top: 1px solid var(--border);
   padding: 0 9px 9px;
 }
-.action-advanced-body .form-label:first-child,
-.action-advanced-body .form-check:first-child {
-  margin-top: 9px;
-}
 
 /* Action panel layout. Shared controls own their appearance. */
 .action-panel .action-form { padding: 0 18px 16px; }
-.action-panel .form-label,
-.action-panel .form-label-row .form-label {
-  font-size: 12.5px; font-weight: 600; color: var(--text-mid);
-  margin: 18px 0 8px;
-}
 .action-panel .form-label-row { margin: 18px 0 4px; }
-.action-panel .form-label-row .form-label { margin: 0; }
 .action-form .engine-selector { margin-top: 18px; }
 /* Compact single-
    line fields (text/select/number/checkbox/column pickers) render label-left,
@@ -3283,7 +3212,7 @@ li.panel-empty { list-style: none; }
    Extends the existing .form-label-row/.form-row-pair single-row precedents;
    scoped to .action-panel so settings/sources/ask keep their own stacked
    .form-input layout. */
-.action-panel .param-row {
+.param-row {
   display: grid;
   /* A bare `1fr` track has an implicit min-width:auto — a control with
      wide min-content (a <select> with a long option label, MultiColumnPicker
@@ -3295,19 +3224,6 @@ li.panel-empty { list-style: none; }
   align-items: center;
   column-gap: 12px;
   margin: 18px 0 0;
-}
-.action-panel .param-row .form-label {
-  margin: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  /* min-width:0 below is what actually lets this ellipsis rule ever engage —
-     see the next comment. Without it this declaration was already a silent
-     no-op (nothing to truncate against; the label's own min-content just
-     grew the first track past 38% instead). */
-}
-.action-panel .param-row .form-input {
-  margin-top: 0;
 }
 /* The track minmax alone isn't enough: a grid ITEM also defaults to
    min-width:auto (its own min-content size) regardless of its track's
@@ -3321,10 +3237,9 @@ li.panel-empty { list-style: none; }
    blanket `> *` is deliberate here over an exhaustive control-class
    allowlist, which would silently stop covering a NEW control type added
    later exactly the way this bug went unnoticed the first time. */
-.action-panel .param-row > * {
+.param-row > * {
   min-width: 0;
 }
-.action-panel .form-hint { font-size: 12px; line-height: 1.45; margin-top: 7px; }
 .action-panel .form-check { font-size: 12.5px; color: var(--text); }
 .action-panel .form-check input[type="checkbox"] { accent-color: var(--accent); }
 /* clean_column "Cleanings": a compact multi-column checkbox grid so ~a dozen
@@ -3380,9 +3295,6 @@ li.panel-empty { list-style: none; }
 }
 .dense-grid .dense-grid-item[data-span="2"] {
   grid-column: 1 / -1;
-}
-.dense-grid .dense-grid-item > .form-label {
-  margin: 0;
 }
 /* Collapses ("Advanced run options", per-action limits) read as quiet
    caret rows above a hairline, not boxed cards. */
@@ -3520,55 +3432,34 @@ li.panel-empty { list-style: none; }
   align-self: flex-start;
 }
 
-/* Calm-hierarchy field row: hairline-separated rows, borderless bold name,
-   type as a small pill, description wrapping underneath. FieldRow (see
-   ActionPanel.tsx) applies `.field-row-calm` unconditionally to every
-   instance, so the top-level "Columns it creates" builder and the nested
-   "Shape of each item" rows share one skin. Targeted by class, not DOM
-   position — a DOM-position chain (`.field-group > .field-row`) is exactly
-   what let the nested rows silently fall back to the boxed default below. */
+/* Output-schema rows own layout; native fields own their appearance. */
 @layer action-panel {
-.action-panel .fields-builder { gap: 0; }
-.action-panel .fields-builder > .field-group {
+.fields-builder { gap: 0; }
+.fields-builder > .field-group {
   border-top: 1px solid var(--bg-hover);
   padding: 10px 0;
 }
-.action-panel .fields-builder > .field-group:last-child {
+.fields-builder > .field-group:last-child {
   border-bottom: 1px solid var(--bg-hover);
 }
-.action-panel .fields-builder .field-row-calm {
+.fields-builder .field-row-calm {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto 26px;
   gap: 3px 9px;
   align-items: center;
 }
-.action-panel .fields-builder .field-row-calm.single-output-field-row {
+.fields-builder .field-row-calm.single-output-field-row {
   grid-template-columns: minmax(0, 1fr);
-}
-.action-panel .fields-builder .field-row-calm .form-input + .form-input {
-  margin-top: 0;
-}
-.action-panel .fields-builder .field-row-calm .field-name {
-  border: 0;
-  background: transparent;
-  padding: 2px 0;
-  font-size: 13.5px;
-  font-weight: 650;
-  border-radius: var(--radius-6);
-}
-.action-panel .fields-builder .field-row-calm .field-name:focus {
-  box-shadow: var(--shadow-ring);
-  border: 0;
 }
 /* Extract required (*) toggle sits inside the name column (col 1) after the
    name input, so the name | type | delete grid tracks are untouched. */
-.action-panel .fields-builder .field-row-calm .field-name-wrap {
+.fields-builder .field-row-calm .field-name-wrap {
   display: flex;
   align-items: center;
   gap: 4px;
   min-width: 0;
 }
-.action-panel .fields-builder .field-row-calm .field-name-wrap .field-name {
+.fields-builder .field-row-calm .field-name-wrap .field-name {
   flex: 1 1 auto;
   min-width: 0;
 }
@@ -3592,49 +3483,27 @@ li.panel-empty { list-style: none; }
 .field-required-toggle.is-required {
   color: var(--red);
 }
-.action-panel .fields-builder .field-row-calm select.field-type {
+.fields-builder .field-row-calm select.field-type {
   width: auto;
   justify-self: end;
-  border: 0;
-  background-color: var(--bg-hover);
-  padding: 3px 32px 3px 9px;
-  min-height: 0;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-mid);
-  border-radius: var(--radius-7);
 }
-.action-panel .fields-builder .field-row-calm > .field-remove-button {
+.fields-builder .field-row-calm > .field-remove-button {
   grid-column: 3;
   grid-row: 1;
   align-self: center;
 }
-.action-panel .fields-builder .field-row-calm .field-desc {
+.fields-builder .field-row-calm .field-desc {
   grid-column: 1 / -1;
   min-width: 0;
-  border: 0;
-  background: transparent;
-  padding: 1px 0;
-  min-height: 22px;
   field-sizing: content;
   resize: vertical;
   overflow: hidden;
-  line-height: 1.35;
   white-space: pre-wrap;
-  font-size: 12.5px;
-  color: var(--text-mid);
-  border-radius: var(--radius-6);
 }
-.action-panel .fields-builder .field-row-calm.single-output-field-row .field-desc {
+.fields-builder .field-row-calm.single-output-field-row .field-desc {
   grid-column: 1;
 }
-.action-panel .fields-builder .field-row-calm .field-desc:focus {
-  box-shadow: var(--shadow-ring);
-}
-.action-panel .fields-builder .field-row-calm .field-desc::placeholder {
-  color: var(--text-light);
-}
-.action-panel .fields-builder .field-labels-textarea { margin-top: 6px; }
+.fields-builder .field-labels-textarea { margin-top: 6px; }
 .action-panel .classify-label-details { margin-top: 6px; }
 .action-panel .classify-label-details summary {
   width: fit-content;
@@ -3662,12 +3531,6 @@ li.panel-empty { list-style: none; }
 /* Nested "Shape of each item" rows: FieldRow adds `.list-item-field-row` only
    at the nested call site (ActionPanel.tsx ~3419), layering a smaller scale
    on top of the same `.field-row-calm` structure — not a separate skin. */
-.action-panel .list-item-field-row .field-name { font-size: 12px; }
-.action-panel .list-item-field-row select.field-type {
-  font-size: 11px;
-  padding: 2px 32px 2px 8px;
-}
-.action-panel .list-item-field-row .field-desc { font-size: 11.5px; min-height: 18px; }
 .action-panel .list-item-fields .field-row-calm + .field-row-calm {
   border-top: 1px solid var(--border);
   padding-top: 6px;
@@ -3857,13 +3720,6 @@ li.panel-empty { list-style: none; }
 .code-editor-status-muted { font-size: 11px; color: #5f6b83; }
 .code-editor-status-warn + .code-editor-status-muted,
 .code-editor-status-note + .code-editor-status-muted { flex: 1 1 220px; min-width: 0; line-height: 1.45; }
-
-.mini-btn {
-  display: inline-flex; align-items: center; gap: 3px;
-  font-size: 11px; font-weight: 600; color: var(--accent);
-  padding: 2px 6px; border-radius: var(--radius-5);
-}
-.mini-btn:hover { background: var(--accent-bg); }
 
 /* Quiet cost line: a colored status dot + muted sentence, no banner box.
    Dot: green = free/local, amber = costs money or needs confirmation. */
@@ -4657,50 +4513,6 @@ li.panel-empty { list-style: none; }
   margin-left: auto;
   color: var(--text-mid);
 }
-.ocr-compare-discard-backdrop {
-  position: absolute;
-  inset: 0;
-  z-index: 40;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.34);
-}
-.ocr-compare-discard-card {
-  width: min(420px, 90%);
-  display: grid;
-  gap: 10px;
-  padding: 18px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  box-shadow: var(--shadow-menu);
-}
-.ocr-compare-discard-verdict {
-  padding: 8px 10px;
-  border-radius: var(--radius-6);
-  background: var(--bg-panel);
-  color: var(--text);
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-.ocr-compare-discard-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.ocr-compare-discard-spacer {
-  flex: 1;
-}
-
-@layer base {
-.form-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 14px;
-}
-}
-.form-actions .btn { justify-content: center; }
 .form-actions .btn-primary { min-width: 74px; }
 @layer action-panel {
 .action-run-actions {
@@ -4849,52 +4661,7 @@ li.panel-empty { list-style: none; }
   background: var(--bg-hover);
 }
 .run-scope-menu button:disabled { opacity: 0.5; }
-.btn {
-  display: inline-flex; align-items: center; gap: var(--space-6);
-  font-weight: 600; font-size: var(--font-size-control);
-  border: 1px solid var(--border-strong);
-  background: var(--bg);
-  color: var(--text);
-  text-decoration: none;
-  border-radius: var(--radius-6);
-  padding: var(--space-6) var(--space-12);
-}
-.btn:hover:not(:disabled) { background: var(--bg-hover); }
 /* Lighter companion to .btn for secondary/tertiary actions. */
-.secondary-btn {
-  display: inline-flex; align-items: center; gap: var(--space-6);
-  font-weight: 600; font-size: var(--font-size-control);
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--text-mid);
-  text-decoration: none;
-  border-radius: var(--radius-6);
-  padding: 5px 11px;
-}
-.secondary-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); }
-.secondary-btn:disabled { opacity: 0.55; }
-.btn-primary {
-  background: var(--accent); border-color: var(--accent); color: var(--text-on-solid);
-}
-.btn-primary:hover:not(:disabled) { background: var(--accent-strong); }
-.btn-accept { background: var(--green); border-color: var(--green); color: var(--text-on-solid); }
-.btn-accept:hover:not(:disabled) { background: var(--success-strong); }
-.btn-reject { background: var(--red); border-color: var(--red); color: var(--text-on-solid); }
-.btn-reject:hover:not(:disabled) { background: var(--danger-strong); }
-.btn-icon {
-  width: 28px; height: 28px; padding: 0;
-  justify-content: center;
-}
-
-@layer base {
-.icon-btn {
-  display: inline-grid; place-items: center;
-  width: var(--icon-button-size); height: var(--icon-button-size);
-  border-radius: var(--radius-6);
-  color: var(--text-mid);
-}
-}
-.icon-btn:hover { background: var(--bg-hover); }
 .icon-btn-active { background: var(--accent-bg); color: var(--accent); }
 
 /* ---- status bar ----------------------------------------------------------- */
@@ -5409,9 +5176,6 @@ li.panel-empty { list-style: none; }
   display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
   padding: 4px 0 10px; border-bottom: 1px solid var(--border);
 }
-.provenance-actions .mini-btn.disabled {
-  opacity: 0.55; pointer-events: none;
-}
 
 /* evidence viewer */
 .evidence-viewer-backdrop {
@@ -5500,24 +5264,6 @@ li.panel-empty { list-style: none; }
   display: grid;
   align-content: start;
   gap: 10px;
-}
-.evidence-viewer-warning {
-  border: 1px solid var(--amber);
-  background: var(--amber-bg);
-  color: var(--amber);
-  border-radius: var(--radius-6);
-  padding: 9px 10px;
-  font-size: 12px;
-}
-.evidence-viewer-provenance-notice {
-  margin-bottom: 12px;
-  border: 1px solid var(--accent);
-  background: var(--accent-bg);
-  color: var(--text-mid);
-  border-radius: var(--radius-6);
-  padding: 9px 10px;
-  font-size: 12px;
-  line-height: 1.45;
 }
 .pdf-packet-source-card {
   display: grid;
@@ -5644,20 +5390,6 @@ li.panel-empty { list-style: none; }
 }
 .pdf-packet-source-reader .document-pdf {
   min-height: 0;
-}
-.evidence-text-recovery,
-.evidence-text-recovery-notice {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--text-mid);
-  border-radius: var(--radius-6);
-  padding: 9px 10px;
-  font-size: 12px;
-  line-height: 1.4;
 }
 .evidence-text-recovery-error {
   flex-basis: 100%;
@@ -6107,9 +5839,6 @@ audio.evidence-media {
   border: 1px solid var(--border); border-radius: var(--radius-7);
   background: var(--bg-panel); padding: 8px 9px;
 }
-.provenance-run-list .mini-btn {
-  margin-left: auto;
-}
 .receipt-inspector {
   margin-top: 10px;
   border-top: 1px solid var(--border);
@@ -6237,7 +5966,6 @@ audio.evidence-media {
   border-bottom: 1px solid var(--border);
 }
 .child-filter-banner strong { color: var(--text); }
-.child-filter-banner .mini-btn { margin-left: auto; }
 
 /* Lens grid view: the active saved-lens row-set + ranking. */
 .lens-view-banner {
@@ -6249,7 +5977,6 @@ audio.evidence-media {
 }
 .lens-view-banner strong { color: var(--text); }
 .lens-view-banner .lens-view-score-hint { color: var(--text-mid); font-variant-numeric: tabular-nums; }
-.lens-view-banner .mini-btn { margin-left: auto; }
 .lens-view-banner.lens-view-error { color: var(--red); background: var(--red-bg); }
 
 .conf-pill {
@@ -6561,16 +6288,6 @@ dialog.sources-connections-layer::backdrop { background: transparent; }
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 6px;
 }
-.sources-form-grid label,
-.source-field-label {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  font-size: 10.5px;
-  color: var(--text-light);
-}
-.sources-form-grid .form-input,
-.source-field-label .form-input { margin: 0; }
 .source-textarea {
   min-height: 52px;
   resize: vertical;
@@ -6677,29 +6394,8 @@ dialog.sources-connections-layer::backdrop { background: transparent; }
   font-size: 13px;
   font-weight: 700;
 }
-.source-detail-tabstrip {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 4px;
-}
 .source-detail-contribution-tab {
   min-width: 0;
-}
-.source-detail-tab {
-  width: 100%;
-  min-height: 28px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-6);
-  background: var(--bg);
-  color: var(--text-light);
-  font-size: 11.5px;
-  cursor: pointer;
-}
-.source-detail-tab[aria-selected="true"] {
-  border-color: var(--accent);
-  background: var(--accent-bg);
-  color: var(--accent);
-  font-weight: 650;
 }
 .source-detail-panel {
   display: grid;
@@ -6798,13 +6494,6 @@ dialog.sources-connections-layer::backdrop { background: transparent; }
   gap: 6px;
   color: var(--text-light);
 }
-.source-health-notice {
-  font-size: 11px;
-  color: #8a5a00;
-  background: #fff4cc;
-  border-radius: var(--radius-6);
-  padding: 5px 7px;
-}
 .spin { animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -6825,20 +6514,9 @@ dialog.sources-connections-layer::backdrop { background: transparent; }
   font-size: 10.5px; font-weight: 650;
   color: var(--text-light);
 }
-.facets-controls .form-input {
-  margin: 0;
-}
 .facets-refresh {
   justify-self: end;
   grid-column: 2;
-}
-.facets-error {
-  font-size: 11px;
-  border-radius: var(--radius-6);
-  padding: 6px 7px;
-  word-break: break-word;
-  color: var(--red);
-  background: var(--red-bg);
 }
 .facets-summary,
 .facets-empty {
@@ -7095,7 +6773,7 @@ dialog.sources-connections-layer::backdrop { background: transparent; }
 .friendly-advanced { padding-top: 4px; border-top: 1px solid var(--border); }
 .friendly-advanced > button { padding: 0; }
 .friendly-advanced-fields { display: grid; gap: 5px; margin-top: 6px; }
-.friendly-advanced-fields .btn { justify-self: end; min-height: 25px; padding: 3px 9px; font-size: 10.5px; }
+.friendly-advanced-fields .btn { justify-self: end; }
 
 /* ---- notifications panel ------------------------------------------------ */
 .sidebar-notifications {
@@ -7158,10 +6836,6 @@ dialog.sources-connections-layer::backdrop { background: transparent; }
   display: flex; align-items: center; gap: 6px;
 }
 .notification-settings-head .sidebar-section-label { flex: 1; }
-.notification-settings-notice {
-  font-size: 11px; color: var(--green);
-  background: var(--green-bg); border-radius: var(--radius-6); padding: 5px 7px;
-}
 /* Each area (Channels / Routes / Delivery health) is a distinct card. */
 .notification-settings-card {
   display: flex; flex-direction: column; gap: 8px;
@@ -7230,17 +6904,8 @@ dialog.sources-connections-layer::backdrop { background: transparent; }
   display: grid; grid-template-columns: 92px minmax(0, 1fr);
   gap: 8px; align-items: center;
 }
-.notification-settings-label {
-  font-size: 11px; color: var(--text-mid);
-}
 .notification-settings-control {
   min-width: 0; display: flex; flex-direction: column; gap: 3px;
-}
-.notification-settings-hint {
-  font-size: 10px; color: var(--text-light); line-height: 1.35;
-}
-.notification-settings-hint code {
-  font-size: 10px; padding: 0 3px; border-radius: 3px; background: var(--bg-hover);
 }
 .notification-settings-formfooter {
   display: flex; align-items: center; justify-content: space-between;
@@ -7310,7 +6975,6 @@ dialog.sources-connections-layer::backdrop { background: transparent; }
   border-radius: var(--radius-7);
   background: var(--bg-hover);
 }
-.watches-create .form-input { min-width: 0; margin-top: 0; }
 .watches-create-heading { display: flex; flex-direction: column; gap: 2px; }
 .watches-create-heading strong { font-size: 13px; }
 .watches-create-field { display: grid; gap: 4px; min-width: 0; }
@@ -7326,21 +6990,6 @@ dialog.sources-connections-layer::backdrop { background: transparent; }
   font-size: 11px;
 }
 .watches-create-notifications p { margin: 0; color: var(--text-mid); line-height: 1.4; }
-.watches-create .form-actions { margin-top: 0; flex-wrap: wrap; }
-.watch-notification-setup-notice {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 9px;
-  border-left: 3px solid var(--accent);
-  border-radius: 0 var(--radius-6) var(--radius-6) 0;
-  background: var(--accent-bg);
-  color: var(--text-mid);
-  font-size: 11px;
-  line-height: 1.4;
-}
-.watch-notification-setup-notice > span { flex: 1; }
-.watch-notification-setup-notice .icon-btn { flex: 0 0 auto; }
 @media (max-width: 220px) {
   .watches-create { padding: 8px; }
   .watches-create .form-actions .btn { flex: 1 1 100%; }
@@ -7351,7 +7000,7 @@ dialog.sources-connections-layer::backdrop { background: transparent; }
   gap: 4px;
   min-width: 0;
 }
-.watch-lifecycle-controls .form-input { flex: 1 1 100%; min-width: 0; margin-top: 0; }
+.watch-lifecycle-controls .form-input { flex: 1 1 100%; }
 .watch-run { min-width: 0; }
 .watch-run-rows { min-width: 0; overflow-wrap: anywhere; }
 .watch-runs-toggle {
@@ -7499,7 +7148,7 @@ dialog.sources-connections-layer::backdrop { background: transparent; }
 }
 .picker-brand .brand-name { font-size: 16px; }
 .picker-create { display: flex; gap: 8px; }
-.picker-create .form-input { flex: 1; margin-top: 0; }
+.picker-create .form-input { flex: 1; }
 .picker-section-label {
   font-size: 10.5px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.07em;
   color: var(--text-light);
@@ -7534,7 +7183,6 @@ output.account-note {
 .toolbar-actions .btn,
 .toolbar-actions .icon-btn {
   flex: 0 0 auto;
-  white-space: nowrap;
 }
 
 /* Toolbar diet (workbench-ia-toolbar-diet-v1): a flex spacer pushes the
@@ -7648,12 +7296,6 @@ output.account-note {
   font-family: var(--mono);
   font-size: 11.5px;
 }
-
-.import-field-error {
-  margin-top: -4px;
-  color: var(--red);
-  font-size: 11px;
-}
 .import-primary { justify-content: center; }
 .import-workspace-layer {
   position: fixed;
@@ -7757,39 +7399,6 @@ dialog.import-workspace-layer::backdrop {
   display: flex;
   flex-direction: column;
 }
-.import-workspace-stages {
-  flex: 0 0 auto;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  border-bottom: 1px solid var(--border);
-  background: var(--bg);
-}
-.import-workspace-stage {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  min-height: 42px;
-  color: var(--text-light);
-  font-size: 12px;
-  font-weight: 700;
-  border-right: 1px solid var(--border);
-}
-.import-workspace-stage:last-child { border-right: 0; }
-.import-workspace-stage span {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  border: 1px solid var(--border-strong);
-  border-radius: 50%;
-  font-size: 11px;
-}
-.import-workspace-stage-active {
-  color: var(--accent);
-  background: var(--accent-bg);
-}
 .import-workspace-panel {
   flex: 1 1 auto;
   min-height: 0;
@@ -7799,14 +7408,6 @@ dialog.import-workspace-layer::backdrop {
   gap: 10px;
   padding: 22px;
   overflow-y: auto;
-}
-.import-workspace-panel > .import-mode-summary,
-.import-workspace-panel > .sources-form,
-.import-workspace-panel > textarea,
-.import-workspace-panel > label,
-.import-workspace-panel > button,
-.import-workspace-panel > .import-field-error {
-  width: min(620px, 100%);
 }
 .import-workspace-panel .import-mode-summary {
   justify-content: flex-start;
@@ -7879,11 +7480,6 @@ dialog.import-workspace-layer::backdrop {
 }
 .import-feed-form .sources-form-grid {
   margin-top: 0;
-}
-.import-field-error {
-  color: var(--red);
-  font-size: 12px;
-  line-height: 1.35;
 }
 .import-csv-preview {
   display: grid;
@@ -8121,45 +7717,6 @@ dialog.import-workspace-layer::backdrop {
   top: 50%;
   width: min(480px, 44vw);
   transform: translate(-50%, -50%);
-  border: 0;
-  background: transparent;
-}
-.pdf-packet-workspace .import-workspace-stage {
-  position: relative;
-  min-height: 30px;
-  border: 0;
-  background: transparent;
-  color: #8a817a;
-  font-weight: 500;
-}
-.pdf-packet-workspace .import-workspace-stage:not(:last-child)::after {
-  content: '';
-  position: absolute;
-  left: calc(100% - 12px);
-  width: 24px;
-  height: 1px;
-  background: #ddd5cd;
-}
-.pdf-packet-workspace .import-workspace-stage span {
-  width: 20px;
-  height: 20px;
-  border-color: #ddd5cd;
-}
-.pdf-packet-workspace .import-workspace-stage-active {
-  color: #3436b8;
-  font-weight: 700;
-}
-.pdf-packet-workspace .import-workspace-stage-active span {
-  border-color: #4b4ddb;
-  background: #4b4ddb;
-  color: white;
-}
-.pdf-packet-workspace .import-workspace-stage-done {
-  color: #1f7a5a;
-}
-.pdf-packet-workspace .import-workspace-stage-done svg {
-  color: #1f7a5a;
-  fill: #e3f1ea;
 }
 .pdf-packet-workspace-main {
   grid-template-columns: minmax(0, 1fr);
@@ -8180,17 +7737,6 @@ dialog.import-workspace-layer::backdrop {
   min-height: 0;
   display: flex;
   flex-direction: column;
-}
-.pdf-packet-error {
-  position: static;
-  flex: 0 0 auto;
-  align-self: flex-end;
-  max-width: min(520px, calc(100% - 48px));
-  margin: 8px 24px 12px;
-  padding: 8px 10px;
-  border: 1px solid #fecaca;
-  border-radius: 7px;
-  background: #fff7f7;
 }
 .pdf-packet-chooser,
 .pdf-packet-preparing {
@@ -8564,7 +8110,6 @@ dialog.import-workspace-layer::backdrop {
   border-radius: var(--radius-6);
   background: var(--bg);
 }
-.search-preparation-text-preview > .form-hint { margin: 0; }
 .pdf-text-preview-placeholder {
   min-height: 220px;
   display: grid;
@@ -8636,7 +8181,6 @@ dialog.import-workspace-layer::backdrop {
 .pdf-packet-import-field { display: grid; gap: 6px; color: #4a433e; font-size: 12px; font-weight: 600; }
 .pdf-packet-import-choice { min-width: 0; }
 .pdf-packet-import-choice .import-check-inline { align-items: flex-start; }
-.pdf-packet-import-choice .form-hint { margin: 5px 0 0 24px; }
 .pdf-packet-import-table { min-height: 0; overflow: auto; border: 1px solid #e7e1db; border-radius: 8px; }
 .pdf-packet-import-table table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 11.5px; }
 .pdf-packet-import-table th,
@@ -8737,7 +8281,6 @@ dialog.import-workspace-layer::backdrop {
 }
 .cluster-controls .btn {
   grid-column: 1 / -1;
-  justify-content: center;
 }
 .cluster-list {
   display: flex;
@@ -8828,7 +8371,6 @@ dialog.modal-card::backdrop {
 .modal-warn-icon { color: var(--amber); }
 .modal-danger-icon { color: var(--red); }
 .modal-body-text { color: var(--text-mid); margin: 8px 0 4px; line-height: 1.45; }
-.form-error { color: var(--red); font-size: 12px; margin-top: 8px; }
 
 /* ---- error toast ----------------------------------------------------------- */
 
@@ -9134,17 +8676,8 @@ dialog.modal-card::backdrop {
   color: var(--text-mid);
   font-size: 11px;
 }
-.export-dataset-modal .form-actions { margin-top: 14px; }
 @media (max-width: 560px) {
   .export-format-grid { grid-template-columns: minmax(0, 1fr); }
-}
-.form-field {
-  display: grid;
-  gap: 4px;
-  margin-top: 12px;
-  font-size: 11px;
-  font-weight: 650;
-  color: var(--text-mid);
 }
 .form-help { display: inline-flex; margin-top: 10px; font-size: 12px; color: var(--accent); }
 
@@ -9258,25 +8791,6 @@ dialog.modal-card::backdrop {
   line-height: 1.3;
   text-transform: none;
 }
-.settings-search {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-6);
-  background: var(--bg);
-  color: var(--text-light);
-}
-.settings-search input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-}
 .settings-nav {
   min-height: 0;
   overflow-y: auto;
@@ -9379,26 +8893,6 @@ dialog.modal-card::backdrop {
   display: grid;
   gap: 12px;
 }
-.settings-form label,
-.settings-field {
-  display: grid;
-  gap: 5px;
-  min-width: 0;
-  color: var(--text-mid);
-  font-size: 12px;
-  font-weight: 650;
-}
-.settings-form select,
-.settings-field select,
-.settings-inline-form select {
-  min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-6);
-  background: var(--bg);
-  color: var(--text);
-  font: inherit;
-  padding: 7px 8px;
-}
 .settings-inline-form {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
@@ -9407,22 +8901,6 @@ dialog.modal-card::backdrop {
 }
 .settings-provider-key-form {
   grid-template-columns: repeat(3, minmax(0, 1fr)) auto auto;
-}
-.settings-provider-key-form label {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-.settings-provider-key-form label > span {
-  font-size: 12px;
-  color: var(--text-mid);
-  font-weight: 650;
-}
-.settings-provider-key-form .settings-inline-status {
-  grid-column: 1 / -1;
-  margin: 0;
-  color: var(--text-mid);
-  font-size: 12px;
 }
 .settings-row-actions {
   display: inline-flex;
@@ -9448,14 +8926,12 @@ dialog.modal-card::backdrop {
 }
 .skills-settings-head h2 { display: flex; align-items: center; gap: 7px; margin: 0; font-size: 15px; }
 .skills-settings-head p { margin: 5px 0 0; color: var(--text-light); font-size: 12px; }
-.skills-settings .settings-error { margin: 0; color: var(--red); font-size: 12px; }
 .skills-settings-split { display: grid; grid-template-columns: minmax(180px, 0.32fr) minmax(0, 1fr); gap: 12px; }
 .skills-settings-list { display: flex; flex-direction: column; gap: 5px; }
 .skills-settings-list-item { display: grid; gap: 2px; width: 100%; padding: 8px; text-align: left; border: 1px solid var(--border); border-radius: var(--radius-6); background: var(--bg); color: var(--text); cursor: pointer; }
 .skills-settings-list-item.selected { border-color: var(--accent); background: var(--accent-bg); }
 .skills-settings-list-item span { color: var(--text-light); font-size: 11px; }
 .skills-settings-editor { display: grid; gap: 7px; min-width: 0; }
-.skills-settings-editor > label { color: var(--text-mid); font-size: 12px; font-weight: 650; }
 .skills-settings-editor textarea { width: 100%; min-height: 280px; font: 12px/1.45 var(--font-mono, monospace); resize: vertical; }
 @media (max-width: 720px) {
   .skills-settings-head { flex-direction: column; }
@@ -9466,20 +8942,8 @@ dialog.modal-card::backdrop {
   display: grid;
   gap: 10px;
 }
-.settings-help {
-  margin: 0;
-  font-size: 12px;
-  color: var(--text-light);
-  line-height: 1.45;
-}
 .settings-inline-form > .settings-help--wide {
   grid-column: 1 / -1;
-}
-.settings-help code {
-  font-size: 11px;
-  padding: 1px 4px;
-  border-radius: var(--radius-4);
-  background: var(--bg-hover);
 }
 
 /* Local-server install guidance in Settings. */
@@ -9495,29 +8959,6 @@ dialog.modal-card::backdrop {
   color: var(--text-mid);
   font-size: 12px;
   line-height: 1.45;
-}
-.guidance-tabs {
-  display: inline-flex;
-  gap: 4px;
-  padding: 3px;
-  border-radius: var(--radius-6);
-  background: var(--bg-hover);
-  width: fit-content;
-}
-.guidance-tab {
-  border: none;
-  background: transparent;
-  color: var(--text-mid);
-  font-size: 11.5px;
-  font-weight: 650;
-  padding: 4px 9px;
-  border-radius: var(--radius-4);
-  cursor: pointer;
-}
-.guidance-tab.is-active {
-  background: var(--bg);
-  color: var(--text);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 .guidance-command {
   display: block;
@@ -9677,15 +9118,6 @@ dialog.modal-card::backdrop {
   font-weight: 750;
   letter-spacing: 0;
 }
-.settings-section-subhead p,
-.settings-action-row p,
-.settings-danger-header p,
-.settings-field-help {
-  margin: 0;
-  color: var(--text-light);
-  font-size: 12px;
-  line-height: 1.45;
-}
 .settings-action-list {
   display: grid;
   gap: 8px;
@@ -9762,7 +9194,6 @@ dialog.modal-card::backdrop {
   flex-wrap: wrap;
   gap: 8px;
 }
-.cloud-connection-actions .btn { text-decoration: none; }
 .cloud-welcome-actions { display: grid; gap: 8px; }
 .cloud-connection-card.is-welcome {
   padding: 0;
@@ -9870,11 +9301,6 @@ dialog.modal-card::backdrop {
   font-size: 12px;
   font-weight: 650;
 }
-.settings-check .settings-field-help {
-  display: block;
-  margin-top: 2px;
-  font-weight: 400;
-}
 .settings-table-wrap {
   overflow-x: auto;
   border: 1px solid var(--border);
@@ -9903,49 +9329,9 @@ dialog.modal-card::backdrop {
   font-size: 12px;
 }
 .settings-table tr:last-child td { border-bottom: 0; }
-.settings-empty-state,
-.settings-inline-status,
-.settings-inline-error {
-  padding: 9px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-6);
-  color: var(--text-mid);
-  background: var(--bg);
-  font-size: 12px;
-}
-.settings-inline-error {
-  border-color: color-mix(in srgb, var(--red), var(--border) 55%);
-  color: var(--red);
-}
 /* Tone states for provider-key validation feedback (success / rejected key /
    unreachable). Applied on top of .settings-inline-status or .settings-row-note. */
-.settings-validation-message {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 550;
-}
-.settings-validation-message.is-success {
-  border-color: color-mix(in srgb, var(--green), var(--border) 55%);
-  background: color-mix(in srgb, var(--green), transparent 92%);
-  color: var(--green);
-}
-.settings-validation-message.is-error {
-  border-color: color-mix(in srgb, var(--red), var(--border) 55%);
-  background: color-mix(in srgb, var(--red), transparent 92%);
-  color: var(--red);
-}
-.settings-validation-message.is-warning {
-  border-color: color-mix(in srgb, var(--amber), var(--border) 55%);
-  background: color-mix(in srgb, var(--amber), transparent 92%);
-  color: var(--amber);
-}
 /* Row-note variant is inline (no card border); tone carries via text color. */
-.settings-row-note.settings-validation-message {
-  padding: 2px 0 0;
-  border: 0;
-  background: none;
-}
 .settings-token-reveal {
   display: grid;
   gap: 10px;
@@ -10190,7 +9576,6 @@ dialog.modal-card::backdrop {
   align-items: center;
   margin: 8px 0 10px;
 }
-.admin-audit-filters .form-input { margin-top: 0; }
 .admin-audit-category {
   display: inline-flex;
   align-items: center;
@@ -10613,10 +9998,6 @@ dialog.modal-card::backdrop {
   padding: 8px;
   background: rgba(179, 57, 47, 0.04);
 }
-.embeddings-egress-warning {
-  color: var(--red);
-  margin: 0;
-}
 .embeddings-cost-estimate {
   display: flex;
   flex-direction: column;
@@ -10625,9 +10006,6 @@ dialog.modal-card::backdrop {
   border: 1px solid var(--border);
   border-radius: var(--radius-6);
   background: var(--bg-panel);
-}
-.embeddings-cost-estimate .form-hint {
-  margin: 0;
 }
 .embeddings-columns {
   display: flex;
@@ -10977,29 +10355,8 @@ dialog.modal-card::backdrop {
   padding-bottom: 12px;
   border-bottom: 1px solid var(--border);
 }
-.entity-detail-tabstrip {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 4px;
-}
 .entity-detail-contribution-tab {
   min-width: 0;
-}
-.entity-detail-tab {
-  width: 100%;
-  min-height: 30px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-6);
-  background: #fff;
-  color: var(--text-mid);
-  font-size: 12px;
-  cursor: pointer;
-}
-.entity-detail-tab[aria-selected="true"] {
-  border-color: var(--accent);
-  background: var(--accent-bg);
-  color: var(--accent);
-  font-weight: 650;
 }
 .entity-detail-panel {
   display: grid;
@@ -11329,30 +10686,6 @@ dialog.modal-card::backdrop {
 }
 
 /* Unit input: value + trailing muted unit inside one bordered box. */
-@layer action-panel {
-.action-panel .unit-input {
-  display: flex;
-  align-items: center;
-  height: 38px;
-  padding: 0 13px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-}
-.action-panel .unit-input input {
-  flex: 1;
-  min-width: 0;
-  border: none;
-  outline: none;
-  background: transparent;
-  font-size: 14px;
-  color: var(--text);
-}
-}
-.unit-input-suffix {
-  font-size: 13px;
-  color: var(--text-light);
-}
 
 /* Engine-select trigger note ("· local, default") overlaid at the right edge. */
 .panel-select-shell.has-leading-icon > select { padding-left: 30px; }
@@ -11390,7 +10723,6 @@ dialog.modal-card::backdrop {
   gap: 10px;
   margin-bottom: 8px;
 }
-.source-input-head .form-label { margin: 0; }
 
 /* Template composer: input shell + insert bar in one bordered box. */
 .template-compose-row {
@@ -11889,24 +11221,6 @@ dialog.modal-card::backdrop {
 .act-ribbon-tabs { display: flex; align-items: stretch; min-width: 0; overflow: clip; }
 .act-ribbon-tab-wrap { display: flex; align-items: center; }
 .act-ribbon-tab-divider { width: 1px; height: 20px; background: var(--border); margin: 0 6px; }
-.act-ribbon-tab {
-  position: relative;
-  padding: 9px 12px 8px;
-  font-size: 13px; color: var(--text-mid);
-  border-bottom: 2px solid transparent; margin-bottom: -1px;
-  white-space: nowrap;
-}
-.act-ribbon-tab:hover { color: var(--text); }
-.act-ribbon-tab.active { color: var(--act); font-weight: 600; border-bottom-color: var(--act-strong); }
-.act-ribbon-tab.contextual {
-  display: inline-flex; align-items: center; gap: 6px;
-  margin: 5px 0; padding: 4px 11px;
-  border-radius: 99px; border-bottom: none;
-  color: var(--tag-file); background: var(--tag-file-bg);
-  font-size: 12px; font-weight: 600;
-}
-.act-ribbon-tab.contextual.active { border-bottom: none; }
-.act-ribbon-tab.contextual-link { color: var(--tag-link); background: var(--tag-link-bg); }
 .act-ribbon-tab-dot {
   width: 6px; height: 6px; border-radius: 50%;
   background: currentColor;
@@ -12030,25 +11344,6 @@ dialog.modal-card::backdrop {
   min-height: 0;
   border-right: 1px solid var(--border);
   background: var(--bg-sidebar);
-}
-.document-list-search {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--border);
-  color: var(--text-light);
-  flex-shrink: 0;
-}
-.document-list-search input {
-  flex: 1;
-  min-width: 0;
-  border: none;
-  background: transparent;
-  font: inherit;
-  font-size: 12.5px;
-  color: var(--text);
-  outline: none;
 }
 .document-list-count {
   padding: 4px 10px;
@@ -12763,7 +12058,7 @@ dialog.modal-card::backdrop {
 .home-sample-btn { flex: 0 0 auto; }
 
 .home-create-row { display: flex; gap: 8px; margin-bottom: 16px; align-items: center; }
-.home-create-row .form-input { flex: 1 1 auto; max-width: 340px; margin-top: 0; }
+.home-create-row .form-input { flex: 1 1 auto; }
 
 .home-grid { display: grid; gap: 16px; margin-top: 4px; }
 .home-grid-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
@@ -13000,7 +12295,6 @@ dialog.modal-card::backdrop {
   gap: 10px;
   flex-wrap: wrap;
 }
-.pdf-tables-picker-foot .form-label { margin: 0 0 4px; }
 .pdf-tables-picker-foot .form-input { flex: 1 1 180px; }
 
 

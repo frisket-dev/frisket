@@ -1,0 +1,14 @@
+.import-workspace-stages {
+  display: flex; align-items: center; justify-content: center; flex: 0 0 auto; gap: 12px;
+}
+.import-workspace-stage {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  min-width: 0; white-space: nowrap; font-size: 12px; font-weight: 600; color: var(--text-light);
+}
+.import-workspace-stage span {
+  display: inline-grid; place-items: center; width: 20px; height: 20px;
+  border: 1px solid var(--border-strong); border-radius: 50%; font-size: 11px; flex-shrink: 0;
+}
+.import-workspace-stage-active { color: var(--accent); }
+.import-workspace-stage-active span { background: var(--accent); color: var(--text-on-solid); border-color: var(--accent); }
+.import-workspace-stage-done { color: var(--green); }

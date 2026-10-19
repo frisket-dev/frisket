@@ -1,6 +1,7 @@
-import { TextInput } from '../components/FormControls';
+import { Button } from '../components/Button';
+import { FormField, SearchInput } from '../components/FormControls';
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Search } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { listProjects, type ProjectInfo } from '../api/open';
 import { navigate, returnToProjectFromSettings, type SettingsRoute } from '../routes';
 import { ChromeBarShell } from '../workbench/ChromeBar';
@@ -120,8 +121,8 @@ function SettingsProjectSwitcher({
   const targetSection = route.scope === 'project' ? route.section : 'general';
 
   return (
-    <label className="settings-project-switcher">
-      <span>Project</span>
+    <FormField label="Project" className="settings-project-switcher">
+
       <PanelSelect
         className="settings-project-select"
         data-testid="settings-project-switcher"
@@ -149,7 +150,7 @@ function SettingsProjectSwitcher({
         ))}
       </PanelSelect>
       {error && <span className="settings-project-error">{error}</span>}
-    </label>
+    </FormField>
   );
 }
 
@@ -200,9 +201,9 @@ function SettingsDisabledSection({
       className="settings-section-disabled"
     >
       {definition.visibility === 'project' && (
-        <button className="btn" type="button" onClick={() => navigate({ kind: 'picker' })}>
+        <Button type="button" onClick={() => navigate({ kind: 'picker' })}>
           Open a project
-        </button>
+        </Button>
       )}
     </SectionFrame>
   );
@@ -227,9 +228,9 @@ function SettingsRouteError({ message }: { message: string }) {
       summary={message}
       testId="project-settings-unavailable"
     >
-      <button className="btn" type="button" onClick={() => navigate({ kind: 'picker' })}>
+      <Button type="button" onClick={() => navigate({ kind: 'picker' })}>
         Open a project
-      </button>
+      </Button>
     </SectionFrame>
   );
 }
@@ -318,19 +319,17 @@ export function SettingsWorkspace({
             error={projectsError}
           />
 
-          <label className="settings-search">
-            <Search size={14} />
-            <TextInput
+            <SearchInput
               data-testid="settings-search"
+              aria-label="Search settings"
               value={query}
               placeholder="Search settings"
               onChange={(event) => setQuery(event.target.value)}
             />
-          </label>
 
           <nav className="settings-nav" data-testid="settings-nav" aria-label="Settings sections">
             {groups.length === 0 ? (
-              <div className="settings-empty-state" data-testid="settings-search-empty">
+              <div className="panel-empty" data-testid="settings-search-empty">
                 No matching settings
               </div>
             ) : (

@@ -1,3 +1,4 @@
+import { Button } from '../Button';
 import { TextInput } from '../FormControls';
 /* eslint-disable react-refresh/only-export-components -- sparse first-party field bindings */
 import { Plus, Trash2 } from 'lucide-react';
@@ -130,10 +131,10 @@ function ColumnsFromJsonRoutesField({ value, onChange }: GeneratedActionFieldPro
     <div className="field-group" data-testid="columns-from-json-routes">
       <div className="api-pair-heading">
         <span className="field-labels">Fields to extract</span>
-        <button type="button" className="mini-btn" data-testid="columns-from-json-add-route"
+        <Button type="button" data-testid="columns-from-json-add-route"
           onClick={() => onChange([...visible, { name: '', path: '' }])}>
           <Plus size={12} /> Add field
-        </button>
+        </Button>
       </div>
       <span className="form-hint">Use paths like $.address.city or $.items[0].name.</span>
       {visible.map((route, index) => (

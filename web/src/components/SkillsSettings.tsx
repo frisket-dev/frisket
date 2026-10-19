@@ -1,3 +1,4 @@
+import { Button } from './Button';
 import { TextArea } from './FormControls';
 import { useEffect, useRef, useState } from 'react';
 import { FileText, Plus, RefreshCw, Save, Trash2, Upload } from 'lucide-react';
@@ -151,10 +152,10 @@ export function SkillsSettings() {
         <div className="settings-actions">
           <button type="button" className="icon-btn" aria-label="Refresh skills" onClick={() => void load()} disabled={busy}><RefreshCw size={14} /></button>
           <label className="btn"><Upload size={14} /> Upload SKILL.md<input data-testid="skills-upload" type="file" accept="text/markdown,text/plain,.md" hidden disabled={busy} onChange={(event) => void upload(event.currentTarget.files?.[0])} /></label>
-          <button type="button" className="btn" onClick={() => { setSelectedId(null); setDraft(starter); }} disabled={busy}><Plus size={14} /> New skill</button>
+          <Button type="button" onClick={() => { setSelectedId(null); setDraft(starter); }} disabled={busy}><Plus size={14} /> New skill</Button>
         </div>
       </div>
-      {error && <p className="settings-error" role="alert">{error}</p>}
+      {error && <p className="panel-error" role="alert">{error}</p>}
       <div className="skills-settings-split">
         <div className="skills-settings-list" aria-label="Saved skills">
           {skills.map((skill) => <button key={skill.id} type="button" className={`skills-settings-list-item${skill.id === selectedId ? ' selected' : ''}`} onClick={() => { setSelectedId(skill.id); setDraft(skill.content); }} disabled={busy}><strong>{skill.name}</strong><span>{skill.enabled ? 'Enabled' : 'Disabled'}</span></button>)}
@@ -164,9 +165,9 @@ export function SkillsSettings() {
           <label htmlFor="skill-content">SKILL.md</label>
           <TextArea id="skill-content"  data-testid="skills-editor" value={draft} rows={16} onChange={(event) => setDraft(event.currentTarget.value)} disabled={busy} />
           <div className="settings-actions">
-            <button type="button" className="btn btn-accept" onClick={() => void save()} disabled={busy}><Save size={14} /> Save</button>
-            {selected && <button type="button" className="btn" onClick={() => void toggle()} disabled={busy}>{selected.enabled ? 'Disable' : 'Enable'}</button>}
-            {selected && <button type="button" className="btn btn-reject" onClick={() => void remove()} disabled={busy}><Trash2 size={14} /> Delete</button>}
+            <Button type="button" className="btn-accept" onClick={() => void save()} disabled={busy}><Save size={14} /> Save</Button>
+            {selected && <Button type="button" onClick={() => void toggle()} disabled={busy}>{selected.enabled ? 'Disable' : 'Enable'}</Button>}
+            {selected && <Button type="button" className="btn-reject" onClick={() => void remove()} disabled={busy}><Trash2 size={14} /> Delete</Button>}
           </div>
         </div>
       </div>

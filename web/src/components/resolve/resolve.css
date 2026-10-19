@@ -28,14 +28,6 @@
    chrome (the row provides the border) but keeps its font/color/reset. */
 .resolve-value-search-row .form-input.resolve-value-search {
   flex: 1;
-  min-width: 0;
-  border: 0;
-  background: transparent;
-  padding: 3px 2px;
-}
-.resolve-value-search-row .form-input.resolve-value-search:focus {
-  outline: none;
-  border-color: transparent;
 }
 .resolve-value-viewport {
   position: relative;

@@ -1,4 +1,5 @@
 import { CheckCircle2 } from 'lucide-react';
+import './ImportStageStepper.css';
 interface ImportStageOption {
   id: string;
   label: string;

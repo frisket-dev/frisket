@@ -1,3 +1,5 @@
+import { Button } from './components/Button';
+import { CompareDiscardDialog } from './workbench/CompareDiscardDialog';
 import { TextInput } from './components/FormControls';
 import { ActionPreviewBanner } from './components/ActionPreviewBanner';
 import {
@@ -284,15 +286,15 @@ const openAdminUnavailable = () => (
   <div className="picker-screen" data-testid="admin-unavailable">
     <div className="picker-card">
       <PanelEmpty>Admin isn&apos;t available in local mode.</PanelEmpty>
-      <button
+      <Button
         type="button"
-        className="btn"
+
         data-testid="admin-unavailable-home-link"
         style={{ marginTop: 12 }}
         onClick={() => navigate({ kind: 'picker' })}
       >
         ← All projects
-      </button>
+      </Button>
     </div>
   </div>
 );
@@ -505,14 +507,14 @@ export function ProjectRoute({
       <div className="picker-screen">
         <div className="picker-card">
           <div className="picker-error" data-testid="project-route-error">{state.error}</div>
-          <button
+          <Button
             type="button"
-            className="btn"
+
             style={{ marginTop: 12 }}
             onClick={() => navigate({ kind: 'picker' })}
           >
             ← All projects
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -1630,59 +1632,14 @@ function WorkspaceOcrCompareView() {
     setOcrCompareCloseWarn,
     closeOcrCompareTab,
   } = useMainViewModel();
-  const [copied, setCopied] = useState(false);
   return (
     <div className="workbench-ocr-compare-view" data-testid="workbench-ocr-compare-view">
       <OcrCompareTab active={ocrCompareActive} target={ocrCompareTarget} onSessionChange={setOcrCompareSession} />
-      {ocrCompareCloseWarn && (
-        <div className="ocr-compare-discard-backdrop" data-testid="ocr-compare-discard-warning">
-          <dialog
-            open
-            className="ocr-compare-discard-card"
-            role="alertdialog"
-            aria-modal="true"
-            aria-label="Discard this OCR comparison?"
-            style={{ position: 'static', margin: 0 }}
-          >
-            <strong>Discard this OCR comparison?</strong>
-            <p className="muted">
-              Leaving discards the preview text and your votes — nothing is saved to the project.
-              Copy the verdict first if you want to keep it.
-            </p>
-            <div className="ocr-compare-discard-verdict mono">{ocrCompareSession.verdict}</div>
-            <div className="ocr-compare-discard-actions">
-              <button
-                type="button"
-                className="btn"
-                data-testid="ocr-compare-copy-verdict"
-                onClick={() => {
-                  void navigator.clipboard?.writeText(ocrCompareSession.verdict).catch(() => undefined);
-                  setCopied(true);
-                }}
-              >
-                {copied ? 'Copied' : 'Copy verdict'}
-              </button>
-              <span className="ocr-compare-discard-spacer" />
-              <button
-                type="button"
-                className="btn"
-                data-testid="ocr-compare-discard-cancel"
-                onClick={() => setOcrCompareCloseWarn(false)}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="btn btn-danger"
-                data-testid="ocr-compare-discard-confirm"
-                onClick={closeOcrCompareTab}
-              >
-                Discard
-              </button>
-            </div>
-          </dialog>
-        </div>
-      )}
+      {ocrCompareCloseWarn && <CompareDiscardDialog
+        title="Discard this OCR comparison?"
+        description="Leaving discards the preview text and your votes — nothing is saved to the project."
+        verdict={ocrCompareSession.verdict} testId="ocr-compare"
+        onCancel={() => setOcrCompareCloseWarn(false)} onDiscard={closeOcrCompareTab} />}
     </div>
   );
 }
@@ -1696,66 +1653,13 @@ function WorkspaceTranscribeCompareView() {
     setTranscribeCompareCloseWarn,
     closeTranscribeCompareTab,
   } = useMainViewModel();
-  const [copied, setCopied] = useState(false);
   return (
     <div className="workbench-ocr-compare-view" data-testid="workbench-transcribe-compare-view">
       <TranscribeCompareTab active={transcribeCompareActive} onSessionChange={setTranscribeCompareSession} />
-      {transcribeCompareCloseWarn && (
-        <div
-          className="ocr-compare-discard-backdrop"
-          data-testid="transcribe-compare-discard-warning"
-        >
-          <dialog
-            open
-            className="ocr-compare-discard-card"
-            role="alertdialog"
-            aria-modal="true"
-            aria-label="Discard this scratch session?"
-            style={{ position: 'static', margin: 0 }}
-          >
-            <strong>Discard this scratch session?</strong>
-            <p className="muted">
-              Leaving discards the transcripts and your votes — nothing is saved to the project.
-              Copy the verdict first if you want to keep it.
-            </p>
-            <div className="ocr-compare-discard-verdict mono">
-              {transcribeCompareSession.verdict}
-            </div>
-            <div className="ocr-compare-discard-actions">
-              <button
-                type="button"
-                className="btn"
-                data-testid="transcribe-compare-copy-verdict"
-                onClick={() => {
-                  void navigator.clipboard
-                    ?.writeText(transcribeCompareSession.verdict)
-                    .catch(() => undefined);
-                  setCopied(true);
-                }}
-              >
-                {copied ? 'Copied' : 'Copy verdict'}
-              </button>
-              <span className="ocr-compare-discard-spacer" />
-              <button
-                type="button"
-                className="btn"
-                data-testid="transcribe-compare-discard-cancel"
-                onClick={() => setTranscribeCompareCloseWarn(false)}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="btn btn-danger"
-                data-testid="transcribe-compare-discard-confirm"
-                onClick={closeTranscribeCompareTab}
-              >
-                Discard
-              </button>
-            </div>
-          </dialog>
-        </div>
-      )}
+      {transcribeCompareCloseWarn && <CompareDiscardDialog
+        description="Leaving discards the transcripts and your votes — nothing is saved to the project."
+        verdict={transcribeCompareSession.verdict} testId="transcribe-compare"
+        onCancel={() => setTranscribeCompareCloseWarn(false)} onDiscard={closeTranscribeCompareTab} />}
     </div>
   );
 }
@@ -1768,66 +1672,13 @@ function WorkspaceTranslateCompareView() {
     setTranslateCompareCloseWarn,
     closeTranslateCompareTab,
   } = useMainViewModel();
-  const [copied, setCopied] = useState(false);
   return (
     <div className="workbench-ocr-compare-view" data-testid="workbench-translate-compare-view">
       <TranslateCompareTab onSessionChange={setTranslateCompareSession} />
-      {translateCompareCloseWarn && (
-        <div
-          className="ocr-compare-discard-backdrop"
-          data-testid="translate-compare-discard-warning"
-        >
-          <dialog
-            open
-            className="ocr-compare-discard-card"
-            role="alertdialog"
-            aria-modal="true"
-            aria-label="Discard this scratch session?"
-            style={{ position: 'static', margin: 0 }}
-          >
-            <strong>Discard this scratch session?</strong>
-            <p className="muted">
-              Leaving discards the sample translations — nothing is saved to the project.
-              Copy the verdict first if you want to keep it.
-            </p>
-            <div className="ocr-compare-discard-verdict mono">
-              {translateCompareSession.verdict}
-            </div>
-            <div className="ocr-compare-discard-actions">
-              <button
-                type="button"
-                className="btn"
-                data-testid="translate-compare-copy-verdict"
-                onClick={() => {
-                  void navigator.clipboard
-                    ?.writeText(translateCompareSession.verdict)
-                    .catch(() => undefined);
-                  setCopied(true);
-                }}
-              >
-                {copied ? 'Copied' : 'Copy verdict'}
-              </button>
-              <span className="ocr-compare-discard-spacer" />
-              <button
-                type="button"
-                className="btn"
-                data-testid="translate-compare-discard-cancel"
-                onClick={() => setTranslateCompareCloseWarn(false)}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="btn btn-danger"
-                data-testid="translate-compare-discard-confirm"
-                onClick={closeTranslateCompareTab}
-              >
-                Discard
-              </button>
-            </div>
-          </dialog>
-        </div>
-      )}
+      {translateCompareCloseWarn && <CompareDiscardDialog
+        description="Leaving discards the sample translations — nothing is saved to the project."
+        verdict={translateCompareSession.verdict} testId="translate-compare"
+        onCancel={() => setTranslateCompareCloseWarn(false)} onDiscard={closeTranslateCompareTab} />}
     </div>
   );
 }
@@ -1840,66 +1691,13 @@ function WorkspaceTopicCompareView() {
     setTopicCompareCloseWarn,
     closeTopicCompareTab,
   } = useMainViewModel();
-  const [copied, setCopied] = useState(false);
   return (
     <div className="workbench-ocr-compare-view" data-testid="workbench-topic-compare-view">
       <TopicSegmentationCompareTab onSessionChange={setTopicCompareSession} />
-      {topicCompareCloseWarn && (
-        <div
-          className="ocr-compare-discard-backdrop"
-          data-testid="topic-compare-discard-warning"
-        >
-          <dialog
-            open
-            className="ocr-compare-discard-card"
-            role="alertdialog"
-            aria-modal="true"
-            aria-label="Discard this scratch session?"
-            style={{ position: 'static', margin: 0 }}
-          >
-            <strong>Discard this scratch session?</strong>
-            <p className="muted">
-              Leaving discards the topic sections and your votes — nothing is saved to the
-              project. Copy the verdict first if you want to keep it.
-            </p>
-            <div className="ocr-compare-discard-verdict mono">
-              {topicCompareSession.verdict}
-            </div>
-            <div className="ocr-compare-discard-actions">
-              <button
-                type="button"
-                className="btn"
-                data-testid="topic-compare-copy-verdict"
-                onClick={() => {
-                  void navigator.clipboard
-                    ?.writeText(topicCompareSession.verdict)
-                    .catch(() => undefined);
-                  setCopied(true);
-                }}
-              >
-                {copied ? 'Copied' : 'Copy verdict'}
-              </button>
-              <span className="ocr-compare-discard-spacer" />
-              <button
-                type="button"
-                className="btn"
-                data-testid="topic-compare-discard-cancel"
-                onClick={() => setTopicCompareCloseWarn(false)}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="btn btn-danger"
-                data-testid="topic-compare-discard-confirm"
-                onClick={closeTopicCompareTab}
-              >
-                Discard
-              </button>
-            </div>
-          </dialog>
-        </div>
-      )}
+      {topicCompareCloseWarn && <CompareDiscardDialog
+        description="Leaving discards the topic sections and your votes — nothing is saved to the project."
+        verdict={topicCompareSession.verdict} testId="topic-compare"
+        onCancel={() => setTopicCompareCloseWarn(false)} onDiscard={closeTopicCompareTab} />}
     </div>
   );
 }
@@ -2643,9 +2441,9 @@ export function SheetInfoPopover({
                   ? ' · est. UNKNOWN'
                   : ''}
             </div>
-            <button
+            <Button
               type="button"
-              className="btn btn-primary"
+              className="btn-primary"
               data-testid="sheet-info-cost-confirm-run"
               disabled={busy}
               onClick={() =>
@@ -2653,28 +2451,28 @@ export function SheetInfoPopover({
               }
             >
               {busy ? 'Re-running…' : 'Confirm re-run'}
-            </button>
+            </Button>
           </div>
         )}
         <div className="sheet-info-footer">
-          <button
+          <Button
             type="button"
-            className="btn btn-ghost"
+            className="btn-ghost"
             data-testid="sheet-info-view-lineage"
             onClick={onViewLineage}
           >
             View lineage
-          </button>
+          </Button>
           {refreshable && (
-            <button
+            <Button
               type="button"
-              className="btn btn-primary"
+              className="btn-primary"
               data-testid="sheet-info-rerun"
               disabled={busy || costGate != null}
               onClick={() => void runReRun()}
             >
               {busy ? 'Re-running…' : 'Re-run now'}
-            </button>
+            </Button>
           )}
         </div>
       </dialog>
@@ -3294,33 +3092,33 @@ function WorkspaceGridControls() {
 
               {(activeGridFilter || activeGridSort || scopeRowIds !== null) && (
                 <div className="grid-active-bar">
-                  {scopeRowIds !== null && <span className="active-grid-state">{scopeRowIds.length} selected rows <button type="button" className="mini-btn" onClick={() => gridView.store.set((state) => ({ ...state, activeSavedViewId: null, applied: { ...state.applied, scopeRowIds: null } }))}>Clear</button></span>}
+                  {scopeRowIds !== null && <span className="active-grid-state">{scopeRowIds.length} selected rows <Button type="button" onClick={() => gridView.store.set((state) => ({ ...state, activeSavedViewId: null, applied: { ...state.applied, scopeRowIds: null } }))}>Clear</Button></span>}
                   {activeGridFilter && (
                     <span className="active-grid-state active-grid-filter" data-testid="active-grid-filter">
                       <span className="active-grid-filter-label">
                         Filter: {gridFilterSummaryLabel(activeGridFilter, activeGridFilterValueLabel)}
                       </span>
-                      <button
+                      <Button
                         type="button"
-                        className="mini-btn"
+
                         data-testid="clear-grid-filter"
                         onClick={clearGridFilter}
                       >
                         Clear
-                      </button>
+                      </Button>
                     </span>
                   )}
                   {activeGridSort && (
                     <span className="active-grid-state" data-testid="active-grid-sort">
                       Sort: {gridSortLabel(activeGridSort)}
-                      <button
+                      <Button
                         type="button"
-                        className="mini-btn"
+
                         data-testid="clear-grid-sort"
                         onClick={clearGridSort}
                       >
                         Clear
-                      </button>
+                      </Button>
                     </span>
                   )}
                 </div>
@@ -3356,14 +3154,14 @@ function WorkspaceGridBanners() {
                       <> row {activeChildFilter.parentRowIndex + 1}</>
                     )}
                   </span>
-                  <button
+                  <Button
                     type="button"
-                    className="mini-btn"
+
                     data-testid="child-filter-clear"
                     onClick={() => clearChildFilter()}
                   >
                     Show all {sheet.rowCount.toLocaleString()} rows
-                  </button>
+                  </Button>
                 </div>
               )}
 
@@ -3393,14 +3191,14 @@ function WorkspaceGridBanners() {
                   <span className="lens-view-score-hint" data-testid="lens-view-score-columns">
                     showing distance · score columns
                   </span>
-                  <button
+                  <Button
                     type="button"
-                    className="mini-btn"
+
                     data-testid="lens-view-exit"
                     onClick={exitLensView}
                   >
                     Exit lens view
-                  </button>
+                  </Button>
                 </div>
               )}
 

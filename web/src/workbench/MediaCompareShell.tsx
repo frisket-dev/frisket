@@ -1,3 +1,4 @@
+import { Button } from '../components/Button';
 // The compare family's popover / add-menu dismissal (OcrCompareTab's/
 // TranscribeCompareTab's Configure popovers, TranscribeCompareTab's
 // add-engine menu) is owned by those two files' own hooks
@@ -145,14 +146,14 @@ export function ConfigureVariantPopover({
             </div>
           ) : null}
           <div className="ocr-compare-configure-footer">
-            <button
+            <Button
               type="button"
-              className="btn ocr-compare-duplicate"
+              className="ocr-compare-duplicate"
               data-testid={t('duplicate')}
               onClick={onDuplicate}
             >
               <Copy size={12} /> Duplicate variant
-            </button>
+            </Button>
             <span className="muted">edits mark it pending</span>
           </div>
         </>
@@ -505,14 +506,14 @@ export function MediaCompareBody<R>({
                       >
                         <strong>{engineLabel(column.engineId)} failed</strong>
                         <span>{run.message}</span>
-                        <button
+                        <Button
                           type="button"
-                          className="btn ocr-compare-engine-retry"
+                          className="ocr-compare-engine-retry"
                           data-testid={t('engine-retry')}
                           onClick={() => retryColumn(activeDoc, column)}
                         >
                           <RotateCw size={12} /> Retry
-                        </button>
+                        </Button>
                       </div>
                     ) : diff && diffArmed ? (
                       diff.units.map((unit, unitIndex) => {

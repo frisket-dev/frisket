@@ -50,7 +50,7 @@ export function NerEngineFields({
               testId="ner-gliner-labels"
             />
             {labelsError && (
-              <p className="form-error" data-testid="ner-gliner-labels-error" role="alert">
+              <p className="panel-error" data-testid="ner-gliner-labels-error" role="alert">
                 {labelsError}
               </p>
             )}
@@ -71,7 +71,7 @@ export function NerEngineFields({
               testId="ner-llm-labels"
             />
             {labelsError && (
-              <p className="form-error" data-testid="ner-llm-labels-error" role="alert">
+              <p className="panel-error" data-testid="ner-llm-labels-error" role="alert">
                 {labelsError}
               </p>
             )}

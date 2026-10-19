@@ -1,4 +1,5 @@
-import { TextInput } from '../../FormControls';
+import { Button } from '../../Button';
+import { FormField, TextInput } from '../../FormControls';
 import {
   useCallback,
   useEffect,
@@ -648,7 +649,7 @@ export function PdfPacketImportFlow({
           value={state.snapshot.prepare.progress.done}
         />
         <span>{progressText(state.snapshot)}</span>
-        {state.error && <div className="import-field-error" role="alert">{state.error}</div>}
+        {state.error && <div className="panel-error" role="alert">{state.error}</div>}
       </div>
     );
   }
@@ -696,7 +697,7 @@ export function PdfPacketImportFlow({
           dispatch={dispatch}
         />
       )}
-      {state.error && <div className="pdf-packet-error import-field-error" role="alert">{state.error}</div>}
+      {state.error && <div className="panel-error panel-error" role="alert">{state.error}</div>}
       </div>
       {ocrConsent ? (
         <CostGateModal
@@ -773,11 +774,11 @@ function PacketChooser({
           }
         }}
       />
-      <button type="button" className="btn btn-primary" disabled={uploading} onClick={() => inputRef.current?.click()}>
+      <Button type="button" className="btn-primary" disabled={uploading} onClick={() => inputRef.current?.click()}>
         {uploading ? 'Reading packet…' : 'Choose PDF packet'}
-      </button>
+      </Button>
       <span className="form-hint">or drop a PDF here</span>
-      {(dropError || error) && <div className="import-field-error" role="alert">{dropError || error}</div>}
+      {(dropError || error) && <div className="panel-error" role="alert">{dropError || error}</div>}
     </div>
   );
 }
@@ -872,15 +873,15 @@ function PacketTextStep({
                 return selected !== null;
               }}
             />
-            <button type="button" className="btn" disabled={busy} onClick={() => {
+            <Button type="button" disabled={busy} onClick={() => {
               setPreferredSource('ocr');
               onRunSample();
             }}>
               Extract text
-            </button>
+            </Button>
           </div>
         ) : (
-          <button type="button" className="btn" onClick={onShowOcr}>Looks wrong? Run OCR</button>
+          <Button type="button" onClick={onShowOcr}>Looks wrong? Run OCR</Button>
         )}
       </aside>
       <section className="pdf-packet-text-preview">
@@ -905,24 +906,24 @@ function PacketTextStep({
           emptyCopy={source === 'ocr' ? 'Run OCR to read this page.' : 'No extracted text on this page.'}
         />
         <footer>
-          <button type="button" className="btn" onClick={onBack}>Back</button>
+          <Button type="button" onClick={onBack}>Back</Button>
           <strong>Does this text look right?</strong>
           <div>
             {nativeText && source === 'native' ? (
               <>
-                <button type="button" className="btn" disabled={busy} onClick={onShowOcr}>No, run OCR</button>
-                <button type="button" className="btn btn-primary" disabled={busy} onClick={onAcceptNative}>Yes, use extracted text</button>
+                <Button type="button" disabled={busy} onClick={onShowOcr}>No, run OCR</Button>
+                <Button type="button" className="btn-primary" disabled={busy} onClick={onAcceptNative}>Yes, use extracted text</Button>
               </>
             ) : null}
             {ocrText && source === 'ocr' ? (
-              <button type="button" className="btn btn-primary" disabled={busy} onClick={onAcceptOcr}>
+              <Button type="button" className="btn-primary" disabled={busy} onClick={onAcceptOcr}>
                 Use this OCR and read all {countLabel(pageCount, 'page')}
-              </button>
+              </Button>
             ) : null}
             {!nativeText && !ocrText ? (
-              <button type="button" className="btn btn-primary" disabled={busy} onClick={onAcceptNative}>
+              <Button type="button" className="btn-primary" disabled={busy} onClick={onAcceptNative}>
                 Continue without OCR
-              </button>
+              </Button>
             ) : null}
           </div>
         </footer>
@@ -945,13 +946,13 @@ function PacketImportStep({ state, pageCount, canKeepOcrText, onBack, onSubmit, 
   return <div className="pdf-packet-import-step">
     <header><h2>Import {countLabel(documents.length, 'document')}</h2><p>Each becomes a normal PDF. The original packet stays as it is.</p></header>
     <div className="pdf-packet-import-options">
-      <label className="pdf-packet-import-field"><span>New sheet</span>
+      <FormField label="New sheet" className="pdf-packet-import-field">
         <TextInput value={state.destinationName} onChange={(event) => dispatch({ type: 'destinationName', value: event.target.value })} />
-      </label>
-      <label className="pdf-packet-import-field"><span>File names</span>
+      </FormField>
+      <FormField label="File names" className="pdf-packet-import-field">
         <TextInput className="mono" value={state.namePattern} onChange={(event) => dispatch({ type: 'namePattern', value: event.target.value })} />
-        {patternError && <span className="import-field-error" role="alert">{patternError}</span>}
-      </label>
+        {patternError && <span className="panel-error" role="alert">{patternError}</span>}
+      </FormField>
       <div className="pdf-packet-import-choice">
         <label className="import-check-inline"><input type="checkbox" disabled={!canKeepOcrText} checked={canKeepOcrText && state.keepOcrText} onChange={(event) => dispatch({ type: 'keepOcrText', value: event.target.checked })} /> Keep OCR text and boxes with each PDF</label>
         {!canKeepOcrText && <p className="form-hint">Finish OCR for every page to keep its text and boxes.</p>}
@@ -963,7 +964,7 @@ function PacketImportStep({ state, pageCount, canKeepOcrText, onBack, onSubmit, 
     <div className="pdf-packet-import-table"><table><thead><tr><th>#</th><th>Name</th><th>Source</th><th>Starts with</th></tr></thead><tbody>
       {documents.map((document) => <tr key={document.start}><td>{document.index}</td><td>{nameFor(document)}</td><td>packet pp {document.start}–{document.end} · {document.pages} pp</td><td>{firstLine(state.pages[document.start]?.ocr_text ?? state.pages[document.start]?.native_text)}</td></tr>)}
     </tbody></table></div>
-    <footer><button type="button" className="btn" onClick={onBack}>Back</button><span>{documents.length} {documents.length === 1 ? 'PDF' : 'PDFs'} · {countLabel(pageCount, 'page')} · each linked to the packet and its page range</span><button type="button" className="btn btn-primary" disabled={commitBusy || !state.destinationName.trim() || Boolean(patternError)} onClick={onSubmit}>{commitBusy ? 'Importing…' : `Import ${countLabel(documents.length, 'document')}`}</button></footer>
+    <footer><Button type="button" onClick={onBack}>Back</Button><span>{documents.length} {documents.length === 1 ? 'PDF' : 'PDFs'} · {countLabel(pageCount, 'page')} · each linked to the packet and its page range</span><Button type="button" className="btn-primary" disabled={commitBusy || !state.destinationName.trim() || Boolean(patternError)} onClick={onSubmit}>{commitBusy ? 'Importing…' : `Import ${countLabel(documents.length, 'document')}`}</Button></footer>
   </div>;
 }
 

@@ -1,4 +1,5 @@
-import { TextInput, TextArea } from '../components/FormControls';
+import { Button } from '../components/Button';
+import { FormField, TextInput, TextArea } from '../components/FormControls';
 import {
   type FormEvent,
   type ComponentType,
@@ -437,17 +438,17 @@ export function PersonalProfileSettings({
         </div>
       </div>
       <form className="settings-form" onSubmit={save}>
-        <label>
-          <span>Display name</span>
+        <FormField label="Display name" >
+
           <TextInput
             data-testid="personal-display-name"
             value={displayNameValue}
             maxLength={200}
             onChange={(event) => setDisplayName(event.currentTarget.value)}
           />
-        </label>
-        <label>
-          <span>Cost pre-approval amount (USD)</span>
+        </FormField>
+        <FormField label="Cost pre-approval amount (USD)" >
+
           <TextInput
             data-testid="personal-cost-preapproval"
             type="number"
@@ -457,18 +458,18 @@ export function PersonalProfileSettings({
             value={costPreapprovalValue}
             onChange={(event) => setCostPreapproval(event.currentTarget.value)}
           />
-          <small className="settings-help">
+          <small className="form-hint">
             Frisket always shows an estimate. Runs at or below this amount can use
             their selected provider without another prompt; higher or unknown costs
             require one click.
           </small>
-        </label>
+        </FormField>
         <div className="settings-actions">
-          <button className="btn btn-primary" type="submit" disabled={busy || localRuntimeLoading}>
+          <Button className="btn-primary" type="submit" disabled={busy || localRuntimeLoading}>
             <Save size={14} /> Save
-          </button>
-          {identityMode && <button
-            className="btn"
+          </Button>
+          {identityMode && <Button
+
             type="button"
             data-testid="personal-sign-out"
             onClick={() => {
@@ -476,7 +477,7 @@ export function PersonalProfileSettings({
             }}
           >
             Sign out
-          </button>}
+          </Button>}
         </div>
       </form>
       {!identityMode && <CloudProfileSettings connectionClient={cloudConnectionApi} />}
@@ -578,7 +579,7 @@ export function AiCallModeSettings() {
     <section className="settings-subsection ai-call-mode-settings" data-testid="ai-call-mode-settings">
       <div className="settings-section-kicker">AI call mode</div>
       <InlineStatus error={error} loading={config === null && error === null} notice={notice} />
-      <p className="settings-help">
+      <p className="form-hint">
         Whether frisket makes live AI calls or reuses cached responses.
         {currentMode ? (
           <>
@@ -626,14 +627,14 @@ export function AiCallModeSettings() {
             ))}
           </fieldset>
           <div className="settings-actions">
-            <button
+            <Button
               type="submit"
-              className="btn btn-primary"
+              className="btn-primary"
               data-testid="ai-call-mode-save"
               disabled={busy || selected === null || selected === current}
             >
               <Save size={14} /> {busy ? 'Saving…' : 'Save mode'}
-            </button>
+            </Button>
           </div>
         </form>
       ) : (
@@ -684,9 +685,9 @@ export function AiCallModeSettings() {
               onChange={setConfirmText}
             />
             <div className="form-actions">
-              <button
+              <Button
                 type="button"
-                className="btn"
+
                 data-testid="ai-call-mode-confirm-cancel"
                 disabled={busy}
                 onClick={() => {
@@ -695,15 +696,15 @@ export function AiCallModeSettings() {
                 }}
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
                 type="submit"
-                className="btn btn-primary"
+                className="btn-primary"
                 data-testid="ai-call-mode-confirm"
                 disabled={busy || confirmText.trim().toLowerCase() !== 'confirm'}
               >
                 Enable live calls
-              </button>
+              </Button>
             </div>
           </form>
         </div>
@@ -766,8 +767,8 @@ function PersonalPreferencesSettings() {
     >
       <InlineStatus notice={notice} />
       <div className="settings-grid-two">
-        <label className="settings-field">
-          <span>Theme</span>
+        <FormField label="Theme" >
+
           <PanelSelect
             data-testid="personal-pref-theme"
             value={prefs.theme}
@@ -777,7 +778,7 @@ function PersonalPreferencesSettings() {
             <option value="light">Light</option>
             <option value="dark">Dark</option>
           </PanelSelect>
-        </label>
+        </FormField>
       </div>
       <AiCallModeSettings />
     </div>
@@ -798,7 +799,7 @@ function PersonalPrivacySettings() {
       <InlineStatus error={error} loading={loading} />
       <section className="settings-subsection">
         <div className="settings-section-kicker">Product telemetry</div>
-        <p className="settings-help">
+        <p className="form-hint">
           Share pseudonymous feature use, outcomes, and coarse size and timing ranges.
           Product telemetry does not include your data, filenames, names, prompts, results,
           URLs, or error messages. The random browser identifier resets monthly, and
@@ -864,9 +865,9 @@ export function OrganizationAiProvidersSettings() {
   return (
     <div className="settings-stack" data-testid="organization-ai-providers-settings">
       <InlineStatus error={catalog.error ?? keys.error ?? mutationError} loading={catalog.loading || keys.loading} notice={notice} />
-      <button className="btn" type="button" onClick={() => { setNotice(null); setMutationError(null); setAdding((current) => !current); }}>
+      <Button type="button" onClick={() => { setNotice(null); setMutationError(null); setAdding((current) => !current); }}>
         <KeyRound size={14} /> Add new key
-      </button>
+      </Button>
       {adding && <ProviderKeyForm canMutate keyLabel="Provider key" providers={catalog.data?.providers ?? []}
         validate={(provider, key, signal) => validateOrgKey(provider, key, { signal })}
         save={(provider, key, receipt, _cap, signal) => setOrgKey(provider, key, receipt, { signal })}
@@ -879,7 +880,7 @@ export function OrganizationAiProvidersSettings() {
             <span>{row.hint}</span>
             {existingTests[row.provider] && (
               <div
-                className={`settings-row-note${existingTests[row.provider].tone === 'pending' ? '' : ` settings-validation-message is-${existingTests[row.provider].tone}`}`}
+                className="panel-notice" data-tone={existingTests[row.provider].tone === 'pending' ? 'neutral' : existingTests[row.provider].tone}
                 data-testid={`provider-existing-validation-${row.provider}`}
               >
                 {existingTests[row.provider].text}
@@ -887,14 +888,14 @@ export function OrganizationAiProvidersSettings() {
             )}
           </>,
           <span key={row.provider} className="settings-row-actions">
-            <button
-              className="btn btn-compact"
+            <Button
+              className="btn-compact"
               type="button"
               aria-label={`Test ${row.provider} provider key`}
               onClick={() => void testExisting(row.provider)}
             >
               Test
-            </button>
+            </Button>
             <button
               className="icon-btn"
               type="button"
@@ -979,7 +980,7 @@ function OrgLocalModelsSettings() {
         </StatusChip>
       </p>
       {endpoint.protocol && (
-        <p className="settings-help" data-testid="org-local-models-protocol">
+        <p className="form-hint" data-testid="org-local-models-protocol">
           Protocol: {endpoint.protocol}
         </p>
       )}
@@ -988,12 +989,12 @@ function OrgLocalModelsSettings() {
           {models.map((model) => <li key={model.id}>{model.label}</li>)}
         </ul>
       ) : (
-        <p className="settings-help" data-testid="org-local-models-empty">No models installed</p>
+        <p className="form-hint" data-testid="org-local-models-empty">No models installed</p>
       )}
       {endpoint.pull_enabled ? (
         <OrgModelPullDownload endpointId={endpoint.endpoint_id} onInstalled={info.reload} />
       ) : (
-        <p className="settings-help" data-testid="org-local-models-pull-disabled">
+        <p className="form-hint" data-testid="org-local-models-pull-disabled">
           Model downloads are disabled; set FRISKET_ENABLE_MODEL_PULL on the server.
         </p>
       )}
@@ -1065,8 +1066,8 @@ function OrgModelPullDownload({
 
   return (
     <div className="settings-subsection org-model-pull-download" data-testid="org-model-pull-download">
-      <label>
-        <span>Download a model</span>
+      <FormField label="Download a model" >
+
         <TextInput
           type="text"
           aria-label="Model name"
@@ -1076,45 +1077,45 @@ function OrgModelPullDownload({
           disabled={busy || phase === 'confirm'}
           onChange={(event) => setModelInput(event.target.value)}
         />
-      </label>
+      </FormField>
       {phase === 'confirm' ? (
         <div className="settings-row-actions">
           <p className="local-server-guidance-copy">
             This may download several GB to the operator&rsquo;s local server.
           </p>
-          <button
+          <Button
             type="button"
-            className="btn btn-primary"
+            className="btn-primary"
             data-testid="org-model-pull-confirm"
             disabled={busy}
             onClick={() => void startDownload()}
           >
             Confirm
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="btn"
+
             data-testid="org-model-pull-cancel-confirm"
             disabled={busy}
             onClick={() => setPhase('idle')}
           >
             Cancel
-          </button>
+          </Button>
         </div>
       ) : (
-        <button
+        <Button
           type="button"
-          className="btn btn-primary"
+          className="btn-primary"
           data-testid="org-model-pull-start"
           disabled={!modelInput.trim()}
           onClick={() => setPhase('confirm')}
         >
           <Download size={14} /> Download
-        </button>
+        </Button>
       )}
       {phase === 'error' && error && (
         <p
-          className="settings-inline-status settings-validation-message is-error"
+          className="panel-notice" data-tone="error"
           data-testid="org-model-pull-error"
         >
           {error}
@@ -1159,7 +1160,7 @@ function OrgModelPullList() {
     <div className="settings-subsection model-pull-list" data-testid="org-model-pull-list">
       {error && (
         <p
-          className="settings-inline-status settings-validation-message is-error"
+          className="panel-notice" data-tone="error"
           data-testid="org-model-pull-list-error"
         >
           {error}
@@ -1192,7 +1193,7 @@ function OrgModelPullList() {
         </ul>
       )}
       {loaded && !error && activePulls.length === 0 && finishedPulls.length === 0 && (
-        <p className="settings-help">No downloads yet.</p>
+        <p className="form-hint">No downloads yet.</p>
       )}
     </div>
   );
@@ -1237,9 +1238,9 @@ function OrganizationSecretsSettings() {
           value={value}
           onChange={(event) => setValue(event.currentTarget.value)}
         />
-        <button className="btn btn-primary" type="submit" disabled={!name.trim() || !value}>
+        <Button className="btn-primary" type="submit" disabled={!name.trim() || !value}>
           <Save size={14} /> Save
-        </button>
+        </Button>
       </form>
       <SettingsTable
         headers={['Name', 'Value', 'Updated', '']}
@@ -1308,10 +1309,10 @@ function OrganizationApiKeysSettings() {
           </div>
           <div className="settings-token-copy-row">
             <code className="settings-token-secret" data-testid="api-key-created-token">{created.token}</code>
-            <button className="btn" type="button" onClick={() => void copyCreatedToken()}>
+            <Button type="button" onClick={() => void copyCreatedToken()}>
               {copyStatus === 'copied' ? <Check size={14} /> : <Copy size={14} />}
               {copyStatus === 'copied' ? 'Copied' : 'Copy'}
-            </button>
+            </Button>
           </div>
           {copyStatus === 'failed' && (
             <div className="settings-copy-status">Copy unavailable</div>
@@ -1320,9 +1321,9 @@ function OrganizationApiKeysSettings() {
       )}
       <form className="settings-form settings-inline-form" onSubmit={save}>
         <TextInput aria-label="Token name" placeholder="Token name" value={name} onChange={(event) => setName(event.currentTarget.value)} />
-        <button className="btn btn-primary" type="submit" disabled={!name.trim()}>
+        <Button className="btn-primary" type="submit" disabled={!name.trim()}>
           <KeyRound size={14} /> Create
-        </button>
+        </Button>
       </form>
       <SettingsTable
         headers={['Name', 'Prefix', 'Created by', 'Last used', '']}
@@ -1334,16 +1335,16 @@ function OrganizationApiKeysSettings() {
           row.created_by,
           row.last_used_at ?? '-',
           row.revoked ? 'Revoked' : (
-            <button
+            <Button
               key={row.id}
-              className="btn"
+
               type="button"
               onClick={() => void revokeApiKey(row.id)
                 .then(tokens.reload)
                 .catch((caught) => setMutationError(errMsg(caught)))}
             >
               Revoke
-            </button>
+            </Button>
           ),
         ])}
         empty="No API keys"
@@ -1442,33 +1443,33 @@ export function ProjectGeneralSettings({ project }: { project?: ProjectInfo | nu
         </ReadOnlyNotice>
       )}
       <form className="settings-form" onSubmit={save}>
-        <label>
-          <span>Name</span>
+        <FormField label="Name" >
+
           <TextInput
             data-testid="project-name-input"
             value={nameValue}
             disabled={!canEdit || form.busy}
             onChange={(event) => dispatch({ type: 'set_name', value: event.currentTarget.value })}
           />
-        </label>
-        <label>
-          <span>Description</span>
+        </FormField>
+        <FormField label="Description" >
+
           <TextArea
             data-testid="project-description-input"
             value={descriptionValue}
             disabled={!canEdit || form.busy}
             onChange={(event) => dispatch({ type: 'set_description', value: event.currentTarget.value })}
           />
-        </label>
+        </FormField>
         <div className="settings-meta-list">
           <div><dt>Project</dt><dd>{current?.name ?? '-'}</dd></div>
           <div><dt>Project ID</dt><dd>{current?.id ?? '-'}</dd></div>
           <div><dt>Sensitive</dt><dd>{current?.sensitive ? 'Yes' : 'No'}</dd></div>
         </div>
         <div className="settings-actions">
-          <button className="btn btn-primary" type="submit" disabled={!canEdit || form.busy}>
+          <Button className="btn-primary" type="submit" disabled={!canEdit || form.busy}>
             <Save size={14} /> Save
-          </button>
+          </Button>
         </div>
       </form>
       {!canOwner && (
@@ -1510,14 +1511,14 @@ export function ProjectGeneralSettings({ project }: { project?: ProjectInfo | nu
             onChange={(value) => dispatch({ type: 'set_confirm_delete', value })}
           />
         </label>
-        <button
-          className="btn btn-reject settings-danger-button"
+        <Button
+          className="btn-reject settings-danger-button"
           data-testid="project-delete-button"
           type="submit"
           disabled={!canOwner || form.busy || form.confirmDelete !== current?.name}
         >
           <Trash2 size={14} /> Delete
-        </button>
+        </Button>
       </form>
     </div>
   );
@@ -1613,7 +1614,7 @@ function ProjectAccessSettings({ project, identityMode }: { project?: ProjectInf
     };
   }, [identityMode, load]);
   if (!identityMode) {
-    return <div className="settings-empty-state">Project access is available on hosted workspaces.</div>;
+    return <div className="panel-empty">Project access is available on hosted workspaces.</div>;
   }
   const loading = state.loadedProjectId !== projectId;
   const runAction = async (label: string, action: () => Promise<void>) => {
@@ -1636,14 +1637,14 @@ function ProjectAccessSettings({ project, identityMode }: { project?: ProjectInf
     <div className="settings-stack" data-testid="project-access-settings">
       <InlineStatus error={state.actionError} loading={loading} notice={state.notice} />
       {state.freshAuthRequired && (
-        <button
-          className="btn"
+        <Button
+
           type="button"
           data-testid="project-access-fresh-auth"
           onClick={() => void signOut().finally(() => window.location.assign('/'))}
         >
           Sign in again
-        </button>
+        </Button>
       )}
       {!canManageProject && (
         <ReadOnlyNotice>
@@ -1677,7 +1678,7 @@ function ProjectAccessSettings({ project, identityMode }: { project?: ProjectInf
           >
             {INVITE_ROLES.map((item) => <option key={item} value={item}>{item}</option>)}
           </PanelSelect>
-          <button className="btn btn-primary" data-testid="project-invite-submit" type="submit" disabled={state.busy !== null || !state.email.trim()}>Invite</button>
+          <Button className="btn-primary" data-testid="project-invite-submit" type="submit" disabled={state.busy !== null || !state.email.trim()}>Invite</Button>
         </form>
       )}
       <InlineStatus error={state.memberError} />
@@ -1733,9 +1734,9 @@ function ProjectAccessSettings({ project, identityMode }: { project?: ProjectInf
           invite.email,
           invite.role,
           formatDate(invite.expires_at),
-          <button
+          <Button
             key={invite.id}
-            className="btn"
+
             data-testid={`project-invite-revoke-${invite.id}`}
             type="button"
             disabled={state.busy !== null || !canManageProject}
@@ -1745,7 +1746,7 @@ function ProjectAccessSettings({ project, identityMode }: { project?: ProjectInf
             })}
           >
             Revoke
-          </button>,
+          </Button>,
         ])}
         empty="No pending invites"
       />
@@ -1798,9 +1799,9 @@ export function ProjectAiProvidersSettings({
           Your project role can view provider override status but cannot change provider keys.
         </ReadOnlyNotice>
       )}
-      <button className="btn" type="button" disabled={!canMutate} onClick={() => { setNotice(null); setMutationError(null); setAdding((current) => !current); }}>
+      <Button type="button" disabled={!canMutate} onClick={() => { setNotice(null); setMutationError(null); setAdding((current) => !current); }}>
         <KeyRound size={14} /> Add new key
-      </button>
+      </Button>
       {adding && <ProviderKeyForm key={`${project?.id}:${canMutate}`} canMutate={canMutate} keyLabel="Project provider key" spendCap providers={keys.data?.providers ?? []}
         validate={(provider, key, signal) => api.validateProjectProviderKey(provider, key, { signal })}
         save={(provider, key, receipt, cap, signal) => api.setProjectProviderKey(provider, key, cap, receipt, { signal })}
@@ -1821,7 +1822,7 @@ export function ProjectAiProvidersSettings({
                 : <span>{keySource.label}</span>}
             {existingTests[row.id] && (
               <div
-                className={`settings-row-note${existingTests[row.id].tone === 'pending' ? '' : ` settings-validation-message is-${existingTests[row.id].tone}`}`}
+                className="panel-notice" data-tone={existingTests[row.id].tone === 'pending' ? 'neutral' : existingTests[row.id].tone}
                 data-testid={`provider-existing-validation-${row.id}`}
               >
                 {existingTests[row.id].text}
@@ -1832,15 +1833,15 @@ export function ProjectAiProvidersSettings({
           <SpentCell key={`${row.id}-spent`} row={row} />,
           row.configured ? (
             <span key={row.id} className="settings-row-actions">
-              <button
-                className="btn btn-compact"
+              <Button
+                className="btn-compact"
                 type="button"
                 aria-label={`Test ${row.label} provider override`}
                 disabled={!canMutate}
                 onClick={() => void testExisting(row.id, row.label)}
               >
                 Test
-              </button>
+              </Button>
               <button
                 className="icon-btn"
                 type="button"
@@ -1914,13 +1915,13 @@ export function WorkspaceAiProvidersSettings() {
   return (
     <div className="settings-stack" data-testid="workspace-ai-providers-settings">
       <InlineStatus error={catalog.error ?? mutationError} loading={catalog.loading} notice={notice} />
-      <p className="settings-help">
+      <p className="form-hint">
         Keys are stored in this workspace only and never sent back to the browser.
         A shell-exported key always wins over one entered here.
       </p>
-      <button className="btn" type="button" onClick={() => { setNotice(null); setMutationError(null); setAdding((current) => !current); }}>
+      <Button type="button" onClick={() => { setNotice(null); setMutationError(null); setAdding((current) => !current); }}>
         <KeyRound size={14} /> Add new key
-      </button>
+      </Button>
       {adding && <ProviderKeyForm canMutate keyLabel="Provider key" providers={keyProviders}
         validate={(provider, key, signal) => validateProviderKey(provider, key, { signal })}
         save={(provider, key, receipt, _cap, signal) => setProviderKey(provider, key, receipt, { signal })}
@@ -1936,7 +1937,7 @@ export function WorkspaceAiProvidersSettings() {
             </span>
             {existingTests[row.id] && (
               <div
-                className={`settings-row-note${existingTests[row.id].tone === 'pending' ? '' : ` settings-validation-message is-${existingTests[row.id].tone}`}`}
+                className="panel-notice" data-tone={existingTests[row.id].tone === 'pending' ? 'neutral' : existingTests[row.id].tone}
                 data-testid={`provider-test-result-${row.id}`}
               >
                 {existingTests[row.id].text}
@@ -1945,15 +1946,15 @@ export function WorkspaceAiProvidersSettings() {
           </>,
           row.configured ? (
             <span key={row.id} className="settings-row-actions">
-              <button
-                className="btn btn-compact"
+              <Button
+                className="btn-compact"
                 type="button"
                 data-testid={`provider-key-test-${row.id}`}
                 aria-label={`Test ${row.label} provider key`}
                 onClick={() => void testExisting(row.id, row.label)}
               >
                 Test
-              </button>
+              </Button>
               {row.source !== 'env' && (
                 <button
                   className="icon-btn"
@@ -2119,7 +2120,7 @@ export function DiagnosticsSettings() {
       {report.data && (
         <div className="diagnose-panel-body" data-testid="diagnose-panel-body">
           {stale && (
-            <p className="settings-inline-status" data-testid="diagnose-panel-stale-note">
+            <p className="panel-notice" data-tone="neutral" data-testid="diagnose-panel-stale-note">
               Refresh failed — showing the last successful check.
             </p>
           )}
@@ -2164,15 +2165,15 @@ export function DiagnosticsSettings() {
         </div>
       )}
       <div className="settings-actions">
-        <button
-          className="btn"
+        <Button
+
           type="button"
           data-testid="settings-diagnostics-refresh"
           disabled={report.loading}
           onClick={() => void report.reload()}
         >
           <RefreshCw size={14} /> Refresh
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -2271,7 +2272,7 @@ function LocalEndpointsSettings({
   return (
     <div className="settings-subsection" data-testid="local-endpoints">
       <div className="settings-section-kicker">Local model servers</div>
-      <p className="settings-help">
+      <p className="form-hint">
         Connect several OpenAI-compatible servers at once. Each server keeps a
         stable identity, so the same model name on two machines routes to the
         machine you selected.
@@ -2287,35 +2288,35 @@ function LocalEndpointsSettings({
       {suggestions.length > 0 && (
         <div className="settings-actions" data-testid="local-endpoint-suggestions">
           {suggestions.map((suggestion) => (
-            <button
-              className="btn"
+            <Button
+
               type="button"
               key={suggestion.origin}
               disabled={busy}
               onClick={() => void addSuggestion(suggestion.label, suggestion.origin)}
             >
               Add {suggestion.label}
-            </button>
+            </Button>
           ))}
         </div>
       )}
-      <button
-        className="btn"
+      <Button
+
         type="button"
         data-testid="local-endpoint-discover"
         disabled={busy}
         onClick={() => void discover()}
       >
         <RefreshCw size={14} /> Find local servers
-      </button>
+      </Button>
       {!adding ? (
-        <button className="btn" type="button" data-testid="local-endpoint-add" disabled={busy} onClick={() => setAdding(true)}>
+        <Button type="button" data-testid="local-endpoint-add" disabled={busy} onClick={() => setAdding(true)}>
           Add local server
-        </button>
+        </Button>
       ) : (
         <form className="settings-form settings-inline-form" data-testid="local-endpoint-add-form" onSubmit={add}>
-          <label>
-            <span>Name</span>
+          <FormField label="Name" >
+
             <TextInput
               data-testid="local-endpoint-add-name"
               aria-label="Local server name"
@@ -2324,9 +2325,9 @@ function LocalEndpointsSettings({
               placeholder="LM Studio — gaming PC"
               onChange={(event) => setName(event.target.value)}
             />
-          </label>
-          <label>
-            <span>URL</span>
+          </FormField>
+          <FormField label="URL" >
+
             <TextInput
               data-testid="local-endpoint-add-origin"
               type="url"
@@ -2336,26 +2337,26 @@ function LocalEndpointsSettings({
               placeholder="http://localhost:1234"
               onChange={(event) => setUrl(event.target.value)}
             />
-          </label>
-          <button
-            className="btn btn-primary"
+          </FormField>
+          <Button
+            className="btn-primary"
             type="submit"
             data-testid="local-endpoint-add-submit"
             disabled={busy || !name.trim() || !url.trim()}
           >
             Add server
-          </button>
-          <button className="btn" type="button" disabled={busy} onClick={() => setAdding(false)}>
+          </Button>
+          <Button type="button" disabled={busy} onClick={() => setAdding(false)}>
             Cancel
-          </button>
+          </Button>
         </form>
       )}
       {notice && (
-        <p className="settings-validation-message is-success" data-testid="local-endpoint-discovery-summary" role="status">
+        <p className="panel-notice" data-tone="success" data-testid="local-endpoint-discovery-summary" role="status">
           {notice}
         </p>
       )}
-      {error && <p className="settings-validation-message is-error">{error}</p>}
+      {error && <p className="panel-notice" data-tone="error">{error}</p>}
       <ModelPullList />
     </div>
   );
@@ -2455,29 +2456,29 @@ function LocalEndpointRow({
           </StatusChip>
         </span>
       </p>
-      <p className="settings-help">
+      <p className="form-hint">
         This URL is the endpoint's immutable identity. To move it to another
         URL, add a new server and then delete this one.
         {endpoint.read_only && ' This endpoint is managed by the server environment and cannot be edited here.'}
       </p>
       <LocalEndpointProbeDetail endpoint={endpoint} />
       <form className="settings-form settings-inline-form" onSubmit={save}>
-        <label>
-          <span>Name</span>
+        <FormField label="Name" >
+
           <TextInput data-testid={`local-endpoint-name-${endpointId}`} value={name} disabled={busy || endpoint.read_only} onChange={(event) => setName(event.target.value)} />
-        </label>
-        <label>
-          <span>URL</span>
+        </FormField>
+        <FormField label="URL" >
+
           <TextInput data-testid={`local-endpoint-origin-${endpointId}`} type="url" value={url} disabled />
-        </label>
+        </FormField>
         {!endpoint.read_only && (
-          <button className="btn" type="submit" disabled={busy || !dirty || !name.trim()}>
+          <Button type="submit" disabled={busy || !dirty || !name.trim()}>
             <Save size={14} /> Save
-          </button>
+          </Button>
         )}
-        <button className="btn" type="button" disabled={busy} onClick={() => void onRecheck()}>
+        <Button type="button" disabled={busy} onClick={() => void onRecheck()}>
           <RefreshCw size={14} /> Recheck
-        </button>
+        </Button>
         {!endpoint.read_only && (
           <button className="icon-btn" type="button" disabled={busy} aria-label={`Delete ${endpoint.label}`} onClick={() => void remove()}>
             <Trash2 size={14} />
@@ -2487,8 +2488,8 @@ function LocalEndpointRow({
       {!endpoint.read_only && (
         <>
           <form className="settings-form settings-inline-form" data-testid={`local-endpoint-auth-${endpointId}`} onSubmit={saveCredentials}>
-            <label>
-              <span>Inference token {endpoint.token_configured ? '(configured)' : ''}</span>
+            <FormField label={<span>Inference token {endpoint.token_configured ? '(configured)' : ''}</span>} >
+
               <TextInput
                 type="password"
                 value={inferenceToken}
@@ -2497,9 +2498,9 @@ function LocalEndpointRow({
                 disabled={busy}
                 onChange={(event) => setInferenceToken(event.target.value)}
               />
-            </label>
-            <label>
-              <span>Download token {endpoint.provisioning_token_configured ? '(configured)' : ''}</span>
+            </FormField>
+            <FormField label={<span>Download token {endpoint.provisioning_token_configured ? '(configured)' : ''}</span>} >
+
               <TextInput
                 type="password"
                 value={provisioningToken}
@@ -2508,19 +2509,19 @@ function LocalEndpointRow({
                 disabled={busy}
                 onChange={(event) => setProvisioningToken(event.target.value)}
               />
-            </label>
-            <button className="btn" type="submit" disabled={busy || (!inferenceToken && !provisioningToken)}>
+            </FormField>
+            <Button type="submit" disabled={busy || (!inferenceToken && !provisioningToken)}>
               Save credentials
-            </button>
+            </Button>
             {endpoint.token_configured && (
-              <button className="btn" type="button" disabled={busy} onClick={() => void updateLocalEndpoint(endpointId, { inference_token: null }).then(onReload).catch((caught) => setError(errMsg(caught)))}>
+              <Button type="button" disabled={busy} onClick={() => void updateLocalEndpoint(endpointId, { inference_token: null }).then(onReload).catch((caught) => setError(errMsg(caught)))}>
                 Clear inference token
-              </button>
+              </Button>
             )}
             {endpoint.provisioning_token_configured && (
-              <button className="btn" type="button" disabled={busy} onClick={() => void updateLocalEndpoint(endpointId, { provisioning_token: null }).then(onReload).catch((caught) => setError(errMsg(caught)))}>
+              <Button type="button" disabled={busy} onClick={() => void updateLocalEndpoint(endpointId, { provisioning_token: null }).then(onReload).catch((caught) => setError(errMsg(caught)))}>
                 Clear download token
-              </button>
+              </Button>
             )}
           </form>
           <label className="settings-check">
@@ -2550,7 +2551,7 @@ function LocalEndpointRow({
       >
         <LocalServerGuidance entry={endpoint} variant="full" onRecheck={onRecheck} />
       </div>
-      {error && <p className="settings-validation-message is-error">{error}</p>}
+      {error && <p className="panel-notice" data-tone="error">{error}</p>}
     </div>
   );
 }
@@ -2564,7 +2565,7 @@ function LocalEndpointProbeDetail({ endpoint }: { endpoint: LocalHttpEndpointEnt
       : `${endpoint.label} is not running at ${endpoint.origin}`;
   if (!endpoint.detail) {
     return (
-      <p className="settings-help" data-testid={`local-endpoint-probe-summary-${endpoint.endpoint_id}`}>
+      <p className="form-hint" data-testid={`local-endpoint-probe-summary-${endpoint.endpoint_id}`}>
         {summary}.
       </p>
     );
@@ -2618,7 +2619,7 @@ function ModelPullList() {
     <div className="settings-subsection model-pull-list" data-testid="model-pull-list">
       {error && (
         <p
-          className="settings-inline-status settings-validation-message is-error"
+          className="panel-notice" data-tone="error"
           data-testid="model-pull-list-error"
         >
           {error}
@@ -2645,7 +2646,7 @@ function ModelPullList() {
         </ul>
       )}
       {loaded && !error && activePulls.length === 0 && finishedPulls.length === 0 && (
-        <p className="settings-help">No downloads yet.</p>
+        <p className="form-hint">No downloads yet.</p>
       )}
     </div>
   );
@@ -2732,8 +2733,8 @@ export function ProjectSecretsSettings({ project }: { project?: ProjectInfo | nu
           disabled={!canMutate}
           onChange={(event) => setValue(event.currentTarget.value)}
         />
-        <button
-          className="btn"
+        <Button
+
           type="button"
           data-testid="secret-value-visibility"
           aria-label={valueVisible ? 'Hide secret value' : 'Show secret value'}
@@ -2741,8 +2742,8 @@ export function ProjectSecretsSettings({ project }: { project?: ProjectInfo | nu
           onClick={() => setValueVisible((current) => !current)}
         >
           {valueVisible ? <EyeOff size={14} /> : <Eye size={14} />}
-        </button>
-        <button className="btn btn-primary" type="submit" disabled={!canMutate || !name.trim() || !value}><Save size={14} /> Save</button>
+        </Button>
+        <Button className="btn-primary" type="submit" disabled={!canMutate || !name.trim() || !value}><Save size={14} /> Save</Button>
       </form>
       <SettingsTable
         headers={['Secret', 'Value', 'Consumers', 'Updated', '']}
@@ -2853,7 +2854,7 @@ function PluginOptionsList({ runtimeIndex }: { runtimeIndex: WorkbenchPluginRunt
     return (
       <div className="settings-stack" data-testid="plugin-options-list">
         <InlineStatus error={plugins.length ? error : null} />
-        <div className="settings-empty-state" data-testid="plugin-options-empty">
+        <div className="panel-empty" data-testid="plugin-options-empty">
           No configurable plugin options.
         </div>
       </div>
@@ -2934,14 +2935,14 @@ function PluginOptionsList({ runtimeIndex }: { runtimeIndex: WorkbenchPluginRunt
                 }}
               />
             )}
-            <button
-              className="btn"
+            <Button
+
               data-testid={`plugin-option-save-${setting.id}`}
               type="submit"
               disabled={!payload.canMutate || setting.readOnly}
             >
               Save
-            </button>
+            </Button>
           </form>
         );
       })}
@@ -3139,8 +3140,8 @@ function ProjectDataManagementSettings({ project }: { project?: ProjectInfo | nu
             </p>
           </div>
           <div className="settings-grid-two">
-          <label className="settings-field">
-            <span>Evidence default</span>
+          <FormField label="Evidence default" >
+
             <PanelSelect
               testId="project-evidence-default"
               ariaLabel="Evidence default"
@@ -3149,11 +3150,11 @@ function ProjectDataManagementSettings({ project }: { project?: ProjectInfo | nu
               options={evidenceSelectOptions}
               onValueChange={(value) => void patch({ default_evidence: value })}
             />
-            <small className="settings-field-help">
+            <small className="form-hint">
               This is the usual default. Frisket may keep particular evidence when an action needs it
               to preserve a result or its lineage.
             </small>
-          </label>
+          </FormField>
           <label className="settings-check">
             <input
               type="checkbox"
@@ -3177,8 +3178,8 @@ function ProjectDataManagementSettings({ project }: { project?: ProjectInfo | nu
               configured local model servers still work.
             </p>
           </div>
-          <label className="settings-field">
-            <span>Network access</span>
+          <FormField label="Network access" >
+
             <PanelSelect
               data-testid="project-network-mode"
               value={network.data.mode}
@@ -3191,12 +3192,12 @@ function ProjectDataManagementSettings({ project }: { project?: ProjectInfo | nu
               <option value="on">On</option>
               <option value="off">Off</option>
             </PanelSelect>
-            <small className="settings-field-help">
+            <small className="form-hint">
               {`Currently ${network.data.effective}. “Inherit” follows your organization’s
               setting. Plugins, notifications, and scheduled feed checks have their own
               network behavior.`}
             </small>
-          </label>
+          </FormField>
         </section>
       )}
       {projectSettings?.retrieval && (
@@ -3218,7 +3219,7 @@ function ProjectDataManagementSettings({ project }: { project?: ProjectInfo | nu
           </div>
           {projectSettings.media_allow_private_hosts_locked ? (
             <small
-              className="settings-field-help"
+              className="form-hint"
               data-testid="project-media-private-hosts-locked"
             >
               Downloads from private and loopback addresses are switched off and locked
@@ -3237,7 +3238,7 @@ function ProjectDataManagementSettings({ project }: { project?: ProjectInfo | nu
                 />
                 <span>Allow downloads from private and loopback addresses</span>
               </label>
-              <small className="settings-field-help">
+              <small className="form-hint">
                 Turn this on only when you intentionally download from a server on your
                 own network. Link-local and cloud metadata addresses remain blocked.
                 Your administrator&apos;s network controls are always the final boundary.
@@ -3272,14 +3273,14 @@ function ProjectDataManagementSettings({ project }: { project?: ProjectInfo | nu
             onChange={setCompactConfirm}
           />
         </label>
-        <button
-          className="btn btn-reject settings-danger-button"
+        <Button
+          className="btn-reject settings-danger-button"
           data-testid="compact-project-button"
           type="submit"
           disabled={!canMutate || compacting || policy?.no_compact || compactConfirm !== 'COMPACT'}
         >
           <Archive size={14} /> Compact
-        </button>
+        </Button>
       </form>
     </div>
   );
@@ -3294,7 +3295,7 @@ function SettingsTable({
   rows: Array<Array<ReactNode>>;
   empty: string;
 }) {
-  if (rows.length === 0) return <div className="settings-empty-state">{empty}</div>;
+  if (rows.length === 0) return <div className="panel-empty">{empty}</div>;
   return (
     <div className="settings-table-wrap">
       <table className="settings-table">

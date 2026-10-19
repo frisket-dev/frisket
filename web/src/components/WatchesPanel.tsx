@@ -1,3 +1,4 @@
+import { Button } from './Button';
 import { TextInput } from './FormControls';
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
 import { PanelEmpty, PanelError } from './PanelPrimitives';
@@ -615,7 +616,7 @@ function WatchCreateComposer({
         <span className="panel-kicker">New Watch</span>
         <strong>Keep an eye on new matches.</strong>
       </div>
-      <label className="watches-create-field">
+      <label className="watches-create-field form-field">
         <span className="form-label">Watch name</span>
         <TextInput
           autoFocus
@@ -633,25 +634,25 @@ function WatchCreateComposer({
         <p>{NOTIFICATION_SETUP_GUIDANCE}</p>
       </div>
       <div className="form-actions">
-        <button
+        <Button
           type="button"
-          className="btn btn-primary"
+          className="btn-primary"
           data-testid="create-watch-button"
           aria-busy={creating}
           disabled={creating || !trimmedName}
           onClick={onCreate}
         >
           <WatchIcon size={14} aria-hidden /> {creating ? 'Creating…' : 'Create new watch'}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className="btn"
+
           data-testid="cancel"
           disabled={creating}
           onClick={onCancel}
         >
           Cancel
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -762,10 +763,10 @@ function ConfirmDeleteWatchDialog({
         </p>
         {error && <PanelError testId="watch-mutation-error">{error}</PanelError>}
         <div className="form-actions">
-          <button autoFocus type="button" className="btn" disabled={busy} onClick={onCancel}>Cancel</button>
-          <button type="submit" className="btn btn-reject" data-testid="confirm-delete-watch" disabled={busy}>
+          <Button autoFocus type="button" disabled={busy} onClick={onCancel}>Cancel</Button>
+          <Button type="submit" className="btn-reject" data-testid="confirm-delete-watch" disabled={busy}>
             {busy ? 'Deleting…' : 'Delete Watch'}
-          </button>
+          </Button>
         </div>
       </form>
     </dialog>
@@ -887,9 +888,9 @@ function WatchItem({
       <div className="watch-meta" data-testid="watch-latest-run">
         {runSummary(watch.latestRun)}
         {canEdit && blockedIndexId && (
-          <button
+          <Button
             type="button"
-            className="mini-btn watch-refresh-index"
+            className="watch-refresh-index"
             data-testid={`watch-refresh-index-${watch.id}`}
             // Ruling 4 honesty: this refreshes the embedding index AND then
             // runs the whole watch again — two purchases, named up front.
@@ -899,7 +900,7 @@ function WatchItem({
             onClick={() => onRefreshIndex(watch.id, blockedIndexId)}
           >
             <RefreshCw size={11} className={isRefreshingIndex ? 'spin' : undefined} /> {isRefreshingIndex ? 'Refreshing index…' : 'Refresh index & re-run'}
-          </button>
+          </Button>
         )}
       </div>
       {canEdit && (
@@ -918,14 +919,14 @@ function WatchItem({
                 onChange={(event) => setRenameValue(event.target.value)}
               />
               {!trimmedRename && <span id={`watch-rename-error-${watch.id}`} data-testid="watch-rename-error">Enter a name to continue.</span>}
-              <button type="button" className="mini-btn" data-testid="save-watch-rename" aria-busy={isRenaming} disabled={isPending || !trimmedRename} onClick={() => { void onUpdateWatch(watch.id, { name: trimmedRename }).then((saved) => { if (saved) setRenaming(false); }); }}>{isRenaming ? 'Renaming…' : 'Save rename'}</button>
-              <button type="button" className="mini-btn" disabled={isPending} onClick={() => setRenaming(false)}>Cancel</button>
+              <Button type="button" data-testid="save-watch-rename" aria-busy={isRenaming} disabled={isPending || !trimmedRename} onClick={() => { void onUpdateWatch(watch.id, { name: trimmedRename }).then((saved) => { if (saved) setRenaming(false); }); }}>{isRenaming ? 'Renaming…' : 'Save rename'}</Button>
+              <Button type="button" disabled={isPending} onClick={() => setRenaming(false)}>Cancel</Button>
             </>
           ) : (
-            <button type="button" className="mini-btn" data-testid="rename-watch" disabled={isPending} onClick={() => { setRenameValue(watch.name); setRenaming(true); }}>Rename</button>
+            <Button type="button" data-testid="rename-watch" disabled={isPending} onClick={() => { setRenameValue(watch.name); setRenaming(true); }}>Rename</Button>
           )}
-          <button type="button" className="mini-btn" data-testid={watch.enabled ? 'pause-watch' : 'resume-watch'} aria-busy={isPausing || isResuming} disabled={isPending} onClick={() => { void onUpdateWatch(watch.id, { enabled: !watch.enabled }); }}>{isPausing ? 'Pausing…' : isResuming ? 'Resuming…' : watch.enabled ? 'Pause' : 'Resume'}</button>
-          <button ref={deleteButtonRef} type="button" className="mini-btn danger" data-testid="delete-watch" disabled={isPending} onClick={() => setConfirmingDelete(true)}>Delete</button>
+          <Button type="button" data-testid={watch.enabled ? 'pause-watch' : 'resume-watch'} aria-busy={isPausing || isResuming} disabled={isPending} onClick={() => { void onUpdateWatch(watch.id, { enabled: !watch.enabled }); }}>{isPausing ? 'Pausing…' : isResuming ? 'Resuming…' : watch.enabled ? 'Pause' : 'Resume'}</Button>
+          <Button ref={deleteButtonRef} type="button" className="danger" data-testid="delete-watch" disabled={isPending} onClick={() => setConfirmingDelete(true)}>Delete</Button>
         </div>
       )}
       {mutationError && !confirmingDelete && <PanelError testId="watch-mutation-error">{mutationError}</PanelError>}
@@ -1037,13 +1038,13 @@ function WatchesPanelBody({
         />
       )}
       {canEdit && canCreateFromCurrentView && !draft && (
-        <button type="button" className="btn btn-primary" data-testid="new-watch-from-current-grid" onClick={onCreateFromCurrentView}>
+        <Button type="button" className="btn-primary" data-testid="new-watch-from-current-grid" onClick={onCreateFromCurrentView}>
           <WatchIcon size={14} aria-hidden /> Create new watch
-        </button>
+        </Button>
       )}
       {error && <PanelError testId="watches-error">{error}</PanelError>}
       {notificationSetupNotice && (
-        <div className="watch-notification-setup-notice" data-testid="watch-notification-setup-notice" role="status">
+        <div className="panel-notice" data-tone="warning" data-testid="watch-notification-setup-notice" role="status">
           <span>{notificationSetupNotice}</span>
           <button type="button" className="icon-btn" aria-label="Dismiss notification setup guidance" onClick={onDismissNotificationSetupNotice}>×</button>
         </div>

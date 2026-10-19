@@ -1,3 +1,4 @@
+import { Button } from './Button';
 import { Check, Copy, Download, ExternalLink, FileText } from 'lucide-react';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type RefObject } from 'react';
 import {
@@ -141,7 +142,7 @@ export function EvidenceViewer({
         <PanelLoading testId="evidence-viewer-loading" label="Loading evidence…" />
       )}
       {state.phase === 'error' && (
-        <div className="evidence-viewer-warning" data-testid="evidence-viewer-error">
+        <div className="panel-notice" data-tone="warning" data-testid="evidence-viewer-error">
           Could not load evidence: {state.message}
         </div>
       )}
@@ -303,12 +304,12 @@ function EvidencePayloadView({
             onOpenSiblingSheet={onOpenSiblingSheet}
           />
         ) : payload.link.role === 'source_provenance' && (
-          <div className="evidence-viewer-provenance-notice" data-testid="evidence-provenance-notice">
+          <div className="panel-notice" data-tone="warning" data-testid="evidence-provenance-notice">
             Original document used to create this text.
           </div>
         )}
         {orderedArtifacts.length === 0 ? (
-          <div className="evidence-viewer-warning" data-testid="evidence-viewer-empty">
+          <div className="panel-notice" data-tone="warning" data-testid="evidence-viewer-empty">
             This evidence link has no source spans.
           </div>
         ) : (
@@ -558,7 +559,7 @@ export function ArtifactSource({
           <span>{artifact.media_type}</span>
         </div>
         {blob && (
-          <a className="mini-btn" href={blob.url} target="_blank" rel="noopener noreferrer">
+          <a className="btn" href={blob.url} target="_blank" rel="noopener noreferrer">
             <ExternalLink size={12} /> source
           </a>
         )}
@@ -660,27 +661,27 @@ function TextPassageRecovery({
   const notice = artifact.recovery_notice?.trim();
   if (artifact.recovery_status === 'located') {
     return (
-      <div className="evidence-text-recovery-notice" data-testid="evidence-text-recovery-located">
+      <div className="panel-notice" data-tone="warning" data-testid="evidence-text-recovery-located">
         {notice || 'Found this passage in the current source. The original citation remains marked stale.'}
       </div>
     );
   }
   if (artifact.recovery_status === 'incomplete') {
-    return <div className="evidence-text-recovery-notice" data-testid="evidence-text-recovery-incomplete" role="status">
+    return <div className="panel-notice" data-tone="warning" data-testid="evidence-text-recovery-incomplete" role="status">
       {notice || 'The source was only partly searched. This passage may exist beyond the searched portion.'}
       {typeof artifact.recovery_scanned_characters === 'number' && <span> Searched {artifact.recovery_scanned_characters.toLocaleString()} characters.</span>}
     </div>;
   }
   if (artifact.recovery_status === 'not_found') {
     return (
-      <div className="evidence-text-recovery-notice" data-testid="evidence-text-recovery-not-found">
+      <div className="panel-notice" data-tone="warning" data-testid="evidence-text-recovery-not-found">
         {notice || 'Could not find this passage in the current source.'}
       </div>
     );
   }
   if (artifact.recovery_status === 'unsupported') {
     return (
-      <div className="evidence-text-recovery-notice" data-testid="evidence-text-recovery-unsupported">
+      <div className="panel-notice" data-tone="warning" data-testid="evidence-text-recovery-unsupported">
         {notice || 'This source cannot be searched for the passage.'}
       </div>
     );
@@ -695,14 +696,14 @@ function TextPassageRecovery({
         </div>
       )}
       {onLocateCurrent && (
-        <button
+        <Button
           type="button"
-          className="mini-btn"
+
           disabled={recovery.phase === 'loading'}
           onClick={onLocateCurrent}
         >
           {recovery.phase === 'loading' ? 'Looking for passage…' : 'Try to find this passage'}
-        </button>
+        </Button>
       )}
     </div>
   );
@@ -1452,7 +1453,7 @@ function SpanCard({
         ) : null}
       </dl>
       {warningCopy.length > 0 && (
-        <div className="evidence-viewer-warning">
+        <div className="panel-notice" data-tone="warning">
           {warningCopy.map((message) => <p key={message}>{message}</p>)}
         </div>
       )}
@@ -1463,9 +1464,9 @@ function SpanCard({
 function CopyRefButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <button
+    <Button
       type="button"
-      className="mini-btn"
+
       data-testid="evidence-copy-ref"
       onClick={() => {
         void navigator.clipboard.writeText(text).then(() => {
@@ -1475,7 +1476,7 @@ function CopyRefButton({ text }: { text: string }) {
       }}
     >
       {copied ? <Check size={12} /> : <Copy size={12} />} {copied ? 'copied' : 'copy ref'}
-    </button>
+    </Button>
   );
 }
 

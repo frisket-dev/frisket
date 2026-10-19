@@ -1,3 +1,4 @@
+import { Button } from './Button';
 // Live progress for a single in-app model pull. Renders inline wherever a pull
 // needs to be watched: LocalServerGuidance's Download flow and the Settings
 // active/recent pulls strip. Polls GET /providers/models/pulls/{id} every ~1s via
@@ -180,26 +181,26 @@ export function ModelPullProgress({
       footer={canCancel || canUninstall ? (
         <>
           {canCancel && (
-            <button
+            <Button
               type="button"
-              className="btn btn-compact"
+              className="btn-compact"
               data-testid="model-pull-cancel"
               disabled={!pull.capabilities.cancel || cancelling || pull.cancel_requested}
               onClick={() => void cancel()}
             >
               {pull.cancel_requested ? 'Cancelling…' : 'Cancel'}
-            </button>
+            </Button>
           )}
           {canUninstall && (
-            <button
+            <Button
               type="button"
-              className="btn btn-compact"
+              className="btn-compact"
               data-testid="model-pull-uninstall"
               disabled={uninstalling}
               onClick={() => void doUninstall()}
             >
               {uninstalling ? 'Uninstalling…' : 'Uninstall'}
-            </button>
+            </Button>
           )}
         </>
       ) : undefined}
@@ -216,7 +217,7 @@ export function ModelPullProgress({
           {sizeLabel && <span className="model-pull-progress-size">{sizeLabel}</span>}
           {cancelError && (
             <p
-              className="settings-inline-status settings-validation-message is-error"
+              className="panel-notice" data-tone="error"
               data-testid="model-pull-cancel-error"
             >
               {cancelError}
@@ -225,7 +226,7 @@ export function ModelPullProgress({
         </>
       )}
       {(pollError || externalPollError) && (
-        <p className="settings-inline-status settings-validation-message is-error" role="alert">
+        <p className="panel-notice" data-tone="error" role="alert">
           Could not refresh setup progress. Waiting for the next update.
         </p>
       )}
@@ -247,7 +248,7 @@ export function ModelPullProgress({
       )}
       {uninstallError && (
         <p
-          className="settings-inline-status settings-validation-message is-error"
+          className="panel-notice" data-tone="error"
           data-testid="model-pull-uninstall-error"
         >
           {uninstallError}

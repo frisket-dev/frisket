@@ -1,3 +1,4 @@
+import { Button } from '../components/Button';
 import { useEffect, useMemo, type ReactNode, type Ref } from 'react';
 
 import {
@@ -198,7 +199,7 @@ export function SelectorField({
   if (state.error && !state.response) {
     return <div data-testid={testId} className="engine-selector-field-error" role="alert">
       <p>Could not load choices. {state.error.message}</p>
-      <button type="button" className="btn" onClick={state.refresh}>Retry</button>
+      <Button type="button" onClick={state.refresh}>Retry</Button>
     </div>;
   }
   if (state.loading || !state.response) {
@@ -211,7 +212,7 @@ export function SelectorField({
   }
   const refreshNotice = state.error && <div className="engine-selector-field-error" role="alert">
     <p>Could not refresh choices. {state.error.message}</p>
-    <button type="button" className="btn" onClick={state.refresh}>Retry</button>
+    <Button type="button" onClick={state.refresh}>Retry</Button>
   </div>;
   return <div data-testid={testId}>
     <EngineSelector

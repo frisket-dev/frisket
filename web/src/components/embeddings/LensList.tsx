@@ -1,3 +1,4 @@
+import { Button } from '../Button';
 import { useCallback, useEffect, useReducer } from 'react';
 import { ApiError, type EmbeddingIndexSummary, type Lens, type LensResolved } from '../../api/open';
 import type { EmbeddingApiPort } from '../../api/ports';
@@ -127,7 +128,7 @@ export function LensList({ apiPort, index, reloadKey }: LensListProps) {
   if (sheetId == null) return null;
   if (state.error) {
     return (
-      <p className="form-error" data-testid={`embedding-lens-list-error-${index.indexId}`}>
+      <p className="panel-error" data-testid={`embedding-lens-list-error-${index.indexId}`}>
         {state.error}
       </p>
     );
@@ -142,18 +143,18 @@ export function LensList({ apiPort, index, reloadKey }: LensListProps) {
           <li key={lens.id} className="embedding-lens" data-testid={`embedding-lens-${lens.id}`}>
             <div className="embedding-lens-head">
               <span className="embedding-lens-name">{lens.name}</span>
-              <button
+              <Button
                 type="button"
-                className="mini-btn"
+
                 data-testid={`embedding-lens-open-${lens.id}`}
                 disabled={state.resolving && state.openId === lens.id}
                 onClick={() => void open(lens.id, lens.name)}
               >
                 {state.resolving && state.openId === lens.id ? 'Opening…' : 'Open'}
-              </button>
+              </Button>
             </div>
             {state.openId === lens.id && state.resolveError && (
-              <p className="form-error" data-testid={`embedding-lens-resolve-error-${lens.id}`}>
+              <p className="panel-error" data-testid={`embedding-lens-resolve-error-${lens.id}`}>
                 {state.resolveError}
               </p>
             )}

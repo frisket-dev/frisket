@@ -1,3 +1,4 @@
+import { Button } from '../components/Button';
 import { useEffect, useState, type ReactNode } from 'react';
 import { getRuntimeConfig } from '../api/open';
 import { TelemetryDisclosureReadyContext } from './disclosureReady';
@@ -58,7 +59,7 @@ export function ProductTelemetryProvider({ children }: { children: ReactNode }) 
             </label>
             <p className="muted">You can change this anytime in Settings → Personal → Privacy. Sensitive projects send no project telemetry.</p>
             <div className="modal-actions">
-              <button type="button" className="btn btn-primary" onClick={continueToFrisket}>Continue</button>
+              <Button type="button" className="btn-primary" onClick={continueToFrisket}>Continue</Button>
             </div>
           </div>
         </div>

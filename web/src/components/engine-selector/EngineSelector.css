@@ -574,11 +574,6 @@
   align-items: stretch;
 }
 
-.engine-selector__footer .settings-provider-key-form--compact .settings-inline-status,
-.engine-selector__footer .selector-setup-form--compact .settings-inline-status {
-  grid-column: 1 / -1;
-}
-
 .engine-selector__empty {
   padding: var(--space-12);
   color: var(--text-light);

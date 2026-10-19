@@ -19,6 +19,18 @@ defect and repeated-histogram observation below are separate from this pass.
 
 ## Structural observations awaiting visual validation
 
+### Normalization pass (maintainer-approved)
+
+Normalize incidental differences instead of encoding them as more variants.
+Shared Button/TabButton, FormField/SearchInput, Modal/ConfirmDialog and existing
+feedback/segmented controls now own presentation across actions, settings,
+imports and panels. Source-health content and comparison-discard dialogs share
+implementations. Import steppers no longer have three separate skins. Schema
+field layout no longer requires an action-panel ancestor. Layout placement,
+specialized editor behavior, keyboard handling and confirmation safeguards stay
+with their owners. Inspect narrow layouts and nested dialogs in the screenshots;
+different spacing/colors alone are not regressions to restore.
+
 ### Application styles are coupled to startup
 
 `src/entries/mount.tsx` loads the shared fonts and stylesheet but also installs global error listeners and mounts edition providers. The catalog must import the style assets without importing that entry. A small side-effect-free style entry shared by both could reduce drift if font/style imports expand; this is not a reason to redesign application bootstrap now.
@@ -101,7 +113,8 @@ the cause.
 3. Align notices, errors and form rows across settings/import/panels, preserving meaning.
 4. Extract Sources' repeated health content and repeated Document/Extract list chrome where behavior truly matches.
 
-No component migration or product-style change is included in this inventory PR.
+The inventory and normalization remain on the working branch; no PR until the
+maintainer finishes reviewing the revamp cycles.
 
 ## Additional code findings from coverage review
 

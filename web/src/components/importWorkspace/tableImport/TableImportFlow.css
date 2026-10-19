@@ -20,43 +20,11 @@
 .table-import-workspace .import-workspace-header > .import-workspace-stages {
   position: static;
   width: auto;
-  display: flex;
-  flex-wrap: nowrap;
   justify-self: center;
-  gap: 30px;
   transform: none;
-  border: 0;
-  background: transparent;
-  white-space: nowrap;
 }
 
 .table-import-workspace .import-workspace-header > .icon-btn { justify-self: end; }
-
-.table-import-workspace .import-workspace-stage {
-  position: relative;
-  min-height: 30px;
-  border: 0;
-  background: transparent;
-  color: #8a817a;
-  font-size: 13px;
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.table-import-workspace .import-workspace-stage:not(:last-child)::after {
-  position: absolute;
-  left: calc(100% + 4px);
-  width: 22px;
-  height: 1px;
-  background: #ddd5cd;
-  content: '';
-}
-
-.table-import-workspace .import-workspace-stage span { width: 20px; height: 20px; border-color: #ddd5cd; }
-.table-import-workspace .import-workspace-stage-active { color: #3436b8; font-weight: 700; }
-.table-import-workspace .import-workspace-stage-active span { border-color: #4b4ddb; background: #4b4ddb; color: #fff; }
-.table-import-workspace .import-workspace-stage-done { color: #211c19; }
-.table-import-workspace .import-workspace-stage-done svg { color: #1f7a5a; fill: #e3f1ea; }
 .table-import-workspace .import-workspace-main { grid-template-columns: minmax(0, 1fr); }
 .table-import-workspace .import-workspace-panel { gap: 0; padding: 0; overflow: hidden; }
 
@@ -71,20 +39,6 @@
 
 .table-import-flow input[type='checkbox'],
 .table-import-flow input[type='radio'] { accent-color: #4b4ddb; }
-
-.table-import-error {
-  position: absolute;
-  z-index: 3;
-  right: 24px;
-  bottom: 64px;
-  max-width: min(520px, calc(100% - 48px));
-  padding: 8px 10px;
-  border: 1px solid #f2b8ad;
-  border-radius: 7px;
-  background: #fff7f7;
-  color: #9b3424;
-  font-size: 12px;
-}
 
 .table-import-step-body {
   flex: 1 1 auto;
@@ -261,7 +215,7 @@
 @media (max-width: 980px) {
   .table-import-column-heading, .table-import-column-row { min-width: 760px; grid-template-columns: 28px minmax(110px, 140px) minmax(100px, 120px) minmax(240px, 1.7fr) minmax(140px, .9fr); }
   .table-import-workspace .import-workspace-header > div:first-child { min-width: 200px; max-width: 240px; }
-  .table-import-workspace .import-workspace-header > .import-workspace-stages { gap: 24px; }
+  .table-import-workspace .import-workspace-header > .import-workspace-stages { }
   .table-import-reader-controls { flex-wrap: wrap; }
 }
 

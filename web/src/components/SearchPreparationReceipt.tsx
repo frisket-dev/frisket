@@ -1,3 +1,4 @@
+import { Button } from './Button';
 import { CircleAlert, LoaderCircle } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
@@ -120,7 +121,7 @@ function TextReview({
         </div>
       </header>
       {documents.length > 1 && (
-        <label className="search-preparation-document">
+        <label className="search-preparation-document form-field">
           Sample document
           <PanelSelect ariaLabel="Sample document" topLayer disabled={busy}
             value={sample ? `${sample.row_id}:${sample.column_id}` : ''}
@@ -158,7 +159,7 @@ function TextReview({
       ) : null}
       {!needsOcr && (
         <>
-          <label className="search-preparation-ocr-option">
+          <label className="search-preparation-ocr-option form-field">
             PDF text
             <PanelSelect ariaLabel="PDF text" topLayer
               data-testid="search-preparation-force-ocr"
@@ -319,10 +320,10 @@ export function SearchPreparationReceipt({
         <div className="search-preparation-receipt-body">
           {importSummary}
           <div role="status"><LoaderCircle className="spin" size={18} /> Checking search preparation…</div>
-          {loadingError && <div className="import-field-error" role="alert">{loadingError}</div>}
+          {loadingError && <div className="panel-error" role="alert">{loadingError}</div>}
         </div>
         <footer className="search-preparation-actions">
-          <button type="button" className="btn" onClick={onDone}>Close</button>
+          <Button type="button" onClick={onDone}>Close</Button>
         </footer>
       </section>
     );
@@ -388,7 +389,7 @@ export function SearchPreparationReceipt({
         )}
 
         {batch.status !== 'needs_consent' && unavailableModels.length > 0 && (
-          <div className="import-field-error" role="alert">
+          <div className="panel-error" role="alert">
             {unavailableModels.map((model) => (
               <p key={model.setup_ref}>
                 <strong>{model.display_name} is unavailable on this device.</strong>{' '}
@@ -449,7 +450,7 @@ export function SearchPreparationReceipt({
               </div>
             )}
             {!canPrepare && (
-              <div className="import-field-error" role="alert">
+              <div className="panel-error" role="alert">
                 Model setup is unavailable. See the model details above.
               </div>
             )}
@@ -457,17 +458,17 @@ export function SearchPreparationReceipt({
         )}
 
         {batch.errors.length > 0 && (
-          <div className="import-field-error" role="alert">
+          <div className="panel-error" role="alert">
             <CircleAlert size={14} /> {batch.errors.join(' ')}
           </div>
         )}
       </div>
       {batch.status === 'needs_consent' ? (
         <footer className="search-preparation-actions">
-          {onBack && <button type="button" className="btn" disabled={busy} onClick={onBack}>Back to files</button>}
-          <button
+          {onBack && <Button type="button" disabled={busy} onClick={onBack}>Back to files</Button>}
+          <Button
             type="button"
-            className="btn btn-primary"
+            className="btn-primary"
             data-testid="search-preparation-decision-prepare"
             disabled={busy || !canPrepare}
             onClick={() => void prepare()}
@@ -477,18 +478,18 @@ export function SearchPreparationReceipt({
               : hasSelectedDownloads
                 ? 'Download and make searchable'
                 : 'Make searchable'}
-          </button>
+          </Button>
         </footer>
       ) : (
         <footer className="search-preparation-actions">
-          <button
+          <Button
             type="button"
-            className="btn btn-primary"
+            className="btn-primary"
             data-testid="search-preparation-done"
             onClick={onDone}
           >
             {active ? 'Close' : 'Done'}
-          </button>
+          </Button>
         </footer>
       )}
     </section>

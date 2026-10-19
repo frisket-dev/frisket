@@ -1,3 +1,4 @@
+import { Button } from './Button';
 import { useState } from 'react';
 import type { RunRowErrorSummary } from '../api/open';
 import { bucketRowErrors } from '../runFailureTaxonomy';
@@ -58,14 +59,14 @@ export function RunFailureTriage({
           {rowErrors.totalFailedRows === 1 ? 'row' : 'rows'}
         </span>
         {onShowRows && (
-          <button
+          <Button
             type="button"
-            className="mini-btn"
+
             data-testid="run-failure-show-all"
             onClick={() => onShowRows('any')}
           >
             Show all failed
-          </button>
+          </Button>
         )}
       </div>
       <ul className="run-failure-buckets">
@@ -85,19 +86,19 @@ export function RunFailureTriage({
               </span>
               <span className="run-failure-bucket-label">{bucket.label}</span>
               {outcome !== null && onShowRows && (
-                <button
+                <Button
                   type="button"
-                  className="mini-btn"
+
                   data-testid={`run-failure-bucket-show-${outcome}`}
                   onClick={() => onShowRows(outcome)}
                 >
                   Show rows
-                </button>
+                </Button>
               )}
               {outcome !== null && onRetryRows && (
-                <button
+                <Button
                   type="button"
-                  className="mini-btn"
+
                   data-testid={`run-failure-bucket-retry-${outcome}`}
                   disabled={retried}
                   onClick={() => retry(outcome)}
@@ -107,7 +108,7 @@ export function RunFailureTriage({
                     : bucket.terminal
                       ? `Retry ${bucket.count.toLocaleString()} anyway`
                       : `Retry ${bucket.count.toLocaleString()} ${bucket.count === 1 ? 'row' : 'rows'}`}
-                </button>
+                </Button>
               )}
               {bucket.terminal && (
                 <div

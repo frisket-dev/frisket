@@ -71,10 +71,10 @@ export function ExtractParamsBody({ params, setParams, errors, Field, engine }:
     {engine?.description && <p className="form-hint">{engine.description}</p>}
     <ExtractFieldsEditor fields={params.fields ?? []}
       onChange={(fields) => setParams({ ...params, fields })} />
-    {errors.fields?.message && <p className="form-error" role="alert">{errors.fields.message}</p>}
+    {errors.fields?.message && <p className="panel-error" role="alert">{errors.fields.message}</p>}
     <Field name="instruction" />
     <Field name="include_confidence" />
-    <label className="field-group">
+    <label className="field-group form-field">
       <span className="form-label">Citations</span>
       <PanelSelect testId="field-citation_mode" value={citationMode}
         onValueChange={setCitationMode}
@@ -102,7 +102,7 @@ export function FindParamsBody({ params, setParams, errors, Field }:
     <Field name="instruction" />
     <ExtractFieldsEditor fields={params.fields ?? []} optional
       onChange={(fields) => setParams({ ...params, fields })} />
-    {errors.fields?.message && <p className="form-error" role="alert">{errors.fields.message}</p>}
+    {errors.fields?.message && <p className="panel-error" role="alert">{errors.fields.message}</p>}
     <Field name="model" />
   </>;
 }
@@ -126,11 +126,11 @@ export function McpExtractParamsBody({ params, setParams, errors, Field }:
     <Field name="source" />
     <ExtractFieldsEditor fields={params.fields ?? []}
       onChange={(fields) => setParams({ ...params, fields })} />
-    {errors.fields?.message && <p className="form-error" role="alert">{errors.fields.message}</p>}
+    {errors.fields?.message && <p className="panel-error" role="alert">{errors.fields.message}</p>}
     <Field name="instruction" />
     <McpToolsSelector servers={servers} mcpServerIds={params.mcp_server_ids ?? []}
       onMcpServerIdsChange={(mcp_server_ids) => setParams({ ...params, mcp_server_ids })} />
-    {(problem || errors.mcp_server_ids?.message) && <p className="form-error" role="alert">
+    {(problem || errors.mcp_server_ids?.message) && <p className="panel-error" role="alert">
       {problem ?? errors.mcp_server_ids?.message}
     </p>}
     <Field name="model" />

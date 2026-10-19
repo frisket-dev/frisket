@@ -1,3 +1,4 @@
+import { Button } from '../components/Button';
 import {
   useCallback,
   useEffect,
@@ -304,7 +305,7 @@ export function TopicSegmentationCompareTab({
           actionLabel="the Find topic sections action"
         />
         <div className="ocr-compare-controls-row" data-testid="topic-compare-controls-row">
-          <button
+          <Button
             type="button"
             className={`btn ocr-compare-run${runState === 'pending' ? ' btn-primary' : ''}`}
             data-testid="topic-compare-run"
@@ -333,7 +334,7 @@ export function TopicSegmentationCompareTab({
             {runState === 'pending' ? (
               <span className="ocr-compare-run-count mono"> · {pendingPairs.length} pending</span>
             ) : null}
-          </button>
+          </Button>
           <SegmentedToggle
             testId="topic-compare-mode-switch"
             className="ocr-compare-mode-switch"
@@ -610,14 +611,14 @@ export function TopicSegmentationCompareTab({
                         <strong>{engineLabel(column.engineId)} failed</strong>
                         <span>{run.message}</span>
                         {activeDoc ? (
-                          <button
+                          <Button
                             type="button"
-                            className="btn ocr-compare-engine-retry"
+                            className="ocr-compare-engine-retry"
                             data-testid="topic-compare-engine-retry"
                             onClick={() => retryColumn(activeDoc, column)}
                           >
                             <RotateCw size={12} /> Retry
-                          </button>
+                          </Button>
                         ) : null}
                       </div>
                     ) : activeParsed ? (

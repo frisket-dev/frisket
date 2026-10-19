@@ -1,4 +1,4 @@
-.icon-button {
+.icon-button, .icon-btn {
   display: inline-grid;
   flex: 0 0 auto;
   place-items: center;
@@ -8,11 +8,14 @@
   background: transparent;
   color: var(--text-mid);
   cursor: pointer;
+  width: 26px;
+  height: 26px;
 }
+.icon-btn > svg { width: 16px; height: 16px; }
 .icon-button[data-icon-size='inline'] { width: 20px; height: 20px; }
 .icon-button[data-icon-size='compact'] { width: 26px; height: 26px; }
 .icon-button[data-icon-size='standard'] { width: 36px; height: 36px; }
-.icon-button:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); }
+.icon-button:hover:not(:disabled), .icon-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); }
 .icon-button[aria-expanded='true'], .icon-button[aria-pressed='true'] { background: var(--accent-bg); color: var(--accent); }
-.icon-button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-.icon-button:disabled { cursor: not-allowed; opacity: 0.45; }
+.icon-button:focus-visible, .icon-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.icon-button:disabled, .icon-btn:disabled { cursor: not-allowed; opacity: 0.45; }

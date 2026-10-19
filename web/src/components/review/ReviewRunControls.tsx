@@ -1,3 +1,4 @@
+import { Button } from '../Button';
 import {
   ChartColumnIncreasing,
   ChevronDown,
@@ -206,14 +207,14 @@ export function ReviewRunControls({
       {children && <span className={styles.children}>{children}</span>}
       {run && status === 'complete' && <span className={styles.status}>Complete</span>}
       {run && onRunStatusChange && nextStatus && (
-        <button
+        <Button
           type="button"
           className={`btn ${styles.statusButton}`}
           disabled={disabled || statusBusy}
           onClick={() => onRunStatusChange(run, nextStatus)}
         >
           {statusBusy ? 'Saving…' : nextStatus === 'complete' ? 'Mark review complete' : 'Reopen review'}
-        </button>
+        </Button>
       )}
       {orderOpen && run && (
         <MenuPop

@@ -1,3 +1,4 @@
+import { Button } from '../Button';
 import { TextInput } from '../FormControls';
 // The bespoke drawer body for "Replace by rules". An ordered first-match-wins
 // rules list (contains / exact / regex → whole-cell set-to, null allowed), a
@@ -497,7 +498,7 @@ function ReplaceFormForSheet({
               {(regexFlag && invalidRegex) || blocker || count ? (
                 <div className="resolve-replace-rule-meta">
                   {invalidRegex && regexFlag ? (
-                    <span className="form-error" data-testid="resolve-replace-rule-error">
+                    <span className="panel-error" data-testid="resolve-replace-rule-error">
                       {regexFlag.message}
                     </span>
                   ) : blocker ? (
@@ -519,32 +520,32 @@ function ReplaceFormForSheet({
             </div>
           );
         })}
-        <button
+        <Button
           type="button"
-          className="btn resolve-replace-add-rule"
+          className="resolve-replace-add-rule"
           data-testid="resolve-replace-add-rule"
           disabled={rules.length >= MAX_RULES}
           onClick={addRule}
         >
           <Plus size={13} /> Add rule
-        </button>
+        </Button>
       </div>
 
       {previewError && (
-        <div className="form-error" data-testid="resolve-replace-preview-error">
+        <div className="panel-error" data-testid="resolve-replace-preview-error">
           {previewError}{' '}
-          <button
+          <Button
             type="button"
-            className="btn resolve-replace-preview-retry"
+            className="resolve-replace-preview-retry"
             data-testid="resolve-replace-preview-retry"
             onClick={() => setRetryNonce((nonce) => nonce + 1)}
           >
             Retry preview
-          </button>
+          </Button>
         </div>
       )}
 
-      <label className="resolve-replace-policy-row">
+      <label className="resolve-replace-policy-row form-field">
         <span className="field-labels">When no rule matches</span>
         <PanelSelect
           className="form-input resolve-replace-policy"

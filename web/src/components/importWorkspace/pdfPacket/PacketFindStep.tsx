@@ -1,3 +1,4 @@
+import { Button } from '../../Button';
 import { TextInput } from '../../FormControls';
 import {
   lazy,
@@ -405,7 +406,7 @@ export function PacketFindStep({
           <div className="pdf-packet-ocr-progress" role="status">
             <span>Reading text · {ocrJob.progress.done} of {ocrJob.progress.total ?? pageCount}</span>
             <ProgressBar label="Reading text" completed={ocrJob.progress.done} total={ocrJob.progress.total ?? pageCount} state="active" />
-            <button type="button" className="mini-btn" onClick={() => onCancelOcr(ocrJob.job_id)}>Stop OCR</button>
+            <Button type="button" onClick={() => onCancelOcr(ocrJob.job_id)}>Stop OCR</Button>
           </div>
         ) : null}
         <SegmentedToggle
@@ -462,9 +463,9 @@ export function PacketFindStep({
                 </button>
               </div>
             ))}
-            <button type="button" className="btn" onClick={() => clearCandidatesAndDispatch({ type: 'addPhrase' })}>
+            <Button type="button" onClick={() => clearCandidatesAndDispatch({ type: 'addPhrase' })}>
               <Plus size={13} /> Add a phrase
-            </button>
+            </Button>
             <label className="import-check-inline">
               <input
                 type="checkbox"
@@ -507,12 +508,12 @@ export function PacketFindStep({
           {state.confirmedStarts.length} marked · {unsure.length} to review
           {suggested.length ? ` (${suggested.length} suggested)` : ''}
         </span>
-        <button type="button" className="btn" disabled={!state.matches || !suggested.length} onClick={acceptAllSuggestions}>
+        <Button type="button" disabled={!state.matches || !suggested.length} onClick={acceptAllSuggestions}>
           Accept all {suggested.length} suggested
-        </button>
-        <button type="button" className="btn btn-primary" onClick={() => dispatch({ type: 'stage', stage: 'import' })}>
+        </Button>
+        <Button type="button" className="btn-primary" onClick={() => dispatch({ type: 'stage', stage: 'import' })}>
           Continue to import →
-        </button>
+        </Button>
       </footer>
       {largeViewPage != null && state.snapshot ? (
         <Suspense fallback={null}>

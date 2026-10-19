@@ -1,3 +1,4 @@
+import { Button } from './Button';
 import { TextInput } from './FormControls';
 import { useEffect, useMemo, useState } from 'react';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
@@ -155,13 +156,13 @@ export function PdfTablesPicker({
             />
             Show metadata columns
           </label>
-          <button type="button" className="btn" data-testid="pdf-table-picker-close" onClick={onClose}>
+          <Button type="button" data-testid="pdf-table-picker-close" onClick={onClose}>
             Close
-          </button>
+          </Button>
         </div>
       </div>
 
-      {loadError && <p className="form-error" role="alert">{loadError}</p>}
+      {loadError && <p className="panel-error" role="alert">{loadError}</p>}
       {rows !== null && !hasTables && !loadError && (
         <p className="pdf-tables-picker-empty" data-testid="pdf-table-empty">
           No extracted tables found in this column yet.
@@ -169,7 +170,7 @@ export function PdfTablesPicker({
       )}
 
       {shapeMismatch && (
-        <p className="form-error" role="alert" data-testid="pdf-table-shape-error">
+        <p className="panel-error" role="alert" data-testid="pdf-table-shape-error">
           These tables have mismatched columns, so they cannot be merged into one
           sheet. Re-run extraction with a matching shape policy, or pick a single
           table.
@@ -210,9 +211,9 @@ export function PdfTablesPicker({
           value={targetName}
           onChange={(e) => setTargetName(e.target.value)}
         />
-        <button
+        <Button
           type="button"
-          className="btn btn-primary"
+          className="btn-primary"
           data-testid="pdf-table-materialize"
           disabled={!canMaterialize}
           onClick={() =>
@@ -224,11 +225,11 @@ export function PdfTablesPicker({
           }
         >
           Create sheet from tables
-        </button>
+        </Button>
         {onExportTables && (
-          <button
+          <Button
             type="button"
-            className="btn"
+
             data-testid="pdf-table-export-tables"
             disabled={!hasTables || shapeMismatch}
             onClick={() =>
@@ -240,7 +241,7 @@ export function PdfTablesPicker({
             }
           >
             Export all tables…
-          </button>
+          </Button>
         )}
       </div>
     </div>

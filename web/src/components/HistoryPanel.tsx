@@ -1,3 +1,4 @@
+import { Button } from './Button';
 import { useState, type ReactNode } from 'react';
 import { PanelEmpty } from './PanelPrimitives';
 import {
@@ -58,9 +59,9 @@ function opIcon(op: HistoryOp) {
 function CopyButton({ text, testId }: { text: string; testId: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <button
+    <Button
       type="button"
-      className="mini-btn"
+
       data-testid={testId}
       title="Copy to clipboard"
       onClick={() => {
@@ -71,7 +72,7 @@ function CopyButton({ text, testId }: { text: string; testId: string }) {
       }}
     >
       {copied ? <Check size={11} /> : <Copy size={11} />} {copied ? 'copied' : 'copy'}
-    </button>
+    </Button>
   );
 }
 

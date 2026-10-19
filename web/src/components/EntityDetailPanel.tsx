@@ -1,3 +1,4 @@
+import { TabButton } from './Button';
 import { useState, type ReactNode } from 'react';
 import type { WorkbenchResolvedLayoutContribution } from '../workbench/layout';
 import type { PluginDetailSubject } from '../workbench/pluginDetailContext';
@@ -113,15 +114,15 @@ export function EntityDetailPanel({
 
   return (
     <section className="entity-detail-shell" data-testid="entity-detail-shell">
-      <div className="entity-detail-tabstrip" role="tablist" aria-label="Entity detail">
+      <div className="tab-list" role="tablist" aria-label="Entity detail">
         {tabs.map((tab) => {
           const firstParty = FIRST_PARTY_ENTITY_DETAIL_TABS[tab.contributionId];
           const button = (
-            <button
+            <TabButton
               key={tab.placementId}
               type="button"
               role="tab"
-              className="entity-detail-tab"
+              className="tab-button"
               data-testid={entityDetailTabTestId(tab)}
               data-contribution-id={tab.contributionId}
               data-runtime-source={tab.runtimeSource}
@@ -129,7 +130,7 @@ export function EntityDetailPanel({
               onClick={() => setActiveContributionId(tab.contributionId)}
             >
               {tab.shortTitle ?? tab.title}
-            </button>
+            </TabButton>
           );
           if (!firstParty) return button;
           const Frame = firstParty.Frame;

@@ -44,7 +44,7 @@ export function ReviewQueue({ onClose, onChanged, runId }: ReviewQueueProps) {
   return <dialog className="review-overlay" data-testid="review-queue" aria-label="Review queue" open
     onCancel={(event) => { event.preventDefault(); }}>
     {!selectedRun && toolbar(null, (action) => action(), runs.loading)}
-    {runs.error && <p className="form-error review-load-error" role="alert">{runs.error}</p>}
+    {runs.error && <p className="panel-error review-load-error" role="alert">{runs.error}</p>}
     {runs.loading ? <div className="review-empty">Loading runs…</div>
       : selectedRun ? <ReviewSession
         key={`${selectedRun.runId}:${fieldId ?? ''}:${effectiveOrder}`}

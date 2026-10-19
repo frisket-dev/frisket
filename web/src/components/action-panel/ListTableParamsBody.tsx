@@ -81,7 +81,7 @@ export function ListTableParamsBody({ sheet, params, setParams }:
             setConfigurationError(true);
           }
         }} />
-      {configurationError && <p role="alert" className="form-error">Enter an object containing columns and item_schema.</p>}</>}
+      {configurationError && <p role="alert" className="panel-error">Enter an object containing columns and item_schema.</p>}</>}
     </details>
   </div>;
 }

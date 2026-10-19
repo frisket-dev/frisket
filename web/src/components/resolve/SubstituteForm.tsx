@@ -1,3 +1,4 @@
+import { Button } from '../Button';
 import { TextInput, TextArea } from '../FormControls';
 // The bespoke drawer body for the "Substitute values" action. One row per
 // distinct column value (value + count, ◆ marks the most common) with an inline
@@ -538,16 +539,16 @@ function SubstituteFormBody({
           </span>
         )}
         {preview && (
-          <button
+          <Button
             type="button"
-            className="btn resolve-substitute-reload"
+            className="resolve-substitute-reload"
             data-testid="resolve-substitute-reload"
             disabled={loading}
             title="Re-fetch column values — keeps your mapping; use after the source changed under a preview"
             onClick={reload}
           >
             Reload values
-          </button>
+          </Button>
         )}
       </div>
 
@@ -567,7 +568,7 @@ function SubstituteFormBody({
         </div>
       )}
       {error && (
-        <div className="form-error" data-testid="resolve-substitute-error">{error}</div>
+        <div className="panel-error" data-testid="resolve-substitute-error">{error}</div>
       )}
 
       {overThreshold && preview && (
@@ -619,15 +620,15 @@ function SubstituteFormBody({
             value={pasteText}
             onChange={(e) => setPasteText(e.target.value)}
           />
-          <button
+          <Button
             type="button"
-            className="btn resolve-substitute-paste-apply"
+            className="resolve-substitute-paste-apply"
             data-testid="resolve-substitute-paste-apply"
             disabled={!pasteText.trim()}
             onClick={applyPaste}
           >
             Use map
-          </button>
+          </Button>
           {pasteReport && (
             <p className="form-hint" data-testid="resolve-substitute-paste-report">
               {`Parsed ${pasteReport.applied} mapping${pasteReport.applied === 1 ? '' : 's'}`}
@@ -768,18 +769,18 @@ function SubstituteFormBody({
       )}
 
       {preview && !loading && (
-        <button
+        <Button
           type="button"
-          className="btn resolve-substitute-add"
+          className="resolve-substitute-add"
           data-testid="resolve-substitute-add-value"
           onClick={addExtra}
         >
           <Plus size={13} /> Add value
-        </button>
+        </Button>
       )}
 
       {preview && (
-        <label className="resolve-substitute-policy-row">
+        <label className="resolve-substitute-policy-row form-field">
           <span className="field-labels">Values not listed</span>
           <PanelSelect
             className="form-input"

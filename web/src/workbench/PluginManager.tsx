@@ -343,7 +343,7 @@ export function PluginManager({
       data-mode={mode}
     >
       {mode === 'settings' && !canMutate && (
-        <div className="settings-empty-state" data-testid="plugin-manager-readonly">
+        <div className="panel-empty" data-testid="plugin-manager-readonly">
           Plugin lifecycle controls require project owner access.
         </div>
       )}
@@ -408,7 +408,7 @@ export function PluginManager({
         </section>
       )}
       {lifecycleEnabled && !allowLocalInstall && (
-        <div className="settings-empty-state" data-testid="plugin-manager-local-install-disabled">
+        <div className="panel-empty" data-testid="plugin-manager-local-install-disabled">
           Local plugin install is unavailable in hosted workspaces because the service cannot read
           paths or uploads from your computer.
         </div>
@@ -437,7 +437,7 @@ export function PluginManager({
           </span>
         </div>
         {plugins.length === 0 && (
-          <div className="settings-empty-state" data-testid="plugin-manager-empty">
+          <div className="panel-empty" data-testid="plugin-manager-empty">
             No plugins are installed for this workspace.
           </div>
         )}

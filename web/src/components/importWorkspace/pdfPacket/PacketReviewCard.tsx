@@ -1,3 +1,4 @@
+import { Button } from '../../Button';
 import { useState, type KeyboardEvent } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { PdfPacketMatchResult, PdfPacketPageMatch } from '../../../api/pdfPacketSplits';
@@ -87,14 +88,8 @@ export function PacketReviewCard({
       tabIndex={0}
       onKeyDown={onKeyDown}
     >
-      <div className="packet-review-tabs" role="group" aria-label="Review queue">
-        <button type="button" aria-pressed={tab === 'unsure'} onClick={() => onTab('unsure')}>
-          Unsure <strong>{unsure.length}</strong>
-        </button>
-        <button type="button" aria-pressed={tab === 'suggested'} onClick={() => onTab('suggested')}>
-          Suggested <strong>{suggested.length}</strong>
-        </button>
-      </div>
+      <SegmentedToggle ariaLabel="Review queue" value={tab} onValueChange={value => onTab(value as 'unsure' | 'suggested')}
+        options={[{ value: 'unsure', label: `Unsure ${unsure.length}` }, { value: 'suggested', label: `Suggested ${suggested.length}` }]} />
       {page == null ? (
         <p className="packet-review-empty">
           {tab === 'unsure' ? 'No unsure pages left.' : 'No suggestions left.'}
@@ -128,9 +123,9 @@ export function PacketReviewCard({
           </div>
           {showingReference ? (
             <div className="packet-review-actions packet-review-reference-actions">
-              <button type="button" className="btn btn-primary" onClick={() => setReferenceSeen(true)}>
+              <Button type="button" className="btn-primary" onClick={() => setReferenceSeen(true)}>
                 Continue
-              </button>
+              </Button>
             </div>
           ) : (
             <div className="packet-review-actions">
@@ -142,12 +137,12 @@ export function PacketReviewCard({
               >
                 <ChevronLeft size={14} />
               </button>
-              <button type="button" className="btn btn-primary" onClick={() => answer(true)}>
+              <Button type="button" className="btn-primary" onClick={() => answer(true)}>
                 {tab === 'unsure' ? 'Yes, starts here' : 'Accept'}
-              </button>
-              <button type="button" className="btn" onClick={() => answer(false)}>
+              </Button>
+              <Button type="button" onClick={() => answer(false)}>
                 {tab === 'unsure' ? 'No' : 'Not a start'}
-              </button>
+              </Button>
               <button
                 type="button"
                 className="packet-review-step"
@@ -168,3 +163,4 @@ export function PacketReviewCard({
     </section>
   );
 }
+import { SegmentedToggle } from '../../PanelPrimitives';

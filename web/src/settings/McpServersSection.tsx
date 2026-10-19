@@ -243,7 +243,7 @@ export function McpServersSection({
 
       {importJson !== null && (
         <div className="settings-form">
-          <label>
+          <label className="form-field">
             MCP server JSON
             <TextArea aria-label="MCP server JSON" value={importJson} onChange={(event) => setImportJson(event.currentTarget.value)} />
           </label>
@@ -258,25 +258,25 @@ export function McpServersSection({
       {form && (
         <div className="settings-form" data-testid="mcp-server-form">
           {form.env.length > 0 && <p>Map imported environment values to Project Secrets before saving.</p>}
-          <label>
+          <label className="form-field">
             Name
             <TextInput aria-label="Name" value={form.name} onChange={(event) => updateForm({ name: event.currentTarget.value })} />
           </label>
-          <label>
+          <label className="form-field">
             Command
             <TextInput aria-label="Command" value={form.command} onChange={(event) => updateForm({ command: event.currentTarget.value })} />
           </label>
-          <label>
+          <label className="form-field">
             Arguments
             <TextInput aria-label="Arguments" value={form.argumentsText} onChange={(event) => updateForm({ argumentsText: event.currentTarget.value })} />
           </label>
-          <label>
+          <label className="form-field">
             Working directory
             <TextInput aria-label="Working directory" value={form.cwd} onChange={(event) => updateForm({ cwd: event.currentTarget.value })} />
           </label>
           {form.env.map((entry, index) => (
             <div key={index} className="settings-inline-form">
-              <label>
+              <label className="form-field">
                 Environment variable name
                 <TextInput
                   aria-label={entry.name ? `${titleCase(entry.name)} environment variable name` : 'Environment variable name'}

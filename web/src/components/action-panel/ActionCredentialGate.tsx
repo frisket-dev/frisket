@@ -1,3 +1,4 @@
+import { Button } from '../Button';
 import { AlertTriangle } from 'lucide-react';
 import type { ActionTemplate } from '../../api/types';
 import { navigate, useRoute } from '../../routes';
@@ -19,9 +20,9 @@ export function ActionCredentialGate({ actionTemplate }: { actionTemplate: Actio
       <strong>Needs an API key.</strong>
       <span> {actionTemplate.actionTitle ?? actionTemplate.name} requires {missing.join(', ')} to run.</span>
     </div>
-    <button type="button" className="btn btn-secondary"
+    <Button type="button" className="btn-secondary"
       data-testid="action-credential-gate-settings-link" onClick={openSettings}>
       Add in Settings →
-    </button>
+    </Button>
   </div>;
 }

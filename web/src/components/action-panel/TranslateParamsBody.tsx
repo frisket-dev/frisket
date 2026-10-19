@@ -55,7 +55,7 @@ export function TranslateParamsBody({ params, setParams, engine, errors, Field }
         onChange={(language) => setParams({ ...params, language: language ? [language] : [] })} />}
       <Field name="target_language" label="Translate to" />
     </>}
-    {errors.language?.message && <p className="form-error">{errors.language.message}</p>}
+    {errors.language?.message && <p className="panel-error">{errors.language.message}</p>}
     {selectedEngine !== 'hy_mt2' && <Field name="save_detected_language" label="Save source language" />}
     {selectedEngine === 'llm' && <Field name="context" label="Dataset context" />}
     {selectedEngine === 'hy_mt2' && <p className="form-hint">

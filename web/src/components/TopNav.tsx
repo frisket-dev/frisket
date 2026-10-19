@@ -1,4 +1,5 @@
-import { TextInput } from './FormControls';
+import { Button } from './Button';
+import { FormField, TextInput } from './FormControls';
 // Shared nav chrome: frisket wordmark (→ picker), the project-name dropdown
 // for quick project switching, and the small account link. Route parsing /
 // navigation helpers live in src/routes.ts.
@@ -867,14 +868,14 @@ function ExportDatasetModal({
                 : 'The CSV includes an Excel-friendly UTF-8 BOM.'}
         </div>
         <div className="form-actions">
-          <button
+          <Button
             type="button"
-            className="btn"
+
             data-testid="export-csv-cancel"
             onClick={onClose}
           >
             Cancel
-          </button>
+          </Button>
           {exportUrl ? (
             <a
               className="btn btn-primary"
@@ -892,9 +893,9 @@ function ExportDatasetModal({
               {downloadLabel}
             </a>
           ) : (
-            <button type="button" className="btn btn-primary" disabled>
+            <Button type="button" className="btn-primary" disabled>
               Export
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -1090,7 +1091,7 @@ function ExportGoogleSheetsModal({
           <FileSpreadsheet size={15} /> Export to Google Sheets
         </div>
         {unavailableReason ? (
-          <div className="form-error" data-testid="export-google-sheets-unavailable" role="alert">
+          <div className="panel-error" data-testid="export-google-sheets-unavailable" role="alert">
             {unavailableReason}
           </div>
         ) : connections === null ? (
@@ -1102,8 +1103,8 @@ function ExportGoogleSheetsModal({
             </a>
           </div>
         ) : (
-          <label className="form-field">
-            <span>Google account</span>
+          <FormField label="Google account" >
+
             <PanelSelect
               className="form-input"
               value={connectionId}
@@ -1119,72 +1120,72 @@ function ExportGoogleSheetsModal({
                 );
               })}
             </PanelSelect>
-          </label>
+          </FormField>
         )}
         {!unavailableReason && (
           <>
             <div className="export-option-stack">
-              <button
+              <Button
                 type="button"
                 className={`btn export-option-btn${sourceKind === 'current_sheet' ? ' current' : ''}`}
                 disabled={formFrozen || !currentSheet}
                 onClick={() => setModalState({ sourceKind: 'current_sheet' })}
               >
                 Current sheet
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
                 className={`btn export-option-btn${sourceKind === 'current_view' ? ' current' : ''}`}
                 disabled={formFrozen || !hasCurrentViewExport}
                 onClick={() => setModalState({ sourceKind: 'current_view' })}
               >
                 Current view
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
                 className={`btn export-option-btn${sourceKind === 'all_sheets' ? ' current' : ''}`}
                 disabled={formFrozen}
                 onClick={() => setModalState({ sourceKind: 'all_sheets' })}
               >
                 All sheets
-              </button>
+              </Button>
               <div className="menu-sep" />
-              <button
+              <Button
                 type="button"
                 className={`btn export-option-btn${destinationKind === 'new_spreadsheet' ? ' current' : ''}`}
                 disabled={formFrozen}
                 onClick={() => setModalState({ destinationKind: 'new_spreadsheet' })}
               >
                 New spreadsheet
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
                 className={`btn export-option-btn${destinationKind === 'update_existing' ? ' current' : ''}`}
                 disabled={formFrozen}
                 onClick={() => setModalState({ destinationKind: 'update_existing' })}
               >
                 Update existing spreadsheet
-              </button>
+              </Button>
             </div>
             {destinationKind === 'new_spreadsheet' ? (
-              <label className="form-field">
-                <span>Spreadsheet title</span>
+              <FormField label="Spreadsheet title" >
+
                 <TextInput
                   value={spreadsheetTitle}
                   disabled={formFrozen}
                   onChange={(event) => setModalState({ spreadsheetTitle: event.target.value })}
                 />
-              </label>
+              </FormField>
             ) : (
-              <label className="form-field">
-                <span>Spreadsheet ID</span>
+              <FormField label="Spreadsheet ID" >
+
                 <TextInput
                   value={spreadsheetId}
                   disabled={formFrozen}
                   onChange={(event) => setModalState({ spreadsheetId: event.target.value })}
                   placeholder="1abc..."
                 />
-              </label>
+              </FormField>
             )}
           </>
         )}
@@ -1200,8 +1201,8 @@ function ExportGoogleSheetsModal({
                 ))}
               </ul>
             )}
-            <label className="form-field">
-              <span>Type <strong>confirm</strong> to continue</span>
+            <FormField label={<span>Type <strong>confirm</strong> to continue</span>} >
+
               <TextInput
                 data-testid="export-google-sheets-confirmation-input"
                 value={confirmationText}
@@ -1209,33 +1210,33 @@ function ExportGoogleSheetsModal({
                 autoComplete="off"
                 onChange={(event) => setModalState({ confirmationText: event.target.value })}
               />
-            </label>
+            </FormField>
           </div>
         )}
-        {error && <div className="form-error">{error}</div>}
+        {error && <div className="panel-error">{error}</div>}
         {resultUrl && (
           <a className="form-help" href={resultUrl} target="_blank" rel="noreferrer">
             Open spreadsheet
           </a>
         )}
         <div className="form-actions">
-          <button
+          <Button
             type="button"
-            className="btn"
+
             data-testid="export-google-sheets-cancel"
             onClick={onClose}
           >
             Cancel
-          </button>
+          </Button>
           {!unavailableReason && (
-            <button
+            <Button
               type="submit"
-              className="btn btn-primary"
+              className="btn-primary"
               data-testid="export-google-sheets-submit"
               disabled={!canSubmit || exporting || connections?.length === 0}
             >
               {exporting ? 'Exporting...' : confirmation ? 'Confirm export' : 'Export'}
-            </button>
+            </Button>
           )}
         </div>
       </form>

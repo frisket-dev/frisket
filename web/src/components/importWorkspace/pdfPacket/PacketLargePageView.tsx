@@ -1,3 +1,4 @@
+import { Button } from '../../Button';
 import { useCallback, useEffect, useRef, type KeyboardEvent } from 'react';
 import { Check, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import type { PdfPacketMatchResult, PdfPacketPageMatch } from '../../../api/pdfPacketSplits';
@@ -170,18 +171,18 @@ export function PacketLargePageView({
         <footer>
           <div className="packet-large-actions">
             {!isConfirmed ? (
-              <button type="button" className="btn btn-primary" onClick={() => onConfirm(page)}>
+              <Button type="button" className="btn-primary" onClick={() => onConfirm(page)}>
                 <Check size={13} /> Starts a document <kbd>S</kbd>
-              </button>
+              </Button>
             ) : null}
             {isConfirmed && page !== 1 ? (
-              <button type="button" className="btn" onClick={() => onRemove(page)}>
+              <Button type="button" onClick={() => onRemove(page)}>
                 <X size={13} /> Remove start <kbd>X</kbd>
-              </button>
+              </Button>
             ) : canReject ? (
-              <button type="button" className="btn" onClick={() => onReject(page)}>
+              <Button type="button" onClick={() => onReject(page)}>
                 <X size={13} /> Not a start <kbd>X</kbd>
-              </button>
+              </Button>
             ) : null}
           </div>
           <span>← → pages · Esc close</span>

@@ -1,3 +1,4 @@
+import { Button } from '../Button';
 import { TextArea, TextInput } from '../FormControls';
 import { createContext, Fragment, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState,
   type ReactNode } from 'react';
@@ -101,7 +102,7 @@ function JsonSchemaField({ field, value, schemaType, onChange }: {
         lastValue.current = next;
         onChange(next);
       }} />
-    {typeof value === 'string' && <p className="form-error" role="alert">
+    {typeof value === 'string' && <p className="panel-error" role="alert">
       Enter a valid JSON {schemaType}.
     </p>}
   </div>;
@@ -1140,15 +1141,15 @@ function GeneratedActionFormContents({
         />
       )}
 
-      {editorProblem && <p className="form-error" role="alert" data-testid="generated-editor-problem">{editorProblem}</p>}
+      {editorProblem && <p className="panel-error" role="alert" data-testid="generated-editor-problem">{editorProblem}</p>}
 
       {catalogEntry.kind === 'media.ocr' && (
         <div className="form-actions">
-          <button type="button" className="btn" data-testid="ocr-compare-open"
+          <Button type="button" data-testid="ocr-compare-open"
             disabled={running || !onOpenOcrCompare}
             onClick={() => onOpenOcrCompare?.(ocrCompareTarget)}>
             Compare engines
-          </button>
+          </Button>
         </div>
       )}
 
@@ -1234,17 +1235,17 @@ function GeneratedActionFormContents({
           }} />
       </details>}
 
-      {outputNameProblem && <p className="form-error" role="alert">{outputNameProblem}</p>}
+      {outputNameProblem && <p className="panel-error" role="alert">{outputNameProblem}</p>}
       {staleOutputNames.length > 0 && <div className="form-hint" data-testid="stale-output-names">
         Saved names refer to unavailable outputs: {staleOutputNames.join(', ')}.
-        <button type="button" className="btn btn-ghost" disabled={running}
+        <Button type="button" className="btn-ghost" disabled={running}
           onClick={() => setOutputNames((names) => Object.fromEntries(
             Object.entries(names).filter(([key]) => !staleOutputNames.includes(key)),
-          ))}>Remove unavailable output names</button>
+          ))}>Remove unavailable output names</Button>
       </div>}
 
       {((resolutionProblem && !resolving) || globalDiagnostic || unownedDiagnostic) && (
-        <p className="form-error" role="alert">
+        <p className="panel-error" role="alert">
           {globalDiagnostic?.message ?? unownedDiagnostic?.message ?? resolutionProblem
             ?? 'Correct the invalid fields.'}
         </p>
@@ -1253,12 +1254,12 @@ function GeneratedActionFormContents({
       {projectScoped ? <div className="form-actions action-run-actions">
         {costLine}
         <div className="run-actions-row">
-          <button type="button" className="btn" data-testid="generated-action-preview"
+          <Button type="button" data-testid="generated-action-preview"
             disabled={!canRun || running} onClick={() => submit('all', 'preview')}>
             <Eye size={13} /> Preview
-          </button>
-          <button type="submit" className="btn btn-primary" data-testid="run-button"
-            disabled={!canRun || running}>{running ? runningLabel : customization?.primaryLabel ?? (createsSheet ? 'Create sheet' : 'Run')}</button>
+          </Button>
+          <Button type="submit" className="btn-primary" data-testid="run-button"
+            disabled={!canRun || running}>{running ? runningLabel : customization?.primaryLabel ?? (createsSheet ? 'Create sheet' : 'Run')}</Button>
         </div>
       </div> : <RunScopeFooter primaryLabel={customization?.primaryLabel ?? 'Run'} rowCount={sheet?.rowCount ?? 0}
         selectedCount={selectedRowIds.length} canRun={canRun}

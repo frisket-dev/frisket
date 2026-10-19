@@ -1,3 +1,4 @@
+import { Button } from '../components/Button';
 import { useRef, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { useAnchoredPosition } from '../hooks/useAnchoredPosition';
@@ -30,8 +31,8 @@ export function GuideHint({ anchorRef, onOpenGuide, onDismiss }: {
         Not sure where to start? Walkthroughs highlight the buttons to press as you explore the sample data.
       </p>
       <div className={styles.actions}>
-        <button type="button" className="btn btn-primary" onClick={onOpenGuide}>Open Guide →</button>
-        <button type="button" className="btn" onClick={onDismiss}>Got it</button>
+        <Button type="button" className="btn-primary" onClick={onOpenGuide}>Open Guide →</Button>
+        <Button type="button" onClick={onDismiss}>Got it</Button>
       </div>
     </div>,
     topLayerPortalRoot(),

@@ -1,3 +1,4 @@
+import { Button } from '../components/Button';
 // The Monitor Lineage tab: the project's provenance DAG (sources → sheets → AI
 // columns) read from GET /lineage.
 // Stale sheet nodes and the edges into them render amber; the
@@ -119,18 +120,18 @@ export function CascadeConfirmDialog({
           </p>
           {error && <div className="sheet-cascade-confirm-error">{error}</div>}
           <div className="sheet-cascade-confirm-actions">
-            <button type="button" className="btn btn-ghost" onClick={onClose} disabled={busy}>
+            <Button type="button" className="btn-ghost" onClick={onClose} disabled={busy}>
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              className="btn btn-primary"
+              className="btn-primary"
               data-testid="cascade-confirm-run"
               onClick={() => void runCascade()}
               disabled={busy}
             >
               {busy ? 'Re-running…' : `Re-run ${staleDeepestFirst.length}`}
-            </button>
+            </Button>
           </div>
         </dialog>
       </div>

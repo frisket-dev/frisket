@@ -1,3 +1,4 @@
+import { Button } from './Button';
 import { useEffect, useMemo, useState } from 'react';
 import { FileText, Loader2 } from 'lucide-react';
 import { type V1Receipt } from '../api/open';
@@ -80,7 +81,7 @@ export function ReceiptInspector({ receiptId, onCreateEntityTable }: ReceiptInsp
   return (
     <section className="receipt-inspector" data-testid="receipt-inspector">
       {receipt?.status === 'completed' && receipt.actionKind === 'cluster.values'
-        && onCreateEntityTable && <button type="button" className="btn btn-primary"
+        && onCreateEntityTable && <Button type="button" className="btn-primary"
           onClick={() => {
             onCreateEntityTable(receipt.receiptId);
             if (job.store.get().completedClusterReceiptId === receipt.receiptId) {
@@ -88,7 +89,7 @@ export function ReceiptInspector({ receiptId, onCreateEntityTable }: ReceiptInsp
             }
           }}>
           Create entity table
-        </button>}
+        </Button>}
       {/* Allowlisted, not migrated to PanelLoading —
           icon (Loader2) + flex-row layout is a different genus from the
           plain muted-text block the primitive covers. */}
@@ -100,7 +101,7 @@ export function ReceiptInspector({ receiptId, onCreateEntityTable }: ReceiptInsp
       )}
 
       {viewState.status === 'error' && (
-        <div className="form-error" data-testid="receipt-error">{viewState.error}</div>
+        <div className="panel-error" data-testid="receipt-error">{viewState.error}</div>
       )}
 
       {receipt && (
@@ -152,7 +153,7 @@ export function ReceiptInspector({ receiptId, onCreateEntityTable }: ReceiptInsp
                       <span>{item.name}</span>
                       <code>{refKind(item.ref)}</code>
                       <small>{refDetail(item.ref)}</small>
-                      {download && <a className="mini-btn" href={download.url}
+                      {download && <a className="btn" href={download.url}
                         download={download.filename}>Download {download.filename}</a>}
                     </li>
                   );

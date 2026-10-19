@@ -1,3 +1,4 @@
+import { Button } from '../components/Button';
 import { TextArea, TextInput } from '../components/FormControls';
 import { useEffect, useMemo, useState } from 'react';
 import { Loader2, Play, X } from 'lucide-react';
@@ -220,7 +221,7 @@ export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProp
               {catalogError ? (
                 <div role="alert" className="form-hint">
                   Could not load comparison engines.{' '}
-                  <button type="button" className="mini-btn" onClick={retryCatalog}>Retry</button>
+                  <Button type="button" onClick={retryCatalog}>Retry</Button>
                 </div>
               ) : catalogLoading ? (
                 <span className="form-hint" role="status">Loading comparison engines…</span>
@@ -249,7 +250,7 @@ export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProp
       </div>
 
       <div className="ocr-compare-body" data-testid="translate-compare-body">
-        <label className="ocr-compare-configure-field">
+        <label className="ocr-compare-configure-field form-field">
           <span className="ocr-compare-configure-label">Sample text</span>
           <TextArea
             data-testid="translate-compare-text"
@@ -261,7 +262,7 @@ export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProp
         </label>
 
         <div className="ocr-compare-controls-row">
-          <label className="ocr-compare-configure-field">
+          <label className="ocr-compare-configure-field form-field">
             <span className="ocr-compare-configure-label">Translate from</span>
             <PanelSelect
               className="row-height-select"
@@ -272,7 +273,7 @@ export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProp
               options={SOURCE_LANGUAGE_OPTIONS}
             />
           </label>
-          <label className="ocr-compare-configure-field">
+          <label className="ocr-compare-configure-field form-field">
             <span className="ocr-compare-configure-label">Target language</span>
             <TextInput
               data-testid="translate-compare-target-language"
@@ -290,9 +291,9 @@ export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProp
         />
 
         <div className="ocr-compare-controls-row">
-          <button
+          <Button
             type="button"
-            className="btn btn-primary"
+            className="btn-primary"
             data-testid="translate-compare-run"
             disabled={!canRun}
             title={
@@ -306,7 +307,7 @@ export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProp
           >
             {running ? <Loader2 size={13} className="ocr-compare-spin" /> : <Play size={13} />}{' '}
             {running ? 'Translating…' : 'Translate'}
-          </button>
+          </Button>
         </div>
 
         {runError ? (

@@ -6,7 +6,7 @@ export function TopicSectionsParamsBody({ params, setParams, Field }:
   return <>
     <Field name="source" label="Timestamped transcript" />
     <Field name="engine" />
-    <label className="field-group">
+    <label className="field-group form-field">
       <span className="form-label">Detail</span>
       <PanelSelect data-testid="field-detail"
         value={typeof params.settings?.detail === 'string' ? params.settings.detail : 'balanced'}

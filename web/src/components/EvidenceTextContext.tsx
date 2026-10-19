@@ -1,3 +1,4 @@
+import { Button } from './Button';
 import { Download } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { EvidenceArtifact, EvidenceTextPassageTarget } from '../api/types';
@@ -56,7 +57,7 @@ function PlainTextContext({ context, scopeSpanId, scopeSpanIds, highlight, empha
         ))}
       </pre>}
       {!passagePending && highlight && context.ranges.length > 0 && firstHighlightIndex < 0 && (
-        <div className="evidence-viewer-warning" data-testid="evidence-text-context-unavailable">
+        <div className="panel-notice" data-tone="warning" data-testid="evidence-text-context-unavailable">
           This citation has no displayable passage in the saved source.
         </div>
       )}
@@ -156,11 +157,11 @@ function WindowedSavedTextContext(props: SavedTextContextProps) {
         {(artifact?.spans.find((span) => span.stable_id === target.spanId)?.quote || `Citation ${index + 1}`).slice(0, 100)}
       </option>)}
     </select></label>}
-    {error && <div role="alert">{error}<button type="button" className="mini-btn" onClick={() => setNavigation({
+    {error && <div role="alert">{error}<Button type="button" onClick={() => setNavigation({
       key: contextKey, target: request?.target ?? currentTarget, spanId: request?.spanId ?? focusSpanId,
       locateCurrent: request?.locateCurrent ?? displayed.recovered === true,
       attempt: (request?.attempt ?? 0) + 1,
-    })}>Reload passage</button></div>}
+    })}>Reload passage</Button></div>}
     {displayed.transcript ? <TimestampedTextContext {...rendered} /> : <PlainTextContext {...rendered} />}
   </div>;
 }

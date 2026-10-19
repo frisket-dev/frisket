@@ -1,3 +1,4 @@
+import { Button } from '../components/Button';
 // The drill-down the Mentions panel lacks. Clicking a mention group there
 // filters the GRID; this answers the question a reader actually has — which
 // documents does this mention appear in, and how many times in each — without
@@ -337,9 +338,9 @@ export function MentionDetailPanel({
           })}
         </ul>
         {page?.nextOffset != null && (
-          <button
+          <Button
             type="button"
-            className="mini-btn"
+
             data-testid="mention-detail-more"
             disabled={state.loading}
             onClick={loadMore}
@@ -347,7 +348,7 @@ export function MentionDetailPanel({
             {state.loading
               ? 'Loading…'
               : `See ${Math.min(PAGE_SIZE, page.totals.documents - page.documents.length).toLocaleString()} more documents`}
-          </button>
+          </Button>
         )}
       </div>
     </aside>
@@ -427,9 +428,9 @@ function MentionOccurrenceList({
         })}
       </ol>
       {page.nextOffset != null && (
-        <button
+        <Button
           type="button"
-          className="mini-btn mention-occurrence-more"
+          className="mention-occurrence-more"
           data-testid="mention-occurrence-more"
           disabled={state.loading}
           onClick={() => onLoadMore(page.nextOffset ?? 0)}
@@ -437,7 +438,7 @@ function MentionOccurrenceList({
           {state.loading
             ? 'Loading…'
             : `See ${remaining.toLocaleString()} more in this document`}
-        </button>
+        </Button>
       )}
     </>
   );

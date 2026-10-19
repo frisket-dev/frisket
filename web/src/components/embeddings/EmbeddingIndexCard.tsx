@@ -1,3 +1,4 @@
+import { Button } from '../Button';
 import { TextInput } from '../FormControls';
 import { useCallback, useReducer } from 'react';
 import { ChevronDown, ChevronRight, Download, RefreshCw, ScanSearch } from 'lucide-react';
@@ -110,30 +111,30 @@ export function EmbeddingIndexCard({
         {index.errorItems > 0 ? ` · ${index.errorItems} error` : ''}
       </p>
       <div className="embedding-index-actions">
-        <button
+        <Button
           type="button"
-          className="mini-btn"
+
           data-testid={`embedding-refresh-${index.indexId}`}
           disabled={busy}
           onClick={() => onRefresh(index.indexId, 'incremental')}
         >
           <RefreshCw size={11} /> {busy ? 'Refreshing…' : 'Refresh'}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className="mini-btn"
+
           data-testid={`embedding-rebuild-${index.indexId}`}
           disabled={busy}
           onClick={() => onRefresh(index.indexId, 'full')}
         >
           Rebuild
-        </button>
+        </Button>
       </div>
       <IndexAnalysis apiPort={apiPort} index={index} onSelectSheet={onSelectSheet} />
       <ExportControl apiPort={apiPort} index={index} />
-      <button
+      <Button
         type="button"
-        className="mini-btn"
+
         data-testid={`embedding-find-similar-${index.indexId}`}
         disabled={!canFindSimilar}
         title={canFindSimilar
@@ -151,18 +152,18 @@ export function EmbeddingIndexCard({
         }}
       >
         <ScanSearch size={11} /> Find similar
-      </button>
+      </Button>
       <LensList apiPort={apiPort} index={index} reloadKey={0} />
-      <button
+      <Button
         type="button"
-        className="mini-btn embedding-policy-toggle"
+        className="embedding-policy-toggle"
         data-testid={`embedding-policy-toggle-${index.indexId}`}
         aria-expanded={state.showPolicy}
         onClick={() => dispatch({ type: 'toggle_policy' })}
       >
         {state.showPolicy ? <ChevronDown size={11} /> : <ChevronRight size={11} />}{' '}
         Details / Policy
-      </button>
+      </Button>
       {state.showPolicy && (
         <IndexPolicyDetail
           apiPort={apiPort}
@@ -303,29 +304,29 @@ function IndexAnalysis({
     <div className="embedding-analysis" data-testid={`embedding-analysis-${index.indexId}`}>
       <span className="form-label">Analyze</span>
       <div className="embedding-analysis-actions">
-        <label className="embedding-analysis-field">
+        <label className="embedding-analysis-field form-field">
           PCA sheet name
           <TextInput value={state.pcaSheetName} disabled={busy}
             onChange={(event) => dispatch({ type: 'set_pca_sheet_name', name: event.target.value })} />
         </label>
-        <button
+        <Button
           type="button"
-          className="mini-btn"
+
           data-testid={`embedding-run-pca-${index.indexId}`}
           disabled={busy || !state.pcaSheetName.trim()}
           title="Project embeddings to 2D (PCA) in a new sheet"
           onClick={() => void runPca()}
         >
           {state.running === 'pca' ? 'Projecting…' : 'Run PCA projection'}
-        </button>
+        </Button>
       </div>
       <div className="embedding-analysis-cluster">
-        <label className="embedding-analysis-field">
+        <label className="embedding-analysis-field form-field">
           Clustering sheet name
           <TextInput value={state.clusterSheetName} disabled={busy}
             onChange={(event) => dispatch({ type: 'set_cluster_sheet_name', name: event.target.value })} />
         </label>
-        <label className="embedding-analysis-field">
+        <label className="embedding-analysis-field form-field">
           k
           <TextInput
             type="number"
@@ -337,7 +338,7 @@ function IndexAnalysis({
             onChange={(event) => dispatch({ type: 'set_k', k: event.target.value })}
           />
         </label>
-        <label className="embedding-analysis-field">
+        <label className="embedding-analysis-field form-field">
           seed
           <TextInput
             type="number"
@@ -349,19 +350,19 @@ function IndexAnalysis({
             }
           />
         </label>
-        <button
+        <Button
           type="button"
-          className="mini-btn"
+
           data-testid={`embedding-run-cluster-${index.indexId}`}
           disabled={busy || !state.clusterSheetName.trim()}
           title="Cluster embeddings (k-means) into a new sheet"
           onClick={() => void runCluster()}
         >
           {state.running === 'cluster' ? 'Clustering…' : 'Run k-means'}
-        </button>
+        </Button>
       </div>
       {state.error && (
-        <p className="form-error" data-testid={`embedding-analysis-error-${index.indexId}`}>
+        <p className="panel-error" data-testid={`embedding-analysis-error-${index.indexId}`}>
           {state.error}
         </p>
       )}
@@ -435,9 +436,9 @@ function ExportControl({
 
   return (
     <div className="embedding-export" data-testid={`embedding-export-${index.indexId}`}>
-      <button
+      <Button
         type="button"
-        className="mini-btn"
+
         data-testid={`embedding-export-run-${index.indexId}`}
         disabled={state.busy || index.refreshNeeded}
         title={
@@ -448,8 +449,8 @@ function ExportControl({
         onClick={() => void run()}
       >
         <Download size={11} /> {state.busy ? 'Exporting…' : 'Export'}
-      </button>
-      {state.error && <p className="form-error">{state.error}</p>}
+      </Button>
+      {state.error && <p className="panel-error">{state.error}</p>}
       {state.result && (
         <ul
           className="embedding-export-artifacts"

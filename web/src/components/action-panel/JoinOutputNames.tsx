@@ -1,3 +1,4 @@
+import { Button } from '../Button';
 import { TextInput } from '../FormControls';
 import { useState } from 'react';
 
@@ -22,12 +23,12 @@ export function JoinOutputNames({ outputs, names, onChange, disabled }: {
     <p className="form-hint">Replace default _left or _right name endings. This updates the names below;
       you can still rename every column independently.</p>
     {(['left', 'right'] as const).map((side) => <div className="form-row-pair" key={side}>
-      <label className="field-group"><span className="form-label">{side === 'left' ? 'Left' : 'Right'} suffix</span>
+      <label className="field-group form-field"><span className="form-label">{side === 'left' ? 'Left' : 'Right'} suffix</span>
         <TextInput data-testid={`field-join_${side}_suffix`} disabled={disabled}
           value={side === 'left' ? left : right} onChange={(event) =>
             (side === 'left' ? setLeft : setRight)(event.target.value)} /></label>
-      <button type="button" className="btn btn-ghost" disabled={disabled}
-        onClick={() => apply(side, side === 'left' ? left : right)}>Apply {side} suffix</button>
+      <Button type="button" className="btn-ghost" disabled={disabled}
+        onClick={() => apply(side, side === 'left' ? left : right)}>Apply {side} suffix</Button>
     </div>)}
   </details>;
 }

@@ -83,7 +83,7 @@ export function SpacyTypeMultiSelect({
         </button>
       </div>
       {error && (
-        <p className="form-error" data-testid={`${testId}-error`} role="alert">
+        <p className="panel-error" data-testid={`${testId}-error`} role="alert">
           {error}
         </p>
       )}

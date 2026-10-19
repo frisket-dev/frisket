@@ -1,4 +1,5 @@
-import { Search } from 'lucide-react';
+import { FormField, SearchInput } from '../components/FormControls';
+import { Button } from '../components/Button';
 import type { CSSProperties } from 'react';
 import type { DocumentListPage, Row, SheetMeta } from '../api/types';
 import { MenuPop } from '../components/MenuPop';
@@ -217,8 +218,8 @@ export function DocumentView({
   const optionsPopover = ({ popoverRef, style }: { popoverRef: (el: HTMLDivElement | null) => void; style: CSSProperties }) => (
     <MenuPop ref={popoverRef} style={style} className="document-options" role="dialog" data-testid="document-options" aria-label="View options">
       {sources.length > 1 && (
-        <label className="document-option-row">
-          <span>Source</span>
+        <FormField label="Source" className="document-option-row">
+
           <PanelSelect
             className="row-height-select"
             data-testid="document-option-source"
@@ -237,9 +238,9 @@ export function DocumentView({
               </option>
             ))}
           </PanelSelect>
-        </label>
+        </FormField>
       )}
-      <label className="document-option-row">
+      <label className="document-option-row form-field">
         {/* This is a per-view OVERRIDE of the sheet's default title column
             (set sheet-wide from the column '...' menu's "Use as row title")
             — the blank option restores that default instead of pinning a
@@ -268,8 +269,8 @@ export function DocumentView({
           sort and Sync below are source-independent and stay. */}
       {source?.kind !== 'text' && (
         <>
-      <label className="document-option-row">
-        <span>Layout</span>
+      <FormField label="Layout" className="document-option-row">
+
         <PanelSelect
           className="row-height-select"
           data-testid="document-option-layout"
@@ -284,9 +285,9 @@ export function DocumentView({
           <option value="single">Single page</option>
           <option value="two-up">Two-up</option>
         </PanelSelect>
-      </label>
-      <label className="document-option-row">
-        <span>Fit</span>
+      </FormField>
+      <FormField label="Fit" className="document-option-row">
+
         <PanelSelect
           className="row-height-select"
           data-testid="document-option-fit"
@@ -298,7 +299,7 @@ export function DocumentView({
           <option value="width">Fit width</option>
           <option value="page">Fit page</option>
         </PanelSelect>
-      </label>
+      </FormField>
       <label className="document-option-row document-option-check">
         <input
           type="checkbox"
@@ -310,8 +311,8 @@ export function DocumentView({
       </label>
         </>
       )}
-      <label className="document-option-row">
-        <span>List sort</span>
+      <FormField label="List sort" className="document-option-row">
+
         <PanelSelect
           className="row-height-select"
           data-testid="document-option-listsort"
@@ -327,7 +328,7 @@ export function DocumentView({
           <option value="asc">Title A→Z</option>
           <option value="desc">Title Z→A</option>
         </PanelSelect>
-      </label>
+      </FormField>
     </MenuPop>
   );
 
@@ -339,16 +340,13 @@ export function DocumentView({
       data-source-column-id={sourceColumn ? String(sourceColumn.id) : ''}
     >
       <aside className="document-list" data-testid="document-list" aria-label="Documents">
-        <div className="document-list-search">
-          <Search size={13} aria-hidden />
-          <input
+          <SearchInput
             data-testid="document-list-search"
             placeholder="Search documents…"
             aria-label="Search documents"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
-        </div>
         <div className="document-list-count muted mono">
           {items.length.toLocaleString()} loaded
         </div>
@@ -428,15 +426,15 @@ export function DocumentView({
             })}
           </div>
           {list.pages.at(-1)?.nextCursor && (
-            <button
+            <Button
               type="button"
-              className="mini-btn document-list-more"
+              className="document-list-more"
               data-testid="document-list-more"
               disabled={list.loading}
               onClick={() => void loadMore()}
             >
               {list.loading ? 'Loading…' : 'Load more'}
-            </button>
+            </Button>
           )}
         </div>
       </aside>

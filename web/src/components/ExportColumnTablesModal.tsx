@@ -1,3 +1,4 @@
+import { Button } from './Button';
 import { TextInput, TextArea } from './FormControls';
 import { useMemo, useState, type FormEvent } from 'react';
 import { Download, Loader2 } from 'lucide-react';
@@ -158,7 +159,7 @@ export function ExportColumnTablesModal({
         )}
         {!catalogEntry && (
           <div
-            className="form-error"
+            className="panel-error"
             role="alert"
             data-testid="export-column-tables-catalog-unavailable"
           >
@@ -170,7 +171,7 @@ export function ExportColumnTablesModal({
             <Loader2 size={14} className="spin" /> Preparing ZIP…
           </p>
         )}
-        {error && <div className="form-error" role="alert">{error}</div>}
+        {error && <div className="panel-error" role="alert">{error}</div>}
         {download && (
           <a
             className="btn"
@@ -182,22 +183,22 @@ export function ExportColumnTablesModal({
           </a>
         )}
         <div className="form-actions">
-          <button
+          <Button
             type="button"
-            className="btn"
+
             data-testid="export-column-tables-cancel"
             onClick={onClose}
           >
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
             type="submit"
-            className="btn btn-primary"
+            className="btn-primary"
             data-testid="export-column-tables-submit"
             disabled={!selected || !catalogEntry || state === 'running'}
           >
             {state === 'running' ? 'Exporting…' : 'Export'}
-          </button>
+          </Button>
         </div>
       </form>
     </div>

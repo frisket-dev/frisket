@@ -1,3 +1,4 @@
+import { Button } from '../../Button';
 import { LoaderCircle } from 'lucide-react';
 import {
   useCallback,
@@ -817,7 +818,7 @@ export function PdfBatchImportFlow({
         <p>Removing copied files · {bytesLabel(done)} of {bytesLabel(total)}</p>
         <progress max={Math.max(1, total)} value={done} />
         <span>Nothing was added to your project. This closes by itself when done.</span>
-        <button type="button" className="btn" onClick={onDiscarded}>Close</button>
+        <Button type="button" onClick={onDiscarded}>Close</Button>
       </section>
     );
   }
@@ -973,7 +974,7 @@ export function PdfBatchImportFlow({
             onImport={() => void commit()}
           />
         )}
-        {error && <div className="pdf-batch-error" role="alert">{error}</div>}
+        {error && <div className="panel-error" role="alert">{error}</div>}
       </div>
       {discardPrompt && (
         <DiscardImportConfirm

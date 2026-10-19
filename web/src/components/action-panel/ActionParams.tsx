@@ -430,7 +430,7 @@ export function ParamInput({
   // both ordinary and locally presented fields.
   const paramError = diagnostic && diagnostic.ok === false
     ? (
-        <p className="form-error" data-testid={`${testid}-error`} role="alert">
+        <p className="panel-error" data-testid={`${testid}-error`} role="alert">
           {diagnostic.message ?? 'Invalid value'}
           {diagnostic.position !== undefined ? ` (at position ${diagnostic.position})` : ''}
         </p>

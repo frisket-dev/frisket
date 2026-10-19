@@ -1,3 +1,4 @@
+import { Button } from './Button';
 import { useEffect, useRef, useState } from 'react';
 import type { BlobTextWindow } from '../api/raw/blobText';
 
@@ -98,11 +99,11 @@ export function BoundedTextReader(props: BoundedTextReaderProps | BlobTextReader
     <section className="bounded-text-reader" data-testid="bounded-text-reader" aria-label="Large value reader">
       {props.coordinate !== 'bytes' && <p className="muted">{total.toLocaleString()} characters · {bytes.toLocaleString()} bytes. Read-only above 64 KiB.</p>}
       {(props.coordinate !== 'bytes' || !window || window.previous_start !== null || window.next_start !== null) && <div className="bounded-text-actions" style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-        <button className="mini-btn" type="button" disabled={!window || busy || window.range.start === 0} onClick={() => go(0)}>First</button>
-        <button className="mini-btn" type="button" disabled={!window || busy || window.previous_start === null} onClick={() => window?.previous_start != null && go(window.previous_start)}>Previous</button>
-        {props.coordinate !== 'bytes' && <button className="mini-btn" type="button" disabled={!window || busy} onClick={() => go(Math.floor(total / 2))}>Middle</button>}
-        <button className="mini-btn" type="button" disabled={!window || busy || window.next_start === null} onClick={() => window?.next_start != null && go(window.next_start)}>Next</button>
-        <button className="mini-btn" type="button" disabled={!window || busy} onClick={() => go(props.coordinate === 'bytes' ? Math.floor(Math.max(0, total - 1) / WINDOW_SIZE) * WINDOW_SIZE : Math.max(0, total - WINDOW_SIZE))}>Last</button>
+        <Button type="button" disabled={!window || busy || window.range.start === 0} onClick={() => go(0)}>First</Button>
+        <Button type="button" disabled={!window || busy || window.previous_start === null} onClick={() => window?.previous_start != null && go(window.previous_start)}>Previous</Button>
+        {props.coordinate !== 'bytes' && <Button type="button" disabled={!window || busy} onClick={() => go(Math.floor(total / 2))}>Middle</Button>}
+        <Button type="button" disabled={!window || busy || window.next_start === null} onClick={() => window?.next_start != null && go(window.next_start)}>Next</Button>
+        <Button type="button" disabled={!window || busy} onClick={() => go(props.coordinate === 'bytes' ? Math.floor(Math.max(0, total - 1) / WINDOW_SIZE) * WINDOW_SIZE : Math.max(0, total - WINDOW_SIZE))}>Last</Button>
       </div>}
       {props.coordinate !== 'bytes' && <form onSubmit={(event) => {
         event.preventDefault();
@@ -110,12 +111,12 @@ export function BoundedTextReader(props: BoundedTextReaderProps | BlobTextReader
         if (Number.isInteger(character) && character >= 1 && character <= total) go(character - 1);
       }} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBlock: 8 }}>
         <label>Character <input aria-label="Go to character" type="number" min="1" max={total} style={{ width: '9ch' }} value={jump} onChange={(event) => setJump(event.target.value)} /></label>
-        <button type="submit" className="mini-btn" disabled={!window || busy || !jump}>Go</button>
+        <Button type="submit" disabled={!window || busy || !jump}>Go</Button>
       </form>}
       {busy ? <p role="status">Loading text…</p> : current?.error ? (
-        <div role="alert"><p>{current.error}</p><button type="button" className="mini-btn" onClick={() => {
+        <div role="alert"><p>{current.error}</p><Button type="button" onClick={() => {
           setRequest({ start: 0, revision: undefined, attempt: request.attempt + 1, anchored: false });
-        }}>Reload text</button></div>
+        }}>Reload text</Button></div>
       ) : window ? <>
         <p className="muted" role="status">{props.coordinate === 'bytes'
           ? `Section ${Math.floor(('section_start' in window ? window.section_start : 0) / WINDOW_SIZE) + 1} of ${Math.max(1, Math.ceil(total / WINDOW_SIZE))} · plain text`
@@ -123,8 +124,8 @@ export function BoundedTextReader(props: BoundedTextReaderProps | BlobTextReader
         <pre className={props.coordinate === 'bytes' ? 'document-text' : undefined} data-testid="bounded-text-window" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: '45vh', overflowY: 'auto' }}>{highlightedText}</pre>
       </> : null}
       {(props.coordinate === 'bytes' || revision !== undefined) && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-        <a className="mini-btn" href={props.coordinate === 'bytes' ? props.downloadUrl : props.downloadUrl(revision!)} download>{props.coordinate === 'bytes' ? 'Download full file' : 'Download full value'}</a>
-        <button type="button" className="mini-btn" disabled={!window || busy} onClick={() => void copy()}>Copy full {props.coordinate === 'bytes' ? 'file' : 'value'} ({bytes.toLocaleString()} bytes)</button>
+        <a className="btn" href={props.coordinate === 'bytes' ? props.downloadUrl : props.downloadUrl(revision!)} download>{props.coordinate === 'bytes' ? 'Download full file' : 'Download full value'}</a>
+        <Button type="button" disabled={!window || busy} onClick={() => void copy()}>Copy full {props.coordinate === 'bytes' ? 'file' : 'value'} ({bytes.toLocaleString()} bytes)</Button>
       </div>}
       <p role="status">{copyStatus}</p>
     </section>

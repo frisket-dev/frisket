@@ -1,0 +1,35 @@
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-6);
+  font: 600 var(--font-size-control)/1.4 var(--font);
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text);
+  text-decoration: none;
+  border-radius: var(--radius-6);
+  padding: var(--space-6) var(--space-12);
+  cursor: pointer;
+}
+.btn:hover:not(:disabled) { background: var(--bg-hover); }
+.btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--text-on-solid); }
+.btn-primary:hover:not(:disabled) { background: var(--accent-strong); }
+.btn-accept { background: var(--green); border-color: var(--green); color: var(--text-on-solid); }
+.btn-accept:hover:not(:disabled) { background: var(--success-strong); }
+.btn-reject, .btn-danger { background: var(--red); border-color: var(--red); color: var(--text-on-solid); }
+.btn-reject:hover:not(:disabled), .btn-danger:hover:not(:disabled) { background: var(--danger-strong); }
+.btn-icon { width: 28px; height: 28px; padding: 0; }
+.tab-list { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--border); }
+.tab-button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  flex-shrink: 0; padding: 7px 10px; white-space: nowrap;
+  border: 0; border-bottom: 2px solid transparent; background: transparent;
+  color: var(--text-mid); font: 600 12px/1.4 var(--font); cursor: pointer;
+}
+.tab-button:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); }
+.tab-button[aria-selected='true'] { color: var(--accent); border-bottom-color: var(--accent); background: var(--accent-bg); }
+.tab-button:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.tab-button:disabled { opacity: 0.5; cursor: not-allowed; }

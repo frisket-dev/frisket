@@ -1,3 +1,4 @@
+import { Button } from '../Button';
 import { useState } from 'react';
 import { PanelSelect } from '../PanelSelect';
 import { SegmentedToggle } from '../PanelPrimitives';
@@ -15,8 +16,8 @@ export function FetchUrlParamsBody({ sheet, params, Field, sampleColumnValues, o
     {suggestDownload && source && <div className="action-io-summary" data-testid="youtube-routing-chip">
       <p className="form-hint">"{source.name}" looks like it has supported media links — Download media
         handles those (formats, audio/video, subtitles) better than a plain download.</p>
-      <button type="button" className="btn btn-secondary" data-testid="youtube-routing-navigate"
-        onClick={() => onNavigateToAction?.('media.ytdlp_download', source.name)}>Use Download media</button>
+      <Button type="button" className="btn-secondary" data-testid="youtube-routing-navigate"
+        onClick={() => onNavigateToAction?.('media.ytdlp_download', source.name)}>Use Download media</Button>
     </div>}
   </>;
 }
@@ -60,7 +61,7 @@ export function VideoFramesParamsBody({ params, setParams, Field, errors }:
           }} />
         <span className="unit-input-suffix">{sampling.kind === 'count' ? 'frames' : 'seconds'}</span>
       </div>
-      {errors.sampling?.message && <p role="alert" className="form-error" data-testid="frame-sampling-error">{errors.sampling.message}</p>}
+      {errors.sampling?.message && <p role="alert" className="panel-error" data-testid="frame-sampling-error">{errors.sampling.message}</p>}
       <div className="param-row">
         <label className="form-label" htmlFor="video-frames-max-dimension">Max dimension</label>
         <PanelSelect id="video-frames-max-dimension" testId="video-frames-max-dimension-select"
@@ -90,7 +91,7 @@ export function VideoFramesParamsBody({ params, setParams, Field, errors }:
             setParams({ ...params, max_dimension: raw ? Number(raw) : 0 });
           }} /><span className="unit-input-suffix">px, longest side</span>
       </div>}
-      {errors.max_dimension?.message && <p role="alert" className="form-error"
+      {errors.max_dimension?.message && <p role="alert" className="panel-error"
         data-testid="video-frames-max-dimension-error">{errors.max_dimension.message}</p>}
       <p className="form-hint" data-testid="video-frames-max-dimension-hint">
         Downscale-only, aspect preserved. Original keeps each frame at native resolution.

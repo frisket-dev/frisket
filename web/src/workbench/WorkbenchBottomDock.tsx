@@ -1,3 +1,4 @@
+import { Button, TabButton } from '../components/Button';
 import {
   useCallback,
   useEffect,
@@ -266,9 +267,9 @@ function HaltedRunResumeSection({
         {progress.totalRows.toLocaleString()} rows finished before the stop.
         Resuming keeps them — only the remaining rows run.
       </p>
-      <button
+      <Button
         type="button"
-        className="mini-btn"
+
         data-testid="bottom-dock-halt-resume-run"
         disabled={requested}
         onClick={() => {
@@ -277,7 +278,7 @@ function HaltedRunResumeSection({
         }}
       >
         {requested ? 'Resume requested' : 'Resume run'}
-      </button>
+      </Button>
     </section>
   );
 }
@@ -310,14 +311,14 @@ function renderJobDetail(
           <h4>Error</h4>
           <pre>{dockJobErrorMessage(job)}</pre>
           {isPluginFailure && (
-            <button
+            <Button
               type="button"
-              className="btn bottom-dock-plugin-error-settings-link"
+              className="bottom-dock-plugin-error-settings-link"
               data-testid="bottom-dock-plugin-error-settings-link"
               onClick={() => openPluginSettingsFromError(job, projectId)}
             >
               Open in Settings → Plugins
-            </button>
+            </Button>
           )}
         </section>
       )}
@@ -640,10 +641,10 @@ export function WorkbenchBottomDock({
           const badge = tabBadges?.[tab.placementId] ?? 0;
           return (
             <span key={tab.placementId} className="workbench-bottom-tab-wrap">
-              <button
+              <TabButton
                 type="button"
                 role="tab"
-                className={`workbench-bottom-tab${isActive ? ' active' : ''}`}
+                className={`tab-button${isActive ? ' active' : ''}`}
                 aria-selected={isActive}
                 aria-controls="workbench-bottom-dock-panel"
                 id={`workbench-bottom-dock-tab-${tab.placementId}`}
@@ -668,7 +669,7 @@ export function WorkbenchBottomDock({
                     {badge.toLocaleString()}
                   </span>
                 )}
-              </button>
+              </TabButton>
               {closeable && (
                 <button
                   type="button"

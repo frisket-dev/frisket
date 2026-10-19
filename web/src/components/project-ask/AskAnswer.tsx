@@ -1,3 +1,4 @@
+import { Button } from '../Button';
 import { useRef, useState, type ReactNode } from 'react';
 import { Copy, Files } from 'lucide-react';
 import type { AskCitation, AskEvent } from '../../api/projectQA';
@@ -73,7 +74,7 @@ export function AskAnswer({ event, onInspectProposal, onOpenSource, actionPropos
     {source && hasCitationPreview(source) && <div className="ask-source-preview"><strong>{source.label}</strong><button type="button" aria-label="Close source preview" onClick={closeSource}>×</button>{source.message && <p>{source.message}</p>}{source.target?.kind === 'web' && <><p>{source.excerpt}</p>
       <p>{source.target.fetched ? 'Page read' : 'Search snippet'} · {new Date(source.target.retrieved_at).toLocaleString()}</p>
       <p><a href={source.target.url} target="_blank" rel="noopener noreferrer">{source.target.url}</a></p>
-      <button type="button" className="btn" onClick={() => { if (source.target?.kind === 'web') onInspectProposal('Save web source', { action_id: 'import.urls', scope: { kind: 'project' }, params: { urls: [source.target.url] }, sheet_name: 'Web sources', output_names: {} }); }}>Save to project</button>
+      <Button type="button" onClick={() => { if (source.target?.kind === 'web') onInspectProposal('Save web source', { action_id: 'import.urls', scope: { kind: 'project' }, params: { urls: [source.target.url] }, sheet_name: 'Web sources', output_names: {} }); }}>Save to project</Button>
     </>}</div>}
     {event.kind === 'answer' && <div className="ask-answer-actions"><button type="button" aria-label="Copy answer text" title="Copy answer text" onClick={() => void copy(false)}><Copy size={14} aria-hidden /></button><button type="button" aria-label="Copy answer with sources" title="Copy answer with sources" onClick={() => void copy(true)}><Files size={14} aria-hidden /></button>{copyStatus && <span role="status">{copyStatus}</span>}</div>}
   </div>;

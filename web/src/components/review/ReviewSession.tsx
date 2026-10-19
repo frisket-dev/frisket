@@ -1,3 +1,4 @@
+import { Button } from '../Button';
 import { TextArea } from '../FormControls';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Check, ChevronLeft, ChevronRight, Pencil, X } from 'lucide-react';
@@ -79,8 +80,8 @@ function FieldDecision({ field, controller: c, onSelectItem, selectableItemIndic
           if (event.key === 'Escape') { event.stopPropagation(); c.cancelEdit(); }
           if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); void c.resolve([field], 'edit', c.editValue); }
         }} />
-      <button className="btn" disabled={c.busy} onClick={() => { void c.resolve([field], 'edit', c.editValue); }}>Save edit</button>
-      <button className="btn" disabled={c.busy} onClick={c.cancelEdit}>Cancel</button>
+      <Button disabled={c.busy} onClick={() => { void c.resolve([field], 'edit', c.editValue); }}>Save edit</Button>
+      <Button disabled={c.busy} onClick={c.cancelEdit}>Cancel</Button>
     </div>}
     {selected && (field.boundedJustification
       ? <div className={styles.justification} aria-label="Reason excerpt"><ReviewExcerpt excerpt={field.boundedJustification} /></div>
@@ -102,10 +103,10 @@ function ReviewFooter({ controller: c }: { controller: ReviewSessionController }
       value={c.note} disabled={c.readOnly || c.busy || c.savingNote} onChange={(event) => c.changeNote(event.target.value)}
       onBlur={() => { void c.saveNote(); }} />
     <div className={styles.footerButtons}>
-      {remaining ? <button className="btn btn-primary" disabled={c.busy || c.readOnly} onClick={c.acceptRemaining} data-testid="review-accept-remaining">
+      {remaining ? <Button className="btn-primary" disabled={c.busy || c.readOnly} onClick={c.acceptRemaining} data-testid="review-accept-remaining">
         <Check size={14} /> {count ? 'Accept remaining' : 'Accept all'}
-      </button> : <span className={styles.rowDone}><Check size={14} /> Row done</span>}
-      <button className="btn" disabled={c.busy || !c.canNext} onClick={() => c.moveRow(1)}>Next row <ChevronRight size={14} /></button>
+      </Button> : <span className={styles.rowDone}><Check size={14} /> Row done</span>}
+      <Button disabled={c.busy || !c.canNext} onClick={() => c.moveRow(1)}>Next row <ChevronRight size={14} /></Button>
     </div>
     <p className={styles.shortcuts}><kbd>↑↓</kbd> / <kbd>W S</kbd> field · <kbd>←</kbd>/<kbd>A</kbd> yes · <kbd>→</kbd>/<kbd>D</kbd> no · <kbd>Shift A</kbd> accept + next</p>
   </footer>;
@@ -141,8 +142,8 @@ export function ReviewSession({ onClose, renderToolbar, ...options }: ReviewSess
   return <>
     {renderToolbar ? renderToolbar(navigation, c.leave, c.busy && !c.loading) : navigation}
     {c.problem && <div className={styles.notice} role="alert">{c.problem}
-      {c.loading === false && c.canRetryPageLoad && <button className="btn" onClick={c.retry}>Retry</button>}
-      {c.note && <button className="btn" onClick={() => { void c.saveNote(); }}>Save note</button>}
+      {c.loading === false && c.canRetryPageLoad && <Button onClick={c.retry}>Retry</Button>}
+      {c.note && <Button onClick={() => { void c.saveNote(); }}>Save note</Button>}
     </div>}
     {c.readOnly && <p className={styles.notice}>Review complete. Reopen it to make more decisions.</p>}
     {c.loading && !c.page ? <div className={styles.empty}>Loading review…</div>

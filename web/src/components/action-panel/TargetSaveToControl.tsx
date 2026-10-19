@@ -331,7 +331,7 @@ export function TargetSaveToControl({
           }
         }}
       />
-      {error && <p className="form-error" data-testid="new-column-error">{error}</p>}
+      {error && <p className="panel-error" data-testid="new-column-error">{error}</p>}
       {defaultColumnNameCollision &&
         targetCol === NEW_COLUMN &&
         newColName === defaultColumnNameCollision.renamed && (

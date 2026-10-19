@@ -1,3 +1,4 @@
+import { Button } from './Button';
 import { TextArea } from './FormControls';
 import { AlertTriangle, Check, ChevronDown, ChevronRight, Copy, FileSearch2, MapPin, Pause, Pencil, Play, RefreshCcw, X, Zap } from 'lucide-react';
 import { useCallback, useEffect, useReducer, useRef, useState, type CSSProperties, type FocusEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from 'react';
@@ -484,14 +485,14 @@ export function RowField({
               {temporalDraftResult.error}
             </p>
           )}
-          <button
+          <Button
             type="submit"
-            className="mini-btn"
+
             data-testid={`cell-save-${col.name}`}
             disabled={Boolean(temporalDraftResult && !temporalDraftResult.ok)}
           >
             <Check size={12} /> Save
-          </button>
+          </Button>
         </form>
       ) : bounded || textTarget ? (
         <FieldValue col={col} columns={columns} row={row} sheetId={sheetId} value={displayValue} textTarget={textTarget} />
@@ -528,9 +529,9 @@ export function RowField({
             The engine returned empty output for this row — retrying may well
             do the same.
           </span>
-          <button
+          <Button
             type="button"
-            className="mini-btn"
+
             data-testid={`cell-retry-button-${col.name}`}
             disabled={retryBusy}
             onClick={() => {
@@ -539,7 +540,7 @@ export function RowField({
             }}
           >
             <RefreshCcw size={11} /> {retryBusy ? 'Retrying…' : 'Retry anyway'}
-          </button>
+          </Button>
         </div>
       )}
       <RowInspectorEvidenceSectionFrame>
@@ -630,14 +631,14 @@ function CellEvidenceBlock({
         </div>
       )}
       {state.payload.stale_count > 0 && (
-        <button
+        <Button
           type="button"
-          className="mini-btn cell-evidence-audit-toggle"
+          className="cell-evidence-audit-toggle"
           data-testid={`cell-evidence-stale-toggle-${columnName}`}
           onClick={openAudit}
         >
           stale evidence ({state.payload.stale_count})
-        </button>
+        </Button>
       )}
       {state.auditOpen && staleLinks.length > 0 && (
         <div className="cell-evidence-stale-list" data-testid={`cell-evidence-stale-${columnName}`}>
@@ -694,15 +695,15 @@ export function ClampedField({ children }: { children: ReactNode }) {
         {children}
       </div>
       {overflowing && (
-        <button
+        <Button
           type="button"
-          className="mini-btn row-field-clamp-toggle"
+          className="row-field-clamp-toggle"
           data-testid="row-field-clamp-toggle"
           aria-expanded={expanded}
           onClick={() => setExpanded((v) => !v)}
         >
           {expanded ? 'Show less' : 'Show more'}
-        </button>
+        </Button>
       )}
     </div>
   );
@@ -1663,9 +1664,9 @@ function formatPrompt(p: unknown): string | null {
 function CopyButton({ text, testId }: { text: string; testId: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <button
+    <Button
       type="button"
-      className="mini-btn"
+
       data-testid={testId}
       title="Copy to clipboard"
       onClick={() => {
@@ -1676,7 +1677,7 @@ function CopyButton({ text, testId }: { text: string; testId: string }) {
       }}
     >
       {copied ? <Check size={11} /> : <Copy size={11} />} {copied ? 'copied' : 'copy'}
-    </button>
+    </Button>
   );
 }
 
@@ -1746,10 +1747,10 @@ function ExplainBlock({
 
   return (
     <div className={compact ? 'explain explain-compact' : 'explain'}>
-      <button
+      <Button
         type="button"
         ref={triggerRef}
-        className={compact ? 'row-field-icon explain-toggle' : 'mini-btn explain-toggle'}
+        className={compact ? 'row-field-icon explain-toggle' : 'btn explain-toggle'}
         data-testid={testId ?? (compact ? 'cell-action-explain' : 'explain-cell')}
         aria-label={compact ? label : undefined}
         title={compact ? `${label} — view ${description}` : `View ${description}`}
@@ -1758,7 +1759,7 @@ function ExplainBlock({
         onClick={toggle}
       >
         <FileSearch2 size={12} /> {compact ? null : 'Explain this cell'}
-      </button>
+      </Button>
       {open && (
         <div
           ref={panelRef}
@@ -1951,9 +1952,9 @@ function ProvenanceBlock({
       <div className="provenance-grid">
         <span className="prov-key">origin</span>
         {isRunResult ? (
-          <button
+          <Button
             type="button"
-            className="mini-btn"
+
             data-testid="cell-provenance-run-result-toggle"
             aria-expanded={runResultExpanded}
             aria-label={`${runResultExpanded ? 'Hide' : 'Show'} run result details`}
@@ -1963,7 +1964,7 @@ function ProvenanceBlock({
               ? <ChevronDown size={12} aria-hidden="true" />
               : <ChevronRight size={12} aria-hidden="true" />}
             <span data-testid="cell-provenance-origin">run result</span>
-          </button>
+          </Button>
         ) : (
           <span data-testid="cell-provenance-origin">
             {cellOriginLabel(prov.currentValueRef.kind)}

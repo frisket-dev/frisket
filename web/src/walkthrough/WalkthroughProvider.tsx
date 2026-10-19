@@ -1,3 +1,4 @@
+import { Button } from '../components/Button';
 import {
   useCallback,
   useEffect,
@@ -412,20 +413,20 @@ function WalkthroughHost({
           </p>
         )}
         <div className="walkthrough-card-actions">
-          <button
+          <Button
             type="button"
-            className="btn"
+
             disabled={stepIndex === 0}
             onClick={() => onStepIndexChange(Math.max(0, stepIndex - 1))}
           >
             Back
-          </button>
+          </Button>
           {step.advance === 'click-target' && (
             <span className="walkthrough-click-hint">Click the highlighted control</span>
           )}
-          <button type="button" className="btn btn-primary" onClick={advance}>
+          <Button type="button" className="btn-primary" onClick={advance}>
             {isFinal ? 'Finish' : 'Next'}
-          </button>
+          </Button>
         </div>
       </aside>
     </>,

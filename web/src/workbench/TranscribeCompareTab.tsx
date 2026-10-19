@@ -1,3 +1,4 @@
+import { Button } from '../components/Button';
 import { TextInput } from '../components/FormControls';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Play, Plus, Settings2, X } from 'lucide-react';
@@ -217,7 +218,7 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
         data-running={runningCount > 0 ? 'true' : 'false'}
       >
         <div className="ocr-compare-controls-row" data-testid="transcribe-compare-controls-row">
-          <label className="form-label">First seconds
+          <label className="form-label form-field">First seconds
             <TextInput type="number" min="0.001" step="any"
               data-testid="transcribe-compare-duration" value={timeLimit} disabled={busy}
               onChange={(event) => {
@@ -225,12 +226,12 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
                 for (const column of session.columns) session.invalidateColumn(column.id);
               }} />
           </label>
-          <button type="button" className="btn btn-primary" data-testid="transcribe-compare-run"
+          <Button type="button" className="btn-primary" data-testid="transcribe-compare-run"
             disabled={!active || busy || !session.docs.length || !runnableColumns.length || !Number.isFinite(Number(timeLimit)) || Number(timeLimit) <= 0}
             onClick={() => session.pendingPairs.length ? session.runPending() : session.runAll()}>
             <Play size={13} /> {session.preparing ? 'Estimating…' : 'Run comparison'}
-          </button>
-          {busy && <button type="button" className="btn" data-testid="transcribe-compare-cancel" onClick={session.cancelRuns}>Cancel</button>}
+          </Button>
+          {busy && <Button type="button" data-testid="transcribe-compare-cancel" onClick={session.cancelRuns}>Cancel</Button>}
           <button
             type="button"
             className="ocr-compare-source-toggle row-height-select"
@@ -461,7 +462,7 @@ function TranscribeOptionFields({
         </div>
       ) : null}
       {fields.language ? (
-        <label className="ocr-compare-configure-field">
+        <label className="ocr-compare-configure-field form-field">
           <span className="ocr-compare-configure-label">Language</span>
           <PanelSelect
             className="row-height-select"

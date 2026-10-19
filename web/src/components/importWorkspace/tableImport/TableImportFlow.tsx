@@ -490,7 +490,7 @@ export function TableImportFlow({
 
   const working = busy || saving;
   return <div className="table-import-flow">
-    {error && <div className="table-import-error" role="alert">{error}</div>}
+    {error && <div className="panel-error" role="alert">{error}</div>}
     {stage === 'add' && <AddDataStep
       busy={busy}
       issue={sourceIssue}

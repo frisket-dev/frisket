@@ -1,3 +1,4 @@
+import { Button } from '../Button';
 import { useEffect } from 'react';
 import { ArrowDown, ArrowUp, Copy, Plus, X } from 'lucide-react';
 import { PanelSelect } from '../PanelSelect';
@@ -61,15 +62,15 @@ function JoinParamsBodyForSheet({ params, setParams, setEditorProblem, sheet, Fi
     return () => setEditorProblem?.(null);
   }, [loading, error, right, missing.length, setEditorProblem]);
   return <div className="action-io-summary" data-testid="tabular-join-form">
-    <button type="button" className="btn btn-ghost" data-testid="tabular-join-refresh-sheets"
-      onClick={refresh}>{error ? 'Retry' : 'Refresh sheets'}</button>
+    <Button type="button" className="btn-ghost" data-testid="tabular-join-refresh-sheets"
+      onClick={refresh}>{error ? 'Retry' : 'Refresh sheets'}</Button>
     {loading && <p className="form-hint" role="status">Loading sheets…</p>}
-    {error && <p className="form-error" role="alert">{error}</p>}
-    {missing.length > 0 && <p className="form-error" role="alert" data-testid="tabular-join-repair">
+    {error && <p className="panel-error" role="alert">{error}</p>}
+    {missing.length > 0 && <p className="panel-error" role="alert" data-testid="tabular-join-repair">
       Source columns missing: {missing.join(', ')}. Choose replacements to repair the join.</p>}
     <fieldset className="resolve-drawer-body-fields" disabled={blocked}>
     <p className="form-hint">Left: {left.name}. The selected rows come from this sheet.</p>
-    <label className="field-group"><span className="form-label">Right sheet</span>
+    <label className="field-group form-field"><span className="form-label">Right sheet</span>
       <PanelSelect testId="field-join_right_sheet" ariaLabel="Right sheet"
         value={right?.id ?? ''} disabled={blocked}
         options={[...(!right ? [{ value: '', label: params.right?.sheet_id != null ? 'Saved sheet unavailable' : 'Choose a sheet' }] : []),
@@ -99,10 +100,10 @@ function JoinParamsBodyForSheet({ params, setParams, setEditorProblem, sheet, Fi
             join_keys: keys.filter((_, i) => i !== index) })}><X size={13} /></button>
       </div>)}
     </div>
-    <button type="button" className="btn btn-ghost" data-testid="join-key-pair-add" disabled={loading || keys.length >= 8}
+    <Button type="button" className="btn-ghost" data-testid="join-key-pair-add" disabled={loading || keys.length >= 8}
       onClick={() => setParams({ ...params, join_keys: [...keys,
         { left_column: left.columns[0]?.name ?? '', right_column: right?.columns[0]?.name ?? '' }] })}>
-      <Plus size={13} /> Add key</button>
+      <Plus size={13} /> Add key</Button>
     <div className="form-row-pair">
       {(['left', 'right'] as const).map((side) => <div key={side}>
         <span className="form-label">{side === 'left' ? 'Left' : 'Right'} fields</span>

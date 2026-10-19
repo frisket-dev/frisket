@@ -7,7 +7,7 @@ export function PageCaptureParamsBody({ params, setParams, errors, Field }:
   const mode = params.output_mode ?? 'page';
   const render = params.render_mode ?? 'static';
   return <>
-    <label className="field-group"><span className="field-labels">Collect</span>
+    <label className="field-group form-field"><span className="field-labels">Collect</span>
       <PanelSelect className="form-input" data-testid="field-output_mode" value={mode}
         onChange={(event) => setParams({ ...params,
           output_mode: event.target.value as 'page' | 'links',
@@ -21,7 +21,7 @@ export function PageCaptureParamsBody({ params, setParams, errors, Field }:
     <p className="form-hint">{mode === 'links'
       ? 'Each unique HTTP(S) link becomes a row with its anchor text and source-row lineage.'
       : 'The column holding the URLs you want to snapshot.'}</p>
-    <label className="field-group"><span className="field-labels">How to load each page</span>
+    <label className="field-group form-field"><span className="field-labels">How to load each page</span>
       <PanelSelect className="form-input" data-testid="field-render_mode" value={render}
         onChange={(event) => setParams({ ...params,
           render_mode: event.target.value as 'static' | 'playwright',
@@ -45,13 +45,13 @@ export function PageCaptureParamsBody({ params, setParams, errors, Field }:
             { value: 'B', multiplier: 1 }, { value: 'KB', multiplier: 1000 },
             { value: 'MB', multiplier: 1_000_000 }, { value: 'GB', multiplier: 1_000_000_000 },
           ] }} />
-        {errors.max_bytes?.message && <span className="form-error">{errors.max_bytes.message}</span>}
+        {errors.max_bytes?.message && <span className="panel-error">{errors.max_bytes.message}</span>}
       </label>
       <label className="field-group"><span className="field-labels">Timeout</span>
         <UnitInput id="capture-timeout" testid="field-timeout_ms" value={String(params.timeout_ms ?? 30_000)}
           onChange={(value) => setParams({ ...params, timeout_ms: Number(value) })}
           unit={{ defaultUnit: 's', units: [{ value: 'ms', multiplier: 1 }, { value: 's', multiplier: 1000 }] }} />
-        {errors.timeout_ms?.message && <span className="form-error">{errors.timeout_ms.message}</span>}
+        {errors.timeout_ms?.message && <span className="panel-error">{errors.timeout_ms.message}</span>}
       </label>
     </details>
   </>;

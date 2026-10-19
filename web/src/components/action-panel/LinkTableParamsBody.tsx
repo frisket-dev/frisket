@@ -4,7 +4,7 @@ import type { GeneratedActionParamsBodyProps } from './GeneratedActionParamsBody
 export function LinkTableParamsBody({ params, setParams, Field }:
   GeneratedActionParamsBodyProps<'derive.link_table'>) {
   return <>
-    <label className="field-group">
+    <label className="field-group form-field">
       <span className="form-label">Semantic join receipt</span>
       <TextInput data-testid="link-table-receipt"
         value={params.source?.receipt_id ?? ''}

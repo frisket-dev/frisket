@@ -1,4 +1,5 @@
-import { TextInput, TextArea } from '../FormControls';
+import { Button } from '../Button';
+import { FormField, TextInput, TextArea } from '../FormControls';
 // Controlled output-field rendering + mutations: the "Columns it creates" /
 // "Output details" builder — header row with Add column, per-field FieldRow, category labels,
 // and the nested list-item shape editor. Fully controlled: ActionForm owns
@@ -311,9 +312,9 @@ export function OutputFieldsEditor({
         </span>
         <div className="form-label-actions">
           {!usesFieldNameDestination && !outputFieldsReadOnly && (maxFields === undefined || fields.length < maxFields) && (
-            <button
+            <Button
               type="button"
-              className="mini-btn"
+
               onClick={() => onFieldsChange((fs) => [
                 ...fs,
                 makeEditableField({
@@ -324,7 +325,7 @@ export function OutputFieldsEditor({
               ])}
             >
               <Plus size={12} /> Add column
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -389,7 +390,7 @@ export function OutputFieldsEditor({
                   }}
                 />
                 {labelError?.fieldIndex === i && (
-                  <p className="form-error" role="alert" data-testid="classify-labels-error"
+                  <p className="panel-error" role="alert" data-testid="classify-labels-error"
                     id={`classify-labels-error-${f.uiId}`}>{labelError.message}</p>
                 )}
                 {actionKind === 'map.classify' && (f.labels?.length ?? 0) > 0 && (
@@ -409,8 +410,8 @@ export function OutputFieldsEditor({
                         Optional descriptions improve local semantic matching. Add an Other / Unclear label for ambiguous rows.
                       </p>
                       {f.labels?.map((label) => (
-                        <label className="label-description-row" key={label}>
-                          <span>{label}</span>
+                        <FormField label={<span>{label}</span>} className="label-description-row" key={label}>
+
                           <TextInput
                             value={f.labelDescriptions?.[label] ?? ''}
                             placeholder={`What ${label} means`}
@@ -423,7 +424,7 @@ export function OutputFieldsEditor({
                               setField(i, { labelDescriptions: next });
                             }}
                           />
-                        </label>
+                        </FormField>
                       ))}
                     </div>
                   </details>
@@ -473,14 +474,14 @@ export function OutputFieldsEditor({
                         onDelete={() => removeItemField(f.uiId, item.uiId)}
                       />
                     ))}
-                    <button
+                    <Button
                       type="button"
-                      className="mini-btn list-item-add"
+                      className="list-item-add"
                       data-testid="list-item-field-add"
                       onClick={() => addItemField(f.uiId)}
                     >
                       <Plus size={12} /> item field
-                    </button>
+                    </Button>
                   </div>
                 )}
               </div>

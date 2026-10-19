@@ -1,4 +1,4 @@
-import { TextInput } from '../components/FormControls';
+import { FormField, TextInput } from '../components/FormControls';
 // The add-column popover uses the native top layer and owns dismissal.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
@@ -74,8 +74,8 @@ export function AddColumnPopover({
       <div className="grid-header-menu-title">
         <span>Add column</span>
       </div>
-      <label className="grid-add-column-field">
-        <span>Name</span>
+      <FormField label="Name" className="grid-add-column-field">
+
         <TextInput
           ref={inputRef}
           type="text"
@@ -90,9 +90,9 @@ export function AddColumnPopover({
             }
           }}
         />
-      </label>
-      <label className="grid-add-column-field">
-        <span>Type</span>
+      </FormField>
+      <FormField label="Type" className="grid-add-column-field">
+
         <PanelSelect
           className="row-height-select"
           data-testid="grid-add-column-type"
@@ -103,7 +103,7 @@ export function AddColumnPopover({
             <option key={option} value={option}>{option}</option>
           ))}
         </PanelSelect>
-      </label>
+      </FormField>
       {duplicate && (
         <div className="grid-add-column-error" data-testid="grid-add-column-error">
           A column named “{trimmed}” already exists.

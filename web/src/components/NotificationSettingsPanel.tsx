@@ -1,3 +1,4 @@
+import { Button } from './Button';
 import { TextInput } from './FormControls';
 import { type ReactNode, useCallback, useEffect, useMemo, useReducer } from 'react';
 import { PanelEmpty, PanelError, StatusChip, type StatusTone } from './PanelPrimitives';
@@ -337,7 +338,7 @@ export function NotificationSettingsPanel() {
         </button>
       </div>
       {state.error && <PanelError>{state.error}</PanelError>}
-      {state.notice && <div className="notification-settings-notice">{state.notice}</div>}
+      {state.notice && <div className="panel-notice" data-tone="warning">{state.notice}</div>}
       <ChannelSection channels={state.channels} draft={state.channelDraft} busy={state.busy} configurableNotificationEmail={configurableNotificationEmail} onToggle={toggleChannel} onCreate={createChannel} onDraftChange={(update) => dispatch({ type: 'set_channel_draft', update })} onKindChange={(kind) => dispatch({ type: 'set_channel_kind', kind })} />
       <RouteSection routes={state.routes} draft={state.routeDraft} externalChannels={externalChannels} busy={state.busy} onToggle={toggleRoute} onTest={testRoute} onCreate={createRoute} onDraftChange={(update) => dispatch({ type: 'set_route_draft', update })} onModeChange={(mode) => dispatch({ type: 'set_route_mode', mode })} />
       <DeliverySection requests={state.requests} routes={state.routes} />
@@ -354,7 +355,7 @@ function ChannelIcon({ kind }: { kind: NotificationChannel['kind'] }) {
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="notification-settings-field">
-      <span className="notification-settings-label">{label}</span>
+      <span className="form-label">{label}</span>
       <div className="notification-settings-control">{children}</div>
     </div>
   );
@@ -436,17 +437,17 @@ function ChannelSection({
         )}
         <Field label="Secret ref">
           <TextInput aria-label="API secret reference" data-testid="notification-channel-secret-ref" value={draft.secretRef} onChange={(event) => onDraftChange({ secretRef: event.target.value })} placeholder="env:SECRET_NAME" />
-          <span className="notification-settings-hint">References a stored secret, e.g. <code>env:SECRET_NAME</code> — not the value itself.</span>
+          <span className="form-hint">References a stored secret, e.g. <code>env:SECRET_NAME</code> — not the value itself.</span>
         </Field>
         <div className="notification-settings-formfooter">
           <label className="notification-settings-check">
             <input type="checkbox" checked={draft.enabled} onChange={(event) => onDraftChange({ enabled: event.target.checked })} />
             Enabled
           </label>
-          <button type="button" className="btn btn-primary" data-testid="notification-create-channel" disabled={busy === 'channel'} onClick={() => onCreate(draft)}>
+          <Button type="button" className="btn-primary" data-testid="notification-create-channel" disabled={busy === 'channel'} onClick={() => onCreate(draft)}>
             <CheckCircle2 size={13} />
             Save channel
-          </button>
+          </Button>
         </div>
       </div>
     </section>
@@ -487,9 +488,9 @@ function RouteSection({
               )}
             </div>
             <div className="notification-settings-actions">
-              <button type="button" className="secondary-btn notification-settings-test" title="Create route test request" aria-label="Create route test request" data-testid="notification-route-test" disabled={busy === `test:${route.id}`} onClick={() => onTest(route)}>
+              <Button type="button" className="notification-settings-test" title="Create route test request" aria-label="Create route test request" data-testid="notification-route-test" disabled={busy === `test:${route.id}`} onClick={() => onTest(route)}>
                 <Send size={12} /> Test
-              </button>
+              </Button>
               <button type="button" className={`icon-btn ${route.enabled ? 'is-on' : 'is-off'}`} title={route.enabled ? 'Disable route' : 'Enable route'} aria-label={route.enabled ? 'Disable route' : 'Enable route'} data-testid="notification-route-toggle" disabled={busy === `route:${route.id}`} onClick={() => onToggle(route)}>
                 {route.enabled ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}
               </button>
@@ -558,10 +559,10 @@ function RouteSection({
             <input type="checkbox" checked={draft.enabled} onChange={(event) => onDraftChange({ enabled: event.target.checked })} />
             Enabled
           </label>
-          <button type="button" className="btn btn-primary" data-testid="notification-create-route" disabled={!draft.channelId || busy === 'route'} onClick={() => onCreate(draft)}>
+          <Button type="button" className="btn-primary" data-testid="notification-create-route" disabled={!draft.channelId || busy === 'route'} onClick={() => onCreate(draft)}>
             <CheckCircle2 size={13} />
             Save route
-          </button>
+          </Button>
         </div>
       </div>
     </section>

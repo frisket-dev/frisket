@@ -1,3 +1,4 @@
+import { Button } from '../Button';
 import type { GeneratedActionParamsBodyProps } from './GeneratedActionParamsBody';
 import type { GeneratedActionFieldProps } from './generatedActionCustomizations';
 import { PanelSelect } from '../PanelSelect';
@@ -45,8 +46,8 @@ export function CensusParamsBody({ sheet, Field, onNavigateToAction }:
     {(sheet?.columns ?? []).every((column) => column.type !== 'geo_point') && (
       <div className="empty-inline" data-testid="census-no-geo-point">
         <span>No compatible <code>geo_point</code> columns.</span>
-        <button type="button" className="mini-btn"
-          onClick={() => onNavigateToAction?.('enrich.geocode')}>Run Geocode first</button>
+        <Button type="button"
+          onClick={() => onNavigateToAction?.('enrich.geocode')}>Run Geocode first</Button>
       </div>
     )}
     <Field name="source" label="Location" />

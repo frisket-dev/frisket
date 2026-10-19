@@ -1,3 +1,4 @@
+import { Button } from './Button';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Copy, Download, RefreshCcw, ShieldCheck } from 'lucide-react';
 import { type ProvenanceManifest as ProvenanceManifestData } from '../api/open';
@@ -146,25 +147,25 @@ function ProvenanceActions({
   const downloadHref = `data:application/json;charset=utf-8,${encodeURIComponent(payload)}`;
   return (
     <section className="provenance-actions">
-      <button
+      <Button
         type="button"
-        className="mini-btn"
+
         data-testid="provenance-refresh"
         onClick={onRefresh}
       >
         <RefreshCcw size={12} /> Refresh
-      </button>
-      <button
+      </Button>
+      <Button
         type="button"
-        className="mini-btn"
+
         data-testid="provenance-copy-json"
         disabled={!manifest}
         onClick={onCopy}
       >
         <Copy size={12} /> Copy JSON
-      </button>
+      </Button>
       <a
-        className={`mini-btn${manifest ? '' : ' disabled'}`}
+        className={`btn${manifest ? '' : ' disabled'}`}
         data-testid="provenance-download-json"
         href={manifest ? downloadHref : undefined}
         download={`${projectName.replace(/[^A-Za-z0-9._-]+/g, '-') || 'project'}-provenance.json`}
@@ -338,9 +339,9 @@ function ProvenanceRuns({
       </div>
       {(manifest.runsPage.total > manifest.runs.length || manifest.runsPage.offset > 0) && (
         <div className="provenance-actions" data-testid="provenance-runs-page-controls">
-          <button
+          <Button
             type="button"
-            className="mini-btn"
+
             data-testid="provenance-runs-newer"
             disabled={manifest.runsPage.offset <= 0}
             onClick={() => {
@@ -348,10 +349,10 @@ function ProvenanceRuns({
             }}
           >
             Newer runs
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="mini-btn"
+
             data-testid="provenance-runs-older"
             disabled={!manifest.runsPage.hasMore || manifest.runsPage.nextOffset == null}
             onClick={() => {
@@ -362,7 +363,7 @@ function ProvenanceRuns({
             }}
           >
             Older runs
-          </button>
+          </Button>
         </div>
       )}
     </section>
@@ -397,14 +398,14 @@ function ProvenanceReceipts({
                 </span>
                 <span className="col-field-name">{receipt.actionKind}</span>
                 <span className="muted">{receipt.receiptId}</span>
-                <button
+                <Button
                   type="button"
-                  className="mini-btn"
+
                   data-testid="receipt-inspect-button"
                   onClick={() => onInspectReceipt(receipt.receiptId)}
                 >
                   Inspect
-                </button>
+                </Button>
               </div>
               <div className="version-sub">
                 {receipt.createdAt ? startedLabel(receipt.createdAt) : 'unknown time'}
@@ -424,9 +425,9 @@ function ProvenanceReceipts({
       </div>
       {(manifest.receiptsPage.total > manifest.receipts.length || manifest.receiptsPage.offset > 0) && (
         <div className="provenance-actions" data-testid="provenance-receipts-page-controls">
-          <button
+          <Button
             type="button"
-            className="mini-btn"
+
             data-testid="provenance-receipts-newer"
             disabled={manifest.receiptsPage.offset <= 0}
             onClick={() => {
@@ -434,10 +435,10 @@ function ProvenanceReceipts({
             }}
           >
             Newer receipts
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="mini-btn"
+
             data-testid="provenance-receipts-older"
             disabled={!manifest.receiptsPage.hasMore || manifest.receiptsPage.nextOffset == null}
             onClick={() => {
@@ -448,7 +449,7 @@ function ProvenanceReceipts({
             }}
           >
             Older receipts
-          </button>
+          </Button>
         </div>
       )}
       {activeReceiptId && <ReceiptInspector receiptId={activeReceiptId}
@@ -600,7 +601,7 @@ export function ProvenanceManifest({ projectName, onClose, onCreateEntityTable }
         <PanelLoading testId="provenance-loading" label="loading..." />
       )}
       {state.status === 'error' && (
-        <div className="form-error" data-testid="provenance-error">{state.error}</div>
+        <div className="panel-error" data-testid="provenance-error">{state.error}</div>
       )}
 
       {manifest && (

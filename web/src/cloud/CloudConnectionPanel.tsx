@@ -1,3 +1,4 @@
+import { Button } from '../components/Button';
 import { CheckCircle2, Copy, ExternalLink, LogOut } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -230,7 +231,7 @@ export function CloudConnectionPanel({
 
   if (!connection) {
     return <section className={`cloud-connection-card is-${variant}`}>
-      <p className="settings-help">Checking Frisket Cloud connection…</p>
+      <p className="form-hint">Checking Frisket Cloud connection…</p>
       {error && <p className="cloud-connection-error" role="alert">{error}</p>}
     </section>;
   }
@@ -246,12 +247,12 @@ export function CloudConnectionPanel({
           target="_blank" rel="noreferrer">
           Open sign-in page <ExternalLink size={14} aria-hidden />
         </a>
-        <button className="btn" type="button" onClick={() => void cancel()}>Cancel</button>
-        <button className="btn" type="button" onClick={() => {
+        <Button type="button" onClick={() => void cancel()}>Cancel</Button>
+        <Button type="button" onClick={() => {
           void navigator.clipboard.writeText(
             authorization.verificationUriComplete ?? authorization.verificationUri,
           );
-        }}><Copy size={14} /> Copy sign-in link</button>
+        }}><Copy size={14} /> Copy sign-in link</Button>
       </div>
     </section>;
   }
@@ -275,8 +276,8 @@ export function CloudConnectionPanel({
       {eligibleAccounts.length === 0 && <p className="cloud-connection-error" role="alert">
         None of these accounts can fund this project.
       </p>}
-      <button className="btn btn-primary" type="button" disabled={busy || accountId === null}
-        onClick={() => void continueWithAccount()}>{busy ? 'Connecting…' : 'Continue'}</button>
+      <Button className="btn-primary" type="button" disabled={busy || accountId === null}
+        onClick={() => void continueWithAccount()}>{busy ? 'Connecting…' : 'Continue'}</Button>
       {error && <p className="cloud-connection-error" role="alert">{error}</p>}
     </section>;
   }
@@ -299,9 +300,9 @@ export function CloudConnectionPanel({
       )}
       {phase === 'connected' && variant === 'compact' && <p className="cloud-connection-success">This project can now use Frisket Cloud.</p>}
       {allowSignOut && connection.capabilities.canDisconnect && (
-        <button className="btn" type="button" disabled={busy} onClick={() => void signOut()}>
+        <Button type="button" disabled={busy} onClick={() => void signOut()}>
           <LogOut size={14} /> {busy ? 'Signing out…' : 'Sign out'}
-        </button>
+        </Button>
       )}
       {error && <p className="cloud-connection-error" role="alert">{error}</p>}
     </section>;
@@ -319,14 +320,14 @@ export function CloudConnectionPanel({
         : 'Sign in with your Frisket account. No API key is needed, and this project stays on this computer.'}</p>
       {!expired && <p>Each person gets $5 of free Frisket credit every month.</p>}
     </>}
-    <button className="btn btn-primary" type="button" disabled={busy || !permitted}
-      onClick={() => void begin()}>{phase === 'starting' ? 'Opening browser…' : expired ? 'Reconnect' : <><span>{variant === 'welcome' ? 'Sign in to Frisket Cloud' : 'Sign in with browser'}</span><ExternalLink size={14} /></>}</button>
+    <Button className="btn-primary" type="button" disabled={busy || !permitted}
+      onClick={() => void begin()}>{phase === 'starting' ? 'Opening browser…' : expired ? 'Reconnect' : <><span>{variant === 'welcome' ? 'Sign in to Frisket Cloud' : 'Sign in with browser'}</span><ExternalLink size={14} /></>}</Button>
     {expired && allowSignOut && connection.capabilities.canDisconnect && (
-      <button className="btn" type="button" disabled={busy} onClick={() => void signOut()}>
+      <Button type="button" disabled={busy} onClick={() => void signOut()}>
         <LogOut size={14} /> {busy ? 'Signing out…' : 'Sign out'}
-      </button>
+      </Button>
     )}
-    {connection.notice && <p className="settings-help" role="status">{connection.notice}</p>}
+    {connection.notice && <p className="form-hint" role="status">{connection.notice}</p>}
     {error && <p className="cloud-connection-error" role="alert">{error}</p>}
   </section>;
 }

@@ -1,3 +1,4 @@
+import { Button } from '../Button';
 import { TextInput } from '../FormControls';
 import {
   useEffect,
@@ -157,9 +158,9 @@ function CustomEmbeddingModelDetail({
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={onKeyDown}
         />
-        <button type="button" className="btn" onClick={commitModel}>
+        <Button type="button" onClick={commitModel}>
           Use model
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -396,7 +397,7 @@ export function CreateEmbeddingIndexDialog({
             className="embeddings-create-panel embeddings-remote-controls"
             data-testid="embedding-remote-controls"
           >
-            <p className="form-hint embeddings-egress-warning">
+            <p className="form-hint panel-notice" data-tone="warning">
               {selectedCard?.label ?? providerCard?.label ?? form.provider} is a remote provider. Your source text leaves this machine.
             </p>
             <label className="embeddings-col-check">
@@ -523,38 +524,38 @@ export function CreateEmbeddingIndexDialog({
         )}
 
         <div className="embeddings-form-actions">
-          <button type="button" className="mini-btn" onClick={onClose}>
+          <Button type="button" onClick={onClose}>
             Cancel
-          </button>
+          </Button>
           {currentStepIndex > 0 && (
-            <button
+            <Button
               type="button"
-              className="mini-btn"
+
               data-testid="embedding-create-back"
               onClick={goBack}
             >
               Back
-            </button>
+            </Button>
           )}
           {!finalStep ? (
-            <button
+            <Button
               type="button"
-              className="btn btn-primary"
+              className="btn-primary"
               data-testid="embedding-create-next"
               disabled={!canAdvance}
               onClick={handleContinue}
             >
               Continue
-            </button>
+            </Button>
           ) : (
-            <button
+            <Button
               type="submit"
-              className="btn btn-primary"
+              className="btn-primary"
               data-testid="embedding-create"
               disabled={!createReady || !selectedChoiceCanRun || creating}
             >
               {creating ? 'Creating...' : 'Create index'}
-            </button>
+            </Button>
           )}
         </div>
       </form>

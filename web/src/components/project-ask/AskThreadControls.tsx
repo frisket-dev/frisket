@@ -1,3 +1,4 @@
+import { Button } from '../Button';
 import { TextInput } from '../FormControls';
 import { useEffect, useRef, useState } from 'react';
 import { Download, Pencil, Trash2 } from 'lucide-react';
@@ -39,7 +40,7 @@ export function AskThreadControls({ thread, active }: { thread: AskThread; activ
       <form onSubmit={(event) => { event.preventDefault(); void submit(); }}>
         <h2>{editing === 'rename' ? 'Rename conversation' : 'Delete conversation?'}</h2>
         {editing === 'rename' ? <TextInput aria-label="Conversation name"  value={name} maxLength={200} onChange={(event) => setName(event.target.value)} /> : <p>This removes the conversation and its citations for everyone in the project.</p>}
-        <div className="form-actions"><button type="button" className="btn" disabled={busy} onClick={() => setEditing(null)}>Cancel</button><button type="submit" className="btn btn-primary" disabled={busy || editing === 'rename' && !name.trim()}>{editing === 'rename' ? 'Save' : 'Delete'}</button></div>
+        <div className="form-actions"><Button type="button" disabled={busy} onClick={() => setEditing(null)}>Cancel</Button><Button type="submit" className="btn-primary" disabled={busy || editing === 'rename' && !name.trim()}>{editing === 'rename' ? 'Save' : 'Delete'}</Button></div>
       </form>
     </dialog>}
   </>;

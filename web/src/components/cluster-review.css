@@ -18,9 +18,6 @@
   margin-top: 0;
 }
 /* The method hint hugs the Method select (4px) instead of taking a full row. */
-.cluster-review-form .cluster-controls > .form-hint {
-  margin-top: 6px;
-}
 
 /* Sentence-case semibold labels: the shared `.field-labels` is only a font
    size, so mirror `.action-panel .form-label`'s weight/color/size here. */
@@ -31,13 +28,6 @@
 }
 
 /* Preview-state notices sit under the controls with a little air. */
-.cluster-review-form > .form-hint,
-.cluster-review-form > .form-error {
-  margin-top: 14px;
-}
-.cluster-review-form > .btn {
-  margin-top: 12px;
-}
 
 /* Group cards: keep the existing bordered `.cluster-card` look (its styles.css
    rules stay) but give the list room below the controls and read like Extract's

@@ -57,6 +57,6 @@ export function StructuredFieldsEditor({
       usesFieldNameDestination={false} outputFieldsReadOnly={false}
       onFieldsChange={update} onLabelsRawChange={setLabelsRaw}
       labelError={labelError} onLabelInteraction={onLabelInteraction} />
-    {error && <p className="form-error" role="alert">{error}</p>}
+    {error && <p className="panel-error" role="alert">{error}</p>}
   </>;
 }

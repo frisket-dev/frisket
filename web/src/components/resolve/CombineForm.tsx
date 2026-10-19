@@ -1,3 +1,4 @@
+import { Button } from '../Button';
 import { TextInput } from '../FormControls';
 // The bespoke drawer body for the Combine action ("Group values"). The core
 // loop: select unassigned values (click toggle · shift range · ⌘ add) → ＋ New
@@ -574,15 +575,15 @@ function CombineFormBody({
             <span className="resolve-combine-scope-meta" data-testid="resolve-combine-scope-meta">
               {scopeMeta}
             </span>
-            <button
+            <Button
               type="button"
-              className="btn resolve-combine-reload"
+              className="resolve-combine-reload"
               data-testid="resolve-combine-reload"
               title="Reload column values while keeping your groups"
               onClick={reload}
             >
               Reload values
-            </button>
+            </Button>
           </div>
         )}
       </div>
@@ -599,18 +600,18 @@ function CombineFormBody({
 
       <div className="resolve-combine-body">
           <SelectionBar count={selected.size} onClear={() => setSelected(new Set())}>
-            <button
+            <Button
               type="button"
-              className="btn btn-primary resolve-combine-bar-btn"
+              className="btn-primary resolve-combine-bar-btn"
               data-testid="resolve-combine-new-bucket"
               onClick={createBucket}
             >
               <Plus size={12} /> New bucket
-            </button>
+            </Button>
             <div className="resolve-combine-add-to-wrap" ref={addToRef}>
-              <button
+              <Button
                 type="button"
-                className="btn resolve-combine-bar-btn"
+                className="resolve-combine-bar-btn"
                 data-testid="resolve-combine-add-to"
                 disabled={buckets.length === 0}
                 title={buckets.length === 0 ? 'No buckets yet — create one first' : undefined}
@@ -619,7 +620,7 @@ function CombineFormBody({
                 onClick={() => setAddToOpen((open) => !open)}
               >
                 Add to <ChevronDown size={12} />
-              </button>
+              </Button>
               {addToOpen && (
                 <div
                   className="resolve-combine-add-to-menu"
@@ -653,15 +654,15 @@ function CombineFormBody({
             </div>
           )}
           {loadError && !loading && (
-            <div className="form-error resolve-combine-load-error" data-testid="resolve-combine-load-error">
+            <div className="panel-error resolve-combine-load-error" data-testid="resolve-combine-load-error">
               <span>{loadError}</span>
-              <button
+              <Button
                 type="button"
-                className="btn"
+
                 onClick={reload}
               >
                 Retry
-              </button>
+              </Button>
             </div>
           )}
 
@@ -683,14 +684,14 @@ function CombineFormBody({
                     {n === 2 ? 'Two' : n} groups are named{' '}
                     <strong>{name}</strong> — merge them?
                   </span>
-                  <button
+                  <Button
                     type="button"
-                    className="btn resolve-combine-dup-merge"
+                    className="resolve-combine-dup-merge"
                     data-testid="resolve-combine-dup-merge"
                     onClick={() => mergeDuplicates(name)}
                   >
                     Merge
-                  </button>
+                  </Button>
                 </div>
               ))}
               <div className="resolve-combine-buckets">
@@ -759,7 +760,7 @@ function CombineFormBody({
               />
               {searchStale && (
                 <div
-                  className="form-error resolve-combine-search-stale"
+                  className="panel-error resolve-combine-search-stale"
                   data-testid="resolve-combine-search-stale"
                   role="status"
                 >
@@ -786,7 +787,7 @@ function CombineFormBody({
       </div>
 
       {preview && (
-        <label className="resolve-combine-setting" data-testid="resolve-combine-remainder-policy-row">
+        <label className="resolve-combine-setting form-field" data-testid="resolve-combine-remainder-policy-row">
           <span className="resolve-combine-setting-label">Values not grouped</span>
           <PanelSelect
             className="form-input"
@@ -808,7 +809,7 @@ function CombineFormBody({
         </label>
       )}
       {unmatched === 'value' && (
-        <label className="resolve-combine-setting" data-testid="resolve-combine-remainder">
+        <label className="resolve-combine-setting form-field" data-testid="resolve-combine-remainder">
           <span className="resolve-combine-setting-label">Send remaining values to</span>
           <TextInput
             data-testid="resolve-combine-remainder-input"

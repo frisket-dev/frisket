@@ -1,3 +1,5 @@
+import { FormField } from './FormControls';
+import { Button } from './Button';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronDown, Filter, RefreshCw, Search, X } from 'lucide-react';
 import type {
@@ -582,7 +584,7 @@ function FacetCard({
       </div>
       {open && (
         <div className="friendly-facet-body">
-          {error && <div className="facets-error" role="alert">{error}</div>}
+          {error && <div className="panel-error" role="alert">{error}</div>}
           {!preview && !error && <div className="facets-empty">Loading values…</div>}
           {preview?.inventoryComplete === false && (
             <div className="friendly-facet-note" role="status">
@@ -1354,8 +1356,8 @@ function AdvancedConditionEditor({
                   onChange={(event) => setValue(event.target.value)}
                 />
               </label>
-              <label>
-                <span>Unit</span>
+              <FormField label="Unit" >
+
                 <PanelSelect
                   value={start}
                   testId={`facet-relative-unit-${testIdKey(column.name)}`}
@@ -1363,7 +1365,7 @@ function AdvancedConditionEditor({
                   onValueChange={setStart}
                   options={RELATIVE_UNITS}
                 />
-              </label>
+              </FormField>
             </div>
           ) : operator === 'date_year' ? (
             <input
@@ -1399,15 +1401,15 @@ function AdvancedConditionEditor({
             <input type={inputType} inputMode={inputMode} value={value} aria-label="Value" onChange={(event) => setValue(event.target.value)} />
           )}
           {validation && <span className="grid-filter-validation">{validation}</span>}
-          <button
+          <Button
             type="button"
-            className="btn"
+
             disabled={!canFilter || validation !== null}
             data-testid={`facet-advanced-apply-${testIdKey(column.name)}`}
             onClick={apply}
           >
             Apply
-          </button>
+          </Button>
         </div>
       )}
     </div>

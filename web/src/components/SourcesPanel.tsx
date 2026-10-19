@@ -1,4 +1,5 @@
-import { TextInput, TextArea } from './FormControls';
+import { Button, TabButton } from './Button';
+import { FormField, TextInput, TextArea } from './FormControls';
 import { IconButton } from './IconButton';
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
@@ -867,7 +868,7 @@ function SourceEditorForm({ actions, busy, form, formFrame }: SourceEditorFormPr
         value={form.name}
         onChange={(e) => actions.updateForm({ name: e.target.value })}
       />
-      <label className="source-field-label" htmlFor="source-url-input">
+      <label className="form-label" htmlFor="source-url-input">
         {kind.urlLabel}
       </label>
       <TextInput
@@ -882,68 +883,68 @@ function SourceEditorForm({ actions, busy, form, formFrame }: SourceEditorFormPr
 
       {(form.kind === 'youtube_playlist' || form.kind === 'youtube_channel') && (
         <div className="sources-form-grid">
-          <label>
-            <span>Max pages</span>
+          <FormField label="Max pages" >
+
             <TextInput
               aria-label="YouTube max pages"
               data-testid="source-youtube-max-pages"
               value={form.youtubeMaxPages}
               onChange={(e) => actions.updateForm({ youtubeMaxPages: e.target.value })}
             />
-          </label>
-          <label>
-            <span>Max items</span>
+          </FormField>
+          <FormField label="Max items" >
+
             <TextInput
               aria-label="YouTube max items"
               data-testid="source-youtube-max-items"
               value={form.youtubeMaxItems}
               onChange={(e) => actions.updateForm({ youtubeMaxItems: e.target.value })}
             />
-          </label>
+          </FormField>
         </div>
       )}
 
       {form.kind === 'api_list_dicts' && (
         <>
           <div className="sources-form-grid">
-            <label>
-              <span>List path</span>
+            <FormField label="List path" >
+
               <TextInput
                 aria-label="API list path"
                 data-testid="source-api-list-path"
                 value={form.apiListPath}
                 onChange={(e) => actions.updateForm({ apiListPath: e.target.value })}
               />
-            </label>
-            <label>
-              <span>Item ID path</span>
+            </FormField>
+            <FormField label="Item ID path" >
+
               <TextInput
                 aria-label="API item ID path"
                 data-testid="source-api-item-id-path"
                 value={form.apiItemIdPath}
                 onChange={(e) => actions.updateForm({ apiItemIdPath: e.target.value })}
               />
-            </label>
+            </FormField>
           </div>
           <div className="sources-form-grid">
-            <label>
-              <span>Updated path</span>
+            <FormField label="Updated path" >
+
               <TextInput
                 aria-label="API updated-at path"
                 data-testid="source-api-updated-at-path"
                 value={form.apiUpdatedAtPath}
                 onChange={(e) => actions.updateForm({ apiUpdatedAtPath: e.target.value })}
               />
-            </label>
-            <label>
-              <span>Max items</span>
+            </FormField>
+            <FormField label="Max items" >
+
               <TextInput
                 aria-label="API max items"
                 data-testid="source-api-max-items"
                 value={form.apiMaxItems}
                 onChange={(e) => actions.updateForm({ apiMaxItems: e.target.value })}
               />
-            </label>
+            </FormField>
           </div>
         </>
       )}
@@ -978,7 +979,7 @@ function SourceEditorForm({ actions, busy, form, formFrame }: SourceEditorFormPr
               Documents
             </label>
           </div>
-          <label className="source-field-label">
+          <label className="form-label form-field">
             Max entries
             <TextInput
               aria-label="CourtListener max entries"
@@ -1003,23 +1004,23 @@ function SourceEditorForm({ actions, busy, form, formFrame }: SourceEditorFormPr
         ))}
       </PanelSelect>
       <div className="sources-form-actions">
-        <button
+        <Button
           type="button"
-          className="mini-btn"
+
           onClick={() => actions.setAdding(false)}
         >
           Cancel
-        </button>
-        <button
+        </Button>
+        <Button
           type="submit"
-          className="btn btn-primary mini-btn"
+          className="btn-primary"
           data-testid="source-create"
           disabled={busy !== null || !form.name.trim() || !form.url.trim()}
         >
           {busy !== null
             ? (form.editingId == null ? 'Adding...' : 'Saving...')
             : (form.editingId == null ? 'Add' : 'Save')}
-        </button>
+        </Button>
       </div>
     </form>
   );
@@ -1249,9 +1250,9 @@ function SourceHealthDrawer({
           {healthSource && <div className="source-health-subtitle">{sourceKindLabel(healthSource.kind)}</div>}
         </div>
         {onOpenSourceHealthMainView && (
-          <button
+          <Button
             type="button"
-            className="mini-btn"
+
             data-testid={`source-health-open-mainView-${healthOpenId}`}
             onClick={() => {
               onOpenSourceHealthMainView(healthOpenId);
@@ -1259,12 +1260,12 @@ function SourceHealthDrawer({
             }}
           >
             Open main view
-          </button>
+          </Button>
         )}
         <WindowCloseButton size="compact" label="Close source details" onClick={actions.closeHealth} />
       </div>
 
-      <div className="source-detail-tabstrip" role="tablist" aria-label="Source detail">
+      <div className="tab-list" role="tablist" aria-label="Source detail">
         {detailTabs.map((tab) => {
           const firstParty = FIRST_PARTY_SOURCE_DETAIL_TABS[tab.contributionId];
           const tabKey = firstParty?.shortName ?? tab.contributionId;
@@ -1272,11 +1273,11 @@ function SourceHealthDrawer({
             ? `source-detail-tab-${firstParty.shortName}`
             : `source-detail-tab-${tab.contributionId.replace(/[^a-zA-Z0-9]+/g, '-')}`;
           const button = (
-            <button
+            <TabButton
               key={tab.placementId}
               type="button"
               role="tab"
-              className="source-detail-tab"
+              className="tab-button"
               data-testid={testId}
               data-contribution-id={tab.contributionId}
               data-runtime-source={tab.runtimeSource}
@@ -1284,7 +1285,7 @@ function SourceHealthDrawer({
               onClick={() => setActiveTab(tabKey)}
             >
               {tab.shortTitle ?? tab.title}
-            </button>
+            </TabButton>
           );
           if (!firstParty) return button;
           const Frame = Frames[firstParty.frameKey];
@@ -1316,121 +1317,125 @@ function SourceHealthDrawer({
             </div>
           )}
 
-          {activeTab === 'health' && (
-            <>
-              <div className="source-health-summary" data-testid={`source-health-summary-${healthOpenId}`}>
-                <div>
-                  <span className="source-health-label">Status</span>
-                  <SourceStatus value={openHealth.summary.status} testId={`source-health-status-${healthOpenId}`} />
-                </div>
-                <div>
-                  <span className="source-health-label">Last success</span>
-                  <strong data-testid={`source-health-last-success-${healthOpenId}`}>
-                    {formatWhen(openHealth.summary.lastSuccessAt)}
-                  </strong>
-                </div>
-                <div>
-                  <span className="source-health-label">Last failure</span>
-                  <strong data-testid={`source-health-last-failure-${healthOpenId}`}>
-                    {formatWhen(openHealth.summary.lastFailureAt)}
-                  </strong>
-                </div>
-                <div>
-                  <span className="source-health-label">Failures</span>
-                  <strong data-testid={`source-health-consecutive-failures-${healthOpenId}`}>
-                    {openHealth.summary.consecutiveFailures}
-                  </strong>
-                </div>
-              </div>
-
-              <div className="source-health-deltas" data-testid={`source-health-deltas-${healthOpenId}`}>
-                <span>+{openHealth.summary.newRowsRecent} new</span>
-                <span>{openHealth.summary.changedRowsRecent} changed</span>
-                <span>{openHealth.summary.skippedRowsRecent} skipped</span>
-                <span>{openHealth.summary.revisionsRecent} revised</span>
-              </div>
-            </>
-          )}
+          {activeTab === 'health' && <SourceHealthSummary health={openHealth} sourceId={healthOpenId} />}
 
           <div className="source-health-controls">
-            <button
+            <Button
               type="button"
-              className="mini-btn"
+
               data-testid={`source-health-retry-${healthOpenId}`}
               disabled={busy === healthOpenId}
               onClick={() => { void actions.fetchNow(healthOpenId); }}
             >
               <RefreshCw size={12} className={busy === healthOpenId ? 'spin' : undefined} />
               Poll now
-            </button>
+            </Button>
             <span data-testid={`source-health-cost-${healthOpenId}`}>
               Cost {formatCost(openHealth.costs.recentActualMicro)}
             </span>
           </div>
 
-          {activeTab === 'runs' && (
-            <>
-              <div className="source-health-section">
-                <h4><ListChecks size={12} aria-hidden /> Recent runs</h4>
-                <ul className="source-health-runs" data-testid={`source-health-runs-${healthOpenId}`}>
-                  {openHealth.runs.length === 0 ? (
-                    <li className="panel-empty">No runs yet.</li>
-                  ) : openHealth.runs.map((run) => (
-                    <li key={run.id} className="source-health-run">
-                      <div>
-                        <SourceStatus value={run.status} />
-                        <span>{runDeltaText(run)}</span>
-                      </div>
-                      <div className="source-health-run-meta">
-                        <span>{formatWhen(run.startedAt)}</span>
-                        {formatDuration(run.durationMs) && <span>{formatDuration(run.durationMs)}</span>}
-                        {run.warningCount > 0 && <span>{run.warningCount} warnings</span>}
-                      </div>
-                      {run.errorSummary && <div className="source-run-error">{run.errorSummary}</div>}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <div className="source-health-section">
-                <h4><Activity size={12} aria-hidden /> Downstream jobs</h4>
-                {openHealth.downstreamJobs.length === 0 ? (
-                  <PanelEmpty testId={`source-health-jobs-empty-${healthOpenId}`}>
-                    No downstream jobs recorded for loaded runs.
-                  </PanelEmpty>
-                ) : (
-                  <ul className="source-health-jobs" data-testid={`source-health-jobs-${healthOpenId}`}>
-                    {openHealth.downstreamJobs.map((job) => (
-                      <li key={job.jobId}>
-                        <span>{job.kind}</span>
-                        <SourceStatus value={job.status} />
-                        {job.errorSummary && <span className="source-run-error">{job.errorSummary}</span>}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-
-              {(openHealth.alerts.length > 0 || openHealth.warnings.length > 0) && (
-                <div className="source-health-section" data-testid={`source-health-warnings-${healthOpenId}`}>
-                  <h4><AlertTriangle size={12} aria-hidden /> Warnings</h4>
-                  {[...openHealth.alerts, ...openHealth.warnings].map((notice) => (
-                    <div key={`${notice.code ?? 'notice'}:${notice.message}`} className="source-health-notice">
-                      {notice.message}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <div className="source-health-redactions" data-testid={`source-health-redactions-${healthOpenId}`}>
-                Redacted: {openHealth.source.redactions.join(', ') || 'none'} / cursor {openHealth.summary.lastCursorSummary}
-              </div>
-            </>
-          )}
+          {activeTab === 'runs' && <SourceHealthRuns health={openHealth} sourceId={healthOpenId} />}
         </>
       ) : null}
     </aside>
   );
+}
+
+function SourceHealthSummary({ health, sourceId }: { health: SourceHealth; sourceId: number }) {
+  return <>
+<div className="source-health-summary" data-testid={`source-health-summary-${sourceId}`}>
+            <div>
+              <span className="source-health-label">Status</span>
+              <SourceStatus value={health.summary.status} testId={`source-health-status-${sourceId}`} />
+            </div>
+            <div>
+              <span className="source-health-label">Last success</span>
+              <strong data-testid={`source-health-last-success-${sourceId}`}>
+                {formatWhen(health.summary.lastSuccessAt)}
+              </strong>
+            </div>
+            <div>
+              <span className="source-health-label">Last failure</span>
+              <strong data-testid={`source-health-last-failure-${sourceId}`}>
+                {formatWhen(health.summary.lastFailureAt)}
+              </strong>
+            </div>
+            <div>
+              <span className="source-health-label">Failures</span>
+              <strong data-testid={`source-health-consecutive-failures-${sourceId}`}>
+                {health.summary.consecutiveFailures}
+              </strong>
+            </div>
+          </div>
+
+          <div className="source-health-deltas" data-testid={`source-health-deltas-${sourceId}`}>
+            <span>+{health.summary.newRowsRecent} new</span>
+            <span>{health.summary.changedRowsRecent} changed</span>
+            <span>{health.summary.skippedRowsRecent} skipped</span>
+            <span>{health.summary.revisionsRecent} revised</span>
+          </div>
+  </>;
+}
+
+function SourceHealthRuns({ health, sourceId }: { health: SourceHealth; sourceId: number }) {
+  return <>
+<div className="source-health-section">
+            <h4><ListChecks size={12} aria-hidden /> Recent runs</h4>
+            <ul className="source-health-runs" data-testid={`source-health-runs-${sourceId}`}>
+              {health.runs.length === 0 ? (
+                <li className="panel-empty">No runs yet.</li>
+              ) : health.runs.map((run) => (
+                <li key={run.id} className="source-health-run">
+                  <div>
+                    <SourceStatus value={run.status} />
+                    <span>{runDeltaText(run)}</span>
+                  </div>
+                  <div className="source-health-run-meta">
+                    <span>{formatWhen(run.startedAt)}</span>
+                    {formatDuration(run.durationMs) && <span>{formatDuration(run.durationMs)}</span>}
+                    {run.warningCount > 0 && <span>{run.warningCount} warnings</span>}
+                  </div>
+                  {run.errorSummary && <div className="source-run-error">{run.errorSummary}</div>}
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="source-health-section">
+            <h4><Activity size={12} aria-hidden /> Downstream jobs</h4>
+            {health.downstreamJobs.length === 0 ? (
+              <PanelEmpty testId={`source-health-jobs-empty-${sourceId}`}>
+                No downstream jobs recorded for loaded runs.
+              </PanelEmpty>
+            ) : (
+              <ul className="source-health-jobs" data-testid={`source-health-jobs-${sourceId}`}>
+                {health.downstreamJobs.map((job) => (
+                  <li key={job.jobId}>
+                    <span>{job.kind}</span>
+                    <SourceStatus value={job.status} />
+                    {job.errorSummary && <span className="source-run-error">{job.errorSummary}</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {(health.alerts.length > 0 || health.warnings.length > 0) && (
+            <div className="source-health-section" data-testid={`source-health-warnings-${sourceId}`}>
+              <h4><AlertTriangle size={12} aria-hidden /> Warnings</h4>
+              {[...health.alerts, ...health.warnings].map((notice) => (
+                <div key={`${notice.code ?? 'notice'}:${notice.message}`} className="panel-notice" data-tone="warning">
+                  {notice.message}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="source-health-redactions" data-testid={`source-health-redactions-${sourceId}`}>
+            Redacted: {health.source.redactions.join(', ') || 'none'} / cursor {health.summary.lastCursorSummary}
+          </div>
+  </>;
 }
 
 export function SourceHealthMainView({
@@ -1504,109 +1509,25 @@ export function SourceHealthMainView({
         <PanelEmpty>loading...</PanelEmpty>
       ) : health ? (
         <>
-          <div className="source-health-summary" data-testid={`source-health-summary-${sourceId}`}>
-            <div>
-              <span className="source-health-label">Status</span>
-              <SourceStatus value={health.summary.status} testId={`source-health-status-${sourceId}`} />
-            </div>
-            <div>
-              <span className="source-health-label">Last success</span>
-              <strong data-testid={`source-health-last-success-${sourceId}`}>
-                {formatWhen(health.summary.lastSuccessAt)}
-              </strong>
-            </div>
-            <div>
-              <span className="source-health-label">Last failure</span>
-              <strong data-testid={`source-health-last-failure-${sourceId}`}>
-                {formatWhen(health.summary.lastFailureAt)}
-              </strong>
-            </div>
-            <div>
-              <span className="source-health-label">Failures</span>
-              <strong data-testid={`source-health-consecutive-failures-${sourceId}`}>
-                {health.summary.consecutiveFailures}
-              </strong>
-            </div>
-          </div>
-
-          <div className="source-health-deltas" data-testid={`source-health-deltas-${sourceId}`}>
-            <span>+{health.summary.newRowsRecent} new</span>
-            <span>{health.summary.changedRowsRecent} changed</span>
-            <span>{health.summary.skippedRowsRecent} skipped</span>
-            <span>{health.summary.revisionsRecent} revised</span>
-          </div>
+          <SourceHealthSummary health={health} sourceId={sourceId} />
 
           <div className="source-health-controls">
-            <button
+            <Button
               type="button"
-              className="mini-btn"
+
               data-testid={`source-health-retry-${sourceId}`}
               disabled={busy}
               onClick={() => { void fetchNow(); }}
             >
               <RefreshCw size={12} className={busy ? 'spin' : undefined} />
               Poll now
-            </button>
+            </Button>
             <span data-testid={`source-health-cost-${sourceId}`}>
               Cost {formatCost(health.costs.recentActualMicro)}
             </span>
           </div>
 
-          <div className="source-health-section">
-            <h4><ListChecks size={12} aria-hidden /> Recent runs</h4>
-            <ul className="source-health-runs" data-testid={`source-health-runs-${sourceId}`}>
-              {health.runs.length === 0 ? (
-                <li className="panel-empty">No runs yet.</li>
-              ) : health.runs.map((run) => (
-                <li key={run.id} className="source-health-run">
-                  <div>
-                    <SourceStatus value={run.status} />
-                    <span>{runDeltaText(run)}</span>
-                  </div>
-                  <div className="source-health-run-meta">
-                    <span>{formatWhen(run.startedAt)}</span>
-                    {formatDuration(run.durationMs) && <span>{formatDuration(run.durationMs)}</span>}
-                    {run.warningCount > 0 && <span>{run.warningCount} warnings</span>}
-                  </div>
-                  {run.errorSummary && <div className="source-run-error">{run.errorSummary}</div>}
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <div className="source-health-section">
-            <h4><Activity size={12} aria-hidden /> Downstream jobs</h4>
-            {health.downstreamJobs.length === 0 ? (
-              <PanelEmpty testId={`source-health-jobs-empty-${sourceId}`}>
-                No downstream jobs recorded for loaded runs.
-              </PanelEmpty>
-            ) : (
-              <ul className="source-health-jobs" data-testid={`source-health-jobs-${sourceId}`}>
-                {health.downstreamJobs.map((job) => (
-                  <li key={job.jobId}>
-                    <span>{job.kind}</span>
-                    <SourceStatus value={job.status} />
-                    {job.errorSummary && <span className="source-run-error">{job.errorSummary}</span>}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          {(health.alerts.length > 0 || health.warnings.length > 0) && (
-            <div className="source-health-section" data-testid={`source-health-warnings-${sourceId}`}>
-              <h4><AlertTriangle size={12} aria-hidden /> Warnings</h4>
-              {[...health.alerts, ...health.warnings].map((notice) => (
-                <div key={`${notice.code ?? 'notice'}:${notice.message}`} className="source-health-notice">
-                  {notice.message}
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div className="source-health-redactions" data-testid={`source-health-redactions-${sourceId}`}>
-            Redacted: {health.source.redactions.join(', ') || 'none'} / cursor {health.summary.lastCursorSummary}
-          </div>
+          <SourceHealthRuns health={health} sourceId={sourceId} />
         </>
       ) : null}
     </section>
@@ -1646,14 +1567,14 @@ export function SourcesPanel({
       <div className="sources-body" data-testid="sources-panel">
         {onOpenImportDialog && (
           <div className="sources-panel-head">
-            <button
+            <Button
               type="button"
-              className="btn btn-primary mini-btn"
+              className="btn-primary"
               data-testid="sources-add-source"
               onClick={onOpenImportDialog}
             >
               <Plus size={13} aria-hidden /> Add source
-            </button>
+            </Button>
           </div>
         )}
 

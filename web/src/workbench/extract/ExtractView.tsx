@@ -1,5 +1,7 @@
+import { Button } from '../../components/Button';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown, ChevronUp, CircleAlert, CircleHelp, LoaderCircle, Minus, MousePointer2, Play, Rows3, ScanLine, Search, Settings2, Square, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, CircleAlert, CircleHelp, LoaderCircle, Minus, MousePointer2, Play, Rows3, ScanLine, Settings2, Square, X } from 'lucide-react';
+import { SearchInput } from '../../components/FormControls';
 import { MenuPop } from '../../components/MenuPop';
 import { IconButton } from '../../components/IconButton';
 import { SegmentedToggle } from '../../components/PanelPrimitives';
@@ -359,7 +361,7 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
       <p id="extract-area-help" className={styles.areaHelp}>{areaHelp}</p>
       <label className="document-option-row document-option-check"><input disabled={editorReadOnly} type="checkbox" checked={template.look_every_page} onChange={(event) => update({ ...template, look_every_page: event.target.checked })} />Look on every page</label>
       <label className="document-option-row document-option-check"><input disabled={editorReadOnly} type="checkbox" checked={template.continue_across_pages} onChange={(event) => update({ ...template, continue_across_pages: event.target.checked })} />Continue across pages</label>
-      <label className="document-option-row">Rows <PanelSelect disabled={editorReadOnly} className="row-height-select" topLayer menuRef={rowsMenuRef} aria-label="Result rows" value={repeatGroupId ?? ''} onChange={(event) => { update(template); setRepeatGroupId(event.target.value || null); }}>
+      <label className="document-option-row form-field">Rows <PanelSelect disabled={editorReadOnly} className="row-height-select" topLayer menuRef={rowsMenuRef} aria-label="Result rows" value={repeatGroupId ?? ''} onChange={(event) => { update(template); setRepeatGroupId(event.target.value || null); }}>
         {template.sections.length === 0 ? <option value="">One per document</option> : <option value="" disabled>Choose repeated section</option>}
         {template.sections.map((section) => <option key={section.id} value={section.id}>One per {section.name}</option>)}
       </PanelSelect></label>
@@ -380,8 +382,8 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
     </PanelSelect></label>
     <span className={`${styles.saveStatus} muted`} role="status" data-testid="extract-save-status" title={saveStatus}>
       <SaveStatusIcon size={14} aria-hidden /><span className="sr-only">{saveStatus}</span></span>
-    {persistence.saveError && layout && <button type="button" className="mini-btn" disabled={persistence.saving} onClick={() => void persistence.flush().catch(() => undefined)}>Retry saving</button>}
-    {persistence.error && !layout && <button type="button" className="mini-btn" disabled={persistence.loading} onClick={persistence.retryLoad}>Retry loading layouts</button>}
+    {persistence.saveError && layout && <Button type="button" disabled={persistence.saving} onClick={() => void persistence.flush().catch(() => undefined)}>Retry saving</Button>}
+    {persistence.error && !layout && <Button type="button" disabled={persistence.loading} onClick={persistence.retryLoad}>Retry loading layouts</Button>}
     {sources.length > 1 && <label className={styles.toolbarLabel}><span className={styles.toolbarLabelText}>Source</span><PanelSelect className="row-height-select" aria-label="Document source" value={sourceColumn?.id ?? ''} disabled={busy !== null || persistence.switching} onValueChange={(value) => {
       onChangeState({ ...state, sourceColumnId: value, activeRowId: null });
       setJumpRow(null); setInspection(null); setReference(null);
@@ -393,7 +395,7 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
     <IconButton icon={CircleHelp} ref={helpTrigger} data-testid="extract-tool-help-button"
       label="Extraction tool help" title="Extraction tool help" aria-expanded={helpOpen} onClick={() => setHelpOpen((open) => !open)} />
     {helpPopover}
-    {pending && <button type="button" className="mini-btn" aria-label="Cancel drawing" onClick={() => setPending(null)}><X size={13} />Cancel</button>}
+    {pending && <Button type="button" aria-label="Cancel drawing" onClick={() => setPending(null)}><X size={13} />Cancel</Button>}
     <label className={styles.toolbarLabel}><span className={styles.toolbarLabelText}>Scope</span><PanelSelect className="row-height-select" data-testid="extract-scope-selector" aria-label="Extraction scope" value={scopeKind} disabled={unavailable} onValueChange={(value) => {
       if (layout) { previewController.current?.abort(); setPreview(null); setInspection(null); setBusy(null); setScopeChoice({ layoutId: layout.id, kind: value as ExtractionScope['kind'] }); }
     }}>
@@ -405,13 +407,13 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
     <IconButton icon={Settings2} ref={optionsTrigger} data-testid="extract-options-button" label="Extraction options" title="Extraction options" aria-expanded={optionsOpen} disabled={editorReadOnly} onClick={() => setOptionsOpen((open) => !open)} />
     {optionsPopover}
     {inspection && <><span className={styles.toolbarStatus}>Preview result · page {readerPage}</span>
-      <button type="button" className="mini-btn" onClick={backToExample}>Back to example</button></>}
+      <Button type="button" onClick={backToExample}>Back to example</Button></>}
     {!inspection && !isReference && <><span className={styles.toolbarStatus}>Preview document · run Preview to see matched regions</span>
-      {reference && <button type="button" className="mini-btn" onClick={backToExample}>Back to example</button>}</>}
+      {reference && <Button type="button" onClick={backToExample}>Back to example</Button>}</>}
     <div className={styles.runButtons} role="group" aria-label="Extract to a new sheet">
-      <button type="button" className="mini-btn" data-testid="extract-preview-button" title="Preview on up to 12 documents in this scope" disabled={!valid || templateReadOnly || busy !== null || scopeCount === null || scopeCount === 0} onClick={() => void runPreview()}><Play size={13} />{busy === 'preview' ? 'Previewing…' : 'Preview'}</button>
-      <button type="button" className="mini-btn" data-testid="extract-new-sheet" disabled={!valid || templateReadOnly || busy !== null || props.extractionRunning || !onExtract || scopeCount === null || scopeCount === 0}
-        onClick={() => setNameDialogOpen(true)}>{busy === 'run' ? 'Starting extraction…' : props.extractionRunning ? 'Extracting…' : 'Extract to new sheet'}</button>
+      <Button type="button" data-testid="extract-preview-button" title="Preview on up to 12 documents in this scope" disabled={!valid || templateReadOnly || busy !== null || scopeCount === null || scopeCount === 0} onClick={() => void runPreview()}><Play size={13} />{busy === 'preview' ? 'Previewing…' : 'Preview'}</Button>
+      <Button type="button" data-testid="extract-new-sheet" disabled={!valid || templateReadOnly || busy !== null || props.extractionRunning || !onExtract || scopeCount === null || scopeCount === 0}
+        onClick={() => setNameDialogOpen(true)}>{busy === 'run' ? 'Starting extraction…' : props.extractionRunning ? 'Extracting…' : 'Extract to new sheet'}</Button>
     </div>
   </div>;
   return <section className={styles.workspace} data-testid="extract-view" aria-label="Extract structured data"
@@ -432,7 +434,7 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
     {validationIssue && !pending && template.fields.length > 0 && <div className={styles.validation} role="status">{validationIssue}</div>}
     <div className={styles.body}>
       <aside className="document-list" aria-label="Documents">
-        <div className="document-list-search"><Search size={13} aria-hidden /><input type="search" placeholder="Search documents…" aria-label="Search documents" value={search} onChange={(event) => setSearch(event.target.value)} /></div>
+        <SearchInput placeholder="Search documents…" aria-label="Search documents" value={search} onChange={(event) => setSearch(event.target.value)} />
         <div className="document-list-count muted mono">{preview ? `Preview sample · ${preview.documents.length} documents` : `${items.length} loaded`}</div>
         <div className="document-list-body drawer-body" ref={listBodyRef} onScroll={onListScroll} onKeyDown={onListKeyDown} tabIndex={0} role="listbox" aria-label="Document list">
           {list.error && <p role="alert">{list.error}</p>}
@@ -449,7 +451,7 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
               </button>;
             })}
           </div>
-          {list.pages.at(-1)?.nextCursor && <button type="button" className="mini-btn" disabled={list.loading} onClick={() => void loadMore()}>Load more</button>}
+          {list.pages.at(-1)?.nextCursor && <Button type="button" disabled={list.loading} onClick={() => void loadMore()}>Load more</Button>}
         </div>
       </aside>
       <div className={styles.center}>
