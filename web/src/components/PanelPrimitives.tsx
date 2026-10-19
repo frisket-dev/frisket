@@ -120,8 +120,8 @@ export function PanelNotice({
  * embedding-badge, sheet-info-badge, and LineagePanel's lineage-node-sync)
  * with a single primitive: tone maps to
  * color in exactly ONE place — the `.status-chip[data-tone=...]` rules in
- * styles.css. Count/removable chips (RemovableChip, engine-tier-chip,
- * ocr-compare-vote-chip) are a different genus and are NOT this primitive.
+ * styles.css. It also presents compact counts; it has no live-status role.
+ * Removable chips retain their own interaction component.
  */
 export type StatusTone = 'success' | 'warning' | 'error' | 'info' | 'neutral';
 

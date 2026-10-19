@@ -1,0 +1,7 @@
+.notification-digest-preview {
+  margin-top: 3px;
+  padding-left: 6px;
+  border-left: 2px solid var(--accent);
+  color: var(--accent);
+}
+.notification-settings-error-line { color: var(--red); }

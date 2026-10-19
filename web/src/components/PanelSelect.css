@@ -37,3 +37,38 @@ select.panel-select-control:not([multiple]) {
 .panel-select-shell:has(> select:disabled) > .dropdown-indicator {
   opacity: 0.5;
 }
+
+.panel-select-group {
+  padding: 7px 10px 3px;
+  color: var(--text-light);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.panel-select-ai { color: var(--ai); flex-shrink: 0; }
+.panel-select-check { flex-shrink: 0; }
+
+/* Engine-select trigger note ("· local, default") overlaid at the right edge. */
+.panel-select-shell.has-leading-icon > select { padding-left: 30px; }
+.panel-select-leading-icon {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: 10px;
+  display: inline-flex;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.panel-select-note {
+  position: absolute;
+  right: 34px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 13px;
+  color: var(--text-light);
+  pointer-events: none;
+}
+.panel-select-note::before {
+  content: '· ';
+}

@@ -1,4 +1,5 @@
 import { Button } from '../components/Button';
+import { Modal } from '../components/Modal';
 import { FormField, TextInput, TextArea } from '../components/FormControls';
 import {
   type FormEvent,
@@ -651,9 +652,11 @@ export function AiCallModeSettings() {
         </dl>
       )}
       {pendingLiveMode && (
-        <div className="modal-backdrop" data-testid="ai-call-mode-confirmation">
+        <Modal title={<><AlertTriangle size={15} className="modal-warn-icon" /> Enable live AI calls?</>}
+          testId="ai-call-mode-confirmation" busy={busy}
+          onClose={() => { setPendingLiveMode(null); setConfirmText(''); }}>
           <form
-            className="modal-card"
+            className="form-stack"
             onSubmit={(event) => {
               event.preventDefault();
               if (confirmText.trim().toLowerCase() === 'confirm') {
@@ -661,9 +664,6 @@ export function AiCallModeSettings() {
               }
             }}
           >
-            <div className="modal-title">
-              <AlertTriangle size={15} className="modal-warn-icon" /> Enable live AI calls?
-            </div>
             <p className="modal-body-text">
               {AI_CALL_MODES.find((mode) => mode.value === pendingLiveMode)?.label ?? pendingLiveMode}
               {' '}can contact configured AI providers and spend money. Individual paid runs keep their normal cost confirmation.
@@ -703,7 +703,7 @@ export function AiCallModeSettings() {
               </Button>
             </div>
           </form>
-        </div>
+        </Modal>
       )}
     </section>
   );

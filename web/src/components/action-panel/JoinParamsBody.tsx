@@ -1,6 +1,9 @@
 import { Button } from '../Button';
 import { useEffect } from 'react';
-import { ArrowDown, ArrowUp, Copy, Plus, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Copy, Plus, Trash2 } from 'lucide-react';
+import { IconButton } from '../IconButton';
+import { FormField } from '../FormControls';
+import '../EditorRows.css';
 import { PanelSelect } from '../PanelSelect';
 import { MultiColumnPicker } from '../MultiColumnPicker';
 import { ToggleRow } from '../PanelPrimitives';
@@ -70,7 +73,7 @@ function JoinParamsBodyForSheet({ params, setParams, setEditorProblem, sheet, Fi
       Source columns missing: {missing.join(', ')}. Choose replacements to repair the join.</p>}
     <fieldset className="resolve-drawer-body-fields" disabled={blocked}>
     <p className="form-hint">Left: {left.name}. The selected rows come from this sheet.</p>
-    <label className="field-group form-field"><span className="form-label">Right sheet</span>
+    <FormField label="Right sheet" hint="The right side includes its whole visible sheet.">
       <PanelSelect testId="field-join_right_sheet" ariaLabel="Right sheet"
         value={right?.id ?? ''} disabled={blocked}
         options={[...(!right ? [{ value: '', label: params.right?.sheet_id != null ? 'Saved sheet unavailable' : 'Choose a sheet' }] : []),
@@ -79,11 +82,10 @@ function JoinParamsBodyForSheet({ params, setParams, setEditorProblem, sheet, Fi
           join_keys: keys.map((key) => ({ ...key, right_column: '' })),
           ...(columns == null ? {} : { columns: columns.map((column) => column.side === 'right'
             ? { ...column, column: '' } : column) }) })} />
-      <span className="form-hint">The right side includes its whole visible sheet.</span>
-    </label>
+    </FormField>
     <div className="form-field"><span>Key pairs</span>
-    <div className="tabular-join-key-pairs" data-testid="join-key-pairs">
-      {keys.map((key, index) => <div key={index} className="tabular-join-key-pair-row" data-testid={`join-key-pair-${index}`}>
+    <div className="editor-list" data-testid="join-key-pairs">
+      {keys.map((key, index) => <div key={index} className="editor-row-controls" data-testid={`join-key-pair-${index}`}>
         {(['left', 'right'] as const).map((side) => {
           const source = side === 'left' ? left : right;
           const name = side === 'left' ? key.left_column : key.right_column;
@@ -95,9 +97,9 @@ function JoinParamsBodyForSheet({ params, setParams, setEditorProblem, sheet, Fi
             onValueChange={(name) => setParams({ ...params, join_keys: keys.map((pair, i) => i === index
               ? { ...pair, [side === 'left' ? 'left_column' : 'right_column']: name } : pair) })} />;
         })}
-        <button type="button" className="icon-btn" aria-label={`Remove key pair ${index + 1}`}
+        <IconButton icon={Trash2} label={`Remove key pair ${index + 1}`}
           data-testid={`join-key-pair-remove-${index}`} onClick={() => setParams({ ...params,
-            join_keys: keys.filter((_, i) => i !== index) })}><X size={13} /></button>
+            join_keys: keys.filter((_, i) => i !== index) })} />
       </div>)}
     </div>
     </div>
@@ -106,19 +108,18 @@ function JoinParamsBodyForSheet({ params, setParams, setEditorProblem, sheet, Fi
         { left_column: left.columns[0]?.name ?? '', right_column: right?.columns[0]?.name ?? '' }] })}>
       <Plus size={13} /> Add key</Button>
     <div className="form-row-pair">
-      {(['left', 'right'] as const).map((side) => <div key={side}>
-        <span className="form-label">{side === 'left' ? 'Left' : 'Right'} fields</span>
+      {(['left', 'right'] as const).map((side) => <FormField key={side} label={`${side === 'left' ? 'Left' : 'Right'} fields`}>
         <MultiColumnPicker testId={`field-join_${side}_columns`} ariaLabel={`${side === 'left' ? 'Left' : 'Right'} fields`}
           value={[...new Set((columns ?? []).filter((column) => column.side === side).map((column) => column.column))]}
           options={((side === 'left' ? left : right)?.columns ?? []).map(({ name, type, ai }) =>
             ({ name, type, ai: Boolean(ai) }))} disabled={blocked}
           onValueChange={(names) => changeProjection(side, names)} />
-      </div>)}
+      </FormField>)}
     </div>
     <p className="form-hint">Leave both sides empty for all non-key columns. After any pick, only picked columns are included.</p>
-    {columns != null && <div data-testid="join-projection-order">
+    {columns != null && <div className="editor-list" data-testid="join-projection-order">
       <span className="form-label">Projection order</span>
-      {columns.map((column, index) => <div className="tabular-join-key-pair-row" key={index}>
+      {columns.map((column, index) => <div className="editor-row-controls" key={index}>
         <span>{column.side}:</span>
         <PanelSelect ariaLabel={`Projection ${index + 1} column`} testId={`join-projection-column-${index}`}
           value={column.column} disabled={blocked}
@@ -126,16 +127,18 @@ function JoinParamsBodyForSheet({ params, setParams, setEditorProblem, sheet, Fi
             ...((column.side === 'left' ? left : right)?.columns ?? []).map((source) => ({ value: source.name, label: source.name }))]}
           onValueChange={(name) => setParams({ ...params, columns: columns.map((item, i) => index === i
             ? { ...item, column: name } : item) })} />
-        <button type="button" className="icon-btn" aria-label={`Move projection ${index + 1} up`}
-          disabled={index === 0} onClick={() => move(index, -1)}><ArrowUp size={13} /></button>
-        <button type="button" className="icon-btn" aria-label={`Move projection ${index + 1} down`}
-          disabled={index === columns.length - 1} onClick={() => move(index, 1)}><ArrowDown size={13} /></button>
-        <button type="button" className="icon-btn" aria-label={`Duplicate projection ${index + 1}`}
+        <span className="editor-row-tools">
+        <IconButton icon={ArrowUp} label={`Move projection ${index + 1} up`}
+          disabled={index === 0} onClick={() => move(index, -1)} />
+        <IconButton icon={ArrowDown} label={`Move projection ${index + 1} down`}
+          disabled={index === columns.length - 1} onClick={() => move(index, 1)} />
+        <IconButton icon={Copy} label={`Duplicate projection ${index + 1}`}
           onClick={() => setParams({ ...params, columns: [...columns.slice(0, index + 1), column,
-            ...columns.slice(index + 1)] })}><Copy size={13} /></button>
-        <button type="button" className="icon-btn" aria-label={`Remove projection ${index + 1}`}
+            ...columns.slice(index + 1)] })} />
+        <IconButton icon={Trash2} label={`Remove projection ${index + 1}`}
           onClick={() => { const next = columns.filter((_, i) => i !== index);
-            setParams({ ...params, columns: next.length ? next : null }); }}><X size={13} /></button>
+            setParams({ ...params, columns: next.length ? next : null }); }} />
+        </span>
       </div>)}
     </div>}
     <Field name="how" label="How" />

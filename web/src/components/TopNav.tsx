@@ -1,4 +1,6 @@
 import { Button } from './Button';
+import { Modal } from './Modal';
+import './ExportDialogs.css';
 import { FormField, TextInput } from './FormControls';
 // Shared nav chrome: frisket wordmark (→ picker), the project-name dropdown
 // for quick project switching, and the small account link. Route parsing /
@@ -768,11 +770,8 @@ function ExportDatasetModal({
   };
 
   return (
-    <div className="modal-backdrop" data-testid="export-data-modal">
-      <div className="modal-card export-dataset-modal">
-        <div className="modal-title">
-          <Download size={15} /> Export data
-        </div>
+    <Modal title={<><Download size={15} /> Export data</>}
+      testId="export-data-modal" onClose={onClose} size="wide">
         <p className="modal-body-text">Choose a format, scope, and one or more sheets.</p>
 
         <fieldset className="export-dataset-section">
@@ -898,8 +897,7 @@ function ExportDatasetModal({
             </Button>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -1085,11 +1083,9 @@ function ExportGoogleSheetsModal({
     : canExport;
 
   return (
-    <div className="modal-backdrop" data-testid="export-google-sheets-modal">
-      <form className="modal-card" onSubmit={submit}>
-        <div className="modal-title">
-          <FileSpreadsheet size={15} /> Export to Google Sheets
-        </div>
+    <Modal title={<><FileSpreadsheet size={15} /> Export to Google Sheets</>}
+      testId="export-google-sheets-modal" onClose={onClose}>
+      <form className="form-stack" onSubmit={submit}>
         {unavailableReason ? (
           <div className="panel-error" data-testid="export-google-sheets-unavailable" role="alert">
             {unavailableReason}
@@ -1240,6 +1236,6 @@ function ExportGoogleSheetsModal({
           )}
         </div>
       </form>
-    </div>
+    </Modal>
   );
 }

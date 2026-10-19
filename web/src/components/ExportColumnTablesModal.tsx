@@ -1,4 +1,5 @@
 import { Button } from './Button';
+import { Modal } from './Modal';
 import { TextInput, TextArea } from './FormControls';
 import { useMemo, useState, type FormEvent } from 'react';
 import { Download, Loader2 } from 'lucide-react';
@@ -104,17 +105,9 @@ export function ExportColumnTablesModal({
   };
 
   return (
-    <div
-      className="modal-backdrop"
-      data-testid="export-column-tables-modal"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="export-column-tables-title"
-    >
-      <form className="modal-card" onSubmit={submit}>
-        <div className="modal-title" id="export-column-tables-title">
-          <Download size={15} /> Export tables as ZIP
-        </div>
+    <Modal title={<><Download size={15} /> Export tables as ZIP</>}
+      testId="export-column-tables-modal" onClose={onClose}>
+      <form className="form-stack" onSubmit={submit}>
         {tableColumns.length === 0 ? (
           <p className="modal-body-text">This sheet has no JSON columns to export.</p>
         ) : (
@@ -201,6 +194,6 @@ export function ExportColumnTablesModal({
           </Button>
         </div>
       </form>
-    </div>
+    </Modal>
   );
 }

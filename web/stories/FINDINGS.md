@@ -1,5 +1,20 @@
 # UI inventory findings
 
+## Next complete consolidation round (maintainer approved)
+
+- Normalize card/row contents across Sources, Watches and Notifications: titles,
+  descriptions, metadata, counts and status badges, not only their outer frame.
+- Replace remaining custom export, embedding, telemetry and AI-mode modal
+  backdrops with the shared dialog lifecycle; retain all consent/busy safeguards.
+- Consolidate compound-editor row controls and label/description presentation,
+  preserving domain-specific state rather than building a generic form framework.
+- Delete duplicate CSS throughout those changes and co-locate remaining
+  specialized rules. Moving lines alone is not counted as reduction.
+
+The next maintainer ZIP includes **changed surfaces only**, spanning the previous
+structural round and this round. It is not another full component inventory.
+No public PR until visual approval.
+
 ## Active expanded consolidation scope (maintainer approved)
 
 1. Split ImportCsv by responsibility: feed setup, file intake, follow-up prompts,

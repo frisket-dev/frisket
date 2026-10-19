@@ -9,13 +9,6 @@
   overflow-y: auto;
   min-height: 0;
 }
-/* Flat, divider-separated rows (matching Extract's field rows) — no card
-   fill or box, just a hairline between rules. */
-.resolve-replace-rule {
-  padding: 12px 0;
-  border-bottom: 1px solid var(--border);
-}
-.resolve-replace-rule:first-child { padding-top: 4px; }
 .resolve-replace-rule-index {
   flex-shrink: 0;
   min-width: 14px;
@@ -32,10 +25,6 @@
 }
 .resolve-replace-rule-pattern[aria-invalid='true'] {
   border-color: var(--red, #b3452f);
-}
-.resolve-replace-rule-tools {
-  flex-wrap: nowrap;
-  flex-shrink: 0;
 }
 
 /* target line: "→ set to [value | (null)] ∅" */

@@ -1,4 +1,5 @@
 import { Button } from '../components/Button';
+import { Modal } from '../components/Modal';
 import { useEffect, useState, type ReactNode } from 'react';
 import { getRuntimeConfig } from '../api/open';
 import { TelemetryDisclosureReadyContext } from './disclosureReady';
@@ -41,9 +42,7 @@ export function ProductTelemetryProvider({ children }: { children: ReactNode }) 
     <TelemetryDisclosureReadyContext.Provider value={resolved && (!available || choice !== 'unanswered')}>
       {children}
       {available && choice === 'unanswered' ? (
-        <div className="modal-backdrop" data-testid="product-telemetry-disclosure">
-          <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="telemetry-title">
-            <h2 id="telemetry-title">Help improve frisket</h2>
+        <Modal title="Help improve frisket" testId="product-telemetry-disclosure">
             <p>
               Send pseudonymous product telemetry: features used, whether imports and actions work,
               and coarse size and timing ranges.
@@ -58,11 +57,10 @@ export function ProductTelemetryProvider({ children }: { children: ReactNode }) 
               <span>Send product telemetry</span>
             </label>
             <p className="muted">You can change this anytime in Settings → Personal → Privacy. Sensitive projects send no project telemetry.</p>
-            <div className="modal-actions">
+            <div className="form-actions">
               <Button type="button" className="btn-primary" onClick={continueToFrisket}>Continue</Button>
             </div>
-          </div>
-        </div>
+        </Modal>
       ) : null}
     </TelemetryDisclosureReadyContext.Provider>
   );

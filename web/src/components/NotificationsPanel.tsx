@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useReducer } from 'react';
-import { PanelEmpty, PanelError } from './PanelPrimitives';
+import { PanelEmpty, PanelError, StatusChip } from './PanelPrimitives';
 import {
   Check,
   ExternalLink,
@@ -16,6 +16,7 @@ import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { useWorkspaceChromeCommands } from '../bind/useWorkspaceChromeState';
 import { useWatchRunLinkHandle } from '../bind/useWatchRunLinkHandle';
 import type { WatchRunLink } from '../state/watchRunLinkStore';
+import './NotificationsPanel.css';
 
 export const NOTIFICATIONS_CHANGED_EVENT = 'frisket:notifications-changed';
 
@@ -196,15 +197,15 @@ export function NotificationsPanel() {
   const unseen = summary?.unseen ?? 0;
 
   return (
-    <section className="sidebar-notifications" data-testid="notifications">
+    <section className="content-stack" data-testid="notifications">
       {/* Notifications is its own Discover tab
           — the tab strip already carries the label/icon, so the panel itself
           only surfaces the unseen count, matching WatchesPanel's slim header. */}
       {unseen > 0 && (
         <div className="control-row" data-align="end">
-          <span className="notifications-count" data-testid="notifications-count">
+          <StatusChip tone="info" size="sm" testId="notifications-count">
             {unseen}
-          </span>
+          </StatusChip>
         </div>
       )}
 
@@ -224,15 +225,15 @@ export function NotificationsPanel() {
                   data-testid="notification-item"
                   key={item.id}
                 >
-                  <div className="notification-head">
-                    <span className="notification-source">{itemSourceLabel(item)}</span>
-                    <span className="notification-state" data-testid="notification-state">
+                  <div className="control-row">
+                    <span className="panel-item-meta panel-item-main">{itemSourceLabel(item)}</span>
+                    <StatusChip tone="neutral" size="sm" uppercase testId="notification-state">
                       {item.state}
-                    </span>
+                    </StatusChip>
                   </div>
-                  <div className="notification-title">{item.title}</div>
-                  <div className="notification-summary">{item.summary}</div>
-                  <div className="notification-ref" data-testid="notification-source-ref">
+                  <div className="panel-item-title">{item.title}</div>
+                  <div className="panel-item-description">{item.summary}</div>
+                  <div className="panel-item-meta" data-testid="notification-source-ref">
                     {sourceRefLabel(item.sourceRef)}
                   </div>
                   <div className="control-row">

@@ -1,0 +1,12 @@
+.sources-form-row { display: flex; gap: 6px; }
+.sources-form-row > .panel-select-shell { flex: 1; min-width: 0; }
+.sources-form-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px; }
+.source-textarea { min-height: 52px; }
+.source-item.disabled { opacity: 0.6; }
+.source-controls > .panel-select-shell { flex: 1 1 140px; min-width: 0; }
+.source-run-error { color: var(--red); }
+.source-health-summary { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.source-health-summary > div { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0; }
+@media (max-width: 640px) {
+  .sources-form-grid { grid-template-columns: minmax(0, 1fr); }
+}

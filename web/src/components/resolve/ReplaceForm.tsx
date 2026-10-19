@@ -1,6 +1,7 @@
 import { Button } from '../Button';
 import { FormField, TextInput } from '../FormControls';
 import { IconButton } from '../IconButton';
+import '../EditorRows.css';
 // The bespoke drawer body for "Replace by rules". An ordered first-match-wins
 // rules list (contains / exact / regex → whole-cell set-to, null allowed), a
 // no-match policy, and per-rule match counts.
@@ -386,7 +387,7 @@ function ReplaceFormForSheet({
           const countFresh =
             rulesFresh || (includedPos >= 0 && includedPos < freshUpTo);
           return (
-            <div className="content-stack resolve-replace-rule" data-testid="resolve-replace-rule" key={rule.id}>
+            <div className="editor-row" data-testid="resolve-replace-rule" key={rule.id}>
               <div className="control-row resolve-replace-rule-main">
                 <span className="resolve-replace-rule-index">{index + 1}</span>
                 <PanelSelect
@@ -421,7 +422,7 @@ function ReplaceFormForSheet({
                 >
                   Aa
                 </Button>
-                <span className="control-row resolve-replace-rule-tools">
+                <span className="editor-row-tools">
                   <IconButton
                     icon={ArrowUp}
                     data-testid="resolve-replace-rule-up"

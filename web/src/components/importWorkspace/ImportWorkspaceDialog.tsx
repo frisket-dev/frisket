@@ -27,7 +27,7 @@ import { PanelSelect } from '../PanelSelect';
 import { SegmentedToggle } from '../PanelPrimitives';
 import { ImportSessionProgress } from './ImportSessionProgress';
 import { ImportModeRail } from './ImportModeRail';
-import { ImportStageStepper } from './ImportStageStepper';
+import { StageStepper } from '../StageStepper';
 import {
   PdfPacketImportFlow,
   type PdfPacketShellContext,
@@ -877,11 +877,11 @@ function OpenImportWorkspaceSession({
             </div>
           </div>
           {tableImportContext ? (
-            <ImportStageStepper stages={[...tableImportContext.stages]} stage={tableImportContext.stage} />
+            <StageStepper label="Import stages" stages={[...tableImportContext.stages]} stage={tableImportContext.stage} />
           ) : pdfBatchContext ? (
-            <ImportStageStepper stages={[...pdfBatchContext.stages]} stage={pdfBatchContext.stage} />
+            <StageStepper label="Import stages" stages={[...pdfBatchContext.stages]} stage={pdfBatchContext.stage} />
           ) : pdfPacketContext.active && !preparationReceipt ? (
-            <ImportStageStepper stages={[...PDF_PACKET_STAGES]} stage={pdfPacketContext.stage} />
+            <StageStepper label="Import stages" stages={[...PDF_PACKET_STAGES]} stage={pdfPacketContext.stage} />
           ) : null}
           <button
             type="button"

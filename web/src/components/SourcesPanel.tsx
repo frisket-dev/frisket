@@ -39,6 +39,7 @@ import { formatUsd } from '../format';
 import type { SourceApiPort } from '../api/ports';
 import type { WorkbenchResolvedLayoutContribution } from '../workbench/layout';
 import type { PluginDetailSubject } from '../workbench/pluginDetailContext';
+import './SourcesPanel.css';
 
 const EMPTY_CONTRIBUTIONS: WorkbenchResolvedLayoutContribution[] = [];
 
@@ -530,15 +531,11 @@ function statusLabel(value: string | null | undefined): string {
   return value.replaceAll('_', ' ');
 }
 
-function statusClass(value: string | null | undefined): string {
-  return `status-${value || 'never'}`.replace(/[^a-z0-9_-]/gi, '-');
-}
-
 function SourceStatus({ value, testId }: { value: string | null | undefined; testId?: string }) {
   const tones: Record<string, StatusTone> = {
     ok: 'success', healthy: 'success', error: 'error', failing: 'error', stale: 'warning',
   };
-  return <StatusChip className="source-status" tone={tones[value ?? ''] ?? 'neutral'} size="sm" uppercase testId={testId}>
+  return <StatusChip tone={tones[value ?? ''] ?? 'neutral'} size="sm" uppercase testId={testId}>
     {statusLabel(value)}
   </StatusChip>;
 }
@@ -959,8 +956,8 @@ function SourceEditorForm({ actions, busy, form, formFrame }: SourceEditorFormPr
             onChange={(e) => actions.updateForm({ courtKeywords: e.target.value })}
             placeholder="injunction, settlement"
           />
-          <div className="source-check-row">
-            <label>
+          <div className="control-row panel-item-description">
+            <label className="control-row">
               <input
                 type="checkbox"
                 data-testid="source-court-include-parties"
@@ -969,7 +966,7 @@ function SourceEditorForm({ actions, busy, form, formFrame }: SourceEditorFormPr
               />
               Parties
             </label>
-            <label>
+            <label className="control-row">
               <input
                 type="checkbox"
                 data-testid="source-court-include-documents"
@@ -988,7 +985,7 @@ function SourceEditorForm({ actions, busy, form, formFrame }: SourceEditorFormPr
               onChange={(e) => actions.updateForm({ courtMaxEntries: e.target.value })}
             />
           </label>
-          <div className="source-note">RECAP PDFs stay link-only. Runtime tokens are not stored in source config.</div>
+          <div className="panel-item-meta">RECAP PDFs stay link-only. Runtime tokens are not stored in source config.</div>
         </>
       )}
 
@@ -1060,23 +1057,23 @@ function SourceList({ actions, armedDelete, busy, expanded, items, runPages, run
             className={`panel-card source-item${s.enabled ? '' : ' disabled'}`}
             data-testid={`source-item-${s.id}`}
           >
-            <div className="source-head">
-              <span className="source-kind-icon">{sourceKindIcon(s.kind)}</span>
-              <span className="source-name" title={s.name}>{s.name}</span>
+            <div className="control-row">
+              <span className="control-row panel-item-meta">{sourceKindIcon(s.kind)}</span>
+              <span className="panel-item-title panel-item-main" title={s.name}>{s.name}</span>
               <SourceStatus value={status} testId={`source-status-${s.id}`} />
             </div>
-            <div className="source-kind-line">
-              <span data-testid={`source-kind-${s.id}`}>{sourceKindLabel(s.kind)}</span>
+            <div className="control-row panel-item-meta">
+              <strong data-testid={`source-kind-${s.id}`}>{sourceKindLabel(s.kind)}</strong>
               <span>{sourceConfigSummary(s)}</span>
             </div>
             {s.url && (
-              <div className="source-url" title={redactedUrl(s.url) ?? ''}>
+              <div className="panel-item-meta" title={redactedUrl(s.url) ?? ''}>
                 {redactedUrl(s.url)}
               </div>
             )}
 
-            <div className="source-controls">
-              <label className="source-enabled" title="Enable scheduled polling">
+            <div className="control-row source-controls">
+              <label className="control-row" title="Enable scheduled polling">
                 <input
                   type="checkbox"
                   checked={s.enabled}
@@ -1085,7 +1082,6 @@ function SourceList({ actions, armedDelete, busy, expanded, items, runPages, run
                 />
               </label>
               <PanelSelect
-                className="form-input source-sched"
                 aria-label={`Cadence for ${s.name}`}
                 data-testid={`source-sched-${s.id}`}
                 value={s.schedule ?? ''}
@@ -1139,20 +1135,20 @@ function SourceList({ actions, armedDelete, busy, expanded, items, runPages, run
               </button>
             </div>
 
-            <div className="source-meta">
+            <div className="control-row panel-item-meta">
               {s.newRowsTotal > 0 && <>{s.newRowsTotal.toLocaleString()} rows / </>}
-              <button
+              <Button
                 type="button"
-                className="source-runs-toggle"
+                variant="text"
                 aria-expanded={isOpen}
                 onClick={() => { void actions.toggleRuns(s.id); }}
               >
                 <RunChevron size={11} aria-hidden /> poll history
-              </button>
+              </Button>
             </div>
 
             {isOpen && (
-              <ul className="source-runs" data-testid={`source-runs-${s.id}`}>
+              <ul className="panel-list" data-testid={`source-runs-${s.id}`}>
                 {runs[s.id] === undefined ? (
                   <li className="panel-empty">loading...</li>
                 ) : runs[s.id].length === 0 ? (
@@ -1160,16 +1156,18 @@ function SourceList({ actions, armedDelete, busy, expanded, items, runPages, run
                 ) : (
                   <>
                     {runs[s.id].map((r) => (
-                      <li key={r.id} className={`source-run ${statusClass(r.status)}`}>
-                        <SourceStatus value={r.status} />
-                        <span className="source-run-rows">{runDeltaText(r)}</span>
-                        <span className="source-run-when">{formatWhen(r.startedAt)}</span>
+                      <li key={r.id} className="panel-list">
+                        <div className="control-row panel-item-meta">
+                          <SourceStatus value={r.status} />
+                          <span>{runDeltaText(r)}</span>
+                          <span>{formatWhen(r.startedAt)}</span>
+                        </div>
                         {r.warningCount > 0 && (
-                          <span className="source-run-warning">
+                          <div className="panel-notice" data-tone="warning">
                             {r.warningCount} warning{r.warningCount === 1 ? '' : 's'}
-                          </span>
+                          </div>
                         )}
-                        {r.error && <span className="source-run-error">{r.error}</span>}
+                        {r.error && <div className="panel-item-meta source-run-error">{r.error}</div>}
                       </li>
                     ))}
                     {page?.hasMore && (
@@ -1243,11 +1241,11 @@ function SourceHealthDrawer({
   );
 
   return (
-    <aside className="source-health-drawer" data-testid="source-health-drawer">
-      <div className="source-health-head">
-        <div>
-          <div className="source-health-title">{healthSource?.name ?? 'Source details'}</div>
-          {healthSource && <div className="source-health-subtitle">{sourceKindLabel(healthSource.kind)}</div>}
+    <aside className="panel-card" data-testid="source-health-drawer">
+      <div className="control-row">
+        <div className="panel-item-main">
+          <div className="panel-item-title">{healthSource?.name ?? 'Source details'}</div>
+          {healthSource && <div className="panel-item-meta">{sourceKindLabel(healthSource.kind)}</div>}
         </div>
         {onOpenSourceHealthMainView && (
           <Button
@@ -1304,8 +1302,8 @@ function SourceHealthDrawer({
       ) : openHealth ? (
         <>
           {activeTab === 'summary' && (
-            <div className="source-detail-panel" data-testid="source-detail-summary-panel">
-              <strong>{openHealth.source.name}</strong>
+            <div className="panel-card panel-item-meta" data-testid="source-detail-summary-panel">
+              <strong className="panel-item-title">{openHealth.source.name}</strong>
               <span>{sourceKindLabel(openHealth.source.kind)}</span>
               <span>{healthSource ? sourceConfigSummary(healthSource) : redactedUrl(openHealth.source.url) ?? 'source details'}</span>
               <span>
@@ -1319,7 +1317,7 @@ function SourceHealthDrawer({
 
           {activeTab === 'health' && <SourceHealthSummary health={openHealth} sourceId={healthOpenId} />}
 
-          <div className="source-health-controls">
+          <div className="control-row panel-item-meta">
             <Button
               type="button"
 
@@ -1346,75 +1344,75 @@ function SourceHealthSummary({ health, sourceId }: { health: SourceHealth; sourc
   return <>
 <div className="source-health-summary" data-testid={`source-health-summary-${sourceId}`}>
             <div>
-              <span className="source-health-label">Status</span>
+              <span className="panel-item-meta">Status</span>
               <SourceStatus value={health.summary.status} testId={`source-health-status-${sourceId}`} />
             </div>
             <div>
-              <span className="source-health-label">Last success</span>
-              <strong data-testid={`source-health-last-success-${sourceId}`}>
+              <span className="panel-item-meta">Last success</span>
+              <strong className="panel-item-description" data-testid={`source-health-last-success-${sourceId}`}>
                 {formatWhen(health.summary.lastSuccessAt)}
               </strong>
             </div>
             <div>
-              <span className="source-health-label">Last failure</span>
-              <strong data-testid={`source-health-last-failure-${sourceId}`}>
+              <span className="panel-item-meta">Last failure</span>
+              <strong className="panel-item-description" data-testid={`source-health-last-failure-${sourceId}`}>
                 {formatWhen(health.summary.lastFailureAt)}
               </strong>
             </div>
             <div>
-              <span className="source-health-label">Failures</span>
-              <strong data-testid={`source-health-consecutive-failures-${sourceId}`}>
+              <span className="panel-item-meta">Failures</span>
+              <strong className="panel-item-description" data-testid={`source-health-consecutive-failures-${sourceId}`}>
                 {health.summary.consecutiveFailures}
               </strong>
             </div>
           </div>
 
-          <div className="source-health-deltas" data-testid={`source-health-deltas-${sourceId}`}>
-            <span>+{health.summary.newRowsRecent} new</span>
-            <span>{health.summary.changedRowsRecent} changed</span>
-            <span>{health.summary.skippedRowsRecent} skipped</span>
-            <span>{health.summary.revisionsRecent} revised</span>
+          <div className="control-row" data-testid={`source-health-deltas-${sourceId}`}>
+            <StatusChip tone="neutral" size="sm">+{health.summary.newRowsRecent} new</StatusChip>
+            <StatusChip tone="neutral" size="sm">{health.summary.changedRowsRecent} changed</StatusChip>
+            <StatusChip tone="neutral" size="sm">{health.summary.skippedRowsRecent} skipped</StatusChip>
+            <StatusChip tone="neutral" size="sm">{health.summary.revisionsRecent} revised</StatusChip>
           </div>
   </>;
 }
 
 function SourceHealthRuns({ health, sourceId }: { health: SourceHealth; sourceId: number }) {
   return <>
-<div className="source-health-section">
-            <h4><ListChecks size={12} aria-hidden /> Recent runs</h4>
-            <ul className="source-health-runs" data-testid={`source-health-runs-${sourceId}`}>
+<div className="content-stack">
+            <h4 className="control-row panel-item-title"><ListChecks size={12} aria-hidden /> Recent runs</h4>
+            <ul className="panel-list" data-testid={`source-health-runs-${sourceId}`}>
               {health.runs.length === 0 ? (
                 <li className="panel-empty">No runs yet.</li>
               ) : health.runs.map((run) => (
-                <li key={run.id} className="source-health-run">
-                  <div>
+                <li key={run.id} className="panel-card">
+                  <div className="control-row panel-item-description">
                     <SourceStatus value={run.status} />
                     <span>{runDeltaText(run)}</span>
                   </div>
-                  <div className="source-health-run-meta">
+                  <div className="control-row panel-item-meta">
                     <span>{formatWhen(run.startedAt)}</span>
                     {formatDuration(run.durationMs) && <span>{formatDuration(run.durationMs)}</span>}
                     {run.warningCount > 0 && <span>{run.warningCount} warnings</span>}
                   </div>
-                  {run.errorSummary && <div className="source-run-error">{run.errorSummary}</div>}
+                  {run.errorSummary && <div className="panel-item-meta source-run-error">{run.errorSummary}</div>}
                 </li>
               ))}
             </ul>
           </div>
 
-          <div className="source-health-section">
-            <h4><Activity size={12} aria-hidden /> Downstream jobs</h4>
+          <div className="content-stack">
+            <h4 className="control-row panel-item-title"><Activity size={12} aria-hidden /> Downstream jobs</h4>
             {health.downstreamJobs.length === 0 ? (
               <PanelEmpty testId={`source-health-jobs-empty-${sourceId}`}>
                 No downstream jobs recorded for loaded runs.
               </PanelEmpty>
             ) : (
-              <ul className="source-health-jobs" data-testid={`source-health-jobs-${sourceId}`}>
+              <ul className="panel-list" data-testid={`source-health-jobs-${sourceId}`}>
                 {health.downstreamJobs.map((job) => (
-                  <li key={job.jobId}>
+                  <li key={job.jobId} className="panel-card panel-item-description" data-layout="row">
                     <span>{job.kind}</span>
                     <SourceStatus value={job.status} />
-                    {job.errorSummary && <span className="source-run-error">{job.errorSummary}</span>}
+                    {job.errorSummary && <span className="panel-item-meta source-run-error">{job.errorSummary}</span>}
                   </li>
                 ))}
               </ul>
@@ -1422,8 +1420,8 @@ function SourceHealthRuns({ health, sourceId }: { health: SourceHealth; sourceId
           </div>
 
           {(health.alerts.length > 0 || health.warnings.length > 0) && (
-            <div className="source-health-section" data-testid={`source-health-warnings-${sourceId}`}>
-              <h4><AlertTriangle size={12} aria-hidden /> Warnings</h4>
+            <div className="content-stack" data-testid={`source-health-warnings-${sourceId}`}>
+              <h4 className="control-row panel-item-title"><AlertTriangle size={12} aria-hidden /> Warnings</h4>
               {[...health.alerts, ...health.warnings].map((notice) => (
                 <div key={`${notice.code ?? 'notice'}:${notice.message}`} className="panel-notice" data-tone="warning">
                   {notice.message}
@@ -1432,7 +1430,7 @@ function SourceHealthRuns({ health, sourceId }: { health: SourceHealth; sourceId
             </div>
           )}
 
-          <div className="source-health-redactions" data-testid={`source-health-redactions-${sourceId}`}>
+          <div className="panel-item-meta" data-testid={`source-health-redactions-${sourceId}`}>
             Redacted: {health.source.redactions.join(', ') || 'none'} / cursor {health.summary.lastCursorSummary}
           </div>
   </>;
@@ -1493,11 +1491,11 @@ export function SourceHealthMainView({
   }, [loadHealth, onPolled, sourceApi, sourceId]);
 
   return (
-    <section className="source-health-mainView" data-testid="source-health-mainView">
-      <div className="source-health-head">
-        <div>
-          <div className="source-health-title">{health?.source.name ?? 'Source health'}</div>
-          {health && <div className="source-health-subtitle">{sourceKindLabel(health.source.kind)}</div>}
+    <section className="content-stack" data-testid="source-health-mainView">
+      <div className="control-row">
+        <div className="panel-item-main">
+          <div className="panel-item-title">{health?.source.name ?? 'Source health'}</div>
+          {health && <div className="panel-item-meta">{sourceKindLabel(health.source.kind)}</div>}
         </div>
         <WindowCloseButton size="compact" label="Close source health" onClick={onClose} />
       </div>
@@ -1511,7 +1509,7 @@ export function SourceHealthMainView({
         <>
           <SourceHealthSummary health={health} sourceId={sourceId} />
 
-          <div className="source-health-controls">
+          <div className="control-row panel-item-meta">
             <Button
               type="button"
 
@@ -1563,7 +1561,7 @@ export function SourcesPanel({
   const openHealth = healthOpenId == null ? null : health[healthOpenId] ?? null;
 
   return (
-    <section className="sidebar-sources" data-testid="sources">
+    <section className="content-stack" data-testid="sources">
       <div className="content-stack" data-testid="sources-panel">
         {onOpenImportDialog && (
           <div className="control-row" data-align="end">

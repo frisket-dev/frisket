@@ -9,6 +9,7 @@ import { captureMediaScenes } from './media-scenes';
 import { captureMentionsScenes, capturePanelScenes, capturePopulatedPanelScenes, captureSettingsScenes } from './workbench-scenes';
 import { captureTeamSettingsScenes } from './team-scenes';
 import { captureElements } from './elements';
+import { captureDialogScenes } from './dialog-scenes';
 
 const output = path.resolve(process.env.FRISKET_INVENTORY_OUTPUT ?? 'screenshots/inventory');
 type Capture = { kind?: 'small'; family: string; name: string; source: string; file: string; detail?: string; theme: string; context?: string; scene?: string; selector?: string; state?: string };
@@ -215,6 +216,8 @@ test('dialog treatments', async ({ page }) => {
     await shot(page, 'Dialogs', id, 'src/components/*Modal.tsx; src/workbench/extract/ExtractSheetNameDialog.tsx');
   }
 });
+
+test('remaining application dialogs', async ({ page }) => captureDialogScenes(page, shot));
 
 test('timed transcript components', async ({ page }) => {
   for (const kind of ['audio', 'video']) {

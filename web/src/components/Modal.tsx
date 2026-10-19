@@ -1,9 +1,10 @@
 import { Button } from './Button';
 import { useLayoutEffect, useId, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import './Modal.css';
 
 /** Shared modal lifecycle and framing. Omit onClose for a required step. */
-export function Modal({ title, children, onClose, busy = false, testId, role = 'dialog', descriptionId }: {
+export function Modal({ title, children, onClose, busy = false, testId, role = 'dialog', descriptionId, size = 'standard' }: {
   title: ReactNode;
   children: ReactNode;
   onClose?: () => void;
@@ -11,6 +12,7 @@ export function Modal({ title, children, onClose, busy = false, testId, role = '
   testId?: string;
   role?: 'dialog' | 'alertdialog';
   descriptionId?: string;
+  size?: 'standard' | 'wide';
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const mounted = useRef(false);
@@ -23,7 +25,7 @@ export function Modal({ title, children, onClose, busy = false, testId, role = '
     return () => { mounted.current = false; if (dialog?.open) dialog.close(); };
   }, []);
   // A modal must escape hidden keepalive panes as well as their layout styles.
-  return createPortal(<dialog ref={ref} className="modal-card" role={role} aria-labelledby={titleId} aria-describedby={descriptionId}
+  return createPortal(<dialog ref={ref} className="modal-card" data-size={size} role={role} aria-labelledby={titleId} aria-describedby={descriptionId}
     data-testid={testId} onCancel={event => {
       event.preventDefault(); event.stopPropagation();
       if (event.cancelable && !busy) onClose?.();

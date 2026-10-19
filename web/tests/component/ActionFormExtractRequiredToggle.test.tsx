@@ -22,13 +22,11 @@ it('cycles the shared extraction field required control and updates canonical fi
   await userEvent.click(screen.getByRole('button', { name: 'Add column' }));
   const toggle = screen.getAllByTestId('output-field-required')[0];
   expect(toggle).toHaveAttribute('aria-pressed', 'false');
-  expect(toggle).not.toHaveClass('is-required');
   expect(toggle).toHaveTextContent('*');
   const originalField = onChange.mock.lastCall![0][0];
 
   await userEvent.click(toggle);
   expect(toggle).toHaveAttribute('aria-pressed', 'true');
-  expect(toggle).toHaveClass('is-required');
   expect(toggle).toHaveAttribute(
     'title', 'Required — the model must find this or the field is flagged',
   );
@@ -36,6 +34,5 @@ it('cycles the shared extraction field required control and updates canonical fi
 
   await userEvent.click(toggle);
   expect(toggle).toHaveAttribute('aria-pressed', 'false');
-  expect(toggle).not.toHaveClass('is-required');
   expect(onChange.mock.lastCall![0]).toEqual([originalField]);
 });

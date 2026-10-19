@@ -1,4 +1,7 @@
 import { Button } from '../Button';
+import { Modal } from '../Modal';
+import { StageStepper } from '../StageStepper';
+import './CreateEmbeddingIndexDialog.css';
 import { TextInput } from '../FormControls';
 import {
   useEffect,
@@ -8,7 +11,7 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from 'react';
-import { Boxes, CheckCircle2 } from 'lucide-react';
+import { Boxes } from 'lucide-react';
 import type { EmbeddingProvider, SheetMeta } from '../../api/types';
 import type { EmbeddingApiPort } from '../../api/ports';
 import { formatUsd } from '../../format';
@@ -293,44 +296,19 @@ export function CreateEmbeddingIndexDialog({
   };
 
   return (
-    <div className="modal-backdrop" data-testid="embeddings-create-modal">
+    <Modal testId="embeddings-create-modal" size="wide" onClose={onClose}
+      title={<><Boxes size={15} aria-hidden />Create embedding index
+        <WindowCloseButton className="embeddings-modal-close" label="Close embedding index dialog" onClick={onClose} />
+      </>}>
       <form
-        className="modal-card embeddings-create-card embeddings-form"
+        className="form-stack"
         data-testid="embeddings-form"
         onSubmit={handleSubmit}
       >
-        <div className="modal-title">
-          <Boxes size={15} aria-hidden />
-          Create embedding index
-          <WindowCloseButton
-            className="embeddings-modal-close"
-            label="Close embedding index dialog"
-            onClick={onClose}
-          />
-        </div>
-
-        <div className="embeddings-create-stages" aria-label="Embedding index steps">
-          {steps.map((item, index) => (
-            <div
-              key={item.id}
-              className={`embeddings-create-stage${
-                item.id === activeStep ? ' embeddings-create-stage-active' : ''
-              }`}
-              data-testid={item.testId}
-              aria-current={item.id === activeStep ? 'step' : undefined}
-            >
-              {currentStepIndex > index ? (
-                <CheckCircle2 size={14} aria-hidden />
-              ) : (
-                <span>{index + 1}</span>
-              )}
-              {item.label}
-            </div>
-          ))}
-        </div>
+        <StageStepper label="Embedding index steps" stages={steps} stage={activeStep} />
 
         {activeStep === 'source' && (
-          <div className="embeddings-create-panel" data-testid="embedding-create-panel-source">
+          <div className="content-stack" data-testid="embedding-create-panel-source">
             <div>
               <span className="form-label">Provider / model</span>
               <SelectorField
@@ -375,9 +353,9 @@ export function CreateEmbeddingIndexDialog({
 
             <div>
               <span className="form-label">Source columns</span>
-              <div className="embeddings-columns" data-testid="embedding-source-columns">
+              <div className="content-stack" data-testid="embedding-source-columns">
                 {columns.map((col) => (
-                  <label key={col.id} className="embeddings-col-check">
+                  <label key={col.id} className="control-row">
                     <input
                       type="checkbox"
                       data-testid={`embedding-source-col-${col.name}`}
@@ -394,13 +372,13 @@ export function CreateEmbeddingIndexDialog({
 
         {activeStep === 'egress' && remoteSelected && (
           <div
-            className="embeddings-create-panel embeddings-remote-controls"
+            className="content-stack panel-card"
             data-testid="embedding-remote-controls"
           >
             <p className="form-hint panel-notice" data-tone="warning">
               {selectedCard?.label ?? providerCard?.label ?? form.provider} is a remote provider. Your source text leaves this machine.
             </p>
-            <label className="embeddings-col-check">
+            <label className="control-row">
               <input
                 type="checkbox"
                 data-testid="embedding-allow-remote"
@@ -414,10 +392,10 @@ export function CreateEmbeddingIndexDialog({
 
         {activeStep === 'cost' && remoteSelected && (
           <div
-            className="embeddings-create-panel embeddings-cost-controls"
+            className="content-stack"
             data-testid="embedding-cost-controls"
           >
-            <div className="embeddings-cost-estimate" data-testid="embedding-cost-estimate">
+            <div className="panel-card" data-testid="embedding-cost-estimate">
               <span className="form-label">Estimated first run</span>
               {costEstimateLoading ? (
                 <p className="form-hint" data-testid="embedding-cost-estimate-loading">
@@ -446,7 +424,7 @@ export function CreateEmbeddingIndexDialog({
                 </p>
               )}
             </div>
-            <label className="embeddings-col-check">
+            <label className="control-row">
               <input
                 type="checkbox"
                 data-testid="embedding-allow-auto-refresh"
@@ -462,7 +440,7 @@ export function CreateEmbeddingIndexDialog({
               enable a schedule here. Refresh stays manual until you set one.
             </p>
             {autoRefreshOn && (
-              <div className="embeddings-auto-confirm" data-testid="embedding-auto-confirm">
+              <div className="content-stack" data-testid="embedding-auto-confirm">
                 <label className="form-label" htmlFor="embedding-max-cost">
                   Max cost per refresh (USD)
                 </label>
@@ -476,7 +454,7 @@ export function CreateEmbeddingIndexDialog({
                   value={form.maxCost}
                   onChange={(e) => onMaxCostChange(e.target.value)}
                 />
-                <label className="embeddings-col-check">
+                <label className="control-row">
                   <input
                     type="checkbox"
                     data-testid="embedding-remote-confirm"
@@ -491,7 +469,7 @@ export function CreateEmbeddingIndexDialog({
         )}
 
         {activeStep === 'summary' && (
-          <div className="embeddings-create-panel" data-testid="embedding-create-summary">
+          <div className="content-stack" data-testid="embedding-create-summary">
             <dl className="embeddings-create-summary-list">
               <div>
                 <dt>Rows</dt>
@@ -523,7 +501,7 @@ export function CreateEmbeddingIndexDialog({
           </div>
         )}
 
-        <div className="embeddings-form-actions">
+        <div className="form-actions">
           <Button type="button" onClick={onClose}>
             Cancel
           </Button>
@@ -559,6 +537,6 @@ export function CreateEmbeddingIndexDialog({
           )}
         </div>
       </form>
-    </div>
+    </Modal>
   );
 }

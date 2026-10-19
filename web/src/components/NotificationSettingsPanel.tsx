@@ -1,5 +1,6 @@
 import { Button } from './Button';
 import { FormField, TextInput } from './FormControls';
+import { IconButton } from './IconButton';
 import { useCallback, useEffect, useMemo, useReducer } from 'react';
 import { PanelEmpty, PanelError, StatusChip, type StatusTone } from './PanelPrimitives';
 import { PanelSelect } from './PanelSelect';
@@ -23,6 +24,7 @@ import {
 } from '../api/open';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { useEditionModule } from '../editions/module';
+import './NotificationSettingsPanel.css';
 
 // Edition capabilities are read when the panel renders, after a downstream
 // entrypoint has registered its descriptor. The notification probe itself is
@@ -328,8 +330,8 @@ export function NotificationSettingsPanel() {
   }, [load]);
   return (
     <section className="panel-card" data-testid="notification-settings-panel">
-      <div className="notification-settings-head">
-        <div className="sidebar-section-label">
+      <div className="control-row">
+        <div className="control-row panel-item-title panel-item-main">
           <Settings size={12} aria-hidden />
           Notification settings
         </div>
@@ -366,9 +368,9 @@ function ChannelSection({
 }) {
   return (
     <section className="panel-card">
-      <div className="notification-settings-cardhead">
-        <div className="notification-settings-kicker"><BellRing size={12} aria-hidden /> Channels</div>
-        <p className="notification-settings-help">
+      <div>
+        <div className="control-row panel-item-title"><BellRing size={12} aria-hidden /> Channels</div>
+        <p className="panel-item-description">
           {configurableNotificationEmail
             ? 'Where notifications get delivered — in-app, email, or Slack.'
             : 'Where notifications get delivered — in-app or Slack.'}
@@ -376,28 +378,26 @@ function ChannelSection({
       </div>
       <div className="panel-list">
         {channels.map((channel) => (
-          <div className="notification-settings-row" data-testid="notification-channel-item" key={channel.id}>
-            <div className="notification-settings-rowmain">
-              <div className="notification-settings-title">
+          <div className="panel-card" data-layout="row" data-testid="notification-channel-item" key={channel.id}>
+            <div className="panel-item-main">
+              <div className="control-row panel-item-title">
                 <ChannelIcon kind={channel.kind} />
                 {channelLabel(channel)}
               </div>
-              <div className="notification-settings-meta">
+              <div className="panel-item-meta">
                 {channel.enabled ? 'enabled' : 'disabled'} · {channel.hasSecret ? 'secret saved' : 'no secret'}
               </div>
             </div>
             {channel.kind === 'in_app' ? (
-              <span className="notification-settings-locked">built-in</span>
+              <StatusChip tone="neutral" size="sm">built-in</StatusChip>
             ) : (
-              <button type="button" className={`icon-btn ${channel.enabled ? 'is-on' : 'is-off'}`} title={channel.enabled ? 'Disable channel' : 'Enable channel'} aria-label={channel.enabled ? 'Disable channel' : 'Enable channel'} data-testid="notification-channel-toggle" disabled={busy === `channel:${channel.id}`} onClick={() => onToggle(channel)}>
-                {channel.enabled ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}
-              </button>
+              <IconButton icon={channel.enabled ? ToggleRight : ToggleLeft} aria-pressed={channel.enabled} title={channel.enabled ? 'Disable channel' : 'Enable channel'} label={channel.enabled ? 'Disable channel' : 'Enable channel'} data-testid="notification-channel-toggle" disabled={busy === `channel:${channel.id}`} onClick={() => onToggle(channel)} />
             )}
           </div>
         ))}
       </div>
       <div className="panel-card" data-testid="notification-channel-form">
-        <div className="notification-settings-formkicker">New channel</div>
+        <div className="panel-item-title">New channel</div>
         <FormField layout="inline" label="Kind">
           <PanelSelect data-testid="notification-channel-kind" value={draft.kind} onChange={(event) => onKindChange(event.target.value as ChannelDraftKind)}>
             <option value="slack">Slack</option>
@@ -430,8 +430,8 @@ function ChannelSection({
           <TextInput aria-label="API secret reference" data-testid="notification-channel-secret-ref" value={draft.secretRef} onChange={(event) => onDraftChange({ secretRef: event.target.value })} placeholder="env:SECRET_NAME" />
           <span className="form-hint">References a stored secret, e.g. <code>env:SECRET_NAME</code> — not the value itself.</span>
         </FormField>
-        <div className="notification-settings-formfooter">
-          <label className="notification-settings-check">
+        <div className="control-row">
+          <label className="control-row panel-item-description panel-item-main">
             <input type="checkbox" checked={draft.enabled} onChange={(event) => onDraftChange({ enabled: event.target.checked })} />
             Enabled
           </label>
@@ -460,31 +460,29 @@ function RouteSection({
 }) {
   return (
     <section className="panel-card">
-      <div className="notification-settings-cardhead">
-        <div className="notification-settings-kicker"><Send size={12} aria-hidden /> Routes</div>
-        <p className="notification-settings-help">Rules that match events to a channel and delivery cadence.</p>
+      <div>
+        <div className="control-row panel-item-title"><Send size={12} aria-hidden /> Routes</div>
+        <p className="panel-item-description">Rules that match events to a channel and delivery cadence.</p>
       </div>
       <div className="panel-list">
         {routes.map((route) => (
-          <div className="notification-settings-row" data-testid="notification-route-item" key={route.id}>
-            <div className="notification-settings-rowmain">
-              <div className="notification-settings-title">{route.name}</div>
-              <div className="notification-settings-meta">
+          <div className="panel-card" data-layout="row" data-testid="notification-route-item" key={route.id}>
+            <div className="panel-item-main">
+              <div className="panel-item-title">{route.name}</div>
+              <div className="panel-item-meta">
                 {route.enabled ? 'enabled' : 'disabled'} · {sourceMatchLabel(route)} · {routeModeLabel(route)}
               </div>
               {route.deliveryMode === 'digest' && (
-                <div className="notification-digest-preview" data-testid="notification-digest-preview">
+                <div className="panel-item-meta notification-digest-preview" data-testid="notification-digest-preview">
                   {routeModeLabel(route)}
                 </div>
               )}
             </div>
             <div className="control-row">
-              <Button type="button" className="notification-settings-test" title="Create route test request" aria-label="Create route test request" data-testid="notification-route-test" disabled={busy === `test:${route.id}`} onClick={() => onTest(route)}>
+              <Button type="button" title="Create route test request" aria-label="Create route test request" data-testid="notification-route-test" disabled={busy === `test:${route.id}`} onClick={() => onTest(route)}>
                 <Send size={12} /> Test
               </Button>
-              <button type="button" className={`icon-btn ${route.enabled ? 'is-on' : 'is-off'}`} title={route.enabled ? 'Disable route' : 'Enable route'} aria-label={route.enabled ? 'Disable route' : 'Enable route'} data-testid="notification-route-toggle" disabled={busy === `route:${route.id}`} onClick={() => onToggle(route)}>
-                {route.enabled ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}
-              </button>
+              <IconButton icon={route.enabled ? ToggleRight : ToggleLeft} aria-pressed={route.enabled} title={route.enabled ? 'Disable route' : 'Enable route'} label={route.enabled ? 'Disable route' : 'Enable route'} data-testid="notification-route-toggle" disabled={busy === `route:${route.id}`} onClick={() => onToggle(route)} />
             </div>
           </div>
         ))}
@@ -493,7 +491,7 @@ function RouteSection({
         )}
       </div>
       <div className="panel-card" data-testid="notification-route-form">
-        <div className="notification-settings-formkicker">New route</div>
+        <div className="panel-item-title">New route</div>
         <FormField layout="inline" label="Name">
           <TextInput aria-label="Route name" data-testid="notification-route-name" value={draft.name} onChange={(event) => onDraftChange({ name: event.target.value })} placeholder="Route name" />
         </FormField>
@@ -545,8 +543,8 @@ function RouteSection({
             <option value="critical">Critical</option>
           </PanelSelect>
         </FormField>
-        <div className="notification-settings-formfooter">
-          <label className="notification-settings-check">
+        <div className="control-row">
+          <label className="control-row panel-item-description panel-item-main">
             <input type="checkbox" checked={draft.enabled} onChange={(event) => onDraftChange({ enabled: event.target.checked })} />
             Enabled
           </label>
@@ -563,22 +561,22 @@ function RouteSection({
 function DeliverySection({ requests, routes }: { requests: NotificationDeliveryRequest[]; routes: NotificationRoute[] }) {
   return (
     <section className="panel-card">
-      <div className="notification-settings-cardhead">
-        <div className="notification-settings-kicker"><Activity size={12} aria-hidden /> Delivery health</div>
-        <p className="notification-settings-help">Recent delivery attempts across all routes.</p>
+      <div>
+        <div className="control-row panel-item-title"><Activity size={12} aria-hidden /> Delivery health</div>
+        <p className="panel-item-description">Recent delivery attempts across all routes.</p>
       </div>
       <div className="panel-list">
         {requests.map((request) => (
-          <div className="notification-settings-row" data-testid="notification-delivery-request" key={request.id}>
-            <div className="notification-settings-rowmain">
-              <div className="notification-settings-title">
+          <div className="panel-card" data-layout="row" data-testid="notification-delivery-request" key={request.id}>
+            <div className="panel-item-main">
+              <div className="panel-item-title">
                 {request.deliveryKind} request {request.id}
               </div>
-              <div className="notification-settings-meta">
+              <div className="panel-item-meta">
                 {requestRouteLabel(request, routes)} · channel {request.channelId}
               </div>
               {request.lastError && (
-                <div className="notification-settings-error-line">{request.lastError}</div>
+                <div className="panel-item-meta notification-settings-error-line">{request.lastError}</div>
               )}
             </div>
             <StatusChip tone={statusChipTone(request.status)} size="sm" uppercase>

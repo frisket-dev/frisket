@@ -1,5 +1,7 @@
 import { Button } from '../Button';
 import { FormField, TextInput, TextArea } from '../FormControls';
+import '../EditorRows.css';
+import './OutputFieldsEditor.css';
 // Controlled output-field rendering + mutations: the "Columns it creates" /
 // "Output details" builder — header row with Add column, per-field FieldRow, category labels,
 // and the nested list-item shape editor. Fully controlled: ActionForm owns
@@ -33,13 +35,7 @@ import {
  * top-level "Columns it creates" builder and the nested list-item shape so both
  * read and behave identically. Any part can be hidden for single-output actions.
  *
- * Both call sites get the calm-hierarchy skin via the `field-row-calm` class
- * (see styles.css) — applied unconditionally rather than through a prop,
- * since every FieldRow instance wants it. The CSS targets the class, never DOM
- * position, so a level can no longer silently fall out of it the way the old
- * `.fields-builder > .field-group > .field-row` chain did for nested rows.
- * `nested` opts into the smaller-scale `.list-item-field-row` modifier used
- * only by the inset "Shape of each item" rows — same structure, smaller scale.
+ * Nested and top-level fields use the same controls and row presentation.
  */
 function FieldRow({
   name,
@@ -54,8 +50,6 @@ function FieldRow({
   showDelete = true,
   showRequired = false,
   required = false,
-  singleOutput = false,
-  nested = false,
   readOnly = false,
   deleteDisabled = false,
   rowTestId,
@@ -83,9 +77,6 @@ function FieldRow({
   /** Extract: render the required (*) toggle after the field name. */
   showRequired?: boolean;
   required?: boolean;
-  singleOutput?: boolean;
-  /** Nested "Shape of each item" instance: same calm skin, smaller scale. */
-  nested?: boolean;
   /** Declared, non-editable output column (plugin @plugin.op writes, core
    *  recipe output contract): name/type/description render as static text and
    *  there is no delete affordance — the action owns its outputs. */
@@ -103,33 +94,24 @@ function FieldRow({
   onRequiredToggle?(): void;
   onDelete?(): void;
 }) {
-  const rowClassName = [
-    'field-row',
-    'field-row-calm',
-    nested && 'list-item-field-row',
-    singleOutput && 'single-output-field-row',
-    readOnly && 'field-row-readonly',
-  ]
-    .filter(Boolean)
-    .join(' ');
   if (readOnly) {
     // The action DECLARES these columns; render them as static, non-editable
     // facts (no inputs, no delete). Keeps the same testids so specs can read
     // the resolved name/type/description without an editable affordance.
     return (
-      <div className={rowClassName} data-testid={rowTestId}>
+      <div className="output-field-facts" data-testid={rowTestId}>
         {showName && (
-          <span className="field-name field-name-readonly" data-testid={nameTestId}>
+          <strong data-testid={nameTestId}>
             {name}
-          </span>
+          </strong>
         )}
         {showType && (
-          <span className="field-type field-type-readonly" data-testid={typeTestId}>
+          <code data-testid={typeTestId}>
             {type}
-          </span>
+          </code>
         )}
         {description ? (
-          <span className="field-desc field-desc-readonly" data-testid={descTestId}>
+          <span data-testid={descTestId}>
             {description}
           </span>
         ) : null}
@@ -137,21 +119,19 @@ function FieldRow({
     );
   }
   return (
-    <div className={rowClassName} data-testid={rowTestId}>
-      {showName && (
-        showRequired ? (
-          <span className="field-name-wrap">
+    <div className="content-stack" data-testid={rowTestId}>
+      {(showName || showType || showDelete) && <div className="editor-row-controls">
+      {showName && <span className="output-field-name">
             <TextInput
-              className="field-name"
               data-testid={nameTestId}
               value={name}
               placeholder={namePlaceholder}
               aria-label={`${ariaLabel} name`}
               onChange={(e) => onNameChange(e.target.value)}
             />
-            <button
+            {showRequired && <Button
               type="button"
-              className={`field-required-toggle${required ? ' is-required' : ''}`}
+              className="btn-icon output-field-required"
               data-testid={requiredTestId}
               aria-pressed={required}
               aria-label={`${ariaLabel} required`}
@@ -163,31 +143,29 @@ function FieldRow({
               onClick={onRequiredToggle}
             >
               *
-            </button>
-          </span>
-        ) : (
-          <TextInput
-            className="field-name"
-            data-testid={nameTestId}
-            value={name}
-            placeholder={namePlaceholder}
-            aria-label={`${ariaLabel} name`}
-            onChange={(e) => onNameChange(e.target.value)}
-          />
-        )
-      )}
-      {showType && (
+            </Button>}
+          </span>}
+      {showType && <span className="output-field-type">
         <PanelSelect
-          className="form-input field-type"
           testId={typeTestId}
           value={type}
           ariaLabel={`${ariaLabel} type`}
           onValueChange={onTypeChange}
           options={typeOptions.map((t) => ({ value: t, label: t }))}
         />
+      </span>}
+      {showDelete && (
+        <IconButton
+          icon={Trash2}
+          data-testid={deleteTestId}
+          label={`Remove ${ariaLabel}`}
+          disabled={deleteDisabled}
+          onClick={onDelete}
+        />
       )}
+      </div>}
       <TextArea
-        className="field-desc"
+        className="output-field-description"
         data-testid={descTestId}
         value={description}
         placeholder={descPlaceholder}
@@ -197,16 +175,6 @@ function FieldRow({
         aria-label={`${ariaLabel} description`}
         onChange={(e) => onDescChange(e.target.value)}
       />
-      {showDelete && (
-        <IconButton
-          icon={Trash2}
-          className="field-remove-button"
-          data-testid={deleteTestId}
-          label={`Remove ${ariaLabel}`}
-          disabled={deleteDisabled}
-          onClick={onDelete}
-        />
-      )}
     </div>
   );
 }
@@ -310,7 +278,7 @@ export function OutputFieldsEditor({
         <span className="form-label" data-testid="output-fields-label">
           {usesFieldNameDestination ? 'Output details' : 'Columns it creates'}
         </span>
-        <div className="form-label-actions">
+        <div className="control-row">
           {!usesFieldNameDestination && !outputFieldsReadOnly && (maxFields === undefined || fields.length < maxFields) && (
             <Button
               type="button"
@@ -334,9 +302,9 @@ export function OutputFieldsEditor({
           This action defines its own output columns.
         </p>
       )}
-      <div className="fields-builder">
+      <div className="editor-list">
         {fields.map((f, i) => (
-          <div className="field-group" key={f.uiId}>
+          <div className="editor-row" key={f.uiId}>
             <FieldRow
               name={f.name}
               type={f.type}
@@ -352,7 +320,6 @@ export function OutputFieldsEditor({
               // not declared read-only outputs).
               showRequired={actionKind === 'map.extract' && !usesFieldNameDestination && !outputFieldsReadOnly}
               required={f.required ?? false}
-              singleOutput={usesFieldNameDestination}
               readOnly={outputFieldsReadOnly}
               deleteDisabled={fields.length <= minFields}
               rowTestId="output-field-row"
@@ -370,7 +337,7 @@ export function OutputFieldsEditor({
             {f.type === 'category' && !outputFieldsReadOnly && (
               <>
                 <TextArea
-                  className="field-labels field-labels-textarea"
+                  className="output-field-description"
                   data-testid={actionKind === 'map.classify' ? 'classify-labels' : undefined}
                   value={labelsRaw[f.uiId] ?? f.labels?.join(', ') ?? ''}
                   placeholder="labels, comma-separated (e.g. corruption, transit, other / unclear)"
@@ -395,7 +362,7 @@ export function OutputFieldsEditor({
                 )}
                 {actionKind === 'map.classify' && (f.labels?.length ?? 0) > 0 && (
                   <details
-                    className="classify-label-details"
+                    className="action-advanced"
                     data-testid="classify-label-details"
                     open={Object.values(f.labelDescriptions ?? {}).some(
                       (description) => description.trim().length > 0,
@@ -403,14 +370,14 @@ export function OutputFieldsEditor({
                   >
                     <summary>More details</summary>
                     <div
-                      className="label-descriptions"
+                      className="content-stack"
                       data-testid="classify-label-descriptions"
                     >
                       <p className="form-hint">
                         Optional descriptions improve local semantic matching. Add an Other / Unclear label for ambiguous rows.
                       </p>
                       {f.labels?.map((label) => (
-                        <FormField label={<span>{label}</span>} className="label-description-row" key={label}>
+                        <FormField label={label} layout="inline" key={label}>
 
                           <TextInput
                             value={f.labelDescriptions?.[label] ?? ''}
@@ -432,11 +399,9 @@ export function OutputFieldsEditor({
               </>
             )}
             {f.type === 'list' && !usesFieldNameDestination && !outputFieldsReadOnly && (
-              <div className="list-item-schema" data-testid="list-item-schema">
-                <div className="list-item-schema-header">
-                  <span className="list-item-schema-title">Shape of each item</span>
+              <div className="editor-inset" data-testid="list-item-schema">
+                <FormField label="Shape of each item">
                   <PanelSelect
-                    className="form-input list-item-kind"
                     testId="list-item-kind"
                     ariaLabel={`Field ${i + 1} list item shape`}
                     value={f.itemMode}
@@ -449,12 +414,11 @@ export function OutputFieldsEditor({
                       })),
                     ]}
                   />
-                </div>
+                </FormField>
                 {f.itemMode === 'object' && (
-                  <div className="list-item-fields" data-testid="list-item-fields">
+                  <div className="editor-list" data-testid="list-item-fields">
                     {f.itemFields.map((item, itemIndex) => (
-                      <FieldRow
-                        key={item.uiId}
+                      <div className="editor-row" key={item.uiId}><FieldRow
                         name={item.name}
                         type={item.type}
                         description={item.description}
@@ -463,7 +427,6 @@ export function OutputFieldsEditor({
                         namePlaceholder="field"
                         descPlaceholder="description"
                         deleteDisabled={f.itemFields.length <= 1}
-                        nested
                         nameTestId="list-item-field-name"
                         typeTestId="list-item-field-type"
                         descTestId="list-item-field-description"
@@ -472,11 +435,10 @@ export function OutputFieldsEditor({
                         onTypeChange={(value) => setItemField(f.uiId, item.uiId, { type: value as ColumnType })}
                         onDescChange={(value) => setItemField(f.uiId, item.uiId, { description: value })}
                         onDelete={() => removeItemField(f.uiId, item.uiId)}
-                      />
+                      /></div>
                     ))}
                     <Button
                       type="button"
-                      className="list-item-add"
                       data-testid="list-item-field-add"
                       onClick={() => addItemField(f.uiId)}
                     >

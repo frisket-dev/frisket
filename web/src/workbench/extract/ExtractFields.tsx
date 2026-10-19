@@ -1,4 +1,7 @@
-import { TextInput } from '../../components/FormControls';
+import { FormField, TextInput } from '../../components/FormControls';
+import { Button } from '../../components/Button';
+import { IconButton } from '../../components/IconButton';
+import '../../components/EditorRows.css';
 import { LocateFixed, Trash2 } from 'lucide-react';
 import type { ExtractionPreview, ExtractionPreviewDocument } from '../../api/documentExtraction';
 import { textInRegion, type AnnotationTarget, type ExtractionTemplate, type PositionedDocument } from './types';
@@ -21,11 +24,11 @@ export function ExtractFields({ template, reference, selected, preview, onChange
       {record && template.fields.map((item) => {
         const cell = record.cells[item.id];
         const text = !cell || cell.status === 'not_found' ? 'Not found' : cell.status === 'empty' ? 'Empty' : cell.text;
-        return <button key={item.id} type="button" className={`${styles.previewField} ${inspection.fieldId === item.id ? styles.activeField : ''}`}
+        return <Button key={item.id} type="button" variant="text" className={`${styles.previewField} ${inspection.fieldId === item.id ? styles.activeField : ''}`}
           onClick={() => onInspectField?.(item.id)}>
           <strong>{item.name}</strong><span>{text}</span>
           {cell?.diagnostic && <small className={styles.warning}>{cell.diagnostic}</small>}
-        </button>;
+        </Button>;
       })}
     </aside>;
   }
@@ -33,18 +36,18 @@ export function ExtractFields({ template, reference, selected, preview, onChange
     const item = template.fields.find((candidate) => candidate.id === id)!;
     const key = item.key ? textInRegion(reference, item.key) : '';
     const value = textInRegion(reference, item.value);
-    return <div key={id} className={`${styles.field} ${selected?.id === id ? styles.activeField : ''}`}>
-      <div className={styles.fieldHeading}>
-        <button type="button" disabled={disabled} className="icon-btn" aria-label={`Locate ${item.name}`} onClick={() => onSelect({ kind: 'value', id })}><LocateFixed size={13} /></button>
-        <TextInput disabled={disabled} aria-label={`Column name for ${item.name}`} className={`form-input ${styles.fieldName}`} value={item.name}
+    return <div key={id} className={`editor-row ${selected?.id === id ? styles.activeField : ''}`}>
+      <div className="editor-row-controls">
+        <IconButton disabled={disabled} icon={LocateFixed} label={`Locate ${item.name}`} onClick={() => onSelect({ kind: 'value', id })} />
+        <TextInput disabled={disabled} aria-label={`Column name for ${item.name}`} value={item.name}
           onChange={(event) => onChange({ ...template, fields: template.fields.map((entry) => entry.id === id ? { ...entry, name: event.target.value } : entry) })} />
-        <button type="button" disabled={disabled} className="icon-btn" aria-label={`Delete ${item.name}`} onClick={() => onDelete({ kind: 'value', id })}><Trash2 size={13} /></button>
+        <IconButton disabled={disabled} icon={Trash2} label={`Delete ${item.name}`} onClick={() => onDelete({ kind: 'value', id })} />
       </div>
-      <button type="button" disabled={disabled} className={styles.fieldExample} onClick={() => onSelect({ kind: 'value', id })}>
-        {item.kind === 'value_only' ? <><span>Fixed position · page {item.value.page}</span><br /></>
-          : <><span>Key: {key || '(key)'}</span><br /></>}
-        <span>Example: </span>{value || <em>empty in this example</em>}
-      </button>
+      <Button type="button" variant="text" disabled={disabled} className={styles.fieldExample} onClick={() => onSelect({ kind: 'value', id })}>
+        <span>{item.kind === 'value_only' ? <>Fixed position · page {item.value.page}<br /></>
+          : <>Key: {key || '(key)'}<br /></>}
+        Example: {value || <em>empty in this example</em>}</span>
+      </Button>
       {preview?.documents.flatMap((document) => document.result.records.flatMap((record, index) => {
         const cell = record.cells[id];
         return cell && (cell.status === 'not_found' || cell.diagnostic) ? [<p key={`${document.row_id}-${index}`} className={styles.warning}>{document.filename}: {cell.diagnostic ?? 'Field not found'}</p>] : [];
@@ -55,14 +58,14 @@ export function ExtractFields({ template, reference, selected, preview, onChange
     <header><h3>Fields</h3><span className="muted">{template.fields.length} columns</span></header>
     {template.fields.length === 0 && <p className={styles.empty}>No fields yet.</p>}
     {template.fields.filter((item) => !item.section_id).map((item) => field(item.id))}
-    {template.sections.map((section) => <section key={section.id} className={styles.sectionFields}>
-      <div className={styles.fieldHeading}>
-        <TextInput disabled={disabled} aria-label="Repeated section name" className={`form-input ${styles.fieldName}`} value={section.name}
+    {template.sections.map((section) => <section key={section.id} className={`editor-inset ${styles.sectionFields}`}>
+      <div className="editor-row-controls">
+        <TextInput disabled={disabled} aria-label="Repeated section name" value={section.name}
           onChange={(event) => onChange({ ...template, sections: template.sections.map((item) => item.id === section.id ? { ...item, name: event.target.value } : item) })} />
-        <button type="button" disabled={disabled} className="icon-btn" aria-label={`Delete ${section.name}`} onClick={() => onDelete({ kind: 'first', id: section.id })}><Trash2 size={13} /></button>
+        <IconButton disabled={disabled} icon={Trash2} label={`Delete ${section.name}`} onClick={() => onDelete({ kind: 'first', id: section.id })} />
       </div>
-      <button type="button" disabled={disabled} className={styles.fieldExample} onClick={() => onSelect({ kind: 'first', id: section.id })}>Record 1 · page {section.first.start.page}</button>
-      <label className={styles.endPage}>First record ends on page <TextInput density="compact" disabled={disabled} type="number"
+      <Button type="button" variant="text" disabled={disabled} className={styles.fieldExample} onClick={() => onSelect({ kind: 'first', id: section.id })}>Record 1 · page {section.first.start.page}</Button>
+      <FormField layout="inline" label="First record ends on page"><TextInput disabled={disabled} type="number"
         min={section.first.start.page} max={section.rest.start.page} value={section.first.end.page}
         onChange={(event) => {
           const page = Number(event.target.value);
@@ -71,22 +74,22 @@ export function ExtractFields({ template, reference, selected, preview, onChange
           if (page === section.first.start.page && y <= section.first.start.y) return;
           onChange({ ...template, sections: template.sections.map((item) => item.id === section.id ? { ...item,
             first: { ...item.first, end: { page, y } } } : item) });
-        }} /></label>
-      <button type="button" disabled={disabled} className={styles.fieldExample} onClick={() => onSelect({ kind: 'rest', id: section.id })}>Records 2–end · pages {section.rest.start.page}–{section.rest.end.page}</button>
-      <label className={styles.endPage}>Remaining records end on page <TextInput disabled={disabled} type="number"  min={section.rest.start.page}
+        }} /></FormField>
+      <Button type="button" variant="text" disabled={disabled} className={styles.fieldExample} onClick={() => onSelect({ kind: 'rest', id: section.id })}>Records 2–end · pages {section.rest.start.page}–{section.rest.end.page}</Button>
+      <FormField layout="inline" label="Remaining records end on page"><TextInput disabled={disabled} type="number" min={section.rest.start.page}
         max={reference?.pages.length ?? section.rest.end.page} value={section.rest.end.page}
         onChange={(event) => {
           const page = Number(event.target.value);
           if (!Number.isInteger(page) || page < section.rest.start.page || page > (reference?.pages.length ?? page)) return;
           onChange({ ...template, sections: template.sections.map((item) => item.id === section.id ? { ...item,
             rest: { ...item.rest, end: { page, y: page === section.rest.start.page ? Math.max(item.rest.end.y, item.rest.start.y + 0.01) : 1 } } } : item) });
-        }} /></label>
+        }} /></FormField>
       {template.fields.filter((item) => item.section_id === section.id).map((item) => field(item.id))}
     </section>)}
     {template.ignore_bands.length > 0 && <section className={styles.ignored}><h4>Ignored on each page</h4>
-      {template.ignore_bands.map((_, index) => <div className={styles.fieldHeading} key={index}>
-        <button type="button" disabled={disabled} className={styles.fieldExample} onClick={() => onSelect({ kind: 'ignore', id: String(index) })}>Ignored region {index + 1}</button>
-        <button type="button" disabled={disabled} className="icon-btn" aria-label={`Delete ignored region ${index + 1}`} onClick={() => onDelete({ kind: 'ignore', id: String(index) })}><Trash2 size={13} /></button>
+      {template.ignore_bands.map((_, index) => <div className="editor-row-controls" key={index}>
+        <Button type="button" variant="text" disabled={disabled} className={styles.fieldExample} onClick={() => onSelect({ kind: 'ignore', id: String(index) })}>Ignored region {index + 1}</Button>
+        <IconButton disabled={disabled} icon={Trash2} label={`Delete ignored region ${index + 1}`} onClick={() => onDelete({ kind: 'ignore', id: String(index) })} />
       </div>)}
     </section>}
   </aside>;

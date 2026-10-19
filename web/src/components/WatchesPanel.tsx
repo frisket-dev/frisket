@@ -1,7 +1,7 @@
 import { Button } from './Button';
 import { TextInput } from './FormControls';
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
-import { PanelEmpty, PanelError } from './PanelPrimitives';
+import { PanelEmpty, PanelError, StatusChip } from './PanelPrimitives';
 import { ChevronDown, ChevronRight, Play, RefreshCw, Watch } from 'lucide-react';
 import {
   ApiError,
@@ -22,6 +22,7 @@ import type {
   WatchRunLink,
 } from '../state/watchRunLinkStore';
 import { useEditionModule } from '../editions/module';
+import './WatchesPanel.css';
 
 type RunsByWatch = Record<number, WatchRunsPage>;
 type EventsByRun = Record<number, WatchRunEvent[]>;
@@ -581,11 +582,11 @@ function WatchesPanelHeader({
   return (
     <div className="control-row" data-align="end" data-testid="watches-header">
       {notificationTotal > 0 && (
-        <span className="watches-alert-count" data-testid="watches-notification-count">
+        <StatusChip tone="info" size="sm" testId="watches-notification-count">
           {notificationTotal}
-        </span>
+        </StatusChip>
       )}
-      {itemCount !== null && itemCount > 0 && <span className="watches-count">{itemCount}</span>}
+      {itemCount !== null && itemCount > 0 && <StatusChip tone="neutral" size="sm">{itemCount}</StatusChip>}
     </div>
   );
 }
@@ -605,12 +606,12 @@ function WatchCreateComposer({
 }) {
   const trimmedName = draft.name.trim();
   return (
-    <div className="watches-create" data-testid="watch-create-composer">
-      <div className="watches-create-heading">
-        <span className="panel-kicker">New Watch</span>
-        <strong>Keep an eye on new matches.</strong>
+    <div className="panel-card" data-testid="watch-create-composer">
+      <div>
+        <div className="panel-item-meta">New Watch</div>
+        <strong className="panel-item-title">Keep an eye on new matches.</strong>
       </div>
-      <label className="watches-create-field form-field">
+      <label className="form-field">
         <span className="form-label">Watch name</span>
         <TextInput
           autoFocus
@@ -624,8 +625,8 @@ function WatchCreateComposer({
         />
       </label>
       {!trimmedName && <span id="watch-create-name-error" data-testid="watch-create-name-error">Enter a name to continue.</span>}
-      <div className="watches-create-notifications">
-        <p>{NOTIFICATION_SETUP_GUIDANCE}</p>
+      <div className="panel-notice">
+        {NOTIFICATION_SETUP_GUIDANCE}
       </div>
       <div className="form-actions">
         <Button
@@ -661,13 +662,13 @@ function WatchRunEvents({
 }) {
   if (!events) return null;
   return (
-    <ul className="watch-run-events" data-testid="watch-run-events">
+    <ul className="panel-list watch-run-events" data-testid="watch-run-events">
       {events.map((event) => (
         <li
-          className={highlightedEventIds.includes(event.id) ? 'highlighted' : ''}
+          className={`control-row panel-item-meta${highlightedEventIds.includes(event.id) ? ' highlighted' : ''}`}
           key={event.id}
         >
-          <span>{event.eventKind}</span>
+          <strong>{event.eventKind}</strong>
           <span>{event.snippet ?? event.subjectKind}</span>
         </li>
       ))}
@@ -685,18 +686,20 @@ function WatchRunHistory({
   page: WatchRunsPage | undefined;
 }) {
   return (
-    <ul className="watch-runs" data-testid="watch-run-history">
+    <ul className="panel-list" data-testid="watch-run-history">
       {!page || page.runs.length === 0 ? (
         <li className="panel-empty">No runs yet.</li>
       ) : (
         page.runs.map((run) => (
-          <li className="watch-run" key={run.id}>
-            <span className={`watch-run-status status-${run.status}`}>{run.status}</span>
-            <span className="watch-run-rows">
-              {run.status === 'error'
-                ? (run.errorCode ?? run.error ?? 'Run failed')
-                : `${run.matchedRows.toLocaleString()} matched · ${run.newRows.toLocaleString()} new`}
-            </span>
+          <li className="panel-list" key={run.id}>
+            <div className="control-row">
+              <StatusChip tone={run.status === 'ok' ? 'success' : run.status === 'error' ? 'error' : 'neutral'} size="sm" uppercase>{run.status}</StatusChip>
+              <span className="panel-item-meta panel-item-main">
+                {run.status === 'error'
+                  ? (run.errorCode ?? run.error ?? 'Run failed')
+                  : `${run.matchedRows.toLocaleString()} matched · ${run.newRows.toLocaleString()} new`}
+              </span>
+            </div>
             <WatchRunEvents
               events={eventsByRun[run.id]}
               highlightedEventIds={highlightedEventsByRun[run.id] ?? []}
@@ -848,12 +851,12 @@ function WatchItem({
   };
   return (
     <li ref={itemRef} className="panel-card watch-item" data-testid="watch-item" tabIndex={-1}>
-      <div className="watch-head">
-        <span className="watch-name">{watch.name}</span>
+      <div className="control-row">
+        <span className="panel-item-title panel-item-main">{watch.name}</span>
         {notificationCount > 0 && (
-          <span className="watch-notification-count" data-testid="watch-notification-count">
+          <StatusChip tone="info" size="sm" testId="watch-notification-count">
             {notificationCount}
-          </span>
+          </StatusChip>
         )}
         {canEdit && (
           <button
@@ -875,16 +878,15 @@ function WatchItem({
           </button>
         )}
       </div>
-      <div className="watch-query">
+      <div className="panel-item-description">
         {watchSummary(watch)}
       </div>
-      {!watch.enabled && <span className="watch-status" data-testid="watch-status">Paused</span>}
-      <div className="watch-meta" data-testid="watch-latest-run">
+      {!watch.enabled && <div className="control-row"><StatusChip tone="neutral" size="sm" testId="watch-status">Paused</StatusChip></div>}
+      <div className="control-row panel-item-meta" data-testid="watch-latest-run">
         {runSummary(watch.latestRun)}
         {canEdit && blockedIndexId && (
           <Button
             type="button"
-            className="watch-refresh-index"
             data-testid={`watch-refresh-index-${watch.id}`}
             // Ruling 4 honesty: this refreshes the embedding index AND then
             // runs the whole watch again — two purchases, named up front.
@@ -898,7 +900,7 @@ function WatchItem({
         )}
       </div>
       {canEdit && (
-        <div className="watch-lifecycle-controls">
+        <div className="control-row">
           {pendingActionLabel && (
             <span data-testid="watch-pending-action" role="status">{pendingActionLabel}</span>
           )}
@@ -941,15 +943,17 @@ function WatchItem({
           refreshWatches={onRefreshWatches}
         />
       )}
-      <button
-        type="button"
-        className="watch-runs-toggle"
-        data-testid="toggle-watch-runs"
-        aria-expanded={expanded}
-        onClick={() => onToggleRuns(watch.id)}
-      >
-        <RunChevron size={11} /> Runs
-      </button>
+      <div className="control-row panel-item-meta">
+        <Button
+          type="button"
+          variant="text"
+          data-testid="toggle-watch-runs"
+          aria-expanded={expanded}
+          onClick={() => onToggleRuns(watch.id)}
+        >
+          <RunChevron size={11} /> Runs
+        </Button>
+      </div>
       {expanded && (
         <WatchRunHistory
           eventsByRun={eventsByRun}
@@ -1095,7 +1099,7 @@ export function WatchesPanel({
     panel.clearFocusPanel();
   }, [panel]);
   return (
-    <section ref={panelRef} className="sidebar-watchlists" data-testid="watches" tabIndex={-1}>
+    <section ref={panelRef} className="content-stack" data-testid="watches" tabIndex={-1}>
       <span className="sr-only" role="status" aria-live="polite">{panel.status}</span>
       <WatchesPanelHeader
         itemCount={panel.items?.length ?? null}
