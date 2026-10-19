@@ -115,6 +115,7 @@ function renderFlow(projectId = 'project-1') {
     registerCloseGuard: vi.fn(),
     onImported: vi.fn(),
     onError: vi.fn(),
+    onCancel: vi.fn(),
   };
   return { ...render(<PdfPacketImportFlow {...props} />), props };
 }
@@ -191,7 +192,7 @@ describe('PDF packet import flow boundaries', () => {
     const file = new File(['pdf'], 'Handed-off.pdf', { type: 'application/pdf' });
     const props = {
       projectId: 'project-1', initialFile: file, onContextChange: vi.fn(), registerCloseGuard: vi.fn(),
-      onImported: vi.fn(), onError: vi.fn(),
+      onImported: vi.fn(), onError: vi.fn(), onCancel: vi.fn(),
     };
     render(<PdfPacketImportFlow {...props} />);
 

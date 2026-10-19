@@ -220,7 +220,7 @@ describe('TableImportFlow', () => {
     const onUseMultipleFiles = vi.fn();
     renderFlow(api, { initialFile: null, onUseMultipleFiles });
     const files = [new File(['a'], 'a.csv'), new File(['b'], 'b.xlsx')];
-    fireEvent.change(screen.getByRole('button', { name: 'Choose file' }).closest('.table-import-dropzone')!.querySelector('input')!, { target: { files } });
+    fireEvent.change(screen.getByRole('button', { name: 'Choose file' }).closest('.import-drop-area')!.querySelector('input')!, { target: { files } });
     expect(await screen.findByRole('heading', { name: 'One file at a time' })).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Use Multiple files' }));
     await waitFor(() => expect(onUseMultipleFiles).toHaveBeenCalledWith(files));
@@ -232,7 +232,7 @@ describe('TableImportFlow', () => {
     const onUsePdfSplit = vi.fn();
     renderFlow(api, { initialFile: null, onUsePdfSplit });
     const file = new File(['%PDF'], 'packet.pdf', { type: 'application/pdf' });
-    fireEvent.change(screen.getByRole('button', { name: 'Choose file' }).closest('.table-import-dropzone')!.querySelector('input')!, { target: { files: [file] } });
+    fireEvent.change(screen.getByRole('button', { name: 'Choose file' }).closest('.import-drop-area')!.querySelector('input')!, { target: { files: [file] } });
     fireEvent.click(await screen.findByRole('button', { name: 'Split a PDF' }));
     await waitFor(() => expect(onUsePdfSplit).toHaveBeenCalledWith(file));
   });
@@ -255,7 +255,7 @@ describe('TableImportFlow', () => {
     const api = mockApi();
     renderFlow(api, { initialFile: null });
     const file = new File(['name\nAda\n'], 'uploaded-table', { type: 'application/octet-stream' });
-    const input = screen.getByRole('button', { name: 'Choose file' }).closest('.table-import-dropzone')!.querySelector('input')!;
+    const input = screen.getByRole('button', { name: 'Choose file' }).closest('.import-drop-area')!.querySelector('input')!;
 
     fireEvent.change(input, { target: { files: [file] } });
     await waitFor(() => expect(api.createFromFile).toHaveBeenCalledWith('project-1', file, expect.anything()));

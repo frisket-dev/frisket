@@ -51,6 +51,9 @@ export async function captureImportScenes(page: Page, shot: Shot) {
   await page.getByRole('button', { name: 'Continue →', exact: true }).click();
   const name = page.getByLabel('Sheet name', { exact: true });
   await name.fill('Council spending');
+  const destinationBody = await page.locator('.table-import-destination .import-step-body').boundingBox();
+  const destinationOptions = await page.locator('.table-import-destination .import-destination-options').boundingBox();
+  expect(destinationBody!.width - destinationOptions!.width).toBe(48);
   await shot(page, 'Import workflow', 'table-destination', tableSource);
   await name.fill('');
   await expect(page.locator('.table-import-flow').getByRole('button', { name: /^Import(?: |$)/ })).toBeDisabled();
@@ -77,6 +80,11 @@ export async function captureImportScenes(page: Page, shot: Shot) {
   await shot(page, 'Import workflow', 'excel-worksheet-menu', tableSource);
   await page.getByRole('region', { name: 'Check rows', exact: true })
     .getByRole('combobox', { name: /^Sheet/ }).click();
+
+  await page.getByRole('button', { name: 'Columns →', exact: true }).click();
+  await page.getByRole('button', { name: 'Continue →', exact: true }).click();
+  await expect(page.getByLabel('Sheet name', { exact: true })).toBeVisible();
+  await shot(page, 'Import workflow', 'excel-destination', tableSource);
 
   await freshImport(page, 'multiple files');
   await page.getByTestId('import-mode-files').click();

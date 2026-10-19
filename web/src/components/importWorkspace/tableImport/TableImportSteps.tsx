@@ -1,8 +1,9 @@
 import { ImportStep, ImportStepBody } from '../ImportStep';
+import { ImportDropArea } from '../ImportDropArea';
 import { Button } from '../../Button';
 import { FormField, TextInput, TextArea } from '../../FormControls';
-import { Fragment, useDeferredValue, useMemo, useRef, useState, type DragEvent } from 'react';
-import { AlertTriangle, CheckCircle2, LockKeyhole, Search, Upload } from 'lucide-react';
+import { Fragment, useDeferredValue, useMemo, useRef, useState } from 'react';
+import { AlertTriangle, CheckCircle2, LockKeyhole, Search } from 'lucide-react';
 
 import type {
   TableImportColumn,
@@ -97,13 +98,9 @@ export function AddDataStep({
   const deferredPasteText = useDeferredValue(pasteText);
   const pasteSummary = useMemo(() => displayPasteSummary(deferredPasteText), [deferredPasteText]);
   const submitPaste = issue?.kind === 'large_paste' ? onLargePasteConfirm : onPasteSubmit;
-  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    if (!busy) onFiles(Array.from(event.dataTransfer.files));
-  };
 
   return <ImportStep className="table-import-add" aria-label="Add data">
-    <ImportStepBody className="table-import-add-body">
+    <ImportStepBody className="import-entry-body">
       <SegmentedToggle
         ariaLabel="Table source"
         fullWidth={false}
@@ -120,13 +117,11 @@ export function AddDataStep({
         <Button type="button" className="btn-primary" disabled={busy || !password} onClick={onUnlock}>{busy ? 'Opening…' : 'Open'}</Button>
       </div> : issue ? <SourceIssue issue={issue} busy={busy} onFiles={onFiles} onMultipleFiles={onMultipleFiles} onReset={onResetIssue} onSplitPdf={onSplitPdf} onChooseFtm={onChooseFtm} />
         : mode === 'file' ? <>
-          <div className="table-import-dropzone" onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = busy ? 'none' : 'copy'; }} onDrop={handleDrop}>
+          <ImportDropArea title={selectedFile ? selectedFile.name : 'Drop a CSV or Excel file here'}
+            description=".csv · .tsv · .txt · .xlsx · .xls · .ods" disabled={busy} onFiles={onFiles}>
             <input ref={inputRef} type="file" multiple hidden onChange={(event) => { onFiles(Array.from(event.currentTarget.files ?? [])); event.currentTarget.value = ''; }} />
-            <Upload size={32} aria-hidden />
-            <h3>{selectedFile ? selectedFile.name : 'Drop a CSV or Excel file here'}</h3>
             <Button type="button" className="btn-primary" disabled={busy} onClick={() => inputRef.current?.click()}>{busy ? 'Checking…' : 'Choose file'}</Button>
-            <p>.csv · .tsv · .txt · .xlsx · .xls · .ods</p>
-          </div>
+          </ImportDropArea>
           <p className="table-import-source-note">One file at a time. To bring in many files or a folder, use <button type="button" className="text-btn" onClick={() => onMultipleFiles()}>Multiple files</button>.</p>
         </> : <div className="table-import-paste">
           <TextArea aria-label="Paste rows" autoFocus spellCheck={false} value={pasteText} disabled={busy} placeholder={'Name\tAmount\tDate'} onChange={(event) => onPasteChange(event.currentTarget.value)} />

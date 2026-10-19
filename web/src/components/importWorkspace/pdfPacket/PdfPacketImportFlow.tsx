@@ -1,5 +1,6 @@
 import { Button } from '../../Button';
 import { ImportStep, ImportStepBody } from '../ImportStep';
+import { ImportDropArea } from '../ImportDropArea';
 import { ImportStepFooter } from '../ImportStepFooter';
 import { FormField, TextInput } from '../../FormControls';
 import {
@@ -61,6 +62,7 @@ interface PdfPacketImportFlowProps {
   registerCloseGuard(guard: (() => boolean) | null): void;
   onImported(sheetId: number): void;
   onError(message: string): void;
+  onCancel(): void;
 }
 
 interface PendingOcrConsent {
@@ -125,6 +127,7 @@ export function PdfPacketImportFlow({
   registerCloseGuard,
   onImported,
   onError,
+  onCancel,
 }: PdfPacketImportFlowProps) {
   const [state, dispatch] = useReducer(pdfPacketFlowReducer, initialPdfPacketFlowState);
   const [uploading, setUploading] = useState(false);
@@ -637,7 +640,7 @@ export function PdfPacketImportFlow({
   };
 
   if (!state.snapshot) {
-    return <PacketChooser uploading={uploading} error={state.error} onChoose={chooseFile} />;
+    return <PacketChooser uploading={uploading} error={state.error} onChoose={chooseFile} onCancel={onCancel} />;
   }
 
   if (state.snapshot.status === 'preparing' || !pageCount) {
@@ -721,35 +724,22 @@ function PacketChooser({
   uploading,
   error,
   onChoose,
+  onCancel,
 }: {
   uploading: boolean;
   error: string | null;
   onChoose(file: File): void;
+  onCancel(): void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [dragging, setDragging] = useState(false);
   const [dropError, setDropError] = useState<string | null>(null);
   return (
-    <div
-      className="pdf-packet-chooser"
-      data-testid="pdf-packet-chooser"
-      data-dragging={dragging || undefined}
-      onDragOver={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        event.dataTransfer.dropEffect = uploading ? 'none' : 'copy';
-        if (!uploading) setDragging(true);
-      }}
-      onDragLeave={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false);
-      }}
-      onDrop={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        setDragging(false);
-        if (uploading) return;
-        const files = event.dataTransfer.files;
-        if (!files.length) return;
+    <ImportStep>
+    <ImportStepBody className="import-entry-body">
+    <ImportDropArea title="Drop a PDF packet here"
+      description="Mark the first page of each document. The original PDF is never changed."
+      testId="pdf-packet-chooser" disabled={uploading}
+      onFiles={(files) => {
         if (files.length !== 1) {
           setDropError('Choose one PDF packet at a time.');
           return;
@@ -758,9 +748,6 @@ function PacketChooser({
         onChoose(files[0]);
       }}
     >
-      <FileText size={34} aria-hidden />
-      <h2>Split a PDF packet</h2>
-      <p>Mark the first page of each document. The original PDF is never changed.</p>
       <input
         ref={inputRef}
         type="file"
@@ -779,9 +766,14 @@ function PacketChooser({
       <Button type="button" className="btn-primary" disabled={uploading} onClick={() => inputRef.current?.click()}>
         {uploading ? 'Reading packet…' : 'Choose PDF packet'}
       </Button>
-      <span className="form-hint">or drop a PDF here</span>
+    </ImportDropArea>
       {(dropError || error) && <div className="panel-error" role="alert">{dropError || error}</div>}
-    </div>
+    </ImportStepBody>
+    <ImportStepFooter>
+      <Button type="button" disabled={uploading} onClick={onCancel}>Cancel</Button>
+      <span>Choose or drop a PDF to start checking its pages.</span>
+    </ImportStepFooter>
+    </ImportStep>
   );
 }
 

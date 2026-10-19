@@ -247,7 +247,7 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     });
     const file = new File(['name\nAda\n'], 'people.csv', { type: 'text/csv' });
     const input = screen.getByRole('button', { name: 'Choose file' })
-      .closest('.table-import-dropzone')?.querySelector('input');
+      .closest('.import-drop-area')?.querySelector('input');
     fireEvent.change(input!, { target: { files: [file] } });
 
     expect(await screen.findByLabelText('Check rows')).toBeVisible();
@@ -836,7 +836,7 @@ describe('ImportWorkspaceDialog controlled open session', () => {
       />,
     );
 
-    const input = screen.getByRole('button', { name: 'Choose file' }).closest('.table-import-dropzone')?.querySelector('input');
+    const input = screen.getByRole('button', { name: 'Choose file' }).closest('.import-drop-area')?.querySelector('input');
     fireEvent.change(input!, { target: { files: [new File(['{"id":"x"}\n'], 'entities.jsonl', { type: 'application/json' })] } });
     fireEvent.click(screen.getByRole('button', { name: 'Use FollowTheMoney import' }));
     fireEvent.change(screen.getByTestId('import-ftm-dataset-name'), { target: { value: 'Entities' } });
@@ -856,7 +856,7 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     render(
       <ImportWorkspaceDialog open onClose={vi.fn()} onImported={vi.fn()} onError={vi.fn()} onLaunchDownload={vi.fn()} />,
     );
-    const input = screen.getByRole('button', { name: 'Choose file' }).closest('.table-import-dropzone')?.querySelector('input');
+    const input = screen.getByRole('button', { name: 'Choose file' }).closest('.import-drop-area')?.querySelector('input');
     fireEvent.change(input!, { target: { files: [new File(['{"id":"x"}\n'], 'entities.jsonl', { type: 'application/json' })] } });
     expect(screen.queryByRole('button', { name: 'Use FollowTheMoney import' })).toBeNull();
     await waitFor(() => expect(createTableImportFromFile).toHaveBeenCalledWith(

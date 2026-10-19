@@ -143,8 +143,23 @@ test('four import entry surfaces', async ({ page }) => {
   for (const [mode, label] of [['csv', 'one-file'], ['files', 'multiple-files'], ['pdf_split', 'split-pdf'], ['feed', 'feed-source']]) {
     await page.getByTestId(`import-mode-${mode}`).click();
     await expect(page.getByTestId(`import-mode-${mode}`)).toHaveAttribute('aria-selected', 'true');
+    const panel = page.locator('.import-workspace-panel');
+    const footer = panel.locator('.import-step-footer');
+    await expect(footer.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
+    const panelBounds = await panel.boundingBox();
+    const footerBounds = await footer.boundingBox();
+    expect(Math.abs(panelBounds!.y + panelBounds!.height - footerBounds!.y - footerBounds!.height)).toBeLessThan(2);
+    if (mode !== 'feed') {
+      const dropArea = panel.locator('.import-drop-area');
+      await expect(dropArea).toBeVisible();
+      expect((await dropArea.boundingBox())!.height).toBe(300);
+    }
     await shot(page, 'Import', label, 'src/components/ImportCsv.tsx; importWorkspace/');
   }
+  await page.getByTestId('import-mode-files').click();
+  await page.getByTestId('import-source-urls').click();
+  await expect(page.locator('.import-step-footer').getByTestId('import-url-submit')).toBeVisible();
+  await shot(page, 'Import', 'multiple-file-urls', 'src/components/ImportCsv.tsx');
 });
 
 test('representative action forms', async ({ page }) => captureActionScenes(page, shot));

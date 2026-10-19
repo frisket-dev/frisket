@@ -7319,58 +7319,6 @@ dialog.import-workspace-layer::backdrop {
   min-height: 46px;
   margin-top: 4px;
 }
-.import-source-toggle {
-  flex: 0 0 auto;
-  align-self: flex-start;
-  flex-wrap: nowrap;
-  gap: 2px;
-  padding: 2px;
-  border-radius: var(--radius-8);
-  background: var(--bg-hover);
-}
-.import-source-toggle button {
-  min-width: 88px;
-  justify-content: center;
-  border: 0;
-  border-radius: var(--radius-6);
-  background: transparent;
-}
-.import-source-toggle button.active {
-  border-color: transparent;
-  background: var(--bg);
-  box-shadow: var(--shadow-sm);
-}
-.import-files-chooser {
-  flex: 1 0 300px;
-  width: 100%;
-  min-height: 300px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 40px 24px;
-  border: 2px dashed var(--border-strong);
-  border-radius: 12px;
-  color: var(--text-light);
-  text-align: center;
-  transition: border-color 0.15s, background 0.15s, color 0.15s;
-}
-.import-files-chooser[data-dragging] {
-  border-color: var(--accent);
-  background: var(--accent-bg);
-  color: var(--accent);
-}
-.import-files-chooser h2 {
-  margin: 2px 0 0;
-  color: var(--text);
-  font-size: 20px;
-}
-.import-files-chooser p {
-  margin: 0 0 8px;
-  color: var(--text-light);
-  font-size: 12px;
-}
 .import-files-chooser-actions {
   display: flex;
   flex-wrap: wrap;
@@ -7603,14 +7551,13 @@ dialog.import-workspace-layer::backdrop {
 .pdf-packet-workspace-main {
   grid-template-columns: minmax(0, 1fr);
 }
-.pdf-packet-workspace-panel {
+.import-workspace-panel-flush {
   padding: 0;
   gap: 0;
   overflow: hidden;
 }
-.pdf-packet-workspace-panel > .pdf-packet-flow,
-.pdf-packet-workspace-panel > .pdf-packet-chooser,
-.pdf-packet-workspace-panel > .pdf-packet-preparing {
+.import-workspace-panel-flush > .pdf-packet-flow,
+.import-workspace-panel-flush > .pdf-packet-preparing {
   width: 100%;
 }
 .pdf-packet-flow {
@@ -7620,7 +7567,6 @@ dialog.import-workspace-layer::backdrop {
   display: flex;
   flex-direction: column;
 }
-.pdf-packet-chooser,
 .pdf-packet-preparing {
   flex: 1 1 auto;
   min-height: 0;
@@ -7632,13 +7578,6 @@ dialog.import-workspace-layer::backdrop {
   padding: 40px;
   text-align: center;
 }
-.pdf-packet-chooser h2 { margin: 2px 0 0; font-size: 20px; }
-.pdf-packet-chooser[data-dragging] {
-  outline: 2px dashed var(--accent, #4b4ddb);
-  outline-offset: -12px;
-  background: #f3f2ff;
-}
-.pdf-packet-chooser p { max-width: 420px; margin: 0 0 8px; color: #756c66; }
 .pdf-packet-preparing strong { font-size: 15px; }
 .pdf-packet-preparing > span { color: #756c66; }
 .pdf-packet-preparing progress { width: min(360px, 80%); accent-color: #4b4ddb; }

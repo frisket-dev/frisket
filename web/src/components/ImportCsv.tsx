@@ -1,6 +1,9 @@
 import { Button } from './Button';
 import { FormField, TextInput, TextArea } from './FormControls';
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type DragEvent } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useReducer, useRef, useState, type DragEvent } from 'react';
+import { ImportStep, ImportStepBody } from './importWorkspace/ImportStep';
+import { ImportStepFooter } from './importWorkspace/ImportStepFooter';
+import { ImportDropArea } from './importWorkspace/ImportDropArea';
 import {
   AtSign,
   FileText,
@@ -1035,7 +1038,6 @@ function OpenImportWorkspaceSession({
   const [bulkFailures, setBulkFailures] = useState<BulkImportFailedOutput[]>([]);
   const [bulkFailuresOmitted, setBulkFailuresOmitted] = useState(0);
   const [selectionPreparing, setSelectionPreparing] = useState(false);
-  const [filesDragging, setFilesDragging] = useState(false);
   const selectionPreparationGeneration = useRef(0);
   const [destinationSheets, setDestinationSheets] = useState<SheetMeta[]>([]);
   const busy = uploadBusy;
@@ -1247,7 +1249,6 @@ function OpenImportWorkspaceSession({
     if (busy) return;
     selectionPreparationGeneration.current += 1;
     setSelectionPreparing(false);
-    setFilesDragging(false);
     resetBulkPlan();
     setPdfPacketContext({ active: false, stage: 'check', subtitle: null, busy: false });
     pdfPacketCloseGuardRef.current = null;
@@ -1544,6 +1545,9 @@ function OpenImportWorkspaceSession({
     && !bulkPlan);
   const showPreparation = preparationReceipt !== null || importInProgress;
   const tableImportActive = tableImportSelected && !showPreparation;
+  const fileEntry = railMode === 'files' && !showPreparation && !pdfBatchActive && !downloadPrompt && !nerPrompt;
+  const EntryStep = fileEntry ? ImportStep : Fragment;
+  const EntryBody = fileEntry ? ImportStepBody : Fragment;
   const tableImportChoosingSource = tableImportActive
     && (tableImportContext?.canChangeMode ?? true)
     && (tableImportContext?.stage ?? 'add') === 'add';
@@ -1696,7 +1700,7 @@ function OpenImportWorkspaceSession({
             </aside>
           ) : null}
           <main className="import-workspace-content">
-            <div className={`import-workspace-panel${mode === 'pdf_split' || pdfBatchActive || tableImportActive ? ' pdf-packet-workspace-panel' : ''}`}>
+            <div className={`import-workspace-panel${mode === 'pdf_split' || pdfBatchActive || tableImportActive || fileEntry || mode === 'feed' ? ' import-workspace-panel-flush' : ''}`}>
               {tableImportActive ? (
                 <TableImportFlow
                   projectId={projectId}
@@ -1743,7 +1747,7 @@ function OpenImportWorkspaceSession({
                   onDiscarded={closeWorkspace}
                   onError={onError}
                 />
-              ) : <>
+              ) : <EntryStep><EntryBody {...(fileEntry ? { className: 'import-entry-body' } : {})}>
               {railMode === 'files' && !showPreparation && <PdfBatchDrafts projectId={projectId} onResume={setPdfBatchResumeId} />}
               {railMode === 'files' && !showPreparation ? (
                 <SegmentedToggle
@@ -1754,7 +1758,6 @@ function OpenImportWorkspaceSession({
                   options={[{ value: 'files', label: 'Files' }, { value: 'urls', label: 'URLs' }]}
                   buttonTestId={(value) => `import-source-${value}`}
                   testId="import-source-toggle"
-                  className="import-source-toggle"
                   disabled={busy || bulkBusy || selectionPreparing}
                 />
               ) : null}
@@ -1877,6 +1880,7 @@ function OpenImportWorkspaceSession({
                     closeWorkspace();
                   }}
                   onError={onError}
+                  onCancel={closeWorkspaceFromUser}
                 />
               ) : mode === 'urls' ? (
                 <>
@@ -1892,54 +1896,19 @@ function OpenImportWorkspaceSession({
                     placeholder="https://example.com/file.pdf"
                     onChange={(e) => dispatch({ type: 'setUrlText', value: e.target.value })}
                   />
-                  <Button
-                    type="button"
-                    className="btn-primary import-primary"
-                    data-testid="import-url-submit"
-                    disabled={busy}
-                    onClick={() => {
-                      void uploadUrls(urlText).then((sheetId) => {
-                        if (sheetId != null) void finishImport(sheetId);
-                      });
-                    }}
-                  >
-                    <Link2 size={13} /> Import URLs
-                  </Button>
                 </>
               ) : mode === 'feed' ? (
-                <FeedSourceForm onCreated={onClose} onImported={onImported} onError={onError} />
+                <FeedSourceForm onCreated={onClose} onImported={onImported} onError={onError} onCancel={closeWorkspaceFromUser} />
               ) : (
                 <>
-                  <div
-                    className="import-files-chooser"
-                    data-testid="import-files-chooser"
-                    data-dragging={filesDragging || undefined}
-                    onDragOver={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      event.dataTransfer.dropEffect = busy || bulkBusy || selectionPreparing ? 'none' : 'copy';
-                      if (!busy && !bulkBusy && !selectionPreparing) setFilesDragging(true);
-                    }}
-                    onDragLeave={(event) => {
-                      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFilesDragging(false);
-                    }}
-                    onDrop={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      setFilesDragging(false);
-                      if (busy || bulkBusy || selectionPreparing) return;
-                      handlePickedFiles(snapshotImportFiles(event.dataTransfer.files));
-                    }}
-                  >
-                    <Upload size={34} aria-hidden />
-                    <h2>Drop files here</h2>
-                    <p>Drop files or a ZIP archive here, or choose a folder.</p>
+                  <ImportDropArea title="Drop files here" description="Drop files or a ZIP archive here, or choose a folder."
+                    testId="import-files-chooser" disabled={busy || bulkBusy || selectionPreparing} onFiles={handlePickedFiles}>
                     <div className="import-files-chooser-actions">
                       <Button type="button" className="btn-primary" data-testid="import-file-picker" disabled={busy || bulkBusy || selectionPreparing} onClick={() => inputRef.current?.click()}>Pick files</Button>
                       <Button type="button" disabled={busy || bulkBusy || selectionPreparing} onClick={() => folderInputRef.current?.click()}>Choose folder</Button>
                       <Button type="button" disabled={busy || bulkBusy || selectionPreparing} onClick={() => zipInputRef.current?.click()}>Upload ZIP</Button>
                     </div>
-                  </div>
+                  </ImportDropArea>
                   {(bulkPlan || bulkBusy || bulkError || bulkSuccessMessage || bulkWarnings.length || bulkFailures.length || bulkFailuresOmitted > 0) && (
                     <BulkImportPlanPanel
                       plan={bulkPlan}
@@ -1958,7 +1927,18 @@ function OpenImportWorkspaceSession({
                   )}
                 </>
               )}
-              </>}
+              </EntryBody>
+              {fileEntry && <ImportStepFooter>
+                <Button type="button" disabled={busy || bulkBusy || selectionPreparing} onClick={closeWorkspaceFromUser}>Cancel</Button>
+                <span>{mode === 'urls' ? 'Enter URLs to import their contents.' : 'Choose or drop files to start preparing the import.'}</span>
+                {mode === 'urls' && <Button type="button" variant="primary" data-testid="import-url-submit"
+                  disabled={busy} onClick={() => {
+                    void uploadUrls(urlText).then((sheetId) => {
+                      if (sheetId != null) void finishImport(sheetId);
+                    });
+                  }}><Link2 size={13} /> Import URLs</Button>}
+              </ImportStepFooter>}
+              </EntryStep>}
             </div>
           </main>
         </div>
@@ -2209,10 +2189,12 @@ function FeedSourceForm({
   onCreated,
   onImported,
   onError,
+  onCancel,
 }: {
   onCreated?(): void;
   onImported(sheetId: number): void;
   onError(message: string): void;
+  onCancel(): void;
 }) {
   const { projectApi: api, chromePreferences: { projectId } } = useWorkspaceStores();
   const [state, dispatch] = useReducer(
@@ -2328,7 +2310,8 @@ function FeedSourceForm({
 
   if (populate) {
     return (
-      <div className="content-stack import-feed-form" data-testid="feed-populate-prompt">
+      <ImportStep>
+      <ImportStepBody className="content-stack" data-testid="feed-populate-prompt">
         <div className="import-mode-summary">
           {feedKindIcon(kind)}
           <strong>Populate feed?</strong>
@@ -2341,7 +2324,8 @@ function FeedSourceForm({
         {populate.error && (
           <div className="panel-error" role="alert">{populate.error}</div>
         )}
-        <div className="import-step-actions">
+      </ImportStepBody>
+      <ImportStepFooter>
           <Button
             type="button"
 
@@ -2351,6 +2335,7 @@ function FeedSourceForm({
           >
             Not now
           </Button>
+          <span>The feed is saved. Fetch its rows now or later.</span>
           <Button
             type="button"
             className="btn-primary import-primary"
@@ -2361,13 +2346,15 @@ function FeedSourceForm({
             <RefreshCw size={13} className={populate.busy ? 'spin' : undefined} />
             {populate.busy ? 'Running...' : 'Run'}
           </Button>
-        </div>
-      </div>
+      </ImportStepFooter>
+      </ImportStep>
     );
   }
 
   return (
-    <div className="content-stack import-feed-form" data-testid="source-form">
+    <ImportStep>
+    <ImportStepBody>
+    <div className="content-stack" data-testid="source-form">
       <div className="import-mode-summary">
         {feedKindIcon(kind)}
         <strong>Feed</strong>
@@ -2548,6 +2535,11 @@ function FeedSourceForm({
           {validationError ?? error}
         </div>
       )}
+    </div>
+    </ImportStepBody>
+    <ImportStepFooter>
+      <Button type="button" disabled={busy} onClick={onCancel}>Cancel</Button>
+      <span>Add a feed to keep its source available for updates.</span>
       <Button
         type="button"
         className="btn-primary import-primary"
@@ -2557,7 +2549,8 @@ function FeedSourceForm({
       >
         {busy ? 'Adding...' : 'Add feed'}
       </Button>
-    </div>
+    </ImportStepFooter>
+    </ImportStep>
   );
 }
 
