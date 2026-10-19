@@ -1931,7 +1931,7 @@ function OpenImportWorkspaceSession({
               {fileEntry && <ImportStepFooter>
                 <Button type="button" disabled={busy || bulkBusy || selectionPreparing} onClick={closeWorkspaceFromUser}>Cancel</Button>
                 <span>{mode === 'urls' ? 'Enter URLs to import their contents.' : 'Choose or drop files to start preparing the import.'}</span>
-                {mode === 'urls' && <Button type="button" variant="primary" data-testid="import-url-submit"
+                {mode === 'urls' && <Button type="button" className="btn-primary" data-testid="import-url-submit"
                   disabled={busy} onClick={() => {
                     void uploadUrls(urlText).then((sheetId) => {
                       if (sheetId != null) void finishImport(sheetId);
