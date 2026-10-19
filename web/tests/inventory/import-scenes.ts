@@ -62,7 +62,7 @@ export async function captureImportScenes(page: Page, shot: Shot) {
   const imported = await commitTableImport(page, pid);
   await expect.poll(async () => (await sheetData(page.request, pid, imported)).total).toBe(3);
   await openProject(page, pid, imported);
-  await shot(page, 'Import workflow', 'table-import-result', 'src/components/ImportCsv.tsx; tableImport/TableImportFlow.tsx');
+  await shot(page, 'Import workflow', 'table-import-result', 'src/components/importWorkspace/ImportWorkspaceDialog.tsx; tableImport/TableImportFlow.tsx');
 
   await freshImport(page, 'pasted rows');
   await page.getByRole('button', { name: 'Paste rows', exact: true }).click();
@@ -129,13 +129,13 @@ export async function captureImportScenes(page: Page, shot: Shot) {
   await page.getByTestId('import-mode-feed').click();
   await page.getByTestId('source-url').fill('https://example.test/council/feed.xml');
   await page.getByTestId('source-name').fill('Council notices');
-  await shot(page, 'Import workflow', 'feed-rss-options', 'src/components/ImportCsv.tsx');
+  await shot(page, 'Import workflow', 'feed-rss-options', 'src/components/importWorkspace/ImportWorkspaceDialog.tsx');
   await page.getByTestId('source-kind').selectOption('api_list_dicts');
   await expect(page.getByTestId('source-api-list-path')).toBeVisible();
   await page.getByTestId('source-url').fill('https://example.test/api/notices');
   await page.getByTestId('source-api-list-path').fill('results');
-  await shot(page, 'Import workflow', 'feed-api-options', 'src/components/ImportCsv.tsx');
+  await shot(page, 'Import workflow', 'feed-api-options', 'src/components/importWorkspace/ImportWorkspaceDialog.tsx');
   await page.getByTestId('source-kind').selectOption('youtube_playlist');
   await expect(page.getByTestId('source-youtube-max-items')).toBeVisible();
-  await shot(page, 'Import workflow', 'feed-playlist-options', 'src/components/ImportCsv.tsx');
+  await shot(page, 'Import workflow', 'feed-playlist-options', 'src/components/importWorkspace/ImportWorkspaceDialog.tsx');
 }

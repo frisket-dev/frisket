@@ -1,5 +1,22 @@
 # UI inventory findings
 
+## Active expanded consolidation scope (maintainer approved)
+
+1. Split ImportCsv by responsibility: feed setup, file intake, follow-up prompts,
+   bulk-plan presentation and workspace orchestration; no compatibility facade.
+2. Consolidate panel header / scrolling body / fixed footer presentation.
+3. Remove page-specific overrides of shared controls, normalizing incidental styles.
+4. Reuse editable-row, card, summary and toolbar presentation across real callers.
+5. Consolidate menu/popover positioning and dismissal on existing infrastructure;
+   fix nested Escape dismissal without merging unrelated selection controllers.
+6. Delete verified obsolete CSS and measure net handwritten production LOC.
+
+Proceed aggressively, preserving features and domain logic rather than incidental
+styling. Review each bounded round with targeted tests, before/after captures and
+secondary review. Fold in maintainer visual feedback. No public PR until all
+revamp cycles and maintainer visual approval are complete. The first split is an
+ownership prerequisite, not itself claimed as a LOC reduction.
+
 Working audit, not a redesign proposal. Record all substantive findings; no quota or cap. Code observations below are preliminary until accompanied by rendered evidence. Screenshots will be linked from the generated inventory. Group repeated symptoms under their shared cause, and retain intentional behavior differences.
 
 ## First consolidation pass

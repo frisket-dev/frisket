@@ -2638,7 +2638,7 @@ export interface SheetDataPage {
   /** The resulting sheet's columns (incl.
    * transcriptStatus/mediaDownloadCandidate) — the same payload getSheetData
    * already fetches internally, exposed to callers that need the full column
-   * list right after a write (e.g. ImportCsv.tsx's finishImport classifying
+   * list right after a write (e.g. ImportWorkspaceDialog's finishImport classifying
    * a just-imported sheet) without a second round trip. */
   columns: ColumnDef[];
 }

@@ -154,12 +154,12 @@ test('four import entry surfaces', async ({ page }) => {
       await expect(dropArea).toBeVisible();
       expect((await dropArea.boundingBox())!.height).toBe(300);
     }
-    await shot(page, 'Import', label, 'src/components/ImportCsv.tsx; importWorkspace/');
+    await shot(page, 'Import', label, 'src/components/importWorkspace/ImportWorkspaceDialog.tsx; importWorkspace/');
   }
   await page.getByTestId('import-mode-files').click();
   await page.getByTestId('import-source-urls').click();
   await expect(page.locator('.import-step-footer').getByTestId('import-url-submit')).toBeVisible();
-  await shot(page, 'Import', 'multiple-file-urls', 'src/components/ImportCsv.tsx');
+  await shot(page, 'Import', 'multiple-file-urls', 'src/components/importWorkspace/ImportWorkspaceDialog.tsx');
 });
 
 test('representative action forms', async ({ page }) => captureActionScenes(page, shot));

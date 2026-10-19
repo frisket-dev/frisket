@@ -85,7 +85,8 @@ vi.mock('../../src/api/tableImports', async (importOriginal) => {
   };
 });
 
-import { ImportDropzone, ImportWorkspaceDialog } from '../../src/components/ImportCsv';
+import { ImportDropzone } from '../../src/components/importWorkspace/ImportDropzone';
+import { ImportWorkspaceDialog } from '../../src/components/importWorkspace/ImportWorkspaceDialog';
 
 const plan = {
   plan_id: 'open-session-plan',

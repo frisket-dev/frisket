@@ -12,3 +12,15 @@ export const IMPORT_MODES: ImportModeOption[] = [
   { id: 'pdf_split', label: 'Split a PDF', hint: 'One packet into many documents' },
   { id: 'feed', label: 'Feed or source', hint: 'RSS, YouTube, API' },
 ];
+export interface ImportHandlers {
+  onImported(sheetId: number): void;
+  onError(message: string): void;
+  /** The "Download media?" prompt's Download
+   *  button routes here — the same runActionFromSurface(kind, column) shape
+   *  the caret menu uses, so the action drawer opens pre-bound to the
+   *  detected URL column. */
+  onLaunchDownload(launcherKind: string, columnName: string): void;
+  /** The "Find the names in it?" prompt's primary button. Opens the map.ner
+   *  drawer on the just-imported sheet; it never starts extraction. */
+  onExtractEntities?(): void;
+}
