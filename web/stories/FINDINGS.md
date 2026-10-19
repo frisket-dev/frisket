@@ -17,7 +17,7 @@ Inline title editors, code editors and template composers need their editing
 behavior preserved, not merely a native-input tag swap. The Escape propagation
 defect and repeated-histogram observation below are separate from this pass.
 
-## Structural observations awaiting visual validation
+## Consolidation scope and structural observations
 
 ### Normalization pass (maintainer-approved)
 
@@ -42,7 +42,7 @@ different spacing/colors alone are not regressions to restore.
 - Select triggers share padding/borders/chevrons; rich model choice content does
   not require a different outer control skin.
 
-### Next larger-component passes (proposed, not implemented)
+### Larger-component rounds (implemented; maintainer visual approval pending)
 
 1. **Import framing.** There is already one outer dialog/header in ImportCsv,
    plus shared ImportStageStepper/ImportStepFooter/destination controls. Consolidate
