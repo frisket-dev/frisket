@@ -213,8 +213,8 @@ of the obscured Sources panel behind it.
 User review caught three independently styled file drop zones and entry screens
 without the shared footer. They now use `ImportDropArea`, `ImportStepBody` and
 `ImportStepFooter`; feed and URL submission also sit in the footer. Footer Cancel
-uses the same close guards as the header, including cancellation during ZIP
-preparation. Multiple files and Split PDF still process selection immediately.
+uses the same close guards as the header. Multiple files and Split PDF still
+process selection immediately; progress screens retain their existing controls.
 Table destination/summary width caps and the extra file-source toggle skin are
 removed. Browser checks cover drop-area size, footer anchoring and destination
 width; the comparison now includes Excel destination and URL entry.
