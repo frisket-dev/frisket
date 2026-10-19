@@ -7,10 +7,12 @@ from frisket.table_import import (
     PreviewAccumulator,
     RawCell,
     RawRow,
+    RowIssue,
     SourceColumn,
     TableRow,
     convert_cell,
 )
+from frisket.table_import.analysis import PREVIEW_TEXT_CHARS
 
 
 def _row(ordinal: int, *values: str, role: str = "data") -> TableRow:
@@ -170,9 +172,52 @@ def test_stats_count_every_row_but_bound_inference_to_first_100k() -> None:
     column = snapshot.columns[0]
     assert snapshot.rows_checked == 100_005
     assert snapshot.inference_rows_checked == 100_000
-    assert column.sample_values == ("1", "2", "3", "4", "5")
+    assert tuple(sample.original for sample in column.sample_values) == (
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+    )
     assert column.counts_by_type["integer"].rows_checked == 100_005
     assert column.suggested_type == "integer"
+
+
+def test_large_samples_are_bounded_after_exact_outcomes_are_computed() -> None:
+    columns = (SourceColumn(0, "value", "value", "original"),)
+    stats = ColumnStatsAccumulator(columns)
+    value = "yes" + " " * (PREVIEW_TEXT_CHARS - 3) + "x"
+
+    stats.accept(_row(1, value))
+
+    column = stats.snapshot(complete=True).columns[0]
+    sample = column.sample_values[0]
+    assert sample.original == value[:PREVIEW_TEXT_CHARS]
+    assert sample.original_length == len(value)
+    assert sample.truncated is True
+    assert sample.outcomes_by_type["boolean"] == "invalid"
+    assert column.counts_by_type["boolean"].invalid == 1
+    assert convert_cell(RawCell(sample.original), "boolean").outcome == "unchanged"
+
+
+def test_row_preview_bounds_cells_and_issue_originals() -> None:
+    value = "x" * (PREVIEW_TEXT_CHARS + 17)
+    cells = (RawCell(value), RawCell(value))
+    source = RawRow(1, 1, 1, cells)
+    row = TableRow(
+        role="data",
+        source=source,
+        cells=cells,
+        issues=(RowIssue("extra_values", "extra value", (value,)),),
+    )
+    preview = PreviewAccumulator(head_rows=1, column_limit=2)
+
+    preview.accept(row)
+
+    result = preview.snapshot(complete=True).head[0]
+    excerpt = "x" * (PREVIEW_TEXT_CHARS - 1) + "…"
+    assert result.cells == (excerpt,) * 2
+    assert result.issues[0].original_values == (excerpt,)
 
 
 def test_mixed_naive_and_aware_datetimes_stay_text_for_review() -> None:

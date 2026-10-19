@@ -17,21 +17,31 @@ from frisket.table_import import (
     open_table,
     read_prefix,
 )
+from frisket.table_import.analysis import PREVIEW_TEXT_CHARS
 
 
 PREFIX_RECORDS = 64
 PREVIEW_HEAD = 8
 PREVIEW_COLUMNS = 8
 ESTIMATE_SAMPLE_BYTES = 1024 * 1024
+TAIL_PREVIEW_MAX_SOURCE_BYTES = 100 * 1024 * 1024
+
+
+def _preview_accumulator(source_path: Path) -> PreviewAccumulator:
+    tail_omitted = source_path.stat().st_size > TAIL_PREVIEW_MAX_SOURCE_BYTES
+    return PreviewAccumulator(
+        head_rows=PREVIEW_HEAD,
+        tail_rows=0 if tail_omitted else 2,
+        column_limit=PREVIEW_COLUMNS,
+        tail_omitted=tail_omitted,
+    )
 
 
 def build_prefix_scan(
     source_path: Path, settings: TableReadSettings, *, settings_revision: int
 ) -> dict[str, Any]:
     prefix = read_prefix(source_path, settings, record_limit=PREFIX_RECORDS)
-    preview = PreviewAccumulator(
-        head_rows=PREVIEW_HEAD, tail_rows=2, column_limit=PREVIEW_COLUMNS
-    )
+    preview = _preview_accumulator(source_path)
     stats = ColumnStatsAccumulator(
         prefix.columns,
         decimal_separator=settings.decimal_separator,
@@ -73,9 +83,7 @@ def build_complete_scan(
     source_path: Path, settings: TableReadSettings, *, settings_revision: int
 ) -> dict[str, Any]:
     total = count_records(source_path, settings) if settings.skip_rows_end else None
-    preview = PreviewAccumulator(
-        head_rows=PREVIEW_HEAD, tail_rows=2, column_limit=PREVIEW_COLUMNS
-    )
+    preview = _preview_accumulator(source_path)
     issues = zero_issue_counts()
     with open_table(source_path, settings, total_record_count=total) as reader:
         stats = ColumnStatsAccumulator(
@@ -188,14 +196,14 @@ def public_columns(
         counts = _chosen_counts(stat, target, date_order)
         counts_by_date_order = _counts_by_date_order(stat, target)
         samples = [
-            conversion_json(
-                value,
+            _public_sample(
+                sample,
                 target,
                 date_order,
                 decimal_separator=str(settings.get("decimal_separator", ".")),
                 thousands_separator=settings.get("thousands_separator", ","),
             )
-            for value in stat["sample_values"][:5]
+            for sample in stat["sample_values"][:5]
         ]
         needs = [
             {"leading_zero": "leading_zeros"}.get(item, item)
@@ -275,11 +283,65 @@ def conversion_json(
         decimal_separator=decimal_separator,
         thousands_separator=thousands_separator,
     )
+    if len(converted.original) > PREVIEW_TEXT_CHARS:
+        excerpt = converted.original[:PREVIEW_TEXT_CHARS]
+        return {
+            "original": excerpt,
+            "value": None,
+            "display": excerpt,
+            "outcome": converted.outcome,
+            "truncated": True,
+            "original_length": len(converted.original),
+        }
     return {
         "original": converted.original,
         "value": converted.value,
         "display": converted.display,
         "outcome": converted.outcome,
+        "truncated": False,
+        "original_length": None,
+    }
+
+
+def _public_sample(
+    sample: Any,
+    target: str,
+    date_order: str | None,
+    *,
+    decimal_separator: str,
+    thousands_separator: str | None,
+) -> dict[str, Any]:
+    if isinstance(sample, str):
+        return conversion_json(
+            sample,
+            target,
+            date_order,
+            decimal_separator=decimal_separator,
+            thousands_separator=thousands_separator,
+        )
+    original = str(sample["original"])
+    if not bool(sample.get("truncated")):
+        return conversion_json(
+            original,
+            target,
+            date_order,
+            decimal_separator=decimal_separator,
+            thousands_separator=thousands_separator,
+        )
+    if target == "omit":
+        outcome = "blank"
+    elif target in {"date", "datetime"}:
+        order = date_order or "month_first"
+        outcome = sample["outcomes_by_date_order"][order][target]
+    else:
+        outcome = sample["outcomes_by_type"][target]
+    return {
+        "original": original,
+        "value": None,
+        "display": original,
+        "outcome": outcome,
+        "truncated": True,
+        "original_length": int(sample["original_length"]),
     }
 
 

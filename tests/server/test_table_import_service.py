@@ -9,6 +9,7 @@ import zipfile
 
 import pytest
 
+import frisket.server.services.table_imports.analysis as table_analysis
 from frisket.engine.store.table_import_intake import (
     FrozenTableImport,
     table_dedup_key,
@@ -22,7 +23,7 @@ from frisket.server.services.table_imports import (
     run_table_analysis,
 )
 from frisket.server.workspace import Workspace
-from frisket.table_import import TableReadError
+from frisket.table_import import TableReadError, open_table
 
 
 CSV = b"name,joined,score\nAlice,2025-01-02T03:04:05,1.5\nBob,2025-02-03T04:05:06,2.5\n"
@@ -420,6 +421,84 @@ def test_snapshot_keeps_mixed_datetime_warning_and_resolved_number_samples(
     assert "mixed_datetime_awareness" in when.needs_review
     assert amount.target_type == "number"
     assert [sample.value for sample in amount.samples] == [1.5, 2.5]
+
+
+def test_oversized_sample_is_bounded_without_converting_its_excerpt(
+    tmp_path: Path,
+) -> None:
+    workspace, project_id, service = _service(tmp_path)
+    value = "yes" + " " * (2 * 1024 * 1024) + "x"
+    payload = f"value\n{value}\n".encode()
+    created = service.create(project_id, _upload(payload), input_kind="file")
+
+    changed = service.update_columns(
+        project_id,
+        created.draft_id,
+        expected_revision=created.revision,
+        columns=[
+            {
+                "source_index": 0,
+                "included": True,
+                "target_type": "boolean",
+                "date_order": None,
+            }
+        ],
+    )
+
+    sample = changed.columns[0].samples[0]
+    assert sample.original == value[:256]
+    assert sample.original_length == len(value)
+    assert sample.truncated is True
+    assert sample.value is None
+    assert sample.display == value[:256]
+    assert sample.outcome == "invalid"
+    assert changed.columns[0].conversion_counts.invalid == 1
+    preview_path = (
+        Path(workspace.get(project_id).path)
+        / ".imports"
+        / created.draft_id
+        / "table-preview.json"
+    )
+    assert preview_path.stat().st_size < 32 * 1024
+
+    preserved = service.create(
+        project_id, _upload(payload, "preserved.csv"), input_kind="file"
+    )
+    frozen = service.freeze_for_commit(
+        project_id,
+        preserved.draft_id,
+        expected_revision=preserved.revision,
+        idempotency_key="bounded-sample-source",
+    )
+    assert isinstance(frozen, FrozenTableImport)
+    with open_table(frozen.intake_dir / "source", frozen.plan.settings) as reader:
+        source_value = next(row for row in reader if row.role == "data").cells[0].text
+    assert source_value == value
+
+
+def test_tail_preview_is_omitted_only_above_the_size_threshold(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _workspace, project_id, service = _service(tmp_path)
+    payload = ("value\n" + "".join(f"row-{index}\n" for index in range(12))).encode()
+
+    monkeypatch.setattr(table_analysis, "TAIL_PREVIEW_MAX_SOURCE_BYTES", len(payload))
+    small = service.create(project_id, _upload(payload, "small.csv"), input_kind="file")
+    assert small.preview is not None
+    assert small.preview.tail_omitted is False
+    assert small.preview.tail_pending is False
+    assert [row.cells[0] for row in small.preview.tail] == ["row-10", "row-11"]
+    assert small.analysis.exact_rows == 12
+
+    monkeypatch.setattr(
+        table_analysis, "TAIL_PREVIEW_MAX_SOURCE_BYTES", len(payload) - 1
+    )
+    large = service.create(project_id, _upload(payload, "large.csv"), input_kind="file")
+    assert large.preview is not None
+    assert large.preview.tail == []
+    assert large.preview.tail_omitted is True
+    assert large.preview.tail_pending is False
+    assert large.analysis.exact_rows == 12
 
 
 def test_snapshot_exposes_inferred_date_order_and_both_conversion_counts(
