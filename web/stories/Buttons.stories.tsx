@@ -17,7 +17,7 @@ export const SharedAndActivityClose: Story = {
       <div className="inventory-row">
         <Button type="button">Cancel</Button>
         <Button type="button" className="btn-primary">Save</Button>
-        <Button type="button" className="btn-reject">Delete</Button>
+        <Button type="button" className="btn-reject"><Trash2 size={14} aria-hidden />Delete</Button>
         <Button type="button" disabled>Unavailable</Button>
       </div>
       <div className="tab-list" role="tablist" aria-label="Example tabs">

@@ -38,6 +38,8 @@
 }
 .form-label { display: block; margin: 12px 0 6px; font-size: var(--font-size-control); font-weight: 600; color: var(--text-mid); }
 .form-field > .form-label { margin: 0; }
+.form-field[data-field-layout='inline'] { display: grid; grid-template-columns: minmax(90px, 1fr) minmax(0, 1.5fr); align-items: center; gap: 12px; }
+.form-field[data-field-layout='inline'] > .form-hint { grid-column: 1 / -1; }
 .form-field > .form-input, .form-field > .panel-select-shell { width: 100%; }
 .form-hint { margin: 6px 0 0; font-size: 12px; line-height: 1.45; font-weight: 400; color: var(--text-light); }
 .form-field > .form-hint { margin: 0; }
@@ -53,3 +55,6 @@
 .form-inline { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
 .form-inline > .form-field, .form-inline > .form-input { flex: 1 1 160px; }
 .form-inline > .form-hint, .form-inline > .panel-error, .form-inline > .panel-notice { flex: 1 0 100%; }
+.form-stack { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.form-stack > *, .form-stack > fieldset > * { margin-block: 0; }
+.form-stack > .btn, .form-stack > fieldset > .btn { align-self: flex-start; }

@@ -1956,6 +1956,7 @@ function ProvenanceBlock({
             type="button"
 
             data-testid="cell-provenance-run-result-toggle"
+            variant="text"
             aria-expanded={runResultExpanded}
             aria-label={`${runResultExpanded ? 'Hide' : 'Show'} run result details`}
             onClick={onToggleRunResult}

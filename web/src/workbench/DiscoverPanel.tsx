@@ -78,6 +78,7 @@ function DiscoverTabStrip({
     }
     return (
       <TabButton
+        tone="discover"
         key={tab.id}
         type="button"
         role="tab"

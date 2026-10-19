@@ -5,11 +5,12 @@ type Appearance = { density?: 'compact' | 'standard'; fullWidth?: boolean };
 const classes = (...values: (string | undefined)[]) => [...new Set(values.filter(Boolean).join(' ').split(/\s+/))].join(' ');
 
 /** A label and its control, with the same spacing in settings, actions and imports. */
-export function FormField({ label, hint, children, className, ...props }: LabelHTMLAttributes<HTMLLabelElement> & {
+export function FormField({ label, hint, children, className, layout = 'stacked', ...props }: LabelHTMLAttributes<HTMLLabelElement> & {
   label: ReactNode;
   hint?: ReactNode;
+  layout?: 'stacked' | 'inline';
 }) {
-  return <label {...props} className={classes('form-field', className)}>
+  return <label {...props} data-field-layout={layout} className={classes('form-field', className)}>
     <span className="form-field-label">{label}</span>
     {children}
     {hint && <span className="form-hint">{hint}</span>}

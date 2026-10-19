@@ -1,4 +1,14 @@
 /* The indicator belongs to the control, independent of its page or caller class. */
+.select-trigger {
+  box-sizing: border-box;
+  font: 400 var(--font-size-control)/1.4 var(--font);
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-6);
+  padding: 8px 12px;
+}
+.select-trigger:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .panel-select-shell {
   position: relative;
   display: grid;

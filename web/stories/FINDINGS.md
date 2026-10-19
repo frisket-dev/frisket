@@ -31,6 +31,33 @@ specialized editor behavior, keyboard handling and confirmation safeguards stay
 with their owners. Inspect narrow layouts and nested dialogs in the screenshots;
 different spacing/colors alone are not regressions to restore.
 
+### Maintainer visual review: distinctions to keep
+
+- Footer placement is layout, not a button variant: action cost/Preview/Run stays
+  at the drawer bottom and fills its width. Browser geometry assertions cover it.
+- Fields may be stacked or inline; PDF options use one aligned key/value row.
+- Text-style disclosure buttons inherit their surrounding size/color. Provenance
+  is metadata, not a full-size call to action.
+- Tab groups retain regional colors through a shared tone parameter.
+- Select triggers share padding/borders/chevrons; rich model choice content does
+  not require a different outer control skin.
+
+### Next larger-component passes (proposed, not implemented)
+
+1. **Import framing.** There is already one outer dialog/header in ImportCsv,
+   plus shared ImportStageStepper/ImportStepFooter/destination controls. Consolidate
+   internal step framing, summary/help placement, progress and hardcoded skins.
+   Remove flow-specific overrides in ImportWorkspaceShared.css rather than add
+   another wrapper or a generic wizard/state machine. Keep CSV parsing, PDF
+   splitting and file-batch lifecycles separate.
+2. **Document/Extract browser chrome.** Share the search/list/header/empty-state
+   framing around the existing common reader. Preserve extraction's editing state.
+3. **Panels and settings forms.** Common header/action strip, list/detail frame,
+   field spacing and feedback; retain separate fetching and domain controllers.
+4. **Compound controls.** Continue consolidating dropdown trigger/menu styling
+   and small field-group layouts. Searchable lists, multi-select and model browsing
+   need different behavior, not automatically different visual treatments.
+
 ### Application styles are coupled to startup
 
 `src/entries/mount.tsx` loads the shared fonts and stylesheet but also installs global error listeners and mounts edition providers. The catalog must import the style assets without importing that entry. A small side-effect-free style entry shared by both could reduce drift if font/style imports expand; this is not a reason to redesign application bootstrap now.

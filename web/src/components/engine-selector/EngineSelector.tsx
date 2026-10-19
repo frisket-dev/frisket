@@ -395,7 +395,7 @@ export function EngineSelector({
       <button
         ref={triggerRef}
         type="button"
-        className="engine-selector__trigger form-input"
+        className="engine-selector__trigger form-input select-trigger"
         aria-haspopup="dialog"
         aria-expanded={open}
         disabled={disabled}

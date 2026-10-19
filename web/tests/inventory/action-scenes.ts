@@ -42,6 +42,14 @@ export async function captureActionScenes(page: Page, shot: Shot) {
     await expect(form).toBeVisible();
     await expect(page.getByText('Loading action…', { exact: true })).toHaveCount(0);
     await expect(form.getByText('Loading choices…', { exact: true })).toHaveCount(0);
+    if (id === 'map.template') {
+      const footer = await form.locator('.action-run-actions').boundingBox();
+      const drawer = await page.locator('.action-drawer').boundingBox();
+      expect(footer).not.toBeNull(); expect(drawer).not.toBeNull();
+      expect(Math.abs(footer!.y + footer!.height - drawer!.y - drawer!.height)).toBeLessThan(3);
+      expect(footer!.width).toBeGreaterThan(drawer!.width - 5);
+      expect(await form.locator('.action-run-actions').evaluate(el => getComputedStyle(el).alignItems)).toBe('stretch');
+    }
     await shot(page, 'Actions', id.replaceAll('.', '-'), 'src/components/action-panel/; src/actions/');
     if (id === 'map.extract') {
       // A real open picker supplements the closed form, without configuring or calling a provider.

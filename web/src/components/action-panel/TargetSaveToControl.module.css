@@ -17,7 +17,6 @@
   :global(.action-panel) .input {
     appearance: none;
     -webkit-appearance: none;
-    padding-right: 34px;
   }
 
   :global(.action-panel) .row {
@@ -47,6 +46,7 @@
 }
 
 .input {
+  padding-right: 34px;
   margin-top: 0;
   min-width: 0;
   grid-column: 1 / 3;

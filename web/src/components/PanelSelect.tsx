@@ -193,7 +193,7 @@ export const PanelSelect = forwardRef<HTMLSelectElement, PanelSelectProps>(funct
     <select data-native-select-escape="panel-select-trigger"
       {...selectProps}
       ref={setSelectRef}
-      className={`panel-select-control ${className}`}
+      className={`panel-select-control select-trigger ${className}`}
       id={id}
       data-testid={effectiveTestId}
       aria-label={ariaLabel ?? nativeAriaLabel}

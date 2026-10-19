@@ -90,7 +90,7 @@ export function MultiColumnPicker({
     <>
       <div
         ref={boxRef}
-        className={`multi-col-picker${open ? ' is-open' : ''}`}
+        className={`multi-col-picker select-trigger${open ? ' is-open' : ''}`}
         data-testid={testId}
         role="group"
         aria-label={ariaLabel}

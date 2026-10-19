@@ -61,7 +61,7 @@ function JoinParamsBodyForSheet({ params, setParams, setEditorProblem, sheet, Fi
       ?? (!right ? 'Choose an available right sheet.' : missing.length ? 'Repair missing join sources.' : null));
     return () => setEditorProblem?.(null);
   }, [loading, error, right, missing.length, setEditorProblem]);
-  return <div className="action-io-summary" data-testid="tabular-join-form">
+  return <div className="form-stack" data-testid="tabular-join-form">
     <Button type="button" className="btn-ghost" data-testid="tabular-join-refresh-sheets"
       onClick={refresh}>{error ? 'Retry' : 'Refresh sheets'}</Button>
     {loading && <p className="form-hint" role="status">Loading sheets…</p>}
@@ -81,7 +81,7 @@ function JoinParamsBodyForSheet({ params, setParams, setEditorProblem, sheet, Fi
             ? { ...column, column: '' } : column) }) })} />
       <span className="form-hint">The right side includes its whole visible sheet.</span>
     </label>
-    <span className="form-label">Key pairs</span>
+    <div className="form-field"><span>Key pairs</span>
     <div className="tabular-join-key-pairs" data-testid="join-key-pairs">
       {keys.map((key, index) => <div key={index} className="tabular-join-key-pair-row" data-testid={`join-key-pair-${index}`}>
         {(['left', 'right'] as const).map((side) => {
@@ -99,6 +99,7 @@ function JoinParamsBodyForSheet({ params, setParams, setEditorProblem, sheet, Fi
           data-testid={`join-key-pair-remove-${index}`} onClick={() => setParams({ ...params,
             join_keys: keys.filter((_, i) => i !== index) })}><X size={13} /></button>
       </div>)}
+    </div>
     </div>
     <Button type="button" className="btn-ghost" data-testid="join-key-pair-add" disabled={loading || keys.length >= 8}
       onClick={() => setParams({ ...params, join_keys: [...keys,

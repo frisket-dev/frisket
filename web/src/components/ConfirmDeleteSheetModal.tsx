@@ -1,4 +1,5 @@
 import { ConfirmDialog } from './Modal';
+import { Trash2 } from 'lucide-react';
 import { PanelError } from './PanelPrimitives';
 
 export interface ConfirmDeleteSheetModalProps {
@@ -15,7 +16,7 @@ export function ConfirmDeleteSheetModal({
 }: ConfirmDeleteSheetModalProps) {
   const blocked = dependentSheetNames.length > 0;
   return <ConfirmDialog title={`Delete ${sheetName}?`} danger busy={busy} blocked={blocked}
-    confirmLabel={busy ? 'Deleting…' : 'Delete sheet'} cancelLabel={blocked ? 'Close' : 'Cancel'}
+    confirmLabel={<><Trash2 size={14} aria-hidden />{busy ? 'Deleting…' : 'Delete sheet'}</>} cancelLabel={blocked ? 'Close' : 'Cancel'}
     onConfirm={onConfirm} onCancel={onCancel} testId="delete-sheet-modal" confirmTestId="delete-sheet-confirm">
     <p className="modal-body-text">
       {blocked

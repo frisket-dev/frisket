@@ -37,6 +37,13 @@ export async function captureMediaScenes(page: Page, shot: Shot) {
   await shot(page, 'Documents', 'PDF reader and document list', documentSource);
   await page.getByTestId('document-options-button').click();
   await expect(page.getByTestId('document-options')).toBeVisible();
+  const optionLayout = page.getByTestId('document-option-layout').locator('..').locator('..');
+  const row = await optionLayout.boundingBox();
+  const label = await optionLayout.locator('.form-field-label').boundingBox();
+  const control = await page.getByTestId('document-option-layout').boundingBox();
+  expect(row).not.toBeNull(); expect(label).not.toBeNull(); expect(control).not.toBeNull();
+  expect(Math.abs(label!.y + label!.height / 2 - control!.y - control!.height / 2)).toBeLessThan(3);
+  expect(control!.x).toBeGreaterThan(label!.x + label!.width);
   await shot(page, 'Documents', 'PDF view options', documentSource);
   await page.getByTestId('document-options-button').click();
   await page.getByTestId('document-show-alongside').click();

@@ -115,7 +115,7 @@ export function OutputNameCombobox({
           <TextInput
             ref={inputRef}
             id={generatedInputId}
-            className={`form-input ${styles.input}`}
+            className={`form-input select-trigger ${styles.input}`}
             value={value}
             list={allowExistingTargets ? datalistId : undefined}
             aria-expanded={open}

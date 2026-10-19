@@ -642,6 +642,7 @@ export function WorkbenchBottomDock({
           return (
             <span key={tab.placementId} className="workbench-bottom-tab-wrap">
               <TabButton
+                tone="monitor"
                 type="button"
                 role="tab"
                 className={`tab-button${isActive ? ' active' : ''}`}

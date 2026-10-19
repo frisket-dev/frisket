@@ -218,7 +218,7 @@ export function DocumentView({
   const optionsPopover = ({ popoverRef, style }: { popoverRef: (el: HTMLDivElement | null) => void; style: CSSProperties }) => (
     <MenuPop ref={popoverRef} style={style} className="document-options" role="dialog" data-testid="document-options" aria-label="View options">
       {sources.length > 1 && (
-        <FormField label="Source" className="document-option-row">
+        <FormField label="Source" layout="inline">
 
           <PanelSelect
             className="row-height-select"
@@ -240,12 +240,11 @@ export function DocumentView({
           </PanelSelect>
         </FormField>
       )}
-      <label className="document-option-row form-field">
+      <FormField label="Title override" layout="inline">
         {/* This is a per-view OVERRIDE of the sheet's default title column
             (set sheet-wide from the column '...' menu's "Use as row title")
             — the blank option restores that default instead of pinning a
             column forever. */}
-        <span>Title override</span>
         <PanelSelect
           className="row-height-select"
           data-testid="document-option-title"
@@ -263,13 +262,13 @@ export function DocumentView({
             </option>
           ))}
         </PanelSelect>
-      </label>
+      </FormField>
       {/* Layout / Fit are PDF page-rendering options; a text source has no
           pages, so offering them would be two controls that do nothing. List
           sort and Sync below are source-independent and stay. */}
       {source?.kind !== 'text' && (
         <>
-      <FormField label="Layout" className="document-option-row">
+      <FormField label="Layout" layout="inline">
 
         <PanelSelect
           className="row-height-select"
@@ -286,7 +285,7 @@ export function DocumentView({
           <option value="two-up">Two-up</option>
         </PanelSelect>
       </FormField>
-      <FormField label="Fit" className="document-option-row">
+      <FormField label="Fit" layout="inline">
 
         <PanelSelect
           className="row-height-select"
@@ -311,7 +310,7 @@ export function DocumentView({
       </label>
         </>
       )}
-      <FormField label="List sort" className="document-option-row">
+      <FormField label="List sort" layout="inline">
 
         <PanelSelect
           className="row-height-select"

@@ -3,12 +3,21 @@ import '@testing-library/jest-dom/vitest';
 import { createRef } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { TextArea, TextInput } from '../../src/components/FormControls';
+import { FormField, TextArea, TextInput } from '../../src/components/FormControls';
+import { Button, TabButton } from '../../src/components/Button';
 import { ConfirmTypeInput, SegmentedToggle } from '../../src/components/PanelPrimitives';
 
 afterEach(cleanup);
 
 describe('shared native form controls', () => {
+  it('exposes layout, text-button and tab-tone choices without changing semantics', () => {
+    render(<><FormField label="Layout" layout="inline"><TextInput /></FormField>
+      <Button variant="text">Run result</Button>
+      <TabButton tone="discover" aria-selected>Filter</TabButton></>);
+    expect(screen.getByLabelText('Layout').closest('label')).toHaveAttribute('data-field-layout', 'inline');
+    expect(screen.getByRole('button', { name: 'Run result' })).toHaveAttribute('data-button-variant', 'text');
+    expect(screen.getByRole('tab')).toHaveAttribute('data-tab-tone', 'discover');
+  });
   it('preserves native input attributes, events and refs', () => {
     const ref = createRef<HTMLInputElement>();
     const change = vi.fn();
