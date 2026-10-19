@@ -22,7 +22,7 @@ export function teamServerCommands(options: {
   };
   const environment = Object.entries(env).map(([key, value]) => `${key}=${shellQuote(value)}`).join(' ');
   return {
-    backend: `env -i ${environment} ${shellQuote(python)} -m uvicorn frisket.team.asgi:app --host 127.0.0.1 --port ${new URL(backendURL).port}`,
+    backend: `env -i ${environment} ${shellQuote(python)} ${shellQuote(path.resolve('tests/inventory/server.py'))} --team ${new URL(backendURL).port}`,
     frontend: `FRISKET_EDITION=team FRISKET_BACKEND_URL=${shellQuote(backendURL)} npm run dev -- --host 127.0.0.1 --port ${new URL(baseURL).port} --strictPort`,
     seed: {
       command: python,
