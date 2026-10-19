@@ -563,6 +563,27 @@ describe('TableImportFlow', () => {
     expect(screen.queryByText(`${longOriginal} → blank`)).not.toBeInTheDocument();
   });
 
+  it('labels oversized samples as source excerpts without inventing a converted result', () => {
+    const base = draft().columns[0];
+    const excerpt = '1234567890'.repeat(25) + '123456';
+    const samples = [{ original: excerpt, value: null, display: excerpt, outcome: 'invalid' as const, truncated: true, original_length: 2_000_000 }];
+    render(<ColumnsStep draft={draft({ columns: [{ ...base, name: 'amount', target_type: 'integer', samples }] })} busy={false} onBack={vi.fn()} onContinue={vi.fn()} onColumns={vi.fn()} />);
+
+    expect(screen.queryByRole('button', { name: 'Show full values for amount' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Show more for amount' }));
+    expect(screen.getByText('Source excerpt · 2,000,000 characters')).toBeVisible();
+    expect(screen.getByText('Long samples show source excerpts. Conversion checks and import use the full values.')).toBeVisible();
+    expect(screen.queryByText(/→ blank/)).not.toBeInTheDocument();
+    expect(screen.getByText(`${excerpt}…`)).toBeVisible();
+  });
+
+  it('identifies first-row-only previews for large files', () => {
+    const base = draft();
+    render(<CheckRowsStep draft={draft({ preview: { ...base.preview!, tail_omitted: true } })} busy={false} onBack={vi.fn()} onContinue={vi.fn()} onSettings={vi.fn()} />);
+    expect(screen.getByText('First rows · final rows omitted for large files', { exact: false })).toBeVisible();
+    expect(screen.queryByText('Start and end of the file', { exact: false })).not.toBeInTheDocument();
+  });
+
   it('offers dedup keys only for mappings into existing columns', () => {
     const base = draft();
     const columns = [

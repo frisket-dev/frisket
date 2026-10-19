@@ -226,7 +226,7 @@ function displayEncoding(value: string | null | undefined): string {
 
 function numberSample(draft: TableImportDraft): string | null {
   for (const column of draft.columns) {
-    const sample = column.samples.find((candidate) => /^\s*\(?[-+]?\s*[$€£]?\s*\d[\d., ]*(?:%|\))?\s*$/.test(candidate.original) && /\d[., ]\d/.test(candidate.original));
+    const sample = column.samples.find((candidate) => !candidate.truncated && /^\s*\(?[-+]?\s*[$€£]?\s*\d[\d., ]*(?:%|\))?\s*$/.test(candidate.original) && /\d[., ]\d/.test(candidate.original));
     if (sample) return `${sample.original} → ${sample.display || sample.original}`;
   }
   return null;
@@ -292,7 +292,7 @@ function TablePreview({ preview, firstRowIsHeader, onRecordClick }: { preview: T
   const visibleCellCount = Math.min(8, Math.max(visibleColumns.length, ...rows.map((row) => row.cells.length)));
   const visibleCellIndexes = Array.from({ length: visibleCellCount }, (_, index) => index);
   return <div className="table-import-preview-wrap">
-    <div className="table-import-preview-heading"><span><strong>Preview</strong> Start and end of the file</span><span>{preview.columns.length > visibleColumns.length ? `First ${visibleColumns.length} of ${preview.columns.length} columns · ` : ''}Click a line number to start there. The import uses these same settings.</span></div>
+    <div className="table-import-preview-heading"><span><strong>Preview</strong> {preview.tail_omitted ? 'First rows · final rows omitted for large files' : 'Start and end of the file'}</span><span>{preview.columns.length > visibleColumns.length ? `First ${visibleColumns.length} of ${preview.columns.length} columns · ` : ''}Click a line number to start there. The import uses these same settings.</span></div>
     <div className="table-import-preview-scroll"><table className="table-import-preview"><tbody>
       {!firstRowIsHeader && <tr data-role="header" aria-label="Generated column names"><th><small>Names</small></th>{visibleCellIndexes.map((index) => <td key={index} data-extra={index === preview.expected_values || undefined}>{visibleColumns[index]?.name || (index === preview.expected_values ? 'extra values' : index > preview.expected_values ? '' : `column ${index + 1}`)}</td>)}</tr>}
       {rows.map((row, index) => <Fragment key={`${row.role}:${row.record_ordinal}`}>
@@ -416,12 +416,15 @@ const SAMPLE_PREVIEW_LENGTH = 100;
 function ColumnSamples({ column }: { column: TableImportColumn }) {
   const [expanded, setExpanded] = useState(false);
   const samples = column.samples.slice(0, 5);
+  const hasExcerpts = samples.some((sample) => sample.truncated);
+  const expandLabel = hasExcerpts ? 'Show more' : 'Show full values';
   const canExpand = samples.some((sample) => sampleDisplay(column, sample) !== sampleDisplay(column, sample, true));
   return <span role="cell" className="table-import-column-values">
     <span className="table-import-column-samples" data-expanded={expanded || undefined}>
-      {samples.map((sample, index) => <i key={index} data-outcome={sample.outcome}>{sampleDisplay(column, sample, !expanded)}</i>)}
+      {samples.map((sample, index) => <i key={index} data-outcome={sample.outcome}>{sampleDisplay(column, sample, !expanded)}{expanded && sample.truncated && <small>Source excerpt{sample.original_length != null ? ` · ${sample.original_length.toLocaleString()} characters` : ''}</small>}</i>)}
     </span>
-    {canExpand && <button type="button" className="text-btn" aria-expanded={expanded} aria-label={`${expanded ? 'Show less' : 'Show full values'} for ${column.name}`} onClick={() => setExpanded((value) => !value)}>{expanded ? 'Show less' : 'Show full values'}</button>}
+    {canExpand && <button type="button" className="text-btn" aria-expanded={expanded} aria-label={`${expanded ? 'Show less' : expandLabel} for ${column.name}`} onClick={() => setExpanded((value) => !value)}>{expanded ? 'Show less' : expandLabel}</button>}
+    {expanded && hasExcerpts && <small className="table-import-excerpt-note">Long samples show source excerpts. Conversion checks and import use the full values.</small>}
   </span>;
 }
 
@@ -431,6 +434,7 @@ function sampleDisplay(column: TableImportColumn, sample: TableImportColumn['sam
     const preview = text.length > SAMPLE_PREVIEW_LENGTH ? `${text.slice(0, SAMPLE_PREVIEW_LENGTH)}…` : text;
     return preview.replace(/\r\n|\r|\n/g, ' ↵ ');
   };
+  if (sample.truncated) return display(sample.original) + (!compact || sample.original.length <= SAMPLE_PREVIEW_LENGTH ? '…' : '');
   if (sample.outcome === 'blank') return 'blank';
   if (sample.outcome === 'invalid') return `${display(sample.original || 'blank')} → blank`;
   let imported = sample.display || String(sample.value ?? sample.original);
