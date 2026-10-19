@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import type { OutputField } from '../src/api/open';
 import { StructuredFieldsEditor } from '../src/components/action-panel/StructuredFieldsEditor';
-import { TextArea, TextInput } from '../src/components/FormControls';
+import { FormField, SearchInput, TextArea, TextInput } from '../src/components/FormControls';
 
 const meta = { title: 'Inventory/Structured fields' } satisfies Meta;
 export default meta;
@@ -29,6 +29,8 @@ export const MultipleTypes: Story = { render: () => <Fields /> };
 export const NativeFields: Story = {
   render: () => <section className="inventory-example inventory-stack" style={{ maxWidth: 420 }}>
     <h2>Text fields</h2><p>The same native controls in actions, imports and settings.</p>
+    <FormField label="Project name" hint="Label, control and help share one layout."><TextInput defaultValue="Council records" /></FormField>
+    <SearchInput aria-label="Find documents" placeholder="Find documents" />
     <TextInput aria-label="Standard input" placeholder="Standard input" />
     <TextInput aria-label="Compact input" density="compact" placeholder="Compact input" />
     <TextInput aria-label="Disabled input" disabled value="Disabled input" />

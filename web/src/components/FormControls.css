@@ -50,3 +50,6 @@
 .search-field { position: relative; min-width: 0; }
 .search-field > svg { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); color: var(--text-light); pointer-events: none; }
 .search-field > .form-input { padding-left: 30px; }
+.form-inline { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
+.form-inline > .form-field, .form-inline > .form-input { flex: 1 1 160px; }
+.form-inline > .form-hint, .form-inline > .panel-error, .form-inline > .panel-notice { flex: 1 0 100%; }

@@ -275,7 +275,7 @@ export function McpServersSection({
             <TextInput aria-label="Working directory" value={form.cwd} onChange={(event) => updateForm({ cwd: event.currentTarget.value })} />
           </label>
           {form.env.map((entry, index) => (
-            <div key={index} className="settings-inline-form">
+            <div key={index} className="form-inline">
               <label className="form-field">
                 Environment variable name
                 <TextInput

@@ -1222,7 +1222,7 @@ function OrganizationSecretsSettings() {
   return (
     <div className="settings-stack" data-testid="organization-secrets-settings">
       <InlineStatus error={secrets.error ?? mutationError} loading={secrets.loading} notice={notice} />
-      <form className="settings-form settings-inline-form" autoComplete="off" onSubmit={save}>
+      <form className="form-inline" autoComplete="off" onSubmit={save}>
         <TextInput
           aria-label="Secret name"
           autoComplete="off"
@@ -1319,7 +1319,7 @@ function OrganizationApiKeysSettings() {
           )}
         </output>
       )}
-      <form className="settings-form settings-inline-form" onSubmit={save}>
+      <form className="form-inline" onSubmit={save}>
         <TextInput aria-label="Token name" placeholder="Token name" value={name} onChange={(event) => setName(event.currentTarget.value)} />
         <Button className="btn-primary" type="submit" disabled={!name.trim()}>
           <KeyRound size={14} /> Create
@@ -1652,7 +1652,7 @@ function ProjectAccessSettings({ project, identityMode }: { project?: ProjectInf
         </ReadOnlyNotice>
       )}
       {canManageProject && (
-        <form className="settings-form settings-inline-form" onSubmit={(event) => {
+        <form className="form-inline" onSubmit={(event) => {
           event.preventDefault();
           const inviteEmail = state.email.trim();
           if (!inviteEmail) return;
@@ -2314,7 +2314,7 @@ function LocalEndpointsSettings({
           Add local server
         </Button>
       ) : (
-        <form className="settings-form settings-inline-form" data-testid="local-endpoint-add-form" onSubmit={add}>
+        <form className="form-inline" data-testid="local-endpoint-add-form" onSubmit={add}>
           <FormField label="Name" >
 
             <TextInput
@@ -2462,7 +2462,7 @@ function LocalEndpointRow({
         {endpoint.read_only && ' This endpoint is managed by the server environment and cannot be edited here.'}
       </p>
       <LocalEndpointProbeDetail endpoint={endpoint} />
-      <form className="settings-form settings-inline-form" onSubmit={save}>
+      <form className="form-inline" onSubmit={save}>
         <FormField label="Name" >
 
           <TextInput data-testid={`local-endpoint-name-${endpointId}`} value={name} disabled={busy || endpoint.read_only} onChange={(event) => setName(event.target.value)} />
@@ -2487,7 +2487,7 @@ function LocalEndpointRow({
       </form>
       {!endpoint.read_only && (
         <>
-          <form className="settings-form settings-inline-form" data-testid={`local-endpoint-auth-${endpointId}`} onSubmit={saveCredentials}>
+          <form className="form-inline" data-testid={`local-endpoint-auth-${endpointId}`} onSubmit={saveCredentials}>
             <FormField label={<span>Inference token {endpoint.token_configured ? '(configured)' : ''}</span>} >
 
               <TextInput
@@ -2714,7 +2714,7 @@ export function ProjectSecretsSettings({ project }: { project?: ProjectInfo | nu
           Your project role can view secret status but cannot create, replace, or delete secrets.
         </ReadOnlyNotice>
       )}
-      <form className="settings-form settings-inline-form" autoComplete="off" onSubmit={save}>
+      <form className="form-inline" autoComplete="off" onSubmit={save}>
         <TextInput
           aria-label="Project secret name"
           autoComplete="off"
@@ -2868,7 +2868,7 @@ function PluginOptionsList({ runtimeIndex }: { runtimeIndex: WorkbenchPluginRunt
         return (
           <form
             key={`${payload.pluginId}:${setting.id}`}
-            className="settings-inline-form"
+            className="form-inline"
             onSubmit={(event) => {
               event.preventDefault();
               if (!payload.canMutate || setting.readOnly) return;

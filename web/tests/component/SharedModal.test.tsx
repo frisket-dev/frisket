@@ -8,7 +8,7 @@ import { CompareDiscardDialog } from '../../src/workbench/CompareDiscardDialog';
 import { FormField, SearchInput, TextInput } from '../../src/components/FormControls';
 import { Button, TabButton } from '../../src/components/Button';
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('normalized controls preserve behavior', () => {
   it('labels fields and forwards native button submission and disabled behavior', () => {

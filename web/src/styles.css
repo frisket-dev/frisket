@@ -8893,15 +8893,6 @@ dialog.modal-card::backdrop {
   display: grid;
   gap: 12px;
 }
-.settings-inline-form {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
-  gap: 8px;
-  align-items: end;
-}
-.settings-provider-key-form {
-  grid-template-columns: repeat(3, minmax(0, 1fr)) auto auto;
-}
 .settings-row-actions {
   display: inline-flex;
   gap: 6px;
@@ -8941,9 +8932,6 @@ dialog.modal-card::backdrop {
 .settings-subsection {
   display: grid;
   gap: 10px;
-}
-.settings-inline-form > .settings-help--wide {
-  grid-column: 1 / -1;
 }
 
 /* Local-server install guidance in Settings. */
@@ -9488,7 +9476,6 @@ dialog.modal-card::backdrop {
     grid-template-columns: 1fr;
   }
   .settings-grid-two,
-  .settings-inline-form,
   .settings-action-row {
     grid-template-columns: 1fr;
   }

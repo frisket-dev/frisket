@@ -564,16 +564,6 @@
   background: var(--amber-bg);
 }
 
-.engine-selector__footer .settings-provider-key-form--compact {
-  grid-template-columns: minmax(0, 1fr) auto;
-}
-
-.engine-selector__footer .selector-setup-form--compact {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-}
-
 .engine-selector__empty {
   padding: var(--space-12);
   color: var(--text-light);

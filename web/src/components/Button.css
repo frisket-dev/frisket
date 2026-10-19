@@ -15,6 +15,7 @@
 .btn:hover:not(:disabled) { background: var(--bg-hover); }
 .btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn[aria-disabled='true'] { opacity: 0.5; pointer-events: none; }
 .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--text-on-solid); }
 .btn-primary:hover:not(:disabled) { background: var(--accent-strong); }
 .btn-accept { background: var(--green); border-color: var(--green); color: var(--text-on-solid); }

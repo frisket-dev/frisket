@@ -82,7 +82,7 @@ export function ProviderKeyForm<Result = void>({ provider: fixedProvider, provid
   };
   const actionLabel = busy === 'test' ? 'Testing…' : busy === 'save' ? 'Saving…' : receipt ? 'Save' : 'Test';
   const prefixMismatch = Boolean(keyPrefix && key.trim() && !key.trim().startsWith(keyPrefix));
-  return <form className={`settings-form settings-inline-form settings-provider-key-form${compact ? ' settings-provider-key-form--compact' : ''}`} autoComplete="off" onSubmit={compact ? compactSubmit : submit} onFocus={() => editing(true)}>
+  return <form className={`form-inline settings-provider-key-form${compact ? ' settings-provider-key-form--compact' : ''}`} autoComplete="off" onSubmit={compact ? compactSubmit : submit} onFocus={() => editing(true)}>
     {!fixedProvider && <FormField label="Provider" ><PanelSelect aria-label="Provider" value={provider} disabled={!canMutate || busy === 'save'} onChange={(event) => { clearValidation(); setProvider(event.currentTarget.value); setKey(''); editing(false); }}>
       {providers.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
     </PanelSelect></FormField>}
