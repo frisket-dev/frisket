@@ -49,6 +49,32 @@ describe('normalized controls preserve behavior', () => {
     fireEvent.submit(screen.getByRole('dialog').querySelector('form')!);
     expect(confirm).not.toHaveBeenCalled();
   });
+  it('recovers forced browser closure for busy and required dialogs', () => {
+    const close = vi.fn();
+    const { rerender } = render(<Modal title="Working" busy onClose={close}>Wait</Modal>);
+    const dialog = screen.getByRole('dialog');
+    const forceClose = () => {
+      fireEvent(dialog, new Event('cancel', { cancelable: false }));
+      dialog.removeAttribute('open');
+      fireEvent(dialog, new Event('close'));
+    };
+    forceClose();
+    expect(dialog).toHaveAttribute('open'); expect(close).not.toHaveBeenCalled();
+    rerender(<Modal title="Required">Setup</Modal>);
+    forceClose();
+    expect(dialog).toHaveAttribute('open');
+    rerender(<Modal title="Ready" onClose={close}>Done</Modal>);
+    forceClose();
+    expect(close).toHaveBeenCalledOnce();
+  });
+  it('escapes hidden comparison panes and focuses Cancel after opening', () => {
+    const { unmount } = render(<div hidden><ConfirmDialog title="Discard?" onCancel={vi.fn()} onConfirm={vi.fn()}>Results</ConfirmDialog></div>);
+    const dialog = screen.getByRole('dialog');
+    expect(dialog.parentElement).toBe(document.body);
+    expect(screen.getByRole('button', {name: 'Cancel'})).toHaveFocus();
+    unmount();
+    expect(document.querySelector('dialog')).toBeNull();
+  });
   it('only reports a comparison verdict copied after clipboard success', async () => {
     const writeText = vi.fn().mockRejectedValueOnce(new Error('Denied')).mockResolvedValueOnce(undefined);
     vi.stubGlobal('navigator', { clipboard: { writeText } });

@@ -1,5 +1,6 @@
 import { Button } from './Button';
-import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { useLayoutEffect, useId, useRef, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 
 /** Shared modal lifecycle and framing. Omit onClose for a required step. */
 export function Modal({ title, children, onClose, busy = false, testId, role = 'dialog', descriptionId }: {
@@ -12,17 +13,30 @@ export function Modal({ title, children, onClose, busy = false, testId, role = '
   descriptionId?: string;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const mounted = useRef(false);
   const titleId = useId();
-  useEffect(() => {
+  useLayoutEffect(() => {
+    mounted.current = true;
     const dialog = ref.current;
     if (dialog && !dialog.open) dialog.showModal();
-    return () => { if (dialog?.open) dialog.close(); };
+    dialog?.querySelector<HTMLElement>('[data-modal-autofocus]')?.focus();
+    return () => { mounted.current = false; if (dialog?.open) dialog.close(); };
   }, []);
-  return <dialog ref={ref} className="modal-card" role={role} aria-labelledby={titleId} aria-describedby={descriptionId}
-    data-testid={testId} onCancel={event => { event.preventDefault(); event.stopPropagation(); if (!busy) onClose?.(); }}>
+  // A modal must escape hidden keepalive panes as well as their layout styles.
+  return createPortal(<dialog ref={ref} className="modal-card" role={role} aria-labelledby={titleId} aria-describedby={descriptionId}
+    data-testid={testId} onCancel={event => {
+      event.preventDefault(); event.stopPropagation();
+      if (event.cancelable && !busy) onClose?.();
+    }} onClose={event => {
+      event.stopPropagation();
+      if (!mounted.current) return;
+      // Browsers can force closure after repeated Escape, despite preventDefault.
+      if (busy || !onClose) { if (!event.currentTarget.open) event.currentTarget.showModal(); }
+      else onClose();
+    }}>
     <div className="modal-title" id={titleId}>{title}</div>
     {children}
-  </dialog>;
+  </dialog>, document.body);
 }
 
 export function ConfirmDialog({ title, children, onConfirm, onCancel, confirmLabel = 'Confirm',
@@ -46,7 +60,7 @@ export function ConfirmDialog({ title, children, onConfirm, onCancel, confirmLab
     <form onSubmit={event => { event.preventDefault(); if (!busy && !blocked) onConfirm(); }}>
       <div id={descriptionId}>{children}</div>
       <div className="form-actions">
-        <Button type="button" autoFocus disabled={busy} onClick={onCancel} data-testid={cancelTestId}>{cancelLabel}</Button>
+        <Button type="button" data-modal-autofocus disabled={busy} onClick={onCancel} data-testid={cancelTestId}>{cancelLabel}</Button>
         {!blocked && <Button type="submit" className={`btn ${danger ? 'btn-reject' : 'btn-primary'}`}
           disabled={busy} data-testid={confirmTestId}>{confirmLabel}</Button>}
       </div>

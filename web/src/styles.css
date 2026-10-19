@@ -3043,7 +3043,7 @@ li.panel-empty { list-style: none; }
 }
 .panel-error { color: var(--red); background: var(--red-bg); }
 .panel-notice { color: var(--text-mid); background: var(--bg-hover); }
-.panel-notice > svg { flex-shrink: 0; }
+.panel-notice > svg { flex-shrink: 0; vertical-align: middle; margin-inline-end: 6px; }
 .panel-notice[data-tone='success'] { color: var(--green); background: var(--green-bg); }
 .panel-notice[data-tone='warning'] { color: var(--amber); background: var(--amber-bg); }
 .panel-notice[data-tone='error'] { color: var(--red); background: var(--red-bg); }
