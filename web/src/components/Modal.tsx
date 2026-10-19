@@ -27,9 +27,11 @@ export function Modal({ title, children, onClose, busy = false, testId, role = '
   // A modal must escape hidden keepalive panes as well as their layout styles.
   return createPortal(<dialog ref={ref} className="modal-card" data-size={size} role={role} aria-labelledby={titleId} aria-describedby={descriptionId}
     data-testid={testId} onCancel={event => {
+      if (event.target !== event.currentTarget) return;
       event.preventDefault(); event.stopPropagation();
       if (event.cancelable && !busy) onClose?.();
     }} onClose={event => {
+      if (event.target !== event.currentTarget) return;
       event.stopPropagation();
       // Ignore a queued close from a prior lifecycle (including StrictMode).
       if (!mounted.current || event.currentTarget.open) return;

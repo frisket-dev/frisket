@@ -108,13 +108,14 @@ function JoinParamsBodyForSheet({ params, setParams, setEditorProblem, sheet, Fi
         { left_column: left.columns[0]?.name ?? '', right_column: right?.columns[0]?.name ?? '' }] })}>
       <Plus size={13} /> Add key</Button>
     <div className="form-row-pair">
-      {(['left', 'right'] as const).map((side) => <FormField key={side} label={`${side === 'left' ? 'Left' : 'Right'} fields`}>
+      {(['left', 'right'] as const).map((side) => <div key={side} className="form-field">
+        <span className="form-field-label">{side === 'left' ? 'Left' : 'Right'} fields</span>
         <MultiColumnPicker testId={`field-join_${side}_columns`} ariaLabel={`${side === 'left' ? 'Left' : 'Right'} fields`}
           value={[...new Set((columns ?? []).filter((column) => column.side === side).map((column) => column.column))]}
           options={((side === 'left' ? left : right)?.columns ?? []).map(({ name, type, ai }) =>
             ({ name, type, ai: Boolean(ai) }))} disabled={blocked}
           onValueChange={(names) => changeProjection(side, names)} />
-      </FormField>)}
+      </div>)}
     </div>
     <p className="form-hint">Leave both sides empty for all non-key columns. After any pick, only picked columns are included.</p>
     {columns != null && <div className="editor-list" data-testid="join-projection-order">

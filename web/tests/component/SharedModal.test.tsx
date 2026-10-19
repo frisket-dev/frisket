@@ -7,6 +7,7 @@ import { ConfirmDeleteSheetModal } from '../../src/components/ConfirmDeleteSheet
 import { CompareDiscardDialog } from '../../src/workbench/CompareDiscardDialog';
 import { FormField, SearchInput, TextInput } from '../../src/components/FormControls';
 import { Button, TabButton } from '../../src/components/Button';
+import { createPortal } from 'react-dom';
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
@@ -48,6 +49,18 @@ describe('normalized controls preserve behavior', () => {
     expect(screen.queryByRole('button', { name: 'Delete sheet' })).toBeNull();
     fireEvent.submit(screen.getByRole('dialog').querySelector('form')!);
     expect(confirm).not.toHaveBeenCalled();
+  });
+  it('ignores a nested dialog cancellation bubbling through React portal ancestry', () => {
+    const closeParent = vi.fn(), closeChild = vi.fn();
+    render(<Modal title="Parent draft" onClose={closeParent}>
+      {createPortal(<dialog open aria-label="Child picker" onCancel={event => {
+        event.preventDefault(); closeChild();
+      }}>Choose</dialog>, document.body)}
+    </Modal>);
+    fireEvent(screen.getByRole('dialog', { name: 'Child picker' }), new Event('cancel', { bubbles: true, cancelable: true }));
+    expect(closeChild).toHaveBeenCalledOnce();
+    expect(closeParent).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog', { name: 'Parent draft' })).toHaveAttribute('open');
   });
   it('recovers forced browser closure for busy and required dialogs', () => {
     const close = vi.fn();

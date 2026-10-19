@@ -6,10 +6,13 @@ type Shot = (page: Page, family: string, name: string, source: string) => Promis
 async function expectNativeDialog(page: Page, testId: string) {
   const dialog = page.getByTestId(testId);
   await expect(dialog).toHaveJSProperty('open', true);
-  expect(await dialog.evaluate(element => element.tagName)).toBe('DIALOG');
+  expect(await dialog.evaluate(element => element.matches('dialog:modal'))).toBe(true);
   for (let index = 0; index < 3; index++) {
     await page.keyboard.press('Shift+Tab');
-    expect(await dialog.evaluate(element => element.contains(document.activeElement))).toBe(true);
+    // Native dialogs permit Tab to browser chrome (activeElement becomes body),
+    // but no background application control should receive focus.
+    expect(await dialog.evaluate(element => element.contains(document.activeElement)
+      || document.activeElement === document.body)).toBe(true);
   }
 }
 
@@ -63,6 +66,17 @@ export async function captureDialogScenes(page: Page, shot: Shot) {
   await expect(page.getByTestId('embedding-source-col-notes')).toBeVisible();
   await expect(page.getByTestId('embeddings-create-modal').locator('.engine-selector-field-loading')).toHaveCount(0);
   await shot(page, 'Dialogs', 'embedding-index-create', 'src/components/embeddings/CreateEmbeddingIndexDialog.tsx');
+  const modelTrigger = page.getByTestId('embeddings-create-modal').getByTestId('engine-selector').getByRole('button', { expanded: false });
+  await modelTrigger.click();
+  const modelPicker = page.getByTestId('engine-selector-dialog');
+  await expect(modelPicker).toBeVisible();
+  expect(await modelPicker.evaluate(element => element.contains(document.activeElement))).toBe(true);
+  await expect(modelPicker.locator('[data-engine-selector-choice]').first()).toBeVisible();
+  await shot(page, 'Dialogs', 'embedding-model-picker', 'src/components/embeddings/CreateEmbeddingIndexDialog.tsx; components/engine-selector/EngineSelector.tsx');
+  await page.keyboard.press('Escape');
+  await expect(modelPicker).toHaveCount(0);
+  await expect(page.getByTestId('embeddings-create-modal')).toHaveJSProperty('open', true);
+  await expect(modelTrigger).toBeFocused();
   await dismissWithEscape(page, 'embeddings-create-modal');
 
   await page.route('**/actions/v1/catalog', async route => {
