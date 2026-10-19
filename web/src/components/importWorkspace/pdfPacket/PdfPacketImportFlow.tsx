@@ -1,4 +1,6 @@
 import { Button } from '../../Button';
+import { ImportStep, ImportStepBody } from '../ImportStep';
+import { ImportStepFooter } from '../ImportStepFooter';
 import { FormField, TextInput } from '../../FormControls';
 import {
   useCallback,
@@ -943,7 +945,8 @@ function PacketImportStep({ state, pageCount, canKeepOcrText, onBack, onSubmit, 
     state.snapshot!.packet.filename,
     document,
   ) ?? 'Invalid file name pattern';
-  return <div className="pdf-packet-import-step">
+  return <ImportStep>
+    <ImportStepBody className="pdf-packet-import-body">
     <header><h2>Import {countLabel(documents.length, 'document')}</h2><p>Each becomes a normal PDF. The original packet stays as it is.</p></header>
     <div className="pdf-packet-import-options">
       <FormField label="New sheet" className="pdf-packet-import-field">
@@ -964,8 +967,9 @@ function PacketImportStep({ state, pageCount, canKeepOcrText, onBack, onSubmit, 
     <div className="pdf-packet-import-table"><table><thead><tr><th>#</th><th>Name</th><th>Source</th><th>Starts with</th></tr></thead><tbody>
       {documents.map((document) => <tr key={document.start}><td>{document.index}</td><td>{nameFor(document)}</td><td>packet pp {document.start}–{document.end} · {document.pages} pp</td><td>{firstLine(state.pages[document.start]?.ocr_text ?? state.pages[document.start]?.native_text)}</td></tr>)}
     </tbody></table></div>
-    <footer><Button type="button" onClick={onBack}>Back</Button><span>{documents.length} {documents.length === 1 ? 'PDF' : 'PDFs'} · {countLabel(pageCount, 'page')} · each linked to the packet and its page range</span><Button type="button" className="btn-primary" disabled={commitBusy || !state.destinationName.trim() || Boolean(patternError)} onClick={onSubmit}>{commitBusy ? 'Importing…' : `Import ${countLabel(documents.length, 'document')}`}</Button></footer>
-  </div>;
+    </ImportStepBody>
+    <ImportStepFooter><Button type="button" onClick={onBack}>Back</Button><span>{documents.length} {documents.length === 1 ? 'PDF' : 'PDFs'} · {countLabel(pageCount, 'page')} · each linked to the packet and its page range</span><Button type="button" className="btn-primary" disabled={commitBusy || !state.destinationName.trim() || Boolean(patternError)} onClick={onSubmit}>{commitBusy ? 'Importing…' : `Import ${countLabel(documents.length, 'document')}`}</Button></ImportStepFooter>
+  </ImportStep>;
 }
 
 function firstLine(text: string | null | undefined): string {

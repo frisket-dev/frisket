@@ -358,25 +358,25 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
               { value: 'survey', label: '◫ Survey' },
             ]}
           />
-          <button
+          <Button
             type="button"
-            className="ocr-compare-source-toggle row-height-select"
+            className="ocr-compare-source-toggle"
             data-testid="ocr-compare-source-toggle"
             aria-pressed={sourceOpen}
             onClick={() => setSourceOpen((open) => !open)}
           >
             ⊟ Source
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="ocr-compare-wrap-toggle row-height-select"
+            className="ocr-compare-wrap-toggle"
             data-testid="ocr-compare-wrap-toggle"
             aria-pressed={wrapText}
             title={wrapText ? 'Wrap text to the panel (on)' : 'No wrap — scroll horizontally'}
             onClick={() => setWrapText((wrap) => !wrap)}
           >
             ⏎ Wrap
-          </button>
+          </Button>
         </div>
 
         <div className="ocr-compare-chips-row" data-testid="ocr-compare-chips-row">

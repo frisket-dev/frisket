@@ -89,6 +89,15 @@ export async function captureAskAndComparisonScenes(page: Page, shot: Shot) {
     for (let i = 0; i < await tabs.count() && !await button.isVisible(); i++) await tabs.nth(i).click();
     await button.click();
     await expect(page.getByTestId(`${tab}-tab`)).toBeVisible();
+    if (command === 'ocr-compare') {
+      const source = page.getByTestId('ocr-compare-source-toggle');
+      await expect(source).toBeVisible();
+      expect(await source.evaluate(el => getComputedStyle(el).borderTopWidth)).toBe('1px');
+      const prior = await source.getAttribute('aria-pressed');
+      await source.click();
+      await expect(source).toHaveAttribute('aria-pressed', prior === 'true' ? 'false' : 'true');
+      await source.click();
+    }
     await shot(page, 'Comparison', `${tab}-empty`, 'src/workbench/MediaCompareShell.tsx; *CompareTab.tsx');
   }
 }

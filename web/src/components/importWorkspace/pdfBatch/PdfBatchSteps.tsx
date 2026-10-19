@@ -1,3 +1,4 @@
+import { ImportStep, ImportStepBody } from '../ImportStep';
 import { Button } from '../../Button';
 import { TextInput } from '../../FormControls';
 import { AlertTriangle, CheckCircle2, ExternalLink, FileText, LoaderCircle, Pause, Play, RefreshCw } from 'lucide-react';
@@ -10,7 +11,7 @@ import { PanelSelect } from '../../PanelSelect';
 import { SegmentedToggle } from '../../PanelPrimitives';
 import { PdfTextPagePreview } from '../pdfPacket/PdfTextPagePreview';
 import { routePath } from '../../../routes';
-import { ProgressBar } from '../../ActivityProgress';
+import { ActivityProgressCard, ProgressBar } from '../../ActivityProgress';
 import { ImportDestinationChoice, ImportDestinationOptions } from '../ImportDestinationChoice';
 import { ImportStepFooter } from '../ImportStepFooter';
 import type { PdfBatchDestinationSheet } from './PdfBatchImportFlow';
@@ -55,8 +56,8 @@ export function AddFilesStep({
   const uploadBytesTotal = snapshot.upload.bytes_total ?? 0;
   const checkedTotal = snapshot.analysis.files_total ?? snapshot.upload.files_done;
   const uploadComplete = snapshot.upload.files_done >= uploadTotal;
-  return <section className="pdf-batch-step pdf-batch-add" aria-label="Add files">
-    <div className="pdf-batch-step-body">
+  return <ImportStep className="pdf-batch-add" aria-label="Add files">
+    <ImportStepBody className="">
       <header><h2>Add files</h2><p>Files are copied to a holding area. Nothing is added to the project until Import.</p></header>
       {snapshot.preflight.state === 'insufficient' ? <div className="panel-error" role="alert">
         <AlertTriangle size={18} />
@@ -122,7 +123,7 @@ export function AddFilesStep({
         </label>
       </div>}
       <CategoryTable snapshot={snapshot} showUnchecked />
-    </div>
+    </ImportStepBody>
     <ImportStepFooter>
       <Button type="button" onClick={onCancel}>Cancel</Button>
       <span>{canOpenCheckText(snapshot)
@@ -130,7 +131,7 @@ export function AddFilesStep({
         : 'Check text opens once each type has a few files.'}</span>
       <Button type="button" className="btn-primary" disabled={!canOpenCheckText(snapshot)} onClick={onContinue}>Check text →</Button>
     </ImportStepFooter>
-  </section>;
+  </ImportStep>;
 }
 
 function ProgressCard({ title, done, total, detail, action }: {
@@ -140,11 +141,10 @@ function ProgressCard({ title, done, total, detail, action }: {
   detail: string;
   action?: ReactNode;
 }) {
-  return <article className="pdf-batch-progress-card">
-    <header><strong>{title}</strong>{action}</header>
-    <div><b>{total == null ? `${done.toLocaleString()} found so far` : `${done.toLocaleString()} of ${total.toLocaleString()}`}</b><span>{detail}</span></div>
+  return <ActivityProgressCard state="active" title={title} footer={action}
+    detail={<>{total == null ? `${done.toLocaleString()} found so far` : `${done.toLocaleString()} of ${total.toLocaleString()}`} · {detail}</>}>
     <ProgressBar label={title} completed={done} total={total} state="active" />
-  </article>;
+  </ActivityProgressCard>;
 }
 
 function CategoryTable({ snapshot, showUnchecked = false }: { snapshot: PdfImportSnapshot; showUnchecked?: boolean }) {
@@ -200,7 +200,7 @@ export function CheckTextStep({
   const ocrReady = Boolean(page && page.ocr_text !== null && pageUsesSelection(page, currentOcr));
   const shownText = textSource === 'ocr' ? page?.ocr_text ?? '' : page?.native_text ?? '';
   const unreadableCount = snapshot.category_counts.unreadable ?? 0;
-  return <section className="pdf-batch-step pdf-batch-check" aria-label="Check text">
+  return <ImportStep className="pdf-batch-check" aria-label="Check text">
     <div className="pdf-batch-check-body">
       <aside className="pdf-batch-check-sidebar">
         <h2>Text from your files</h2>
@@ -293,7 +293,7 @@ export function CheckTextStep({
       </div>
     </div>
     <ImportStepFooter><Button type="button" disabled={busy} onClick={onBack}>Back</Button><span>{checkRunning ? 'You can continue now. Files checked later follow your choice.' : `OCR will apply to ${count(ocrPolicyCount(snapshot, snapshot.choices.ocr_policy), 'file')}${unreadableCount > 0 ? ` · ${unreadableCount.toLocaleString()} couldn't be read` : ''}.`}</span><Button type="button" className="btn-primary" disabled={busy} onClick={onContinue}>{busy ? 'Saving…' : 'Continue →'}</Button></ImportStepFooter>
-  </section>;
+  </ImportStep>;
 }
 
 function OcrPolicy({ snapshot, checking, busy, onPolicy }: { snapshot: PdfImportSnapshot; checking: boolean; busy: boolean; onPolicy(policy: PdfImportChoices['ocr_policy']): void }) {
@@ -371,8 +371,8 @@ export function DestinationStep({ projectId, snapshot, destination, sheets, busy
   const reviewCounts = destination.kind === 'existing' && snapshot.match.state === 'ready'
     ? snapshot.match.new_category_counts ?? snapshot.category_counts
     : snapshot.category_counts;
-  return <section className="pdf-batch-step pdf-batch-destination" aria-label="Review destination">
-    <div className="pdf-batch-step-body">
+  return <ImportStep className="pdf-batch-destination" aria-label="Review destination">
+    <ImportStepBody className="">
       <header><h2>Review destination</h2><p>Choose where these files belong, then review exactly what will be added.</p></header>
       <ImportDestinationOptions>
         <ImportDestinationChoice
@@ -411,11 +411,11 @@ export function DestinationStep({ projectId, snapshot, destination, sheets, busy
           <TextSourceBadge category={category} policy={snapshot.choices.ocr_policy} />
         </div>)}
       </div>
-    </div>
+    </ImportStepBody>
     <ImportStepFooter><Button type="button" disabled={busy} onClick={onBack}>Back</Button><span>{matching
       ? 'Comparing file names and sizes…'
       : destination.kind === 'new' ? `Creates “${sheetName}”.` : `New rows are added at the end of ${sheetName}.`}</span><Button type="button" className="btn-primary" disabled={busy || !destinationIsReady(snapshot, destination) || matching} onClick={onContinue}>{matching ? 'Comparing…' : busy ? 'Saving…' : 'Search setup →'}</Button></ImportStepFooter>
-  </section>;
+  </ImportStep>;
 }
 
 function TextSourceBadge({ category, policy }: { category: PdfImportCategory; policy: PdfImportChoices['ocr_policy'] }) {
@@ -455,8 +455,8 @@ export function SearchSetupStep({ snapshot, semanticEnabled, consent, busy, impo
   const ocrDisplayName = snapshot.choices.ocr_selection.engine === 'rapidocr'
     ? 'RapidOCR'
     : snapshot.choices.ocr_selection.engine;
-  return <section className="pdf-batch-step pdf-batch-search" aria-label="Search setup">
-    <div className="pdf-batch-step-body">
+  return <ImportStep className="pdf-batch-search" aria-label="Search setup">
+    <ImportStepBody className="">
       <header><h2>Search setup</h2><p>Keyword search is included. You can also prepare these documents for search by meaning.</p></header>
       <label className="pdf-batch-semantic-choice"><input type="checkbox" disabled={busy} checked={semanticEnabled} onChange={(event) => onSemantic(event.currentTarget.checked)} /><span><strong>Search by meaning</strong><small>Find related ideas even when the exact words differ.</small></span></label>
       {semanticEnabled && <div className="pdf-batch-model-setup" data-state={setup.ready ? 'ready' : setup.available ? 'setup' : 'unavailable'}>
@@ -482,12 +482,12 @@ export function SearchSetupStep({ snapshot, semanticEnabled, consent, busy, impo
               : <span className="pdf-batch-inline-progress"><LoaderCircle className="spin" size={13} /> Checking…</span>}
       </div>}
       {snapshot.paused && <p className="pdf-batch-paused-import" role="status">Copying is paused. Go back to Add files to resume before importing.</p>}
-    </div>
+    </ImportStepBody>
     <ImportStepFooter><Button type="button" disabled={busy} onClick={onBack}>Back</Button><span>{snapshot.paused
       ? 'Copying is paused. Go back to Add files to resume.'
       : semanticWaitingForConsent
       ? `Allow the ${setup.download_bytes == null ? 'model' : bytesLabel(setup.download_bytes)} download, or turn off search by meaning.`
       : semanticEnabled ? 'Keyword search and search by meaning will be prepared.' : 'Keyword search will be prepared.'}</span><Button type="button" className="btn-primary" disabled={!canImport} onClick={onImport}>{busy ? 'Importing…' : importLabel}</Button></ImportStepFooter>
-  </section>;
+  </ImportStep>;
 }
 

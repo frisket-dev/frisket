@@ -58,6 +58,21 @@ different spacing/colors alone are not regressions to restore.
    and small field-group layouts. Searchable lists, multi-select and model browsing
    need different behavior, not automatically different visual treatments.
 
+### Import framing round
+
+Table and multiple-file steps now use ImportStep/ImportStepBody with the existing
+ImportStepFooter; split-PDF's destination joins the same structure. One workspace
+header owns sizing and stage placement instead of three descendant overrides.
+Multiple-file progress uses ActivityProgressCard. Shared destination choices no
+longer have table-only padding overrides; table/batch colors use application tokens.
+Specialized column previews, split boundaries and text-check sidebars remain
+local layouts, not a generic wizard. Domain state and callbacks are unchanged.
+
+The follow-up review also caught two non-select buttons wearing row-height-select:
+comparison Source/Wrap toggles now use Button with a shared pressed state. Reader
+option width is owned by anchored positioning (including viewport bounds), not a
+CSS minimum that disagrees with the positioning calculation.
+
 ### Application styles are coupled to startup
 
 `src/entries/mount.tsx` loads the shared fonts and stylesheet but also installs global error listeners and mounts edition providers. The catalog must import the style assets without importing that entry. A small side-effect-free style entry shared by both could reduce drift if font/style imports expand; this is not a reason to redesign application bootstrap now.

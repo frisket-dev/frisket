@@ -4123,15 +4123,6 @@ li.panel-empty { list-style: none; }
   flex-shrink: 0;
   white-space: nowrap;
 }
-.ocr-compare-source-toggle,
-.ocr-compare-wrap-toggle {
-  cursor: pointer;
-}
-.ocr-compare-source-toggle[aria-pressed='true'],
-.ocr-compare-wrap-toggle[aria-pressed='true'] {
-  border-color: var(--accent);
-  color: var(--accent);
-}
 .ocr-compare-frontdoor {
   flex: 1;
   min-height: 0;
@@ -7327,7 +7318,7 @@ dialog.import-workspace-layer::backdrop {
 .import-workspace {
   position: relative;
   z-index: 1;
-  width: min(1080px, calc(100vw - 32px));
+  width: min(1180px, calc(100vw - 32px));
   height: min(760px, calc(100vh - 32px));
   min-height: 520px;
   display: flex;
@@ -7341,13 +7332,16 @@ dialog.import-workspace-layer::backdrop {
 }
 .import-workspace-header {
   flex: 0 0 auto;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
-  padding: 16px 18px;
+  padding: 14px 24px;
   border-bottom: 1px solid var(--border);
 }
+.import-workspace-header > div:first-child { min-width: 0; }
+.import-workspace-header > .import-workspace-stages { grid-column: 2; max-width: 56vw; }
+.import-workspace-header > .icon-btn { grid-column: 3; }
 .import-workspace-header-receipt {
   position: absolute;
   top: 10px;
@@ -7365,6 +7359,9 @@ dialog.import-workspace-layer::backdrop {
   margin-top: 2px;
   color: var(--text-light);
   font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .import-workspace-main {
   flex: 1 1 auto;
@@ -7697,26 +7694,6 @@ dialog.import-workspace-layer::backdrop {
 .dropzone-sub { font-size: 12px; }
 
 /* ---- PDF packet split import -------------------------------------------- */
-
-.pdf-packet-workspace {
-  width: min(1180px, calc(100vw - 32px));
-  box-shadow: 0 0 0 1px #e2dbd4, 0 18px 50px rgba(40, 30, 20, 0.16);
-}
-.pdf-packet-workspace .import-workspace-header {
-  position: relative;
-  padding: 14px 24px;
-}
-.pdf-packet-workspace .import-workspace-header > div:first-child {
-  min-width: 260px;
-  max-width: 340px;
-}
-.pdf-packet-workspace .import-workspace-header > .import-workspace-stages {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: min(480px, 44vw);
-  transform: translate(-50%, -50%);
-}
 .pdf-packet-workspace-main {
   grid-template-columns: minmax(0, 1fr);
 }
@@ -8161,16 +8138,11 @@ dialog.import-workspace-layer::backdrop {
   color: #4a433e;
 }
 
-.pdf-packet-import-step {
-  flex: 1 1 auto;
-  min-height: 0;
+.pdf-packet-import-body {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 16px;
-  padding: 22px 24px 0;
 }
-.pdf-packet-import-step > header h2 { margin: 0 0 4px; font-size: 20px; }
-.pdf-packet-import-step > header p,
 .pdf-packet-import-options p { margin: 0; color: #756c66; font-size: 12px; }
 .pdf-packet-import-options {
   display: grid;
@@ -8188,20 +8160,9 @@ dialog.import-workspace-layer::backdrop {
 .pdf-packet-import-table th:first-child { width: 44px; }
 .pdf-packet-import-table th:nth-child(2) { width: 32%; }
 .pdf-packet-import-table th:nth-child(3) { width: 28%; }
-.pdf-packet-import-step > footer {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-height: 60px;
-  margin: 0 -24px;
-  padding: 10px 24px;
-  border-top: 1px solid #efeae5;
-  color: #756c66;
-  font-size: 11px;
-}
-.pdf-packet-import-step > footer span { flex: 1; text-align: center; }
 
 @media (max-width: 760px) {
+  .import-workspace-header > .import-workspace-stages { display: none; }
   .import-workspace-layer {
     padding: 0;
   }
@@ -8231,7 +8192,6 @@ dialog.import-workspace-layer::backdrop {
   .import-map-grid {
     grid-template-columns: 1fr;
   }
-  .pdf-packet-workspace .import-workspace-header > .import-workspace-stages { display: none; }
   .pdf-packet-check { grid-template-columns: 1fr; }
   .pdf-packet-check { grid-template-rows: auto minmax(480px, 1fr); overflow-y: auto; }
   .pdf-packet-check-sidebar {
@@ -11697,7 +11657,6 @@ dialog.modal-card::backdrop {
   position: fixed;
   inset: auto;
   margin: 0;
-  min-width: 232px;
   padding: 8px;
   display: flex;
   flex-direction: column;

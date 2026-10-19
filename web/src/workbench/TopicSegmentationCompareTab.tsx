@@ -353,15 +353,15 @@ export function TopicSegmentationCompareTab({
               { value: 'survey', label: '◫ Survey' },
             ]}
           />
-          <button
+          <Button
             type="button"
-            className="ocr-compare-source-toggle row-height-select"
+            className="ocr-compare-source-toggle"
             data-testid="topic-compare-source-toggle"
             aria-pressed={sourceOpen}
             onClick={() => setSourceOpen((open) => !open)}
           >
             ⊟ Source
-          </button>
+          </Button>
         </div>
 
         <div className="ocr-compare-chips-row" data-testid="topic-compare-chips-row">

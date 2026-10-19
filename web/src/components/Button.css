@@ -13,6 +13,7 @@
   cursor: pointer;
 }
 .btn:hover:not(:disabled) { background: var(--bg-hover); }
+.btn[aria-pressed='true'] { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
 .btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn[aria-disabled='true'] { opacity: 0.5; pointer-events: none; }

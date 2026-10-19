@@ -1,3 +1,4 @@
+import { ImportStep, ImportStepBody } from '../ImportStep';
 import { Button } from '../../Button';
 import { FormField, TextInput, TextArea } from '../../FormControls';
 import { Fragment, useDeferredValue, useMemo, useRef, useState, type DragEvent } from 'react';
@@ -101,8 +102,8 @@ export function AddDataStep({
     if (!busy) onFiles(Array.from(event.dataTransfer.files));
   };
 
-  return <section className="table-import-step table-import-add" aria-label="Add data">
-    <div className="table-import-step-body table-import-add-body">
+  return <ImportStep className="table-import-add" aria-label="Add data">
+    <ImportStepBody className="table-import-add-body">
       <SegmentedToggle
         ariaLabel="Table source"
         fullWidth={false}
@@ -131,14 +132,14 @@ export function AddDataStep({
           <TextArea aria-label="Paste rows" autoFocus spellCheck={false} value={pasteText} disabled={busy} placeholder={'Name\tAmount\tDate'} onChange={(event) => onPasteChange(event.currentTarget.value)} />
           <p data-ready={pasteText.trim().length > 0 || undefined}><i />{pasteSummary}</p>
         </div>}
-    </div>
+    </ImportStepBody>
     <ImportStepFooter>
       <Button type="button" disabled={busy} onClick={onCancel}>Cancel</Button>
       <span>{passwordFilename ? `${passwordFilename} is selected. Enter its password to continue.` : mode === 'paste' ? 'Pasted rows are read the same way as a file.' : selectedFile ? `${selectedFile.name} is selected.` : 'Choose or drop a file to continue.'}</span>
       {mode === 'paste' ? <Button type="button" className="btn-primary" disabled={busy || !pasteText.trim()} onClick={submitPaste}>{busy ? 'Checking…' : issue?.kind === 'large_paste' ? 'Continue with the paste' : 'Check rows →'}</Button>
         : <Button type="button" className="btn-primary" disabled={busy || !selectedFile || issue !== null || passwordFilename !== null} onClick={onSelectedFileSubmit}>{busy ? 'Checking…' : 'Check rows →'}</Button>}
     </ImportStepFooter>
-  </section>;
+  </ImportStep>;
 }
 
 function SourceIssue({ issue, busy, onFiles, onMultipleFiles, onReset, onSplitPdf, onChooseFtm }: {
@@ -251,8 +252,8 @@ export function CheckRowsStep({ draft, busy, onBack, onContinue, onSettings }: {
   const rowCount = draft.analysis.exact_rows ?? draft.analysis.estimated_rows ?? draft.analysis.scanned_rows;
   const footerRows = draft.analysis.complete ? count(rowCount, 'row') : `${count(rowCount, 'row')} so far`;
   const numericExample = numberSample(draft);
-  return <section className="table-import-step table-import-rows" aria-label="Check rows">
-    <div className="table-import-step-body">
+  return <ImportStep className="table-import-rows" aria-label="Check rows">
+    <ImportStepBody className="">
       <div className="table-import-reader-controls">
         {delimited ? <>
           <FormField label="Separator" ><PanelSelect value={requested.delimiter ?? ''} disabled={busy} onChange={(event) => update('delimiter', event.currentTarget.value || null)}>{DELIMITERS.map((option) => <option key={option.value} value={option.value}>{option.value === '' ? resolvedAuto('Auto', resolved.delimiter ?? null) : option.label}</option>)}</PanelSelect></FormField>
@@ -268,9 +269,9 @@ export function CheckRowsStep({ draft, busy, onBack, onContinue, onSettings }: {
       </div>
       {preview ? <TablePreview preview={preview} firstRowIsHeader={requested.first_row_is_header ?? true} onRecordClick={(ordinal) => update('skip_rows_start', Math.max(0, ordinal - 1))} /> : <div className="table-import-preview-loading" role="status">Reading rows…</div>}
       {preview && <PreviewNotice preview={preview} firstRowIsHeader={requested.first_row_is_header ?? true} />}
-    </div>
+    </ImportStepBody>
     <ImportStepFooter><Button type="button" disabled={busy} onClick={onBack}>Back</Button><span>{footerRows} · {count(preview?.columns.length ?? draft.columns.length, 'column')}{delimited ? ` · ${displayDelimiter(resolved.delimiter)} · ${displayEncoding(resolved.encoding)}` : ''}</span><Button type="button" className="btn-primary" disabled={busy || preview === null || preview.columns.length === 0} onClick={onContinue}>Columns →</Button></ImportStepFooter>
-  </section>;
+  </ImportStep>;
 }
 
 function NumberStepper({ label, value, disabled, onChange }: { label: string; value: number; disabled: boolean; onChange(value: number): void }) {
@@ -386,8 +387,8 @@ export function ColumnsStep({ draft, busy, onBack, onColumns, onContinue }: {
     });
     selectionAnchor.current = sourceIndex;
   };
-  return <section className="table-import-step table-import-columns" aria-label="Columns" onKeyDown={(event) => { if (event.key === 'Shift') shiftHeld.current = true; }} onKeyUp={(event) => { if (event.key === 'Shift') shiftHeld.current = false; }}>
-    <div className="table-import-step-body">
+  return <ImportStep className="table-import-columns" aria-label="Columns" onKeyDown={(event) => { if (event.key === 'Shift') shiftHeld.current = true; }} onKeyUp={(event) => { if (event.key === 'Shift') shiftHeld.current = false; }}>
+    <ImportStepBody className="">
       <div className="table-import-column-toolbar">
         {selected.size > 0 ? <><strong>{count(selected.size, 'column')} selected</strong><label className="form-field">Set type <PanelSelect value={bulkType} onChange={(event) => setBulkType(event.currentTarget.value as TableImportTargetType)}>{TARGET_TYPES.filter((type) => type.value !== 'omit').map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</PanelSelect></label><Button type="button" disabled={busy} onClick={() => applySelected(bulkType)}>Apply</Button><Button type="button" disabled={busy} onClick={() => applySelected('omit')}>Leave out</Button><button type="button" className="text-btn" onClick={() => { setSelected(new Set()); selectionAnchor.current = null; }}>Clear</button></> : <><label className="table-import-column-search"><Search size={14} /><input value={query} placeholder="Find columns" aria-label="Find columns" onChange={(event) => setQuery(event.currentTarget.value)} /></label><div className="table-import-filter-chips">{([['all', `All ${draft.columns.length}`], ['review', `Needs a look ${reviewCount}`], ['omitted', `Left out ${omittedCount}`]] as Array<[ColumnFilter, string]>).map(([value, label]) => <button type="button" key={value} className={filter === value ? 'active' : ''} onClick={() => setFilter(value)}>{label}</button>)}</div><span>Shift-click to select a range.</span></>}
       </div>
@@ -395,9 +396,9 @@ export function ColumnsStep({ draft, busy, onBack, onColumns, onContinue }: {
         <div role="row" className="table-import-column-heading"><span role="columnheader"><input type="checkbox" aria-label="Select shown columns" checked={shown.length > 0 && shown.every((column) => selected.has(column.source_index))} onChange={(event) => { selectionAnchor.current = null; setSelected((current) => { const next = new Set(current); shown.forEach((column) => event.currentTarget.checked ? next.add(column.source_index) : next.delete(column.source_index)); return next; }); }} /></span><strong role="columnheader">Column</strong><strong role="columnheader">Type</strong><strong role="columnheader">Values as imported</strong><strong role="columnheader">Note</strong></div>
         {shown.map((column) => <ColumnRow key={column.source_index} column={column} selected={selected.has(column.source_index)} busy={busy} onSelected={(checked, shiftKey) => selectColumn(column.source_index, checked, shiftKey || shiftHeld.current)} onChange={(patch) => changeOne(column, patch)} />)}
       </div>
-    </div>
+    </ImportStepBody>
     <ImportStepFooter><Button type="button" disabled={busy} onClick={onBack}>Back</Button><span>{draft.columns.filter((column) => column.included && column.target_type !== 'omit').length} of {draft.columns.length} columns will be imported.</span><Button type="button" className="btn-primary" disabled={busy || draft.columns.every((column) => !column.included || column.target_type === 'omit')} onClick={onContinue}>Continue →</Button></ImportStepFooter>
-  </section>;
+  </ImportStep>;
 }
 
 function ColumnRow({ column, selected, busy, onSelected, onChange }: { column: TableImportColumn; selected: boolean; busy: boolean; onSelected(checked: boolean, shiftKey: boolean): void; onChange(patch: Partial<TableImportColumnPatch>): void }) {
@@ -473,8 +474,8 @@ export function ImportTableStep({ draft, destination, destinationSheets, preferr
   const invalidValues = draft.columns.reduce((total, column) => total + (column.included && column.target_type !== 'omit' ? column.conversion_counts.invalid : 0), 0);
   const invalidColumnNames = draft.columns.filter((column) => column.included && column.target_type !== 'omit' && column.conversion_counts.invalid > 0).map((column) => column.name);
   const newSheetName = destination.kind === 'new' ? destination.sheet_name : draft.source.input_kind === 'paste' ? 'Pasted rows' : draft.source.filename.replace(/\.[^.]+$/, '');
-  return <section className="table-import-step table-import-destination" aria-label="Import">
-    <div className="table-import-step-body">
+  return <ImportStep className="table-import-destination" aria-label="Import">
+    <ImportStepBody className="">
       <ImportDestinationOptions>
         <ImportDestinationChoice name="table-import-destination" selected={destination.kind === 'new'} disabled={busy} title="New sheet" showInactiveChildren onSelect={() => onDestination({ kind: 'new', sheet_name: newSheetName })}>
           <label className="import-destination-choice-field form-field"><span className="sr-only">Sheet name</span><TextInput aria-label="Sheet name"  value={newSheetName} disabled={busy || destination.kind !== 'new'} onChange={(event) => onDestination({ kind: 'new', sheet_name: event.currentTarget.value })} /></label>
@@ -491,9 +492,9 @@ export function ImportTableStep({ draft, destination, destinationSheets, preferr
         {invalidValues > 0 && <div><span>Values left blank</span><strong>{invalidValues.toLocaleString()}</strong><small>{invalidColumnNames.join(', ')}; originals listed in Errors</small></div>}
         {(draft.analysis.issue_counts.missing_values ?? 0) > 0 && <div><span>Lines with missing values</span><strong>{draft.analysis.issue_counts.missing_values!.toLocaleString()}</strong><small>Missing cells stay blank</small></div>}
       </div>
-    </div>
+    </ImportStepBody>
     <ImportStepFooter><Button type="button" disabled={busy} onClick={onBack}>Back</Button><span>{destination.kind === 'new' ? 'The new sheet opens when you click Import.' : `Rows are added below the existing ${existingSheet?.rowCount.toLocaleString() ?? 0}.`}</span><Button type="button" className="btn-primary" disabled={busy || !draft.can_commit || (destination.kind === 'new' && !destination.sheet_name.trim())} onClick={onCommit}>{busy ? 'Importing…' : importRows == null ? 'Import' : `Import ${draft.analysis.complete || comparison?.import_rows != null ? '' : 'about '}${count(importRows, 'row')}`}</Button></ImportStepFooter>
-  </section>;
+  </ImportStep>;
 }
 
 function ExistingDestination({ draft, destination, sheet, busy, onDestination }: { draft: TableImportDraft; destination: Extract<TableImportDestinationConfig, { kind: 'existing' }>; sheet: TableImportDestinationSheet | null; busy: boolean; onDestination(destination: TableImportDestinationConfig, snapshot?: TableImportDestinationSnapshot | null): void }) {

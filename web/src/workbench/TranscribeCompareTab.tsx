@@ -232,15 +232,15 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
             <Play size={13} /> {session.preparing ? 'Estimating…' : 'Run comparison'}
           </Button>
           {busy && <Button type="button" data-testid="transcribe-compare-cancel" onClick={session.cancelRuns}>Cancel</Button>}
-          <button
+          <Button
             type="button"
-            className="ocr-compare-source-toggle row-height-select"
+            className="ocr-compare-source-toggle"
             data-testid="transcribe-compare-source-toggle"
             aria-pressed={sourceOpen}
             onClick={() => setSourceOpen((open) => !open)}
           >
             ⊟ Source
-          </button>
+          </Button>
         </div>
 
         <fieldset className="ocr-compare-chips-row" data-testid="transcribe-compare-chips-row" disabled={busy}
