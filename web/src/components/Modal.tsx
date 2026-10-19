@@ -29,7 +29,8 @@ export function Modal({ title, children, onClose, busy = false, testId, role = '
       if (event.cancelable && !busy) onClose?.();
     }} onClose={event => {
       event.stopPropagation();
-      if (!mounted.current) return;
+      // Ignore a queued close from a prior lifecycle (including StrictMode).
+      if (!mounted.current || event.currentTarget.open) return;
       // Browsers can force closure after repeated Escape, despite preventDefault.
       if (busy || !onClose) { if (!event.currentTarget.open) event.currentTarget.showModal(); }
       else onClose();

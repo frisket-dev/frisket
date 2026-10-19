@@ -53,6 +53,8 @@ describe('normalized controls preserve behavior', () => {
     const close = vi.fn();
     const { rerender } = render(<Modal title="Working" busy onClose={close}>Wait</Modal>);
     const dialog = screen.getByRole('dialog');
+    fireEvent(dialog, new Event('close'));
+    expect(close).not.toHaveBeenCalled();
     const forceClose = () => {
       fireEvent(dialog, new Event('cancel', { cancelable: false }));
       dialog.removeAttribute('open');
