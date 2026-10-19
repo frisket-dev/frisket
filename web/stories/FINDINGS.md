@@ -2,6 +2,21 @@
 
 Working audit, not a redesign proposal. Record all substantive findings; no quota or cap. Code observations below are preliminary until accompanied by rendered evidence. Screenshots will be linked from the generated inventory. Group repeated symptoms under their shared cause, and retain intentional behavior differences.
 
+## First consolidation pass
+
+The baseline findings below prompted shared `TextInput`/`TextArea` controls,
+one segmented-control stylesheet (including PDF preview/method choices),
+shared import/dock progress and additional IconButton/WindowCloseButton use.
+Settings feedback and table-preview notices now use shared panel feedback.
+Page layout stays local; size, width and status differences belong to props.
+
+This is not a complete replacement of every custom element. Remaining useful
+targets include icon buttons with loading/destructive states, provider-validation
+feedback, label/help spacing, compound unit inputs and reader navigation.
+Inline title editors, code editors and template composers need their editing
+behavior preserved, not merely a native-input tag swap. The Escape propagation
+defect and repeated-histogram observation below are separate from this pass.
+
 ## Structural observations awaiting visual validation
 
 ### Application styles are coupled to startup

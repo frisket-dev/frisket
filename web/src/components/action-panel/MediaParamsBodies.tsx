@@ -44,7 +44,7 @@ export function VideoFramesParamsBody({ params, setParams, Field, errors }:
     <Field name="source" label="Video" />
     <div className="action-io-summary">
       <div className="form-label">Sampling</div>
-      <SegmentedToggle ariaLabel="Sampling" testId="frame-sampling-mode" value={sampling.kind}
+      <SegmentedToggle ariaLabel="Sampling" testId="frame-sampling-mode" value={sampling.kind ?? 'count'}
         options={[{ value: 'count', label: 'Frames per video' }, { value: 'interval', label: 'Every N seconds' }]}
         buttonTestId={(value) => `frame-sampling-${value}`}
         onValueChange={(value) => changeSampling(value as 'count' | 'interval')} />
