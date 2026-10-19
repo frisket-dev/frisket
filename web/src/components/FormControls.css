@@ -46,6 +46,11 @@
 .param-row > .form-label { margin: 0; }
 .form-hint code { font-size: inherit; }
 .form-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.content-stack { display: grid; align-content: start; gap: 12px; min-width: 0; }
+.control-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.control-row[data-align='end'] { justify-content: flex-end; }
+.panel-list { display: flex; flex-direction: column; gap: 8px; list-style: none; margin: 0; padding: 0; min-width: 0; }
+.panel-card { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-7); }
 .unit-input { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .unit-input > input { flex: 1; min-width: 0; }
 .unit-input-suffix { font-size: 12px; color: var(--text-light); }

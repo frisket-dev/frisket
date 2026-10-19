@@ -6258,19 +6258,11 @@ dialog.sources-connections-layer::backdrop { background: transparent; }
   overflow-y: auto;
   padding: 16px 18px 22px;
 }
-.sources-connections-content .sources-body { gap: 12px; }
-.sources-panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-}
 
 .sidebar-sources {
   display: flex; flex-direction: column;
 }
-.sources-body { display: flex; flex-direction: column; gap: 6px; }
 .sources-add { align-self: flex-start; }
-.sources-form { display: flex; flex-direction: column; gap: 6px; }
 .sources-form-row { display: flex; gap: 6px; }
 .sources-form-row > .panel-select-shell { flex: 1; min-width: 0; }
 .sources-form-grid {
@@ -6297,12 +6289,6 @@ dialog.sources-connections-layer::backdrop { background: transparent; }
   font-size: 10.5px;
   color: var(--text-light);
   line-height: 1.35;
-}
-.sources-form-actions { display: flex; gap: 6px; justify-content: flex-end; }
-.sources-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.source-item {
-  border: 1px solid var(--border); border-radius: var(--radius-7);
-  padding: 7px 8px; display: flex; flex-direction: column; gap: 4px;
 }
 .source-item.disabled { opacity: 0.6; }
 .source-head { display: flex; align-items: center; gap: 6px; }
@@ -6769,21 +6755,11 @@ dialog.sources-connections-layer::backdrop { background: transparent; }
 .sidebar-notifications {
   display: flex; flex-direction: column;
 }
-.notifications-header-slim {
-  display: flex; align-items: center; justify-content: flex-end; gap: 6px;
-  padding: 0 0 4px;
-}
 .notifications-count {
   margin-left: auto;
   font-size: 10px; font-variant-numeric: tabular-nums;
   color: var(--accent);
   background: var(--accent-bg); border-radius: var(--radius-8); padding: 1px 6px;
-}
-.notifications-body { display: flex; flex-direction: column; gap: 6px; padding: 4px 2px 2px; }
-.notifications-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.notification-item {
-  border: 1px solid var(--border); border-radius: var(--radius-7);
-  padding: 7px 8px; display: flex; flex-direction: column; gap: 4px;
 }
 .notification-item.severity-warning { border-color: #b88700; }
 .notification-item.severity-critical { border-color: var(--red); }
@@ -6809,30 +6785,16 @@ dialog.sources-connections-layer::backdrop { background: transparent; }
   font-size: 10.5px; color: var(--text-light);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.notification-actions { display: flex; align-items: center; gap: 4px; }
 .notifications-settings-toggle {
   align-self: stretch;
   justify-content: flex-start;
   min-height: 28px;
 }
-.notification-settings-panel {
-  display: flex; flex-direction: column; gap: 10px;
-  border: 1px solid var(--border); border-radius: var(--radius-7);
-  padding: 8px; background: var(--bg);
-}
 .notification-settings-head,
-.notification-settings-title,
-.notification-settings-actions {
+.notification-settings-title {
   display: flex; align-items: center; gap: 6px;
 }
 .notification-settings-head .sidebar-section-label { flex: 1; }
-/* Each area (Channels / Routes / Delivery health) is a distinct card. */
-.notification-settings-card {
-  display: flex; flex-direction: column; gap: 8px;
-  min-width: 0;
-  border: 1px solid var(--border); border-radius: var(--radius-8);
-  padding: 10px 12px; background: var(--bg-panel);
-}
 .notification-settings-cardhead {
   display: grid; gap: 2px;
 }
@@ -6843,9 +6805,6 @@ dialog.sources-connections-layer::backdrop { background: transparent; }
 }
 .notification-settings-help {
   margin: 0; font-size: 11px; color: var(--text-light); line-height: 1.4;
-}
-.notification-settings-list {
-  display: flex; flex-direction: column; gap: 5px;
 }
 .notification-settings-row {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -6880,22 +6839,9 @@ dialog.sources-connections-layer::backdrop { background: transparent; }
 .notification-settings-row .icon-btn.is-off { color: var(--text-light); }
 .notification-settings-test { padding: 4px 9px; }
 
-/* Create forms: a tinted labeled sub-panel, not a stack of naked boxes. */
-.notification-settings-form {
-  display: flex; flex-direction: column; gap: 7px;
-  border: 1px solid var(--border); border-radius: var(--radius-7);
-  padding: 9px 10px; background: var(--bg);
-}
 .notification-settings-formkicker {
   font-size: 10px; font-weight: 700;
   text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-light);
-}
-.notification-settings-field {
-  display: grid; grid-template-columns: 92px minmax(0, 1fr);
-  gap: 8px; align-items: center;
-}
-.notification-settings-control {
-  min-width: 0; display: flex; flex-direction: column; gap: 3px;
 }
 .notification-settings-formfooter {
   display: flex; align-items: center; justify-content: space-between;
@@ -6915,10 +6861,6 @@ dialog.sources-connections-layer::backdrop { background: transparent; }
   margin-top: 2px;
   min-width: 0;
 }
-.watches-header-slim {
-  display: flex; align-items: center; justify-content: flex-end; gap: 6px;
-  padding: 0 0 4px;
-}
 .watches-count,
 .watches-alert-count,
 .watch-notification-count {
@@ -6935,15 +6877,6 @@ dialog.sources-connections-layer::backdrop { background: transparent; }
   background: var(--accent-bg);
 }
 .watch-notification-count { margin-left: 0; }
-/* Zero own-padding: the host owns the gutter (the .discover-body contract,
-   re-enforced by ui-region-frames-v1 / R2). */
-.watches-body { display: flex; flex-direction: column; gap: 6px; padding: 0; width: 100%; min-width: 0; }
-.watches-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.watch-item {
-  border: 1px solid var(--border); border-radius: var(--radius-7);
-  padding: 7px 8px; display: flex; flex-direction: column; gap: 4px;
-  min-width: 0;
-}
 .watch-head { display: flex; align-items: center; gap: 6px; }
 .watch-name {
   flex: 1; min-width: 0;
@@ -8844,30 +8777,10 @@ dialog.modal-card::backdrop {
   margin: 3px 0 0;
   overflow-wrap: anywhere;
 }
-.settings-stack {
-  display: grid;
-  gap: 14px;
-  align-content: start;
-}
-.settings-form {
-  display: grid;
-  gap: 12px;
-}
-.settings-row-actions {
-  display: inline-flex;
-  gap: 6px;
-  align-items: center;
-}
 .settings-row-note {
   margin-top: 2px;
   color: var(--text-mid);
   font-size: 12px;
-}
-.settings-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
 }
 .skills-settings-head {
   display: flex;
@@ -8889,10 +8802,6 @@ dialog.modal-card::backdrop {
   .skills-settings-split { grid-template-columns: minmax(0, 1fr); }
 }
 
-.settings-subsection {
-  display: grid;
-  gap: 10px;
-}
 
 /* Local-server install guidance in Settings. */
 .local-server-guidance {

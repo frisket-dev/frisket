@@ -138,7 +138,7 @@ function DownloadSetupPanel({ setup, activeOperation, onChanged, sharedProgress 
       onDone={sharedProgress ? undefined : onTerminal}
       onFailed={sharedProgress ? undefined : onTerminal} />}
     {!setup.can_start && !pull && <p className="form-hint">Setup cannot start yet. Recheck the available operations.</p>}
-    <div className="settings-actions">
+    <div className="control-row">
       {(!pull || (matching && pull.capabilities.retry && !active)) && <Button className="btn-primary" type="button"
         disabled={!setup.can_mutate || !setup.can_start || starting} onClick={() => void start()}>
         {starting ? 'Starting…' : pull ? 'Retry setup' : setup.kind === 'artifact_download' ? 'Download model' : 'Download and set up'}

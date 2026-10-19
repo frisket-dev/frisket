@@ -179,3 +179,17 @@ Visual review also exposed a generic menu max-width overriding the positioned
 PDF options width. `MenuPop sizing="anchored"` lets measured placement own width;
 the browser inventory now asserts it. Import headers retain centered steppers,
 and unequal-height progress cards no longer stretch into empty bands.
+
+## Panel/settings framing
+
+Settings sections already share their heading frame and feedback primitives.
+The remaining repeated layout rules now use `content-stack`, `control-row`,
+`panel-list` and `panel-card` across settings, Sources, Watches and Notifications.
+These style semantic markup directly, without a new layout/controller framework.
+Notification fields reuse `FormField`; Skills uses shared empty/error/refresh
+controls. Domain severity, selection, status and gutter ownership remain intact.
+
+List/detail isn't one behavior: Skills edits a selected text document; the dock
+inspects jobs; Sources exposes health and runs. Their fetching and selection
+remain separate. Future consolidation should reuse presentation where useful,
+not impose one master/detail state machine on those workflows.

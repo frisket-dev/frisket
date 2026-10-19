@@ -230,25 +230,25 @@ export function McpServersSection({
   };
 
   return (
-    <section className="settings-stack" data-testid="project-mcp-servers-settings">
+    <section className="content-stack" data-testid="project-mcp-servers-settings">
       <h2>MCP Servers</h2>
       <p className="settings-copy">Configure trusted local stdio MCP servers for Tool-assisted Extract.</p>
 
       {!form && importJson === null && (
-        <div className="settings-row-actions">
+        <div className="control-row">
           <button type="button" onClick={() => setForm(EMPTY_FORM)}>Add MCP server</button>
           <button type="button" onClick={() => setImportJson('')}>Import MCP JSON</button>
         </div>
       )}
 
       {importJson !== null && (
-        <div className="settings-form">
+        <div className="content-stack">
           <label className="form-field">
             MCP server JSON
             <TextArea aria-label="MCP server JSON" value={importJson} onChange={(event) => setImportJson(event.currentTarget.value)} />
           </label>
           {importError && <p role="alert">{importError}</p>}
-          <div className="settings-row-actions">
+          <div className="control-row">
             <button type="button" onClick={startImport}>Import</button>
             <button type="button" onClick={() => { setImportJson(null); setImportError(null); }}>Cancel</button>
           </div>
@@ -256,7 +256,7 @@ export function McpServersSection({
       )}
 
       {form && (
-        <div className="settings-form" data-testid="mcp-server-form">
+        <div className="content-stack" data-testid="mcp-server-form">
           {form.env.length > 0 && <p>Map imported environment values to Project Secrets before saving.</p>}
           <label className="form-field">
             Name
@@ -304,7 +304,7 @@ export function McpServersSection({
             </div>
           ))}
           <button type="button" onClick={() => updateForm({ env: [...form.env, { name: '', projectSecret: '', literalValue: '', kind: 'project_secret' }] })}>Add environment variable</button>
-          <div className="settings-row-actions">
+          <div className="control-row">
             <button type="button" disabled={!canSave} onClick={() => void save()}>Save</button>
             <button type="button" onClick={() => { setForm(null); setImportJson(null); }}>Cancel</button>
           </div>
@@ -321,7 +321,7 @@ export function McpServersSection({
               {server.last_discovered_tool_count !== undefined && <div>{server.last_discovered_tool_count} tools last discovered</div>}
               {server.last_test?.detail && <div>{server.last_test.detail}</div>}
               {latestTest && <div data-testid={`mcp-server-test-result-${server.id}`}>{latestTest.status}</div>}
-              <div className="settings-row-actions">
+              <div className="control-row">
                 <button type="button" aria-label={`Edit ${server.name}`} onClick={() => setForm(formForServer(server))}>Edit</button>
                 <button
                   type="button"

@@ -343,10 +343,6 @@ function InlineStatus({
   return null;
 }
 
-function ReadOnlyNotice({ children }: { children: ReactNode }) {
-  return <PanelNotice>{children}</PanelNotice>;
-}
-
 export function PersonalProfileSettings({
   identityMode,
   PersonalProfileSlot,
@@ -428,7 +424,7 @@ export function PersonalProfileSettings({
   const initials = (me?.display_name || me?.email || '?').slice(0, 2).toUpperCase();
 
   return (
-    <div className="settings-stack" data-testid="personal-profile-settings">
+    <div className="content-stack" data-testid="personal-profile-settings">
       <InlineStatus error={error ?? runtime.error} loading={loading || localRuntimeLoading} notice={notice} />
       <div className="settings-profile-row">
         <div className="settings-avatar" data-testid="settings-avatar">{initials}</div>
@@ -437,7 +433,7 @@ export function PersonalProfileSettings({
           <strong>{me?.email ?? 'Local workspace'}</strong>
         </div>
       </div>
-      <form className="settings-form" onSubmit={save}>
+      <form className="content-stack" onSubmit={save}>
         <FormField label="Display name" >
 
           <TextInput
@@ -464,7 +460,7 @@ export function PersonalProfileSettings({
             require one click.
           </small>
         </FormField>
-        <div className="settings-actions">
+        <div className="control-row">
           <Button className="btn-primary" type="submit" disabled={busy || localRuntimeLoading}>
             <Save size={14} /> Save
           </Button>
@@ -576,7 +572,7 @@ export function AiCallModeSettings() {
   };
 
   return (
-    <section className="settings-subsection ai-call-mode-settings" data-testid="ai-call-mode-settings">
+    <section className="content-stack ai-call-mode-settings" data-testid="ai-call-mode-settings">
       <div className="settings-section-kicker">AI call mode</div>
       <InlineStatus error={error} loading={config === null && error === null} notice={notice} />
       <p className="form-hint">
@@ -596,7 +592,7 @@ export function AiCallModeSettings() {
         )}
       </p>
       {editable ? (
-        <form className="settings-form" onSubmit={submit}>
+        <form className="content-stack" onSubmit={submit}>
           <fieldset
             className="ai-call-mode-list ai-call-mode-options"
             data-testid="ai-call-mode-list"
@@ -626,7 +622,7 @@ export function AiCallModeSettings() {
               </label>
             ))}
           </fieldset>
-          <div className="settings-actions">
+          <div className="control-row">
             <Button
               type="submit"
               className="btn-primary"
@@ -761,7 +757,7 @@ function PersonalPreferencesSettings() {
 
   return (
     <div
-      className="settings-stack"
+      className="content-stack"
       data-testid="personal-preferences-settings"
       data-preferences-key={PREFERENCES_KEY}
     >
@@ -795,9 +791,9 @@ function PersonalPrivacySettings() {
   };
 
   return (
-    <div className="settings-stack" data-testid="personal-privacy-settings">
+    <div className="content-stack" data-testid="personal-privacy-settings">
       <InlineStatus error={error} loading={loading} />
-      <section className="settings-subsection">
+      <section className="content-stack">
         <div className="settings-section-kicker">Product telemetry</div>
         <p className="form-hint">
           Share pseudonymous feature use, outcomes, and coarse size and timing ranges.
@@ -816,7 +812,7 @@ function PersonalPrivacySettings() {
             <span>Send product telemetry</span>
           </label>
         ) : config ? (
-          <ReadOnlyNotice>Product telemetry is not configured for this installation.</ReadOnlyNotice>
+          <PanelNotice>Product telemetry is not configured for this installation.</PanelNotice>
         ) : null}
       </section>
     </div>
@@ -863,7 +859,7 @@ export function OrganizationAiProvidersSettings() {
     }
   };
   return (
-    <div className="settings-stack" data-testid="organization-ai-providers-settings">
+    <div className="content-stack" data-testid="organization-ai-providers-settings">
       <InlineStatus error={catalog.error ?? keys.error ?? mutationError} loading={catalog.loading || keys.loading} notice={notice} />
       <Button type="button" onClick={() => { setNotice(null); setMutationError(null); setAdding((current) => !current); }}>
         <KeyRound size={14} /> Add new key
@@ -887,7 +883,7 @@ export function OrganizationAiProvidersSettings() {
               </div>
             )}
           </>,
-          <span key={row.provider} className="settings-row-actions">
+          <span key={row.provider} className="control-row">
             <Button
               className="btn-compact"
               type="button"
@@ -972,7 +968,7 @@ function OrgLocalModelsSettings() {
   const models = endpoint.models;
 
   return (
-    <div className="settings-subsection org-local-models" data-testid="org-local-models-settings">
+    <div className="content-stack org-local-models" data-testid="org-local-models-settings">
       <p className="settings-meta-label">
         {endpoint.label}{endpoint.origin ? ` — ${endpoint.origin}` : ''}{' '}
         <StatusChip tone={status.tone} testId="org-local-models-status">
@@ -1048,7 +1044,7 @@ function OrgModelPullDownload({
 
   if (phase === 'active' && pull) {
     return (
-      <div className="settings-subsection org-model-pull-download" data-testid="org-model-pull-download">
+      <div className="content-stack org-model-pull-download" data-testid="org-model-pull-download">
         <ModelPullProgress
           pull={pull}
           fetchPull={orgGetModelPull}
@@ -1065,7 +1061,7 @@ function OrgModelPullDownload({
   }
 
   return (
-    <div className="settings-subsection org-model-pull-download" data-testid="org-model-pull-download">
+    <div className="content-stack org-model-pull-download" data-testid="org-model-pull-download">
       <FormField label="Download a model" >
 
         <TextInput
@@ -1079,7 +1075,7 @@ function OrgModelPullDownload({
         />
       </FormField>
       {phase === 'confirm' ? (
-        <div className="settings-row-actions">
+        <div className="control-row">
           <p className="local-server-guidance-copy">
             This may download several GB to the operator&rsquo;s local server.
           </p>
@@ -1157,7 +1153,7 @@ function OrgModelPullList() {
     .slice(0, 5);
 
   return (
-    <div className="settings-subsection model-pull-list" data-testid="org-model-pull-list">
+    <div className="content-stack model-pull-list" data-testid="org-model-pull-list">
       {error && (
         <p
           className="panel-notice" data-tone="error"
@@ -1220,7 +1216,7 @@ function OrganizationSecretsSettings() {
     }
   };
   return (
-    <div className="settings-stack" data-testid="organization-secrets-settings">
+    <div className="content-stack" data-testid="organization-secrets-settings">
       <InlineStatus error={secrets.error ?? mutationError} loading={secrets.loading} notice={notice} />
       <form className="form-inline" autoComplete="off" onSubmit={save}>
         <TextInput
@@ -1297,7 +1293,7 @@ function OrganizationApiKeysSettings() {
     }
   };
   return (
-    <div className="settings-stack" data-testid="organization-api-keys-settings">
+    <div className="content-stack" data-testid="organization-api-keys-settings">
       <InlineStatus error={tokens.error ?? mutationError} loading={tokens.loading} />
       {created && (
         <output className="settings-token-reveal" data-testid="api-key-created" aria-live="polite">
@@ -1356,7 +1352,7 @@ function OrganizationApiKeysSettings() {
 function OrganizationSpendSettings() {
   const spend = useLoader<SpendReport>(() => getSpend());
   return (
-    <div className="settings-stack" data-testid="organization-spend-settings">
+    <div className="content-stack" data-testid="organization-spend-settings">
       <InlineStatus error={spend.error} loading={spend.loading} />
       <SettingsTable
         headers={['Project', 'Model', 'Month', 'Runs', 'Rows', 'Cost']}
@@ -1435,14 +1431,14 @@ export function ProjectGeneralSettings({ project }: { project?: ProjectInfo | nu
   };
 
   return (
-    <div className="settings-stack" data-testid="project-general-settings">
+    <div className="content-stack" data-testid="project-general-settings">
       <InlineStatus error={details.error ?? form.mutationError} loading={details.loading} notice={form.notice} />
       {!canEdit && (
-        <ReadOnlyNotice>
+        <PanelNotice>
           Your project role can view project identity but cannot change it.
-        </ReadOnlyNotice>
+        </PanelNotice>
       )}
-      <form className="settings-form" onSubmit={save}>
+      <form className="content-stack" onSubmit={save}>
         <FormField label="Name" >
 
           <TextInput
@@ -1466,16 +1462,16 @@ export function ProjectGeneralSettings({ project }: { project?: ProjectInfo | nu
           <div><dt>Project ID</dt><dd>{current?.id ?? '-'}</dd></div>
           <div><dt>Sensitive</dt><dd>{current?.sensitive ? 'Yes' : 'No'}</dd></div>
         </div>
-        <div className="settings-actions">
+        <div className="control-row">
           <Button className="btn-primary" type="submit" disabled={!canEdit || form.busy}>
             <Save size={14} /> Save
           </Button>
         </div>
       </form>
       {!canOwner && (
-        <ReadOnlyNotice>
+        <PanelNotice>
           Delete project is restricted to project owners.
-        </ReadOnlyNotice>
+        </PanelNotice>
       )}
       <form className="settings-danger-zone" onSubmit={(event) => {
         event.preventDefault();
@@ -1634,7 +1630,7 @@ function ProjectAccessSettings({ project, identityMode }: { project?: ProjectInf
     }
   };
   return (
-    <div className="settings-stack" data-testid="project-access-settings">
+    <div className="content-stack" data-testid="project-access-settings">
       <InlineStatus error={state.actionError} loading={loading} notice={state.notice} />
       {state.freshAuthRequired && (
         <Button
@@ -1647,9 +1643,9 @@ function ProjectAccessSettings({ project, identityMode }: { project?: ProjectInf
         </Button>
       )}
       {!canManageProject && (
-        <ReadOnlyNotice>
+        <PanelNotice>
           Your project role can view access state but cannot change members or invites.
-        </ReadOnlyNotice>
+        </PanelNotice>
       )}
       {canManageProject && (
         <form className="form-inline" onSubmit={(event) => {
@@ -1789,15 +1785,15 @@ export function ProjectAiProvidersSettings({
     }
   };
   return (
-    <div className="settings-stack" data-testid="project-ai-providers-settings">
+    <div className="content-stack" data-testid="project-ai-providers-settings">
       {cloudConnectionAvailable && project?.id && <ProjectCloudRoutingSettings
         projectId={project.id} connectionClient={cloudConnectionApi}
         routingClient={projectCloudRoutingApi} onRoutingChange={setCloudRouting} />}
       <InlineStatus error={keys.error ?? mutationError} loading={keys.loading} notice={notice} />
       {!canMutate && (
-        <ReadOnlyNotice>
+        <PanelNotice>
           Your project role can view provider override status but cannot change provider keys.
-        </ReadOnlyNotice>
+        </PanelNotice>
       )}
       <Button type="button" disabled={!canMutate} onClick={() => { setNotice(null); setMutationError(null); setAdding((current) => !current); }}>
         <KeyRound size={14} /> Add new key
@@ -1832,7 +1828,7 @@ export function ProjectAiProvidersSettings({
           formatUsdOrNone(row.spend_cap_usd),
           <SpentCell key={`${row.id}-spent`} row={row} />,
           row.configured ? (
-            <span key={row.id} className="settings-row-actions">
+            <span key={row.id} className="control-row">
               <Button
                 className="btn-compact"
                 type="button"
@@ -1913,7 +1909,7 @@ export function WorkspaceAiProvidersSettings() {
   const sourceLabel = (row: Extract<LocalProviderEntry, { kind: 'platform_api' }>): string =>
     row.source === 'env' ? 'Environment' : row.source === 'local_file' ? 'Workspace file' : '—';
   return (
-    <div className="settings-stack" data-testid="workspace-ai-providers-settings">
+    <div className="content-stack" data-testid="workspace-ai-providers-settings">
       <InlineStatus error={catalog.error ?? mutationError} loading={catalog.loading} notice={notice} />
       <p className="form-hint">
         Keys are stored in this workspace only and never sent back to the browser.
@@ -1945,7 +1941,7 @@ export function WorkspaceAiProvidersSettings() {
             )}
           </>,
           row.configured ? (
-            <span key={row.id} className="settings-row-actions">
+            <span key={row.id} className="control-row">
               <Button
                 className="btn-compact"
                 type="button"
@@ -2115,7 +2111,7 @@ export function DiagnosticsSettings() {
   // render) — this only relabels the case where stale data is ALSO on screen.
   const stale = Boolean(report.error) && !report.loading && report.data != null;
   return (
-    <div className="settings-stack" data-testid="settings-diagnostics">
+    <div className="content-stack" data-testid="settings-diagnostics">
       <InlineStatus error={report.error} loading={report.loading} />
       {report.data && (
         <div className="diagnose-panel-body" data-testid="diagnose-panel-body">
@@ -2164,7 +2160,7 @@ export function DiagnosticsSettings() {
           </div>
         </div>
       )}
-      <div className="settings-actions">
+      <div className="control-row">
         <Button
 
           type="button"
@@ -2270,7 +2266,7 @@ function LocalEndpointsSettings({
   };
 
   return (
-    <div className="settings-subsection" data-testid="local-endpoints">
+    <div className="content-stack" data-testid="local-endpoints">
       <div className="settings-section-kicker">Local model servers</div>
       <p className="form-hint">
         Connect several OpenAI-compatible servers at once. Each server keeps a
@@ -2286,7 +2282,7 @@ function LocalEndpointsSettings({
         />
       ))}
       {suggestions.length > 0 && (
-        <div className="settings-actions" data-testid="local-endpoint-suggestions">
+        <div className="control-row" data-testid="local-endpoint-suggestions">
           {suggestions.map((suggestion) => (
             <Button
 
@@ -2442,7 +2438,7 @@ function LocalEndpointRow({
 
   return (
     <div
-      className="settings-subsection"
+      className="content-stack"
       data-testid={`local-endpoint-${endpointId}`}
       data-tour="local-endpoint-row"
       data-endpoint-id={endpointId}
@@ -2616,7 +2612,7 @@ function ModelPullList() {
     .slice(0, 5);
 
   return (
-    <div className="settings-subsection model-pull-list" data-testid="model-pull-list">
+    <div className="content-stack model-pull-list" data-testid="model-pull-list">
       {error && (
         <p
           className="panel-notice" data-tone="error"
@@ -2707,12 +2703,12 @@ export function ProjectSecretsSettings({ project }: { project?: ProjectInfo | nu
     }
   };
   return (
-    <div className="settings-stack" data-testid="project-secrets-settings">
+    <div className="content-stack" data-testid="project-secrets-settings">
       <InlineStatus error={secrets.error ?? runtime.error ?? mutationError} loading={secrets.loading || runtime.loading} notice={notice} />
       {!canMutate && (
-        <ReadOnlyNotice>
+        <PanelNotice>
           Your project role can view secret status but cannot create, replace, or delete secrets.
-        </ReadOnlyNotice>
+        </PanelNotice>
       )}
       <form className="form-inline" autoComplete="off" onSubmit={save}>
         <TextInput
@@ -2852,7 +2848,7 @@ function PluginOptionsList({ runtimeIndex }: { runtimeIndex: WorkbenchPluginRunt
   });
   if (rows.length === 0) {
     return (
-      <div className="settings-stack" data-testid="plugin-options-list">
+      <div className="content-stack" data-testid="plugin-options-list">
         <InlineStatus error={plugins.length ? error : null} />
         <div className="panel-empty" data-testid="plugin-options-empty">
           No configurable plugin options.
@@ -2861,7 +2857,7 @@ function PluginOptionsList({ runtimeIndex }: { runtimeIndex: WorkbenchPluginRunt
     );
   }
   return (
-    <div className="settings-stack" data-testid="plugin-options-list">
+    <div className="content-stack" data-testid="plugin-options-list">
       <InlineStatus error={plugins.length ? error : null} />
       {rows.map(({ payload, setting }) => {
         const draft = drafts[payload.pluginId]?.[setting.id] ?? setting.effectiveValue ?? '';
@@ -2969,20 +2965,20 @@ export function ProjectPluginsSettings({
   const canMutate = canOwnProject(project);
   if (hidden) {
     return (
-      <div className="settings-stack" data-testid="project-plugins-settings">
-        <ReadOnlyNotice>
+      <div className="content-stack" data-testid="project-plugins-settings">
+        <PanelNotice>
           Plugin management is not available on this server.
-        </ReadOnlyNotice>
+        </PanelNotice>
       </div>
     );
   }
   return (
-    <div className="settings-stack" data-testid="project-plugins-settings">
+    <div className="content-stack" data-testid="project-plugins-settings">
       <InlineStatus error={runtime.error} loading={runtime.loading} />
       {!canMutate && (
-        <ReadOnlyNotice>
+        <PanelNotice>
           Your project role can view plugin status but cannot change plugin lifecycle or settings.
-        </ReadOnlyNotice>
+        </PanelNotice>
       )}
       <PluginManager
         runtimeIndex={runtime.data}
@@ -3077,18 +3073,18 @@ function ProjectDataManagementSettings({ project }: { project?: ProjectInfo | nu
     }
   };
   return (
-    <div className="settings-stack" data-testid="project-data-management-settings">
+    <div className="content-stack" data-testid="project-data-management-settings">
       <InlineStatus
         error={retention.error ?? settings.error ?? network.error ?? mutationError}
         loading={retention.loading || settings.loading || network.loading}
         notice={notice}
       />
       {!canMutate && (
-        <ReadOnlyNotice>
+        <PanelNotice>
           Your project role can view retention settings but cannot change retention or compact the project.
-        </ReadOnlyNotice>
+        </PanelNotice>
       )}
-      <section className="settings-subsection" data-testid="project-export-section">
+      <section className="content-stack" data-testid="project-export-section">
         <div className="settings-section-subhead">
           <h2>Exports</h2>
           <p>Download portable copies of this project. Exports do not change project data.</p>
@@ -3124,14 +3120,14 @@ function ProjectDataManagementSettings({ project }: { project?: ProjectInfo | nu
             </div>
           </div>
         ) : (
-          <ReadOnlyNotice>
+          <PanelNotice>
             A viewer can read this project but cannot take a full copy of it. Ask
             someone with reviewer access or higher to export it.
-          </ReadOnlyNotice>
+          </PanelNotice>
         )}
       </section>
       {policy && (
-        <section className="settings-subsection">
+        <section className="content-stack">
           <div className="settings-section-subhead">
             <h2>Retention and evidence</h2>
             <p>
@@ -3168,7 +3164,7 @@ function ProjectDataManagementSettings({ project }: { project?: ProjectInfo | nu
         </section>
       )}
       {network.data && (
-        <section className="settings-subsection" data-testid="project-network-section">
+        <section className="content-stack" data-testid="project-network-section">
           <div className="settings-section-subhead">
             <h2>Network</h2>
             <p>
@@ -3208,7 +3204,7 @@ function ProjectDataManagementSettings({ project }: { project?: ProjectInfo | nu
         />
       )}
       {projectSettings && (
-        <section className="settings-subsection" data-testid="project-media-downloads-section">
+        <section className="content-stack" data-testid="project-media-downloads-section">
           <div className="settings-section-subhead">
             <h2>Media downloads</h2>
             <p>
@@ -3260,9 +3256,9 @@ function ProjectDataManagementSettings({ project }: { project?: ProjectInfo | nu
           </div>
         </div>
         {policy?.no_compact && (
-          <ReadOnlyNotice>
+          <PanelNotice>
             Manual compaction is disabled by this project's retention policy.
-          </ReadOnlyNotice>
+          </PanelNotice>
         )}
         <label>
           <span>Type COMPACT to compact this project</span>

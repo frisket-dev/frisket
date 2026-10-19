@@ -570,12 +570,6 @@ function useWatchesPanelController(canEdit: boolean) {
 // notification/item count badges visible somewhere once their old toggle
 // header is gone; it renders nothing when there is nothing to show.
 //
-// ALLOWLISTED, not folded into
-// PanelHeader. It has no title/kicker and no close button — just two
-// conditional count badges, and it can render null entirely — so it does not
-// fit PanelHeader's kicker/title/chips/actions/onClose shape. It is a
-// different genus (a summary strip), not a variant of the header anatomy the
-// other six sites share.
 function WatchesPanelHeader({
   itemCount,
   notificationTotal,
@@ -585,7 +579,7 @@ function WatchesPanelHeader({
 }) {
   if (notificationTotal <= 0 && !(itemCount !== null && itemCount > 0)) return null;
   return (
-    <div className="watches-header-slim" data-testid="watches-header">
+    <div className="control-row" data-align="end" data-testid="watches-header">
       {notificationTotal > 0 && (
         <span className="watches-alert-count" data-testid="watches-notification-count">
           {notificationTotal}
@@ -853,7 +847,7 @@ function WatchItem({
     void onDeleteWatch(watch.id, focusAfterDeleteId);
   };
   return (
-    <li ref={itemRef} className="watch-item" data-testid="watch-item" tabIndex={-1}>
+    <li ref={itemRef} className="panel-card watch-item" data-testid="watch-item" tabIndex={-1}>
       <div className="watch-head">
         <span className="watch-name">{watch.name}</span>
         {notificationCount > 0 && (
@@ -1027,7 +1021,7 @@ function WatchesPanelBody({
   watchNotificationCounts: WatchNotificationCounts;
 }) {
   return (
-    <div className="watches-body" data-testid="watches-panel" aria-busy={listLoading}>
+    <div className="content-stack" data-testid="watches-panel" aria-busy={listLoading}>
       {canEdit && draft && (
         <WatchCreateComposer
           creating={creating}
@@ -1054,7 +1048,7 @@ function WatchesPanelBody({
       ) : items.length === 0 ? (
         <PanelEmpty testId="watches-empty">No watches yet.</PanelEmpty>
       ) : (
-        <ul className="watches-list">
+        <ul className="panel-list">
           {items.map((watch, index) => (
             <WatchItem
               key={watch.id}

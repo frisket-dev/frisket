@@ -201,14 +201,14 @@ export function NotificationsPanel() {
           — the tab strip already carries the label/icon, so the panel itself
           only surfaces the unseen count, matching WatchesPanel's slim header. */}
       {unseen > 0 && (
-        <div className="notifications-header-slim">
+        <div className="control-row" data-align="end">
           <span className="notifications-count" data-testid="notifications-count">
             {unseen}
           </span>
         </div>
       )}
 
-      <div className="notifications-body" data-testid="notifications-panel">
+      <div className="content-stack" data-testid="notifications-panel">
         {error && (
           <PanelError>{error}</PanelError>
         )}
@@ -217,10 +217,10 @@ export function NotificationsPanel() {
           ) : items.length === 0 ? (
             <PanelEmpty>No notifications.</PanelEmpty>
           ) : (
-            <ul className="notifications-list">
+            <ul className="panel-list">
               {items.map((item) => (
                 <li
-                  className={`notification-item severity-${item.severity} state-${item.state}`}
+                  className={`panel-card notification-item severity-${item.severity} state-${item.state}`}
                   data-testid="notification-item"
                   key={item.id}
                 >
@@ -235,7 +235,7 @@ export function NotificationsPanel() {
                   <div className="notification-ref" data-testid="notification-source-ref">
                     {sourceRefLabel(item.sourceRef)}
                   </div>
-                  <div className="notification-actions">
+                  <div className="control-row">
                     <button
                       type="button"
                       className="icon-btn"

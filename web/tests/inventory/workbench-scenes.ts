@@ -35,7 +35,7 @@ export async function captureSettingsScenes(page: Page, shot: Shot) {
     if (section.id === 'project.notifications') {
       await expect(page.getByTestId('notification-settings-refresh')).toBeEnabled();
     } else {
-      await expect(content.locator('.settings-stack').first()).toBeVisible();
+      await expect(content.locator('.content-stack').first()).toBeVisible();
     }
     await expect(content.locator('.settings-inline-status').filter({ hasText: /^Loading/ })).toHaveCount(0);
     await expect(content.getByText(/^Loading models gateway configuration…$/)).toHaveCount(0);

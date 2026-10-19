@@ -1,6 +1,6 @@
 import { Button } from './Button';
-import { TextInput } from './FormControls';
-import { type ReactNode, useCallback, useEffect, useMemo, useReducer } from 'react';
+import { FormField, TextInput } from './FormControls';
+import { useCallback, useEffect, useMemo, useReducer } from 'react';
 import { PanelEmpty, PanelError, StatusChip, type StatusTone } from './PanelPrimitives';
 import { PanelSelect } from './PanelSelect';
 import {
@@ -327,7 +327,7 @@ export function NotificationSettingsPanel() {
       .finally(() => dispatch({ type: 'set_busy', label: null }));
   }, [load]);
   return (
-    <section className="notification-settings-panel" data-testid="notification-settings-panel">
+    <section className="panel-card" data-testid="notification-settings-panel">
       <div className="notification-settings-head">
         <div className="sidebar-section-label">
           <Settings size={12} aria-hidden />
@@ -352,15 +352,6 @@ function ChannelIcon({ kind }: { kind: NotificationChannel['kind'] }) {
   return <BellRing size={13} />;
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="notification-settings-field">
-      <span className="form-label">{label}</span>
-      <div className="notification-settings-control">{children}</div>
-    </div>
-  );
-}
-
 function ChannelSection({
   channels, draft, busy, configurableNotificationEmail, onToggle, onCreate, onDraftChange, onKindChange,
 }: {
@@ -374,7 +365,7 @@ function ChannelSection({
   onKindChange: (kind: ChannelDraftKind) => void;
 }) {
   return (
-    <section className="notification-settings-card">
+    <section className="panel-card">
       <div className="notification-settings-cardhead">
         <div className="notification-settings-kicker"><BellRing size={12} aria-hidden /> Channels</div>
         <p className="notification-settings-help">
@@ -383,7 +374,7 @@ function ChannelSection({
             : 'Where notifications get delivered — in-app or Slack.'}
         </p>
       </div>
-      <div className="notification-settings-list">
+      <div className="panel-list">
         {channels.map((channel) => (
           <div className="notification-settings-row" data-testid="notification-channel-item" key={channel.id}>
             <div className="notification-settings-rowmain">
@@ -405,40 +396,40 @@ function ChannelSection({
           </div>
         ))}
       </div>
-      <div className="notification-settings-form" data-testid="notification-channel-form">
+      <div className="panel-card" data-testid="notification-channel-form">
         <div className="notification-settings-formkicker">New channel</div>
-        <Field label="Kind">
+        <FormField layout="inline" label="Kind">
           <PanelSelect data-testid="notification-channel-kind" value={draft.kind} onChange={(event) => onKindChange(event.target.value as ChannelDraftKind)}>
             <option value="slack">Slack</option>
             {configurableNotificationEmail && <option value="email">Email</option>}
           </PanelSelect>
-        </Field>
-        <Field label="Name">
+        </FormField>
+        <FormField layout="inline" label="Name">
           <TextInput aria-label="Channel name" data-testid="notification-channel-name" value={draft.name} onChange={(event) => onDraftChange({ name: event.target.value })} placeholder="Channel name" />
-        </Field>
+        </FormField>
         {draft.kind === 'email' ? (
           <>
-            <Field label="To">
+            <FormField layout="inline" label="To">
               <TextInput aria-label="Email to address" data-testid="notification-channel-email-to" value={draft.to} onChange={(event) => onDraftChange({ to: event.target.value })} placeholder="alerts@example.com" />
-            </Field>
-            <Field label="From">
+            </FormField>
+            <FormField layout="inline" label="From">
               <TextInput aria-label="Email from address" data-testid="notification-channel-email-from" value={draft.from} onChange={(event) => onDraftChange({ from: event.target.value })} placeholder="frisket <alerts@example.com>" />
-            </Field>
+            </FormField>
           </>
         ) : (
           <>
-            <Field label="Channel">
+            <FormField layout="inline" label="Channel">
               <TextInput aria-label="Slack channel label" data-testid="notification-channel-slack-label" value={draft.channelLabel} onChange={(event) => onDraftChange({ channelLabel: event.target.value })} placeholder="#alerts" />
-            </Field>
-            <Field label="Webhook">
+            </FormField>
+            <FormField layout="inline" label="Webhook">
               <TextInput aria-label="Slack webhook host" data-testid="notification-channel-slack-host" value={draft.webhookHost} onChange={(event) => onDraftChange({ webhookHost: event.target.value })} placeholder="hooks.slack.com" />
-            </Field>
+            </FormField>
           </>
         )}
-        <Field label="Secret ref">
+        <FormField layout="inline" label="Secret ref">
           <TextInput aria-label="API secret reference" data-testid="notification-channel-secret-ref" value={draft.secretRef} onChange={(event) => onDraftChange({ secretRef: event.target.value })} placeholder="env:SECRET_NAME" />
           <span className="form-hint">References a stored secret, e.g. <code>env:SECRET_NAME</code> — not the value itself.</span>
-        </Field>
+        </FormField>
         <div className="notification-settings-formfooter">
           <label className="notification-settings-check">
             <input type="checkbox" checked={draft.enabled} onChange={(event) => onDraftChange({ enabled: event.target.checked })} />
@@ -468,12 +459,12 @@ function RouteSection({
   onModeChange: (mode: RouteDraft['deliveryMode']) => void;
 }) {
   return (
-    <section className="notification-settings-card">
+    <section className="panel-card">
       <div className="notification-settings-cardhead">
         <div className="notification-settings-kicker"><Send size={12} aria-hidden /> Routes</div>
         <p className="notification-settings-help">Rules that match events to a channel and delivery cadence.</p>
       </div>
-      <div className="notification-settings-list">
+      <div className="panel-list">
         {routes.map((route) => (
           <div className="notification-settings-row" data-testid="notification-route-item" key={route.id}>
             <div className="notification-settings-rowmain">
@@ -487,7 +478,7 @@ function RouteSection({
                 </div>
               )}
             </div>
-            <div className="notification-settings-actions">
+            <div className="control-row">
               <Button type="button" className="notification-settings-test" title="Create route test request" aria-label="Create route test request" data-testid="notification-route-test" disabled={busy === `test:${route.id}`} onClick={() => onTest(route)}>
                 <Send size={12} /> Test
               </Button>
@@ -501,59 +492,59 @@ function RouteSection({
           <PanelEmpty>No routes yet. Add a channel, then route events to it.</PanelEmpty>
         )}
       </div>
-      <div className="notification-settings-form" data-testid="notification-route-form">
+      <div className="panel-card" data-testid="notification-route-form">
         <div className="notification-settings-formkicker">New route</div>
-        <Field label="Name">
+        <FormField layout="inline" label="Name">
           <TextInput aria-label="Route name" data-testid="notification-route-name" value={draft.name} onChange={(event) => onDraftChange({ name: event.target.value })} placeholder="Route name" />
-        </Field>
-        <Field label="Channel">
+        </FormField>
+        <FormField layout="inline" label="Channel">
           <PanelSelect data-testid="notification-route-channel" value={draft.channelId} onChange={(event) => onDraftChange({ channelId: event.target.value })}>
             <option value="">Choose channel</option>
             {externalChannels.map((channel) => (
               <option key={channel.id} value={channel.id}>{channelLabel(channel)}</option>
             ))}
           </PanelSelect>
-        </Field>
-        <Field label="Source">
+        </FormField>
+        <FormField layout="inline" label="Source">
           <PanelSelect data-testid="notification-route-source-kind" value={draft.sourceKind} onChange={(event) => onDraftChange({ sourceKind: event.target.value as RouteDraft['sourceKind'] })}>
             <option value="watch">Watch</option>
             <option value="run">Run</option>
             <option value="source">Source</option>
             <option value="all">All</option>
           </PanelSelect>
-        </Field>
+        </FormField>
         {draft.sourceKind === 'watch' && (
-          <Field label="Watch ID">
+          <FormField layout="inline" label="Watch ID">
             <TextInput aria-label="Watch ID" data-testid="notification-route-watch-id" value={draft.watchId} onChange={(event) => onDraftChange({ watchId: event.target.value })} placeholder="Watch ID" />
-          </Field>
+          </FormField>
         )}
-        <Field label="Delivery">
+        <FormField layout="inline" label="Delivery">
           <PanelSelect data-testid="notification-route-mode" value={draft.deliveryMode} onChange={(event) => onModeChange(event.target.value as RouteDraft['deliveryMode'])}>
             <option value="immediate">Immediate</option>
             <option value="digest">Digest</option>
           </PanelSelect>
-        </Field>
+        </FormField>
         {draft.deliveryMode === 'digest' && (
           <>
-            <Field label="Cadence">
+            <FormField layout="inline" label="Cadence">
               <PanelSelect data-testid="notification-route-digest-cadence" value={draft.digestCadence} onChange={(event) => onDraftChange({ digestCadence: event.target.value as NotificationDigestCadence })}>
                 <option value="daily">Daily</option>
                 <option value="hourly">Hourly</option>
                 <option value="manual">Manual</option>
               </PanelSelect>
-            </Field>
-            <Field label="At (UTC)">
+            </FormField>
+            <FormField layout="inline" label="At (UTC)">
               <TextInput aria-label="Digest anchor time" data-testid="notification-route-digest-anchor" value={draft.digestAnchorTime} onChange={(event) => onDraftChange({ digestAnchorTime: event.target.value })} placeholder="09:00" />
-            </Field>
+            </FormField>
           </>
         )}
-        <Field label="Severity">
+        <FormField layout="inline" label="Severity">
           <PanelSelect data-testid="notification-route-severity" value={draft.severityMin} onChange={(event) => onDraftChange({ severityMin: event.target.value as RouteDraft['severityMin'] })}>
             <option value="info">Info+</option>
             <option value="warning">Warning+</option>
             <option value="critical">Critical</option>
           </PanelSelect>
-        </Field>
+        </FormField>
         <div className="notification-settings-formfooter">
           <label className="notification-settings-check">
             <input type="checkbox" checked={draft.enabled} onChange={(event) => onDraftChange({ enabled: event.target.checked })} />
@@ -571,12 +562,12 @@ function RouteSection({
 
 function DeliverySection({ requests, routes }: { requests: NotificationDeliveryRequest[]; routes: NotificationRoute[] }) {
   return (
-    <section className="notification-settings-card">
+    <section className="panel-card">
       <div className="notification-settings-cardhead">
         <div className="notification-settings-kicker"><Activity size={12} aria-hidden /> Delivery health</div>
         <p className="notification-settings-help">Recent delivery attempts across all routes.</p>
       </div>
-      <div className="notification-settings-list">
+      <div className="panel-list">
         {requests.map((request) => (
           <div className="notification-settings-row" data-testid="notification-delivery-request" key={request.id}>
             <div className="notification-settings-rowmain">

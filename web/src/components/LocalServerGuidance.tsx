@@ -233,7 +233,7 @@ export function LocalServerGuidance({ entry, variant, onRecheck }: LocalServerGu
               This downloads about 523 MB to the machine running your local
               server.
             </p>
-            <div className="settings-row-actions">
+            <div className="control-row">
               <Button
                 type="button"
                 className="btn-primary"

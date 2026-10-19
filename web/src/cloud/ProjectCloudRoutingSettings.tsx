@@ -84,7 +84,7 @@ export function ProjectCloudRoutingSettings({
   };
 
   if (!routing) {
-    return <section className="settings-stack" data-testid="project-cloud-routing">
+    return <section className="content-stack" data-testid="project-cloud-routing">
       <div className={error ? 'panel-error' : 'panel-notice'}
         role={error ? 'alert' : undefined}>{error || 'Loading Frisket Cloud settings…'}</div>
     </section>;
@@ -92,7 +92,7 @@ export function ProjectCloudRoutingSettings({
 
   const selected = routing.accounts.find((account) => account.id === routing.selectedAccountId) ?? null;
   const selectedAccountUnavailable = routing.selectedAccountId !== null && !selected?.eligible;
-  return <section className="settings-stack project-cloud-routing" data-testid="project-cloud-routing">
+  return <section className="content-stack project-cloud-routing" data-testid="project-cloud-routing">
     <div className="settings-section-subhead">
       <h2>Frisket Cloud account</h2>
       <p>Pays for models in this project that run through Frisket Cloud.</p>

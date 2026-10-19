@@ -847,7 +847,7 @@ function SourceEditorForm({ actions, busy, form, formFrame }: SourceEditorFormPr
   const Frame = formFrame;
 
   const formElement = (
-    <form className="sources-form" data-testid="source-form" onSubmit={actions.submit}>
+    <form className="content-stack" data-testid="source-form" onSubmit={actions.submit}>
       <div className="sources-form-row">
         <PanelSelect
           className="form-input"
@@ -1003,7 +1003,7 @@ function SourceEditorForm({ actions, busy, form, formFrame }: SourceEditorFormPr
           <option key={i.value} value={i.value}>{i.label}</option>
         ))}
       </PanelSelect>
-      <div className="sources-form-actions">
+      <div className="control-row" data-align="end">
         <Button
           type="button"
 
@@ -1048,7 +1048,7 @@ function SourceList({ actions, armedDelete, busy, expanded, items, runPages, run
   }
 
   return (
-    <ul className="sources-list" data-testid="source-list">
+    <ul className="panel-list" data-testid="source-list">
       {items.map((s) => {
         const status = s.lastStatus ?? 'never';
         const isOpen = !!expanded[s.id];
@@ -1057,7 +1057,7 @@ function SourceList({ actions, armedDelete, busy, expanded, items, runPages, run
         return (
           <li
             key={s.id}
-            className={`source-item${s.enabled ? '' : ' disabled'}`}
+            className={`panel-card source-item${s.enabled ? '' : ' disabled'}`}
             data-testid={`source-item-${s.id}`}
           >
             <div className="source-head">
@@ -1564,9 +1564,9 @@ export function SourcesPanel({
 
   return (
     <section className="sidebar-sources" data-testid="sources">
-      <div className="sources-body" data-testid="sources-panel">
+      <div className="content-stack" data-testid="sources-panel">
         {onOpenImportDialog && (
-          <div className="sources-panel-head">
+          <div className="control-row" data-align="end">
             <Button
               type="button"
               className="btn-primary"

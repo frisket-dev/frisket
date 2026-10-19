@@ -38,7 +38,7 @@ export async function captureTeamSettingsScenes(page: Page, shot: Shot) {
   for (const section of sections) {
     await page.goto(`${baseURL}${section.routePattern.replace('{projectId}', project.id)}`);
     await expect(content.getByRole('heading', { name: section.title, exact: true }).first()).toBeVisible();
-    await expect(content.locator('.settings-stack, [data-testid="models-gateway-settings"]').first()).toBeVisible();
+    await expect(content.locator('.content-stack, [data-testid="models-gateway-settings"]').first()).toBeVisible();
     await expect(content.locator('.settings-inline-status').filter({ hasText: /^Loading/ })).toHaveCount(0);
     await expect(content.getByText('Loading models gateway configuration…', { exact: true })).toHaveCount(0);
     if (section.section === 'skills') await expect(page.getByTestId('skills-editor')).toBeEnabled();

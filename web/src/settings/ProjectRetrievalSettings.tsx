@@ -60,7 +60,7 @@ export function ProjectRetrievalSettings({
 }: ProjectRetrievalSettingsProps) {
   const automaticPreparation = settings.prepare_new_files_automatically;
   return (
-    <section className="settings-subsection" data-testid="project-retrieval-settings">
+    <section className="content-stack" data-testid="project-retrieval-settings">
       <div className="settings-section-subhead">
         <h2>Search preparation</h2>
         <p>
