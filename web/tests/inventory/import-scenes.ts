@@ -88,6 +88,8 @@ export async function captureImportScenes(page: Page, shot: Shot) {
   await shot(page, 'Import workflow', 'multiple-files-copied', batchSource);
   await page.getByRole('button', { name: 'Check text →', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Check text', exact: true })).toBeVisible();
+  await expect(page.locator('.pdf-batch-preview').getByText(/Budget approved: 1200 dollars|Public comment received/)).toBeVisible();
+  await expect(page.getByText('Loading choices…', { exact: true })).toHaveCount(0);
   await shot(page, 'Import workflow', 'multiple-files-check-text', batchSource);
   await page.getByRole('button', { name: 'Continue →', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Review destination', exact: true })).toBeVisible();

@@ -151,7 +151,7 @@ test('timed transcript components', async ({ page }) => {
   for (const kind of ['audio', 'video']) {
     await page.goto(`${process.env.FRISKET_INVENTORY_STORY_URL}/iframe.html?id=inventory-timed-transcript--${kind}&viewMode=story`);
     await expect(page.getByTestId('document-transcript-segment')).toHaveCount(2);
-    await expect.poll(() => page.locator(kind).evaluate(element => (element as HTMLMediaElement).readyState)).toBeGreaterThanOrEqual(1);
+    await expect.poll(() => page.locator(kind).evaluate(element => (element as HTMLMediaElement).readyState)).toBeGreaterThanOrEqual(2);
     await shot(page, 'Transcript components', `${kind}-transcript`, 'src/workbench/TimedTranscript.tsx; synthetic segments, real bundled media');
   }
 });

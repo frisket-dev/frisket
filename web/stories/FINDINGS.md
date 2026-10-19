@@ -70,6 +70,15 @@ These are candidates to investigate, not assertions that every difference is a d
 20. `StructuredFieldsEditor` depends on an `.action-panel` ancestor for its actual row layout. Without it the real component becomes a vertical stack, despite importing all production CSS. The story now supplies the real container; the hidden CSS dependency is a concrete obstacle to reuse elsewhere. Move ownership with the component if it is reused, rather than copying those selectors.
 21. `GeneratedActionForm` derives “Checking engine availability…” from a missing current choice, not a loading flag. The unconfigured-model capture can therefore look busy even when the picker has loaded. Check this distinction before standardizing loading/unavailable states.
 
+## Rendering anomaly to verify, not yet a confirmed product bug
+
+The [PDF extraction screenshot](extract-populated-local-extraction-preview-light.png)
+shows repeated numeric histogram/min/max controls inside the single `size` filter
+card. Source review finds one `RangeFacet` per card and one histogram per range,
+with no CSS repetition. Check live DOM counts versus screenshot rendering before
+filing this as duplicate product markup; the inventory alone cannot establish
+the cause.
+
 ## Suggested first consolidation passes (after maintainer review)
 
 1. Fix nested dismissal and noisy accessible labels with focused interaction tests.

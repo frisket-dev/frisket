@@ -114,7 +114,7 @@ export async function captureMediaScenes(page: Page, shot: Shot) {
     await expect.poll(() => page.getByTestId(`document-${kind}`).evaluate(
       element => (element.matches('audio, video') ? element as HTMLMediaElement
         : element.querySelector<HTMLMediaElement>('audio, video'))?.readyState ?? 0,
-    )).toBeGreaterThanOrEqual(1);
+    )).toBeGreaterThanOrEqual(2);
     await shot(page, 'Documents', `${kind} document and playback controls`, documentSource);
     if (kind === 'video') {
       await page.getByTestId('document-video-fit-toggle').click();

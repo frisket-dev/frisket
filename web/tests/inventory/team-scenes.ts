@@ -28,6 +28,12 @@ export async function captureTeamSettingsScenes(page: Page, shot: Shot) {
   const project = await response.json() as { id: string };
   const sections = settingsSectionsFor(TEAM_EDITION_DESCRIPTOR, [TEAM_MODELS_GATEWAY_SECTION])
     .filter(section => section.scope === 'organization' || section.id === 'project.access');
+  await page.goto(`${baseURL}${sections[0].routePattern}`);
+  const onboarding = page.getByTestId('cost-preapproval-setup');
+  await expect(onboarding).toBeVisible();
+  await shot(page, 'Team settings', 'cost-preapproval-setup', 'src/components/CostPreapprovalSetupModal.tsx; first-login setup');
+  await page.getByTestId('cost-preapproval-setup-save').click();
+  await expect(onboarding).toHaveCount(0);
   const content = page.getByTestId('settings-content');
   for (const section of sections) {
     await page.goto(`${baseURL}${section.routePattern.replace('{projectId}', project.id)}`);
@@ -36,6 +42,7 @@ export async function captureTeamSettingsScenes(page: Page, shot: Shot) {
     await expect(content.locator('.settings-inline-status').filter({ hasText: /^Loading/ })).toHaveCount(0);
     await expect(content.getByText('Loading models gateway configuration…', { exact: true })).toHaveCount(0);
     if (section.section === 'skills') await expect(page.getByTestId('skills-editor')).toBeEnabled();
+    await expect(onboarding).toHaveCount(0);
     await shot(page, 'Team settings', `${section.scope}-${section.section}`, 'src/settings/SettingsWorkspace.tsx; SettingsSections.tsx; real Team edition');
     const { height, total } = await content.evaluate(element => ({ height: element.clientHeight, total: element.scrollHeight }));
     for (let offset = height * 0.8, part = 2; offset < total - 40; offset += height * 0.8, part += 1) {
