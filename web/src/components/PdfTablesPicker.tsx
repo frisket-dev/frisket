@@ -1,3 +1,4 @@
+import { TextInput } from './FormControls';
 import { useEffect, useMemo, useState } from 'react';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { JsonMiniTable } from './RowDrawer';
@@ -202,9 +203,9 @@ export function PdfTablesPicker({
         <label className="form-label" htmlFor="pdf-table-target-name">
           New sheet name
         </label>
-        <input
+        <TextInput
           id="pdf-table-target-name"
-          className="form-input"
+
           data-testid="pdf-table-target-name"
           value={targetName}
           onChange={(e) => setTargetName(e.target.value)}

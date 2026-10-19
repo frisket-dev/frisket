@@ -1,3 +1,4 @@
+import { TextInput } from './FormControls';
 import {
   Fragment,
   type FormEvent,
@@ -722,9 +723,9 @@ function AdminUsersPanel({
             <option key={org.id} value={org.id}>{org.name}</option>
           ))}
         </PanelSelect>
-        <input
+        <TextInput
           aria-label="Invite email"
-          className="form-input"
+
           data-testid="admin-invite-email"
           type="email"
           placeholder="email@example.com"
@@ -1034,9 +1035,9 @@ function AdminAuditPanel({
             </option>
           ))}
         </PanelSelect>
-        <input
+        <TextInput
           aria-label="Audit user"
-          className="form-input"
+
           data-testid="admin-audit-user-filter"
           placeholder="user or email"
           value={userFilter}

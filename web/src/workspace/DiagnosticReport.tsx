@@ -1,3 +1,4 @@
+import { TextArea } from '../components/FormControls';
 // Hosted-tier diagnostic report surface: the "Report issue" button + popover
 // that bundles a diagnostic report, and the reader for recent client-side error
 // ids captured on window. Self-contained; rendered only in hosted mode.
@@ -100,8 +101,7 @@ export function DiagnosticReportButton() {
           {report.error && <div className="form-error" role="alert" data-testid="diagnostic-error">{report.error}</div>}
           <label className="field-group">
             <span className="field-labels">What went wrong?</span>
-            <textarea
-              className="form-input form-textarea"
+            <TextArea
               data-testid="diagnostic-description"
               value={description}
               rows={4}

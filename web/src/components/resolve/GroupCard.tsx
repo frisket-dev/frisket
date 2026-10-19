@@ -1,3 +1,4 @@
+import { TextInput } from '../FormControls';
 // One canonical group/bucket. Header: collapse chevron · ◆ · editable
 // canonical-name input · total · delete. Body: member rows, each with a
 // promote-◆ (make this value the canonical name) and a remove ×. Fully
@@ -151,9 +152,9 @@ export function GroupCard({
         ) : (
           <>
             <Diamond size={12} className="resolve-group-diamond" aria-hidden />
-            <input
+            <TextInput
               ref={inputRef}
-              className="form-input resolve-group-name"
+              className="resolve-group-name"
               data-testid="resolve-group-canonical-input"
               value={draft}
               placeholder={defaultName}

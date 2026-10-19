@@ -1,3 +1,4 @@
+import { TextInput } from './FormControls';
 // Preserve server ordering and counts; this read-only panel never starts extraction.
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import { ChevronDown, ChevronRight, Filter, RefreshCw, Tags, X } from 'lucide-react';
@@ -350,8 +351,8 @@ export function MentionsPanel({
           )}
           <label>
             <span>Search mentions</span>
-            <input
-              className="form-input"
+            <TextInput
+              density="compact"
               type="search"
               data-testid="mentions-search"
               placeholder="Search every spelling…"

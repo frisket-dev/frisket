@@ -1,3 +1,4 @@
+import { TextInput, TextArea } from '../FormControls';
 // The bespoke drawer body for the "Substitute values" action. One row per
 // distinct column value (value + count, ◆ marks the most common) with an inline
 // editable "maps to" target; targets support an
@@ -179,8 +180,8 @@ function TargetEditor({
   }
   return (
     <>
-      <input
-        className="form-input resolve-substitute-target"
+      <TextInput
+        className="resolve-substitute-target"
         data-testid="resolve-substitute-target-input"
         placeholder="keep as-is"
         aria-label="Maps to"
@@ -609,8 +610,8 @@ function SubstituteFormBody({
 
       {mode === 'paste' && (
         <div className="resolve-substitute-paste-block">
-          <textarea
-            className="form-input resolve-substitute-paste"
+          <TextArea
+            className="resolve-substitute-paste"
             data-testid="resolve-substitute-paste"
             rows={5}
             aria-label="Pasted map"
@@ -696,8 +697,8 @@ function SubstituteFormBody({
                 data-value={row.value}
                 key={`x:${row.id}`}
               >
-                <input
-                  className="form-input resolve-substitute-value-input"
+                <TextInput
+                  className="resolve-substitute-value-input"
                   data-testid="resolve-substitute-value-input"
                   placeholder="value"
                   aria-label="Value"

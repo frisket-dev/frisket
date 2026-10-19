@@ -1,3 +1,4 @@
+import { TextArea, TextInput } from '../components/FormControls';
 import { useEffect, useMemo, useState } from 'react';
 import { Loader2, Play, X } from 'lucide-react';
 
@@ -250,8 +251,7 @@ export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProp
       <div className="ocr-compare-body" data-testid="translate-compare-body">
         <label className="ocr-compare-configure-field">
           <span className="ocr-compare-configure-label">Sample text</span>
-          <textarea
-            className="form-input"
+          <TextArea
             data-testid="translate-compare-text"
             rows={5}
             value={text}
@@ -274,8 +274,7 @@ export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProp
           </label>
           <label className="ocr-compare-configure-field">
             <span className="ocr-compare-configure-label">Target language</span>
-            <input
-              className="form-input"
+            <TextInput
               data-testid="translate-compare-target-language"
               value={targetLanguage}
               placeholder="e.g. Japanese, Spanish, French"

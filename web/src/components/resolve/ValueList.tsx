@@ -1,3 +1,4 @@
+import { TextInput } from '../FormControls';
 // The shared frequency-sorted column-value list for the four "resolve" actions.
 // Presentational + fully controlled: the parent owns `selected`; this
 // component owns only view state (search query, keyboard-active row,
@@ -226,8 +227,8 @@ export function ValueList({
       {searchable && (
         <div className="resolve-value-search-row">
           <Search size={13} aria-hidden />
-          <input
-            className="form-input resolve-value-search"
+          <TextInput
+            className="resolve-value-search"
             data-testid="resolve-value-search"
             value={query}
             placeholder={searchPlaceholder}

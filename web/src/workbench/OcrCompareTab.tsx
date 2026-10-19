@@ -1,3 +1,4 @@
+import { TextInput } from '../components/FormControls';
 import { useEffect, useMemo, useRef } from 'react';
 import { Loader2, Play, Plus, RotateCw, Settings2, X } from 'lucide-react';
 
@@ -584,8 +585,7 @@ function OcrOptionFields({
       </label>
       <label className="ocr-compare-configure-field">
         <span className="ocr-compare-configure-label">Pages</span>
-        <input
-          className="form-input"
+        <TextInput
           data-testid="ocr-compare-configure-pages"
           value={options.pagesText}
           placeholder="1,2,3"

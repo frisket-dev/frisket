@@ -1,3 +1,4 @@
+import { TextInput } from '../FormControls';
 import { PanelSelect } from '../PanelSelect';
 import type { AskResearchConfiguration, AskResearchOptions } from '../../api/projectQA';
 import './AskResearch.css';
@@ -87,8 +88,7 @@ export function AskResearchSettings({
 
       <label className="ask-research-field">
         <span>Total budget (USD)</span>
-        <input
-          className="form-input"
+        <TextInput
           type="text"
           inputMode="decimal"
           aria-label="Total budget (USD)"
@@ -105,8 +105,7 @@ export function AskResearchSettings({
 
       <label className="ask-research-field">
         <span>Max turns</span>
-        <input
-          className="form-input"
+        <TextInput
           type="number"
           min={1}
           step={1}

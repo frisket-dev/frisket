@@ -1,3 +1,4 @@
+import { TextInput } from '../FormControls';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { DropdownIndicator } from '../DropdownIndicator';
@@ -111,7 +112,7 @@ export function OutputNameCombobox({
       <div className={styles.row}>
         <label className={`form-label ${styles.label}`} htmlFor={generatedInputId}>{label}</label>
         <div className={styles.combobox} ref={comboboxRef}>
-          <input
+          <TextInput
             ref={inputRef}
             id={generatedInputId}
             className={`form-input ${styles.input}`}

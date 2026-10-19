@@ -1,3 +1,4 @@
+import { TextInput } from '../FormControls';
 import { useCallback, useReducer } from 'react';
 import { ChevronDown, ChevronRight, Download, RefreshCw, ScanSearch } from 'lucide-react';
 import {
@@ -304,7 +305,7 @@ function IndexAnalysis({
       <div className="embedding-analysis-actions">
         <label className="embedding-analysis-field">
           PCA sheet name
-          <input className="form-input" value={state.pcaSheetName} disabled={busy}
+          <TextInput value={state.pcaSheetName} disabled={busy}
             onChange={(event) => dispatch({ type: 'set_pca_sheet_name', name: event.target.value })} />
         </label>
         <button
@@ -321,13 +322,12 @@ function IndexAnalysis({
       <div className="embedding-analysis-cluster">
         <label className="embedding-analysis-field">
           Clustering sheet name
-          <input className="form-input" value={state.clusterSheetName} disabled={busy}
+          <TextInput value={state.clusterSheetName} disabled={busy}
             onChange={(event) => dispatch({ type: 'set_cluster_sheet_name', name: event.target.value })} />
         </label>
         <label className="embedding-analysis-field">
           k
-          <input
-            className="form-input"
+          <TextInput
             type="number"
             min="2"
             step="1"
@@ -339,8 +339,7 @@ function IndexAnalysis({
         </label>
         <label className="embedding-analysis-field">
           seed
-          <input
-            className="form-input"
+          <TextInput
             type="number"
             step="1"
             data-testid={`embedding-cluster-seed-${index.indexId}`}

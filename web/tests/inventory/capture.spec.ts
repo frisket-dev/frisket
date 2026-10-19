@@ -101,6 +101,7 @@ test('shared controls in production styling', async ({ page }) => {
     ['inventory-selects-and-menus--comparison', 'selects', 'src/components/PanelSelect.tsx; PanelPrimitives.tsx'],
     ['inventory-feedback-and-progress--shared-states', 'feedback', 'src/components/PanelPrimitives.tsx; ActivityProgress.tsx'],
     ['inventory-structured-fields--multiple-types', 'structured-fields', 'src/components/action-panel/StructuredFieldsEditor.tsx; OutputFieldsEditor.tsx'],
+    ['inventory-structured-fields--native-fields', 'text-fields', 'src/components/FormControls.tsx'],
   ]) {
     await page.goto(`${storyURL}/iframe.html?id=${id}&viewMode=story`);
     await expect(page.locator('.inventory-example').first()).toBeVisible();

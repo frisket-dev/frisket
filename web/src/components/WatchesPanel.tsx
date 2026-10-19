@@ -1,3 +1,4 @@
+import { TextInput } from './FormControls';
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
 import { PanelEmpty, PanelError } from './PanelPrimitives';
 import { ChevronDown, ChevronRight, Play, RefreshCw, Watch } from 'lucide-react';
@@ -616,9 +617,9 @@ function WatchCreateComposer({
       </div>
       <label className="watches-create-field">
         <span className="form-label">Watch name</span>
-        <input
+        <TextInput
           autoFocus
-          className="form-input"
+
           data-testid="watch-create-name"
           aria-label="Watch name"
           aria-describedby={trimmedName ? undefined : 'watch-create-name-error'}
@@ -908,8 +909,7 @@ function WatchItem({
           )}
           {renaming ? (
             <>
-              <input
-                className="form-input"
+              <TextInput
                 data-testid="watch-rename-input"
                 aria-label={`Rename ${watch.name}`}
                 aria-describedby={trimmedRename ? undefined : `watch-rename-error-${watch.id}`}

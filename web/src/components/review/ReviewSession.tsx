@@ -1,3 +1,4 @@
+import { TextArea } from '../FormControls';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Check, ChevronLeft, ChevronRight, Pencil, X } from 'lucide-react';
 import type { CellValue, ReviewBundleField } from '../../api/types';
@@ -69,8 +70,8 @@ function FieldDecision({ field, controller: c, onSelectItem, selectableItemIndic
     {editUnavailable && <p className={styles.editUnavailable}>{editUnavailableMessage} {field.boundedValue
       ? 'Accept, reject, and notes are still available.' : 'Accept, reject, clear, and notes are still available.'}</p>}
     {editing && !editUnavailable && <div className={styles.editor}>
-      <textarea ref={(node) => { if (node && document.activeElement !== node) { node.focus(); resizeTextareaToContent(node); } }}
-        className="form-input form-textarea form-textarea-autogrow" rows={2}
+      <TextArea ref={(node) => { if (node && document.activeElement !== node) { node.focus(); resizeTextareaToContent(node); } }}
+        className="form-textarea-autogrow" rows={2}
         aria-label={`Edit proposed ${field.columnName} value`} data-testid="review-edit-input"
         value={c.editValue} disabled={c.busy} onInput={handleAutoResizeTextareaInput}
         onChange={(event) => c.setEditValue(event.target.value)}
@@ -96,7 +97,7 @@ function ReviewFooter({ controller: c }: { controller: ReviewSessionController }
       <span>{count} of {fields.length} decided</span>
       <button className={styles.textButton} disabled={c.busy || c.readOnly || !count} onClick={c.reset}>Reset</button>
     </div>
-    <textarea className={`form-input form-textarea ${styles.note}`} rows={2}
+    <TextArea className={`form-input form-textarea ${styles.note}`} rows={2}
       placeholder="Note for this row (optional)" aria-label="Review note for this row" data-testid="review-note-input"
       value={c.note} disabled={c.readOnly || c.busy || c.savingNote} onChange={(event) => c.changeNote(event.target.value)}
       onBlur={() => { void c.saveNote(); }} />

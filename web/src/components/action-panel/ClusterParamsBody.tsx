@@ -1,3 +1,4 @@
+import { TextInput } from '../FormControls';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Search } from 'lucide-react';
 import { ApiError, type ClusterGroup, type ClusterValuesMethod } from '../../api/open';
@@ -172,24 +173,24 @@ function ClusterParamsBodyForSheet({ sheet, params, setParams, setEditorProblem 
       <p className="form-hint" data-testid="cluster-method-hint">{METHODS.find((item) => item.value === method)?.hint}</p>
       {method === 'semantic' && <label className="field-group" data-testid="cluster-threshold-field">
         <span className="field-labels">Similarity threshold</span>
-        <input className="form-input" type="number" min={0} max={1} step={0.01} value={threshold}
+        <TextInput type="number" min={0} max={1} step={0.01} value={threshold}
           disabled={busy} onChange={(event) => update({ threshold: Number(event.target.value) })} />
       </label>}
       {method === 'ngram_fingerprint' && <label className="field-group" data-testid="cluster-ngram-size-field">
         <span className="field-labels">N-gram size</span>
-        <input className="form-input" type="number" min={1} max={6} step={1} value={ngramSize}
+        <TextInput type="number" min={1} max={6} step={1} value={ngramSize}
           disabled={busy} onChange={(event) => update({ ngram_size: Number(event.target.value) })} />
       </label>}
       <details className="action-advanced cluster-advanced" data-testid="cluster-advanced">
         <summary>Advanced settings</summary>
         <div className="action-advanced-body">
           <label className="field-group"><span className="field-labels">Minimum distinct values</span>
-            <input className="form-input" type="number" data-testid="cluster-min-size" min={2} step={1}
+            <TextInput type="number" data-testid="cluster-min-size" min={2} step={1}
               value={minSize} disabled={busy} onChange={(event) => update({ min_size: Math.max(2, Number(event.target.value) || 2) })} />
             <span className="form-hint">Only show groups with at least this many different values. Repeated rows of the same value count once.</span>
           </label>
           <label className="field-group"><span className="field-labels">Cluster key template</span>
-            <input className="form-input" data-testid="cluster-key-template" placeholder="{{value}}"
+            <TextInput data-testid="cluster-key-template" placeholder="{{value}}"
               value={keyTemplate} disabled={busy} onChange={(event) => update({ key_template: event.target.value })} />
             <p className="form-hint">Compare a transformed value while keeping the original values for review.
               Example: <code>{'{{value|before:" of "}}'}</code> groups “President of Honduras” with “President”.</p>
@@ -212,7 +213,7 @@ function ClusterParamsBodyForSheet({ sheet, params, setParams, setEditorProblem 
           <div className="cluster-card-top"><span>{cluster.size.toLocaleString()} rows</span>
             <span>{cluster.values.length.toLocaleString()} distinct values</span></div>
           <label className="field-group"><span className="field-labels">Combined value</span>
-            <input className={value.trim() ? 'form-input' : 'form-input form-input-invalid'}
+            <TextInput className={value.trim() ? 'form-input' : 'form-input form-input-invalid'}
               data-testid="cluster-canonical-input" aria-invalid={!value.trim()} value={value}
               onChange={(event) => setDrafts((before) => ({ ...before, [cluster.key]: event.target.value }))} />
             {!value.trim() && <span className="form-error" data-testid="cluster-canonical-blank">A canonical value is required.</span>}

@@ -1,3 +1,4 @@
+import { TextInput, TextArea } from '../FormControls';
 // Controlled output-field rendering + mutations: the "Columns it creates" /
 // "Output details" builder — header row with Add column, per-field FieldRow, category labels,
 // and the nested list-item shape editor. Fully controlled: ActionForm owns
@@ -139,8 +140,8 @@ function FieldRow({
       {showName && (
         showRequired ? (
           <span className="field-name-wrap">
-            <input
-              className="form-input field-name"
+            <TextInput
+              className="field-name"
               data-testid={nameTestId}
               value={name}
               placeholder={namePlaceholder}
@@ -164,8 +165,8 @@ function FieldRow({
             </button>
           </span>
         ) : (
-          <input
-            className="form-input field-name"
+          <TextInput
+            className="field-name"
             data-testid={nameTestId}
             value={name}
             placeholder={namePlaceholder}
@@ -184,8 +185,8 @@ function FieldRow({
           options={typeOptions.map((t) => ({ value: t, label: t }))}
         />
       )}
-      <textarea
-        className="form-input field-desc"
+      <TextArea
+        className="field-desc"
         data-testid={descTestId}
         value={description}
         placeholder={descPlaceholder}
@@ -367,8 +368,8 @@ export function OutputFieldsEditor({
             />
             {f.type === 'category' && !outputFieldsReadOnly && (
               <>
-                <textarea
-                  className="form-input field-labels field-labels-textarea"
+                <TextArea
+                  className="field-labels field-labels-textarea"
                   data-testid={actionKind === 'map.classify' ? 'classify-labels' : undefined}
                   value={labelsRaw[f.uiId] ?? f.labels?.join(', ') ?? ''}
                   placeholder="labels, comma-separated (e.g. corruption, transit, other / unclear)"
@@ -410,8 +411,7 @@ export function OutputFieldsEditor({
                       {f.labels?.map((label) => (
                         <label className="label-description-row" key={label}>
                           <span>{label}</span>
-                          <input
-                            className="form-input"
+                          <TextInput
                             value={f.labelDescriptions?.[label] ?? ''}
                             placeholder={`What ${label} means`}
                             aria-label={`${label} semantic description`}

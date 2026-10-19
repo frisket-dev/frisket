@@ -1,3 +1,4 @@
+import { TextArea } from './FormControls';
 import { AlertTriangle, Check, ChevronDown, ChevronRight, Copy, FileSearch2, MapPin, Pause, Pencil, Play, RefreshCcw, X, Zap } from 'lucide-react';
 import { useCallback, useEffect, useReducer, useRef, useState, type CSSProperties, type FocusEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from 'react';
 import { type CellEvidencePayload, type CellProvenance, type CellValue, type ColumnDef, type Row, type RunTraceRowEvidence, type SheetMeta } from '../api/open';
@@ -460,8 +461,8 @@ export function RowField({
             }, () => undefined);
           }}
         >
-          <textarea
-            className="form-input row-field-input"
+          <TextArea
+            className="row-field-input"
             data-testid={`cell-editor-${col.name}`}
             aria-label={`Edit ${col.name} value`}
             value={draft}

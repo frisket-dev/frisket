@@ -48,7 +48,6 @@
   flex: 0 0 auto;
   margin: 0 0 0 2px;
 }
-.packet-find-step .packet-grid-filter.segmented-toolbar button { font-size: 10px; padding: 3px 7px; }
 
 .packet-grid-size-control {
   display: flex;
@@ -262,26 +261,7 @@
   border-left: 1px solid #e7e1db;
   background: #fbf9f7;
 }
-.packet-find-step .packet-method-tabs.segmented-toolbar {
-  flex: 0 0 auto;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  margin: 14px;
-  padding: 2px;
-  border-radius: 7px;
-  background: #f0ece8;
-}
-.packet-find-step .packet-method-tabs.segmented-toolbar button {
-  justify-content: center;
-  padding: 6px 10px;
-  color: #211c19;
-  font-size: 12px;
-}
-.packet-find-step .packet-method-tabs.segmented-toolbar button.active {
-  color: #211c19;
-  background: white;
-  border-color: transparent;
-}
+.packet-find-step .packet-method-tabs { flex: 0 0 auto; margin: 14px; }
 .packet-find-step .pdf-packet-ocr-progress {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -292,7 +272,6 @@
   color: #756c66;
   font-size: 11px;
 }
-.packet-find-step .pdf-packet-ocr-progress progress { width: 100%; accent-color: #4b4ddb; }
 .packet-find-step .pdf-packet-ocr-progress button { grid-column: 2; grid-row: 1 / span 2; }
 .packet-find-step .pdf-packet-method-copy {
   display: grid;
@@ -320,7 +299,6 @@
   gap: 5px;
   align-items: center;
 }
-.packet-find-step .pdf-packet-phrase .form-input { min-width: 0; padding: 5px 6px; font-size: 11px; }
 
 .packet-review-card {
   display: grid;
@@ -599,7 +577,6 @@
 @media (max-width: 920px) {
   .packet-find-step .packet-text-read { display: none; }
   .packet-find-step .pdf-packet-grid-toolbar { gap: 8px; }
-  .packet-find-step .packet-grid-filter.segmented-toolbar button { padding-inline: 5px; }
 }
 
 @media (max-width: 760px) {

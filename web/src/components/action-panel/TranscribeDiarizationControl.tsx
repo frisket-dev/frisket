@@ -1,3 +1,4 @@
+import { TextInput } from '../FormControls';
 import { useState } from 'react';
 import { SegmentedToggle } from '../PanelPrimitives';
 import type { DiarizationDeclaration } from '../../api/types';
@@ -136,8 +137,7 @@ export function TranscribeDiarizationControl({
                   ]}
                 />
                 {speakerCountMode === 'exact' ? (
-                  <input
-                    className="form-input"
+                  <TextInput
                     inputMode="numeric"
                     placeholder="Auto"
                     aria-label="Exact speaker count"
@@ -147,8 +147,7 @@ export function TranscribeDiarizationControl({
                   />
                 ) : (
                   <>
-                    <input
-                      className="form-input"
+                    <TextInput
                       inputMode="numeric"
                       placeholder="Min"
                       aria-label="Minimum speakers"
@@ -157,8 +156,7 @@ export function TranscribeDiarizationControl({
                       onChange={(e) => setSpeakerField('min_speakers', e.target.value)}
                     />
                     <span className="unit-input-suffix">to</span>
-                    <input
-                      className="form-input"
+                    <TextInput
                       inputMode="numeric"
                       placeholder="Max"
                       aria-label="Maximum speakers"

@@ -1,3 +1,4 @@
+import { TextInput } from '../components/FormControls';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Play, Plus, Settings2, X } from 'lucide-react';
 
@@ -217,7 +218,7 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
       >
         <div className="ocr-compare-controls-row" data-testid="transcribe-compare-controls-row">
           <label className="form-label">First seconds
-            <input className="form-input" type="number" min="0.001" step="any"
+            <TextInput type="number" min="0.001" step="any"
               data-testid="transcribe-compare-duration" value={timeLimit} disabled={busy}
               onChange={(event) => {
                 setTimeLimit(event.target.value);

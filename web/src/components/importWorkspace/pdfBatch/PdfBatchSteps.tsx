@@ -1,3 +1,4 @@
+import { TextInput } from '../../FormControls';
 import { AlertTriangle, CheckCircle2, ExternalLink, FileText, LoaderCircle, Pause, Play, RefreshCw } from 'lucide-react';
 import type { ReactNode } from 'react';
 
@@ -8,6 +9,7 @@ import { PanelSelect } from '../../PanelSelect';
 import { SegmentedToggle } from '../../PanelPrimitives';
 import { PdfTextPagePreview } from '../pdfPacket/PdfTextPagePreview';
 import { routePath } from '../../../routes';
+import { ProgressBar } from '../../ActivityProgress';
 import { ImportDestinationChoice, ImportDestinationOptions } from '../ImportDestinationChoice';
 import { ImportStepFooter } from '../ImportStepFooter';
 import type { PdfBatchDestinationSheet } from './PdfBatchImportFlow';
@@ -140,7 +142,7 @@ function ProgressCard({ title, done, total, detail, action }: {
   return <article className="pdf-batch-progress-card">
     <header><strong>{title}</strong>{action}</header>
     <div><b>{total == null ? `${done.toLocaleString()} found so far` : `${done.toLocaleString()} of ${total.toLocaleString()}`}</b><span>{detail}</span></div>
-    <progress max={Math.max(1, total ?? 1)} value={total == null ? 1 : done} data-indeterminate={total == null || undefined} />
+    <ProgressBar label={title} completed={done} total={total} state="active" />
   </article>;
 }
 
@@ -204,7 +206,7 @@ export function CheckTextStep({
         <p>{count(snapshot.analysis.files_done, 'file')} checked so far. Review representative files before choosing a batch OCR policy.</p>
         {checkRunning && <div className="pdf-batch-analysis-progress" role="status"><LoaderCircle className="spin" size={15} />
           <span>Checking text layers {snapshot.analysis.files_done.toLocaleString()} of {(snapshot.analysis.files_total ?? snapshot.upload.files_done).toLocaleString()}</span>
-          <progress max={Math.max(1, snapshot.analysis.files_total ?? snapshot.upload.files_done)} value={snapshot.analysis.files_done} />
+          <ProgressBar label="Checking text layers" completed={snapshot.analysis.files_done} total={snapshot.analysis.files_total ?? snapshot.upload.files_done} state="active" />
         </div>}
         <div className="pdf-batch-type-list">
           {PDF_CHECK_CATEGORY_ORDER.filter((category) => categories.includes(category)).map((category) => (
@@ -380,7 +382,7 @@ export function DestinationStep({ projectId, snapshot, destination, sheets, busy
           description="Create a sheet for this batch"
           onSelect={() => onDestination({ kind: 'new', sheet_name: destination.kind === 'new' ? destination.sheet_name : 'Imported files' })}
         >
-          <label className="import-destination-choice-field">Sheet name<input className="form-input" disabled={busy} value={destination.kind === 'new' ? destination.sheet_name : ''} onChange={(event) => onDestination({ kind: 'new', sheet_name: event.currentTarget.value })} /></label>
+          <label className="import-destination-choice-field">Sheet name<TextInput disabled={busy} value={destination.kind === 'new' ? destination.sheet_name : ''} onChange={(event) => onDestination({ kind: 'new', sheet_name: event.currentTarget.value })} /></label>
         </ImportDestinationChoice>
         <ImportDestinationChoice
           name="destination"
@@ -393,7 +395,7 @@ export function DestinationStep({ projectId, snapshot, destination, sheets, busy
           {destination.kind === 'existing' && <label className="import-destination-choice-field">Existing sheet<PanelSelect ariaLabel="Existing sheet" topLayer disabled={busy} value={destination.sheet_id} onValueChange={(value) => onDestination({ kind: 'existing', sheet_id: Number(value) })}>{sheets.map((sheet) => <option key={sheet.id} value={sheet.id}>{sheet.name}</option>)}</PanelSelect></label>}
         </ImportDestinationChoice>
       </ImportDestinationOptions>
-      {matching && <div className="pdf-batch-matching" role="status"><LoaderCircle className="spin" size={16} /> <span>Comparing with {sheets.find((sheet) => destination.kind === 'existing' && sheet.id === destination.sheet_id)?.name ?? 'sheet'} · {snapshot.match.checked.toLocaleString()} of {snapshot.match.total.toLocaleString()} checked</span><progress max={Math.max(1, snapshot.match.total)} value={snapshot.match.checked} /></div>}
+      {matching && <div className="pdf-batch-matching" role="status"><LoaderCircle className="spin" size={16} /> <span>Comparing with {sheets.find((sheet) => destination.kind === 'existing' && sheet.id === destination.sheet_id)?.name ?? 'sheet'} · {snapshot.match.checked.toLocaleString()} of {snapshot.match.total.toLocaleString()} checked</span><ProgressBar label="Comparing existing rows" completed={snapshot.match.checked} total={snapshot.match.total} state="active" /></div>}
       <p className="pdf-batch-destination-summary"><strong>{count(importing, destination.kind === 'existing' ? 'new file' : 'file')}</strong>{destination.kind === 'existing' && matched > 0 && <span>{count(matched, 'file')} already in {sheetName} and left as is</span>}</p>
       <div className="pdf-batch-destination-table" role="table" aria-label="File import review">
         <div role="row" className="pdf-batch-destination-heading"><strong role="columnheader">Type</strong><strong role="columnheader">Files</strong><strong role="columnheader">Text</strong></div>

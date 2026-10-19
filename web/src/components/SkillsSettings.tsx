@@ -1,3 +1,4 @@
+import { TextArea } from './FormControls';
 import { useEffect, useRef, useState } from 'react';
 import { FileText, Plus, RefreshCw, Save, Trash2, Upload } from 'lucide-react';
 import { skillsApi, type InstructionSkill } from '../api/skills';
@@ -161,7 +162,7 @@ export function SkillsSettings() {
         </div>
         <div className="skills-settings-editor">
           <label htmlFor="skill-content">SKILL.md</label>
-          <textarea id="skill-content" className="form-input" data-testid="skills-editor" value={draft} rows={16} onChange={(event) => setDraft(event.currentTarget.value)} disabled={busy} />
+          <TextArea id="skill-content"  data-testid="skills-editor" value={draft} rows={16} onChange={(event) => setDraft(event.currentTarget.value)} disabled={busy} />
           <div className="settings-actions">
             <button type="button" className="btn btn-accept" onClick={() => void save()} disabled={busy}><Save size={14} /> Save</button>
             {selected && <button type="button" className="btn" onClick={() => void toggle()} disabled={busy}>{selected.enabled ? 'Disable' : 'Enable'}</button>}

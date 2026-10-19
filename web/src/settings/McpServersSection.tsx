@@ -1,3 +1,4 @@
+import { TextArea, TextInput } from '../components/FormControls';
 import { useMemo, useState } from 'react';
 
 export type McpServerEnvironmentValue =
@@ -244,7 +245,7 @@ export function McpServersSection({
         <div className="settings-form">
           <label>
             MCP server JSON
-            <textarea aria-label="MCP server JSON" value={importJson} onChange={(event) => setImportJson(event.currentTarget.value)} />
+            <TextArea aria-label="MCP server JSON" value={importJson} onChange={(event) => setImportJson(event.currentTarget.value)} />
           </label>
           {importError && <p role="alert">{importError}</p>}
           <div className="settings-row-actions">
@@ -259,25 +260,25 @@ export function McpServersSection({
           {form.env.length > 0 && <p>Map imported environment values to Project Secrets before saving.</p>}
           <label>
             Name
-            <input aria-label="Name" value={form.name} onChange={(event) => updateForm({ name: event.currentTarget.value })} />
+            <TextInput aria-label="Name" value={form.name} onChange={(event) => updateForm({ name: event.currentTarget.value })} />
           </label>
           <label>
             Command
-            <input aria-label="Command" value={form.command} onChange={(event) => updateForm({ command: event.currentTarget.value })} />
+            <TextInput aria-label="Command" value={form.command} onChange={(event) => updateForm({ command: event.currentTarget.value })} />
           </label>
           <label>
             Arguments
-            <input aria-label="Arguments" value={form.argumentsText} onChange={(event) => updateForm({ argumentsText: event.currentTarget.value })} />
+            <TextInput aria-label="Arguments" value={form.argumentsText} onChange={(event) => updateForm({ argumentsText: event.currentTarget.value })} />
           </label>
           <label>
             Working directory
-            <input aria-label="Working directory" value={form.cwd} onChange={(event) => updateForm({ cwd: event.currentTarget.value })} />
+            <TextInput aria-label="Working directory" value={form.cwd} onChange={(event) => updateForm({ cwd: event.currentTarget.value })} />
           </label>
           {form.env.map((entry, index) => (
             <div key={index} className="settings-inline-form">
               <label>
                 Environment variable name
-                <input
+                <TextInput
                   aria-label={entry.name ? `${titleCase(entry.name)} environment variable name` : 'Environment variable name'}
                   value={entry.name}
                   onChange={(event) => updateEnv(index, { name: event.currentTarget.value })}
@@ -288,7 +289,7 @@ export function McpServersSection({
                 <select aria-label={`${entry.name ? titleCase(entry.name) : 'Environment'} value kind`} value={entry.kind} onChange={(event) => updateEnv(index, { kind: event.currentTarget.value as EnvironmentDraft['kind'] })}>
                   <option value="project_secret">Project Secret</option><option value="value">Literal value</option>
                 </select>
-                {entry.kind === 'value' ? <input aria-label={entry.name ? titleCase(entry.name) : 'Literal value'} value={entry.literalValue} onChange={(event) => updateEnv(index, { literalValue: event.currentTarget.value })} /> : (
+                {entry.kind === 'value' ? <TextInput aria-label={entry.name ? titleCase(entry.name) : 'Literal value'} value={entry.literalValue} onChange={(event) => updateEnv(index, { literalValue: event.currentTarget.value })} /> : (
                 <select
                   aria-label={entry.name ? titleCase(entry.name) : 'Project Secret'}
                   value={entry.projectSecret}

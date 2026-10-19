@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { PanelSelect } from '../PanelSelect';
+import { SegmentedToggle } from '../PanelPrimitives';
 import { looksLikeSupportedMediaUrl } from './formControlHelpers';
 import type { GeneratedActionParamsBodyProps } from './GeneratedActionParamsBody';
 
@@ -43,12 +44,10 @@ export function VideoFramesParamsBody({ params, setParams, Field, errors }:
     <Field name="source" label="Video" />
     <div className="action-io-summary">
       <div className="form-label">Sampling</div>
-      <div className="segmented segmented-full" data-testid="frame-sampling-mode">
-        <button type="button" className={sampling.kind === 'count' ? 'active' : ''}
-          data-testid="frame-sampling-count" onClick={() => changeSampling('count')}>Frames per video</button>
-        <button type="button" className={sampling.kind === 'interval' ? 'active' : ''}
-          data-testid="frame-sampling-interval" onClick={() => changeSampling('interval')}>Every N seconds</button>
-      </div>
+      <SegmentedToggle ariaLabel="Sampling" testId="frame-sampling-mode" value={sampling.kind}
+        options={[{ value: 'count', label: 'Frames per video' }, { value: 'interval', label: 'Every N seconds' }]}
+        buttonTestId={(value) => `frame-sampling-${value}`}
+        onValueChange={(value) => changeSampling(value as 'count' | 'interval')} />
       <div className="unit-input">
         <input data-testid={sampling.kind === 'count' ? 'field-frame_count' : 'field-interval_seconds'}
           aria-label={sampling.kind === 'count' ? 'Frames per video' : 'Seconds between sampled frames'}

@@ -1,3 +1,4 @@
+import { TextInput, TextArea } from '../../FormControls';
 import { Fragment, useDeferredValue, useMemo, useRef, useState, type DragEvent } from 'react';
 import { AlertTriangle, CheckCircle2, LockKeyhole, Search, Upload } from 'lucide-react';
 
@@ -12,7 +13,7 @@ import type {
   TableImportTargetType,
 } from '../../../api/tableImports';
 import { PanelSelect } from '../../PanelSelect';
-import { SegmentedToggle } from '../../PanelPrimitives';
+import { PanelNotice, SegmentedToggle } from '../../PanelPrimitives';
 import { ImportDestinationChoice, ImportDestinationOptions } from '../ImportDestinationChoice';
 import { ImportStepFooter } from '../ImportStepFooter';
 import {
@@ -103,6 +104,7 @@ export function AddDataStep({
     <div className="table-import-step-body table-import-add-body">
       <SegmentedToggle
         ariaLabel="Table source"
+        fullWidth={false}
         value={mode}
         disabled={busy}
         onValueChange={(value) => onChooseMode(value as TableImportSourceMode)}
@@ -112,7 +114,7 @@ export function AddDataStep({
       {passwordFilename ? <div className="table-import-message" data-tone="warning">
         <LockKeyhole size={20} aria-hidden />
         <div><small>PASSWORD</small><h3>This workbook is password-protected</h3><p>Enter the password to open {passwordFilename}. It isn’t saved.</p></div>
-        <label><span>Password</span><input className="form-input" type="password" autoComplete="off" value={password} disabled={busy} onChange={(event) => onPasswordChange(event.currentTarget.value)} /></label>
+        <label><span>Password</span><TextInput type="password" autoComplete="off" value={password} disabled={busy} onChange={(event) => onPasswordChange(event.currentTarget.value)} /></label>
         <button type="button" className="btn btn-primary" disabled={busy || !password} onClick={onUnlock}>{busy ? 'Opening…' : 'Open'}</button>
       </div> : issue ? <SourceIssue issue={issue} busy={busy} onFiles={onFiles} onMultipleFiles={onMultipleFiles} onReset={onResetIssue} onSplitPdf={onSplitPdf} onChooseFtm={onChooseFtm} />
         : mode === 'file' ? <>
@@ -125,7 +127,7 @@ export function AddDataStep({
           </div>
           <p className="table-import-source-note">One file at a time. To bring in many files or a folder, use <button type="button" className="text-btn" onClick={() => onMultipleFiles()}>Multiple files</button>.</p>
         </> : <div className="table-import-paste">
-          <textarea aria-label="Paste rows" autoFocus spellCheck={false} value={pasteText} disabled={busy} placeholder={'Name\tAmount\tDate'} onChange={(event) => onPasteChange(event.currentTarget.value)} />
+          <TextArea aria-label="Paste rows" autoFocus spellCheck={false} value={pasteText} disabled={busy} placeholder={'Name\tAmount\tDate'} onChange={(event) => onPasteChange(event.currentTarget.value)} />
           <p data-ready={pasteText.trim().length > 0 || undefined}><i />{pasteSummary}</p>
         </div>}
     </div>
@@ -331,7 +333,7 @@ function PreviewNotice({ preview, firstRowIsHeader }: { preview: TableImportPrev
   else if (notice.kind === 'counting') text = 'Checking the rest of the file…';
   else text = `Every line shown has ${notice.common_values ?? preview.expected_values} values.`;
   const tone = notice.kind === 'consistent' ? 'success' : notice.kind === 'counting' ? 'neutral' : 'warning';
-  return <div className="table-import-preview-notice" data-tone={tone}>{tone === 'success' ? <CheckCircle2 size={15} /> : tone === 'warning' ? <AlertTriangle size={15} /> : null}<span>{text}</span></div>;
+  return <PanelNotice className="table-import-preview-notice" tone={tone}>{tone === 'success' ? <CheckCircle2 size={15} /> : tone === 'warning' ? <AlertTriangle size={15} /> : null}<span>{text}</span></PanelNotice>;
 }
 
 const TARGET_TYPES: Array<{ value: TableImportTargetType; label: string }> = [
@@ -474,7 +476,7 @@ export function ImportTableStep({ draft, destination, destinationSheets, preferr
     <div className="table-import-step-body">
       <ImportDestinationOptions>
         <ImportDestinationChoice name="table-import-destination" selected={destination.kind === 'new'} disabled={busy} title="New sheet" showInactiveChildren onSelect={() => onDestination({ kind: 'new', sheet_name: newSheetName })}>
-          <label className="import-destination-choice-field"><span className="sr-only">Sheet name</span><input aria-label="Sheet name" className="form-input" value={newSheetName} disabled={busy || destination.kind !== 'new'} onChange={(event) => onDestination({ kind: 'new', sheet_name: event.currentTarget.value })} /></label>
+          <label className="import-destination-choice-field"><span className="sr-only">Sheet name</span><TextInput aria-label="Sheet name"  value={newSheetName} disabled={busy || destination.kind !== 'new'} onChange={(event) => onDestination({ kind: 'new', sheet_name: event.currentTarget.value })} /></label>
         </ImportDestinationChoice>
         <ImportDestinationChoice name="table-import-destination" selected={destination.kind === 'existing'} disabled={busy || destinationSheets.length === 0} title="Add to an existing sheet" showInactiveChildren onSelect={() => { const sheet = destinationSheets.find((candidate) => candidate.id === preferredDestinationSheetId) ?? destinationSheets[0]; if (sheet) onDestination({ kind: 'existing', sheet_id: sheet.id }); }}>
           <label className="import-destination-choice-field"><span className="sr-only">Sheet</span><PanelSelect aria-label="Sheet" value={String(destination.kind === 'existing' ? destination.sheet_id : destinationSheets.find((candidate) => candidate.id === preferredDestinationSheetId)?.id ?? destinationSheets[0]?.id ?? '')} disabled={busy || destination.kind !== 'existing' || destinationSheets.length === 0} onChange={(event) => onDestination({ kind: 'existing', sheet_id: Number(event.currentTarget.value) })}>{destinationSheets.length === 0 && <option value="">No sheets yet</option>}{destinationSheets.map((sheet) => <option value={sheet.id} key={sheet.id}>{sheet.name} · {count(sheet.rowCount, 'row')}</option>)}</PanelSelect></label>

@@ -1,3 +1,4 @@
+import { TextInput } from '../FormControls';
 import type { GeneratedActionParamsBodyProps } from './GeneratedActionParamsBody';
 
 export function LinkTableParamsBody({ params, setParams, Field }:
@@ -5,7 +6,7 @@ export function LinkTableParamsBody({ params, setParams, Field }:
   return <>
     <label className="field-group">
       <span className="form-label">Semantic join receipt</span>
-      <input className="form-input" data-testid="link-table-receipt"
+      <TextInput data-testid="link-table-receipt"
         value={params.source?.receipt_id ?? ''}
         onChange={(event) => setParams({ ...params,
           source: { kind: 'semantic_join', receipt_id: event.target.value },

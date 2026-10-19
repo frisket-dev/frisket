@@ -1,3 +1,4 @@
+import { TextInput } from '../FormControls';
 import { useState } from 'react';
 import { RemovableChip } from '../RemovableChip';
 import { parseCommaLabels } from './formControlHelpers';
@@ -53,7 +54,7 @@ export function LabelChipsInput(props: LabelChipsInputProps) {
           ))}
         </div>
       )}
-      <input
+      <TextInput
         className={`form-input ${styles.draft}`}
         data-testid={`${testId}-draft`}
         aria-label={ariaLabel}

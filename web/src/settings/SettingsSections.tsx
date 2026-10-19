@@ -1,3 +1,4 @@
+import { TextInput, TextArea } from '../components/FormControls';
 import {
   type FormEvent,
   type ComponentType,
@@ -114,7 +115,7 @@ import { ModelPullProgress } from '../components/ModelPullProgress';
 import { NotificationSettingsPanel } from '../components/NotificationSettingsPanel';
 import { SkillsSettings } from '../components/SkillsSettings';
 import { PanelSelect, type PanelSelectOption } from '../components/PanelSelect';
-import { ConfirmTypeInput, StatusChip, type StatusTone } from '../components/PanelPrimitives';
+import { ConfirmTypeInput, PanelError, PanelLoading, PanelNotice, StatusChip, type StatusTone } from '../components/PanelPrimitives';
 import { formatNumberDisplay, formatUsdOrNone } from '../format';
 import { navigate, type SettingsRoute } from '../routes';
 import { PluginManager } from '../workbench/PluginManager';
@@ -335,14 +336,14 @@ function InlineStatus({
   notice?: string | null;
   loading?: boolean;
 }) {
-  if (loading) return <div className="settings-inline-status">Loading...</div>;
-  if (error) return <div className="settings-inline-error" role="alert">{error}</div>;
-  if (notice) return <div className="settings-inline-status">{notice}</div>;
+  if (loading) return <PanelLoading label="Loading..." />;
+  if (error) return <PanelError>{error}</PanelError>;
+  if (notice) return <PanelNotice>{notice}</PanelNotice>;
   return null;
 }
 
 function ReadOnlyNotice({ children }: { children: ReactNode }) {
-  return <div className="settings-readonly-note">{children}</div>;
+  return <PanelNotice>{children}</PanelNotice>;
 }
 
 export function PersonalProfileSettings({
@@ -438,7 +439,7 @@ export function PersonalProfileSettings({
       <form className="settings-form" onSubmit={save}>
         <label>
           <span>Display name</span>
-          <input
+          <TextInput
             data-testid="personal-display-name"
             value={displayNameValue}
             maxLength={200}
@@ -447,7 +448,7 @@ export function PersonalProfileSettings({
         </label>
         <label>
           <span>Cost pre-approval amount (USD)</span>
-          <input
+          <TextInput
             data-testid="personal-cost-preapproval"
             type="number"
             min="0"
@@ -958,9 +959,9 @@ function OrgLocalModelsSettings() {
   if (!data) {
     if (!info.error) return null;
     return (
-      <div className="settings-inline-error" role="alert" data-testid="org-local-models-fetch-error">
+      <PanelError testId="org-local-models-fetch-error">
         {info.error}
-      </div>
+      </PanelError>
     );
   }
   const endpoint = data.endpoints[0];
@@ -1066,7 +1067,7 @@ function OrgModelPullDownload({
     <div className="settings-subsection org-model-pull-download" data-testid="org-model-pull-download">
       <label>
         <span>Download a model</span>
-        <input
+        <TextInput
           type="text"
           aria-label="Model name"
           data-testid="org-model-pull-input"
@@ -1221,14 +1222,14 @@ function OrganizationSecretsSettings() {
     <div className="settings-stack" data-testid="organization-secrets-settings">
       <InlineStatus error={secrets.error ?? mutationError} loading={secrets.loading} notice={notice} />
       <form className="settings-form settings-inline-form" autoComplete="off" onSubmit={save}>
-        <input
+        <TextInput
           aria-label="Secret name"
           autoComplete="off"
           placeholder="Name"
           value={name}
           onChange={(event) => setName(event.currentTarget.value)}
         />
-        <input
+        <TextInput
           aria-label="Secret value"
           type="password"
           autoComplete="new-password"
@@ -1318,7 +1319,7 @@ function OrganizationApiKeysSettings() {
         </output>
       )}
       <form className="settings-form settings-inline-form" onSubmit={save}>
-        <input aria-label="Token name" placeholder="Token name" value={name} onChange={(event) => setName(event.currentTarget.value)} />
+        <TextInput aria-label="Token name" placeholder="Token name" value={name} onChange={(event) => setName(event.currentTarget.value)} />
         <button className="btn btn-primary" type="submit" disabled={!name.trim()}>
           <KeyRound size={14} /> Create
         </button>
@@ -1443,7 +1444,7 @@ export function ProjectGeneralSettings({ project }: { project?: ProjectInfo | nu
       <form className="settings-form" onSubmit={save}>
         <label>
           <span>Name</span>
-          <input
+          <TextInput
             data-testid="project-name-input"
             value={nameValue}
             disabled={!canEdit || form.busy}
@@ -1452,7 +1453,7 @@ export function ProjectGeneralSettings({ project }: { project?: ProjectInfo | nu
         </label>
         <label>
           <span>Description</span>
-          <textarea
+          <TextArea
             data-testid="project-description-input"
             value={descriptionValue}
             disabled={!canEdit || form.busy}
@@ -1660,7 +1661,7 @@ function ProjectAccessSettings({ project, identityMode }: { project?: ProjectInf
             await load();
           });
         }}>
-          <input
+          <TextInput
             aria-label="Invite email"
             data-testid="project-invite-email"
             placeholder="Email"
@@ -2315,7 +2316,7 @@ function LocalEndpointsSettings({
         <form className="settings-form settings-inline-form" data-testid="local-endpoint-add-form" onSubmit={add}>
           <label>
             <span>Name</span>
-            <input
+            <TextInput
               data-testid="local-endpoint-add-name"
               aria-label="Local server name"
               value={name}
@@ -2326,7 +2327,7 @@ function LocalEndpointsSettings({
           </label>
           <label>
             <span>URL</span>
-            <input
+            <TextInput
               data-testid="local-endpoint-add-origin"
               type="url"
               aria-label="Local server URL"
@@ -2463,11 +2464,11 @@ function LocalEndpointRow({
       <form className="settings-form settings-inline-form" onSubmit={save}>
         <label>
           <span>Name</span>
-          <input data-testid={`local-endpoint-name-${endpointId}`} value={name} disabled={busy || endpoint.read_only} onChange={(event) => setName(event.target.value)} />
+          <TextInput data-testid={`local-endpoint-name-${endpointId}`} value={name} disabled={busy || endpoint.read_only} onChange={(event) => setName(event.target.value)} />
         </label>
         <label>
           <span>URL</span>
-          <input data-testid={`local-endpoint-origin-${endpointId}`} type="url" value={url} disabled />
+          <TextInput data-testid={`local-endpoint-origin-${endpointId}`} type="url" value={url} disabled />
         </label>
         {!endpoint.read_only && (
           <button className="btn" type="submit" disabled={busy || !dirty || !name.trim()}>
@@ -2488,7 +2489,7 @@ function LocalEndpointRow({
           <form className="settings-form settings-inline-form" data-testid={`local-endpoint-auth-${endpointId}`} onSubmit={saveCredentials}>
             <label>
               <span>Inference token {endpoint.token_configured ? '(configured)' : ''}</span>
-              <input
+              <TextInput
                 type="password"
                 value={inferenceToken}
                 autoComplete="new-password"
@@ -2499,7 +2500,7 @@ function LocalEndpointRow({
             </label>
             <label>
               <span>Download token {endpoint.provisioning_token_configured ? '(configured)' : ''}</span>
-              <input
+              <TextInput
                 type="password"
                 value={provisioningToken}
                 autoComplete="new-password"
@@ -2713,7 +2714,7 @@ export function ProjectSecretsSettings({ project }: { project?: ProjectInfo | nu
         </ReadOnlyNotice>
       )}
       <form className="settings-form settings-inline-form" autoComplete="off" onSubmit={save}>
-        <input
+        <TextInput
           aria-label="Project secret name"
           autoComplete="off"
           placeholder="Name"
@@ -2914,7 +2915,7 @@ function PluginOptionsList({ runtimeIndex }: { runtimeIndex: WorkbenchPluginRunt
                 {(setting.enum ?? []).map((item) => <option key={String(item)} value={String(item)}>{String(item)}</option>)}
               </PanelSelect>
             ) : (
-              <input
+              <TextInput
                 aria-label={setting.title}
                 data-testid={`plugin-option-${setting.id}`}
                 value={String(draft)}

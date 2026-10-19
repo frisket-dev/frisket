@@ -1,3 +1,4 @@
+import { TextArea, TextInput } from '../FormControls';
 import { createContext, Fragment, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState,
   type ReactNode } from 'react';
 import { Eye } from 'lucide-react';
@@ -83,7 +84,7 @@ function JsonSchemaField({ field, value, schemaType, onChange }: {
   }, [value]);
   return <div className="param-row">
     <label className="form-label" htmlFor={field.id}>{field.label}</label>
-    <textarea id={field.id} className="form-input form-textarea form-textarea-autogrow"
+    <TextArea id={field.id} className="form-textarea-autogrow"
       ref={resizeTextareaToContent} onInput={handleAutoResizeTextareaInput}
       rows={7} data-testid={field.testid}
       value={text} aria-invalid={typeof value === 'string'} onChange={(event) => {
@@ -122,7 +123,7 @@ function NumericSchemaField({ field, value, onChange }: {
   }, [value, field.value]);
   return <div className="param-row">
     <label className="form-label" htmlFor={field.id}>{field.label}</label>
-    <input id={field.id} className="form-input" inputMode="decimal"
+    <TextInput id={field.id}  inputMode="decimal"
       data-testid={field.testid} value={text} onChange={(event) => {
         const raw = event.target.value;
         setText(raw);
@@ -1109,7 +1110,7 @@ function GeneratedActionFormContents({
 
       {createsSheet && <div className="action-source-block">
         <label className="form-label" htmlFor="generated-sheet-name">New sheet name</label>
-        <input id="generated-sheet-name" className="form-input" data-testid="field-sheet_name"
+        <TextInput id="generated-sheet-name"  data-testid="field-sheet_name"
           value={sheetName} disabled={running} onChange={(event) => setSheetName(event.target.value)} />
       </div>}
 
@@ -1160,7 +1161,7 @@ function GeneratedActionFormContents({
           value={outputPrefix} allowExistingTargets={!createsSheet}
           onChange={updateOutputPrefix} /> : <div className="param-row">
           <label className="form-label" htmlFor="generated-output-prefix">{prefixLabel}</label>
-          <input id="generated-output-prefix" className="form-input"
+          <TextInput id="generated-output-prefix"
             data-testid="field-output-prefix" value={outputPrefix}
             onChange={(event) => updateOutputPrefix(event.target.value)} />
         </div>}
@@ -1216,7 +1217,7 @@ function GeneratedActionFormContents({
         }}>
         <summary>Rename output columns</summary>
         <p className="form-hint">Columns are discovered from the list. Optionally map their names to new names.</p>
-        <textarea className="form-input form-textarea form-textarea-autogrow"
+        <TextArea className="form-textarea-autogrow"
           ref={resizeTextareaToContent} onInput={handleAutoResizeTextareaInput}
           aria-label="Output column renames" value={renameText}
           disabled={running} onChange={(event) => {

@@ -5,12 +5,10 @@
 .saveStatus { display: inline-flex; flex: 0 0 auto; align-items: center; }
 .toolbarStatus { flex: 0 0 auto; color: var(--text-mid); }
 .tools { flex-shrink: 0; margin-left: 0; }
-.tools button { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
-.tools button:disabled { opacity: .5; cursor: default; }
+.tools button { white-space: nowrap; }
 .runButtons { display: flex; align-items: center; flex-wrap: nowrap; flex: 0 0 auto; gap: 8px; margin-left: auto; }
 .runButtons button { white-space: nowrap; }
 .runButtons label { display: flex; align-items: center; gap: 8px; font-size: 12px; }
-.toolbar :global(.form-input), .endPage :global(.form-input) { padding: 4px 6px; font-size: 12px; min-height: 26px; }
 .body { display: flex; min-height: 0; flex: 1; }
 .body > :global(.document-list) { width: clamp(160px, 20%, 266px); }
 .center { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
@@ -73,6 +71,5 @@
 
 @media (max-width: 1200px) {
   .tools button span, .toolbarLabelText { display: none; }
-  .tools button { padding-inline: 7px; }
   .toolbarLabel :global(.panel-select-shell) { max-width: 125px; }
 }

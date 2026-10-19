@@ -1,3 +1,4 @@
+import { TextInput } from './components/FormControls';
 import { ActionPreviewBanner } from './components/ActionPreviewBanner';
 import {
   lazy,
@@ -2756,6 +2757,7 @@ function WorkViewSwitcher({
   return (
     <SegmentedToggle
       className="segmented-toolbar"
+      size="compact"
       fullWidth={false}
       testId="view-switcher"
       ariaLabel="View"
@@ -3191,8 +3193,8 @@ function ToolbarOverflowMenu() {
           }
         >
           {views.length > 8 && (
-            <input
-              className="form-input saved-views-overflow-search"
+            <TextInput
+              className="saved-views-overflow-search"
               aria-label="Search saved views"
               value={savedViewsQuery}
               onChange={(event) => setSavedViewsQuery(event.target.value)}

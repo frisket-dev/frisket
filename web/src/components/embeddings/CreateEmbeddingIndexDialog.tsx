@@ -1,3 +1,4 @@
+import { TextInput } from '../FormControls';
 import {
   useEffect,
   useMemo,
@@ -146,9 +147,9 @@ function CustomEmbeddingModelDetail({
         Custom model ID
       </label>
       <div className="embedding-model-custom-controls">
-        <input
+        <TextInput
           id="embedding-model-custom-input"
-          className="form-input"
+
           data-testid="embedding-model-custom-input"
           placeholder="Provider-specific embedding model ID"
           value={draft}
@@ -464,9 +465,9 @@ export function CreateEmbeddingIndexDialog({
                 <label className="form-label" htmlFor="embedding-max-cost">
                   Max cost per refresh (USD)
                 </label>
-                <input
+                <TextInput
                   id="embedding-max-cost"
-                  className="form-input"
+
                   type="number"
                   min="0"
                   step="0.01"

@@ -5,6 +5,7 @@
    always beats a layered one regardless of specificity, so anything NOT wrapped in
    a @layer block here keeps today's plain source-order/specificity cascade as-is. */
 @layer base, action-panel;
+@import './components/FormControls.css';
 
 :root {
   /* The theme is the data-frisket-theme attribute, NEVER the OS preference:
@@ -333,39 +334,7 @@ kbd {
   border-left: 0;
 }
 
-/* ---- Work view switcher (workbench-ia-work-views-v1) + split seam/companion.
-   The switcher itself now rides the shared SegmentedToggle (
-   ui-chips-segmented-v1 / C3); this is the toolbar-pill LOOK as a modifier
-   that composes with the shared `.segmented` base instead of a parallel
-   hand-rolled system (see PanelPrimitives.tsx SegmentedToggle + App.tsx
-   WorkViewSwitcher). Reusable by any future toolbar-hosted segmented
-   control, not just this one call site. */
-.segmented.segmented-toolbar {
-  flex-wrap: nowrap;
-  gap: 1px;
-  padding: var(--space-2);
-  border-radius: var(--radius-8);
-  background: var(--bg-hover);
-  margin-left: 10px;
-}
-.segmented.segmented-toolbar button {
-  padding: 3px 9px;
-  border: 0;
-  border-radius: var(--radius-6);
-  background: transparent;
-  color: var(--text-mid);
-  font: inherit;
-  font-size: 12px;
-}
-.segmented.segmented-toolbar button:hover {
-  color: var(--text);
-  background: var(--bg-hover);
-}
-.segmented.segmented-toolbar button.active {
-  background: var(--bg-panel);
-  color: var(--text);
-  box-shadow: var(--shadow-sm);
-}
+/* Work view layout; control appearance belongs to SegmentedToggle. */
 .work-split-hint {
   margin-left: 6px;
   color: var(--text-light);
@@ -1025,33 +994,7 @@ kbd {
 .workbench-bottom-summary[data-run-state='complete-with-errors'] .workbench-bottom-summary-label {
   color: var(--red);
 }
-.workbench-bottom-progress {
-  position: relative;
-  display: inline-block;
-  width: 96px;
-  height: 5px;
-  border-radius: var(--radius-999);
-  overflow: hidden;
-  background: var(--monitor-bg);
-}
-.workbench-bottom-progress-fill {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 0;
-  border-radius: var(--radius-999);
-  background: var(--monitor);
-  transition: width 0.2s ease;
-}
-.workbench-bottom-progress.indeterminate .workbench-bottom-progress-fill {
-  width: 40%;
-  animation: workbench-bottom-progress-slide 1.1s ease-in-out infinite;
-}
-@keyframes workbench-bottom-progress-slide {
-  0% { left: -40%; }
-  100% { left: 100%; }
-}
+.workbench-bottom-progress { width: 96px; }
 .workbench-bottom-tab-wrap {
   display: inline-flex;
   align-items: flex-end;
@@ -2955,7 +2898,6 @@ kbd {
   color: var(--text-light);
 }
 .grid-control-panel .form-input {
-  height: 26px;
   min-width: 160px;
 }
 .grid-active-bar {
@@ -3145,11 +3087,16 @@ kbd {
    identically in every host region (dock, Discover, drawers). */
 .panel-empty { font-size: 11.5px; color: var(--text-light); padding: 4px 8px; }
 li.panel-empty { list-style: none; }
-.panel-error {
-  font-size: 11px; color: var(--red);
-  background: var(--red-bg); border-radius: var(--radius-6); padding: 5px 7px;
+.panel-error, .panel-notice {
+  font-size: 12px; line-height: 1.45;
+  border-radius: var(--radius-6); padding: 8px 10px;
   word-break: break-word;
 }
+.panel-error { color: var(--red); background: var(--red-bg); }
+.panel-notice { display: flex; align-items: center; gap: 7px; color: var(--text-mid); background: var(--bg-hover); }
+.panel-notice > svg { flex-shrink: 0; }
+.panel-notice[data-tone='success'] { color: var(--green); background: var(--green-bg); }
+.panel-notice[data-tone='warning'] { color: var(--amber); background: var(--amber-bg); }
 /* THE one status/state chip (ui-chips-segmented-v1 / C4,
    components/PanelPrimitives.tsx StatusChip). Replaces the five re-declared
    tone->color pairs (.notification-status-pill, .ollama-badge,
@@ -3269,20 +3216,6 @@ li.panel-empty { list-style: none; }
    threshold) — each child owns its own label + input stack. */
 .form-row-pair { display: flex; gap: 14px; }
 .form-row-pair > div { flex: 1; min-width: 0; }
-@layer base {
-.form-input {
-  font-family: inherit; font-size: var(--font-size-control); color: var(--text);
-  background: var(--bg);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-6);
-  padding: var(--space-6) var(--space-8);
-  width: 100%;
-}
-.form-input:focus { outline: 2px solid var(--accent-bg); border-color: var(--accent); }
-}
-@layer base {
-.form-textarea { resize: vertical; line-height: 1.45; }
-}
 /* Prompt-style
    textareas grow with their content instead of scrolling a fixed 3-5 rows.
    field-sizing is the primary mechanism (already used by .template-input and
@@ -3332,9 +3265,7 @@ li.panel-empty { list-style: none; }
   margin-top: 9px;
 }
 
-/* ---- action panel calm-hierarchy overrides --------------------------------
-   The redesign lives scoped under .action-panel so other .form-input surfaces
-   (settings, sources, ask) keep their density until they adopt it. */
+/* Action panel layout. Shared controls own their appearance. */
 .action-panel .action-form { padding: 0 18px 16px; }
 .action-panel .form-label,
 .action-panel .form-label-row .form-label {
@@ -3344,19 +3275,6 @@ li.panel-empty { list-style: none; }
 .action-panel .form-label-row { margin: 18px 0 4px; }
 .action-panel .form-label-row .form-label { margin: 0; }
 .action-form .engine-selector { margin-top: 18px; }
-.action-panel .form-input {
-  border-color: var(--border);
-  border-radius: 10px;
-  min-height: 38px;
-  padding: var(--space-8) var(--space-12);
-  font-size: var(--font-size-body);
-}
-.action-panel .form-input:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: var(--shadow-ring);
-}
-.action-panel .form-textarea { padding: 10px 12px; line-height: 1.5; }
 /* Compact single-
    line fields (text/select/number/checkbox/column pickers) render label-left,
    input-right instead of stacked — too many stacked options read as a huge
@@ -3627,10 +3545,6 @@ li.panel-empty { list-style: none; }
 .action-panel .fields-builder .field-row-calm.single-output-field-row {
   grid-template-columns: minmax(0, 1fr);
 }
-.action-panel .fields-builder .field-row-calm .form-input {
-  height: auto;
-  min-height: 0;
-}
 .action-panel .fields-builder .field-row-calm .form-input + .form-input {
   margin-top: 0;
 }
@@ -3792,41 +3706,6 @@ li.panel-empty { list-style: none; }
 .tabular-join-key-pair-row { display: flex; align-items: center; gap: 6px; }
 .tabular-join-key-pair-row > .panel-select-shell { flex: 1; min-width: 0; }
 .tabular-join-key-pair-glyph { color: var(--text-mid); flex: 0 0 auto; font-size: 12px; }
-@layer base {
-.segmented {
-  display: flex;
-  gap: var(--space-4);
-  flex-wrap: wrap;
-}
-.segmented button {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-5);
-  padding: var(--space-4) var(--space-8);
-  color: var(--text-mid);
-}
-}
-@layer action-panel {
-.action-panel .segmented { gap: var(--space-6); }
-.action-panel .segmented button {
-  border-color: var(--border);
-  border-radius: var(--radius-8);
-  padding: var(--space-6) var(--space-12);
-}
-}
-@layer base {
-.segmented button.active {
-  color: var(--accent);
-  background: var(--accent-bg);
-  border-color: var(--accent);
-}
-}
-.segmented button.segmented-option-disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
 .template-compose-row {
   display: grid;
   grid-template-columns: 56px minmax(0, 1fr);
@@ -6947,11 +6826,7 @@ dialog.sources-connections-layer::backdrop { background: transparent; }
   color: var(--text-light);
 }
 .facets-controls .form-input {
-  width: 100%;
-  min-width: 0;
   margin: 0;
-  padding: 4px 6px;
-  font-size: 11.5px;
 }
 .facets-refresh {
   justify-self: end;
@@ -7361,7 +7236,6 @@ dialog.sources-connections-layer::backdrop { background: transparent; }
 .notification-settings-control {
   min-width: 0; display: flex; flex-direction: column; gap: 3px;
 }
-.notification-settings-form input,
 .notification-settings-form select {
   width: 100%;
   min-height: 28px;
@@ -9524,11 +9398,8 @@ dialog.modal-card::backdrop {
   font-size: 12px;
   font-weight: 650;
 }
-.settings-form input,
-.settings-form textarea,
 .settings-form select,
 .settings-field select,
-.settings-inline-form input,
 .settings-inline-form select {
   min-width: 0;
   border: 1px solid var(--border);
@@ -9537,10 +9408,6 @@ dialog.modal-card::backdrop {
   color: var(--text);
   font: inherit;
   padding: 7px 8px;
-}
-.settings-form textarea {
-  min-height: 78px;
-  resize: vertical;
 }
 .settings-inline-form {
   display: grid;
@@ -11220,35 +11087,6 @@ dialog.modal-card::backdrop {
    ========================================================================== */
 
 /* Full-width segmented switch (frames sampling, youtube download mode). */
-@layer action-panel {
-.action-panel .segmented.segmented-full {
-  display: flex;
-  gap: 0;
-  padding: 3px;
-  background: var(--bg-hover);
-  border-radius: 10px;
-}
-.action-panel .segmented.segmented-full button {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  background: transparent;
-  border-radius: var(--radius-7);
-  padding: 7px 0;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-mid);
-  cursor: pointer;
-  text-align: center;
-}
-.action-panel .segmented.segmented-full button.active {
-  color: var(--accent);
-  background: var(--bg);
-  box-shadow: var(--shadow-xs);
-}
-}
 /* Hidden native <select> mirror keeps selectOption()/toHaveValue() working. */
 .sr-only-select {
   position: absolute;
@@ -11563,28 +11401,6 @@ dialog.modal-card::backdrop {
   margin-bottom: 8px;
 }
 .source-input-head .form-label { margin: 0; }
-@layer action-panel {
-.action-panel .segmented.source-mode-switch {
-  gap: 0;
-  padding: 2px;
-  background: var(--bg-hover);
-  border-radius: var(--radius-8);
-}
-.action-panel .segmented.source-mode-switch button {
-  border: none;
-  background: transparent;
-  border-radius: var(--radius-6);
-  padding: 4px 9px;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--text-mid);
-}
-.action-panel .segmented.source-mode-switch button.active {
-  color: var(--accent);
-  background: var(--bg);
-  box-shadow: var(--shadow-xs);
-}
-}
 
 /* Template composer: input shell + insert bar in one bordered box. */
 .template-compose-row {

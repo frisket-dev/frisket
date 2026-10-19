@@ -1,3 +1,4 @@
+import { TextInput } from '../FormControls';
 import { useState } from 'react';
 
 /** Host naming convenience only: never computes the join's logical schema. */
@@ -22,7 +23,7 @@ export function JoinOutputNames({ outputs, names, onChange, disabled }: {
       you can still rename every column independently.</p>
     {(['left', 'right'] as const).map((side) => <div className="form-row-pair" key={side}>
       <label className="field-group"><span className="form-label">{side === 'left' ? 'Left' : 'Right'} suffix</span>
-        <input className="form-input" data-testid={`field-join_${side}_suffix`} disabled={disabled}
+        <TextInput data-testid={`field-join_${side}_suffix`} disabled={disabled}
           value={side === 'left' ? left : right} onChange={(event) =>
             (side === 'left' ? setLeft : setRight)(event.target.value)} /></label>
       <button type="button" className="btn btn-ghost" disabled={disabled}

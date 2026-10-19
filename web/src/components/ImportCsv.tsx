@@ -1,3 +1,4 @@
+import { TextInput, TextArea } from './FormControls';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type DragEvent } from 'react';
 import {
   AtSign,
@@ -1847,9 +1848,9 @@ function OpenImportWorkspaceSession({
                   <h2>Import FollowTheMoney data</h2>
                   <p>{ftmFile.name}</p>
                   <label className="import-field-label" htmlFor="import-ftm-dataset-name">Dataset name (optional)</label>
-                  <input
+                  <TextInput
                     id="import-ftm-dataset-name"
-                    className="form-input"
+
                     data-testid="import-ftm-dataset-name"
                     value={ftmDatasetName}
                     onChange={(event) => setFtmDatasetName(event.currentTarget.value)}
@@ -1881,9 +1882,9 @@ function OpenImportWorkspaceSession({
                   <label className="import-field-label" htmlFor="import-url-list">
                     URLs
                   </label>
-                  <textarea
+                  <TextArea
                     id="import-url-list"
-                    className="form-input import-url-list"
+                    className="import-url-list"
                     data-testid="import-url-list"
                     rows={8}
                     value={urlText}
@@ -2374,9 +2375,9 @@ function FeedSourceForm({
       <label className="import-field-label" htmlFor="source-url-input">
         URL or reference
       </label>
-      <input
+      <TextInput
         id="source-url-input"
-        className="form-input"
+
         placeholder={selectedKind.placeholder}
         aria-label="Feed URL or reference"
         data-testid="source-url"
@@ -2411,9 +2412,9 @@ function FeedSourceForm({
       <label className="import-field-label" htmlFor="source-name-input">
         Name
       </label>
-      <input
+      <TextInput
         id="source-name-input"
-        className="form-input"
+
         placeholder={defaultFeedName(kind, url)}
         aria-label="Source name"
         data-testid="source-name"
@@ -2425,8 +2426,7 @@ function FeedSourceForm({
         <div className="sources-form-grid">
           <label>
             <span>Max pages</span>
-            <input
-              className="form-input"
+            <TextInput
               aria-label="YouTube max pages"
               data-testid="source-youtube-max-pages"
               value={youtubeMaxPages}
@@ -2435,8 +2435,7 @@ function FeedSourceForm({
           </label>
           <label>
             <span>Max items</span>
-            <input
-              className="form-input"
+            <TextInput
               aria-label="YouTube max items"
               data-testid="source-youtube-max-items"
               value={youtubeMaxItems}
@@ -2451,8 +2450,7 @@ function FeedSourceForm({
           <div className="sources-form-grid">
             <label>
               <span>Response list path</span>
-              <input
-                className="form-input"
+              <TextInput
                 aria-label="API response list path"
                 data-testid="source-api-list-path"
                 value={apiListPath}
@@ -2461,8 +2459,7 @@ function FeedSourceForm({
             </label>
             <label>
               <span>Item ID path</span>
-              <input
-                className="form-input"
+              <TextInput
                 aria-label="API item ID path"
                 data-testid="source-api-item-id-path"
                 value={apiItemIdPath}
@@ -2473,8 +2470,7 @@ function FeedSourceForm({
           <div className="sources-form-grid">
             <label>
               <span>Updated path</span>
-              <input
-                className="form-input"
+              <TextInput
                 aria-label="API updated-at path"
                 data-testid="source-api-updated-at-path"
                 value={apiUpdatedAtPath}
@@ -2483,8 +2479,7 @@ function FeedSourceForm({
             </label>
             <label>
               <span>Max items</span>
-              <input
-                className="form-input"
+              <TextInput
                 aria-label="API max items"
                 data-testid="source-api-max-items"
                 value={apiMaxItems}
@@ -2497,8 +2492,8 @@ function FeedSourceForm({
 
       {kind === 'courtlistener_docket' && (
         <>
-          <textarea
-            className="form-input source-textarea"
+          <TextArea
+            className="source-textarea"
             aria-label="CourtListener keywords"
             data-testid="source-court-keywords"
             value={courtKeywords}
@@ -2527,8 +2522,7 @@ function FeedSourceForm({
           </div>
           <label className="import-field-label">
             Max entries
-            <input
-              className="form-input"
+            <TextInput
               aria-label="CourtListener max entries"
               data-testid="source-court-max-entries"
               value={courtMaxEntries}

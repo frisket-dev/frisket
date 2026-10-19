@@ -13,5 +13,6 @@
 .icon-button[data-icon-size='compact'] { width: 26px; height: 26px; }
 .icon-button[data-icon-size='standard'] { width: 36px; height: 36px; }
 .icon-button:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); }
+.icon-button[aria-expanded='true'], .icon-button[aria-pressed='true'] { background: var(--accent-bg); color: var(--accent); }
 .icon-button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .icon-button:disabled { cursor: not-allowed; opacity: 0.45; }

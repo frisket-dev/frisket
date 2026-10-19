@@ -1,3 +1,4 @@
+import { TextInput } from './FormControls';
 import { useState } from 'react';
 
 import { updateProfile } from '../api/open';
@@ -44,9 +45,9 @@ export function CostPreapprovalSetupModal({ onComplete }: { onComplete?: () => v
         <label className="form-label" htmlFor="cost-preapproval-setup-input">
           Amount in USD per run
         </label>
-        <input
+        <TextInput
           id="cost-preapproval-setup-input"
-          className="form-input"
+
           data-testid="cost-preapproval-setup-input"
           type="number"
           min="0"

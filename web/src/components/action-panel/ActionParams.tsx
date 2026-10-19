@@ -1,3 +1,4 @@
+import { TextArea, TextInput } from '../FormControls';
 // Generic catalog-parameter rendering. ActionParams receives an ALREADY-FILTERED
 // parameter list: the action-kind bespoke/internal exclusions (NER, semantic/tabular
 // joins, YouTube media, video frames, census, clean_dates, derive
@@ -537,9 +538,9 @@ export function ParamInput({
     return (
       <>
         <label className="form-label" htmlFor={id}>{param.label}</label>
-        <textarea
+        <TextArea
           id={id}
-          className="form-input form-textarea form-textarea-autogrow"
+          className="form-textarea-autogrow"
           ref={resizeTextareaToContent}
           rows={5}
           style={style}
@@ -617,9 +618,9 @@ export function ParamInput({
         ariaInvalid={paramError ? true : undefined}
       />
     ) : (
-      <input
+      <TextInput
         id={id}
-        className="form-input"
+
         style={style}
         value={value}
         placeholder={param.placeholder}

@@ -1,3 +1,4 @@
+import { TextInput } from '../components/FormControls';
 // The add-column popover uses the native top layer and owns dismissal.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
@@ -75,10 +76,10 @@ export function AddColumnPopover({
       </div>
       <label className="grid-add-column-field">
         <span>Name</span>
-        <input
+        <TextInput
           ref={inputRef}
           type="text"
-          className="form-input"
+
           data-testid="grid-add-column-name"
           value={name}
           onChange={(event) => setName(event.target.value)}

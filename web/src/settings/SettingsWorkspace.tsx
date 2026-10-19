@@ -1,3 +1,4 @@
+import { TextInput } from '../components/FormControls';
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Search } from 'lucide-react';
 import { listProjects, type ProjectInfo } from '../api/open';
@@ -319,7 +320,7 @@ export function SettingsWorkspace({
 
           <label className="settings-search">
             <Search size={14} />
-            <input
+            <TextInput
               data-testid="settings-search"
               value={query}
               placeholder="Search settings"

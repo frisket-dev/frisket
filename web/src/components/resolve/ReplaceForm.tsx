@@ -1,3 +1,4 @@
+import { TextInput } from '../FormControls';
 // The bespoke drawer body for "Replace by rules". An ordered first-match-wins
 // rules list (contains / exact / regex → whole-cell set-to, null allowed), a
 // no-match policy, and per-rule match counts.
@@ -401,8 +402,8 @@ function ReplaceFormForSheet({
                     </option>
                   ))}
                 </PanelSelect>
-                <input
-                  className="form-input resolve-replace-rule-pattern"
+                <TextInput
+                  className="resolve-replace-rule-pattern"
                   data-testid="resolve-replace-rule-pattern"
                   aria-label="Pattern"
                   aria-invalid={invalidRegex}
@@ -470,8 +471,8 @@ function ReplaceFormForSheet({
                     (null)
                   </button>
                 ) : (
-                  <input
-                    className="form-input resolve-replace-rule-target"
+                  <TextInput
+                    className="resolve-replace-rule-target"
                     data-testid="resolve-replace-rule-target"
                     aria-label="Replacement value"
                     placeholder="replacement value"

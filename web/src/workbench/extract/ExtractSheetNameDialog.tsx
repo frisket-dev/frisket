@@ -1,3 +1,4 @@
+import { TextInput } from '../../components/FormControls';
 import { useEffect, useRef, useState } from 'react';
 
 export function ExtractSheetNameDialog({ suggestedName, onCancel, onConfirm }: {
@@ -20,7 +21,7 @@ export function ExtractSheetNameDialog({ suggestedName, onCancel, onConfirm }: {
     onCancel={(event) => { event.preventDefault(); onCancel(); }}>
     <form onSubmit={(event) => { event.preventDefault(); if (name.trim()) onConfirm(name.trim()); }}>
       <div className="modal-title" id="extract-sheet-name-title">Extract to new sheet</div>
-      <label>Sheet name <input autoFocus className="form-input" aria-label="Result sheet name" value={name}
+      <label>Sheet name <TextInput autoFocus  aria-label="Result sheet name" value={name}
         onChange={(event) => setName(event.target.value)} /></label>
       <div className="form-actions">
         <button type="button" className="btn" onClick={onCancel}>Cancel</button>

@@ -1,3 +1,4 @@
+import { TextInput } from '../components/FormControls';
 // Saved-views panel. This is intentionally presentational: persistence and
 // successful-create/update transitions belong to the workspace controller.
 import { useEffect, useRef, useState } from 'react';
@@ -132,8 +133,7 @@ export function ViewsPanel({
           {editor.kind === 'edit' && (
             <span className="saved-view-summary" data-testid="saved-view-filter-summary">{summarizeSavedView(editor.view).summary}</span>
           )}
-          <input
-            className="form-input"
+          <TextInput
             data-testid="view-name-input"
             placeholder="View name"
             value={viewName}

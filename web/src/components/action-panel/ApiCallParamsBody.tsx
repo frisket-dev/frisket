@@ -1,3 +1,4 @@
+import { TextInput, TextArea } from '../FormControls';
 import { useState } from 'react';
 import { ClipboardPaste, Plus, Trash2 } from 'lucide-react';
 import { API_CALL_MAX_TIMEOUT_SECONDS } from '../../actions/apiCallValidation';
@@ -60,8 +61,7 @@ function PairEditor({
         <span className="form-hint">None</span>
       ) : entries.map((entry, index) => (
         <div className="api-pair-row" key={`${id}-${index}`}>
-          <input
-            className="form-input"
+          <TextInput
             aria-label={`${label} ${index + 1} name`}
             data-testid={`${id}-name-${index}`}
             placeholder={namePlaceholder}
@@ -172,8 +172,8 @@ export function ApiCallParamsBody({ params, setParams, sheet }:
           </button>
           {curlOpen && (
             <div className="api-curl-panel">
-              <textarea
-                className="form-input form-textarea api-curl-textarea"
+              <TextArea
+                className="api-curl-textarea"
                 value={curlText}
                 placeholder="curl 'https://api.example.com/...' -H 'Authorization: Bearer ...'"
                 data-testid="api-call-curl-input"
@@ -303,8 +303,7 @@ export function ApiCallParamsBody({ params, setParams, sheet }:
             {bodyMode === 'raw' && (
               <label className="field-group">
                 <span className="field-labels">Content-Type</span>
-                <input
-                  className="form-input"
+                <TextInput
                   value={contentType}
                   placeholder="text/plain"
                   data-testid="api-call-content-type"
@@ -329,8 +328,7 @@ export function ApiCallParamsBody({ params, setParams, sheet }:
             <div className="api-number-row">
               <label className="field-group">
                 <span className="field-labels">Timeout (seconds)</span>
-                <input
-                  className="form-input"
+                <TextInput
                   type="number"
                   min="0.1"
                   max={API_CALL_MAX_TIMEOUT_SECONDS}
@@ -342,8 +340,7 @@ export function ApiCallParamsBody({ params, setParams, sheet }:
               </label>
               <label className="field-group">
                 <span className="field-labels">Max requests / second</span>
-                <input
-                  className="form-input"
+                <TextInput
                   type="number"
                   min="0.01"
                   step="any"

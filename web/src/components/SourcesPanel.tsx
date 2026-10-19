@@ -1,3 +1,5 @@
+import { TextInput, TextArea } from './FormControls';
+import { IconButton } from './IconButton';
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { PanelEmpty, PanelError, StatusChip, type StatusTone } from './PanelPrimitives';
@@ -858,8 +860,7 @@ function SourceEditorForm({ actions, busy, form, formFrame }: SourceEditorFormPr
           ))}
         </PanelSelect>
       </div>
-      <input
-        className="form-input"
+      <TextInput
         placeholder="Source name"
         aria-label="Source name"
         data-testid="source-name"
@@ -869,9 +870,9 @@ function SourceEditorForm({ actions, busy, form, formFrame }: SourceEditorFormPr
       <label className="source-field-label" htmlFor="source-url-input">
         {kind.urlLabel}
       </label>
-      <input
+      <TextInput
         id="source-url-input"
-        className="form-input"
+
         placeholder={kind.placeholder}
         aria-label={kind.urlLabel}
         data-testid="source-url"
@@ -883,8 +884,7 @@ function SourceEditorForm({ actions, busy, form, formFrame }: SourceEditorFormPr
         <div className="sources-form-grid">
           <label>
             <span>Max pages</span>
-            <input
-              className="form-input"
+            <TextInput
               aria-label="YouTube max pages"
               data-testid="source-youtube-max-pages"
               value={form.youtubeMaxPages}
@@ -893,8 +893,7 @@ function SourceEditorForm({ actions, busy, form, formFrame }: SourceEditorFormPr
           </label>
           <label>
             <span>Max items</span>
-            <input
-              className="form-input"
+            <TextInput
               aria-label="YouTube max items"
               data-testid="source-youtube-max-items"
               value={form.youtubeMaxItems}
@@ -909,8 +908,7 @@ function SourceEditorForm({ actions, busy, form, formFrame }: SourceEditorFormPr
           <div className="sources-form-grid">
             <label>
               <span>List path</span>
-              <input
-                className="form-input"
+              <TextInput
                 aria-label="API list path"
                 data-testid="source-api-list-path"
                 value={form.apiListPath}
@@ -919,8 +917,7 @@ function SourceEditorForm({ actions, busy, form, formFrame }: SourceEditorFormPr
             </label>
             <label>
               <span>Item ID path</span>
-              <input
-                className="form-input"
+              <TextInput
                 aria-label="API item ID path"
                 data-testid="source-api-item-id-path"
                 value={form.apiItemIdPath}
@@ -931,8 +928,7 @@ function SourceEditorForm({ actions, busy, form, formFrame }: SourceEditorFormPr
           <div className="sources-form-grid">
             <label>
               <span>Updated path</span>
-              <input
-                className="form-input"
+              <TextInput
                 aria-label="API updated-at path"
                 data-testid="source-api-updated-at-path"
                 value={form.apiUpdatedAtPath}
@@ -941,8 +937,7 @@ function SourceEditorForm({ actions, busy, form, formFrame }: SourceEditorFormPr
             </label>
             <label>
               <span>Max items</span>
-              <input
-                className="form-input"
+              <TextInput
                 aria-label="API max items"
                 data-testid="source-api-max-items"
                 value={form.apiMaxItems}
@@ -955,8 +950,8 @@ function SourceEditorForm({ actions, busy, form, formFrame }: SourceEditorFormPr
 
       {form.kind === 'courtlistener_docket' && (
         <>
-          <textarea
-            className="form-input source-textarea"
+          <TextArea
+            className="source-textarea"
             aria-label="CourtListener keywords"
             data-testid="source-court-keywords"
             value={form.courtKeywords}
@@ -985,8 +980,7 @@ function SourceEditorForm({ actions, busy, form, formFrame }: SourceEditorFormPr
           </div>
           <label className="source-field-label">
             Max entries
-            <input
-              className="form-input"
+            <TextInput
               aria-label="CourtListener max entries"
               data-testid="source-court-max-entries"
               value={form.courtMaxEntries}
@@ -1114,26 +1108,20 @@ function SourceList({ actions, armedDelete, busy, expanded, items, runPages, run
               >
                 <RefreshCw size={13} className={busy === s.id ? 'spin' : undefined} />
               </button>
-              <button
-                type="button"
-                className="icon-btn"
+              <IconButton
+                icon={Pencil}
                 title="Edit source"
-                aria-label={`Edit ${s.name}`}
+                label={`Edit ${s.name}`}
                 data-testid={`source-edit-${s.id}`}
                 onClick={() => actions.startEdit(s)}
-              >
-                <Pencil size={13} />
-              </button>
-              <button
-                type="button"
-                className="icon-btn"
+              />
+              <IconButton
+                icon={Eye}
                 title="Source details"
-                aria-label={`Source details for ${s.name}`}
+                label={`Source details for ${s.name}`}
                 data-testid={`source-health-${s.id}`}
                 onClick={() => { void actions.openHealth(s.id); }}
-              >
-                <Eye size={13} />
-              </button>
+              />
               <button
                 type="button"
                 className={`icon-btn${armedDelete === s.id ? ' danger' : ''}`}

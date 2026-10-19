@@ -10,6 +10,7 @@ import { ChevronDown, ChevronUp, X } from 'lucide-react';
 import type { ActionJob, RunProgress } from '../api/open';
 import { runCompletedWithErrors } from '../runStatusModel';
 import { useResizable } from '../components/useResizable';
+import { ProgressBar } from '../components/ActivityProgress';
 import { navigate, useRoute } from '../routes';
 import {
   isErrorJob,
@@ -495,20 +496,8 @@ function DockRunSummaryView({ summary }: { summary?: DockRunSummary }) {
       aria-live="polite"
     >
       {state === 'running' && (
-        <span
-          className={`workbench-bottom-progress${percent === null ? ' indeterminate' : ''}`}
-          data-testid="bottom-dock-run-progressbar"
-          role="progressbar"
-          aria-label="Run progress"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          {...(percent !== null ? { 'aria-valuenow': Math.round(percent) } : {})}
-        >
-          <span
-            className="workbench-bottom-progress-fill"
-            style={percent !== null ? { width: `${percent}%` } : undefined}
-          />
-        </span>
+        <ProgressBar label="Run progress" completed={percent === null ? null : Math.round(percent)} total={100} state="active"
+          className="workbench-bottom-progress" testId="bottom-dock-run-progressbar" />
       )}
       <span className="workbench-bottom-summary-label">{label}</span>
     </output>

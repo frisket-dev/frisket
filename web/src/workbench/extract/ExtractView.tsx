@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, ChevronUp, CircleAlert, CircleHelp, LoaderCircle, Minus, MousePointer2, Play, Rows3, ScanLine, Search, Settings2, Square, X } from 'lucide-react';
 import { MenuPop } from '../../components/MenuPop';
+import { IconButton } from '../../components/IconButton';
+import { SegmentedToggle } from '../../components/PanelPrimitives';
 import { PanelSelect } from '../../components/PanelSelect';
 import { useAnchoredPosition } from '../../hooks/useAnchoredPosition';
 import { useNativePopover } from '../../hooks/useNativePopover';
@@ -384,11 +386,12 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
       onChangeState({ ...state, sourceColumnId: value, activeRowId: null });
       setJumpRow(null); setInspection(null); setReference(null);
     }}>{sources.map(({ column }) => <option key={column.id} value={column.id}>{column.name}</option>)}</PanelSelect></label>}
-    <div className={`segmented segmented-toolbar ${styles.tools}`} role="group" aria-label="Annotation tools">{TOOLS.map(({ id, label, Icon }) => <button key={id} type="button"
-      className={tool === id ? 'active' : ''} aria-label={label} title={label} aria-pressed={tool === id} disabled={editorReadOnly || !currentGeometry}
-      onClick={() => { setTool(id); setPending(null); }}><Icon size={14} /><span>{label}</span></button>)}</div>
-    <button type="button" ref={helpTrigger} className={`icon-btn${helpOpen ? ' active' : ''}`} data-testid="extract-tool-help-button"
-      aria-label="Extraction tool help" title="Extraction tool help" aria-expanded={helpOpen} onClick={() => setHelpOpen((open) => !open)}><CircleHelp size={15} /></button>
+    <SegmentedToggle className={`segmented-toolbar ${styles.tools}`} ariaLabel="Annotation tools" fullWidth={false} size="compact"
+      value={tool} disabled={editorReadOnly || !currentGeometry}
+      options={TOOLS.map(({ id, label, Icon }) => ({ value: id, label, title: label, icon: Icon }))}
+      onValueChange={(value) => { setTool(value as ExtractTool); setPending(null); }} />
+    <IconButton icon={CircleHelp} ref={helpTrigger} data-testid="extract-tool-help-button"
+      label="Extraction tool help" title="Extraction tool help" aria-expanded={helpOpen} onClick={() => setHelpOpen((open) => !open)} />
     {helpPopover}
     {pending && <button type="button" className="mini-btn" aria-label="Cancel drawing" onClick={() => setPending(null)}><X size={13} />Cancel</button>}
     <label className={styles.toolbarLabel}><span className={styles.toolbarLabelText}>Scope</span><PanelSelect className="row-height-select" data-testid="extract-scope-selector" aria-label="Extraction scope" value={scopeKind} disabled={unavailable} onValueChange={(value) => {
@@ -399,7 +402,7 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
       <option value="all">All ({counts?.all ?? '…'} documents)</option>
       <option value="layout">Documents using this layout ({counts?.layout ?? '…'} documents)</option>
     </PanelSelect></label>
-    <button type="button" ref={optionsTrigger} className={`icon-btn${optionsOpen ? ' active' : ''}`} data-testid="extract-options-button" aria-label="Extraction options" title="Extraction options" aria-expanded={optionsOpen} disabled={editorReadOnly} onClick={() => setOptionsOpen((open) => !open)}><Settings2 size={15} /></button>
+    <IconButton icon={Settings2} ref={optionsTrigger} data-testid="extract-options-button" label="Extraction options" title="Extraction options" aria-expanded={optionsOpen} disabled={editorReadOnly} onClick={() => setOptionsOpen((open) => !open)} />
     {optionsPopover}
     {inspection && <><span className={styles.toolbarStatus}>Preview result · page {readerPage}</span>
       <button type="button" className="mini-btn" onClick={backToExample}>Back to example</button></>}

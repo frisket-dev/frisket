@@ -28,7 +28,7 @@ export const SharedAndActivityClose: Story = {
     </section>
     <section className="inventory-example inventory-stack">
       <h2>Activity card dismiss</h2>
-      <p>src/components/ActivityProgress.tsx — bespoke icon-btn treatment</p>
+      <p>src/components/ActivityProgress.tsx — shared WindowCloseButton</p>
       <ActivityProgressCard state="complete" title="Import complete" detail="12 documents added"
         onDismiss={() => undefined} />
       <ActivityProgressCard state="error" title="Preparation failed" detail="Two documents need attention"

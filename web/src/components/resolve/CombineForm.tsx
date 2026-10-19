@@ -1,3 +1,4 @@
+import { TextInput } from '../FormControls';
 // The bespoke drawer body for the Combine action ("Group values"). The core
 // loop: select unassigned values (click toggle · shift range · ⌘ add) → ＋ New
 // bucket / Add to ▾ → name the bucket (defaults to its most frequent member, ◆
@@ -520,8 +521,8 @@ function CombineFormBody({
       <div className="resolve-combine-add-value" data-testid="resolve-combine-bucket-add-value">
         <div className="resolve-combine-add-value-row">
           <Search size={12} aria-hidden />
-          <input
-            className="form-input resolve-combine-add-value-input"
+          <TextInput
+            className="resolve-combine-add-value-input"
             data-testid="resolve-combine-bucket-add-value-input"
             value={query}
             placeholder="Add a value"
@@ -729,8 +730,8 @@ function CombineFormBody({
               {preview.truncated && (
                 <div className="resolve-value-search-row resolve-combine-server-search">
                   <Search size={13} aria-hidden />
-                  <input
-                    className="form-input resolve-value-search"
+                  <TextInput
+                    className="resolve-value-search"
                     data-testid="resolve-combine-unassigned-search"
                     value={unassignedQuery}
                     placeholder="Search all values"
@@ -809,8 +810,7 @@ function CombineFormBody({
       {unmatched === 'value' && (
         <label className="resolve-combine-setting" data-testid="resolve-combine-remainder">
           <span className="resolve-combine-setting-label">Send remaining values to</span>
-          <input
-            className="form-input"
+          <TextInput
             data-testid="resolve-combine-remainder-input"
             value={unmatchedValue}
             placeholder="e.g. Other"

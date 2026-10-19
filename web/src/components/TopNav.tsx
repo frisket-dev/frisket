@@ -1,3 +1,4 @@
+import { TextInput } from './FormControls';
 // Shared nav chrome: frisket wordmark (→ picker), the project-name dropdown
 // for quick project switching, and the small account link. Route parsing /
 // navigation helpers live in src/routes.ts.
@@ -1168,8 +1169,7 @@ function ExportGoogleSheetsModal({
             {destinationKind === 'new_spreadsheet' ? (
               <label className="form-field">
                 <span>Spreadsheet title</span>
-                <input
-                  className="form-input"
+                <TextInput
                   value={spreadsheetTitle}
                   disabled={formFrozen}
                   onChange={(event) => setModalState({ spreadsheetTitle: event.target.value })}
@@ -1178,8 +1178,7 @@ function ExportGoogleSheetsModal({
             ) : (
               <label className="form-field">
                 <span>Spreadsheet ID</span>
-                <input
-                  className="form-input"
+                <TextInput
                   value={spreadsheetId}
                   disabled={formFrozen}
                   onChange={(event) => setModalState({ spreadsheetId: event.target.value })}
@@ -1203,8 +1202,7 @@ function ExportGoogleSheetsModal({
             )}
             <label className="form-field">
               <span>Type <strong>confirm</strong> to continue</span>
-              <input
-                className="form-input"
+              <TextInput
                 data-testid="export-google-sheets-confirmation-input"
                 value={confirmationText}
                 disabled={exporting}

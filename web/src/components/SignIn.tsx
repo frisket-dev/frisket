@@ -1,3 +1,4 @@
+import { TextInput } from './FormControls';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { KeyRound, Mail } from 'lucide-react';
 import { getRuntimeConfig, type RuntimeConfig } from '../api/open';
@@ -128,7 +129,7 @@ export function SignIn() {
           <AuthForm onSubmit={(event) => void completeFirstUse(event)}>
             <label>
               <span>Password</span>
-              <input
+              <TextInput
                 className={`form-input ${styles.control}`}
                 type="password"
                 autoComplete="new-password"
@@ -142,7 +143,7 @@ export function SignIn() {
             </label>
             <label>
               <span>Confirm password</span>
-              <input
+              <TextInput
                 className={`form-input ${styles.control}`}
                 type="password"
                 autoComplete="new-password"
@@ -186,7 +187,7 @@ export function SignIn() {
             {methods.oidc.length > 0 && <div className={styles.divider}><span>or</span></div>}
             <label>
               <span>Email</span>
-              <input
+              <TextInput
                 className={`form-input ${styles.control}`}
                 type="email"
                 autoComplete="username"
@@ -199,7 +200,7 @@ export function SignIn() {
             </label>
             <label>
               <span>Password</span>
-              <input
+              <TextInput
                 className={`form-input ${styles.control}`}
                 type="password"
                 autoComplete="current-password"
@@ -240,7 +241,7 @@ export function SignIn() {
                 <AuthForm onSubmit={(event) => void submitMagicLink(event)}>
                   <label>
                     <span>Email</span>
-                    <input
+                    <TextInput
                       ref={magicEmailRef}
                       className={`form-input ${styles.control}`}
                       type="email"

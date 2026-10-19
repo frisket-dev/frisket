@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { PanelEmpty, PanelError, PanelLoading, StatusChip } from '../src/components/PanelPrimitives';
+import { PanelEmpty, PanelError, PanelLoading, PanelNotice, StatusChip } from '../src/components/PanelPrimitives';
 import { ActivityProgressCard, ProgressBar } from '../src/components/ActivityProgress';
 
 const meta = { title: 'Inventory/Feedback and progress' } satisfies Meta;
@@ -11,6 +11,8 @@ export const SharedStates: Story = {
       <h2>Shared panel states</h2><p>src/components/PanelPrimitives.tsx</p>
       <PanelEmpty>No sources yet</PanelEmpty><PanelLoading label="Loading sources…" />
       <PanelError>Unable to load sources. Try again.</PanelError>
+      <PanelNotice tone="warning">Some rows need attention before importing.</PanelNotice>
+      <PanelNotice tone="success">Changes saved.</PanelNotice>
       <div className="inventory-row">
         <StatusChip tone="success">Ready</StatusChip><StatusChip tone="warning">Needs attention</StatusChip>
         <StatusChip tone="error">Failed</StatusChip><StatusChip tone="info">Running</StatusChip>

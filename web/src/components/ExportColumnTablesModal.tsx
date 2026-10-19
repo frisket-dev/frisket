@@ -1,3 +1,4 @@
+import { TextInput, TextArea } from './FormControls';
 import { useMemo, useState, type FormEvent } from 'react';
 import { Download, Loader2 } from 'lucide-react';
 import { type ActionCatalogEntry, type SheetMeta, type V1Receipt } from '../api/open';
@@ -133,8 +134,7 @@ export function ExportColumnTablesModal({
             </label>
             <label className="form-field">
               Group by nested field (optional)
-              <input
-                className="form-input"
+              <TextInput
                 data-testid="export-column-tables-group-by"
                 value={groupBy}
                 onChange={(event) => setGroupBy(event.target.value)}
@@ -144,8 +144,7 @@ export function ExportColumnTablesModal({
             </label>
             <label className="form-field">
               Exclude nested fields (optional)
-              <textarea
-                className="form-input"
+              <TextArea
                 data-testid="export-column-tables-exclude-columns"
                 value={excludeColumns}
                 onChange={(event) => setExcludeColumns(event.target.value)}

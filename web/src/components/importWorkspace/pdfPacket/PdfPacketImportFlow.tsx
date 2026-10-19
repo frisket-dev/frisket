@@ -1,3 +1,4 @@
+import { TextInput } from '../../FormControls';
 import {
   useCallback,
   useEffect,
@@ -945,10 +946,10 @@ function PacketImportStep({ state, pageCount, canKeepOcrText, onBack, onSubmit, 
     <header><h2>Import {countLabel(documents.length, 'document')}</h2><p>Each becomes a normal PDF. The original packet stays as it is.</p></header>
     <div className="pdf-packet-import-options">
       <label className="pdf-packet-import-field"><span>New sheet</span>
-        <input className="form-input" value={state.destinationName} onChange={(event) => dispatch({ type: 'destinationName', value: event.target.value })} />
+        <TextInput value={state.destinationName} onChange={(event) => dispatch({ type: 'destinationName', value: event.target.value })} />
       </label>
       <label className="pdf-packet-import-field"><span>File names</span>
-        <input className="form-input mono" value={state.namePattern} onChange={(event) => dispatch({ type: 'namePattern', value: event.target.value })} />
+        <TextInput className="mono" value={state.namePattern} onChange={(event) => dispatch({ type: 'namePattern', value: event.target.value })} />
         {patternError && <span className="import-field-error" role="alert">{patternError}</span>}
       </label>
       <div className="pdf-packet-import-choice">

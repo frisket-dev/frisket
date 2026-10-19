@@ -1,3 +1,4 @@
+import { TextInput } from './FormControls';
 // Home / projects screen — the default landing surface and route-home. A
 // full-window route screen (not a modal): a top bar (app mark + ⌘K-openable
 // command pill + avatar/account menu), a left nav that scopes the list
@@ -747,9 +748,9 @@ function HomeToolbar({
             onCreateSubmit();
           }}
         >
-          <input
+          <TextInput
             aria-label="New project name"
-            className="form-input"
+
             value={name}
             placeholder="new project name"
             data-testid="new-project-name"
@@ -851,9 +852,9 @@ function HomeProjectCard({
               onRenameSubmit();
             }}
           >
-            <input
+            <TextInput
               ref={renameInputRef}
-              className="form-input home-card-rename-input"
+              className="home-card-rename-input"
               aria-label={`Rename ${project.name}`}
               data-testid={`home-card-rename-input-${project.id}`}
               value={renameValue}

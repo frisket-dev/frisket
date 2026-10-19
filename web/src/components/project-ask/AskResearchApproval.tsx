@@ -1,3 +1,4 @@
+import { TextInput } from '../FormControls';
 import { useState } from 'react';
 import './AskResearch.css';
 
@@ -90,7 +91,7 @@ function BudgetApproval({ approval, onContinue, onStop, disabled = false }: Omit
     <p>Spent {amount(micros(approval.settled_micros))} · reserved {amount(micros(approval.reserved_micros))} · next action about {amount(micros(approval.next_estimate_micros))}</p>
     <label className="ask-research-approval-field">
       <span>New total budget (USD)</span>
-      <input className="form-input" type="text" inputMode="decimal" aria-label="New total budget (USD)" value={budget} disabled={disabled} onChange={(event) => setBudget(event.target.value.trim())} />
+      <TextInput type="text" inputMode="decimal" aria-label="New total budget (USD)" value={budget} disabled={disabled} onChange={(event) => setBudget(event.target.value.trim())} />
     </label>
     <Actions disabled={disabled} continueDisabled={!valid} onContinue={() => onContinue({ budget_usd: budget })} onStop={onStop} />
   </>;
@@ -108,7 +109,7 @@ function TurnLimitApproval({ approval, onContinue, onStop, disabled = false }: O
     <p>This run used {approval.turns_used} turns. Raise the limit or remove it to continue.</p>
     <label className="ask-research-approval-field">
       <span>New max turns</span>
-      <input className="form-input" type="number" min={approval.max_turns + 1} step={1} aria-label="New max turns" value={turns} disabled={disabled || noLimit} onChange={(event) => setTurns(event.target.value)} />
+      <TextInput type="number" min={approval.max_turns + 1} step={1} aria-label="New max turns" value={turns} disabled={disabled || noLimit} onChange={(event) => setTurns(event.target.value)} />
     </label>
     <label className="ask-research-no-limit"><input type="checkbox" checked={noLimit} disabled={disabled} onChange={(event) => setNoLimit(event.target.checked)} />No limit</label>
     <Actions disabled={disabled} continueDisabled={!valid} onContinue={() => onContinue({ max_turns: noLimit ? null : parsed })} onStop={onStop} />

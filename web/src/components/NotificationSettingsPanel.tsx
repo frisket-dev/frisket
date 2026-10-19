@@ -1,3 +1,4 @@
+import { TextInput } from './FormControls';
 import { type ReactNode, useCallback, useEffect, useMemo, useReducer } from 'react';
 import { PanelEmpty, PanelError, StatusChip, type StatusTone } from './PanelPrimitives';
 import { PanelSelect } from './PanelSelect';
@@ -412,29 +413,29 @@ function ChannelSection({
           </PanelSelect>
         </Field>
         <Field label="Name">
-          <input className="form-input" aria-label="Channel name" data-testid="notification-channel-name" value={draft.name} onChange={(event) => onDraftChange({ name: event.target.value })} placeholder="Channel name" />
+          <TextInput aria-label="Channel name" data-testid="notification-channel-name" value={draft.name} onChange={(event) => onDraftChange({ name: event.target.value })} placeholder="Channel name" />
         </Field>
         {draft.kind === 'email' ? (
           <>
             <Field label="To">
-              <input className="form-input" aria-label="Email to address" data-testid="notification-channel-email-to" value={draft.to} onChange={(event) => onDraftChange({ to: event.target.value })} placeholder="alerts@example.com" />
+              <TextInput aria-label="Email to address" data-testid="notification-channel-email-to" value={draft.to} onChange={(event) => onDraftChange({ to: event.target.value })} placeholder="alerts@example.com" />
             </Field>
             <Field label="From">
-              <input className="form-input" aria-label="Email from address" data-testid="notification-channel-email-from" value={draft.from} onChange={(event) => onDraftChange({ from: event.target.value })} placeholder="frisket <alerts@example.com>" />
+              <TextInput aria-label="Email from address" data-testid="notification-channel-email-from" value={draft.from} onChange={(event) => onDraftChange({ from: event.target.value })} placeholder="frisket <alerts@example.com>" />
             </Field>
           </>
         ) : (
           <>
             <Field label="Channel">
-              <input className="form-input" aria-label="Slack channel label" data-testid="notification-channel-slack-label" value={draft.channelLabel} onChange={(event) => onDraftChange({ channelLabel: event.target.value })} placeholder="#alerts" />
+              <TextInput aria-label="Slack channel label" data-testid="notification-channel-slack-label" value={draft.channelLabel} onChange={(event) => onDraftChange({ channelLabel: event.target.value })} placeholder="#alerts" />
             </Field>
             <Field label="Webhook">
-              <input className="form-input" aria-label="Slack webhook host" data-testid="notification-channel-slack-host" value={draft.webhookHost} onChange={(event) => onDraftChange({ webhookHost: event.target.value })} placeholder="hooks.slack.com" />
+              <TextInput aria-label="Slack webhook host" data-testid="notification-channel-slack-host" value={draft.webhookHost} onChange={(event) => onDraftChange({ webhookHost: event.target.value })} placeholder="hooks.slack.com" />
             </Field>
           </>
         )}
         <Field label="Secret ref">
-          <input className="form-input" aria-label="API secret reference" data-testid="notification-channel-secret-ref" value={draft.secretRef} onChange={(event) => onDraftChange({ secretRef: event.target.value })} placeholder="env:SECRET_NAME" />
+          <TextInput aria-label="API secret reference" data-testid="notification-channel-secret-ref" value={draft.secretRef} onChange={(event) => onDraftChange({ secretRef: event.target.value })} placeholder="env:SECRET_NAME" />
           <span className="notification-settings-hint">References a stored secret, e.g. <code>env:SECRET_NAME</code> — not the value itself.</span>
         </Field>
         <div className="notification-settings-formfooter">
@@ -502,7 +503,7 @@ function RouteSection({
       <div className="notification-settings-form" data-testid="notification-route-form">
         <div className="notification-settings-formkicker">New route</div>
         <Field label="Name">
-          <input className="form-input" aria-label="Route name" data-testid="notification-route-name" value={draft.name} onChange={(event) => onDraftChange({ name: event.target.value })} placeholder="Route name" />
+          <TextInput aria-label="Route name" data-testid="notification-route-name" value={draft.name} onChange={(event) => onDraftChange({ name: event.target.value })} placeholder="Route name" />
         </Field>
         <Field label="Channel">
           <PanelSelect className="row-height-select" data-testid="notification-route-channel" value={draft.channelId} onChange={(event) => onDraftChange({ channelId: event.target.value })}>
@@ -522,7 +523,7 @@ function RouteSection({
         </Field>
         {draft.sourceKind === 'watch' && (
           <Field label="Watch ID">
-            <input className="form-input" aria-label="Watch ID" data-testid="notification-route-watch-id" value={draft.watchId} onChange={(event) => onDraftChange({ watchId: event.target.value })} placeholder="Watch ID" />
+            <TextInput aria-label="Watch ID" data-testid="notification-route-watch-id" value={draft.watchId} onChange={(event) => onDraftChange({ watchId: event.target.value })} placeholder="Watch ID" />
           </Field>
         )}
         <Field label="Delivery">
@@ -541,7 +542,7 @@ function RouteSection({
               </PanelSelect>
             </Field>
             <Field label="At (UTC)">
-              <input className="form-input" aria-label="Digest anchor time" data-testid="notification-route-digest-anchor" value={draft.digestAnchorTime} onChange={(event) => onDraftChange({ digestAnchorTime: event.target.value })} placeholder="09:00" />
+              <TextInput aria-label="Digest anchor time" data-testid="notification-route-digest-anchor" value={draft.digestAnchorTime} onChange={(event) => onDraftChange({ digestAnchorTime: event.target.value })} placeholder="09:00" />
             </Field>
           </>
         )}

@@ -1,3 +1,4 @@
+import { TextArea } from '../FormControls';
 import { useEffect, useRef, useState } from 'react';
 import type { GeneratedActionParams } from '../../generated/actionTypes';
 import {
@@ -169,7 +170,7 @@ function TemporalSegmentsEditor({
       <Field name="selection" label="Saved temporal selection" />
     </> : mode === 'points' ? <>
       <label className="field-group"><span className="field-labels">Timestamps</span>
-        <textarea className="form-input temporal-paste-input" rows={7} spellCheck={false}
+        <TextArea className="temporal-paste-input" rows={7} spellCheck={false}
           value={pointText} data-testid="split-points-textarea"
           placeholder={'00:30\n01:15,Opening\n02:45\tInterview begins'}
           onChange={(event) => setPoints(event.target.value)} />
@@ -180,7 +181,7 @@ function TemporalSegmentsEditor({
         : parsedPoints.ok && <PointDraftPreview items={parsedPoints.items} purpose={purpose} />}
     </> : <>
       <label className="field-group"><span className="field-labels">Time ranges</span>
-        <textarea className="form-input temporal-paste-input" rows={7} spellCheck={false}
+        <TextArea className="temporal-paste-input" rows={7} spellCheck={false}
           value={rangeText} data-testid="split-ranges-textarea"
           placeholder={'00:10,00:45,Opening\n01:20,02:00,Interview'}
           onChange={(event) => setRanges(event.target.value)} />
