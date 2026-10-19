@@ -1,6 +1,6 @@
 # UI inventory findings
 
-## Next complete consolidation round (maintainer approved)
+## Card, dialog and compound-editor round (implemented)
 
 - Normalize card/row contents across Sources, Watches and Notifications: titles,
   descriptions, metadata, counts and status badges, not only their outer frame.
@@ -14,6 +14,28 @@
 The next maintainer ZIP includes **changed surfaces only**, spanning the previous
 structural round and this round. It is not another full component inventory.
 No public PR until visual approval.
+
+All four items are implemented. Dialogs share Modal; imports and embedding
+creation share StageStepper. Compound editors share presentation, not a new
+form/controller framework. Card metadata and status presentation now use the
+same primitives across Sources, Watches and Notifications.
+
+Reviews caught label activation removing a Join selection, nested dialog Escape
+closing its parent, and narrow repeated-section inputs hiding page numbers.
+These are repaired and covered by component/browser regressions. Required
+telemetry consent and AI-mode confirmation remain intact. CourtListener checkbox
+spacing, selected canonical-value styling and dialog accessible names were also
+corrected. Existing export cancellation behavior is unchanged.
+
+Production delta versus `94d0f2cc`: +681 / −1,508, **net −827**. Entire
+normalization campaign versus `ebe6301d`: **net −3,485**. These totals include
+new stylesheets and components; moving CSS alone is not counted as savings.
+Targeted component tests, application/inventory types and lint pass. The broad
+browser pass had nine passing scenarios and one fixture failure (a read-only POST
+was incorrectly denied); the corrected cards, dialogs and populated editors
+then passed all four final scenarios. Captures use offline synthetic/local data.
+Independent Codex and Claude reviews cleared the final production candidate
+`a6d0b6fa`; maintainer visual approval remains pending before any public PR.
 
 ## Active expanded consolidation scope (maintainer approved)
 
