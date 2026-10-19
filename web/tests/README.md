@@ -26,7 +26,11 @@ the normal credential-free, egress-denied test sandbox: browser interception
 alone cannot prevent server-side network requests.
 
 Open `screenshots/inventory/index.html` to browse PNGs offline. Full-screen
-context links accompany cropped panels. `stories/COVERAGE.md` records the scope
+context links accompany cropped panels and small controls. The gallery groups
+small elements by purpose first, then larger components/screens. Dark versions
+are secondary links. `tests/inventory/elements.ts` collects unobscured controls
+without scrolling, collapsing repeated treatments; extend its selectors when
+adding a new visual family. `stories/COVERAGE.md` records the scope
 and outstanding states; `stories/FINDINGS.md` records consolidation candidates.
 Capture success is not an accessibility audit or proof of model execution.
 

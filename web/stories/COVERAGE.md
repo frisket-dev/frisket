@@ -5,6 +5,19 @@ the actual captured states, source paths, light/dark versions and full-screen
 context. Real-screen recipes live in `tests/inventory/`; isolated production
 component examples live in `stories/`. All data is synthetic. No models run.
 
+The gallery starts with **small elements**, grouped by purpose: buttons/icon
+controls, tabs/segmented controls, dropdown triggers, progress/loading, warnings/
+errors/notices, badges/chips, inputs/switches, and labels/help. These are viewport
+crops of actual controls in the captured screens, not reconstructed examples.
+Repeated labels using the same classes, state and computed styling are collapsed;
+this is a practical inventory heuristic, not proof that implementations match.
+Each crop links to its screen and includes its selector and scene source paths.
+Offscreen or obscured elements are excluded, so this is not a complete code census.
+
+**Larger components and screens** follow separately. Light is the main gallery;
+dark versions are optional links rather than duplicate cards. Storybook remains
+the interactive companion for the isolated production components.
+
 ## Required surface coverage
 
 | Surface | Captured states / approach |

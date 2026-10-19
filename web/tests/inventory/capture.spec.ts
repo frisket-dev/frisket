@@ -8,9 +8,10 @@ import { captureImportScenes } from './import-scenes';
 import { captureMediaScenes } from './media-scenes';
 import { captureMentionsScenes, capturePanelScenes, capturePopulatedPanelScenes, captureSettingsScenes } from './workbench-scenes';
 import { captureTeamSettingsScenes } from './team-scenes';
+import { captureElements } from './elements';
 
 const output = path.resolve('screenshots/inventory');
-type Capture = { family: string; name: string; source: string; file: string; detail?: string; theme: string };
+type Capture = { kind?: 'small'; family: string; name: string; source: string; file: string; detail?: string; theme: string; context?: string; scene?: string; selector?: string; state?: string };
 const manifest = path.join(output, 'captures.ndjson');
 let browserErrors: string[] = [];
 const detailSelectors: Record<string, string> = {
@@ -38,6 +39,7 @@ async function shot(page: Page, family: string, name: string, source: string) {
       }
     }
     appendFileSync(manifest, `${JSON.stringify({ family, name, source, file, detail, theme })}\n`);
+    if (theme === 'light') await captureElements(page, output, file, `${family} / ${name}`, source);
   }
 }
 
@@ -64,16 +66,31 @@ test.afterAll(() => {
     ? readFileSync(manifest, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line)) : [];
   const commit = process.env.FRISKET_INVENTORY_COMMIT ?? execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
   for (const document of ['COVERAGE.md', 'FINDINGS.md']) copyFileSync(path.resolve('stories', document), path.join(output, document));
-  const families = [...new Set(captures.map(item => item.family))];
+  const small = captures.filter(item => item.kind === 'small');
+  const large = captures.filter(item => item.kind !== 'small' && item.theme === 'light');
+  const smallFamilies = [...new Set(small.map(item => item.family))];
+  const largeFamilies = [...new Set(large.map(item => item.family))];
   writeFileSync(path.join(output, 'index.html'), `<!doctype html><html lang="en"><meta charset="utf-8">
     <title>Frisket UI inventory</title><style>
     body{font:15px system-ui;margin:28px;background:#f4f4f4;color:#222}nav a{margin-right:18px}
-    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(500px,1fr));gap:20px}
-    figure{margin:0;background:white;padding:12px}img{width:100%;height:auto}code{overflow-wrap:anywhere}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,480px),1fr));gap:20px}
+    .small-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr))}
+    figure{margin:0;background:white;padding:16px;min-width:0}img{max-width:100%;height:auto}
+    .large img{width:100%}.specimen{min-height:100px;display:flex;align-items:center;margin:12px 0}
+    code{overflow-wrap:anywhere;font-size:11px}figcaption{font-size:12px;color:#555}summary{cursor:pointer}
+    h2{margin-top:48px;border-bottom:2px solid #ccc;padding-bottom:12px}h3{margin-top:32px}
     </style><h1>Frisket UI inventory</h1><p>Captured ${html(new Date().toISOString())} · commit ${html(commit)}</p>
     <p>This index lists captured examples, not exhaustive coverage. <a href="COVERAGE.md">Coverage and remaining states</a> · <a href="FINDINGS.md">Findings</a>. Synthetic API states are labeled in captions.</p>
-    <nav>${families.map((family, index) => `<a href="#family-${index}">${html(family)}</a>`).join('')}</nav>
-    ${families.map((family, index) => `<h2 id="family-${index}">${html(family)}</h2><div class="grid">${captures.filter(item => item.family === family).map(item => `<figure><figcaption><strong>${html(item.name)} · ${html(item.theme)}</strong><br><code>${html(item.source)}</code><br><a href="${html(item.file)}">Full screen context</a></figcaption><a href="${html(item.detail ?? item.file)}"><img loading="lazy" src="${html(item.detail ?? item.file)}" alt="${html(item.name)}"></a></figure>`).join('')}</div>`).join('')}
+    <nav><a href="#small">Small elements (${small.length})</a><a href="#large">Larger components and screens (${large.length})</a></nav>
+    <h2 id="small">Small elements</h2><p>Actual rendered controls, grouped by purpose. Repeated labels with the same classes, state and styling are collapsed. These are observed treatments—not proposed standards. Light theme only here; screen-level dark versions remain available below.</p>
+    <nav>${smallFamilies.map((family, index) => `<a href="#small-${index}">${html(family)}</a>`).join('')}</nav>
+    ${smallFamilies.map((family, index) => `<h3 id="small-${index}">${html(family)}</h3><div class="grid small-grid">${small.filter(item => item.family === family).map(item => `<figure><strong>${html(item.name)}</strong><div class="specimen"><a href="${html(item.file)}"><img loading="lazy" src="${html(item.file)}" alt="${html(item.name)}"></a></div><figcaption><a href="${html(item.context!)}">${html(item.scene!)}</a><details><summary>Implementation / source</summary><code>${html(item.selector!)}<br>${html(item.state!)}<br>${html(item.source)}</code></details></figcaption></figure>`).join('')}</div>`).join('')}
+    <h2 id="large">Larger components and screens</h2><p>Forms, panels, dialogs and complete workflows. Dark theme is an optional link, not a second gallery card.</p>
+    <nav>${largeFamilies.map((family, index) => `<a href="#large-${index}">${html(family)}</a>`).join('')}</nav>
+    ${largeFamilies.map((family, index) => `<h3 id="large-${index}">${html(family)}</h3><div class="grid large">${large.filter(item => item.family === family).map(item => {
+      const dark = captures.find(other => other.kind !== 'small' && other.family === item.family && other.name === item.name && other.theme === 'dark');
+      return `<figure><figcaption><strong>${html(item.name)}</strong><br><code>${html(item.source)}</code><br><a href="${html(item.file)}">Full screen context</a>${dark ? ` · <a href="${html(dark.detail ?? dark.file)}">Dark version</a>` : ''}</figcaption><a href="${html(item.detail ?? item.file)}"><img loading="lazy" src="${html(item.detail ?? item.file)}" alt="${html(item.name)}"></a></figure>`;
+    }).join('')}</div>`).join('')}
     </html>`);
 });
 
