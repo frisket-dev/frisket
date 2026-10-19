@@ -131,6 +131,25 @@ test('four import entry surfaces', async ({ page }) => {
 });
 
 test('representative action forms', async ({ page }) => captureActionScenes(page, shot));
+test('model routing labels fit without page-specific styling', async ({ page }) => {
+  const pid = await createProject(page.request, 'Model route controls');
+  const sid = await importCsv(page.request, pid, 'records.csv', 'name,notes\nAda,Council meeting\n');
+  await page.goto(`/p/${pid}/s/${sid}/action/map.extract`);
+  await page.getByTestId('engine-selector').getByRole('button', { expanded: false }).click();
+  const dialog = page.getByTestId('engine-selector-dialog');
+  const routes = dialog.getByTestId('model-route-control');
+  for (const provider of ['Anthropic', 'OpenAI']) {
+    if (provider === 'OpenAI') {
+      await dialog.locator('[data-engine-selector-group]').filter({ hasText: 'OpenAI' }).click();
+      await dialog.locator('[data-engine-selector-choice]').first().click();
+    }
+    const label = routes.getByRole('button', { name: new RegExp(`Your ${provider} key`) }).locator('.segmented-option-label');
+    await expect(label).toBeVisible();
+    expect(await label.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await shot(page, provider === 'Anthropic' ? 'Actions' : 'Shared controls',
+      provider === 'Anthropic' ? 'extract-model-picker' : 'model-route-openai', 'src/engine-selector/ModelRouteControl.tsx');
+  }
+});
 test('inspection and command search', async ({ page }) => captureInspectionScenes(page, shot));
 test('local settings suite', async ({ page }) => {
   test.setTimeout(180_000);

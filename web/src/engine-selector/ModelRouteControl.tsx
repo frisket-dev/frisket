@@ -73,6 +73,7 @@ export function ModelRouteControl({
     <div className="engine-selector__route-control-body">
       <SegmentedToggle
         ariaLabel="Use model through"
+        fullWidth={false}
         className="engine-selector__route-toggle"
         disabled={busy || !selection.can_mutate}
         options={selection.options.map(routeOption)}

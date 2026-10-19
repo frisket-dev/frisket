@@ -32,6 +32,6 @@ src/frisket/web_static/
 /src/frisket/retrieval/_native/
 test-results
 web/storybook-static/
-web/screenshots/inventory/
+web/screenshots/
 .codex
 .claude
