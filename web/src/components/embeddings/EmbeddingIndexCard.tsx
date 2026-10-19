@@ -82,8 +82,8 @@ export function EmbeddingIndexCard({
   const canFindSimilar = selectedRowId !== null && sourceColumn !== undefined;
 
   return (
-    <div className="embedding-index" data-testid={`embedding-index-${index.indexId}`}>
-      <div className="embedding-index-head">
+    <div className="panel-card" data-testid={`embedding-index-${index.indexId}`}>
+      <div className="control-row">
         <span className="embedding-index-name">{index.name}</span>
         {index.remote && (
           <StatusChip tone="info" size="sm" uppercase testId={`embedding-remote-${index.indexId}`}>
@@ -110,7 +110,7 @@ export function EmbeddingIndexCard({
         {index.staleItems > 0 ? ` · ${index.staleItems} stale` : ''}
         {index.errorItems > 0 ? ` · ${index.errorItems} error` : ''}
       </p>
-      <div className="embedding-index-actions">
+      <div className="control-row">
         <Button
           type="button"
 
@@ -435,7 +435,7 @@ function ExportControl({
   }, [apiPort, index.indexId]);
 
   return (
-    <div className="embedding-export" data-testid={`embedding-export-${index.indexId}`}>
+    <div className="content-stack" data-testid={`embedding-export-${index.indexId}`}>
       <Button
         type="button"
 
@@ -453,7 +453,7 @@ function ExportControl({
       {state.error && <p className="panel-error">{state.error}</p>}
       {state.result && (
         <ul
-          className="embedding-export-artifacts"
+          className="panel-list"
           data-testid={`embedding-export-artifacts-${index.indexId}`}
         >
           {state.result.artifacts.map((artifact) => (

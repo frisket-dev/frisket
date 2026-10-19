@@ -111,9 +111,7 @@ export function DocumentView({
   }, [alongside.open]);
   // Each view-option select portals its custom menu to <body>, so the menu is
   // NOT a DOM descendant of the options popover. Two consequences, both
-  // handled by the props threaded below: the menu must be promoted to the top
-  // layer itself (`topLayer`) or the popover — which is already in the top
-  // layer — paints over it, and the popover's outside-pointerdown dismissal
+  // handled by shared top-layer menus and the refs below: the popover's dismissal
   // must count these menus as "inside" (`extraRefs`) or choosing an option
   // dismisses the popover the option belongs to.
   const optionSourceMenuRef = useRef<HTMLDivElement>(null);
@@ -204,7 +202,6 @@ export function DocumentView({
           <PanelSelect
             className="row-height-select"
             data-testid="document-option-source"
-            topLayer
             menuRef={optionSourceMenuRef}
             value={sourceColumn ? String(sourceColumn.id) : ''}
             onChange={(event) => setState({ sourceColumnId: event.target.value })}
@@ -229,7 +226,6 @@ export function DocumentView({
         <PanelSelect
           className="row-height-select"
           data-testid="document-option-title"
-            topLayer
             menuRef={optionTitleMenuRef}
           value={state.titleColumnId ?? ''}
           onChange={(event) =>
@@ -254,7 +250,6 @@ export function DocumentView({
         <PanelSelect
           className="row-height-select"
           data-testid="document-option-layout"
-            topLayer
             menuRef={optionLayoutMenuRef}
           value={state.layout}
           onChange={(event) =>
@@ -271,7 +266,6 @@ export function DocumentView({
         <PanelSelect
           className="row-height-select"
           data-testid="document-option-fit"
-            topLayer
             menuRef={optionFitMenuRef}
           value={state.fit}
           onChange={(event) => setState({ fit: event.target.value as DocumentViewState['fit'] })}
@@ -296,7 +290,6 @@ export function DocumentView({
         <PanelSelect
           className="row-height-select"
           data-testid="document-option-listsort"
-            topLayer
             menuRef={optionListSortMenuRef}
           value={listSortDir ?? 'none'}
           onChange={(event) => {

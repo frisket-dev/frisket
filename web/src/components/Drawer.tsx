@@ -2,6 +2,7 @@ import { useCallback, useState, type CSSProperties, type ReactNode, type Ref } f
 import { useResizable } from './useResizable';
 import { useEscapeDismiss } from '../hooks/useEscapeDismiss';
 import { PanelHeader } from './PanelPrimitives';
+import { PanelFrame, PanelBody } from './PanelLayout';
 
 export interface DrawerProps {
   title: ReactNode;
@@ -47,7 +48,7 @@ export function Drawer({ title, side = 'right', onClose, children, testId, bodyR
   useEscapeDismiss(requestClose);
 
   return (
-    <aside
+    <PanelFrame as="aside"
       className={`drawer drawer-${side}${closing ? ' drawer-closing' : ''}${resizing ? ' drawer-resizing' : ''}`}
       style={{ width }}
       data-testid={testId}
@@ -66,9 +67,9 @@ export function Drawer({ title, side = 'right', onClose, children, testId, bodyR
         onClose={requestClose}
         closeAriaLabel="Close drawer"
       />
-      <div className="drawer-body" ref={bodyRef}>
+      <PanelBody padding="compact" className="drawer-body" ref={bodyRef}>
         {children}
-      </div>
-    </aside>
+      </PanelBody>
+    </PanelFrame>
   );
 }

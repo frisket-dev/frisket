@@ -134,8 +134,8 @@ In the CSV row-preview step, open Separator and press Escape. The menu closes **
 
 These are candidates to investigate, not assertions that every difference is a defect. They are deliberately not capped or reduced to a top-five list.
 
-1. `ImportCsv.tsx` now owns general import routing, bulk intake, feed configuration and receipts. Its name hides its responsibilities; extracting the existing feed form from orchestration is a more concrete seam than creating a wizard framework.
-2. Import flows already share `ImportStageStepper`, `ImportStepFooter` and destination controls. Preserve that reuse; find divergent callers before adding replacements.
+1. Done: `ImportCsv.tsx` was removed. Workspace routing, file intake, feed configuration and follow-up presentation now have named modules in `importWorkspace/`.
+2. Import flows share `ImportStageStepper` and destination controls; their body/footer framing is being promoted to the same layout used by panels and receipts.
 3. PDF batch and PDF packet sample switchers use different markup for related navigation. Share their small controls where appropriate, not their different review algorithms.
 4. Multiple-file import assembles its own progress cards despite `ActivityProgress`. Compare cancellation/retention behavior before replacing it.
 5. Import reader controls wrap selects in implicit labels; accessible names include option text. Explicit associations could simplify the names without changing dropdown semantics.

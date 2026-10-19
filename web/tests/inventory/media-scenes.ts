@@ -47,6 +47,12 @@ export async function captureMediaScenes(page: Page, shot: Shot) {
   expect(Math.abs(label!.y + label!.height / 2 - control!.y - control!.height / 2)).toBeLessThan(3);
   expect(control!.x).toBeGreaterThan(label!.x + label!.width);
   await shot(page, 'Documents', 'PDF view options', documentSource);
+  await page.getByTestId('document-option-layout').click();
+  await expect(page.getByTestId('document-option-layout-menu')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('document-option-layout-menu')).toHaveCount(0);
+  await expect(page.getByTestId('document-options')).toBeVisible();
+  await expect(page.getByTestId('document-option-layout')).toBeFocused();
   await page.getByTestId('document-options-button').click();
   await page.getByTestId('document-show-alongside').click();
   await expect(page.getByTestId('document-alongside-pane')).toBeVisible();

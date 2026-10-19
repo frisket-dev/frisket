@@ -3,6 +3,7 @@ import {
   SPACY_CANONICAL_TYPE_VALUES,
   SPACY_TYPE_TIERS,
 } from './nerLabelModel';
+import { Button } from '../Button';
 import styles from './NerFieldControls.module.css';
 
 /** A toggle-chip multi-select over spaCy's fixed entity schema, rendered as
@@ -38,49 +39,49 @@ export function SpacyTypeMultiSelect({
       {SPACY_TYPE_TIERS.map((tier) => (
         <div
           key={tier.id}
-          className={`${styles.tier}${tier.id === 'noise' ? ` ${styles.isNoise}` : ''}`}
+          className={styles.tier}
           data-tier={tier.id}
         >
           <p className={styles.tierLabel} id={`${testId}-tier-${tier.id}`}>
             {tier.caption}
           </p>
           <div
-            className={styles.chips}
+            className="control-row"
             role="group"
             aria-labelledby={`${testId}-tier-${tier.id}`}
           >
             {tier.options.map((option) => (
-              <button
+              <Button
                 key={option.value}
                 type="button"
-                className={`${styles.chip}${selected.has(option.value) ? ` ${styles.active}` : ''}`}
+                className={tier.id === 'noise' ? styles.noiseType : undefined}
                 data-testid={`${testId}-${option.value}`}
                 aria-pressed={selected.has(option.value)}
                 onClick={() => toggle(option.value)}
               >
                 {option.label}
-              </button>
+              </Button>
             ))}
           </div>
         </div>
       ))}
-      <div className={styles.actions}>
-        <button
+      <div className="form-actions">
+        <Button
           type="button"
-          className={styles.action}
+          variant="text"
           data-testid={`${testId}-select-all`}
           onClick={() => onChange([...SPACY_CANONICAL_TYPE_VALUES])}
         >
           Select all
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className={styles.action}
+          variant="text"
           data-testid={`${testId}-reset-recommended`}
           onClick={() => onChange([...RECOMMENDED_SPACY_TYPES])}
         >
           Reset recommended
-        </button>
+        </Button>
       </div>
       {error && (
         <p className="panel-error" data-testid={`${testId}-error`} role="alert">

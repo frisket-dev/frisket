@@ -20,7 +20,11 @@ export interface NativePopoverOptions {
   /** manual mode: extra containers counted as "inside" — for portaled menus. */
   extraRefs?: ReadonlyArray<RefObject<HTMLElement | null>>;
   /** Restore focus to the element focused when this opened (default false). */
-  focusRestore?: boolean;
+  focusRestore?: boolean | RefObject<HTMLElement | null>;
+  /** Close when keyboard focus leaves the surface and its trigger. */
+  focusOutside?: boolean;
+  /** Native invoker: keeps keyboard tab order beside a portaled trigger. */
+  sourceRef?: RefObject<HTMLElement | null>;
 }
 
 /**
@@ -47,7 +51,7 @@ export interface NativePopoverOptions {
  */
 export function useNativePopover(
   ref: RefObject<HTMLElement | null>,
-  onClose: () => void,
+  onClose: (reason?: 'escape' | 'outside') => void,
   opts: NativePopoverOptions = {},
 ): void {
   const { enabled = true, mode = 'manual' } = opts;
@@ -74,7 +78,9 @@ export function useNativePopover(
       }
     };
     el.addEventListener('toggle', onToggle);
-    if (supportsPopover && el.isConnected && !el.matches(':popover-open')) el.showPopover();
+    if (supportsPopover && el.isConnected && !el.matches(':popover-open')) {
+      el.showPopover({ source: latest.current.opts.sourceRef?.current ?? undefined });
+    }
     return () => {
       el.removeEventListener('toggle', onToggle);
       if (supportsPopover && el.isConnected && el.matches(':popover-open')) el.hidePopover();
@@ -88,25 +94,27 @@ export function useNativePopover(
     if (!enabled || mode === 'auto') return undefined;
     const { escape = true, outside = true } = latest.current.opts;
 
-    const restoreTarget = latest.current.opts.focusRestore
-      ? (document.activeElement as HTMLElement | null)
-      : null;
-    const dismiss = () => {
-      latest.current.onClose();
-      if (restoreTarget) requestAnimationFrame(() => restoreTarget.focus());
+    const focusRestore = latest.current.opts.focusRestore;
+    const restoreTarget = typeof focusRestore === 'object'
+      ? focusRestore.current
+      : focusRestore ? document.activeElement as HTMLElement | null : null;
+    const dismiss = (restoreFocus = false) => {
+      latest.current.onClose(restoreFocus ? 'escape' : 'outside');
+      if (restoreFocus && restoreTarget?.isConnected) restoreTarget.focus();
     };
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      const target = event.target;
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
       const { opts: o } = latest.current;
       // A nested top-layer surface owns its first Escape. The parent already
       // names those surfaces in extraRefs for outside-pointer handling; honor
       // the same boundary here instead of dismissing both levels at once.
-      if (target instanceof Node && o.extraRefs?.some((r) => r.current?.contains(target))) return;
-      dismiss();
+      if (ref.current?.querySelector(':popover-open, :modal')
+        || o.extraRefs?.some((r) => r.current?.matches(':popover-open') || r.current?.matches(':modal'))) return;
+      event.preventDefault();
+      dismiss(true);
     };
-    const onPointerDown = (event: PointerEvent) => {
+    const onPointerDown = (event: PointerEvent | FocusEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
       const { opts: o } = latest.current;
@@ -118,9 +126,11 @@ export function useNativePopover(
 
     if (escape) document.addEventListener('keydown', onKeyDown, true);
     if (outside) document.addEventListener('pointerdown', onPointerDown, true);
+    if (latest.current.opts.focusOutside) document.addEventListener('focusin', onPointerDown);
     return () => {
       if (escape) document.removeEventListener('keydown', onKeyDown, true);
       if (outside) document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('focusin', onPointerDown);
     };
     // `enabled`/`mode` decide whether these listeners exist; the escape/outside
     // flags are read live from `latest` at attach time. Re-run only on those.

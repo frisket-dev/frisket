@@ -1,5 +1,6 @@
 import { Button } from '../Button';
-import { TextInput } from '../FormControls';
+import { FormField, TextInput } from '../FormControls';
+import { IconButton } from '../IconButton';
 // The bespoke drawer body for "Replace by rules". An ordered first-match-wins
 // rules list (contains / exact / regex → whole-cell set-to, null allowed), a
 // no-match policy, and per-rule match counts.
@@ -365,19 +366,17 @@ function ReplaceFormForSheet({
   }, [preview, rulesFresh]);
 
   return (
-    <div className="resolve-replace-form" data-testid="resolve-replace-form">
-      <div className="resolve-replace-scope">
-        <div className="field-group resolve-replace-column-field">
-          <Field name="source" testId="resolve-replace-column" />
-          <span className="form-hint resolve-replace-order-hint">Rules run top to bottom — first match wins.</span>
-        </div>
+    <div className="content-stack" data-testid="resolve-replace-form">
+      <div className="field-group">
+        <Field name="source" testId="resolve-replace-column" />
+        <span className="form-hint resolve-replace-order-hint">Rules run top to bottom — first match wins.</span>
       </div>
 
       {!activeColumn && (
         <p className="form-hint">Replace needs a text column on this sheet.</p>
       )}
 
-      <div className="resolve-replace-rules">
+      <div className="panel-list resolve-replace-rules">
         {rules.map((rule, index) => {
           const regexFlag = regexErrors[rule.id];
           const blocker = ruleBlocker(rule, regexFlag);
@@ -387,11 +386,10 @@ function ReplaceFormForSheet({
           const countFresh =
             rulesFresh || (includedPos >= 0 && includedPos < freshUpTo);
           return (
-            <div className="resolve-replace-rule" data-testid="resolve-replace-rule" key={rule.id}>
-              <div className="resolve-replace-rule-main">
+            <div className="content-stack resolve-replace-rule" data-testid="resolve-replace-rule" key={rule.id}>
+              <div className="control-row resolve-replace-rule-main">
                 <span className="resolve-replace-rule-index">{index + 1}</span>
                 <PanelSelect
-                  className="form-input resolve-replace-rule-kind"
                   data-testid="resolve-replace-rule-match"
                   aria-label="Match kind"
                   value={rule.match}
@@ -412,9 +410,9 @@ function ReplaceFormForSheet({
                   value={rule.pattern}
                   onChange={(e) => updateRule(rule.id, { pattern: e.target.value })}
                 />
-                <button
+                <Button
                   type="button"
-                  className={`icon-btn resolve-replace-case${rule.caseSensitive ? ' is-on' : ''}`}
+                  className="btn-icon"
                   data-testid="resolve-replace-rule-case"
                   aria-pressed={rule.caseSensitive}
                   aria-label="Match case"
@@ -422,47 +420,38 @@ function ReplaceFormForSheet({
                   onClick={() => updateRule(rule.id, { caseSensitive: !rule.caseSensitive })}
                 >
                   Aa
-                </button>
-                <span className="resolve-replace-rule-tools">
-                  <button
-                    type="button"
-                    className="icon-btn"
+                </Button>
+                <span className="control-row resolve-replace-rule-tools">
+                  <IconButton
+                    icon={ArrowUp}
                     data-testid="resolve-replace-rule-up"
-                    aria-label="Move rule up"
+                    label="Move rule up"
                     title="Move rule up"
                     disabled={index === 0}
                     onClick={() => moveRule(index, -1)}
-                  >
-                    <ArrowUp size={12} />
-                  </button>
-                  <button
-                    type="button"
-                    className="icon-btn"
+                  />
+                  <IconButton
+                    icon={ArrowDown}
                     data-testid="resolve-replace-rule-down"
-                    aria-label="Move rule down"
+                    label="Move rule down"
                     title="Move rule down"
                     disabled={index === rules.length - 1}
                     onClick={() => moveRule(index, 1)}
-                  >
-                    <ArrowDown size={12} />
-                  </button>
-                  <button
-                    type="button"
-                    className="icon-btn"
+                  />
+                  <IconButton
+                    icon={X}
                     data-testid="resolve-replace-rule-delete"
-                    aria-label="Delete rule"
+                    label="Delete rule"
                     title="Delete rule"
                     onClick={() => deleteRule(rule.id)}
-                  >
-                    <X size={13} />
-                  </button>
+                  />
                 </span>
               </div>
-              <div className="resolve-replace-rule-target-row">
+              <div className="control-row resolve-replace-rule-target-row">
                 <span className="resolve-replace-arrow" aria-hidden="true">→</span>
                 <span className="resolve-replace-set-to">set to</span>
                 {rule.target === null ? (
-                  <button
+                  <Button
                     type="button"
                     className="resolve-replace-null-chip"
                     data-testid="resolve-replace-rule-target-null"
@@ -470,7 +459,7 @@ function ReplaceFormForSheet({
                     onClick={() => updateRule(rule.id, { target: '' })}
                   >
                     (null)
-                  </button>
+                  </Button>
                 ) : (
                   <TextInput
                     className="resolve-replace-rule-target"
@@ -481,9 +470,9 @@ function ReplaceFormForSheet({
                     onChange={(e) => updateRule(rule.id, { target: e.target.value })}
                   />
                 )}
-                <button
+                <Button
                   type="button"
-                  className={`icon-btn resolve-replace-null-toggle${rule.target === null ? ' is-on' : ''}`}
+                  className="btn-icon"
                   data-testid="resolve-replace-rule-null"
                   aria-pressed={rule.target === null}
                   aria-label="Set to null on match"
@@ -493,10 +482,10 @@ function ReplaceFormForSheet({
                   }
                 >
                   ∅
-                </button>
+                </Button>
               </div>
               {(regexFlag && invalidRegex) || blocker || count ? (
-                <div className="resolve-replace-rule-meta">
+                <div className="control-row resolve-replace-rule-meta">
                   {invalidRegex && regexFlag ? (
                     <span className="panel-error" data-testid="resolve-replace-rule-error">
                       {regexFlag.message}
@@ -545,10 +534,8 @@ function ReplaceFormForSheet({
         </div>
       )}
 
-      <label className="resolve-replace-policy-row form-field">
-        <span className="field-labels">When no rule matches</span>
+      <FormField label="When no rule matches" layout="inline">
         <PanelSelect
-          className="form-input resolve-replace-policy"
           data-testid="resolve-replace-policy"
           value={unmatched}
           onChange={(e) => setUnmatched(e.target.value as 'keep' | 'null')}
@@ -556,7 +543,7 @@ function ReplaceFormForSheet({
           <option value="keep">keep original</option>
           <option value="null">set null</option>
         </PanelSelect>
-      </label>
+      </FormField>
 
       {summary && (
         <p className="run-scope-summary resolve-footer-summary"

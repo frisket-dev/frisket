@@ -1,8 +1,7 @@
 import { Button } from '../Button';
 import { TextInput, TextArea } from '../FormControls';
 import { Fragment, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { ImportStep, ImportStepBody } from './ImportStep';
-import { ImportStepFooter } from './ImportStepFooter';
+import { PanelFrame, PanelBody, PanelFooter } from '../PanelLayout';
 import { ImportDropArea } from './ImportDropArea';
 import {
   FileText,
@@ -730,7 +729,6 @@ function OpenImportWorkspaceSession({
           Review imported sheet
           <PanelSelect
             ariaLabel="Review imported sheet"
-            topLayer
             value={preparationReceipt.sheetId ?? ''}
             onValueChange={(value) => {
               const selected = preparationReceipt.bulkOutputs?.find((output) => output.sheetId === Number(value));
@@ -751,8 +749,8 @@ function OpenImportWorkspaceSession({
   const showPreparation = preparationReceipt !== null || importInProgress;
   const tableImportActive = tableImportSelected && !showPreparation;
   const fileEntry = railMode === 'files' && !showPreparation && !pdfBatchActive && !downloadPrompt && !nerPrompt;
-  const EntryStep = fileEntry ? ImportStep : Fragment;
-  const EntryBody = fileEntry ? ImportStepBody : Fragment;
+  const EntryStep = fileEntry ? PanelFrame : Fragment;
+  const EntryBody = fileEntry ? PanelBody : Fragment;
   const closeDisabled = !pdfBatchActive && (
     selectionPreparing || (busy && !sessionBusy) || (bulkBusy && !bulkPreparing) || pdfPacketContext.busy
   );
@@ -950,7 +948,7 @@ function OpenImportWorkspaceSession({
                   onDiscarded={closeWorkspace}
                   onError={onError}
                 />
-              ) : <EntryStep><EntryBody {...(fileEntry ? { className: 'import-entry-body' } : {})}>
+              ) : <EntryStep {...(fileEntry ? { fill: true } : {})}><EntryBody {...(fileEntry ? { className: 'import-entry-body' } : {})}>
               {railMode === 'files' && !showPreparation && <PdfBatchDrafts projectId={projectId} onResume={setPdfBatchResumeId} />}
               {railMode === 'files' && !showPreparation ? (
                 <SegmentedToggle
@@ -966,8 +964,8 @@ function OpenImportWorkspaceSession({
               ) : null}
               {selectionPreparing ? <div role="status">Preparing selected files…</div> : null}
               {showSummary ? (
-                <section className="search-preparation-receipt" data-testid="import-files-summary">
-                  <div className="search-preparation-receipt-body">
+                <PanelFrame fill className="search-preparation-receipt" data-testid="import-files-summary">
+                  <PanelBody className="content-stack">
                     <h2>{summaryHeading}</h2>
                     {fileSummary && <>
                       <p>{fileSummary.count.toLocaleString()} {fileSummary.count === 1 ? 'file' : 'files'}</p>
@@ -996,8 +994,8 @@ function OpenImportWorkspaceSession({
                     </p>}
                     {importSessionStatus?.error && <div className="panel-error" role="alert">{importSessionStatus.error}</div>}
                     {preparationFollowupError && <div className="panel-error" role="alert">{preparationFollowupError}</div>}
-                  </div>
-                  <footer className="search-preparation-actions">
+                  </PanelBody>
+                  <PanelFooter align="end">
                     {canReviewPreparation ? (
                       <Button type="button" className="btn-primary" data-testid="import-files-next"
                         onClick={() => setPreparationStep('review')}>Next</Button>
@@ -1005,11 +1003,12 @@ function OpenImportWorkspaceSession({
                       <Button type="button" className="btn-primary" data-testid="search-preparation-done"
                         onClick={closeWorkspace}>Done</Button>
                     ) : null}
-                  </footer>
-                </section>
+                  </PanelFooter>
+                </PanelFrame>
               ) : preparationReceipt ? (
                 preparationReceipt.batchId ? (
                   <SearchPreparationReceipt
+                    fill
                     key={`${projectId}:${preparationReceipt.sheetId ?? initialPreparationBatchId ?? 'import'}`}
                     projectId={projectId}
                     batchId={preparationReceipt.batchId}
@@ -1026,16 +1025,16 @@ function OpenImportWorkspaceSession({
                     onError={onError}
                   />
                 ) : (
-                  <section className="search-preparation-receipt" data-testid="search-preparation-receipt">
-                    <div className="search-preparation-receipt-body">
+                  <PanelFrame fill className="search-preparation-receipt" data-testid="search-preparation-receipt">
+                    <PanelBody className="content-stack">
                       {bulkReceiptSummary}
                       <p>Files imported. Search preparation is not available for this sheet.</p>
-                    </div>
-                    <footer className="search-preparation-actions">
+                    </PanelBody>
+                    <PanelFooter align="end">
                       <Button type="button" className="btn-primary" data-testid="search-preparation-done"
                         onClick={closeWorkspace}>Done</Button>
-                    </footer>
-                  </section>
+                    </PanelFooter>
+                  </PanelFrame>
                 )
               ) : downloadPrompt ? (
                 <MediaDownloadPrompt
@@ -1131,7 +1130,7 @@ function OpenImportWorkspaceSession({
                 </>
               )}
               </EntryBody>
-              {fileEntry && <ImportStepFooter>
+              {fileEntry && <PanelFooter>
                 <Button type="button" disabled={closeDisabled} onClick={closeWorkspaceFromUser}>Cancel</Button>
                 <span>{mode === 'urls' ? 'Enter URLs to import their contents.' : 'Choose or drop files to start preparing the import.'}</span>
                 {mode === 'urls' && <Button type="button" className="btn-primary" data-testid="import-url-submit"
@@ -1140,7 +1139,7 @@ function OpenImportWorkspaceSession({
                       if (sheetId != null) void finishImport(sheetId);
                     });
                   }}><Link2 size={13} /> Import URLs</Button>}
-              </ImportStepFooter>}
+              </PanelFooter>}
               </EntryStep>}
             </div>
           </main>

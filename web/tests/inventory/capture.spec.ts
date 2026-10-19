@@ -144,7 +144,7 @@ test('four import entry surfaces', async ({ page }) => {
     await page.getByTestId(`import-mode-${mode}`).click();
     await expect(page.getByTestId(`import-mode-${mode}`)).toHaveAttribute('aria-selected', 'true');
     const panel = page.locator('.import-workspace-panel');
-    const footer = panel.locator('.import-step-footer');
+    const footer = panel.locator('.panel-footer');
     await expect(footer.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
     const panelBounds = await panel.boundingBox();
     const footerBounds = await footer.boundingBox();
@@ -158,7 +158,7 @@ test('four import entry surfaces', async ({ page }) => {
   }
   await page.getByTestId('import-mode-files').click();
   await page.getByTestId('import-source-urls').click();
-  await expect(page.locator('.import-step-footer').getByTestId('import-url-submit')).toBeVisible();
+  await expect(page.locator('.panel-footer').getByTestId('import-url-submit')).toBeVisible();
   await shot(page, 'Import', 'multiple-file-urls', 'src/components/importWorkspace/ImportWorkspaceDialog.tsx');
 });
 

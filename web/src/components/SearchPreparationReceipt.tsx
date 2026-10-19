@@ -1,4 +1,5 @@
 import { Button } from './Button';
+import { PanelFrame, PanelBody, PanelFooter } from './PanelLayout';
 import { CircleAlert, LoaderCircle } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
@@ -123,7 +124,7 @@ function TextReview({
       {documents.length > 1 && (
         <label className="search-preparation-document form-field">
           Sample document
-          <PanelSelect ariaLabel="Sample document" topLayer disabled={busy}
+          <PanelSelect ariaLabel="Sample document" disabled={busy}
             value={sample ? `${sample.row_id}:${sample.column_id}` : ''}
             onValueChange={(value) => {
               const document = documents.find((item) => `${item.row_id}:${item.column_id}` === value);
@@ -161,7 +162,7 @@ function TextReview({
         <>
           <label className="search-preparation-ocr-option form-field">
             PDF text
-            <PanelSelect ariaLabel="PDF text" topLayer
+            <PanelSelect ariaLabel="PDF text"
               data-testid="search-preparation-force-ocr"
               value={batch.force_ocr ? 'ocr' : 'keep'} disabled={busy}
               onValueChange={(value) => onReplan(value === 'ocr')}
@@ -189,6 +190,7 @@ export function SearchPreparationReceipt({
   onError,
   importSummary,
   onBack,
+  fill = false,
 }: {
   projectId: string;
   batchId: string;
@@ -197,6 +199,7 @@ export function SearchPreparationReceipt({
   onError(message: string): void;
   importSummary?: ReactNode;
   onBack?(): void;
+  fill?: boolean;
 }) {
   const [batch, setBatch] = useState<SearchPreparationBatch | null>(null);
   const [loadingError, setLoadingError] = useState<string | null>(null);
@@ -316,16 +319,16 @@ export function SearchPreparationReceipt({
 
   if (!batch) {
     return (
-      <section className="search-preparation-receipt" data-testid="search-preparation-receipt">
-        <div className="search-preparation-receipt-body">
+      <PanelFrame fill={fill} className="search-preparation-receipt" data-testid="search-preparation-receipt">
+        <PanelBody className="content-stack">
           {importSummary}
           <div role="status"><LoaderCircle className="spin" size={18} /> Checking search preparation…</div>
           {loadingError && <div className="panel-error" role="alert">{loadingError}</div>}
-        </div>
-        <footer className="search-preparation-actions">
+        </PanelBody>
+        <PanelFooter align="end">
           <Button type="button" onClick={onDone}>Close</Button>
-        </footer>
-      </section>
+        </PanelFooter>
+      </PanelFrame>
     );
   }
 
@@ -342,8 +345,8 @@ export function SearchPreparationReceipt({
   const canPrepare = batch.can_setup || allRequiredModelsReady;
   const warnings = batch.warnings ?? [];
   return (
-    <section className="search-preparation-receipt" data-testid="search-preparation-receipt">
-      <div className="search-preparation-receipt-body">
+    <PanelFrame fill={fill} className="search-preparation-receipt" data-testid="search-preparation-receipt">
+      <PanelBody className="content-stack">
         {importSummary}
         <header>
           <div>
@@ -462,9 +465,9 @@ export function SearchPreparationReceipt({
             <CircleAlert size={14} /> {batch.errors.join(' ')}
           </div>
         )}
-      </div>
+      </PanelBody>
       {batch.status === 'needs_consent' ? (
-        <footer className="search-preparation-actions">
+        <PanelFooter align="end">
           {onBack && <Button type="button" disabled={busy} onClick={onBack}>Back to files</Button>}
           <Button
             type="button"
@@ -479,9 +482,9 @@ export function SearchPreparationReceipt({
                 ? 'Download and make searchable'
                 : 'Make searchable'}
           </Button>
-        </footer>
+        </PanelFooter>
       ) : (
-        <footer className="search-preparation-actions">
+        <PanelFooter align="end">
           <Button
             type="button"
             className="btn-primary"
@@ -490,8 +493,8 @@ export function SearchPreparationReceipt({
           >
             {active ? 'Close' : 'Done'}
           </Button>
-        </footer>
+        </PanelFooter>
       )}
-    </section>
+    </PanelFrame>
   );
 }

@@ -76,7 +76,6 @@ export function AskResearchSettings({
         <PanelSelect
           value={value.write_mode}
           disabled={disabled}
-          topLayer
           aria-label="Write access"
           options={[
             { value: 'ask_each', label: 'Ask before each action' },

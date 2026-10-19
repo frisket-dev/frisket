@@ -288,7 +288,11 @@
     },
     {
       "rule": "react-doctor/no-giant-component",
-      "file": "src/components/ImportCsv.tsx"
+      "file": "src/components/importWorkspace/ImportWorkspaceDialog.tsx"
+    },
+    {
+      "rule": "react-doctor/no-giant-component",
+      "file": "src/components/importWorkspace/FeedSourceForm.tsx"
     },
     {
       "rule": "react-doctor/no-giant-component",

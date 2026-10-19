@@ -22,6 +22,7 @@ import { TextInput, TextArea } from '../FormControls';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, X } from 'lucide-react';
 import { PanelSelect } from '../PanelSelect';
+import { SegmentedToggle } from '../PanelPrimitives';
 import type { GeneratedActionParamsBodyProps } from '../action-panel/GeneratedActionParamsBody';
 import {
   useColumnValuesPreview,
@@ -584,28 +585,18 @@ function SubstituteFormBody({
       {preview && (
         <div className="resolve-substitute-modes">
           <span className="field-labels">Start from</span>
-          <div className="resolve-substitute-mode-buttons" role="group" aria-label="Start from">
-            <button
-              type="button"
-              data-testid="resolve-substitute-mode-values"
-              className={mode === 'values' ? 'is-active' : ''}
-              aria-pressed={mode === 'values'}
-              disabled={overThreshold}
-              title={overThreshold ? 'Too many distinct values to list row-by-row' : undefined}
-              onClick={() => setMode('values')}
-            >
-              column values
-            </button>
-            <button
-              type="button"
-              data-testid="resolve-substitute-mode-paste"
-              className={mode === 'paste' ? 'is-active' : ''}
-              aria-pressed={mode === 'paste'}
-              onClick={() => setMode('paste')}
-            >
-              pasted map
-            </button>
-          </div>
+          <SegmentedToggle
+            ariaLabel="Start from"
+            size="compact"
+            fullWidth={false}
+            value={mode}
+            onValueChange={(value) => setMode(value === 'paste' ? 'paste' : 'values')}
+            buttonTestId={(value) => `resolve-substitute-mode-${value}`}
+            options={[
+              { value: 'values', label: 'column values', disabledReason: overThreshold ? 'Too many distinct values to list row-by-row' : undefined },
+              { value: 'paste', label: 'pasted map' },
+            ]}
+          />
         </div>
       )}
 

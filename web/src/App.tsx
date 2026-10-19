@@ -2847,9 +2847,13 @@ function ToolbarOverflowMenu() {
     extraRefs: [rowHeightMenuRef, savedViewsMenuRef],
   });
 
-  useNativePopover(savedViewsMenuRef, closeSavedViewsSubmenu, {
+  useNativePopover(savedViewsMenuRef, (reason) => {
+    if (reason === 'escape') suppressNextSavedViewsFocusOpenRef.current = true;
+    closeSavedViewsSubmenu();
+  }, {
     enabled: overflowMenuOpen && savedViewsMenuOpen,
-    escape: false,
+    focusRestore: savedViewsTriggerRef,
+    sourceRef: savedViewsTriggerRef,
     ignoreSelector: '[data-testid="open-saved-views-submenu"]',
   });
 
@@ -2903,7 +2907,6 @@ function ToolbarOverflowMenu() {
               data-testid="row-height-select"
               aria-label="Row height"
               value={rowHeight}
-              topLayer
               menuRef={rowHeightMenuRef}
               onChange={(e) => changeRowHeight(Number(e.target.value))}
             >
@@ -2978,7 +2981,7 @@ function ToolbarOverflowMenu() {
           data-testid="saved-views-overflow-menu"
           role="menu"
           onKeyDown={(event) => {
-            if (event.key === 'ArrowLeft' || event.key === 'Escape') {
+            if (event.key === 'ArrowLeft') {
               event.preventDefault();
               closeSavedViewsSubmenu();
               suppressNextSavedViewsFocusOpenRef.current = true;

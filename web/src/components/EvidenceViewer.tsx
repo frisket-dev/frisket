@@ -219,7 +219,7 @@ function EvidenceViewerHeader({
           </div>
         )}
       </div>
-      <div className="evidence-viewer-header-actions">
+      <div className="control-row">
         {canOpenCompanion && (
           <button
             type="button"
@@ -486,8 +486,8 @@ function LinkSummary({ payload }: { payload: EvidenceViewerPayload }) {
   const sourceModel = stringField(producer, 'model') ?? stringField(producer, 'source_model');
   const groundingMethod = stringField(producer, 'grounding_method');
   return (
-    <section className="evidence-card evidence-link-summary">
-      <div className="evidence-card-head">
+    <section className="panel-card">
+      <div className="control-row evidence-card-head">
         <strong data-testid="evidence-link-status">{payload.link.status}</strong>
         <CopyRefButton text={payload.link.export_ref} />
       </div>
@@ -1342,8 +1342,8 @@ function temporalSpansSorted(artifact: EvidenceArtifact): EvidenceSpan[] {
 
 function ArtifactDetails({ artifact }: { artifact: EvidenceArtifact }) {
   return (
-    <section className="evidence-card" data-testid="evidence-artifact-details">
-      <div className="evidence-card-head">
+    <section className="panel-card" data-testid="evidence-artifact-details">
+      <div className="control-row evidence-card-head">
         <strong>{artifact.title || artifact.filename || artifact.stable_id}</strong>
         <span>{artifact.spans.length} span{artifact.spans.length === 1 ? '' : 's'}</span>
       </div>
@@ -1367,7 +1367,7 @@ function ArtifactDetails({ artifact }: { artifact: EvidenceArtifact }) {
           </>
         )}
       </dl>
-      <div className="evidence-span-list">
+      <div className="panel-list">
         {artifact.spans.map((span) => (
           <SpanCard
             key={span.stable_id}

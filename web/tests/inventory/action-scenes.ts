@@ -15,6 +15,16 @@ export async function captureInspectionScenes(page: Page, shot: Shot) {
   expect((await result.json()).status).toBe('completed');
   const columns = await sheetColumns(page.request, pid, sid);
   await openProject(page, pid, sid);
+  const overflowTrigger = page.getByTestId('toolbar-overflow-button');
+  await overflowTrigger.click();
+  await page.getByTestId('open-saved-views-submenu').hover();
+  await expect(page.getByTestId('saved-views-overflow-menu')).toBeVisible();
+  await overflowTrigger.focus();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('saved-views-overflow-menu')).toHaveCount(0);
+  await expect(page.getByTestId('toolbar-overflow-menu')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('toolbar-overflow-menu')).toHaveCount(0);
   await openCellDrawer(page, columns, 'label', 0);
   await expect(page.getByTestId('row-drawer')).toBeVisible();
   await shot(page, 'Inspection', 'row-and-cell-provenance', 'src/components/RowDrawer.tsx; cell provenance');
@@ -36,7 +46,8 @@ export async function captureActionScenes(page: Page, shot: Shot) {
     'name,notes,amount\nAda,Council approved the housing contract,1200\nMax,School board met on Tuesday,50\n');
   await importCsv(page.request, pid, 'districts.csv', 'name,district\nAda,North\nMax,South\n');
   for (const id of ['map.template', 'map.classify', 'map.extract', 'map.ner', 'map.translate',
-    'media.ocr', 'media.transcribe', 'derive.join', 'map.python', 'map.api_call']) {
+    'media.ocr', 'media.transcribe', 'derive.join', 'map.python', 'map.api_call',
+    'resolve.combine', 'resolve.replace', 'resolve.substitute']) {
     await page.goto(`/p/${pid}/s/${sid}/action/${id}`);
     const form = page.locator('[data-testid="action-form"], [data-testid="generated-action-form"]');
     await expect(form).toBeVisible();
@@ -51,6 +62,28 @@ export async function captureActionScenes(page: Page, shot: Shot) {
       expect(await form.locator('.action-run-actions').evaluate(el => getComputedStyle(el).alignItems)).toBe('stretch');
     }
     await shot(page, 'Actions', id.replaceAll('.', '-'), 'src/components/action-panel/; src/actions/');
+    if (id === 'map.template') {
+      const changeAction = page.getByTestId('action-title-menu-button');
+      await changeAction.focus();
+      await page.keyboard.press('Enter');
+      await expect(page.getByTestId('action-title-menu')).toBeVisible();
+      await page.keyboard.press('Tab');
+      await expect(page.getByTestId('action-title-menu').getByRole('menuitem').first()).toBeFocused();
+      await page.keyboard.press('Escape');
+      await expect(page.getByTestId('action-title-menu')).toHaveCount(0);
+      await expect(changeAction).toBeFocused();
+      await page.getByTestId('action-help-button').click();
+      await expect(page.getByTestId('action-help-popover')).toBeVisible();
+      await shot(page, 'Actions', 'action-help', 'src/components/action-panel/ActionHelpPopover.tsx');
+      await page.keyboard.press('Escape');
+      await expect(page.getByTestId('action-help-popover')).toHaveCount(0);
+      await expect(form).toBeVisible();
+    }
+    if (id === 'resolve.replace') {
+      await page.setViewportSize({ width: 1024, height: 900 });
+      await shot(page, 'Actions', 'replace-narrow', 'src/components/resolve/ReplaceForm.tsx');
+      await page.setViewportSize({ width: 1440, height: 1000 });
+    }
     if (id === 'map.extract') {
       // A real open picker supplements the closed form, without configuring or calling a provider.
       await form.getByTestId('engine-selector').getByRole('button', { expanded: false }).click();

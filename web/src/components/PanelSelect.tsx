@@ -10,8 +10,6 @@
 import {
   forwardRef,
   useCallback,
-  useEffect,
-  useLayoutEffect,
   useRef,
   useState,
   type ChangeEventHandler,
@@ -21,12 +19,10 @@ import {
   type RefObject,
   type SelectHTMLAttributes,
 } from 'react';
-import { createPortal } from 'react-dom';
 import { Check, Zap } from 'lucide-react';
 import { DropdownIndicator } from './DropdownIndicator';
-import { MenuPop } from './MenuPop';
+import { AnchoredMenu } from './MenuPop';
 import './PanelSelect.css';
-import { useAnchoredPosition } from '../hooks/useAnchoredPosition';
 
 export interface PanelSelectOption {
   value: string;
@@ -63,9 +59,6 @@ interface PanelSelectProps extends Omit<
   /** Muted qualifier shown at the trigger's right edge (e.g. "local, default"),
    *  overlaid on the native select without affecting its value. */
   note?: string;
-  /** Promote the custom menu to the browser top layer when this select is
-   *  nested inside another top-layer surface. */
-  topLayer?: boolean;
   /** Exposes the custom menu for an enclosing popover's inside-click boundary. */
   menuRef?: RefObject<HTMLDivElement>;
 }
@@ -97,14 +90,13 @@ export const PanelSelect = forwardRef<HTMLSelectElement, PanelSelectProps>(funct
   onChange,
   options: suppliedOptions,
   children,
-  className = 'form-input',
+  className = '',
   id,
   testId,
   ariaLabel,
   disabled,
   emptyMessage = 'No items found',
   note,
-  topLayer = false,
   menuRef: suppliedMenuRef,
   onMouseDown,
   onKeyDown,
@@ -113,43 +105,10 @@ export const PanelSelect = forwardRef<HTMLSelectElement, PanelSelectProps>(funct
   ...selectProps
 }, forwardedRef) {
   const [open, setOpen] = useState(false);
-  const [portalDialog, setPortalDialog] = useState<HTMLDialogElement | null>(null);
   const selectRef = useRef<HTMLSelectElement | null>(null);
   const internalMenuRef = useRef<HTMLDivElement | null>(null);
   const menuRef = suppliedMenuRef ?? internalMenuRef;
-  const menuPos = useAnchoredPosition(selectRef, {
-    enabled: open,
-    width: (rect) => Math.max(rect.width, 200),
-    gap: 5,
-    minHeight: 180,
-  });
   const effectiveTestId = testId ?? nativeTestId;
-
-  useEffect(() => {
-    if (!open) return undefined;
-    const closeIfOutside = (event: PointerEvent | FocusEvent) => {
-      const target = event.target;
-      if (!(target instanceof Node)) return;
-      if (selectRef.current?.contains(target) || menuRef.current?.contains(target)) return;
-      setOpen(false);
-    };
-    document.addEventListener('pointerdown', closeIfOutside);
-    document.addEventListener('focusin', closeIfOutside);
-    return () => {
-      document.removeEventListener('pointerdown', closeIfOutside);
-      document.removeEventListener('focusin', closeIfOutside);
-    };
-  }, [menuRef, open]);
-
-  useLayoutEffect(() => {
-    const menu = menuRef.current;
-    if (!open || !topLayer || !menu) return undefined;
-    if (menu.getAttribute('popover') !== 'manual') menu.setAttribute('popover', 'manual');
-    if (menu.isConnected && !menu.matches(':popover-open')) menu.showPopover();
-    return () => {
-      if (menu.isConnected && menu.matches(':popover-open')) menu.hidePopover();
-    };
-  }, [menuRef, open, topLayer]);
 
   const options = suppliedOptions ?? nativeOptions(selectRef.current);
   const selectedValue = String(value);
@@ -164,9 +123,6 @@ export const PanelSelect = forwardRef<HTMLSelectElement, PanelSelectProps>(funct
 
   const setSelectRef = useCallback((node: HTMLSelectElement | null) => {
     selectRef.current = node;
-    // A body portal remains inert while a modal dialog is open, even when
-    // showPopover promotes its menu visually above the dialog.
-    setPortalDialog(node?.closest('dialog') ?? null);
     if (typeof forwardedRef === 'function') forwardedRef(node);
     else if (forwardedRef) forwardedRef.current = node;
   }, [forwardedRef]);
@@ -194,7 +150,7 @@ export const PanelSelect = forwardRef<HTMLSelectElement, PanelSelectProps>(funct
     <select data-native-select-escape="panel-select-trigger"
       {...selectProps}
       ref={setSelectRef}
-      className={`panel-select-control select-trigger ${className}`}
+      className={`panel-select-control select-trigger form-input ${className}`}
       id={id}
       data-testid={effectiveTestId}
       aria-label={ariaLabel ?? nativeAriaLabel}
@@ -234,24 +190,15 @@ export const PanelSelect = forwardRef<HTMLSelectElement, PanelSelectProps>(funct
         selectEl
       )}
       {open && !disabled &&
-        createPortal(
-          <MenuPop
+          <AnchoredMenu
             className="select-menu"
-            sizing="anchored"
             role="listbox"
-            ref={menuRef}
+            menuRef={menuRef}
+            anchorRef={selectRef}
+            onClose={() => setOpen(false)}
+            width={(rect) => Math.max(rect.width, 200)}
+            dismissOnFocusOutside
             data-testid={effectiveTestId ? `${effectiveTestId}-menu` : undefined}
-            style={
-              menuPos
-                ? {
-                    top: menuPos.top,
-                    bottom: menuPos.bottom,
-                    left: menuPos.left,
-                    width: menuPos.width,
-                    maxHeight: menuPos.maxHeight,
-                  }
-                : { visibility: 'hidden' }
-            }
           >
             {options.length === 0 ? (
               <div
@@ -296,9 +243,7 @@ export const PanelSelect = forwardRef<HTMLSelectElement, PanelSelectProps>(funct
                 );
               })
             )}
-          </MenuPop>,
-          portalDialog ?? document.body,
-        )}
+          </AnchoredMenu>}
     </>
   );
 });

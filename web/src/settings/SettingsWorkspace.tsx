@@ -124,7 +124,6 @@ function SettingsProjectSwitcher({
     <FormField label="Project" className="settings-project-switcher">
 
       <PanelSelect
-        className="settings-project-select"
         data-testid="settings-project-switcher"
         aria-label="Project settings project"
         value={selectedValue}

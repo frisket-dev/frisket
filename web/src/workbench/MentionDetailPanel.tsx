@@ -26,6 +26,7 @@ import {
 import { unpositionedExplanation } from './textAnnotationModel';
 import { entityTypeName } from '../components/action-panel/nerLabelModel';
 import { PanelHeader } from '../components/PanelPrimitives';
+import { PanelFrame, PanelBody } from '../components/PanelLayout';
 
 const PAGE_SIZE = 25;
 /** Occurrences per Level-2 page. Smaller than the documents page because these
@@ -223,7 +224,7 @@ export function MentionDetailPanel({
 
   const totals = page?.totals ?? null;
   return (
-    <aside className="mention-detail" data-testid="mention-detail-panel" aria-label="Mention detail">
+    <PanelFrame as="aside" className="mention-detail" data-testid="mention-detail-panel" aria-label="Mention detail">
       <PanelHeader
         className="panel-frame-header"
         testId="mention-detail-header"
@@ -274,7 +275,7 @@ export function MentionDetailPanel({
           ? 'Every spelling that normalizes to this mention.'
           : 'This exact spelling. Dates, amounts and quantities are never merged across spellings.'}
       </p>
-      <div className="mention-detail-body drawer-body">
+      <PanelBody padding="compact" className="drawer-body">
         {current?.error != null && (
           <div className="panel-error" role="alert" data-testid="mention-detail-error">
             {current.error}
@@ -350,8 +351,8 @@ export function MentionDetailPanel({
               : `See ${Math.min(PAGE_SIZE, page.totals.documents - page.documents.length).toLocaleString()} more documents`}
           </Button>
         )}
-      </div>
-    </aside>
+      </PanelBody>
+    </PanelFrame>
   );
 }
 

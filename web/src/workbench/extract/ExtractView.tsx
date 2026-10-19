@@ -361,7 +361,7 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
       <p id="extract-area-help" className={styles.areaHelp}>{areaHelp}</p>
       <label className="document-option-row document-option-check"><input disabled={editorReadOnly} type="checkbox" checked={template.look_every_page} onChange={(event) => update({ ...template, look_every_page: event.target.checked })} />Look on every page</label>
       <label className="document-option-row document-option-check"><input disabled={editorReadOnly} type="checkbox" checked={template.continue_across_pages} onChange={(event) => update({ ...template, continue_across_pages: event.target.checked })} />Continue across pages</label>
-      <FormField label="Rows" layout="inline"><PanelSelect disabled={editorReadOnly} className="row-height-select" topLayer menuRef={rowsMenuRef} aria-label="Result rows" value={repeatGroupId ?? ''} onChange={(event) => { update(template); setRepeatGroupId(event.target.value || null); }}>
+      <FormField label="Rows" layout="inline"><PanelSelect disabled={editorReadOnly} className="row-height-select" menuRef={rowsMenuRef} aria-label="Result rows" value={repeatGroupId ?? ''} onChange={(event) => { update(template); setRepeatGroupId(event.target.value || null); }}>
         {template.sections.length === 0 ? <option value="">One per document</option> : <option value="" disabled>Choose repeated section</option>}
         {template.sections.map((section) => <option key={section.id} value={section.id}>One per {section.name}</option>)}
       </PanelSelect></FormField>

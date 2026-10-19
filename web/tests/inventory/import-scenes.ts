@@ -36,9 +36,10 @@ export async function captureImportScenes(page: Page, shot: Shot) {
     .getByRole('combobox', { name: /^Separator/ }).click();
   await expect(page.getByRole('listbox')).toBeVisible();
   await shot(page, 'Import workflow', 'table-separator-menu', tableSource);
-  // Close the menu through its trigger; Escape currently also cancels the enclosing dialog.
-  await page.getByRole('region', { name: 'Check rows', exact: true })
-    .getByRole('combobox', { name: /^Separator/ }).click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('listbox')).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Check rows', exact: true })).toBeVisible();
+  await expect(page.getByTestId('table-import-discard-dialog')).toHaveCount(0);
   await page.getByTestId('import-workspace-close').click();
   const discard = page.getByTestId('table-import-discard-dialog');
   await expect(discard).toBeVisible();
@@ -51,7 +52,7 @@ export async function captureImportScenes(page: Page, shot: Shot) {
   await page.getByRole('button', { name: 'Continue →', exact: true }).click();
   const name = page.getByLabel('Sheet name', { exact: true });
   await name.fill('Council spending');
-  const destinationBody = await page.locator('.table-import-destination .import-step-body').boundingBox();
+  const destinationBody = await page.locator('.table-import-destination .panel-body').boundingBox();
   const destinationOptions = await page.locator('.table-import-destination .import-destination-options').boundingBox();
   expect(destinationBody!.width - destinationOptions!.width).toBe(48);
   await shot(page, 'Import workflow', 'table-destination', tableSource);

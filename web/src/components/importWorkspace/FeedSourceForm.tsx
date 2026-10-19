@@ -6,8 +6,7 @@ import { durationBucket, failureCategory, sendProductTelemetry, type SourceKind 
 import { Button } from '../Button';
 import { FormField, TextInput, TextArea } from '../FormControls';
 import { PanelSelect } from '../PanelSelect';
-import { ImportStep, ImportStepBody } from './ImportStep';
-import { ImportStepFooter } from './ImportStepFooter';
+import { PanelFrame, PanelBody, PanelFooter } from '../PanelLayout';
 
 type FeedSourceKind =
   | 'rss'
@@ -525,8 +524,8 @@ export function FeedSourceForm({
 
   if (populate) {
     return (
-      <ImportStep>
-      <ImportStepBody className="content-stack" data-testid="feed-populate-prompt">
+      <PanelFrame fill>
+      <PanelBody className="content-stack" data-testid="feed-populate-prompt">
         <div className="import-mode-summary">
           {feedKindIcon(kind)}
           <strong>Populate feed?</strong>
@@ -539,8 +538,8 @@ export function FeedSourceForm({
         {populate.error && (
           <div className="panel-error" role="alert">{populate.error}</div>
         )}
-      </ImportStepBody>
-      <ImportStepFooter>
+      </PanelBody>
+      <PanelFooter>
           <Button
             type="button"
 
@@ -561,14 +560,14 @@ export function FeedSourceForm({
             <RefreshCw size={13} className={populate.busy ? 'spin' : undefined} />
             {populate.busy ? 'Running...' : 'Run'}
           </Button>
-      </ImportStepFooter>
-      </ImportStep>
+      </PanelFooter>
+      </PanelFrame>
     );
   }
 
   return (
-    <ImportStep>
-    <ImportStepBody>
+    <PanelFrame fill>
+    <PanelBody>
     <div className="content-stack" data-testid="source-form">
       <div className="import-mode-summary">
         {feedKindIcon(kind)}
@@ -751,8 +750,8 @@ export function FeedSourceForm({
         </div>
       )}
     </div>
-    </ImportStepBody>
-    <ImportStepFooter>
+    </PanelBody>
+    <PanelFooter>
       <Button type="button" disabled={busy} onClick={onCancel}>Cancel</Button>
       <span>Add a feed to keep its source available for updates.</span>
       <Button
@@ -764,7 +763,7 @@ export function FeedSourceForm({
       >
         {busy ? 'Adding...' : 'Add feed'}
       </Button>
-    </ImportStepFooter>
-    </ImportStep>
+    </PanelFooter>
+    </PanelFrame>
   );
 }

@@ -62,36 +62,6 @@
   align-items: center;
   gap: 8px;
 }
-.resolve-substitute-mode-buttons {
-  display: inline-flex;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-7);
-  overflow: hidden;
-}
-.resolve-substitute-mode-buttons button {
-  border: 0;
-  background: transparent;
-  padding: 4px 10px;
-  font-size: 11.5px;
-  color: var(--text-light);
-  cursor: pointer;
-}
-.resolve-substitute-mode-buttons button + button {
-  border-left: 1px solid var(--border);
-}
-.resolve-substitute-mode-buttons button:hover:not(:disabled) {
-  background: var(--bg-hover);
-  color: var(--text);
-}
-.resolve-substitute-mode-buttons button.is-active {
-  background: var(--accent-bg);
-  color: var(--accent-strong);
-  font-weight: 600;
-}
-.resolve-substitute-mode-buttons button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
 
 /* ── paste-map block ──────────────────────────────────────────────────── */
 

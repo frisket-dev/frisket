@@ -1,7 +1,6 @@
 import { Button } from '../../Button';
-import { ImportStep, ImportStepBody } from '../ImportStep';
+import { PanelFrame, PanelBody, PanelFooter } from '../../PanelLayout';
 import { ImportDropArea } from '../ImportDropArea';
-import { ImportStepFooter } from '../ImportStepFooter';
 import { FormField, TextInput } from '../../FormControls';
 import {
   useCallback,
@@ -734,8 +733,8 @@ function PacketChooser({
   const inputRef = useRef<HTMLInputElement>(null);
   const [dropError, setDropError] = useState<string | null>(null);
   return (
-    <ImportStep>
-    <ImportStepBody className="import-entry-body">
+    <PanelFrame fill>
+    <PanelBody className="import-entry-body">
     <ImportDropArea title="Drop a PDF packet here"
       description="Mark the first page of each document. The original PDF is never changed."
       testId="pdf-packet-chooser" disabled={uploading}
@@ -768,12 +767,12 @@ function PacketChooser({
       </Button>
     </ImportDropArea>
       {(dropError || error) && <div className="panel-error" role="alert">{dropError || error}</div>}
-    </ImportStepBody>
-    <ImportStepFooter>
+    </PanelBody>
+    <PanelFooter>
       <Button type="button" disabled={uploading} onClick={onCancel}>Cancel</Button>
       <span>Choose or drop a PDF to start checking its pages.</span>
-    </ImportStepFooter>
-    </ImportStep>
+    </PanelFooter>
+    </PanelFrame>
   );
 }
 
@@ -937,8 +936,8 @@ function PacketImportStep({ state, pageCount, canKeepOcrText, onBack, onSubmit, 
     state.snapshot!.packet.filename,
     document,
   ) ?? 'Invalid file name pattern';
-  return <ImportStep>
-    <ImportStepBody className="pdf-packet-import-body">
+  return <PanelFrame fill>
+    <PanelBody className="pdf-packet-import-body">
     <header><h2>Import {countLabel(documents.length, 'document')}</h2><p>Each becomes a normal PDF. The original packet stays as it is.</p></header>
     <div className="pdf-packet-import-options">
       <FormField label="New sheet" className="pdf-packet-import-field">
@@ -959,9 +958,9 @@ function PacketImportStep({ state, pageCount, canKeepOcrText, onBack, onSubmit, 
     <div className="pdf-packet-import-table"><table><thead><tr><th>#</th><th>Name</th><th>Source</th><th>Starts with</th></tr></thead><tbody>
       {documents.map((document) => <tr key={document.start}><td>{document.index}</td><td>{nameFor(document)}</td><td>packet pp {document.start}–{document.end} · {document.pages} pp</td><td>{firstLine(state.pages[document.start]?.ocr_text ?? state.pages[document.start]?.native_text)}</td></tr>)}
     </tbody></table></div>
-    </ImportStepBody>
-    <ImportStepFooter><Button type="button" onClick={onBack}>Back</Button><span>{documents.length} {documents.length === 1 ? 'PDF' : 'PDFs'} · {countLabel(pageCount, 'page')} · each linked to the packet and its page range</span><Button type="button" className="btn-primary" disabled={commitBusy || !state.destinationName.trim() || Boolean(patternError)} onClick={onSubmit}>{commitBusy ? 'Importing…' : `Import ${countLabel(documents.length, 'document')}`}</Button></ImportStepFooter>
-  </ImportStep>;
+    </PanelBody>
+    <PanelFooter><Button type="button" onClick={onBack}>Back</Button><span>{documents.length} {documents.length === 1 ? 'PDF' : 'PDFs'} · {countLabel(pageCount, 'page')} · each linked to the packet and its page range</span><Button type="button" className="btn-primary" disabled={commitBusy || !state.destinationName.trim() || Boolean(patternError)} onClick={onSubmit}>{commitBusy ? 'Importing…' : `Import ${countLabel(documents.length, 'document')}`}</Button></PanelFooter>
+  </PanelFrame>;
 }
 
 function firstLine(text: string | null | undefined): string {
