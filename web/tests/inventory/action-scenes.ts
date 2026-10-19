@@ -47,6 +47,7 @@ export async function captureActionScenes(page: Page, shot: Shot) {
       // A real open picker supplements the closed form, without configuring or calling a provider.
       await form.getByTestId('engine-selector').getByRole('button', { expanded: false }).click();
       await expect(page.getByTestId('engine-selector-dialog')).toBeVisible();
+      await expect(page.getByTestId('model-route-control')).toBeVisible();
       await shot(page, 'Actions', 'extract-model-picker', 'src/components/engine-selector/EngineSelector.tsx');
       await page.keyboard.press('Escape');
       await page.setViewportSize({ width: 1024, height: 900 });

@@ -10,7 +10,7 @@ import { captureMentionsScenes, capturePanelScenes, capturePopulatedPanelScenes,
 import { captureTeamSettingsScenes } from './team-scenes';
 import { captureElements } from './elements';
 
-const output = path.resolve('screenshots/inventory');
+const output = path.resolve(process.env.FRISKET_INVENTORY_OUTPUT ?? 'screenshots/inventory');
 type Capture = { kind?: 'small'; family: string; name: string; source: string; file: string; detail?: string; theme: string; context?: string; scene?: string; selector?: string; state?: string };
 const manifest = path.join(output, 'captures.ndjson');
 let browserErrors: string[] = [];

@@ -407,7 +407,7 @@ function ChannelSection({
       <div className="notification-settings-form" data-testid="notification-channel-form">
         <div className="notification-settings-formkicker">New channel</div>
         <Field label="Kind">
-          <PanelSelect className="row-height-select" data-testid="notification-channel-kind" value={draft.kind} onChange={(event) => onKindChange(event.target.value as ChannelDraftKind)}>
+          <PanelSelect data-testid="notification-channel-kind" value={draft.kind} onChange={(event) => onKindChange(event.target.value as ChannelDraftKind)}>
             <option value="slack">Slack</option>
             {configurableNotificationEmail && <option value="email">Email</option>}
           </PanelSelect>
@@ -506,7 +506,7 @@ function RouteSection({
           <TextInput aria-label="Route name" data-testid="notification-route-name" value={draft.name} onChange={(event) => onDraftChange({ name: event.target.value })} placeholder="Route name" />
         </Field>
         <Field label="Channel">
-          <PanelSelect className="row-height-select" data-testid="notification-route-channel" value={draft.channelId} onChange={(event) => onDraftChange({ channelId: event.target.value })}>
+          <PanelSelect data-testid="notification-route-channel" value={draft.channelId} onChange={(event) => onDraftChange({ channelId: event.target.value })}>
             <option value="">Choose channel</option>
             {externalChannels.map((channel) => (
               <option key={channel.id} value={channel.id}>{channelLabel(channel)}</option>
@@ -514,7 +514,7 @@ function RouteSection({
           </PanelSelect>
         </Field>
         <Field label="Source">
-          <PanelSelect className="row-height-select" data-testid="notification-route-source-kind" value={draft.sourceKind} onChange={(event) => onDraftChange({ sourceKind: event.target.value as RouteDraft['sourceKind'] })}>
+          <PanelSelect data-testid="notification-route-source-kind" value={draft.sourceKind} onChange={(event) => onDraftChange({ sourceKind: event.target.value as RouteDraft['sourceKind'] })}>
             <option value="watch">Watch</option>
             <option value="run">Run</option>
             <option value="source">Source</option>
@@ -527,7 +527,7 @@ function RouteSection({
           </Field>
         )}
         <Field label="Delivery">
-          <PanelSelect className="row-height-select" data-testid="notification-route-mode" value={draft.deliveryMode} onChange={(event) => onModeChange(event.target.value as RouteDraft['deliveryMode'])}>
+          <PanelSelect data-testid="notification-route-mode" value={draft.deliveryMode} onChange={(event) => onModeChange(event.target.value as RouteDraft['deliveryMode'])}>
             <option value="immediate">Immediate</option>
             <option value="digest">Digest</option>
           </PanelSelect>
@@ -535,7 +535,7 @@ function RouteSection({
         {draft.deliveryMode === 'digest' && (
           <>
             <Field label="Cadence">
-              <PanelSelect className="row-height-select" data-testid="notification-route-digest-cadence" value={draft.digestCadence} onChange={(event) => onDraftChange({ digestCadence: event.target.value as NotificationDigestCadence })}>
+              <PanelSelect data-testid="notification-route-digest-cadence" value={draft.digestCadence} onChange={(event) => onDraftChange({ digestCadence: event.target.value as NotificationDigestCadence })}>
                 <option value="daily">Daily</option>
                 <option value="hourly">Hourly</option>
                 <option value="manual">Manual</option>
@@ -547,7 +547,7 @@ function RouteSection({
           </>
         )}
         <Field label="Severity">
-          <PanelSelect className="row-height-select" data-testid="notification-route-severity" value={draft.severityMin} onChange={(event) => onDraftChange({ severityMin: event.target.value as RouteDraft['severityMin'] })}>
+          <PanelSelect data-testid="notification-route-severity" value={draft.severityMin} onChange={(event) => onDraftChange({ severityMin: event.target.value as RouteDraft['severityMin'] })}>
             <option value="info">Info+</option>
             <option value="warning">Warning+</option>
             <option value="critical">Critical</option>

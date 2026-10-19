@@ -7236,16 +7236,6 @@ dialog.sources-connections-layer::backdrop { background: transparent; }
 .notification-settings-control {
   min-width: 0; display: flex; flex-direction: column; gap: 3px;
 }
-.notification-settings-form select {
-  width: 100%;
-  min-height: 28px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-6);
-  background: var(--bg-panel);
-  color: var(--text);
-  padding: 4px 7px;
-  font-size: 12px;
-}
 .notification-settings-hint {
   font-size: 10px; color: var(--text-light); line-height: 1.35;
 }
