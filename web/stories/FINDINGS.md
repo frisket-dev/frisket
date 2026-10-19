@@ -166,3 +166,16 @@ maintainer finishes reviewing the revamp cycles.
 - Extract assembles help/options placement and dismissal; DocumentReader uses `useOptionsPopover` plus a render prop. Check whether a small common overlay primitive would help, retaining differing interaction requirements.
 - `importWorkspace/pdfBatch` now implements the broader Multiple files workflow. Internal Filter naming still includes `Facets`. Both make discovery harder; naming cleanup is distinct from a visual defect.
 - Extract's main view is PDF/image-only (`core/selectors/workView.ts`, `workbench/extract/ExtractView.tsx`). Audio/video temporal extraction is an action form, not another Extract pane. Record unavailable UI and the separate supported workflow, without inventing missing features for this audit.
+
+## Document/Extract consolidation
+
+`DocumentList` now owns the existing windowed list markup, search, count,
+empty/error states and pagination. Hosts keep selection effects and per-document
+details (reading priority versus extraction outcomes); fetching still belongs
+to `useDocumentView`. Reader/header reuse was already in place, so no new editor
+or controller abstraction was added. Direct tests cover windowing and callbacks.
+
+Visual review also exposed a generic menu max-width overriding the positioned
+PDF options width. `MenuPop sizing="anchored"` lets measured placement own width;
+the browser inventory now asserts it. Import headers retain centered steppers,
+and unequal-height progress cards no longer stretch into empty bands.

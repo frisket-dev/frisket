@@ -7333,7 +7333,7 @@ dialog.import-workspace-layer::backdrop {
 .import-workspace-header {
   flex: 0 0 auto;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: 12px;
   padding: 14px 24px;
@@ -7341,7 +7341,7 @@ dialog.import-workspace-layer::backdrop {
 }
 .import-workspace-header > div:first-child { min-width: 0; }
 .import-workspace-header > .import-workspace-stages { grid-column: 2; max-width: 56vw; }
-.import-workspace-header > .icon-btn { grid-column: 3; }
+.import-workspace-header > .icon-btn { grid-column: 3; justify-self: end; }
 .import-workspace-header-receipt {
   position: absolute;
   top: 10px;
@@ -8510,6 +8510,7 @@ dialog.modal-card::backdrop {
   box-shadow: var(--shadow-drawer);
   padding: 4px;
 }
+.menu-pop[data-menu-sizing='anchored'] { min-width: 0; max-width: none; }
 .menu-item {
   display: flex; align-items: center; gap: 7px;
   width: 100%; text-align: left;

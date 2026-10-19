@@ -37,6 +37,8 @@ export async function captureMediaScenes(page: Page, shot: Shot) {
   await shot(page, 'Documents', 'PDF reader and document list', documentSource);
   await page.getByTestId('document-options-button').click();
   await expect(page.getByTestId('document-options')).toBeVisible();
+  // Anchored width must win over the generic menu cap, or option values clip.
+  expect((await page.getByTestId('document-options').boundingBox())!.width).toBe(360);
   const optionLayout = page.getByTestId('document-option-layout').locator('..').locator('..');
   const row = await optionLayout.boundingBox();
   const label = await optionLayout.locator('.form-field-label').boundingBox();

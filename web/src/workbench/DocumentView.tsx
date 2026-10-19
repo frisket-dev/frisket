@@ -1,5 +1,5 @@
-import { FormField, SearchInput } from '../components/FormControls';
-import { Button } from '../components/Button';
+import { FormField } from '../components/FormControls';
+import { DocumentList } from './DocumentList';
 import type { CSSProperties } from 'react';
 import type { DocumentListPage, Row, SheetMeta } from '../api/types';
 import { MenuPop } from '../components/MenuPop';
@@ -16,7 +16,6 @@ import { DocumentAlongsidePane } from './DocumentAlongsidePane';
 import { useDocumentAlongsidePreference } from '../workspace/useWorkspaceChromeState';
 import type { TimedTranscriptDocument } from './timedTranscriptModel';
 import { useDocumentView } from './useDocumentView';
-import { LIST_ITEM_HEIGHT } from './useWindowedRowList';
 import { PanelLoading } from '../components/PanelPrimitives';
 import { PanelSelect } from '../components/PanelSelect';
 import { mediaFilename } from '../media/resolveMediaValue';
@@ -132,6 +131,8 @@ export function DocumentView({
     ],
     [],
   );
+  const browse = useDocumentView({ projectId, sheet, state, onChangeState, onDocumentFocus,
+    queryDocuments, hydrateRow, orderKey, titleColumnOrder, annotatedTextColumnIds });
   const {
     sources,
     source,
@@ -140,12 +141,8 @@ export function DocumentView({
     titleColumn,
     list,
     pageCounts,
-    search,
-    setSearch,
     optionsOpen,
     setOptionsOpen,
-    listBodyRef,
-    items,
     activeRowId,
     activeItem,
     activeRow,
@@ -155,24 +152,8 @@ export function DocumentView({
     hydrationError,
     recordPageCount,
     selectDocument,
-    onListKeyDown,
-    onListScroll,
-    startIndex,
-    windowRows,
-    loadMore,
     setState,
-  } = useDocumentView({
-    projectId,
-    sheet,
-    state,
-    onChangeState,
-    onDocumentFocus,
-    queryDocuments,
-    hydrateRow,
-    orderKey,
-    titleColumnOrder,
-    annotatedTextColumnIds,
-  });
+  } = browse;
 
   const activeTimedTranscriptDocument = useMemo<TimedTranscriptDocument | null>(() => {
     if (
@@ -216,7 +197,7 @@ export function DocumentView({
   // ref + top-layer placement style alongside its trigger; this attaches them
   // via ordinary JSX so neither side touches a ref outside JSX).
   const optionsPopover = ({ popoverRef, style }: { popoverRef: (el: HTMLDivElement | null) => void; style: CSSProperties }) => (
-    <MenuPop ref={popoverRef} style={style} className="document-options" role="dialog" data-testid="document-options" aria-label="View options">
+    <MenuPop ref={popoverRef} style={style} sizing="anchored" className="document-options" role="dialog" data-testid="document-options" aria-label="View options">
       {sources.length > 1 && (
         <FormField label="Source" layout="inline">
 
@@ -338,105 +319,35 @@ export function DocumentView({
       data-project-id={projectId}
       data-source-column-id={sourceColumn ? String(sourceColumn.id) : ''}
     >
-      <aside className="document-list" data-testid="document-list" aria-label="Documents">
-          <SearchInput
-            data-testid="document-list-search"
-            placeholder="Search documents…"
-            aria-label="Search documents"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
-        <div className="document-list-count muted mono">
-          {items.length.toLocaleString()} loaded
-        </div>
-        <div
-          className="document-list-body drawer-body"
-          data-testid="document-list-body"
-          ref={listBodyRef}
-          onScroll={onListScroll}
-          onKeyDown={onListKeyDown}
-          tabIndex={0}
-          role="listbox"
-          aria-label="Document list"
-        >
-          {list.error && (
-            <div className="document-list-message" role="alert">
-              {list.error}
-            </div>
-          )}
-          {!list.loading && items.length === 0 && (
-            <div className="document-list-empty" data-testid="document-list-empty">
-              No documents match.
-            </div>
-          )}
-          <div
-            className="document-list-scroller"
-            style={{ height: `${items.length * LIST_ITEM_HEIGHT}px` }}
-          >
-            {windowRows.map((item, offset) => {
-              const index = startIndex + offset;
-              const rowId = item.rowId;
-              const active = rowId === activeRowId;
-              const count = pageCounts[rowId];
-              const characterCount = item.sourceKind === 'annotated_text'
-                ? item.characterCount ?? 0
-                : item.characterCount;
-              const secondary =
-                characterCount !== null
-                  ? characterCount > 0
-                    ? `${characterCount.toLocaleString()} characters`
-                    : 'Empty'
-                  : !item.sourcePresent
-                    ? 'No document'
-                  : count != null
-                    ? `${count} page${count === 1 ? '' : 's'}`
-                    : item.sourceLabel
-                      ? mediaFilename({ url: item.sourceLabel, label: item.sourceLabel })
-                        ?? item.sourceKind.toUpperCase()
-                      : 'No document';
-              return (
-                <button
-                  type="button"
-                  key={rowId}
-                  className={`document-list-item${active ? ' active' : ''}`}
-                  data-testid="document-list-item"
-                  data-row-id={rowId}
-                  data-active={active ? 'true' : 'false'}
-                  data-has-media={item.sourceKind !== 'annotated_text' && item.sourcePresent ? 'true' : 'false'}
-                  role="option"
-                  aria-selected={active}
-                  style={{ position: 'absolute', top: `${index * LIST_ITEM_HEIGHT}px`, height: `${LIST_ITEM_HEIGHT}px` }}
-                  onClick={() => {
-                    selectDocument(rowId);
-                    if ((item.sourceKind === 'pdf' || item.sourceKind === 'image') && sourceColumn) {
-                      onRequestDocumentPriority?.(rowId, String(sourceColumn.id));
-                    }
-                  }}
-                  onDoubleClick={() => onOpenDetail(rowId)}
-                >
-                  <span className="document-list-item-title">{item.title}</span>
-                  <span className="document-list-item-secondary muted">
-                    {readingPriority && active ? (
-                      <span data-testid="document-reading-priority" role="status">Reading text now</span>
-                    ) : secondary}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-          {list.pages.at(-1)?.nextCursor && (
-            <Button
-              type="button"
-              className="document-list-more"
-              data-testid="document-list-more"
-              disabled={list.loading}
-              onClick={() => void loadMore()}
-            >
-              {list.loading ? 'Loading…' : 'Load more'}
-            </Button>
-          )}
-        </div>
-      </aside>
+      <DocumentList browse={browse} activeRowId={activeRowId} onOpen={onOpenDetail}
+        onSelect={item => {
+          selectDocument(item.rowId);
+          if ((item.sourceKind === 'pdf' || item.sourceKind === 'image') && sourceColumn) {
+            onRequestDocumentPriority?.(item.rowId, String(sourceColumn.id));
+          }
+        }}
+        describe={item => {
+          const rowId = item.rowId;
+          const count = pageCounts[rowId];
+          const characterCount = item.sourceKind === 'annotated_text'
+            ? item.characterCount ?? 0
+            : item.characterCount;
+          const secondary = characterCount !== null
+            ? characterCount > 0
+              ? `${characterCount.toLocaleString()} characters`
+              : 'Empty'
+            : !item.sourcePresent
+              ? 'No document'
+              : count != null
+                ? `${count} page${count === 1 ? '' : 's'}`
+                : item.sourceLabel
+                  ? mediaFilename({ url: item.sourceLabel, label: item.sourceLabel })
+                    ?? item.sourceKind.toUpperCase()
+                  : 'No document';
+          return { secondary: readingPriority && rowId === activeRowId
+            ? <span data-testid="document-reading-priority" role="status">Reading text now</span>
+            : secondary };
+        }} />
       {source?.kind === 'text' ? (
         <AnnotatedTextReader
           key={`text-reader-${activeRowId ?? 'none'}`}

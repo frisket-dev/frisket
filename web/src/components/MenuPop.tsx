@@ -3,6 +3,8 @@ import { forwardRef, type HTMLAttributes } from 'react';
 export interface MenuPopProps extends HTMLAttributes<HTMLDivElement> {
   /** Extra classes appended after the shared `.menu-pop` visual class. */
   className?: string;
+  /** Positioned menus use the anchor's measured width, not the default menu cap. */
+  sizing?: 'content' | 'anchored';
 }
 
 /**
@@ -15,12 +17,12 @@ export interface MenuPopProps extends HTMLAttributes<HTMLDivElement> {
  * `popover="manual"` element.
  */
 export const MenuPop = forwardRef<HTMLDivElement, MenuPopProps>(function MenuPop(
-  { className, role = 'menu', children, ...rest },
+  { className, role = 'menu', sizing = 'content', children, ...rest },
   ref,
 ) {
   const cls = className ? `menu-pop ${className}` : 'menu-pop';
   return (
-    <div ref={ref} className={cls} role={role} {...rest}>
+    <div ref={ref} className={cls} role={role} data-menu-sizing={sizing} {...rest}>
       {children}
     </div>
   );

@@ -1,7 +1,8 @@
 import { Button } from '../../components/Button';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, ChevronUp, CircleAlert, CircleHelp, LoaderCircle, Minus, MousePointer2, Play, Rows3, ScanLine, Settings2, Square, X } from 'lucide-react';
-import { SearchInput } from '../../components/FormControls';
+import { FormField } from '../../components/FormControls';
+import { DocumentList } from '../DocumentList';
 import { MenuPop } from '../../components/MenuPop';
 import { IconButton } from '../../components/IconButton';
 import { SegmentedToggle } from '../../components/PanelPrimitives';
@@ -15,7 +16,6 @@ import type { DocumentViewState } from '../../workspace/useWorkspaceChromeState'
 import { DocumentReader } from '../DocumentReader';
 import { documentMediaKind } from '../documentMedia';
 import { useDocumentView } from '../useDocumentView';
-import { LIST_ITEM_HEIGHT } from '../useWindowedRowList';
 import { ExtractPageOverlay } from './ExtractPageOverlay';
 import { ExtractFields } from './ExtractFields';
 import { ExtractPreview } from './ExtractPreview';
@@ -87,8 +87,8 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
   persistence: ReturnType<typeof useExtractionLayouts>; browse: ReturnType<typeof useDocumentView>;
 }) {
   const { projectId, sheet, state, onChangeState } = props;
-  const { activeRowId, sourceColumn, activeMedia: documentMedia, activeItem, sources, search, setSearch,
-    list, items, listBodyRef, onListScroll, onListKeyDown, windowRows, startIndex, loadMore, selectDocument, recordPageCount,
+  const { activeRowId, sourceColumn, activeMedia: documentMedia, activeItem, sources,
+    selectDocument, recordPageCount,
   } = browse;
   const { layout, change: changeLayout } = persistence;
   const template = useMemo(() => templateDefaults(layout?.draft ?? EMPTY_EXTRACTION_DRAFT), [layout?.draft]);
@@ -356,19 +356,19 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
     : 'Fixed areas read only the selected space. Draw the full possible value area, or expand areas for variable-length text.';
   const optionsPopover = optionsOpen && <MenuPop ref={optionsPopoverRef} style={optionsPosition
     ? { position: 'fixed', inset: 'auto', margin: 0, ...optionsPosition } : { position: 'fixed', visibility: 'hidden' }}
-    className="document-options" role="dialog" aria-label="Extraction options">
+    sizing="anchored" className="document-options" role="dialog" aria-label="Extraction options">
       <label className="document-option-row document-option-check"><input disabled={editorReadOnly} type="checkbox" aria-describedby="extract-area-help" checked={template.expand_values} onChange={(event) => update({ ...template, expand_values: event.target.checked })} />Expand value areas</label>
       <p id="extract-area-help" className={styles.areaHelp}>{areaHelp}</p>
       <label className="document-option-row document-option-check"><input disabled={editorReadOnly} type="checkbox" checked={template.look_every_page} onChange={(event) => update({ ...template, look_every_page: event.target.checked })} />Look on every page</label>
       <label className="document-option-row document-option-check"><input disabled={editorReadOnly} type="checkbox" checked={template.continue_across_pages} onChange={(event) => update({ ...template, continue_across_pages: event.target.checked })} />Continue across pages</label>
-      <label className="document-option-row form-field">Rows <PanelSelect disabled={editorReadOnly} className="row-height-select" topLayer menuRef={rowsMenuRef} aria-label="Result rows" value={repeatGroupId ?? ''} onChange={(event) => { update(template); setRepeatGroupId(event.target.value || null); }}>
+      <FormField label="Rows" layout="inline"><PanelSelect disabled={editorReadOnly} className="row-height-select" topLayer menuRef={rowsMenuRef} aria-label="Result rows" value={repeatGroupId ?? ''} onChange={(event) => { update(template); setRepeatGroupId(event.target.value || null); }}>
         {template.sections.length === 0 ? <option value="">One per document</option> : <option value="" disabled>Choose repeated section</option>}
         {template.sections.map((section) => <option key={section.id} value={section.id}>One per {section.name}</option>)}
-      </PanelSelect></label>
+      </PanelSelect></FormField>
     </MenuPop>;
   const helpPopover = helpOpen && <MenuPop ref={helpPopoverRef} style={helpPosition
     ? { position: 'fixed', inset: 'auto', margin: 0, ...helpPosition } : { position: 'fixed', visibility: 'hidden' }}
-    className="document-options" role="dialog" aria-label="Extraction tool help"><ExtractToolHelp /></MenuPop>;
+    sizing="anchored" className="document-options" role="dialog" aria-label="Extraction tool help"><ExtractToolHelp /></MenuPop>;
   const scopeCount = counts?.[scopeKind] ?? null;
   const saveStatus = persistence.loading ? 'Loading layouts…' : persistence.switching ? 'Changing layout…'
     : persistence.saving ? 'Saving layout…' : persistence.saveError ? 'Layout could not be saved'
@@ -433,27 +433,21 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
     {(error || referenceError || persistence.saveError || persistence.error || geometryError) && <div className={styles.error} role="alert">{error || referenceError || persistence.saveError || persistence.error || geometryError}</div>}
     {validationIssue && !pending && template.fields.length > 0 && <div className={styles.validation} role="status">{validationIssue}</div>}
     <div className={styles.body}>
-      <aside className="document-list" aria-label="Documents">
-        <SearchInput placeholder="Search documents…" aria-label="Search documents" value={search} onChange={(event) => setSearch(event.target.value)} />
-        <div className="document-list-count muted mono">{preview ? `Preview sample · ${preview.documents.length} documents` : `${items.length} loaded`}</div>
-        <div className="document-list-body drawer-body" ref={listBodyRef} onScroll={onListScroll} onKeyDown={onListKeyDown} tabIndex={0} role="listbox" aria-label="Document list">
-          {list.error && <p role="alert">{list.error}</p>}
-          <div style={{ position: 'relative', height: `${items.length * LIST_ITEM_HEIGHT}px` }}>
-            {windowRows.map((item, offset) => {
-              const result = preview?.documents.find((doc) => String(doc.row_id) === item.rowId)?.result;
-              const outcome = result ? previewOutcome(result) : null;
-              return <button key={item.rowId} type="button" role="option" aria-selected={currentRowId === item.rowId}
-                className={`document-list-item${currentRowId === item.rowId ? ' active' : ''}`} style={{ position: 'absolute', top: `${(startIndex + offset) * LIST_ITEM_HEIGHT}px`, height: LIST_ITEM_HEIGHT }}
-                onClick={() => { setJumpRow(null); setInspection(null); setReaderPage(1);
-                  setReaderJump((current) => ({ rowId: null, page: 1, revision: current.revision + 1 })); selectDocument(item.rowId); }}>
-                <span className="document-list-item-title">{outcome && <span className={outcome.warning ? styles.warning : result?.outcome === 'zero_records' ? styles.empty : styles.success}>{result?.outcome === 'zero_records' ? '○ ' : '● '}</span>}{item.title}</span>
-                <span className="document-list-item-secondary muted">{outcome?.text ?? item.sourceLabel ?? 'Document'}</span>
-              </button>;
-            })}
-          </div>
-          {list.pages.at(-1)?.nextCursor && <Button type="button" disabled={list.loading} onClick={() => void loadMore()}>Load more</Button>}
-        </div>
-      </aside>
+      <DocumentList browse={browse} activeRowId={currentRowId}
+        count={preview ? `Preview sample · ${preview.documents.length} documents` : undefined}
+        onSelect={item => {
+          setJumpRow(null); setInspection(null); setReaderPage(1);
+          setReaderJump(current => ({ rowId: null, page: 1, revision: current.revision + 1 }));
+          selectDocument(item.rowId);
+        }}
+        describe={item => {
+          const result = preview?.documents.find((doc) => String(doc.row_id) === item.rowId)?.result;
+          const outcome = result ? previewOutcome(result) : null;
+          return {
+            title: <>{outcome && <span className={outcome.warning ? styles.warning : result?.outcome === 'zero_records' ? styles.empty : styles.success}>{result?.outcome === 'zero_records' ? '○ ' : '● '}</span>}{item.title}</>,
+            secondary: outcome?.text ?? item.sourceLabel ?? 'Document',
+          };
+        }} />
       <div className={styles.center}>
         <DocumentReader key={`${currentRowId}:${readerJump.revision}`} media={activeMedia} mediaKind={activeKind} title={jumpRow?.filename ?? activeItem?.title ?? 'No document selected'}
           layout="single" fit="width" videoFit="full" onVideoFitChange={() => undefined} textLayer={false}
