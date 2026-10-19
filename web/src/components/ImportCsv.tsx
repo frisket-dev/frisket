@@ -1548,6 +1548,9 @@ function OpenImportWorkspaceSession({
   const fileEntry = railMode === 'files' && !showPreparation && !pdfBatchActive && !downloadPrompt && !nerPrompt;
   const EntryStep = fileEntry ? ImportStep : Fragment;
   const EntryBody = fileEntry ? ImportStepBody : Fragment;
+  const closeDisabled = !pdfBatchActive && (
+    selectionPreparing || (busy && !sessionBusy) || (bulkBusy && !bulkPreparing) || pdfPacketContext.busy
+  );
   const tableImportChoosingSource = tableImportActive
     && (tableImportContext?.canChangeMode ?? true)
     && (tableImportContext?.stage ?? 'add') === 'add';
@@ -1682,12 +1685,7 @@ function OpenImportWorkspaceSession({
             className="icon-btn"
             aria-label="Close import"
             data-testid="import-workspace-close"
-            disabled={!pdfBatchActive && (
-              selectionPreparing
-              || (busy && !sessionBusy)
-              || (bulkBusy && !bulkPreparing)
-              || pdfPacketContext.busy
-            )}
+            disabled={closeDisabled}
             onClick={closeWorkspaceFromUser}
           >
             <X size={16} />
@@ -1929,7 +1927,7 @@ function OpenImportWorkspaceSession({
               )}
               </EntryBody>
               {fileEntry && <ImportStepFooter>
-                <Button type="button" disabled={busy || bulkBusy || selectionPreparing} onClick={closeWorkspaceFromUser}>Cancel</Button>
+                <Button type="button" disabled={closeDisabled} onClick={closeWorkspaceFromUser}>Cancel</Button>
                 <span>{mode === 'urls' ? 'Enter URLs to import their contents.' : 'Choose or drop files to start preparing the import.'}</span>
                 {mode === 'urls' && <Button type="button" className="btn-primary" data-testid="import-url-submit"
                   disabled={busy} onClick={() => {

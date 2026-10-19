@@ -379,7 +379,8 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     });
 
     await waitFor(() => expect(prepareImportFiles).toHaveBeenCalledOnce());
-    const close = screen.getByTestId('import-workspace-close');
+    const close = screen.getByRole('button', { name: 'Cancel', exact: true });
+    expect(screen.getByTestId('import-workspace-close')).toBeEnabled();
     expect(close).toBeEnabled();
     fireEvent.click(close);
     expect(screen.getByTestId('bulk-prepare-discard-dialog')).toBeVisible();
