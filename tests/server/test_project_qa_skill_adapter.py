@@ -7,11 +7,14 @@ from fastapi.testclient import TestClient
 
 from frisket.engine.store import Project
 from frisket.engine.store.project_qa import ProjectQAStore
+from frisket.contracts.http.project_qa import AskThreadCreate, AskTurnRequest
+from frisket.server.services.project_qa import ProjectQAService
 from frisket.server.services.project_qa_skills import (
     ProjectQASkillAdapter,
     ProjectQASkillConflict,
 )
 from frisket.server.services.skills import SkillLibrary, SkillLibraryError
+from frisket.server.workspace import Workspace
 
 
 def _content(name: str, instruction: str = "Inspect representative sources.") -> str:
@@ -407,5 +410,49 @@ def test_save_retry_reconciles_library_write_after_lost_result(tmp_path) -> None
             if event["kind"] in {"skill_save_attempt", "skill_saved"}
         ] == ["skill_save_attempt", "skill_saved"]
         project.close()
+
+    asyncio.run(scenario())
+
+
+def test_skill_snapshot_failure_terminalizes_durable_admission(tmp_path) -> None:
+    async def scenario() -> None:
+        workspace = Workspace(tmp_path / "workspace")
+        pid = workspace.create("Ask")["id"]
+
+        class BrokenLibrary:
+            @staticmethod
+            def enabled():
+                raise SkillLibraryError("Stored skills cannot be read safely.")
+
+        async def runner(*_args):
+            raise AssertionError("runner must not start after snapshot failure")
+
+        service = ProjectQAService(workspace, runner=runner)
+        service.configure_research(
+            authorize=lambda _project_id, _context: None,
+            skills=lambda: BrokenLibrary(),
+        )
+        thread = await service.create(pid, AskThreadCreate(scope={"kind": "project"}))
+        with pytest.raises(SkillLibraryError, match="cannot be read"):
+            await service.submit(
+                pid,
+                thread["id"],
+                AskTurnRequest(
+                    request_id="snapshot-fails",
+                    question="Use a skill",
+                    scope={"kind": "project"},
+                    model="anthropic/test",
+                ),
+            )
+        store = ProjectQAStore(workspace.get(pid))
+        [turn] = [
+            event
+            for event in store.events(thread["id"])["events"]
+            if event["kind"] == "question"
+        ]
+        saved = store.get_turn(turn["turn_id"])
+        assert saved["status"] == "failed"
+        assert store.get_active_turn(thread["id"]) is None
+        await service.shutdown()
 
     asyncio.run(scenario())

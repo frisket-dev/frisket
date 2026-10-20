@@ -647,27 +647,27 @@ class ProjectQAService:
             turn = await await_thread_worker(admit)
             key = (project, turn["id"])
             if turn["status"] == "running" and key not in self._tasks:
-                skill_snapshots = (
-                    await await_thread_worker(self._skill_library().enabled)
-                    if self._skill_library is not None
-                    else ()
-                )
-                skill_authoring = None
-                if self._skill_authoring is not None:
-                    try:
-                        skill_authoring = await await_thread_worker(
-                            self._skill_authoring.bind,
-                            store=store,
-                            project_id=project_id,
-                            thread_id=thread_id,
-                            turn_id=turn["id"],
-                            context=context,
-                        )
-                    except PermissionError:
-                        pass
                 runtime = None
                 port = self.workspace.project_qa_runtime_port
                 try:
+                    skill_snapshots = (
+                        await await_thread_worker(self._skill_library().enabled)
+                        if self._skill_library is not None
+                        else ()
+                    )
+                    skill_authoring = None
+                    if self._skill_authoring is not None:
+                        try:
+                            skill_authoring = await await_thread_worker(
+                                self._skill_authoring.bind,
+                                store=store,
+                                project_id=project_id,
+                                thread_id=thread_id,
+                                turn_id=turn["id"],
+                                context=context,
+                            )
+                        except PermissionError:
+                            pass
                     if port is not None:
                         runtime = await port.prepare_turn(
                             project=project,
