@@ -9,7 +9,7 @@ const NER_LINK_ID = 'evidence-link:ner-transcript';
 const AUDIO_LINK_ID = 'evidence-link:source-audio';
 
 function reviewBundle(sheetId: number) {
-  return {
+  const bundle = {
     id: '901:1',
     run_id: 901,
     row_id: 1,
@@ -50,6 +50,7 @@ function reviewBundle(sheetId: number) {
     }],
     evidence: [],
   };
+  return { ...bundle, items: bundle.fields };
 }
 
 function nerTextPayload(sheetId: number) {
