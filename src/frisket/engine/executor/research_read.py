@@ -8,13 +8,19 @@ import copy
 from frisket.actions.research_types import ResearchAnswer
 from frisket.actions.types import RowError
 from frisket.ai.llm import LLMError
-from frisket.ai.research.row_answer import fetch_page, run_research, search_observation
+from frisket.ai.research.recorder import ResearchRecorder
+from frisket.ai.research.row_answer import (
+    fetch_page_result,
+    run_research,
+    search_observation,
+)
 from frisket.engine.executor.agent_model_calls import (
     AccountedAgentRouter,
     require_agent_attempt,
 )
 from frisket.engine.executor.visual_cuts_read import _settle
 from frisket.ops.base import RecipeInvocationHalt
+from frisket.ops.integrations.hosted_error import HostedEngineError
 
 
 class AdmittedResearcher:
@@ -34,11 +40,11 @@ class AdmittedResearcher:
             raise RuntimeError("Research invocation is already started or closed")
         if self._ctx.extras.get("preview"):
             raise RecipeInvocationHalt(
-                "preview_unsupported", "Web research requires an admitted run"
+                "preview_unsupported", "Agent Research requires an admitted run"
             )
         if self._ctx.project.effective_network_policy() == "off":
             raise RecipeInvocationHalt(
-                "network_disabled", "Web research requires network access"
+                "network_disabled", "Agent Research requires network access"
             )
         require_agent_attempt(self._ctx)
         self._started = True
@@ -91,9 +97,14 @@ class _BoundResearcher:
 
     async def _answer(self, goal, context):
         owner, ctx = self._owner, self._ctx
+        recorder = ResearchRecorder()
         router = AccountedAgentRouter(
             ctx.extras["router"], ctx, owner._model, owner.accounting_by_row
         )
+        try:
+            router.add_secret_values(self._searcher.secret_values())
+        except Exception:
+            pass  # Diagnostic handoff must never change execution.
         try:
             data, _ = await run_research(
                 context,
@@ -102,17 +113,28 @@ class _BoundResearcher:
                 router=router,
                 recipe_version="1",
                 search=self._search,
-                fetch=lambda url: fetch_page(url, ctx.http),
+                fetch=lambda url: fetch_page_result(url, ctx.http),
+                recorder=recorder,
             )
         except LLMError as exc:
             router.retain_unrecorded_error_calls(exc)
             raise
-        except (asyncio.CancelledError, RecipeInvocationHalt):
+        except (
+            asyncio.CancelledError,
+            RecipeInvocationHalt,
+            RowError,
+            HostedEngineError,
+        ):
             raise
         except Exception as exc:
             raise RowError(
                 "research_failed", str(exc)[:500] or "Research failed"
             ) from exc
+        finally:
+            try:
+                router.set_research(recorder.snapshot())
+            except Exception:
+                pass  # Trace attachment is best-effort, including on failure.
         if data.get("error"):
             raise RowError(
                 data.get("error_code", "research_failed"), data["error"][:500]

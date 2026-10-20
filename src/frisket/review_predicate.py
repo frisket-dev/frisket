@@ -36,8 +36,14 @@ SUPPORT_COLUMN_SUFFIXES = (
 # names in runs.params.output_names.  Keep this narrow: these are companion
 # artifacts used to present or ground the primary result, not separate review
 # chores.  Name conventions remain the fallback for older/unmanaged writers.
-PRIMARY_OUTPUT_ROLES = {"media.ocr": frozenset({"text"})}
-SUPPORT_OUTPUT_ROLES = {"media.ocr": frozenset({"blocks", "pdf"})}
+PRIMARY_OUTPUT_ROLES = {
+    "media.ocr": frozenset({"text"}),
+    "research.answer": frozenset({"answer"}),
+}
+SUPPORT_OUTPUT_ROLES = {
+    "media.ocr": frozenset({"blocks", "pdf"}),
+    "research.answer": frozenset({"sources"}),
+}
 
 
 def authored_output_roles(raw_params: object) -> dict[str, str]:

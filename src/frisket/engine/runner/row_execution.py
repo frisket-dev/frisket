@@ -299,6 +299,9 @@ async def execute_row(
                 cell["tokens_out"] = None
                 cell.pop("model_calls", None)
         return out
+    except asyncio.CancelledError:
+        persist_trace(error="cancelled: row execution cancelled")
+        raise
     except RecipeInvocationHalt as e:
         persist_trace(error=safe_error(e.code, e, max_chars=500).text)
         raise

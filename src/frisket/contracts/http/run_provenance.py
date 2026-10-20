@@ -9,6 +9,41 @@ from pydantic import Field, JsonValue
 from frisket.contracts.http.models import WireModel
 
 
+class ResearchSearchResult(WireModel):
+    title: str
+    url: str
+    snippet: str
+
+
+class ResearchSearchStep(WireModel):
+    tool: Literal["search"]
+    query: str
+    provider: str | None = None
+    service: str | None = None
+    status: Literal["ok", "error", "cancelled", "started"]
+    results: list[ResearchSearchResult] = Field(default_factory=list)
+    duration_ms: int | None = None
+    error_code: str | None = None
+    error: str | None = None
+    truncated: bool = False
+
+
+class ResearchFetchStep(WireModel):
+    tool: Literal["fetch"]
+    url: str
+    status: Literal["ok", "error", "cancelled", "started"]
+    text: str | None = None
+    duration_ms: int | None = None
+    error_code: str | None = None
+    error: str | None = None
+    truncated: bool = False
+
+
+class ResearchTrace(WireModel):
+    steps: list[ResearchSearchStep | ResearchFetchStep]
+    truncated: bool = False
+
+
 class RunTraceRow(WireModel):
     """One bounded, redacted model-call trace row.
 
@@ -30,6 +65,9 @@ class RunTraceRow(WireModel):
     latency_ms: int | None = None
     retries: list[JsonValue] | None = None
     calls: list[JsonValue] | None = None
+    research: ResearchTrace | None = None
+    research_incomplete: bool = False
+    truncated: bool = False
 
 
 class RunTraceRowTrace(WireModel):

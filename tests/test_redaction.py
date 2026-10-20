@@ -23,6 +23,15 @@ from frisket.redaction import (
 SENTINEL = "sk-checkpoint1a-secret"
 
 
+def test_shared_references_survive_but_active_path_cycles_redact() -> None:
+    shared = {"content": "visible"}
+    cyclic: list = [shared]
+    cyclic.append(cyclic)
+    result = redact_value({"first": shared, "second": shared, "cycle": cyclic})
+    assert result == {"first": shared, "second": shared, "cycle": [shared, CYCLE]}
+    assert redact_value([shared, shared]) == [shared, shared]
+
+
 def test_canonical_error_code_accepts_only_bounded_lower_snake_case() -> None:
     assert canonical_error_code("provider_timeout") == "provider_timeout"
     assert canonical_error_code("Provider Timeout") == "internal_error"

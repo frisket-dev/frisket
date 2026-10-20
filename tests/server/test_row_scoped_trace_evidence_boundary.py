@@ -4,12 +4,86 @@ import json
 import gzip
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from frisket.server.app import create_app
 from frisket.operability.trace import trace_path
 from frisket.engine.store.runs import RunResultStore
 from helpers import write_claimed_test_results
+
+
+@pytest.mark.parametrize(
+    "research,expected,incomplete",
+    [
+        (None, None, False),
+        ("[TRUNCATED]", None, True),
+        ({"steps": "[TRUNCATED]"}, None, True),
+        ({"steps": [{"tool": "unknown"}]}, None, True),
+        ({"steps": []}, {"steps": [], "truncated": False}, False),
+        (
+            {
+                "steps": [
+                    "[TRUNCATED]",
+                    {
+                        "tool": "fetch",
+                        "url": "https://example.test/",
+                        "status": "error",
+                        "error": "Unavailable",
+                        "[TRUNCATED]": "[TRUNCATED]",
+                    },
+                ]
+            },
+            {
+                "steps": [
+                    {
+                        "tool": "fetch",
+                        "url": "https://example.test/",
+                        "status": "error",
+                        "error": "Unavailable",
+                        "truncated": True,
+                    }
+                ],
+                "truncated": True,
+            },
+            True,
+        ),
+    ],
+)
+def test_malformed_legacy_row_and_research_are_normalized_at_actual_endpoint(
+    tmp_path: Path,
+    research,
+    expected,
+    incomplete,
+) -> None:
+    client, project_id, run_id, row_ids, column_id, _ = _seed_project(tmp_path)
+    project = client.app.state.workspace.get(project_id)
+    with gzip.open(trace_path(project.path, run_id), "at", encoding="utf-8") as stream:
+        stream.write(
+            json.dumps(
+                {
+                    "kind": "row",
+                    "row_id": row_ids[0],
+                    "unknown": "discard",
+                    "[TRUNCATED]": "[TRUNCATED]",
+                    "raw_response": {"bad": "type"},
+                    "tokens_in": "[REDACTED]",
+                    "calls": "[TRUNCATED]",
+                    "research": research,
+                }
+            )
+            + "\n"
+        )
+    response = client.get(
+        f"/api/projects/{project_id}/actions/runs/{run_id}/trace/rows/{row_ids[0]}",
+        params={"column_id": column_id},
+    )
+    assert response.status_code == 200, response.text
+    row = response.json()["trace"]["row"]
+    assert row["research"] == expected
+    assert row["research_incomplete"] is incomplete
+    assert "unknown" not in row
+    assert "[TRUNCATED]" not in row
 
 
 def _seed_project(tmp_path: Path) -> tuple[TestClient, str, int, list[int], int, int]:

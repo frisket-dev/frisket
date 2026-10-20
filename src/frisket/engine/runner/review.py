@@ -16,7 +16,7 @@ from frisket.engine.store.review_stats import (
 )
 from frisket.engine.store.review_values import read_review_results
 from frisket.engine.store.runs import REVIEWABLE_OUTCOMES_SQL, RunResultStore
-from frisket.review_predicate import is_exact_review_correction
+from frisket.review_predicate import authored_output_roles, is_exact_review_correction
 from frisket.server.paging import offset_page_payload
 
 
@@ -366,7 +366,16 @@ def _hydrate_review_bundles(project: Project, keys: list[Any]) -> list[dict[str,
     )
     cells_by_bundle: dict[tuple[int, int, int], list[dict[str, Any]]] = {}
     rows_by_current: dict[tuple[int, int], list[int]] = {}
+    output_roles_by_run: dict[int, dict[str, str]] = {}
     for key in keys:
+        run_id = int(key["run_id"])
+        if run_id not in output_roles_by_run:
+            run = project.db.execute(
+                "SELECT params FROM runs WHERE id=?", (run_id,)
+            ).fetchone()
+            output_roles_by_run[run_id] = authored_output_roles(
+                run["params"] if run is not None else None
+            )
         cells_sql = f"""
                 SELECT res.run_id, res.row_id, res.column_id,
                        res.confidence, res.error,
@@ -511,6 +520,9 @@ def _hydrate_review_bundles(project: Project, keys: list[Any]) -> list[dict[str,
                 "column_id": cell["column_id"],
                 "column_name": cell["column_name"],
                 "column_type": cell["column_type"],
+                "output_key": output_roles_by_run[int(cell["run_id"])].get(
+                    cell["column_name"]
+                ),
                 "semantic_type": cell["semantic_type"],
                 "format": cell["format"],
                 "sheet_id": cell["sheet_id"],

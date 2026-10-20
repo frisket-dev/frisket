@@ -15,6 +15,7 @@ from pydantic_ai.usage import UsageLimits
 from frisket.ai.llm.structured import FrisketRouterModel, _content_to_pai
 from frisket.ai.llm.types import LLMResponse
 from frisket.ai.models.metadata import ModelCallMeta, PROVIDER_KIND
+from frisket.ai.research.recorder import ResearchRecorder
 from frisket.ai.research.search import (
     SearchProviderError,
     SearchResponse,
@@ -52,6 +53,23 @@ class ResearchSearchObservation:
     text: str
     urls: tuple[str, ...]
     response: SearchResponse
+
+
+@dataclass(frozen=True)
+class ResearchFetchObservation:
+    text: str
+    error_code: str | None = None
+    error: str | None = None
+
+
+def _capture(recorder: ResearchRecorder | None, method: str, *args, **kwargs):
+    """A diagnostic failure cannot become a model/tool execution failure."""
+    try:
+        if recorder is not None:
+            return getattr(recorder, method)(*args, **kwargs)
+    except Exception:
+        pass
+    return None
 
 
 def _answer_is_tool_shaped(answer: str) -> bool:
@@ -95,7 +113,8 @@ async def run_research(
     search: Callable[
         [str], Awaitable[ResearchSearchObservation | tuple[str, list[str]]]
     ],
-    fetch: Callable[[str], Awaitable[str]],
+    fetch: Callable[[str], Awaitable[str | ResearchFetchObservation]],
+    recorder: ResearchRecorder | None = None,
 ) -> tuple[dict, dict]:
     """Return logical answer/source values and actual model-call accounting.
 
@@ -119,14 +138,21 @@ async def run_research(
     search_source, fetch_source = search, fetch
 
     async def search(query: str) -> str:
-        searched = await search_source(query)
+        token = _capture(recorder, "start", "search", query=query)
+        try:
+            searched = await search_source(query)
+        except BaseException as exc:
+            _capture(recorder, "finish", token, error=exc)
+            raise
         if isinstance(searched, ResearchSearchObservation):
             obs, hits = searched.text, searched.urls
             search_calls.append(_search_usage_dict(searched.response))
+            _capture(recorder, "finish", token, response=searched.response)
         else:
             # Compatibility for injected callers while they migrate to the
             # metadata-bearing shared service boundary.
             obs, hits = searched
+            _capture(recorder, "finish", token)
         # the snippets it reads ARE its sources — cite them (deduped)
         for u in hits:
             if u and u not in sources:
@@ -134,10 +160,29 @@ async def run_research(
         return obs
 
     async def fetch(url: str) -> str:
-        obs = await fetch_source(url)
+        token = _capture(recorder, "start", "fetch", url=url)
+        try:
+            fetched = await fetch_source(url)
+        except BaseException as exc:
+            _capture(recorder, "finish", token, error=exc)
+            raise
+        observation = (
+            fetched
+            if isinstance(fetched, ResearchFetchObservation)
+            else ResearchFetchObservation(text=fetched)
+        )
+        obs = observation.text[:FETCH_CHARS]
+        _capture(
+            recorder,
+            "finish",
+            token,
+            text=obs,
+            error_code=observation.error_code,
+            error_detail=observation.error,
+        )
         if url and url not in sources:
             sources.append(url)
-        return obs[:FETCH_CHARS]
+        return obs
 
     model = FrisketRouterModel(
         router,
@@ -418,11 +463,16 @@ def search_observation(
     text = "\n".join(
         f"- {result.title} | {result.url}\n  {result.excerpt}" for result in results
     )
-    urls = tuple(result.url for result in results if result.url)[:3]
+    urls = tuple(result.url for result in results if result.url)
     return ResearchSearchObservation(text=text, urls=urls, response=response)
 
 
 async def fetch_page(url: str, http: Any) -> str:
+    """Compatibility text observation for callers outside the admitted lane."""
+    return (await fetch_page_result(url, http)).text
+
+
+async def fetch_page_result(url: str, http: Any) -> ResearchFetchObservation:
     """Read one page for the agent. The MODEL chooses this URL, so the
     guard has to be authoritative, not advisory: ``safe_request`` resolves
     once, dials the vetted literal, and re-vets + re-pins every redirect
@@ -438,7 +488,7 @@ async def fetch_page(url: str, http: Any) -> str:
     from frisket.ops.netguard import safe_request
 
     if not url.startswith(("http://", "https://")):
-        return "invalid url"
+        return ResearchFetchObservation("invalid url", "invalid_url", "invalid url")
     try:
         resp = await safe_request(
             http,
@@ -452,11 +502,11 @@ async def fetch_page(url: str, http: Any) -> str:
         # Every refusal (blocked URL, blocked/looping redirect, oversized or
         # encoded body, timeout) reaches the model as an observation it can
         # act on by choosing another source.
-        return f"fetch failed: {e}"
+        return ResearchFetchObservation(f"fetch failed: {e}", "fetch_failed", str(e))
     text = resp.content.decode("utf-8", errors="replace")
     # crude readability: strip tags, collapse whitespace
     text = re.sub(
         r"<script.*?</script>|<style.*?</style>", " ", text, flags=re.S | re.I
     )
     text = re.sub(r"<[^>]+>", " ", text)
-    return re.sub(r"\s+", " ", text).strip()
+    return ResearchFetchObservation(re.sub(r"\s+", " ", text).strip())
