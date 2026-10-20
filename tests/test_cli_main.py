@@ -6,6 +6,7 @@ workspace). These run in an empty cwd and assert nothing gets created."""
 import socket
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -238,6 +239,9 @@ def test_existing_workspace_path_reaches_serve_not_unknown_command(
     with pytest.raises(RuntimeError, match="reached uvicorn.run"):
         cli.main()
     assert events == ["lock", "stop", "unlock"]
+    assert not any(
+        thread.name == "frisket-pricing-refresh" for thread in threading.enumerate()
+    ), "CLI tests must not leave process-lifetime catalog refresh running"
 
 
 def test_existing_workspace_refuses_second_native_server(tmp_path, monkeypatch, capsys):
