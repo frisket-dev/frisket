@@ -5,8 +5,8 @@
 All fourteen audit items below are implemented, including non-bug duplication.
 Seven parallel implementation lanes shared bounded file ownership; independent
 cross-reviews covered every lane. Net handwritten production change versus
-`6dc3c869`: **−826 lines**, including all new helpers. This follows the prior
-round's −430; no new public PR/merge before maintainer screenshot approval.
+`6dc3c869`: **−816 lines**, including all new helpers. This follows the prior
+round's −430. The maintainer has authorized the final commit/PR/merge.
 
 Regression tests reproduced project-crossing evidence cache reuse, old saves
 clearing new secret drafts, and source-definition drift. Shared source fields,
@@ -20,8 +20,13 @@ The integrated run passed 3,763 tests in 474 files; 73 targeted follow-up tests
 cover subsequent review repairs and the final formatter cleanup. Types,
 Local/Team builds, lint (zero errors, 32 existing warnings) and dependency
 boundaries pass. Baseline browser capture passed seven scenarios; final browser
-capture passed eight. Independent Codex reviews are clear; Claude's review of
-`591b3165` is requested and pending. Final build checking caught
+capture passed eight. Independent Codex reviews are clear; Claude cleared the
+visuals and core consolidation, finding two source-save issues and a related
+notification-create risk. These are repaired: same-editor save errors remain
+visible, edited successful creates bind the returned source ID, and notification
+create fields are locked while their INSERT is pending. The final 26 focused
+regressions pass; the source repair also has independent Codex clearance.
+Final build checking caught
 one remaining call to the deleted byte-label alias; it now calls the shared
 formatter directly, with no formatting policy change.
 
@@ -29,7 +34,13 @@ The focused review artifact `frisket-ui-responsibility-review-2026-10-20.zip`
 combines 33 scenes from this and the previous round, all with current after
 captures. Each before image records its actual baseline; no dark-mode inventory
 duplication. All 258 local references and archive integrity were checked.
-No PR/merge before maintainer screenshot approval.
+The final save-flow repairs affect pending/error states, not these static captures.
+
+Intentional normalization includes shared closed/open selector readiness,
+discarding blank provisional comparison variants on switching/duplication,
+source-poll errors remaining visible through refresh, shared source labels and
+JSON-pointer validation, and retaining the last notification summary while
+refreshing a remounted badge.
 
 ### Audit rationale and original implementation map
 

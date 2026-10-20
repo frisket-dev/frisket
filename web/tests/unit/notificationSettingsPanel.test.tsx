@@ -2,6 +2,7 @@
 
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NotificationSettingsPanel } from '../../src/components/NotificationSettingsPanel';
 import {
@@ -101,22 +102,40 @@ afterEach(() => {
 });
 
 describe('NotificationSettingsPanel configurable email', () => {
-  it('clears only the channel draft revision that finished saving', async () => {
+  it.each(['slack', 'email'] as const)('locks only the %s create draft while saving, then accepts a deliberate new draft', async (kind) => {
+    const user = userEvent.setup();
     let resolve!: (value: unknown) => void;
     projectApi.createNotificationChannel.mockReturnValue(new Promise((accept) => { resolve = accept; }));
     renderPanel(LOCAL_EDITION_MODULE);
     await screen.findByText('Slack route');
+    await user.selectOptions(screen.getByTestId('notification-channel-kind'), kind);
     fireEvent.change(screen.getByTestId('notification-channel-secret-ref'), { target: { value: 'env:FIRST' } });
-    fireEvent.click(screen.getByTestId('notification-create-channel'));
-    fireEvent.change(screen.getByTestId('notification-channel-name'), { target: { value: 'Next channel' } });
-    fireEvent.change(screen.getByTestId('notification-channel-secret-ref'), { target: { value: 'env:NEXT' } });
-    resolve(slackChannel);
+    await user.click(screen.getByTestId('notification-create-channel'));
+    const form = screen.getByTestId('notification-channel-form');
+    for (const control of form.querySelectorAll('input, select, button')) expect(control).toBeDisabled();
+    await user.type(screen.getByTestId('notification-channel-name'), 'Next channel');
+    await user.type(screen.getByTestId('notification-channel-secret-ref'), 'env:NEXT');
+    await user.selectOptions(screen.getByTestId('notification-channel-kind'), kind === 'slack' ? 'email' : 'slack');
+    await user.click(screen.getByTestId('notification-create-channel'));
+    expect(projectApi.createNotificationChannel).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('notification-channel-kind')).toHaveValue(kind);
+    expect(screen.getByTestId('notification-channel-name')).toHaveValue(kind === 'slack' ? 'Ops Slack' : 'Ops email');
+    expect(screen.getByTestId('notification-channel-secret-ref')).toHaveValue('env:FIRST');
+    expect(screen.getByTestId('notification-create-route')).toBeEnabled();
+    expect(screen.getAllByTestId('notification-channel-toggle').every(button => !button.hasAttribute('disabled'))).toBe(true);
+    resolve(kind === 'slack' ? slackChannel : emailChannel);
     await waitFor(() => expect(screen.getByTestId('notification-create-channel')).toBeEnabled());
-    expect(screen.getByTestId('notification-channel-name')).toHaveValue('Next channel');
-    expect(screen.getByTestId('notification-channel-secret-ref')).toHaveValue('env:NEXT');
-    projectApi.createNotificationChannel.mockResolvedValue(slackChannel);
-    fireEvent.click(screen.getByTestId('notification-create-channel'));
+    for (const control of form.querySelectorAll('input, select, button')) expect(control).toBeEnabled();
+    expect(screen.getByTestId('notification-channel-secret-ref')).toHaveValue('');
+    await user.clear(screen.getByTestId('notification-channel-name'));
+    await user.type(screen.getByTestId('notification-channel-name'), 'Next channel');
+    await user.type(screen.getByTestId('notification-channel-secret-ref'), 'env:NEXT');
+    projectApi.createNotificationChannel.mockResolvedValue(kind === 'slack' ? slackChannel : emailChannel);
+    await user.click(screen.getByTestId('notification-create-channel'));
     await waitFor(() => expect(screen.getByTestId('notification-channel-secret-ref')).toHaveValue(''));
+    expect(projectApi.createNotificationChannel).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      kind, name: 'Next channel', ...(kind === 'slack' ? { webhookSecretRef: 'env:NEXT' } : { secretRef: 'env:NEXT' }),
+    }));
   });
 
   it('does not let a completed channel save or refresh release a pending route save', async () => {
@@ -132,6 +151,8 @@ describe('NotificationSettingsPanel configurable email', () => {
     expect(screen.getByTestId('notification-create-route')).toBeDisabled();
     finishChannel(slackChannel);
     await waitFor(() => expect(screen.getByTestId('notification-create-channel')).toBeEnabled());
+    expect(screen.getByTestId('notification-channel-kind')).toBeEnabled();
+    expect(screen.getByTestId('notification-channel-secret-ref')).toBeEnabled();
     expect(screen.getByTestId('notification-create-route')).toBeDisabled();
     fireEvent.click(screen.getByTestId('notification-create-route'));
     expect(projectApi.createNotificationRoute).toHaveBeenCalledTimes(1);
@@ -153,6 +174,7 @@ describe('NotificationSettingsPanel configurable email', () => {
     reject(new Error('Channel service unavailable'));
     expect(await screen.findByRole('alert')).toHaveTextContent('Channel service unavailable');
     await waitFor(() => expect(screen.getByTestId('notification-create-channel')).toBeEnabled());
+    for (const control of screen.getByTestId('notification-channel-form').querySelectorAll('input, select, button')) expect(control).toBeEnabled();
     expect(screen.getByTestId('notification-channel-name')).toHaveValue('Custom Slack');
     expect(screen.getByTestId('notification-channel-secret-ref')).toHaveValue('env:CUSTOM_SLACK');
   });

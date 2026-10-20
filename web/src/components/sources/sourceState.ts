@@ -9,6 +9,7 @@ export interface SourcesState {
   runPages: Record<number, SourceRunPage>;
   expanded: Record<number, boolean>;
   form: SourceFormState;
+  editorSession: number;
   busy: BusySource;
   armedDelete: number | null;
   healthOpenId: number | null;
@@ -22,8 +23,8 @@ type SourcesAction =
   | { type: 'set-adding'; adding: boolean }
   | { type: 'start-edit'; source: SourceInfo }
   | { type: 'update-form'; patch: Partial<SourceFormState> }
-  | { type: 'saved-form'; form: SourceFormState }
-  | { type: 'form-error'; form: SourceFormState; error: string }
+  | { type: 'saved-form'; session: number; form: SourceFormState; sourceId: number }
+  | { type: 'form-error'; session: number; error: string }
   | { type: 'set-busy'; busy: BusySource }
   | { type: 'set-error'; error: string | null }
   | { type: 'arm-delete'; id: number | null }
@@ -36,6 +37,7 @@ export const initialSourcesState = (): SourcesState => ({
   runPages: {},
   expanded: {},
   form: emptyForm(),
+  editorSession: 0,
   busy: null,
   armedDelete: null,
   healthOpenId: null,
@@ -76,20 +78,27 @@ export function sourcesReducer(state: SourcesState, action: SourcesAction): Sour
       return {
         ...state,
         form: action.adding ? { ...emptyForm(), adding: true } : emptyForm(),
+        editorSession: state.editorSession + 1,
         error: null,
       };
     case 'start-edit':
       return {
         ...state,
         form: sourceToForm(action.source),
+        editorSession: state.editorSession + 1,
         error: null,
       };
     case 'update-form':
       return { ...state, form: { ...state.form, ...action.patch } };
     case 'saved-form':
-      return state.form === action.form ? { ...state, form: emptyForm() } : state;
+      if (state.editorSession !== action.session) return state;
+      if (state.form === action.form) return { ...state, form: emptyForm(), editorSession: state.editorSession + 1 };
+      // Keep in-session edits, but subsequent saves must update the source
+      // actually created rather than creating a duplicate from the retained draft.
+      return action.form.editingId == null
+        ? { ...state, form: { ...state.form, editingId: action.sourceId } } : state;
     case 'form-error':
-      return state.form === action.form ? { ...state, error: action.error } : state;
+      return state.editorSession === action.session ? { ...state, error: action.error } : state;
     case 'set-busy':
       return { ...state, busy: action.busy };
     case 'set-error':

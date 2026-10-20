@@ -374,6 +374,8 @@ function ChannelSection({
   onDraftChange: (update: Partial<ChannelDraft>) => void;
   onKindChange: (kind: ChannelDraftKind) => void;
 }) {
+  // This is an INSERT, not an upsert: finish this create before authoring another.
+  const creating = pending.has('channel');
   return (
     <section className="panel-card">
       <div>
@@ -407,44 +409,44 @@ function ChannelSection({
       <div className="panel-card" data-testid="notification-channel-form">
         <div className="panel-item-title">New channel</div>
         <FormField layout="inline" label="Kind">
-          <PanelSelect data-testid="notification-channel-kind" value={draft.kind} onChange={(event) => onKindChange(event.target.value as ChannelDraftKind)}>
+          <PanelSelect data-testid="notification-channel-kind" disabled={creating} value={draft.kind} onChange={(event) => onKindChange(event.target.value as ChannelDraftKind)}>
             <option value="slack">Slack</option>
             {configurableNotificationEmail && <option value="email">Email</option>}
           </PanelSelect>
         </FormField>
         <FormField layout="inline" label="Name">
-          <TextInput aria-label="Channel name" data-testid="notification-channel-name" value={draft.name} onChange={(event) => onDraftChange({ name: event.target.value })} placeholder="Channel name" />
+          <TextInput aria-label="Channel name" data-testid="notification-channel-name" disabled={creating} value={draft.name} onChange={(event) => onDraftChange({ name: event.target.value })} placeholder="Channel name" />
         </FormField>
         {draft.kind === 'email' ? (
           <>
             <FormField layout="inline" label="To">
-              <TextInput aria-label="Email to address" data-testid="notification-channel-email-to" value={draft.to} onChange={(event) => onDraftChange({ to: event.target.value })} placeholder="alerts@example.com" />
+              <TextInput aria-label="Email to address" data-testid="notification-channel-email-to" disabled={creating} value={draft.to} onChange={(event) => onDraftChange({ to: event.target.value })} placeholder="alerts@example.com" />
             </FormField>
             <FormField layout="inline" label="From">
-              <TextInput aria-label="Email from address" data-testid="notification-channel-email-from" value={draft.from} onChange={(event) => onDraftChange({ from: event.target.value })} placeholder="frisket <alerts@example.com>" />
+              <TextInput aria-label="Email from address" data-testid="notification-channel-email-from" disabled={creating} value={draft.from} onChange={(event) => onDraftChange({ from: event.target.value })} placeholder="frisket <alerts@example.com>" />
             </FormField>
           </>
         ) : (
           <>
             <FormField layout="inline" label="Channel">
-              <TextInput aria-label="Slack channel label" data-testid="notification-channel-slack-label" value={draft.channelLabel} onChange={(event) => onDraftChange({ channelLabel: event.target.value })} placeholder="#alerts" />
+              <TextInput aria-label="Slack channel label" data-testid="notification-channel-slack-label" disabled={creating} value={draft.channelLabel} onChange={(event) => onDraftChange({ channelLabel: event.target.value })} placeholder="#alerts" />
             </FormField>
             <FormField layout="inline" label="Webhook">
-              <TextInput aria-label="Slack webhook host" data-testid="notification-channel-slack-host" value={draft.webhookHost} onChange={(event) => onDraftChange({ webhookHost: event.target.value })} placeholder="hooks.slack.com" />
+              <TextInput aria-label="Slack webhook host" data-testid="notification-channel-slack-host" disabled={creating} value={draft.webhookHost} onChange={(event) => onDraftChange({ webhookHost: event.target.value })} placeholder="hooks.slack.com" />
             </FormField>
           </>
         )}
         <FormField layout="inline" label="Secret ref">
-          <TextInput aria-label="API secret reference" data-testid="notification-channel-secret-ref" value={draft.secretRef} onChange={(event) => onDraftChange({ secretRef: event.target.value })} placeholder="env:SECRET_NAME" />
+          <TextInput aria-label="API secret reference" data-testid="notification-channel-secret-ref" disabled={creating} value={draft.secretRef} onChange={(event) => onDraftChange({ secretRef: event.target.value })} placeholder="env:SECRET_NAME" />
           <span className="form-hint">References a stored secret, e.g. <code>env:SECRET_NAME</code> — not the value itself.</span>
         </FormField>
         <div className="control-row">
           <label className="control-row panel-item-description panel-item-main">
-            <input type="checkbox" checked={draft.enabled} onChange={(event) => onDraftChange({ enabled: event.target.checked })} />
+            <input type="checkbox" disabled={creating} checked={draft.enabled} onChange={(event) => onDraftChange({ enabled: event.target.checked })} />
             Enabled
           </label>
           <ListEditorActions icon={CheckCircle2} testId="notification-create-channel" saveLabel="Save channel"
-            busy={pending.has('channel')} onSave={() => onCreate(draft)} />
+            busy={creating} onSave={() => onCreate(draft)} />
         </div>
       </div>
     </section>

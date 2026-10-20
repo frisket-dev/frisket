@@ -74,23 +74,22 @@ export function useSourcesPanelState(
     }
 
     const form = state.form;
+    const session = state.editorSession;
     const editingId = form.editingId;
     const request = beginBusy(editingId ?? 'new');
     dispatch({ type: 'set-error', error: null });
     try {
-      if (editingId == null) {
-        await sourceApi.createSource(input);
-      } else {
-        await sourceApi.updateSource(editingId, input);
-      }
-      dispatch({ type: 'saved-form', form });
-      await refreshAfterMutation(editingId);
+      const saved = editingId == null
+        ? await sourceApi.createSource(input)
+        : await sourceApi.updateSource(editingId, input);
+      dispatch({ type: 'saved-form', session, form, sourceId: saved.id });
+      await refreshAfterMutation(saved.id);
     } catch (error) {
-      dispatch({ type: 'form-error', form, error: msg(error) });
+      dispatch({ type: 'form-error', session, error: msg(error) });
     } finally {
       endBusy(request);
     }
-  }, [beginBusy, endBusy, refreshAfterMutation, sourceApi, state.form]);
+  }, [beginBusy, endBusy, refreshAfterMutation, sourceApi, state.editorSession, state.form]);
 
   const fetchNow = useCallback(async (id: number) => {
     const request = beginBusy(id);

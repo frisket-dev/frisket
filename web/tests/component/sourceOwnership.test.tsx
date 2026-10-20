@@ -132,6 +132,66 @@ describe('source health request ownership', () => {
 });
 
 describe('source editor draft-owned completion', () => {
+  it('reports a failed save after typing in the same editor session', async () => {
+    const port = api(), pending = deferred<SourceInfo>();
+    port.updateSource.mockReturnValueOnce(pending.promise);
+    const { result } = renderHook(() => useSourcesPanelState(port));
+    act(() => { result.current.actions.startEdit(source()); });
+    act(() => { void result.current.actions.submit(submitEvent); });
+    act(() => { result.current.actions.updateForm({ name: 'Revised while saving' }); });
+    await act(async () => { pending.reject(new Error('Source validation failed')); });
+    expect(result.current.state.error).toBe('Source validation failed');
+    expect(result.current.state.form).toMatchObject({ editingId: 7, name: 'Revised while saving' });
+  });
+
+  it('updates the created source instead of creating it again after in-session typing', async () => {
+    const port = api(), pending = deferred<SourceInfo>();
+    port.createSource.mockReturnValueOnce(pending.promise);
+    const { result } = renderHook(() => useSourcesPanelState(port));
+    act(() => { result.current.actions.setAdding(true); result.current.actions.updateForm({ name: 'New source', url: 'https://example.test/feed' }); });
+    act(() => { void result.current.actions.submit(submitEvent); });
+    act(() => { result.current.actions.updateForm({ name: 'Updated new source' }); });
+    await act(async () => { pending.resolve(source(101)); });
+    expect(result.current.state.form).toMatchObject({ editingId: 101, name: 'Updated new source', adding: true });
+    await act(async () => { await result.current.actions.submit(submitEvent); });
+    expect(port.createSource).toHaveBeenCalledOnce();
+    expect(port.updateSource).toHaveBeenCalledExactlyOnceWith(101, expect.objectContaining({ name: 'Updated new source' }));
+    expect(result.current.state.form.editingId).toBeNull();
+  });
+
+  it.each(['success', 'failure'])('ignores old %s after cancelling and reopening the same source', async (outcome) => {
+    const port = api(), pending = deferred<SourceInfo>();
+    port.updateSource.mockReturnValueOnce(pending.promise);
+    const { result } = renderHook(() => useSourcesPanelState(port));
+    act(() => { result.current.actions.startEdit(source()); });
+    act(() => { void result.current.actions.submit(submitEvent); });
+    act(() => { result.current.actions.setAdding(false); result.current.actions.startEdit(source()); });
+    await act(async () => { if (outcome === 'success') pending.resolve(source()); else pending.reject(new Error('Previous session failed')); });
+    expect(result.current.state.form).toMatchObject({ editingId: 7, name: 'Source 7' });
+    expect(result.current.state.error).toBeNull();
+  });
+
+  it.each(['success', 'failure'])('does not attach an old create %s to a newly opened create session', async (outcome) => {
+    const port = api(), pending = deferred<SourceInfo>();
+    port.createSource.mockReturnValueOnce(pending.promise);
+    const { result } = renderHook(() => useSourcesPanelState(port));
+    act(() => { result.current.actions.setAdding(true); result.current.actions.updateForm({ name: 'First create', url: 'https://example.test/feed' }); });
+    act(() => { void result.current.actions.submit(submitEvent); });
+    act(() => { result.current.actions.setAdding(false); result.current.actions.setAdding(true); result.current.actions.updateForm({ name: 'Second create', url: 'https://example.test/new' }); });
+    await act(async () => { if (outcome === 'success') pending.resolve(source(101)); else pending.reject(new Error('Retired create failed')); });
+    expect(result.current.state.form).toMatchObject({ editingId: null, name: 'Second create', url: 'https://example.test/new', adding: true });
+    expect(result.current.state.error).toBeNull();
+  });
+
+  it('closes an unchanged create draft after saving', async () => {
+    const port = api();
+    const { result } = renderHook(() => useSourcesPanelState(port));
+    act(() => { result.current.actions.setAdding(true); result.current.actions.updateForm({ name: 'New source', url: 'https://example.test/feed' }); });
+    await act(async () => { await result.current.actions.submit(submitEvent); });
+    expect(port.createSource).toHaveBeenCalledOnce();
+    expect(result.current.state.form).toMatchObject({ editingId: null, adding: false, name: '' });
+  });
+
   it.each(['success', 'failure'])('preserves draft B when save A completes with %s', async (outcome) => {
     const port = api(), pending = deferred<SourceInfo>();
     port.updateSource.mockReturnValueOnce(pending.promise);
