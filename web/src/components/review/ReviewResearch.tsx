@@ -35,7 +35,7 @@ export function ReviewResearch({ bundle, field }: {
     {evidence ? <ResearchActivitySummary evidence={evidence} />
       : <p>{failed ? 'Research activity could not be loaded.' : 'Loading research activity…'}</p>}
     {evidence && <Button onClick={() => setOpen(true)}>Research details</Button>}
-    {open && evidence && <ResearchDetails evidence={evidence} sources={companion?.value}
+    {open && evidence && <ResearchDetails evidence={evidence} answer={field.value} sources={companion?.value}
       onClose={() => setOpen(false)} />}
   </section>;
 }

@@ -286,6 +286,7 @@ def _trace_row_absence_payload(
     column_id: int | None,
     status: str,
     absence: dict[str, Any] | None = None,
+    cell: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if status not in TRACE_ROW_EVIDENCE_STATUSES:
         raise ValueError(f"unknown trace row status {status!r}")
@@ -316,7 +317,7 @@ def _trace_row_absence_payload(
             "cost_actual": run["cost_actual"],
         },
         "trace": None,
-        "cell": None,
+        "cell": cell,
         "absence": absence,
     }
 
@@ -340,6 +341,9 @@ def run_trace_row(
             column_id=column_id,
             status="row_not_in_run",
         )
+    cell = _result_cell_payload(
+        project, run_id=run_id, row_id=row_id, column_id=column_id
+    )
     trace = read_trace_row(project.path, run_id, row_id)
     if trace is None:
         return _trace_row_absence_payload(
@@ -348,6 +352,7 @@ def run_trace_row(
             row_id=row_id,
             column_id=column_id,
             status="not_recorded",
+            cell=cell,
         )
     if trace.get("row") is None:
         return _trace_row_absence_payload(
@@ -356,6 +361,7 @@ def run_trace_row(
             row_id=row_id,
             column_id=column_id,
             status="missing",
+            cell=cell,
         )
     action_kind = trace.get("action_kind") or run_row_action_kind(run)
     metadata = action_metadata_for_action_kind(action_kind)
@@ -382,9 +388,7 @@ def run_trace_row(
             "model": run["model"],
         },
         "trace": public_trace,
-        "cell": _result_cell_payload(
-            project, run_id=run_id, row_id=row_id, column_id=column_id
-        ),
+        "cell": cell,
         "absence": None,
     }
 

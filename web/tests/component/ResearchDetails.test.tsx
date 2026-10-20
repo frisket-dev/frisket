@@ -89,6 +89,26 @@ describe('research evidence presentation', () => {
     expect(screen.getByText('Finished · test/model · 42 ms')).toBeVisible();
   });
 
+  it('does not mistake a selected sources cell for the logical answer', () => {
+    const item = evidence({ data: { output: {
+      answer: 'The recorded logical answer.', sources: ['https://example.test/recorded'],
+    } } });
+    item.cell = { value: ['https://example.test/recorded'], error: null };
+    render(<ResearchDetails evidence={item} onClose={vi.fn()} />);
+    expect(screen.getByRole('region', { name: 'Final recorded answer' }))
+      .toHaveTextContent('The recorded logical answer.');
+    expect(screen.getByRole('region', { name: 'Sources encountered' }).querySelector('a'))
+      .toHaveAttribute('href', 'https://example.test/recorded');
+  });
+
+  it('labels an unidentified old selected cell honestly instead of assuming it is an answer', () => {
+    const item = evidence();
+    item.cell = { value: ['https://example.test/old'], error: null };
+    render(<ResearchDetails evidence={item} onClose={vi.fn()} />);
+    expect(screen.queryByRole('region', { name: 'Final recorded answer' })).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Selected result' })).toHaveTextContent('https://example.test/old');
+  });
+
   it('keeps older prompt/response evidence and handles an entirely absent trace', () => {
     const view = render(<ResearchDetails evidence={evidence({ prompt: [{ role: 'user', content: 'Old captured prompt' }], rawResponse: 'Old captured response' })} onClose={vi.fn()} />);
     expect(screen.getByText('Recorded model summary').closest('details')).not.toHaveAttribute('open');
@@ -96,7 +116,7 @@ describe('research evidence presentation', () => {
     expect(screen.getByText('Old captured response')).toBeInTheDocument();
     view.rerender(<ResearchDetails evidence={{ ...evidence(), recorded: false, status: 'not_recorded', trace: null, cell: null }} onClose={vi.fn()} />);
     expect(screen.getByText('Tool activity was not recorded for this run.')).toBeVisible();
-    expect(screen.getByText('No final answer recorded for this run.')).toBeVisible();
+    expect(screen.getByText('No result recorded for this cell.')).toBeVisible();
     expect(screen.queryByRole('region', { name: 'Sources encountered' })).not.toBeInTheDocument();
   });
 

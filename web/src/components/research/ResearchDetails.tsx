@@ -125,11 +125,15 @@ function ToolStep({ step, index }: { step: ResearchStep; index: number }) {
 }
 
 /** Mount in a stable detail/row owner, outside hover-only cell controls. */
-export function ResearchDetails({ evidence, sources, onClose }: {
-  evidence: RunTraceRowEvidence; sources?: unknown; onClose: () => void;
+export function ResearchDetails({ evidence, answer, sources, onClose }: {
+  evidence: RunTraceRowEvidence; answer?: unknown; sources?: unknown; onClose: () => void;
 }) {
   const row = evidence.trace?.row;
   const cell = object(evidence.cell);
+  const output = object(object(row?.data)?.output);
+  const knownAnswer = answer !== undefined || (output != null && Object.hasOwn(output, 'answer'));
+  const displayedAnswer = answer !== undefined ? answer : knownAnswer ? output?.answer : cell?.value;
+  const displayedSources = sources !== undefined ? sources : output?.sources;
   const error = cell?.error ?? row?.error;
   const runStatus = evidence.run?.status;
   const status = error ? 'Failed' : cell?.value != null ? 'Finished' : runStatus === 'cancelled' || runStatus === 'canceled' ? 'Cancelled'
@@ -137,7 +141,7 @@ export function ResearchDetails({ evidence, sources, onClose }: {
       : runStatus === 'failed' ? 'Failed' : runStatus || 'Execution status not recorded';
   const model = evidence.trace?.model ?? evidence.run?.model;
   return <Modal title="Research details" size="wide" onClose={onClose} testId="research-details">
-    <div className="research-details">
+    <div className="research-details" tabIndex={-1} data-modal-autofocus>
       <p>{status}{model ? ` · ${model}` : ''}{duration(row?.latencyMs) ? ` · ${duration(row?.latencyMs)}` : ''}</p>
       <CapturedText label="Execution error" value={error} />
       <ResearchActivitySummary evidence={evidence} />
@@ -146,17 +150,18 @@ export function ResearchDetails({ evidence, sources, onClose }: {
         {row.research.steps.length === 0 ? <p className="research-note">{row.researchIncomplete || row.research.truncated ? 'No tool steps are available in the recorded details.' : 'No research tools were used.'}</p>
           : <ol className="research-steps">{row.research.steps.map((step, index) => <ToolStep key={index} step={step} index={index} />)}</ol>}
       </section>}
-      <section aria-label="Final recorded answer">
-        <h3>Final recorded answer</h3>
-        {cell && cell.value != null ? <CapturedText label="Answer" value={cell.value} /> : <p className="research-note">No final answer recorded for this run.</p>}
+      <section aria-label={knownAnswer ? 'Final recorded answer' : 'Selected result'}>
+        <h3>{knownAnswer ? 'Final recorded answer' : 'Selected result'}</h3>
+        {displayedAnswer != null ? <CapturedText label={knownAnswer ? 'Answer' : 'Cell value'} value={displayedAnswer} />
+          : <p className="research-note">No result recorded for this cell.</p>}
       </section>
-      {sources !== undefined && <section aria-label="Sources encountered"><h3>Sources encountered</h3><SourceLinks value={sources} /></section>}
+      {displayedSources !== undefined && <section aria-label="Sources encountered"><h3>Sources encountered</h3><SourceLinks value={displayedSources} /></section>}
       <ModelCallDetails calls={row?.calls} />
       {!row?.calls?.length && row?.prompt != null && <details className="research-disclosure">
         <summary>Recorded model summary</summary>
         <CapturedText label="Recorded prompt" value={row.prompt} /><CapturedText label="Recorded response" value={row.rawResponse} />
       </details>}
-      <div className="form-actions"><Button type="button" data-modal-autofocus onClick={onClose}>Close</Button></div>
+      <div className="form-actions"><Button type="button" onClick={onClose}>Close</Button></div>
     </div>
   </Modal>;
 }
