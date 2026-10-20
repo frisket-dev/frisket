@@ -4,17 +4,42 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import re
 import time
+from collections.abc import Iterable
 from typing import Any
 
 from frisket.redaction import REDACTED, redact_text
+from frisket.ai.llm.endpoint_config import DEFAULT_OLLAMA_BEARER
+
+
+def research_secret_values(values: Iterable[str]) -> tuple[str, ...]:
+    """Keep real selected credentials, following the shared redaction floor."""
+    return tuple(
+        sorted(
+            {
+                value
+                for value in values
+                if isinstance(value, str)
+                and len(value) >= 4
+                and value != DEFAULT_OLLAMA_BEARER
+            },
+            key=lambda value: (-len(value), value),
+        )
+    )
 
 
 def redact_research_text(text: str, secret_values: tuple[str, ...]) -> str:
     """Remove selected credential echoes before any observation is clipped."""
-    for secret in sorted(set(secret_values), key=len, reverse=True):
-        if secret:
+    for secret in research_secret_values(secret_values):
+        if len(secret) >= 8:
             text = text.replace(secret, REDACTED)
+        else:
+            text = re.sub(
+                rf"(?<![A-Za-z0-9_]){re.escape(secret)}(?![A-Za-z0-9_])",
+                REDACTED,
+                text,
+            )
     return text
 
 
@@ -24,7 +49,7 @@ class ResearchRecorder:
     def __init__(self, *, secret_values: tuple[str, ...] = ()) -> None:
         self._steps: list[dict[str, Any]] = []
         self._truncated = False
-        self._secret_values = secret_values
+        self._secret_values = research_secret_values(secret_values)
 
     def start(self, tool: str, **fields: str) -> tuple[int, float] | None:
         try:

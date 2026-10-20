@@ -156,6 +156,7 @@ async def run_research(
             _capture(recorder, "finish", token)
         # the snippets it reads ARE its sources — cite them (deduped)
         for u in hits:
+            u = redact_research_text(u, secret_values)
             if u and u not in sources:
                 sources.append(u)
         return redact_research_text(obs, secret_values)
@@ -185,8 +186,9 @@ async def run_research(
             error_detail=observation.error,
             truncated=len(safe_text) > FETCH_CHARS,
         )
-        if url and url not in sources:
-            sources.append(url)
+        source_url = redact_research_text(url, secret_values)
+        if source_url and source_url not in sources:
+            sources.append(source_url)
         return obs
 
     model = FrisketRouterModel(

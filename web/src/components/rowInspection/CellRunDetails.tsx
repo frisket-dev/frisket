@@ -1,7 +1,7 @@
 import '../PanelPrimitives.css';
 import './CellRunDetails.css';
 import '../RowDrawer.css';
-import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown, ChevronRight, FileSearch2, X } from 'lucide-react';
 import type { CellProvenance, RunTraceRowEvidence } from '../../api/open';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
@@ -101,6 +101,9 @@ export function ExplainBlock({
   // yank focus and read as "dismissed on typing" — this hook only ever
   // wires up Escape).
   useNativePopover(panelRef, close, { enabled: open, outside: false });
+  useLayoutEffect(() => {
+    if (open) triggerRef.current?.focus();
+  }, [open]);
 
   return (
     <div className={compact ? 'explain explain-compact' : 'explain'}>

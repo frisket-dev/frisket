@@ -7,7 +7,7 @@ from dataclasses import replace
 import pytest
 
 from frisket.ai.llm import ModelRouter
-from frisket.ai.research.recorder import ResearchRecorder
+from frisket.ai.research.recorder import ResearchRecorder, redact_research_text
 from frisket.ai.research.row_answer import (
     ResearchFetchObservation,
     fetch_page_result,
@@ -367,3 +367,55 @@ async def test_search_credential_echo_is_removed_from_model_observation():
     )
     assert secret not in str(adapter.requests[-1].messages)
     assert "Evidence [REDACTED]" in str(adapter.requests[-1].messages)
+
+
+def test_scrub_preserves_tokenless_ollama_and_short_token_substrings():
+    text = "Run ollama locally; https://github.com/ollama/ollama; max 2x faster; contest test"
+    assert redact_research_text(text, ("ollama", "x", "abc", "test")) == (
+        "Run ollama locally; https://github.com/ollama/ollama; max 2x faster; contest [REDACTED]"
+    )
+    recorder = ResearchRecorder(secret_values=("ollama", "x", "abc"))
+    token = recorder.start("fetch", url="https://github.com/ollama/ollama")
+    recorder.finish(token, text=text)
+    step = recorder.snapshot()["steps"][0]
+    assert step["url"] == "https://github.com/ollama/ollama"
+    assert step["text"] == text
+
+
+@pytest.mark.asyncio
+async def test_search_and_fetch_sources_strip_selected_search_key_before_publication():
+    secret = "opaque-search-credential-abcdefgh"
+    search_url = f"https://example.test/search?q={secret}"
+    fetch_url = f"https://example.test/page?q={secret}"
+    fetched_urls = []
+
+    async def search(query):
+        response = _response("record", count=1)
+        hit = replace(response.results[0], url=search_url)
+        return search_observation(query, replace(response, results=(hit,)))
+
+    async def fetch(url):
+        fetched_urls.append(url)
+        return ResearchFetchObservation("Page text")
+
+    data, _, adapter = await _run(
+        [
+            [{"name": "search", "args": {"query": "record"}, "id": "s1"}],
+            [{"name": "fetch", "args": {"url": fetch_url}, "id": "f1"}],
+            "Grounded answer",
+        ],
+        search,
+        fetch,
+        ResearchRecorder(secret_values=(secret,)),
+        secret_values=(secret,),
+    )
+    assert fetched_urls == [fetch_url]
+    assert data == {
+        "answer": "Grounded answer",
+        "sources": [
+            "https://example.test/search?q=[REDACTED]",
+            "https://example.test/page?q=[REDACTED]",
+        ],
+    }
+    assert secret not in json.dumps(data)
+    assert len(adapter.requests) == 3

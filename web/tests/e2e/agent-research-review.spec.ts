@@ -178,6 +178,7 @@ test('Explain Research details survives hover loss and Escape preserves the pare
   await expect(modal).toHaveCount(0);
   await expect(drawer).toBeVisible();
   await expect(explain).toBeVisible();
+  await expect(field.getByTestId('cell-action-explain')).toBeFocused();
   await explain.getByTestId('explain-panel-close').click();
   const sourcesField = drawer.getByTestId('row-field-Web pages');
   await sourcesField.hover();

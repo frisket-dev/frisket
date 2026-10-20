@@ -742,8 +742,10 @@ def test_research_hosted_failure_reaches_existing_row_accounting_handler(
     from frisket.operability.trace import read_trace
 
     with case_env(CASES[0], tmp_path, monkeypatch) as env:
+        refused_calls = []
 
         async def fail_search(_bound, query):
+            refused_calls.append(query)
             raise CloudExecutionRefused(
                 "cloud_search_refused",
                 "Research provider refused the call",
@@ -789,10 +791,19 @@ def test_research_hosted_failure_reaches_existing_row_accounting_handler(
                 "WHERE run_id=? AND provider_cost_usd=0.012",
                 (result.run_id,),
             ).fetchall()
-            assert accounted
+            assert len(accounted) == len(refused_calls)
             assert all(
                 json.loads(row["units"]) == {"tokens_in": 11, "tokens_out": 7}
                 for row in accounted
+            )
+            returned_calls = len(_ADAPTER[0].requests)
+            assert returned_calls > 0
+            assert (
+                env.project.db.execute(
+                    "SELECT COUNT(*) FROM model_calls WHERE run_id=?",
+                    (result.run_id,),
+                ).fetchone()[0]
+                == returned_calls + len(refused_calls)
             )
 
 

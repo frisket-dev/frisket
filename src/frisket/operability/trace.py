@@ -26,7 +26,13 @@ from frisket.ai.llm.types import (
     ModelTrace,
     SchemaViolation,
 )
-from frisket.redaction import CYCLE, TRUNCATED, redact_value, safe_error
+from frisket.redaction import (
+    CYCLE,
+    MAX_REDACTION_INPUT_CHARS,
+    TRUNCATED,
+    redact_value,
+    safe_error,
+)
 
 MAX_CAPTURED_STR = 4096
 MAX_OBSERVED_TRACE_PROVIDERS = 64
@@ -72,14 +78,39 @@ def redact(obj: Any, *, secret_values: tuple[str, ...] = ()) -> Any:
 
 
 def _part(
-    value: Any, secrets: tuple[str, ...], *, chars: int = MAX_CAPTURED_STR
+    value: Any,
+    secrets: tuple[str, ...],
+    *,
+    chars: int = MAX_CAPTURED_STR,
+    truncated: list[bool] | None = None,
 ) -> Any:
-    return redact_value(value, secret_values=secrets, max_string_chars=chars)
+    # Redact once, then apply the trace string limit while recording actual
+    # omissions. Ordinary ellipses in snippets or model prose are just text.
+    safe = redact_value(
+        value, secret_values=secrets, max_string_chars=MAX_REDACTION_INPUT_CHARS
+    )
+    clipped = False
+
+    def clip(item: Any) -> Any:
+        nonlocal clipped
+        if isinstance(item, str) and len(item) > chars:
+            clipped = True
+            return item[: max(chars - 1, 0)] + ("…" if chars else "")
+        if isinstance(item, dict):
+            return {clip(key): clip(child) for key, child in item.items()}
+        if isinstance(item, list):
+            return [clip(child) for child in item]
+        return item
+
+    result = clip(safe)
+    if truncated is not None:
+        truncated[0] |= clipped or _was_truncated(result)
+    return result
 
 
 def _was_truncated(value: Any) -> bool:
     if isinstance(value, str):
-        return value in (TRUNCATED, CYCLE) or value.endswith("…")
+        return value in (TRUNCATED, CYCLE)
     if isinstance(value, dict):
         return any(_was_truncated(k) or _was_truncated(v) for k, v in value.items())
     if isinstance(value, list):
@@ -87,18 +118,21 @@ def _was_truncated(value: Any) -> bool:
     return False
 
 
-def _parts(values: dict, secrets: tuple[str, ...]) -> dict:
+def _parts(
+    values: dict, secrets: tuple[str, ...], *, truncated: list[bool] | None = None
+) -> dict:
     result = {}
     for key, value in values.items():
-        result.update(_part({key: value}, secrets))
+        result.update(_part({key: value}, secrets, truncated=truncated))
     return result
 
 
 def _redact_call(call: dict, secrets: tuple[str, ...], *, body: bool) -> dict:
     # Each body has its own traversal budget. In particular an accumulated
     # conversation must not consume the budget of later calls or tool steps.
+    truncated = [False]
     result = {
-        key: _part(call[key], secrets, chars=500)
+        key: _part(call[key], secrets, chars=500, truncated=truncated)
         for key in _CALL_HEADER_KEYS
         if key in call
     }
@@ -106,18 +140,19 @@ def _redact_call(call: dict, secrets: tuple[str, ...], *, body: bool) -> dict:
         if key in call:
             if body:
                 result[key] = (
-                    _parts(call[key], secrets)
+                    _parts(call[key], secrets, truncated=truncated)
                     if key == "request" and isinstance(call[key], dict)
-                    else _part(call[key], secrets)
+                    else _part(call[key], secrets, truncated=truncated)
                 )
             else:
                 result["truncated"] = True
-    if _was_truncated(result):
+    if truncated[0]:
         result["truncated"] = True
     return result
 
 
 def _redact_row(record: dict, secrets: tuple[str, ...] = ()) -> dict:
+    truncated = [False]
     result = _parts(
         {
             key: value
@@ -125,6 +160,7 @@ def _redact_row(record: dict, secrets: tuple[str, ...] = ()) -> dict:
             if key not in ("calls", "research")
         },
         secrets,
+        truncated=truncated,
     )
     calls = record.get("calls")
     if isinstance(calls, list):
@@ -143,17 +179,26 @@ def _redact_row(record: dict, secrets: tuple[str, ...] = ()) -> dict:
             for step in steps[:24]:
                 if not isinstance(step, dict):
                     continue
+                step_truncated = [False]
                 safe = _part(
                     {k: v for k, v in step.items() if k not in ("text", "results")},
                     secrets,
+                    truncated=step_truncated,
                 )
                 for key, chars in (("query", 500), ("url", 2000), ("error", 500)):
                     if key in step:
-                        safe[key] = _part(step[key], secrets, chars=chars)
+                        safe[key] = _part(
+                            step[key], secrets, chars=chars, truncated=step_truncated
+                        )
                 if isinstance(step.get("results"), list):
                     safe["results"] = [
                         {
-                            key: _part(hit.get(key), secrets, chars=chars)
+                            key: _part(
+                                hit.get(key),
+                                secrets,
+                                chars=chars,
+                                truncated=step_truncated,
+                            )
                             for key, chars in (
                                 ("title", 300),
                                 ("url", 2000),
@@ -168,8 +213,10 @@ def _redact_row(record: dict, secrets: tuple[str, ...] = ()) -> dict:
                     if len(safe["results"]) < min(len(step["results"]), 6):
                         safe["truncated"] = True
                 if "text" in step:
-                    safe["text"] = _part(step["text"], secrets, chars=8000)
-                if _was_truncated(safe):
+                    safe["text"] = _part(
+                        step["text"], secrets, chars=8000, truncated=step_truncated
+                    )
+                if step_truncated[0]:
                     safe["truncated"] = True
                 safe_steps.append(safe)
             result["research"] = {
@@ -180,14 +227,32 @@ def _redact_row(record: dict, secrets: tuple[str, ...] = ()) -> dict:
                 or any(step.get("truncated") for step in safe_steps),
             }
         else:
-            result["research"] = _part(research, secrets)
-    if _was_truncated(result):
+            result["research"] = _part(research, secrets, truncated=truncated)
+    if (
+        truncated[0]
+        or _was_truncated(result)
+        or any(call.get("truncated") for call in result.get("calls", []))
+        or (
+            isinstance(result.get("research"), dict)
+            and result["research"].get("truncated")
+        )
+    ):
         result["truncated"] = True
     return _limit_row_bytes(result)
 
 
 def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, allow_nan=False)
+
+
+def _research_steps(record: dict) -> list[dict]:
+    research = record.get("research")
+    steps = research.get("steps") if isinstance(research, dict) else None
+    return (
+        [step for step in steps if isinstance(step, dict)]
+        if isinstance(steps, list)
+        else []
+    )
 
 
 def _limit_row_bytes(record: dict) -> dict:
@@ -205,7 +270,7 @@ def _limit_row_bytes(record: dict) -> dict:
         return record
     record["truncated"] = True
     # Summaries duplicate call bodies; preserve actual calls and tool activity.
-    for key in ("prompt", "raw_response", "data", "retries"):
+    for key in ("prompt", "raw_response"):
         if record.get(key) is not None:
             record[key] = None
             if fits():
@@ -216,7 +281,7 @@ def _limit_row_bytes(record: dict) -> dict:
         call["truncated"] = True
         if fits():
             return record
-    for step in record.get("research", {}).get("steps", []):
+    for step in _research_steps(record):
         for key in ("text", "results"):
             step.pop(key, None)
         step["truncated"] = True
@@ -238,7 +303,7 @@ def _limit_row_bytes(record: dict) -> dict:
             elif isinstance(value, (dict, list)):
                 call[key] = TRUNCATED
         call["truncated"] = True
-    for step in record.get("research", {}).get("steps", []):
+    for step in _research_steps(record):
         for key, value in tuple(step.items()):
             if isinstance(value, str):
                 step[key] = _part(value, (), chars=128)
@@ -283,6 +348,10 @@ class RowTrace:
         meta = meta or {}
         first = self.calls[0] if self.calls else {}
         last = self.calls[-1] if self.calls else {}
+        first_request = first.get("request")
+        prompt = first.get("prompt")
+        if prompt is None and isinstance(first_request, dict):
+            prompt = first_request.get("messages")
         retries: list[dict] = []
         for call in self.calls:
             for event in call.get("events", []):
@@ -305,7 +374,7 @@ class RowTrace:
                 "kind": "row",
                 "row_id": self.row_id,
                 "trace_id": self.trace_id,
-                "prompt": first.get("prompt"),
+                "prompt": prompt,
                 "raw_response": last.get("raw_response"),
                 "data": data,
                 "error": error,
@@ -439,6 +508,7 @@ class TracingRouter:
         events = events if events is not None else []
         entry: dict[str, Any] | None = None
         capture_body = len(self._row.calls) < MAX_CALL_BODIES
+        truncated = [False]
         secret_values: tuple[str, ...] = ()
         try:
             secret_values = tuple(
@@ -467,9 +537,8 @@ class TracingRouter:
             ]
             entry = {
                 "model": req.model,
-                "prompt": redact(messages, secret_values=secret_values),
                 "request": {
-                    key: redact(value, secret_values=secret_values)
+                    key: _part(value, secret_values, truncated=truncated)
                     for key, value in {
                         "model": req.model,
                         "max_tokens": req.max_tokens,
@@ -484,7 +553,7 @@ class TracingRouter:
                 },
                 "events": [],
             }
-            if len(req.messages) > 256 or _was_truncated(entry):
+            if len(req.messages) > 256 or truncated[0]:
                 entry["truncated"] = True
             if not capture_body:
                 entry = {"model": req.model, "truncated": True}
@@ -499,7 +568,9 @@ class TracingRouter:
                 if entry is not None:
                     entry["latency_ms"] = int((time.perf_counter() - started) * 1000)
                     if capture_body:
-                        entry["events"] = redact(events, secret_values=secret_values)
+                        entry["events"] = _part(
+                            events, secret_values, truncated=truncated
+                        )
                     entry["error"] = safe_error(
                         "llm_call_failed",
                         exc,
@@ -509,9 +580,11 @@ class TracingRouter:
                     if isinstance(exc, SchemaViolation):
                         entry["schema_violation"] = True
                         if capture_body:
-                            entry["raw_response"] = redact(
-                                exc.raw_text, secret_values=secret_values
+                            entry["raw_response"] = _part(
+                                exc.raw_text, secret_values, truncated=truncated
                             )
+                    if truncated[0]:
+                        entry["truncated"] = True
             except Exception:  # noqa: BLE001 - preserve provider exception
                 logger.warning("dropping failed-call trace details")
             raise
@@ -519,20 +592,24 @@ class TracingRouter:
             if entry is not None:
                 entry["latency_ms"] = int((time.perf_counter() - started) * 1000)
                 if capture_body:
-                    entry["events"] = redact(events, secret_values=secret_values)
-                    entry["raw_response"] = redact(
+                    entry["events"] = _part(events, secret_values, truncated=truncated)
+                    entry["raw_response"] = _part(
                         raw_response_of(response, secret_values=secret_values),
-                        secret_values=secret_values,
+                        secret_values,
+                        truncated=truncated,
                     )
-                    entry["data"] = redact(response.data, secret_values=secret_values)
-                    entry["tool_calls"] = redact(
+                    entry["data"] = _part(
+                        response.data, secret_values, truncated=truncated
+                    )
+                    entry["tool_calls"] = _part(
                         [
                             {key: call.get(key) for key in ("name", "id", "args")}
                             for call in (response.tool_calls or [])[:256]
                         ],
-                        secret_values=secret_values,
+                        secret_values,
+                        truncated=truncated,
                     )
-                if len(response.tool_calls or []) > 256 or _was_truncated(entry):
+                if len(response.tool_calls or []) > 256 or truncated[0]:
                     entry["truncated"] = True
                 entry["tokens_in"] = response.tokens_in
                 entry["tokens_out"] = response.tokens_out
@@ -745,6 +822,7 @@ def _normalize_research(value: Any) -> tuple[dict | None, bool]:
 def normalize_trace_row(value: dict) -> dict:
     """Drop malformed legacy fields before a strict response model sees them."""
     row: dict[str, Any] = {}
+    truncated = [False]
     for key in ("trace_id", "raw_response", "error"):
         if value.get(key) is None or isinstance(value[key], str):
             if key in value:
@@ -762,7 +840,7 @@ def normalize_trace_row(value: dict) -> dict:
             row[key] = value[key]
     for key in ("prompt", "data"):
         if key in value:
-            row[key] = _part(value[key], ())
+            row[key] = _part(value[key], (), truncated=truncated)
     if value.get("calls") is None:
         if "calls" in value:
             row["calls"] = None
@@ -774,8 +852,8 @@ def normalize_trace_row(value: dict) -> dict:
         ]
     if value.get("retries") is None or isinstance(value["retries"], list):
         if "retries" in value:
-            row["retries"] = _part(value["retries"], ())
-    if _was_truncated(row) or TRUNCATED in value:
+            row["retries"] = _part(value["retries"], (), truncated=truncated)
+    if truncated[0] or _was_truncated(row) or TRUNCATED in value:
         row["truncated"] = True
     research, incomplete = _normalize_research(value.get("research"))
     row["research"] = research

@@ -17,6 +17,7 @@ from frisket.operability.trace import (
     TraceWriter,
     TracingRouter,
     read_trace_row,
+    read_trace_row_retries,
 )
 from frisket.ops.base import OpContext, Recipe
 
@@ -127,12 +128,204 @@ def test_complete_request_and_tool_calls_are_redacted_without_opaque_details(tmp
         {"name": "search", "id": "call-1", "args": {"query": "[REDACTED]"}}
     ]
     assert call["raw_response"] is None
+    assert "prompt" not in call
     assert result["research"]["steps"][0]["text"] == "[REDACTED] [REDACTED]"
     with gzip.open(writer.path, "rt") as stream:
         text = stream.read()
     assert "provider_details" not in text
     assert "selected-model-credential" not in text
     assert "selected-search-credential" not in text
+
+
+def test_ordinary_ellipses_are_not_truncation_but_actual_string_cuts_are(tmp_path):
+    class TextInner(_Inner):
+        async def complete(self, req, *, recipe_version, trace):  # noqa: ANN001
+            return LLMResponse(
+                content="Finished…",
+                data=None,
+                tokens_in=1,
+                tokens_out=1,
+                model=req.model,
+                cost=0,
+            )
+
+    row = RowTrace(row_id=1, trace_id="trace")
+    router = TracingRouter(TextInner(), row)
+    asyncio.run(
+        router.complete(
+            LLMRequest(
+                model="test/model", messages=[{"role": "user", "content": "Explain…"}]
+            )
+        )
+    )
+    row.research = {
+        "steps": [
+            {
+                "tool": "search",
+                "query": "Population…",
+                "status": "ok",
+                "results": [
+                    {
+                        "title": "Population…",
+                        "url": "https://example.test/",
+                        "snippet": "Population grew to 5 million…",
+                    }
+                ],
+                "truncated": False,
+            },
+            {
+                "tool": "fetch",
+                "url": "https://example.test/",
+                "status": "ok",
+                "text": "Complete page excerpt…",
+                "truncated": False,
+            },
+        ],
+        "truncated": False,
+    }
+    writer = TraceWriter.open(tmp_path, 4)
+    writer.write_row(router.record())
+    record = read_trace_row(tmp_path, 4, 1)["row"]
+    assert record.get("truncated", False) is False
+    assert record["calls"][0].get("truncated", False) is False
+    assert record["research"]["truncated"] is False
+    assert all(step["truncated"] is False for step in record["research"]["steps"])
+
+    clipped = RowTrace(row_id=2, trace_id="trace")
+    clipped_router = TracingRouter(TextInner(), clipped)
+    asyncio.run(
+        clipped_router.complete(
+            LLMRequest(
+                model="test/model", messages=[{"role": "user", "content": "q" * 4097}]
+            )
+        )
+    )
+    clipped.research = {
+        "steps": [
+            {
+                "tool": "fetch",
+                "url": "https://example.test/",
+                "status": "ok",
+                "text": "p" * 8001,
+                "truncated": False,
+            }
+        ],
+        "truncated": False,
+    }
+    writer.write_row(clipped_router.record())
+    record = read_trace_row(tmp_path, 4, 2)["row"]
+    assert record["truncated"] is True
+    assert record["calls"][0]["truncated"] is True
+    assert len(record["calls"][0]["request"]["messages"][0]["content"]) == 4096
+    assert record["research"]["steps"][0]["truncated"] is True
+    assert len(record["research"]["steps"][0]["text"]) == 8000
+
+
+def test_ten_research_calls_store_messages_once_and_keep_all_bodies(tmp_path):
+    row = RowTrace(row_id=1, trace_id="trace")
+    router = TracingRouter(_Inner(), row)
+
+    async def run():
+        for index in range(10):
+            await router.complete(
+                LLMRequest(
+                    model="test/model",
+                    messages=[{"role": "user", "content": "question"}]
+                    + [
+                        {"role": "tool", "content": "x" * 4096}
+                        for _ in range(index * 3)
+                    ],
+                )
+            )
+
+    asyncio.run(run())
+    row.research = {
+        "steps": [
+            {
+                "tool": "fetch",
+                "url": f"https://example.test/{index}",
+                "status": "ok",
+                "text": "y" * 8000,
+                "truncated": False,
+            }
+            for index in range(24)
+        ],
+        "truncated": False,
+    }
+    writer = TraceWriter.open(tmp_path, 5)
+    writer.write_row(router.record())
+    record = read_trace_row(tmp_path, 5, 1)["row"]
+    assert len(record["calls"]) == 10
+    assert all("request" in call and "prompt" not in call for call in record["calls"])
+    assert all(call.get("truncated", False) is False for call in record["calls"])
+    assert record["prompt"] == [{"role": "user", "content": "question"}]
+    assert len(record["calls"][-1]["request"]["messages"]) == 28
+    assert all(len(step["text"]) == 8000 for step in record["research"]["steps"])
+
+
+def test_old_per_call_prompts_remain_readable(tmp_path):
+    prompt = [{"role": "user", "content": "Legacy prompt…"}]
+    writer = TraceWriter.open(tmp_path, 6)
+    writer.write_row(
+        RowTrace(
+            row_id=1,
+            trace_id="trace",
+            calls=[{"model": "test/model", "prompt": prompt}],
+        ).record()
+    )
+    row = read_trace_row(tmp_path, 6, 1)["row"]
+    assert row["prompt"] == prompt
+    assert row["calls"][0]["prompt"] == prompt
+
+
+def test_byte_limit_preserves_final_data_and_retry_facts_before_old_call_bodies(
+    tmp_path,
+):
+    event = {
+        "event": "attempt",
+        "outcome": "error",
+        "error": "rate limited",
+        "status": 429,
+        "retryable": True,
+    }
+    row = RowTrace(
+        row_id=1,
+        trace_id="trace",
+        calls=[
+            {
+                "model": f"test/{index}",
+                "request": {
+                    "messages": [
+                        {"role": "tool", "content": "x" * 4096} for _ in range(80)
+                    ]
+                },
+                "events": [event],
+                "raw_response": "done",
+            }
+            for index in range(4)
+        ],
+    )
+    writer = TraceWriter.open(tmp_path, 7)
+    writer.write_row(row.record(data={"answer": "Final answer"}))
+    record = read_trace_row(tmp_path, 7, 1)["row"]
+    assert record["data"] == {"answer": "Final answer"}
+    assert record["retries"] == [event] * 4
+    assert read_trace_row_retries(tmp_path, 7, [1]) == {1: [event] * 4}
+    assert "request" not in record["calls"][0]
+    assert "request" in record["calls"][-1]
+
+
+def test_byte_limiter_accepts_malformed_research_steps():
+    serialized = TraceWriter._record_line(
+        {
+            "kind": "row",
+            "row_id": 1,
+            "calls": [{"model": "test/model"}],
+            "data": ["漢" * 4096 for _ in range(100)],
+            "research": {"steps": "[TRUNCATED]"},
+        }
+    )
+    assert len(serialized.rstrip("\n").encode()) <= MAX_ROW_BYTES
 
 
 def test_independent_call_and_research_budgets_survive_both_redaction_passes(tmp_path):

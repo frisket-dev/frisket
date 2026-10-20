@@ -8,7 +8,7 @@ import copy
 from frisket.actions.research_types import ResearchAnswer
 from frisket.actions.types import RowError
 from frisket.ai.llm import LLMError
-from frisket.ai.research.recorder import ResearchRecorder
+from frisket.ai.research.recorder import ResearchRecorder, research_secret_values
 from frisket.ai.research.row_answer import (
     fetch_page_result,
     run_research,
@@ -102,18 +102,12 @@ class _BoundResearcher:
         )
         search_secrets = model_secrets = ()
         try:
-            search_secrets = tuple(
-                value
-                for value in self._searcher.secret_values()
-                if isinstance(value, str) and value
-            )
+            search_secrets = research_secret_values(self._searcher.secret_values())
         except Exception:
             pass
         try:
-            model_secrets = tuple(
-                value
-                for value in router.secret_values_for_model(owner._model)
-                if isinstance(value, str) and value
+            model_secrets = research_secret_values(
+                router.secret_values_for_model(owner._model)
             )
         except Exception:
             pass
@@ -132,7 +126,7 @@ class _BoundResearcher:
                 search=self._search,
                 fetch=lambda url: fetch_page_result(url, ctx.http),
                 recorder=recorder,
-                secret_values=search_secrets + model_secrets,
+                secret_values=search_secrets,
             )
         except LLMError as exc:
             router.retain_unrecorded_error_calls(exc)
