@@ -471,7 +471,9 @@ function captionTrackText(value: CellValue | undefined): string | null {
 function webVttDataUrl(text: string): string {
   // Encode literal cue text, not just timing delimiters: WebVTT recognizes
   // markup and character references inside cues. Escape ampersands first.
+  // Blank lines terminate a cue, so fold paragraph gaps into single line breaks.
   const cueText = text.replace(/\r\n?/g, '\n')
+    .replace(/\n(?:[^\S\n]*\n)+/g, '\n')
     .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').trim();
   const vtt = `WEBVTT\n\n00:00:00.000 --> 99:59:59.000\n${cueText}\n`;
   return `data:text/vtt;charset=utf-8,${encodeURIComponent(vtt)}`;
