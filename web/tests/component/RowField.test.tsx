@@ -378,7 +378,7 @@ describe('row drawer field action rail', () => {
     );
     const field = screen.getByTestId('row-field-topic');
 
-    expect(within(field).queryByTestId('cell-action-explain')).toBeNull();
+    expect(within(field).getByTestId('cell-action-explain')).not.toBeVisible();
     // an AI column offers explain, not the raw-column edit button
     fireEvent.mouseEnter(field);
     const explain = within(field).getByTestId('cell-action-explain');

@@ -38,6 +38,9 @@ class AdmittedWebSearcher:
         )
         self._check_active()
 
+    def secret_values(self) -> tuple[str, ...]:
+        return self._service.secret_values()
+
     def _check_active(self):
         if self._closed or self._owner._closed:
             raise RuntimeError("Web search invocation is closed")

@@ -598,15 +598,16 @@ def test_research_answer_uses_configured_search_and_receipts_its_cost(
         calls.append(query)
         return SearchResponse(
             provider=service.provider,
-            results=(
+            results=tuple(
                 SearchHit(
-                    title="Source",
-                    url=f"https://example.test/search/{len(calls)}",
-                    excerpt="Cited evidence",
+                    title="Source echoes exa-test-key",
+                    url=f"https://example.test/search/{len(calls)}/{index}",
+                    excerpt="Cited evidence echoes exa-test-key",
                     retrieved_at="2026-10-01T00:00:00Z",
                     published_at=None,
                     provider=service.provider,
-                ),
+                )
+                for index in range(6)
             ),
             usage=SearchUsage(
                 provider=service.provider,
@@ -652,6 +653,22 @@ def test_research_answer_uses_configured_search_and_receipts_its_cost(
         ]
         assert len(search_evidence) == 2
         assert all(item["succeeded"] for item in search_evidence)
+        from frisket.operability.trace import read_trace
+
+        trace = read_trace(env.project.path, result.run_id)
+        assert trace is not None
+        assert "exa-test-key" not in json.dumps(trace)
+        for row in trace["rows"]:
+            step = row["research"]["steps"][0]
+            assert step["provider"] == "exa"
+            assert step["service"] == "exa.search"
+            assert len(step["results"]) == 6
+        source_column = env.project.db.execute(
+            "SELECT id FROM columns WHERE current_run_id=? AND name='answer_sources'",
+            (result.run_id,),
+        ).fetchone()["id"]
+        sources = env.project.get_values(env.seeded["sheet_id"], source_column)
+        assert all(len(urls) == 6 for urls in sources.values())
 
 
 def test_research_answer_receipts_failed_paid_search_as_unknown_cost(
@@ -704,6 +721,87 @@ def test_research_answer_receipts_failed_paid_search_as_unknown_cost(
             item for item in receipt.provider_use if item.get("provider") == "exa"
         )
         assert search_use["cost_actual"] is None
+
+        from frisket.operability.trace import read_trace
+
+        trace = read_trace(env.project.path, result.run_id)
+        assert trace is not None
+        steps = [row["research"]["steps"][0] for row in trace["rows"]]
+        assert all(step["status"] == "error" for step in steps)
+        assert all(step["error_code"] == "search_quota" for step in steps)
+        assert all(step.get("provider") is None for step in steps)
+
+
+@pytest.mark.parametrize("ambiguous", [False, True])
+def test_research_hosted_failure_reaches_existing_row_accounting_handler(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ambiguous: bool
+) -> None:
+    from frisket.cloud_execution import CloudExecutionRefused
+    from frisket.ai.research.row_answer import model_call_accounting
+    from frisket.engine.executor import research_read
+    from frisket.operability.trace import read_trace
+
+    with case_env(CASES[0], tmp_path, monkeypatch) as env:
+        refused_calls = []
+
+        async def fail_search(_bound, query):
+            refused_calls.append(query)
+            raise CloudExecutionRefused(
+                "cloud_search_refused",
+                "Research provider refused the call",
+                post_egress_ambiguous=ambiguous,
+                accounting=model_call_accounting(
+                    "anthropic/claude-haiku-4-5",
+                    [
+                        LLMResponse(
+                            content=None,
+                            data=None,
+                            tokens_in=11,
+                            tokens_out=7,
+                            cost=0.012,
+                            model="claude-haiku-4-5",
+                            provider="anthropic",
+                        )
+                    ],
+                ),
+            )
+
+        monkeypatch.setattr(research_read._BoundResearcher, "_search", fail_search)
+        result = env.run_primary()
+        assert result.status == "failed"
+        trace = read_trace(env.project.path, result.run_id)
+        assert trace is not None
+        assert (
+            trace["rows"][0]["research"]["steps"][0]["error_code"]
+            == "cloud_search_refused"
+        )
+        if ambiguous:
+            assert result.errors[0].code == "external_effect_reconciliation_required"
+            assert (
+                env.project.db.execute(
+                    "SELECT COUNT(*) FROM results WHERE run_id=?", (result.run_id,)
+                ).fetchone()[0]
+                == 0
+            )
+        else:
+            cells = _answer_cells(env.project, result.run_id)
+            assert {cell["error_code"] for cell in cells} == {"cloud_search_refused"}
+            accounted = env.project.db.execute(
+                "SELECT units,provider_cost_usd FROM model_calls "
+                "WHERE run_id=? AND provider_cost_usd=0.012",
+                (result.run_id,),
+            ).fetchall()
+            assert len(accounted) == len(refused_calls)
+            assert all(
+                json.loads(row["units"]) == {"tokens_in": 11, "tokens_out": 7}
+                for row in accounted
+            )
+            returned_calls = len(_ADAPTER[0].requests)
+            assert returned_calls > 0
+            assert env.project.db.execute(
+                "SELECT COUNT(*) FROM model_calls WHERE run_id=?",
+                (result.run_id,),
+            ).fetchone()[0] == returned_calls + len(refused_calls)
 
 
 def test_unconfirmed_run_pauses_before_model_or_search_work(

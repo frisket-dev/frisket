@@ -1,7 +1,7 @@
 import '../PanelPrimitives.css';
 import './CellRunDetails.css';
 import '../RowDrawer.css';
-import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown, ChevronRight, FileSearch2, X } from 'lucide-react';
 import type { CellProvenance, RunTraceRowEvidence } from '../../api/open';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
@@ -11,6 +11,7 @@ import { useAnchoredPosition } from '../../hooks/useAnchoredPosition';
 import { useNativePopover } from '../../hooks/useNativePopover';
 import { Button } from '../Button';
 import { CopyButton } from '../CopyButton';
+import { ModelCallDetails, ResearchActivitySummary, ResearchDetails } from '../research/ResearchDetails';
 
 // Run traces stay plain text: recorded prompts and model outputs must never
 // become rich HTML. Provenance disclosure is controlled by the row owner.
@@ -45,6 +46,7 @@ export function ExplainBlock({
   compact = false,
   columnName,
   testId,
+  visible = true,
 }: {
   runId: string;
   rowId: string;
@@ -52,9 +54,11 @@ export function ExplainBlock({
   compact?: boolean;
   columnName?: string;
   testId?: string;
+  visible?: boolean;
 }) {
   const { projectApi: api } = useWorkspaceStores();
   const [open, setOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [state, setState] = useState<ExplainState>({ phase: 'idle' });
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -97,6 +101,9 @@ export function ExplainBlock({
   // yank focus and read as "dismissed on typing" — this hook only ever
   // wires up Escape).
   useNativePopover(panelRef, close, { enabled: open, outside: false });
+  useLayoutEffect(() => {
+    if (open) triggerRef.current?.focus();
+  }, [open]);
 
   return (
     <div className={compact ? 'explain explain-compact' : 'explain'}>
@@ -110,6 +117,7 @@ export function ExplainBlock({
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={toggle}
+        style={{ visibility: visible || open || detailsOpen ? undefined : 'hidden' }}
       >
         <FileSearch2 size={12} /> {compact ? null : 'Explain this cell'}
       </Button>
@@ -149,9 +157,14 @@ export function ExplainBlock({
           {state.phase === 'error' && (
             <div className="explain-note">Could not load the trace for this run.</div>
           )}
-          {state.phase === 'done' && <ExplainTraceRow evidence={state.evidence} />}
+          {state.phase === 'done' && <ExplainTraceRow evidence={state.evidence} onResearchDetails={() => {
+            setOpen(false);
+            setDetailsOpen(true);
+          }} />}
         </div>
       )}
+      {detailsOpen && state.phase === 'done' && <ResearchDetails evidence={state.evidence}
+        onClose={() => { setDetailsOpen(false); setOpen(true); }} />}
     </div>
   );
 }
@@ -165,9 +178,17 @@ function formatRunDuration(startedAt: string | null, finishedAt: string | null):
   return s < 60 ? `${s.toFixed(1)} s` : `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
 }
 
-function ExplainTraceRow({ evidence }: { evidence: RunTraceRowEvidence }) {
+function ExplainTraceRow({ evidence, onResearchDetails }: {
+  evidence: RunTraceRowEvidence;
+  onResearchDetails(): void;
+}) {
   const trace = evidence.trace;
   const rec = trace?.row ?? null;
+  const research = (trace?.actionKind ?? evidence.run?.actionKind) === 'research.answer';
+  const researchEntry = research && <>
+    <ResearchActivitySummary evidence={evidence} />
+    <Button onClick={onResearchDetails}>Research details</Button>
+  </>;
   if (!rec) {
     // No per-row model trace. For a deterministic (non-LLM) op there is no
     // prompt/output to show, but the run-level facts ARE available — surface
@@ -209,6 +230,7 @@ function ExplainTraceRow({ evidence }: { evidence: RunTraceRowEvidence }) {
           </div>
         )}
         <div className="explain-note">{runTraceAbsenceMessage(evidence.status)}</div>
+        {researchEntry}
       </div>
     );
   }
@@ -250,6 +272,7 @@ function ExplainTraceRow({ evidence }: { evidence: RunTraceRowEvidence }) {
         )}
       </div>
 
+      {researchEntry}
       <div className="explain-section-head">
         <span>Prompt</span>
         {prompt && <CopyButton text={prompt} testId="explain-copy-prompt" />}
@@ -269,6 +292,7 @@ function ExplainTraceRow({ evidence }: { evidence: RunTraceRowEvidence }) {
       ) : (
         <div className="explain-note">No raw output captured for this row.</div>
       )}
+      {!research && <ModelCallDetails calls={rec.calls} />}
     </>
   );
 }

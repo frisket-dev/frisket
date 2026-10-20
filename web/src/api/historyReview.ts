@@ -506,6 +506,7 @@ function mapReviewBundleField(
     rowId: String(wire.row_id),
     columnId: String(wire.column_id),
     columnName: wire.column_name,
+    outputKey: wire.output_key ?? null,
     columnType: (wire.column_type as ColumnType | undefined) ?? 'text',
     semanticType: wire.semantic_type ?? null,
     format: wire.format ?? null,
@@ -573,6 +574,7 @@ function mapReviewBundles(wire: ReviewBundlesWire): ReviewBundlePage {
       reviewNote: bundle.review_note ?? null,
       fields: bundle.fields.map(mapReviewBundleField),
       evidence: bundle.evidence.map(mapReviewBundleField),
+      items: bundle.items.map(mapReviewBundleField),
     };
   });
   return {

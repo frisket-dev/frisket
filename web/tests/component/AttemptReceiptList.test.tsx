@@ -111,7 +111,7 @@ describe('AttemptReceiptList', () => {
       expect(screen.getByTestId('attempt-receipt-none')).toBeInTheDocument(),
     );
     expect(screen.getByTestId('attempt-receipt-none')).toHaveTextContent(
-      'No charges — this ran locally, at no cost.',
+      'No charge recorded on this run.',
     );
     expect(screen.queryByTestId('attempt-receipt-total')).not.toBeInTheDocument();
     expect(screen.queryByTestId('attempt-receipt-list')).not.toBeInTheDocument();
@@ -205,7 +205,7 @@ describe('AttemptReceiptList', () => {
     );
     expect(screen.getByTestId('attempt-receipt-row')).toHaveTextContent('21, 22');
     expect(screen.getByTestId('attempt-receipt-none')).toHaveTextContent(
-      'No charges — this ran locally, at no cost.',
+      'No charge recorded on this run.',
     );
   });
 

@@ -66,6 +66,10 @@ function mapTraceRow(row: NonNullable<RunTraceRowEvidenceWire['trace']>['row']):
     cached: Boolean(row.cached),
     latencyMs: row.latency_ms ?? null,
     retries: Array.isArray(row.retries) ? row.retries.length : 0,
+    calls: row.calls ?? undefined,
+    research: row.research ?? null,
+    researchIncomplete: row.research_incomplete ?? false,
+    truncated: row.truncated ?? false,
   };
 }
 
@@ -82,6 +86,7 @@ function rowEvidence(
     columnId: wire.column_id != null ? String(wire.column_id) : requestedColumnId ?? null,
     recorded: wire.recorded,
     status: wire.status,
+    cell: wire.cell,
     run: {
       actionKind: run.action_kind ?? null,
       actionName: run.action_name || (run.action_kind ? actionDisplayNameFromActionKind(run.action_kind) : null),

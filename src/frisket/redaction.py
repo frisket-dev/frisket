@@ -713,6 +713,7 @@ def redact_value(
                 output[safe_key] = (
                     REDACTED if _is_sensitive_key(key) else visit(child, depth + 1)
                 )
+            seen.remove(identity)
             return output
         if isinstance(item, (list, tuple)):
             identity = id(item)
@@ -725,6 +726,7 @@ def redact_value(
                     children.append(TRUNCATED)
                     break
                 children.append(visit(child, depth + 1))
+            seen.remove(identity)
             return children
         if isinstance(item, (set, frozenset)):
             identity = id(item)
@@ -737,6 +739,7 @@ def redact_value(
                     children.append(TRUNCATED)
                     break
                 children.append(visit(child, depth + 1))
+            seen.remove(identity)
             return sorted(
                 children, key=lambda child: (type(child).__name__, str(child))
             )

@@ -4,6 +4,7 @@ import json
 import gzip
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from frisket.server.app import create_app
@@ -12,7 +13,82 @@ from frisket.engine.store.runs import RunResultStore
 from helpers import write_claimed_test_results
 
 
-def _seed_project(tmp_path: Path) -> tuple[TestClient, str, int, list[int], int, int]:
+@pytest.mark.parametrize(
+    "research,expected,incomplete",
+    [
+        (None, None, False),
+        ("[TRUNCATED]", None, True),
+        ({"steps": "[TRUNCATED]"}, None, True),
+        ({"steps": [{"tool": "unknown"}]}, None, True),
+        ({"steps": []}, {"steps": [], "truncated": False}, False),
+        (
+            {
+                "steps": [
+                    "[TRUNCATED]",
+                    {
+                        "tool": "fetch",
+                        "url": "https://example.test/",
+                        "status": "error",
+                        "error": "Unavailable",
+                        "[TRUNCATED]": "[TRUNCATED]",
+                    },
+                ]
+            },
+            {
+                "steps": [
+                    {
+                        "tool": "fetch",
+                        "url": "https://example.test/",
+                        "status": "error",
+                        "error": "Unavailable",
+                        "truncated": True,
+                    }
+                ],
+                "truncated": True,
+            },
+            True,
+        ),
+    ],
+)
+def test_malformed_legacy_row_and_research_are_normalized_at_actual_endpoint(
+    tmp_path: Path,
+    research,
+    expected,
+    incomplete,
+) -> None:
+    client, project_id, run_id, row_ids, column_id, _ = _seed_project(tmp_path)
+    project = client.app.state.workspace.get(project_id)
+    with gzip.open(trace_path(project.path, run_id), "at", encoding="utf-8") as stream:
+        stream.write(
+            json.dumps(
+                {
+                    "kind": "row",
+                    "row_id": row_ids[0],
+                    "unknown": "discard",
+                    "[TRUNCATED]": "[TRUNCATED]",
+                    "raw_response": {"bad": "type"},
+                    "tokens_in": "[REDACTED]",
+                    "calls": "[TRUNCATED]",
+                    "research": research,
+                }
+            )
+            + "\n"
+        )
+    response = client.get(
+        f"/api/projects/{project_id}/actions/runs/{run_id}/trace/rows/{row_ids[0]}",
+        params={"column_id": column_id},
+    )
+    assert response.status_code == 200, response.text
+    row = response.json()["trace"]["row"]
+    assert row["research"] == expected
+    assert row["research_incomplete"] is incomplete
+    assert "unknown" not in row
+    assert "[TRUNCATED]" not in row
+
+
+def _seed_project(
+    tmp_path: Path, *, failed_row: bool = False
+) -> tuple[TestClient, str, int, list[int], int, int]:
     client = TestClient(create_app(tmp_path / "ws"))
     project_id = client.post("/api/projects", json={"name": "Trace row"}).json()["id"]
     project = client.app.state.workspace.get(project_id)
@@ -39,7 +115,12 @@ def _seed_project(tmp_path: Path) -> tuple[TestClient, str, int, list[int], int,
         run_id,
         [
             {"row_id": row_ids[0], "column_id": topic_col, "value": "a"},
-            {"row_id": row_ids[1], "column_id": topic_col, "value": "b"},
+            {
+                "row_id": row_ids[1],
+                "column_id": topic_col,
+                "value": None if failed_row else "b",
+                **({"error": "Research provider unavailable"} if failed_row else {}),
+            },
         ],
     )
     RunResultStore(project).finish_run(run_id)
@@ -171,3 +252,41 @@ def test_action_run_trace_row_endpoint_returns_typed_row_scoped_evidence(
     assert "started_at" in nr_run
     assert "finished_at" in nr_run
     assert "cost_actual" in nr_run
+
+
+@pytest.mark.parametrize("trace_exists", [False, True])
+def test_trace_absence_preserves_exact_run_failed_cell_in_completed_run(
+    tmp_path: Path, trace_exists: bool
+) -> None:
+    client, project_id, run_id, row_ids, column_id, _ = _seed_project(
+        tmp_path, failed_row=True
+    )
+    project = client.app.state.workspace.get(project_id)
+    if not trace_exists:
+        trace_path(project.path, run_id).unlink()
+    # Current cell edits must not replace the immutable result of this run.
+    project.apply_edits(
+        [{"row_id": row_ids[1], "column_id": column_id, "value": "manual replacement"}]
+    )
+    response = client.get(
+        f"/api/projects/{project_id}/actions/runs/{run_id}/trace/rows/{row_ids[1]}",
+        params={"column_id": column_id},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["run"]["status"] == "completed"
+    assert body["status"] == ("missing" if trace_exists else "not_recorded")
+    assert body["recorded"] is False
+    assert body["trace"] is None
+    assert body["cell"]["value"] is None
+    assert body["cell"]["error"] == "Research provider unavailable"
+    assert body["cell"]["row_id"] == row_ids[1]
+    assert body["cell"]["column_id"] == column_id
+    if not trace_exists:
+        successful = client.get(
+            f"/api/projects/{project_id}/actions/runs/{run_id}/trace/rows/{row_ids[0]}",
+            params={"column_id": column_id},
+        )
+        assert successful.status_code == 200, successful.text
+        assert successful.json()["cell"]["value"] == "a"
+        assert successful.json()["cell"]["error"] is None

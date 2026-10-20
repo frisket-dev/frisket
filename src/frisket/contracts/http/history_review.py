@@ -179,6 +179,7 @@ class ReviewBundleItem(WireModel):
     column_id: int
     column_name: str
     column_type: str
+    output_key: str | None = None
     semantic_type: str | None = None
     format: str | None = None
     sheet_id: int

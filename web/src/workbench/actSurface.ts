@@ -136,7 +136,7 @@ const ACTION_LABEL_BY_KIND: Record<string, string> = {
   'enrich.geocode': 'Geocode',
   // Display names, not launcher-kind ids.
   'research.web_search': 'Quick search',
-  'research.answer': 'Web research',
+  'research.answer': 'Agent Research',
   'join.semantic': 'Semantic join',
   'derive.join': 'Join sheets (by key)',
   'enrich.census_demographics': 'Census',

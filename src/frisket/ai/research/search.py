@@ -184,6 +184,11 @@ class SearchService:
     def provider(self) -> SearchProvider:
         return self._provider
 
+    def secret_values(self) -> tuple[str, ...]:
+        """Expose only the selected provider's key to in-memory redaction."""
+        value = self._keys.get(self._provider)
+        return (value,) if value else ()
+
     def quote(self, *, max_results: int = 6) -> SearchQuote:
         """Capture the rate identity used for admission and later settlement."""
         self._validate_result_limit(max_results)

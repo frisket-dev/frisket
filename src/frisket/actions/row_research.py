@@ -51,7 +51,7 @@ async def answer(
 
 ANSWER = action(
     name="answer",
-    title="Research each row",
+    title="Agent Research",
     description="Search and read public sources to answer a question about each row.",
     category=ActionCategory.TEXT,
     run=map_rows(

@@ -11165,6 +11165,7 @@ type HttpReviewBundlesPage_ReviewBundleItem = ({
   "error": (((string)) | ((null)));
   "format"?: (((string)) | ((null)));
   "justification": (((string)) | ((null)));
+  "output_key"?: (((string)) | ((null)));
   "review_decision": ((("accept" | "reject" | "reject_clear" | "edit") & (string)) | ((null)));
   "review_note": (((string)) | ((null)));
   "review_state": (((string)) | ((null)));
@@ -11286,6 +11287,41 @@ export type HttpReviewedRunRevision = ({
 
 type HttpRunTraceRowEvidence_JsonValue = JsonValue;
 
+type HttpRunTraceRowEvidence_ResearchFetchStep = ({
+  "duration_ms"?: (((number)) | ((null)));
+  "error"?: (((string)) | ((null)));
+  "error_code"?: (((string)) | ((null)));
+  "status": ("ok" | "error" | "cancelled" | "started") & (string);
+  "text"?: (((string)) | ((null)));
+  "tool": ("fetch") & (string);
+  "truncated"?: (boolean);
+  "url": (string);
+});
+
+type HttpRunTraceRowEvidence_ResearchSearchResult = ({
+  "snippet": (string);
+  "title": (string);
+  "url": (string);
+});
+
+type HttpRunTraceRowEvidence_ResearchSearchStep = ({
+  "duration_ms"?: (((number)) | ((null)));
+  "error"?: (((string)) | ((null)));
+  "error_code"?: (((string)) | ((null)));
+  "provider"?: (((string)) | ((null)));
+  "query": (string);
+  "results"?: (Array<(HttpRunTraceRowEvidence_ResearchSearchResult)>);
+  "service"?: (((string)) | ((null)));
+  "status": ("ok" | "error" | "cancelled" | "started") & (string);
+  "tool": ("search") & (string);
+  "truncated"?: (boolean);
+});
+
+type HttpRunTraceRowEvidence_ResearchTrace = ({
+  "steps": (Array<(((HttpRunTraceRowEvidence_ResearchSearchStep)) | ((HttpRunTraceRowEvidence_ResearchFetchStep)))>);
+  "truncated"?: (boolean);
+});
+
 type HttpRunTraceRowEvidence_RunTraceRow = ({
   "cached"?: (((boolean)) | ((null)));
   "calls"?: (((Array<(HttpRunTraceRowEvidence_JsonValue)>)) | ((null)));
@@ -11295,11 +11331,14 @@ type HttpRunTraceRowEvidence_RunTraceRow = ({
   "latency_ms"?: (((number)) | ((null)));
   "prompt"?: (((HttpRunTraceRowEvidence_JsonValue)) | ((null)));
   "raw_response"?: (((string)) | ((null)));
+  "research"?: (((HttpRunTraceRowEvidence_ResearchTrace)) | ((null)));
+  "research_incomplete"?: (boolean);
   "retries"?: (((Array<(HttpRunTraceRowEvidence_JsonValue)>)) | ((null)));
   "row_id"?: (((number)) | ((null)));
   "tokens_in"?: (((number)) | ((null)));
   "tokens_out"?: (((number)) | ((null)));
   "trace_id"?: (((string)) | ((null)));
+  "truncated"?: (boolean);
 });
 
 type HttpRunTraceRowEvidence_RunTraceRowRun = ({
