@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import type { GeneratedActionParams } from '../../generated/actionTypes';
 import {
   formatPointDraftText,
@@ -75,7 +75,7 @@ function TemporalSegmentsEditor({
     scope: request.scope,
   });
   const previousIdentity = useRef<string | null>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const changed = previousIdentity.current !== resetIdentity;
     previousIdentity.current = resetIdentity;
     // Reopening saved intent also requires a fresh visible acknowledgement.
