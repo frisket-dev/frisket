@@ -101,6 +101,41 @@ afterEach(() => {
 });
 
 describe('NotificationSettingsPanel configurable email', () => {
+  it('retains a failed channel draft and keeps route controls independent', async () => {
+    let reject!: (error: Error) => void;
+    projectApi.createNotificationChannel.mockReturnValue(new Promise((_, rejectRequest) => { reject = rejectRequest; }));
+    renderPanel(LOCAL_EDITION_MODULE);
+    await screen.findByText('Slack route');
+    fireEvent.change(screen.getByTestId('notification-channel-name'), { target: { value: 'Custom Slack' } });
+    fireEvent.change(screen.getByTestId('notification-channel-secret-ref'), { target: { value: 'env:CUSTOM_SLACK' } });
+    fireEvent.click(screen.getByTestId('notification-create-channel'));
+    expect(screen.getByTestId('notification-create-channel')).toBeDisabled();
+    expect(screen.getByTestId('notification-create-route')).toBeEnabled();
+    reject(new Error('Channel service unavailable'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Channel service unavailable');
+    await waitFor(() => expect(screen.getByTestId('notification-create-channel')).toBeEnabled());
+    expect(screen.getByTestId('notification-channel-name')).toHaveValue('Custom Slack');
+    expect(screen.getByTestId('notification-channel-secret-ref')).toHaveValue('env:CUSTOM_SLACK');
+  });
+
+  it('saves digest route fields and clears a channel secret only after success', async () => {
+    projectApi.createNotificationChannel.mockResolvedValue(slackChannel);
+    projectApi.createNotificationRoute.mockResolvedValue(slackRoute);
+    renderPanel(LOCAL_EDITION_MODULE);
+    await screen.findByText('Slack route');
+    fireEvent.click(screen.getByTestId('notification-create-channel'));
+    await waitFor(() => expect(screen.getByTestId('notification-channel-secret-ref')).toHaveValue(''));
+    fireEvent.change(screen.getByTestId('notification-route-name'), { target: { value: 'Council digest' } });
+    fireEvent.change(screen.getByTestId('notification-route-mode'), { target: { value: 'digest' } });
+    fireEvent.change(screen.getByTestId('notification-route-watch-id'), { target: { value: '7' } });
+    fireEvent.change(screen.getByTestId('notification-route-digest-anchor'), { target: { value: '14:30' } });
+    fireEvent.click(screen.getByTestId('notification-create-route'));
+    await waitFor(() => expect(projectApi.createNotificationRoute).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'Council digest', deliveryMode: 'digest', sourceRefMatch: { watch_id: 7 },
+      digestCadence: 'daily', digestTimezone: 'UTC', digestAnchorTime: '14:30',
+    })));
+  });
+
   it('preserves configurable email by default', async () => {
     renderPanel(LOCAL_EDITION_MODULE);
 

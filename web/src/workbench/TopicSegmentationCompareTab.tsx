@@ -1,3 +1,4 @@
+import { CompareToolbar, CompareEngineChip, CompareResultColumn } from './CompareLayout';
 import './TopicSegmentationCompareTab.css';
 import { Button } from '../components/Button';
 import {
@@ -15,8 +16,6 @@ import {
   Play,
   Plus,
   RotateCw,
-  Settings2,
-  X,
 } from 'lucide-react';
 
 import type { ProjectApiPort } from '../api/ports';
@@ -26,8 +25,7 @@ import type {
   TopicSegmentationCompareUnit,
   TopicSegmentationDetail,
 } from '../api/open';
-import { engineUnavailableReason, tierForEngine } from '../actions/engineCatalog';
-import { EngineTierBadge } from '../components/EngineTierBadge';
+import { engineUnavailableReason } from '../actions/engineCatalog';
 import { ResizeSeam } from '../components/ResizeSeam';
 import { SegmentedToggle } from '../components/PanelPrimitives';
 import { CompareBillableEnginesNote, ConfigureVariantPopover } from './MediaCompareShell';
@@ -35,7 +33,6 @@ import { CompareDocList, CompareFrontDoor } from './mediaCompareBodyParts';
 import {
   PEEK_MAX_WIDTH,
   PEEK_MIN_WIDTH,
-  VARIANT_PIP_GLYPH,
   useMediaCompareSession,
   variantPip,
   type CompareColumn,
@@ -295,17 +292,8 @@ export function TopicSegmentationCompareTab({
 
   return (
     <section className="ocr-compare-tab topic-compare-tab" data-testid="topic-compare-tab">
-      <div
-        className="ocr-compare-toolbar"
-        data-testid="topic-compare-toolbar"
-        data-running={runningCount > 0 ? 'true' : 'false'}
-      >
-        <CompareBillableEnginesNote
-          testidPrefix="topic-compare"
-          engines={billableEngines}
-          actionLabel="the Find topic sections action"
-        />
-        <div className="ocr-compare-controls-row" data-testid="topic-compare-controls-row">
+      <CompareToolbar testIdPrefix="topic-compare" running={runningCount > 0}
+        controls={<>
           <Button
             type="button"
             className={`btn ocr-compare-run${runState === 'pending' ? ' btn-primary' : ''}`}
@@ -363,127 +351,76 @@ export function TopicSegmentationCompareTab({
           >
             ⊟ Source
           </Button>
-        </div>
-
-        <div className="ocr-compare-chips-row" data-testid="topic-compare-chips-row">
-          <span className="ocr-compare-scratch-tag" data-testid="topic-compare-scratch-tag">
-            scratch · not in a project
-          </span>
-          <span className="ocr-compare-variants-label">VARIANTS</span>
-          <div className="ocr-compare-variant-chips" data-testid="topic-compare-variant-chips">
-            {columns.map((column) => {
-              const run = activeDoc?.runs[column.id];
-              const pip = variantPip(column, run);
-              const detail = detailOf(column);
-              const duplicateEngine =
-                columns.filter((candidate) => candidate.engineId === column.engineId).length > 1;
-              const summary = detail !== 'balanced' || duplicateEngine ? detail : '';
-              const chipEngine = catalog.find((candidate) => candidate.id === column.engineId);
-              return (
-                <div
-                  className="ocr-compare-variant"
-                  key={column.id}
-                  ref={configureColumnId === column.id ? configureAnchorRef : undefined}
-                >
-                  <div
-                    className="ocr-compare-variant-chip engine-tier-chip"
-                    data-testid="topic-compare-variant-chip"
-                    data-engine-id={column.engineId ?? ''}
-                    data-variant-id={column.id}
-                    data-pip={pip}
-                  >
-                    <span className="ocr-compare-pip" data-pip={pip} aria-hidden>
-                      {pip === 'running' ? (
-                        <Loader2 size={10} className="ocr-compare-spin" />
-                      ) : (
-                        VARIANT_PIP_GLYPH[pip]
-                      )}
-                    </span>
-                    <button
-                      type="button"
-                      className="ocr-compare-variant-body"
-                      data-testid="topic-compare-variant-body"
-                      onClick={() => setConfigureColumnId((current) => (
-                        current === column.id ? null : column.id
-                      ))}
-                    >
-                      <span className="ocr-compare-variant-name">
-                        {engineLabel(column.engineId)}
-                      </span>
-                      {/* Where the chosen engine runs, visible on the chip
-                          itself. */}
-                      {chipEngine && (
-                        <EngineTierBadge
-                          tier={tierForEngine(chipEngine)}
-                          testId="topic-compare-variant-tier"
-                        />
-                      )}
-                      {summary ? (
-                        <span className="ocr-compare-variant-summary muted"> · {summary}</span>
-                      ) : null}
-                    </button>
-                    <button
-                      type="button"
-                      className="ocr-compare-variant-gear"
-                      data-testid="topic-compare-variant-gear"
-                      aria-label={`Configure ${engineLabel(column.engineId)}`}
-                      onClick={() => setConfigureColumnId(column.id)}
-                    >
-                      <Settings2 size={12} />
-                    </button>
-                    <button
-                      type="button"
-                      className="ocr-compare-variant-remove"
-                      data-testid="topic-compare-variant-remove"
-                      aria-label={`Remove ${engineLabel(column.engineId)}`}
-                      onClick={() => removeVariant(column.id)}
-                    >
-                      <X size={11} />
-                    </button>
-                  </div>
-                  {configureColumnId === column.id ? (
-                    <ConfigureVariantPopover
-                      onCurrentChoiceChange={session.reportColumnChoice}
-                      testidPrefix="topic-compare"
-                      actionId="map.find_topic_sections"
-                      popoverRef={configurePopoverRef}
-                      column={column}
-                      catalog={catalog}
-                      engineSelectorRef={engineSelectorRef}
-                      errorMessage={run?.status === 'error' ? run.message : null}
-                      onChooseEngine={(engineId) => {
-                        chooseEngine(column.id, engineId);
-                        setAddingColumnId(null);
-                      }}
-                      onDuplicate={() => {
-                        const copyId = duplicateColumn(column.id);
-                        if (copyId) setConfigureColumnId(copyId);
-                      }}
-                      renderOptionFields={() => (
-                        <TopicVariantOptions
-                          detail={detail}
-                          onChange={(nextDetail) => updateColumnOptions(column.id, {
-                            detail: nextDetail,
-                          })}
-                        />
-                      )}
-                    />
-                  ) : null}
-                </div>
-              );
-            })}
-            <button
-              type="button"
-              className="ocr-compare-add-engine engine-tier-chip"
-              data-testid="topic-compare-add-variant"
-              disabled={catalog.length === 0 || noAvailableEngines}
-              onClick={addVariant}
+        </>}
+        note={<CompareBillableEnginesNote
+          testidPrefix="topic-compare"
+          engines={billableEngines}
+          actionLabel="the Find topic sections action"
+        />}
+      >
+        {columns.map((column) => {
+          const run = activeDoc?.runs[column.id];
+          const pip = variantPip(column, run);
+          const detail = detailOf(column);
+          const duplicateEngine =
+            columns.filter((candidate) => candidate.engineId === column.engineId).length > 1;
+          const summary = detail !== 'balanced' || duplicateEngine ? detail : '';
+          const chipEngine = catalog.find((candidate) => candidate.id === column.engineId);
+          return (
+            <div
+              className="ocr-compare-variant"
+              key={column.id}
+              ref={configureColumnId === column.id ? configureAnchorRef : undefined}
             >
-              <Plus size={12} /> variant
-            </button>
-          </div>
-        </div>
-      </div>
+              <CompareEngineChip testIdPrefix="topic-compare" engine={chipEngine}
+                engineId={column.engineId} label={engineLabel(column.engineId)} variantId={column.id}
+                pip={pip} summary={summary}
+                onBodyClick={() => setConfigureColumnId((current) => (
+                  current === column.id ? null : column.id
+                ))}
+                onConfigure={() => setConfigureColumnId(column.id)}
+                onRemove={() => removeVariant(column.id)} />
+              {configureColumnId === column.id ? (
+                <ConfigureVariantPopover
+                  onCurrentChoiceChange={session.reportColumnChoice}
+                  testidPrefix="topic-compare"
+                  actionId="map.find_topic_sections"
+                  popoverRef={configurePopoverRef}
+                  column={column}
+                  catalog={catalog}
+                  engineSelectorRef={engineSelectorRef}
+                  errorMessage={run?.status === 'error' ? run.message : null}
+                  onChooseEngine={(engineId) => {
+                    chooseEngine(column.id, engineId);
+                    setAddingColumnId(null);
+                  }}
+                  onDuplicate={() => {
+                    const copyId = duplicateColumn(column.id);
+                    if (copyId) setConfigureColumnId(copyId);
+                  }}
+                  renderOptionFields={() => (
+                    <TopicVariantOptions
+                      detail={detail}
+                      onChange={(nextDetail) => updateColumnOptions(column.id, {
+                        detail: nextDetail,
+                      })}
+                    />
+                  )}
+                />
+              ) : null}
+            </div>
+          );
+        })}
+        <button
+          type="button"
+          className="ocr-compare-add-engine engine-tier-chip"
+          data-testid="topic-compare-add-variant"
+          disabled={catalog.length === 0 || noAvailableEngines}
+          onClick={addVariant}
+        >
+          <Plus size={12} /> variant
+        </button>
+      </CompareToolbar>
 
       {noAvailableEngines ? (
         <div className="topic-compare-catalog-message" role="status">
@@ -570,15 +507,12 @@ export function TopicSegmentationCompareTab({
               const run = activeDoc?.runs[column.id];
               const vote = activeDoc?.votes[column.id] ?? 'neutral';
               return (
-                <div
-                  className="ocr-compare-engine-column"
-                  data-testid="topic-compare-engine-column"
+                <CompareResultColumn data-testid="topic-compare-engine-column"
                   data-engine-id={column.engineId ?? ''}
                   data-variant-id={column.id}
                   data-run-status={run?.status ?? 'pending'}
                   key={column.id}
-                >
-                  <div className="ocr-compare-engine-head">
+                  header={<>
                     <button
                       type="button"
                       className="ocr-compare-vote-chip"
@@ -597,41 +531,42 @@ export function TopicSegmentationCompareTab({
                         {run.results.result.sections.length} sections · {run.results.result.runtime_ms}ms
                       </span>
                     ) : null}
-                  </div>
-                  <div className="ocr-compare-engine-text topic-compare-engine-text">
-                    {!run ? (
-                      <div className="ocr-compare-engine-pending muted">
-                        not run yet — press Run
-                      </div>
-                    ) : run.status === 'running' ? (
-                      <div className="ocr-compare-engine-running muted">
-                        <Loader2 size={13} className="ocr-compare-spin" /> finding topics…
-                      </div>
-                    ) : run.status === 'error' ? (
-                      <div className="ocr-compare-engine-error" role="alert">
-                        <strong>{engineLabel(column.engineId)} failed</strong>
-                        <span>{run.message}</span>
-                        {activeDoc ? (
-                          <Button
-                            type="button"
-                            className="ocr-compare-engine-retry"
-                            data-testid="topic-compare-engine-retry"
-                            onClick={() => retryColumn(activeDoc, column)}
-                          >
-                            <RotateCw size={12} /> Retry
-                          </Button>
-                        ) : null}
-                      </div>
-                    ) : activeParsed ? (
-                      <TopicSectionsLane
-                        result={run.results.result}
-                        units={run.results.units}
-                        diffKeys={effectiveMode === 'diff' ? diffKeys : []}
-                        onNavigate={navigateToBoundary}
-                      />
-                    ) : null}
-                  </div>
-                </div>
+                  </>}
+
+                  textClassName="topic-compare-engine-text"
+                >
+                  {!run ? (
+                    <div className="ocr-compare-engine-pending muted">
+                      not run yet — press Run
+                    </div>
+                  ) : run.status === 'running' ? (
+                    <div className="ocr-compare-engine-running muted">
+                      <Loader2 size={13} className="ocr-compare-spin" /> finding topics…
+                    </div>
+                  ) : run.status === 'error' ? (
+                    <div className="ocr-compare-engine-error" role="alert">
+                      <strong>{engineLabel(column.engineId)} failed</strong>
+                      <span>{run.message}</span>
+                      {activeDoc ? (
+                        <Button
+                          type="button"
+                          className="ocr-compare-engine-retry"
+                          data-testid="topic-compare-engine-retry"
+                          onClick={() => retryColumn(activeDoc, column)}
+                        >
+                          <RotateCw size={12} /> Retry
+                        </Button>
+                      ) : null}
+                    </div>
+                  ) : activeParsed ? (
+                    <TopicSectionsLane
+                      result={run.results.result}
+                      units={run.results.units}
+                      diffKeys={effectiveMode === 'diff' ? diffKeys : []}
+                      onNavigate={navigateToBoundary}
+                    />
+                  ) : null}
+                </CompareResultColumn>
               );
             })}
           </div>

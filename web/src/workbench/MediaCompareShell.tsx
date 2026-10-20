@@ -1,3 +1,4 @@
+import { CompareResultColumn } from './CompareLayout';
 import './MediaCompareShell.css';
 import { Button } from '../components/Button';
 // The compare family's popover / add-menu dismissal (OcrCompareTab's/
@@ -43,11 +44,9 @@ import {
 // language; transcribe: language + model size + VAD — see
 // TranscribeCompareTab's transcribeFieldsForEngine) via `renderOptionFields`.
 // There is no remote-gate arm: billable engines never reach `catalog`, so the
-// popover has no billing decision to present. The status-pip glyph (`variantPip`/
-// `VARIANT_PIP_GLYPH`) lives in mediaCompareSession.ts, not here —
-// react-refresh/only-export-components forbids a component file like this one
-// from also exporting plain runtime values (the same split
-// WorkspaceStoresProvider.tsx/useWorkspaceStores.ts already use).
+// popover has no billing decision to present. Session state stays in
+// mediaCompareSession.ts; shared engine chips and result geometry live in
+// CompareLayout.tsx.
 
 export interface ConfigureVariantPopoverProps {
   /** testid namespace ('ocr-compare' | 'transcribe-compare'); the popover's
@@ -456,15 +455,12 @@ export function MediaCompareBody<R>({
               const run = activeDoc?.runs[column.id];
               const summary = columnSummary(column);
               return (
-                <div
-                  className="ocr-compare-engine-column"
-                  data-testid={t('engine-column')}
+                <CompareResultColumn data-testid={t('engine-column')}
                   data-engine-id={column.engineId ?? ''}
                   data-variant-id={column.id}
                   data-run-status={run?.status ?? 'pending'}
                   key={column.id}
-                >
-                  <div className="ocr-compare-engine-head">
+                  header={<>
                     <button
                       type="button"
                       className="ocr-compare-vote-chip"
@@ -487,77 +483,76 @@ export function MediaCompareBody<R>({
                     >
                       {confidenceLabel(run)}
                     </span>
-                  </div>
-                  {run?.status === 'done' && <ComparisonPreviewDetails preview={run.preview} elapsedMs={run.elapsedMs} />}
-                  <div className="ocr-compare-engine-text">
-                    {!activeDoc ? null : !run ? (
-                      <div className="ocr-compare-engine-pending muted" data-testid={t('engine-pending')}>
-                        {pendingLabel}
-                      </div>
-                    ) : run.status === 'running' ? (
-                      <div className="ocr-compare-engine-running muted" data-testid={t('engine-running')}>
-                        <Loader2 size={13} className="ocr-compare-spin" aria-hidden /> running{' '}
-                        {engineLabel(column.engineId)}…
-                      </div>
-                    ) : run.status === 'error' ? (
-                      <div
-                        className="ocr-compare-engine-error"
-                        data-testid={t('engine-error')}
-                        role="alert"
+                  </>}
+                  details={<>{run?.status === 'done' && <ComparisonPreviewDetails preview={run.preview} elapsedMs={run.elapsedMs} />}</>}
+                >
+                  {!activeDoc ? null : !run ? (
+                    <div className="ocr-compare-engine-pending muted" data-testid={t('engine-pending')}>
+                      {pendingLabel}
+                    </div>
+                  ) : run.status === 'running' ? (
+                    <div className="ocr-compare-engine-running muted" data-testid={t('engine-running')}>
+                      <Loader2 size={13} className="ocr-compare-spin" aria-hidden /> running{' '}
+                      {engineLabel(column.engineId)}…
+                    </div>
+                  ) : run.status === 'error' ? (
+                    <div
+                      className="ocr-compare-engine-error"
+                      data-testid={t('engine-error')}
+                      role="alert"
+                    >
+                      <strong>{engineLabel(column.engineId)} failed</strong>
+                      <span>{run.message}</span>
+                      <Button
+                        type="button"
+                        className="ocr-compare-engine-retry"
+                        data-testid={t('engine-retry')}
+                        onClick={() => retryColumn(activeDoc, column)}
                       >
-                        <strong>{engineLabel(column.engineId)} failed</strong>
-                        <span>{run.message}</span>
-                        <Button
-                          type="button"
-                          className="ocr-compare-engine-retry"
-                          data-testid={t('engine-retry')}
-                          onClick={() => retryColumn(activeDoc, column)}
-                        >
-                          <RotateCw size={12} /> Retry
-                        </Button>
-                      </div>
-                    ) : diff && diffArmed ? (
-                      diff.units.map((unit, unitIndex) => {
-                        const tokens =
-                          columnIndex === 0 ? diff.leftTokens[unitIndex] : diff.rightTokens[unitIndex];
-                        if (!tokens) return null;
-                        const anyChanged = tokens.some((token) => token.changed);
-                        return (
-                          <div className="ocr-compare-page" key={unit.key} data-unit={unit.key}>
-                            {unit.marker && (
-                              <div className="ocr-compare-page-marker mono muted">{unit.marker}</div>
-                            )}
-                            {anyChanged ? (
-                              <p className="ocr-compare-diff-text">
-                                {tokens.map((token, index) => (
-                                  <DiffTokenView
-                                    key={index}
-                                    token={token}
-                                    testidPrefix={testidPrefix}
-                                    onClick={() => session.navigateTo(unit.navTarget)}
-                                  />
-                                ))}
-                              </p>
-                            ) : (
-                              <p className="ocr-compare-nodiff muted">{config.noDiffUnitLabel}</p>
-                            )}
-                          </div>
-                        );
-                      })
-                    ) : (
-                      units.map((unit) => (
+                        <RotateCw size={12} /> Retry
+                      </Button>
+                    </div>
+                  ) : diff && diffArmed ? (
+                    diff.units.map((unit, unitIndex) => {
+                      const tokens =
+                        columnIndex === 0 ? diff.leftTokens[unitIndex] : diff.rightTokens[unitIndex];
+                      if (!tokens) return null;
+                      const anyChanged = tokens.some((token) => token.changed);
+                      return (
                         <div className="ocr-compare-page" key={unit.key} data-unit={unit.key}>
                           {unit.marker && (
                             <div className="ocr-compare-page-marker mono muted">{unit.marker}</div>
                           )}
-                          <p className="ocr-compare-plain-text">
-                            {unit.textByColumn[column.id] || 'no text'}
-                          </p>
+                          {anyChanged ? (
+                            <p className="ocr-compare-diff-text">
+                              {tokens.map((token, index) => (
+                                <DiffTokenView
+                                  key={index}
+                                  token={token}
+                                  testidPrefix={testidPrefix}
+                                  onClick={() => session.navigateTo(unit.navTarget)}
+                                />
+                              ))}
+                            </p>
+                          ) : (
+                            <p className="ocr-compare-nodiff muted">{config.noDiffUnitLabel}</p>
+                          )}
                         </div>
-                      ))
-                    )}
-                  </div>
-                </div>
+                      );
+                    })
+                  ) : (
+                    units.map((unit) => (
+                      <div className="ocr-compare-page" key={unit.key} data-unit={unit.key}>
+                        {unit.marker && (
+                          <div className="ocr-compare-page-marker mono muted">{unit.marker}</div>
+                        )}
+                        <p className="ocr-compare-plain-text">
+                          {unit.textByColumn[column.id] || 'no text'}
+                        </p>
+                      </div>
+                    ))
+                  )}
+                </CompareResultColumn>
               );
             })}
           </div>

@@ -87,6 +87,31 @@ afterEach(() => {
 });
 
 describe('WatchesPanel pending actions', () => {
+  it('keeps rename cancellation available for an invalid draft and retains a failed rename', async () => {
+    const projectApi = {
+      qa: projectQAFixture(),
+      listWatches: vi.fn().mockResolvedValue([watch(1, 'Alpha')]),
+      getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
+      updateWatch: vi.fn().mockRejectedValue(new Error('Rename unavailable')),
+    } as unknown as ProjectApiPort;
+    const harness = createWorkspaceTestHarness({ projectId: 'rename-validation', api: { projectApi } });
+    harness.render(<WatchesPanel canEdit />);
+    fireEvent.click(await screen.findByTestId('rename-watch'));
+    fireEvent.change(screen.getByTestId('watch-rename-input'), { target: { value: '   ' } });
+    expect(screen.getByTestId('save-watch-rename')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(projectApi.updateWatch).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('rename-watch'));
+    fireEvent.change(screen.getByTestId('watch-rename-input'), { target: { value: 'New Alpha' } });
+    fireEvent.click(screen.getByTestId('save-watch-rename'));
+    expect(await screen.findByTestId('watch-mutation-error')).toHaveTextContent('Rename unavailable');
+    expect(screen.getByTestId('watch-rename-input')).toHaveValue('New Alpha');
+    expect(screen.getByTestId('save-watch-rename')).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled();
+  });
+
   it('creates an independent Watch from the captured current grid and shows local notification guidance', async () => {
     const projectApi = {
       qa: projectQAFixture(),

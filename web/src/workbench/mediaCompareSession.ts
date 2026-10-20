@@ -827,13 +827,6 @@ export function variantPip(
   return 'results';
 }
 
-export const VARIANT_PIP_GLYPH: Record<Exclude<PipState, 'running'>, string> = {
-  idle: '',
-  pending: '◷',
-  results: '✓',
-  error: '!',
-};
-
 export const MEDIA_LANGUAGE_OPTIONS: Array<{ value: string; label: string }> = [
   { value: '', label: 'Auto' },
   { value: 'eng', label: 'English' },

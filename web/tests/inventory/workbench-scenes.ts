@@ -125,6 +125,19 @@ export async function capturePanelScenes(page: Page, shot: Shot) {
   await planning.check();
   await expect(page.getByTestId('facets-active-filters')).toBeVisible();
   await shot(page, 'Side panels', 'filters-active', 'src/components/FriendlyFiltersPanel.tsx');
+  await page.getByTestId('facet-check-department-Housing').check();
+  await expect(planning).toBeChecked();
+  await expect(page.getByTestId('facet-check-department-Housing')).toBeChecked();
+  await shot(page, 'Side panels', 'filters-multiple-values', 'src/components/FriendlyFiltersPanel.tsx');
+  await page.getByTestId('facets-active-filters').getByRole('button', { name: 'Clear all', exact: true }).click();
+  await expect(page.getByTestId('facets-active-filters')).toHaveCount(0);
+  await expect(planning).not.toBeChecked();
+  const minimum = page.getByTestId('facet-range-start-amount');
+  await minimum.fill('500000');
+  await minimum.press('Enter');
+  await expect(page.getByTestId('facets-active-filters')).toContainText('amount');
+  await shot(page, 'Side panels', 'filters-number-range', 'src/components/FriendlyFiltersPanel.tsx');
+  await page.getByTestId('facets-active-filters').getByRole('button', { name: 'Clear all', exact: true }).click();
 
   await openDiscoverTab(page, 'Mentions');
   await expect(page.getByTestId('mentions-extract-cta')).toBeVisible();
@@ -411,6 +424,21 @@ export async function capturePanelCardScenes(page: Page, shot: Shot) {
   await expect(page.getByTestId('watch-run-history')).toContainText('evaluation interrupted');
   await expect(page.getByTestId('watch-notification-count')).toHaveText('2');
   await shot(page, 'Panel cards', 'paused-watch-with-history', 'synthetic read-only API fixture; src/components/WatchesPanel.tsx', '[data-testid="watch-item"]');
+  const watchCard = page.getByTestId('watch-item');
+  await watchCard.getByTestId('rename-watch').click();
+  await watchCard.getByTestId('watch-rename-input').fill('');
+  await expect(watchCard.getByTestId('watch-rename-error')).toBeVisible();
+  await expect(watchCard.getByTestId('save-watch-rename')).toBeDisabled();
+  await shot(page, 'Panel cards', 'watch-rename-empty', 'synthetic read-only API fixture; unsaved draft; src/components/WatchesPanel.tsx', '[data-testid="watch-item"]');
+  await watchCard.getByTestId('watch-rename-input').fill('Planning and housing investigations — renamed draft');
+  await shot(page, 'Panel cards', 'watch-rename-draft', 'synthetic read-only API fixture; unsaved draft; src/components/WatchesPanel.tsx', '[data-testid="watch-item"]');
+  await watchCard.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await watchCard.getByTestId('delete-watch').click();
+  const deleteDialog = page.getByTestId('delete-watch-confirmation');
+  await expect(deleteDialog).toHaveJSProperty('open', true);
+  await shot(page, 'Panel cards', 'watch-delete-confirmation', 'synthetic read-only API fixture; deletion cancelled; src/components/WatchesPanel.tsx', '[data-testid="delete-watch-confirmation"]');
+  await deleteDialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(deleteDialog).toHaveCount(0);
 
   await page.goto(`/p/${projectId}/settings/project/notifications`);
   await expect(page.getByTestId('notification-settings-refresh')).toBeEnabled();
@@ -422,6 +450,18 @@ export async function capturePanelCardScenes(page: Page, shot: Shot) {
     await page.locator(selector).scrollIntoViewIfNeeded();
     await shot(page, 'Panel cards', name, 'synthetic read-only API fixture; src/components/NotificationSettingsPanel.tsx', selector);
   }
+  await page.getByTestId('notification-channel-name').fill('Planning investigations alerts — draft');
+  await page.getByTestId('notification-channel-slack-label').fill('#planning-and-housing');
+  await page.getByTestId('notification-channel-secret-ref').fill('env:INVENTORY_SLACK_WEBHOOK');
+  await shot(page, 'Panel cards', 'notification-channel-draft', 'synthetic read-only API fixture; unsaved secret reference only; src/components/NotificationSettingsPanel.tsx', '[data-testid="notification-channel-form"]');
+  await page.getByTestId('notification-route-name').fill('Planning and housing daily digest — draft');
+  await page.getByTestId('notification-route-channel').selectOption(String(channel.id));
+  await page.getByTestId('notification-route-watch-id').fill(String(watchId));
+  await page.getByTestId('notification-route-mode').selectOption('digest');
+  await page.getByTestId('notification-route-digest-cadence').selectOption('daily');
+  await page.getByTestId('notification-route-digest-anchor').fill('09:00');
+  await expect(page.getByTestId('notification-create-route')).toBeEnabled();
+  await shot(page, 'Panel cards', 'notification-digest-route-draft', 'synthetic read-only API fixture; unsaved draft, no test or delivery; src/components/NotificationSettingsPanel.tsx', '[data-testid="notification-route-form"]');
 }
 
 /** Coherent entity-column fixture; no NER execution or implicit model download. */

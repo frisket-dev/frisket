@@ -28,8 +28,8 @@
 }
 /* V2 toolbar: chips and controls share the first row; the optional billable
    engine note gets the full second row so its copy cannot shrink the chips
-   underneath the controls. Narrow (<=720px) stacks controls, scrolling chips,
-   then the note (design sketch D). */
+   underneath the controls. Narrow (<=720px) keeps engine selection before
+   the run controls, then the note, matching reading and keyboard order. */
 .ocr-compare-toolbar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -54,6 +54,11 @@
   min-width: 0;
   flex-wrap: wrap;
 }
+fieldset.ocr-compare-chips-row {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
 .ocr-compare-toolbar > .ocr-compare-configure-later {
   grid-column: 1 / -1;
   grid-row: 2;
@@ -67,12 +72,12 @@
   }
   .ocr-compare-toolbar > .ocr-compare-controls-row {
     grid-column: 1;
-    grid-row: 1;
+    grid-row: 2;
     justify-content: flex-start;
   }
   .ocr-compare-toolbar > .ocr-compare-chips-row {
     grid-column: 1;
-    grid-row: 2;
+    grid-row: 1;
     flex-wrap: nowrap;
     overflow-x: auto;
   }

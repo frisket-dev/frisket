@@ -1,6 +1,7 @@
 import { expect, type Page } from '@playwright/test';
 import { clickHeader, createProject, importCsv, openCellDrawer, openProject, sheetColumns } from '../e2e/helpers';
 import { waitForInventoryCatalog, waitForInventoryComparison } from './readiness';
+import { selectorChoicesResponse } from '../e2e/selectorChoicesFixture';
 
 type Shot = (page: Page, family: string, name: string, source: string) => Promise<void>;
 
@@ -167,5 +168,79 @@ export async function captureAskAndComparisonScenes(page: Page, shot: Shot) {
         await page.setViewportSize(viewport);
       }
     }
+  }
+  await capturePopulatedTranslation(page, pid, sid, shot);
+}
+
+/** Synthetic selector/readiness and preview responses; no translation engine runs. */
+async function capturePopulatedTranslation(page: Page, projectId: string, sheetId: number, shot: Shot) {
+  const selectorRoute = `**/api/projects/${projectId}/selector-choices`;
+  const compareRoute = `**/api/projects/${projectId}/translate/compare-scratch`;
+  const engines = ['opus_mt', 'hy_mt2'];
+  const sample = 'The council approved the housing contract after the public hearing.';
+  const translation = 'El consejo aprobó el contrato de vivienda después de la audiencia pública.';
+  const failure = 'Synthetic fixture: the second local engine is unavailable. No translation was executed.';
+  let previews = 0;
+  await page.route(selectorRoute, async route => {
+    const { subject } = route.request().postDataJSON();
+    if (subject?.kind !== 'action' || subject.action_id !== 'map.translate') return route.fallback();
+    await route.fulfill({ json: selectorChoicesResponse({
+      projectId, subject,
+      currentChoiceId: typeof subject.params?.engine === 'string' ? subject.params.engine : null,
+      groups: [{ id: 'local', label: 'On this device', choices: engines.map(engine => ({
+        choiceId: engine, label: engine === 'opus_mt' ? 'Opus-MT local' : 'HY-MT2 local',
+        authoredSelection: { kind: 'engine', engine },
+      })) }],
+    }) });
+  });
+  await page.route(compareRoute, async route => {
+    const request = route.request().postDataJSON();
+    expect(route.request().method()).toBe('POST');
+    expect(request.engines).toEqual(engines);
+    expect(request.text).toBe(sample);
+    previews++;
+    await route.fulfill({ json: {
+      schema_version: 'frisket.translate_compare_preview.v1',
+      source: { scratch: true, text_length: sample.length }, target_language: 'Spanish', engines,
+      results: [
+        { engine: 'opus_mt', translation, detected_language: 'en', runtime_ms: 12, errors: [] },
+        { engine: 'hy_mt2', translation: '', detected_language: null, runtime_ms: 1, errors: [failure] },
+      ],
+      warnings: [], errors: [{ code: 'synthetic_fixture', engine: 'hy_mt2', message: failure }],
+    } });
+  });
+  try {
+    await openProject(page, projectId, sheetId);
+    const command = page.getByTestId('ribbon-command-translate-compare');
+    const tabs = page.getByTestId('act-ribbon').getByRole('tab');
+    for (let index = 0; index < await tabs.count() && !await command.isVisible(); index++) await tabs.nth(index).click();
+    await command.click();
+    await waitForInventoryComparison(page, 'translate-compare');
+    await page.getByTestId('translate-compare-text').fill(sample);
+    await page.getByTestId('translate-compare-source-language').selectOption('en');
+    for (const engine of engines) {
+      await page.getByTestId('translate-compare-add-engine').getByRole('button', { expanded: false }).click();
+      await page.locator(`[data-engine-selector-choice="${engine}"]`).click();
+      await expect(page.getByTestId('engine-selector-dialog')).toHaveCount(0);
+    }
+    await expect(page.getByTestId('translate-compare-run')).toBeEnabled();
+    await page.getByTestId('translate-compare-run').click();
+    await expect(page.getByTestId('translate-compare-result-card')).toHaveCount(2);
+    await expect(page.getByTestId('translate-compare-result-text-opus_mt')).toHaveText(translation);
+    await expect(page.getByTestId('translate-compare-detected-opus_mt')).toContainText('en');
+    await expect(page.getByTestId('translate-compare-result-error-hy_mt2')).toContainText(failure);
+    expect(previews).toBe(1);
+    const source = 'synthetic selector/preview responses; no engine execution; src/workbench/TranslateCompareTab.tsx';
+    await shot(page, 'Comparison', 'translate-populated-success-and-error', source);
+    const viewport = page.viewportSize()!;
+    try {
+      await page.setViewportSize({ width: 720, height: 900 });
+      await shot(page, 'Comparison', 'translate-populated-narrow', source);
+    } finally {
+      await page.setViewportSize(viewport);
+    }
+  } finally {
+    await page.unroute(selectorRoute);
+    await page.unroute(compareRoute);
   }
 }

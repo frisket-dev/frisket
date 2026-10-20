@@ -1,6 +1,7 @@
 import { Button } from './Button';
 import { FormField, TextInput } from './FormControls';
 import { IconButton } from './IconButton';
+import { ListEditorActions } from './ListEditorActions';
 import { useCallback, useEffect, useMemo, useReducer } from 'react';
 import { PanelEmpty, PanelError, StatusChip, type StatusTone } from './PanelPrimitives';
 import { PanelSelect } from './PanelSelect';
@@ -282,52 +283,39 @@ export function NotificationSettingsPanel() {
     const timer = window.setTimeout(load, 0);
     return () => window.clearTimeout(timer);
   }, [load]);
+  const mutate = useCallback((label: string, operation: () => Promise<unknown>, clearError = false) => {
+    dispatch({ type: 'set_busy', label });
+    if (clearError) dispatch({ type: 'set_error', error: null });
+    void operation()
+      .catch((e: Error) => dispatch({ type: 'set_error', error: e.message }))
+      .finally(() => dispatch({ type: 'set_busy', label: null }));
+  }, []);
   const createChannel = useCallback((draft: ChannelDraft) => {
-    dispatch({ type: 'set_busy', label: 'channel' });
-    dispatch({ type: 'set_error', error: null });
     const input = draft.kind === 'email'
       ? { kind: 'email' as const, name: draft.name.trim(), ownerKind: identityMode ? 'user' : undefined, enabled: draft.enabled, to: draft.to.trim(), from: draft.from.trim() || undefined, secretRef: draft.secretRef.trim() || undefined }
       : { kind: 'slack' as const, name: draft.name.trim(), ownerKind: identityMode ? 'user' : undefined, enabled: draft.enabled, channelLabel: draft.channelLabel.trim(), webhookHost: draft.webhookHost.trim() || 'hooks.slack.com', webhookSecretRef: draft.secretRef.trim() || undefined };
-    void api.createNotificationChannel(input)
+    mutate('channel', () => api.createNotificationChannel(input)
       .then((channel) => {
         dispatch({ type: 'set_notice', notice: `${channel.name} channel saved` });
         dispatch({ type: 'clear_channel_secret' });
         dispatch({ type: 'route_draft_maybe_set_channel', channelId: String(channel.id) });
         load();
-      })
-      .catch((e: Error) => dispatch({ type: 'set_error', error: e.message }))
-      .finally(() => dispatch({ type: 'set_busy', label: null }));
-  }, [identityMode, load]);
+      }), true);
+  }, [identityMode, load, mutate]);
   const createRoute = useCallback((draft: RouteDraft) => {
-    dispatch({ type: 'set_busy', label: 'route' });
-    dispatch({ type: 'set_error', error: null });
-    void api.createNotificationRoute({ ...routePayload(draft), ownerKind: identityMode ? 'user' : undefined })
-      .then((route) => { dispatch({ type: 'set_notice', notice: `${route.name} route saved` }); load(); })
-      .catch((e: Error) => dispatch({ type: 'set_error', error: e.message }))
-      .finally(() => dispatch({ type: 'set_busy', label: null }));
-  }, [identityMode, load]);
+    mutate('route', () => api.createNotificationRoute({ ...routePayload(draft), ownerKind: identityMode ? 'user' : undefined })
+      .then((route) => { dispatch({ type: 'set_notice', notice: `${route.name} route saved` }); load(); }), true);
+  }, [identityMode, load, mutate]);
   const toggleChannel = useCallback((channel: NotificationChannel) => {
-    dispatch({ type: 'set_busy', label: `channel:${channel.id}` });
-    void api.updateNotificationChannel(channel.id, { enabled: !channel.enabled, ownerKind: channel.ownerKind })
-      .then(load)
-      .catch((e: Error) => dispatch({ type: 'set_error', error: e.message }))
-      .finally(() => dispatch({ type: 'set_busy', label: null }));
-  }, [load]);
+    mutate(`channel:${channel.id}`, () => api.updateNotificationChannel(channel.id, { enabled: !channel.enabled, ownerKind: channel.ownerKind }).then(load));
+  }, [load, mutate]);
   const toggleRoute = useCallback((route: NotificationRoute) => {
-    dispatch({ type: 'set_busy', label: `route:${route.id}` });
-    void api.updateNotificationRoute(route.id, { enabled: !route.enabled, ownerKind: route.ownerKind })
-      .then(load)
-      .catch((e: Error) => dispatch({ type: 'set_error', error: e.message }))
-      .finally(() => dispatch({ type: 'set_busy', label: null }));
-  }, [load]);
+    mutate(`route:${route.id}`, () => api.updateNotificationRoute(route.id, { enabled: !route.enabled, ownerKind: route.ownerKind }).then(load));
+  }, [load, mutate]);
   const testRoute = useCallback((route: NotificationRoute) => {
-    dispatch({ type: 'set_busy', label: `test:${route.id}` });
-    dispatch({ type: 'set_error', error: null });
-    void api.testNotificationRoute(route.id, route.ownerKind)
-      .then((request) => { dispatch({ type: 'set_notice', notice: `Created ${request.deliveryKind} request ${request.id}` }); load(); })
-      .catch((e: Error) => dispatch({ type: 'set_error', error: e.message }))
-      .finally(() => dispatch({ type: 'set_busy', label: null }));
-  }, [load]);
+    mutate(`test:${route.id}`, () => api.testNotificationRoute(route.id, route.ownerKind)
+      .then((request) => { dispatch({ type: 'set_notice', notice: `Created ${request.deliveryKind} request ${request.id}` }); load(); }), true);
+  }, [load, mutate]);
   return (
     <section className="panel-card" data-testid="notification-settings-panel">
       <div className="control-row">
@@ -435,10 +423,8 @@ function ChannelSection({
             <input type="checkbox" checked={draft.enabled} onChange={(event) => onDraftChange({ enabled: event.target.checked })} />
             Enabled
           </label>
-          <Button type="button" className="btn-primary" data-testid="notification-create-channel" disabled={busy === 'channel'} onClick={() => onCreate(draft)}>
-            <CheckCircle2 size={13} />
-            Save channel
-          </Button>
+          <ListEditorActions icon={CheckCircle2} testId="notification-create-channel" saveLabel="Save channel"
+            busy={busy === 'channel'} onSave={() => onCreate(draft)} />
         </div>
       </div>
     </section>
@@ -548,10 +534,8 @@ function RouteSection({
             <input type="checkbox" checked={draft.enabled} onChange={(event) => onDraftChange({ enabled: event.target.checked })} />
             Enabled
           </label>
-          <Button type="button" className="btn-primary" data-testid="notification-create-route" disabled={!draft.channelId || busy === 'route'} onClick={() => onCreate(draft)}>
-            <CheckCircle2 size={13} />
-            Save route
-          </Button>
+          <ListEditorActions icon={CheckCircle2} testId="notification-create-route" saveLabel="Save route"
+            busy={busy === 'route'} saveDisabled={!draft.channelId} onSave={() => onCreate(draft)} />
         </div>
       </div>
     </section>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useReducer } from 'react';
 import { PanelEmpty, PanelError, StatusChip } from './PanelPrimitives';
+import { IconButton } from './IconButton';
 import {
   Check,
   ExternalLink,
@@ -143,22 +144,22 @@ export function NotificationsPanel() {
     dispatchNotificationsChanged();
   };
 
-  const markSeen = (item: NotificationItem) => {
+  const mutateItem = (item: NotificationItem, operation: () => Promise<unknown>) => {
     setPanelState({ busy: item.id });
-    void api
-      .markNotificationsSeen({ notificationIds: [item.id] })
-      .then(() => load())
-      .then(dispatchNotificationsChanged)
+    void operation()
       .catch((e: Error) => setPanelState({ error: e.message }))
       .finally(() => setPanelState({ busy: null }));
   };
 
+  const markSeen = (item: NotificationItem) => mutateItem(item, () => api
+    .markNotificationsSeen({ notificationIds: [item.id] })
+    .then(() => load())
+    .then(dispatchNotificationsChanged));
+
   const markRead = (item: NotificationItem, openSource = false) => {
-    setPanelState({ busy: item.id });
-    const next = item.state === 'acknowledged'
+    mutateItem(item, () => (item.state === 'acknowledged'
       ? Promise.resolve<NotificationActorState | null>(null)
-      : api.markNotificationRead(item.id);
-    void next
+      : api.markNotificationRead(item.id))
       .then((state) => {
         if (state) applyState(state);
         if (!openSource) return;
@@ -171,28 +172,11 @@ export function NotificationsPanel() {
           watchRunLinkHandle.setPendingWatchRunLink(link, 'watches');
           openDiscover('Watches');
         }
-      })
-      .catch((e: Error) => setPanelState({ error: e.message }))
-      .finally(() => setPanelState({ busy: null }));
+      }));
   };
 
-  const ack = (item: NotificationItem) => {
-    setPanelState({ busy: item.id });
-    void api
-      .ackNotification(item.id)
-      .then(applyState)
-      .catch((e: Error) => setPanelState({ error: e.message }))
-      .finally(() => setPanelState({ busy: null }));
-  };
-
-  const unack = (item: NotificationItem) => {
-    setPanelState({ busy: item.id });
-    void api
-      .unackNotification(item.id)
-      .then(applyState)
-      .catch((e: Error) => setPanelState({ error: e.message }))
-      .finally(() => setPanelState({ busy: null }));
-  };
+  const ack = (item: NotificationItem) => mutateItem(item, () => api.ackNotification(item.id).then(applyState));
+  const unack = (item: NotificationItem) => mutateItem(item, () => api.unackNotification(item.id).then(applyState));
 
   const unseen = summary?.unseen ?? 0;
 
@@ -237,67 +221,23 @@ export function NotificationsPanel() {
                     {sourceRefLabel(item.sourceRef)}
                   </div>
                   <div className="control-row">
-                    <button
-                      type="button"
-                      className="icon-btn"
-                      title="Open source"
-                      aria-label="Open source"
-                      data-testid="notification-open-source"
-                      disabled={busy === item.id}
-                      onClick={() => markRead(item, true)}
-                    >
-                      {busy === item.id ? <RefreshCw size={12} className="spin" /> : <ExternalLink size={12} />}
-                    </button>
+                    <IconButton icon={busy === item.id ? RefreshCw : ExternalLink} size="inline" label="Open source"
+                      title="Open source" data-testid="notification-open-source" aria-busy={busy === item.id}
+                      disabled={busy === item.id} onClick={() => markRead(item, true)} />
                     {item.state === 'unseen' && (
-                      <button
-                        type="button"
-                        className="icon-btn"
-                        title="Mark seen"
-                        aria-label="Mark seen"
-                        data-testid="notification-seen"
-                        disabled={busy === item.id}
-                        onClick={() => markSeen(item)}
-                      >
-                        <Eye size={12} />
-                      </button>
+                      <IconButton icon={Eye} size="inline" label="Mark seen" title="Mark seen"
+                        data-testid="notification-seen" disabled={busy === item.id} onClick={() => markSeen(item)} />
                     )}
                     {item.state !== 'read' && item.state !== 'acknowledged' && (
-                      <button
-                        type="button"
-                        className="icon-btn"
-                        title="Mark read"
-                        aria-label="Mark read"
-                        data-testid="notification-read"
-                        disabled={busy === item.id}
-                        onClick={() => markRead(item)}
-                      >
-                        <Check size={12} />
-                      </button>
+                      <IconButton icon={Check} size="inline" label="Mark read" title="Mark read"
+                        data-testid="notification-read" disabled={busy === item.id} onClick={() => markRead(item)} />
                     )}
                     {item.state === 'acknowledged' ? (
-                      <button
-                        type="button"
-                        className="icon-btn"
-                        title="Unacknowledge"
-                        aria-label="Unacknowledge"
-                        data-testid="notification-unack"
-                        disabled={busy === item.id}
-                        onClick={() => unack(item)}
-                      >
-                        <RotateCcw size={12} />
-                      </button>
+                      <IconButton icon={RotateCcw} size="inline" label="Unacknowledge" title="Unacknowledge"
+                        data-testid="notification-unack" disabled={busy === item.id} onClick={() => unack(item)} />
                     ) : (
-                      <button
-                        type="button"
-                        className="icon-btn"
-                        title="Acknowledge"
-                        aria-label="Acknowledge"
-                        data-testid="notification-ack"
-                        disabled={busy === item.id}
-                        onClick={() => ack(item)}
-                      >
-                        <Check size={12} />
-                      </button>
+                      <IconButton icon={Check} size="inline" label="Acknowledge" title="Acknowledge"
+                        data-testid="notification-ack" disabled={busy === item.id} onClick={() => ack(item)} />
                     )}
                   </div>
                 </li>

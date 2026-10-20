@@ -1,5 +1,6 @@
 import './Modal.css';
 import { Button } from './Button';
+import { ListEditorActions } from './ListEditorActions';
 import { TextInput } from './FormControls';
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
 import { PanelEmpty, PanelError, StatusChip } from './PanelPrimitives';
@@ -630,25 +631,9 @@ function WatchCreateComposer({
         {NOTIFICATION_SETUP_GUIDANCE}
       </div>
       <div className="form-actions">
-        <Button
-          type="button"
-          className="btn-primary"
-          data-testid="create-watch-button"
-          aria-busy={creating}
-          disabled={creating || !trimmedName}
-          onClick={onCreate}
-        >
-          <WatchIcon size={14} aria-hidden /> {creating ? 'Creating…' : 'Create new watch'}
-        </Button>
-        <Button
-          type="button"
-
-          data-testid="cancel"
-          disabled={creating}
-          onClick={onCancel}
-        >
-          Cancel
-        </Button>
+        <ListEditorActions testId="create-watch-button" cancelTestId="cancel"
+          icon={WatchIcon} saveLabel={creating ? 'Creating…' : 'Create new watch'}
+          busy={creating} saveDisabled={!trimmedName} onSave={onCreate} onCancel={onCancel} />
       </div>
     </div>
   );
@@ -916,8 +901,10 @@ function WatchItem({
                 onChange={(event) => setRenameValue(event.target.value)}
               />
               {!trimmedRename && <span id={`watch-rename-error-${watch.id}`} data-testid="watch-rename-error">Enter a name to continue.</span>}
-              <Button type="button" data-testid="save-watch-rename" aria-busy={isRenaming} disabled={isPending || !trimmedRename} onClick={() => { void onUpdateWatch(watch.id, { name: trimmedRename }).then((saved) => { if (saved) setRenaming(false); }); }}>{isRenaming ? 'Renaming…' : 'Save rename'}</Button>
-              <Button type="button" disabled={isPending} onClick={() => setRenaming(false)}>Cancel</Button>
+              <ListEditorActions testId="save-watch-rename" saveLabel={isRenaming ? 'Renaming…' : 'Save rename'}
+                busy={isRenaming} disabled={isPending} saveDisabled={!trimmedRename}
+                onSave={() => { void onUpdateWatch(watch.id, { name: trimmedRename }).then((saved) => { if (saved) setRenaming(false); }); }}
+                onCancel={() => setRenaming(false)} />
             </>
           ) : (
             <Button type="button" data-testid="rename-watch" disabled={isPending} onClick={() => { setRenameValue(watch.name); setRenaming(true); }}>Rename</Button>

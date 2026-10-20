@@ -70,7 +70,7 @@
   font-size: 9px;
   white-space: nowrap;
 }
-.topic-compare-engine-text {
+.ocr-compare-engine-text.topic-compare-engine-text {
   padding: 0;
   font-family: var(--font);
 }

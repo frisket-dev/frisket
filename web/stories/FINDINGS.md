@@ -1,5 +1,32 @@
 # UI inventory findings
 
+## Comparison, import, list and field consolidation (implemented; verifying)
+
+Baseline: `bc61d79e`. Four bounded lanes: shared comparison markup; repeated
+import lifecycle operations; Watches/Notifications editable-list presentation;
+generated action fields and filters. Preserve domain behavior, consent and
+cancellation. Reuse real implementations rather than introduce a universal
+wizard, list controller or form DSL. Count new files in net production LOC.
+Integrate with focused tests, browser captures of changed surfaces, independent
+correctness review and Claude visual review. Deliver a focused before/after ZIP;
+no public PR or merge before maintainer visual approval.
+
+Implemented shared comparison toolbar/chips/result frames; import-owned request
+replacement and shared table intake; shared list save/cancel controls and local
+notification mutation bookkeeping; common scalar/member facet presentation and
+parameter/NER field rendering. Domain controllers and consent remain separate.
+Packet polling now uses the existing overlap/visibility-aware poller.
+
+The new browser coverage reproduced the previously suspected repeated range
+controls: range and advanced-condition siblings could both have the key
+`3:integer:null`. Namespaced keys fix the orphaned DOM; a regression fails before
+the fix and passes afterward. No range arithmetic changed.
+
+This round removes **430 handwritten production lines**, counting all new
+components/hooks. CSS is +6; the reduction is in TypeScript/JSX this time.
+Focused tests and independent code review cover all four lanes. Integrated
+checks, screenshots and Claude visual review are the remaining verification.
+
 ## Card, dialog and compound-editor round (implemented)
 
 - Normalize card/row contents across Sources, Watches and Notifications: titles,

@@ -15,6 +15,7 @@ import {
 import { usePoll } from '../../../hooks/usePoll';
 import { notifyImportSessionChanged } from '../../importProgressSession';
 import { DiscardImportConfirm } from '../pdfBatch/DiscardImportConfirm';
+import { useImportRequest } from '../useImportRequest';
 import {
   AddDataStep,
   CheckRowsStep,
@@ -121,7 +122,7 @@ export function TableImportFlow({
   const generation = useRef(0);
   const currentDraft = useRef<string | null>(null);
   const latestSnapshot = useRef<TableImportDraft | null>(null);
-  const requestController = useRef<AbortController | null>(null);
+  const sourceRequest = useImportRequest(projectId);
   const mutationTail = useRef<Promise<void>>(Promise.resolve());
   const commitKey = useRef(crypto.randomUUID());
   const destinationSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -149,11 +150,10 @@ export function TableImportFlow({
 
   const resetDraft = useCallback(() => {
     generation.current += 1;
-    requestController.current?.abort();
+    sourceRequest.abort();
     if (destinationSaveTimer.current !== null) clearTimeout(destinationSaveTimer.current);
     destinationSaveTimer.current = null;
     pendingDestinationSave.current = null;
-    requestController.current = null;
     currentDraft.current = null;
     latestSnapshot.current = null;
     setSnapshot(null);
@@ -162,13 +162,15 @@ export function TableImportFlow({
     setError(null);
     setStage('add');
     commitKey.current = crypto.randomUUID();
-  }, []);
+  }, [sourceRequest]);
 
-  const createFromFile = useCallback(async (file: File) => {
+  const createDraft = useCallback(async (source:
+    | { kind: 'file'; file: File }
+    | { kind: 'paste'; file: File; confirmed: boolean }
+  ) => {
+    const { file } = source;
     const epoch = ++generation.current;
-    requestController.current?.abort();
-    const controller = new AbortController();
-    requestController.current = controller;
+    const controller = sourceRequest.begin();
     setBusy(true);
     setSourceIssue(null);
     setError(null);
@@ -177,26 +179,29 @@ export function TableImportFlow({
       if (old && old.state !== 'committed' && old.state !== 'committing') {
         await api.discard(projectId, old.draft_id, { signal: controller.signal });
       }
+      if (generation.current !== epoch || controller.signal.aborted) return;
       currentDraft.current = null;
       latestSnapshot.current = null;
       setSnapshot(null);
-      const next = await api.createFromFile(projectId, file, { signal: controller.signal });
+      const next = source.kind === 'paste'
+        ? await api.createFromPaste(projectId, file, source.confirmed, { signal: controller.signal })
+        : await api.createFromFile(projectId, file, { signal: controller.signal });
       if (generation.current !== epoch || controller.signal.aborted) return;
       publish(next);
-      setDestination({ kind: 'new', sheet_name: tableImportDefaultSheetName(next.source.filename, next.source.input_kind) });
-      setStage(next.state === 'password_required' ? 'add' : 'rows');
+      if (source.kind === 'paste') setLargePasteConfirmed(source.confirmed);
+      setDestination({ kind: 'new', sheet_name: source.kind === 'paste' ? 'Pasted rows' : tableImportDefaultSheetName(next.source.filename, next.source.input_kind) });
+      setStage(source.kind === 'file' && next.state === 'password_required' ? 'add' : 'rows');
     } catch (problem) {
       if (generation.current !== epoch || controller.signal.aborted) return;
-      if (problem instanceof TableImportResponseError && (problem.code === 'empty_source' || problem.code === 'unsupported_source' || problem.code === 'invalid_table')) {
+      if (source.kind === 'paste' && problem instanceof TableImportResponseError && problem.code === 'large_paste_confirmation_required') {
+        setSourceIssue({ kind: 'large_paste', size: file.size });
+      } else if (source.kind === 'file' && problem instanceof TableImportResponseError && (problem.code === 'empty_source' || problem.code === 'unsupported_source' || problem.code === 'invalid_table')) {
         setSourceIssue(problem.code === 'empty_source' ? { kind: 'empty', filename: file.name } : { kind: 'unsupported', filename: file.name, message: problem.message });
       } else reportError(problem);
     } finally {
-      if (generation.current === epoch && requestController.current === controller) {
-        requestController.current = null;
-        setBusy(false);
-      }
+      if (generation.current === epoch && !controller.signal.aborted) setBusy(false);
     }
-  }, [api, projectId, publish, reportError]);
+  }, [api, projectId, publish, reportError, sourceRequest]);
 
   const chooseFiles = useCallback((files: File[]) => {
     const issue = sourceIssueForFiles(files, followTheMoneyEnabled);
@@ -204,32 +209,17 @@ export function TableImportFlow({
     const file = files[0];
     setSelectedFile(file ?? null);
     setSourceIssue(null);
-    if (file) void createFromFile(file);
-  }, [createFromFile, followTheMoneyEnabled]);
+    if (file) void createDraft({ kind: 'file', file });
+  }, [createDraft, followTheMoneyEnabled]);
 
   useEffect(() => {
     if (!initialFile) return;
-    const epoch = ++generation.current;
-    requestController.current?.abort();
-    const controller = new AbortController();
-    requestController.current = controller;
-    void api.createFromFile(projectId, initialFile, { signal: controller.signal }).then((next) => {
-      if (generation.current !== epoch || controller.signal.aborted) return;
-      publish(next);
-      setDestination({ kind: 'new', sheet_name: tableImportDefaultSheetName(next.source.filename, next.source.input_kind) });
-      setStage(next.state === 'password_required' ? 'add' : 'rows');
-    }).catch((problem: unknown) => {
-      if (generation.current !== epoch || controller.signal.aborted) return;
-      if (problem instanceof TableImportResponseError && (problem.code === 'empty_source' || problem.code === 'unsupported_source' || problem.code === 'invalid_table')) {
-        setSourceIssue(problem.code === 'empty_source' ? { kind: 'empty', filename: initialFile.name } : { kind: 'unsupported', filename: initialFile.name, message: problem.message });
-      } else reportError(problem);
-    }).finally(() => {
-      if (generation.current === epoch && requestController.current === controller) {
-        requestController.current = null;
-        setBusy(false);
-      }
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) void createDraft({ kind: 'file', file: initialFile });
     });
-  }, [api, initialFile, projectId, publish, reportError]);
+    return () => { cancelled = true; };
+  }, [createDraft, initialFile]);
 
   const createFromPaste = useCallback(async (confirmed: boolean) => {
     if (!pasteText.trim()) return;
@@ -238,43 +228,13 @@ export function TableImportFlow({
       setSourceIssue({ kind: 'large_paste', size: file.size });
       return;
     }
-    const epoch = ++generation.current;
-    const controller = new AbortController();
-    requestController.current?.abort();
-    requestController.current = controller;
-    setBusy(true);
-    setError(null);
-    try {
-      const old = latestSnapshot.current;
-      if (old && old.state !== 'committed' && old.state !== 'committing') await api.discard(projectId, old.draft_id, { signal: controller.signal });
-      currentDraft.current = null;
-      latestSnapshot.current = null;
-      setSnapshot(null);
-      const next = await api.createFromPaste(projectId, file, confirmed, { signal: controller.signal });
-      if (generation.current !== epoch || controller.signal.aborted) return;
-      publish(next);
-      setLargePasteConfirmed(confirmed);
-      setSourceIssue(null);
-      setDestination({ kind: 'new', sheet_name: 'Pasted rows' });
-      setStage('rows');
-    } catch (problem) {
-      if (generation.current !== epoch || controller.signal.aborted) return;
-      if (problem instanceof TableImportResponseError && problem.code === 'large_paste_confirmation_required') setSourceIssue({ kind: 'large_paste', size: file.size });
-      else reportError(problem);
-    } finally {
-      if (generation.current === epoch && requestController.current === controller) {
-        requestController.current = null;
-        setBusy(false);
-      }
-    }
-  }, [api, pasteText, projectId, publish, reportError]);
+    await createDraft({ kind: 'paste', file, confirmed });
+  }, [createDraft, pasteText]);
 
   useEffect(() => {
     if (!initialRerunDraftId) return;
     const epoch = ++generation.current;
-    requestController.current?.abort();
-    const controller = new AbortController();
-    requestController.current = controller;
+    const controller = sourceRequest.begin();
     void (async () => {
       try {
         const retained = await api.get(projectId, initialRerunDraftId, { signal: controller.signal });
@@ -292,13 +252,10 @@ export function TableImportFlow({
       } catch (problem) {
         if (generation.current === epoch && !controller.signal.aborted) reportError(problem);
       } finally {
-        if (generation.current === epoch && requestController.current === controller) {
-          requestController.current = null;
-          setBusy(false);
-        }
+        if (generation.current === epoch && !controller.signal.aborted) setBusy(false);
       }
     })();
-  }, [api, initialRerunDraftId, projectId, publish, reportError]);
+  }, [api, initialRerunDraftId, projectId, publish, reportError, sourceRequest]);
 
   const refresh = useCallback(async () => {
     const draftId = currentDraft.current;
@@ -377,10 +334,10 @@ export function TableImportFlow({
 
   useEffect(() => () => {
     generation.current += 1;
-    requestController.current?.abort();
+    sourceRequest.abort();
     if (destinationSaveTimer.current !== null) clearTimeout(destinationSaveTimer.current);
     pendingDestinationSave.current = null;
-  }, []);
+  }, [sourceRequest]);
 
   const openImportStep = useCallback(async () => {
     const source = latestSnapshot.current;
@@ -508,7 +465,7 @@ export function TableImportFlow({
       onPasswordChange={setPassword}
       onPasteChange={(value) => { setPasteText(value); setSourceIssue(null); setLargePasteConfirmed(false); }}
       onPasteSubmit={() => void createFromPaste(largePasteConfirmed)}
-      onSelectedFileSubmit={() => { if (selectedFile) void createFromFile(selectedFile); }}
+      onSelectedFileSubmit={() => { if (selectedFile) void createDraft({ kind: 'file', file: selectedFile }); }}
       onResetIssue={() => { setSourceMode('file'); setSelectedFile(null); setSourceIssue(null); }}
       onSplitPdf={(file) => { void handOff(() => onUsePdfSplit(file)); }}
       onUnlock={() => void unlock()}

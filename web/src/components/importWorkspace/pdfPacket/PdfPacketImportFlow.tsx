@@ -30,6 +30,8 @@ import {
 } from '../../../api/pdfPacketSplits';
 import { SelectorField } from '../../../engine-selector/SelectorField';
 import { countLabel } from '../../../format';
+import { usePoll } from '../../../hooks/usePoll';
+import { useImportRequest } from '../useImportRequest';
 import { CostGateModal } from '../../CostGateModal';
 import { SegmentedToggle } from '../../PanelPrimitives';
 import {
@@ -147,6 +149,7 @@ export function PdfPacketImportFlow({
   const committedSheet = useRef<number | null>(null);
   const latestStatus = useRef(state.snapshot?.status);
   const serverCommitBusy = state.snapshot?.status === 'committing';
+  const pollRequest = useImportRequest(projectId);
 
   const beginAction = useCallback(() => {
     actionController.current?.abort();
@@ -250,19 +253,16 @@ export function PdfPacketImportFlow({
     }
   }, [onImported, projectId, splitId]);
 
-  useEffect(() => {
-    if (!state.snapshot) return undefined;
-    const active = state.snapshot.status === 'preparing'
-      || state.snapshot.status === 'committing'
-      || state.snapshot.jobs.some((job) => job.progress.status === 'queued' || job.progress.status === 'running');
-    if (!active) return undefined;
-    const controller = new AbortController();
-    const timer = window.setInterval(() => void refreshSnapshot(controller.signal), 900);
-    return () => {
-      controller.abort();
-      window.clearInterval(timer);
-    };
-  }, [refreshSnapshot, state.snapshot]);
+  const polling = Boolean(splitId && state.snapshot && (
+    state.snapshot.status === 'preparing'
+    || state.snapshot.status === 'committing'
+    || state.snapshot.jobs.some((job) => job.progress.status === 'queued' || job.progress.status === 'running')
+  ));
+  const pollSnapshot = useCallback(async () => {
+    await refreshSnapshot(pollRequest.begin().signal);
+  }, [pollRequest, refreshSnapshot]);
+  usePoll(pollSnapshot, { active: polling, intervalMs: 900, guardOverlap: true, mode: 'settle-relative' });
+  useEffect(() => () => pollRequest.abort(), [pollRequest, polling, projectId, splitId]);
 
   const loadPage = useCallback(async (page: number, signal?: AbortSignal) => {
     if (!splitId) return;

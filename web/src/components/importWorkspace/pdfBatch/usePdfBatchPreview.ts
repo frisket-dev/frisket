@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useImportRequest } from '../useImportRequest';
 
 import type {
   PdfImportFileSummary,
@@ -55,8 +56,7 @@ export function usePdfBatchPreview({
   const [starting, setStarting] = useState(false);
   const [consent, setConsent] = useState<PendingPreviewConsent | null>(null);
   const selectedFileRef = useRef<string | null>(null);
-  const requestEpoch = useRef(0);
-  const pageController = useRef<AbortController | null>(null);
+  const pageRequest = useImportRequest(projectId);
 
   const chosenFile = sampleFiles.find((file) => file.occurrence_id === selectedFileId) ?? null;
   const previewJob = snapshot?.preview_jobs?.find((job) => (
@@ -69,35 +69,30 @@ export function usePdfBatchPreview({
 
   const loadPage = useCallback(async (file: PdfImportFileSummary) => {
     if (!snapshot) return;
-    const epoch = ++requestEpoch.current;
-    const controller = new AbortController();
-    pageController.current?.abort();
-    pageController.current = controller;
+    const controller = pageRequest.begin();
     setPageLoading(true);
     try {
       const result = await api.getPage(
         projectId, snapshot.draft_id, file.occurrence_id, 1, { signal: controller.signal },
       );
       if (!controller.signal.aborted
-        && epoch === requestEpoch.current
         && selectedFileRef.current === result.occurrence_id
         && currentDraft() === result.draft_id) setPage(result);
     } catch (problem) {
       if (!controller.signal.aborted) reportError(problem);
     } finally {
-      if (!controller.signal.aborted && epoch === requestEpoch.current) setPageLoading(false);
+      if (!controller.signal.aborted) setPageLoading(false);
     }
-  }, [api, currentDraft, projectId, reportError, snapshot]);
+  }, [api, currentDraft, pageRequest, projectId, reportError, snapshot]);
 
   const select = useCallback(async (file: PdfImportFileSummary | null) => {
     selectedFileRef.current = file?.occurrence_id ?? null;
     setSelectedFileId(file?.occurrence_id ?? null);
     setTextSource('native');
     setPage(null);
-    requestEpoch.current += 1;
-    pageController.current?.abort();
+    pageRequest.abort();
     if (file && file.category !== 'other' && file.category !== 'unreadable') await loadPage(file);
-  }, [loadPage]);
+  }, [loadPage, pageRequest]);
 
   const clear = useCallback(() => {
     selectedFileRef.current = null;
@@ -107,9 +102,8 @@ export function usePdfBatchPreview({
     setPageLoading(false);
     setStarting(false);
     setConsent(null);
-    requestEpoch.current += 1;
-    pageController.current?.abort();
-  }, []);
+    pageRequest.abort();
+  }, [pageRequest]);
 
   useEffect(() => {
     if (previewJob?.status !== 'done' || cached || !chosenFile) return;

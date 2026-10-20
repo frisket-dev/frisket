@@ -697,17 +697,28 @@ function GeneratedActionFormContents({
     staticCreatesSheet, requestScope, customization, dynamicOutputs, initialDraft, outputPrefix, paramsEdited, resolveParams,
     columns, sheetId]);
 
-  const updateField = (name: string, value: CanonicalFieldValue) => {
-    markFieldTouched(name);
-    setParamsEdited(true);
+  // All partial field writes invalidate the same authoritative resolution.
+  // Served defaults use this path without marking an authored user edit.
+  const invalidateParams = useCallback(() => {
     setResolved((current) => ({
       ...current,
       diagnostics: {},
       problem: dynamicOutputs ? 'Resolving outputs…' : 'Validating fields…',
     }));
+  }, [dynamicOutputs]);
+  const writeFields = (updates: Record<string, CanonicalFieldValue>) => {
+    invalidateParams();
+    setDraft((current) => Object.entries(updates).reduce(
+      (next, [name, value]) => setCanonicalDraftField(actionTemplate, next, name, value),
+      current,
+    ));
+  };
+  const updateField = (name: string, value: CanonicalFieldValue) => {
+    markFieldTouched(name);
+    setParamsEdited(true);
     const schema = catalogEntry.input_schema.properties?.[name];
     if (value === '' && schema?.default === null) {
-      setDraft((current) => setCanonicalDraftField(actionTemplate, current, name, null));
+      writeFields({ [name]: null });
       return;
     }
     const numeric = typeof value === 'string' && value !== '' ? Number(value) : value;
@@ -715,7 +726,7 @@ function GeneratedActionFormContents({
       && Number.isInteger(numeric) ? numeric
       : schema?.type === 'number' && typeof numeric === 'number' && Number.isFinite(numeric)
         ? numeric : value;
-    setDraft((current) => setCanonicalDraftField(actionTemplate, current, name, normalized));
+    writeFields({ [name]: normalized });
   };
   const selectorUpdates = (field: string, choice: SelectorChoice): Record<string, CanonicalFieldValue> | null => {
     const authored = choice.authored_selection;
@@ -732,15 +743,7 @@ function GeneratedActionFormContents({
     if (!updates) return;
     Object.keys(updates).forEach(markFieldTouched);
     setParamsEdited(true);
-    setResolved((current) => ({
-      ...current,
-      diagnostics: {},
-      problem: dynamicOutputs ? 'Resolving outputs…' : 'Validating fields…',
-    }));
-    setDraft((current) => Object.entries(updates).reduce(
-      (next, [name, value]) => setCanonicalDraftField(actionTemplate, next, name, value),
-      current,
-    ));
+    writeFields(updates);
   };
   const publishSelectorChoice = (field: string, choice: SelectorChoice | null) => {
     setSelectorCurrentChoice(choice);
@@ -762,15 +765,7 @@ function GeneratedActionFormContents({
     );
     if (!entries.every(([name, value]) => isUnset(draft[name]) || draft[name] === value)) return;
     if (!entries.some(([name, value]) => isUnset(draft[name]) && draft[name] !== value)) return;
-    setResolved((current) => ({
-      ...current,
-      diagnostics: {},
-      problem: dynamicOutputs ? 'Resolving outputs…' : 'Validating fields…',
-    }));
-    setDraft((current) => Object.entries(updates).reduce(
-      (next, [name, value]) => setCanonicalDraftField(actionTemplate, next, name, value),
-      current,
-    ));
+    writeFields(updates);
   };
   const updateBodyParams = useCallback((params: CanonicalDraft) => {
     const previous = latestDraft.current;
@@ -780,13 +775,9 @@ function GeneratedActionFormContents({
     changed.forEach(markFieldTouched);
     latestDraft.current = params;
     setParamsEdited(true);
-    setResolved((current) => ({
-      ...current,
-      diagnostics: {},
-      problem: dynamicOutputs ? 'Resolving outputs…' : 'Validating fields…',
-    }));
+    invalidateParams();
     setDraft(params);
-  }, [dynamicOutputs, markFieldTouched]);
+  }, [invalidateParams, markFieldTouched]);
   const renderField = (field: ActionParamFieldPresentationProps): ReactNode | undefined => {
     const CustomField = customization?.fields?.[field.name];
     if (CustomField) {
@@ -1024,18 +1015,10 @@ function GeneratedActionFormContents({
     if (!canRun || (!projectScoped && scope === 'selected'
       && selectedRowIds.length === 0 && !hasExactRowScopeInitializer)) return;
     const request = {
-      action_id: catalogEntry.kind,
+      ...estimateDraft,
       scope: scopeFor(scope),
-      params: serializeCanonicalDraft(draft),
-      ...(createsSheet ? { sheet_name: sheetName.trim() } : {}),
-      output_names: Object.fromEntries(Object.entries(outputNames)
-        .map(([key, value]) => [key, value.trim()])),
       idempotency_key: freshActionRequestKey(catalogEntry.kind),
     } satisfies GeneratedActionRequest;
-    if (intent === 'preview') {
-      onExecute(request, intent);
-      return;
-    }
     onExecute(request, intent);
   };
 
