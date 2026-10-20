@@ -49,7 +49,9 @@ test('existing-sheet import matches columns and skips duplicate keys without upd
   await reviewTableColumns(page);
   const destination = page.locator('.table-import-flow').getByRole('region', { name: 'Import', exact: true });
   await destination.getByRole('radio', { name: 'Add to an existing sheet' }).check();
-  await destination.getByLabel('Sheet', { exact: true }).selectOption(String(sheetId));
+  const existingSheet = destination.getByRole('combobox', { name: 'Existing sheet', exact: true });
+  await existingSheet.selectOption(String(sheetId));
+  await expect(existingSheet).toHaveValue(String(sheetId));
   await expect(destination.getByLabel('Map id')).toHaveValue(/^existing:/);
   const skipDuplicates = destination.getByRole('checkbox', { name: /Skip rows already in people/ });
   // This control reflects the saved draft, so wait for the server-backed state.
