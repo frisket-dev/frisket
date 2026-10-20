@@ -97,12 +97,29 @@ class _BoundResearcher:
 
     async def _answer(self, goal, context):
         owner, ctx = self._owner, self._ctx
-        recorder = ResearchRecorder()
         router = AccountedAgentRouter(
             ctx.extras["router"], ctx, owner._model, owner.accounting_by_row
         )
+        search_secrets = model_secrets = ()
         try:
-            router.add_secret_values(self._searcher.secret_values())
+            search_secrets = tuple(
+                value
+                for value in self._searcher.secret_values()
+                if isinstance(value, str) and value
+            )
+        except Exception:
+            pass
+        try:
+            model_secrets = tuple(
+                value
+                for value in router.secret_values_for_model(owner._model)
+                if isinstance(value, str) and value
+            )
+        except Exception:
+            pass
+        recorder = ResearchRecorder(secret_values=search_secrets + model_secrets)
+        try:
+            router.add_secret_values(search_secrets)
         except Exception:
             pass  # Diagnostic handoff must never change execution.
         try:
@@ -115,6 +132,7 @@ class _BoundResearcher:
                 search=self._search,
                 fetch=lambda url: fetch_page_result(url, ctx.http),
                 recorder=recorder,
+                secret_values=search_secrets + model_secrets,
             )
         except LLMError as exc:
             router.retain_unrecorded_error_calls(exc)

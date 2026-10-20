@@ -11,6 +11,7 @@ import type {
   HttpProjectSettingsRequest,
   HttpProjectSettingsResponse,
   HttpReceipt,
+  HttpRunTraceRowEvidence,
 } from '../generated/openHttpContracts';
 
 
@@ -3579,6 +3580,10 @@ export interface RunTraceRow {
   latencyMs: number | null;
   /** Count of retry/failure events recorded for this row. */
   retries: number;
+  calls?: unknown[];
+  research?: NonNullable<NonNullable<HttpRunTraceRowEvidence['trace']>['row']>['research'];
+  researchIncomplete?: boolean;
+  truncated?: boolean;
 }
 
 export type RunTraceRowEvidenceStatus =
@@ -3619,6 +3624,8 @@ export interface RunTraceRowEvidence {
   status: RunTraceRowEvidenceStatus;
   run?: RunTraceRowEvidenceRun | null;
   trace: RunTraceRowEvidenceTrace | null;
+  /** Value/error from this exact run, not the current cell. */
+  cell?: HttpRunTraceRowEvidence['cell'];
 }
 
 // ---------------------------------------------------------------------------
@@ -3824,6 +3831,7 @@ export interface ReviewBundleField {
   rowId: string;
   columnId: string;
   columnName: string;
+  outputKey?: string | null;
   columnType: ColumnType;
   semanticType?: string | null;
   format?: string | null;
@@ -3874,6 +3882,8 @@ export interface ReviewBundle {
   reviewNote?: string | null;
   fields: ReviewBundleField[];
   evidence: ReviewBundleField[];
+  /** Includes historical primary/support items without changing decision roles. */
+  items?: ReviewBundleField[];
 }
 
 export interface ReviewBundlePage extends PageMeta {

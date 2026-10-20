@@ -133,7 +133,7 @@ export function noChargeReason(
     // was rated; we do NOT know the run cost nothing.
     return 'No charges rated for this run.';
   }
-  return 'No charges — this ran locally, at no cost.';
+  return 'No charge recorded on this run.';
 }
 
 /** Qualify meter evidence without turning a legacy-absent completeness marker

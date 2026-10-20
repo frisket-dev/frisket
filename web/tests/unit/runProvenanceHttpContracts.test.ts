@@ -100,7 +100,11 @@ describe('generated run/provenance transport', () => {
     );
     expect(evidence).toMatchObject({
       runId: '7', rowId: '9', columnId: null, status: 'recorded',
-      trace: { recordCount: 2, row: { rawResponse: '{"topic":"news"}', retries: 1 } },
+      trace: { recordCount: 2, row: {
+        rawResponse: '{"topic":"news"}', retries: 1, calls: [{ tool: 'classify' }],
+        research: null, researchIncomplete: false,
+      } },
+      cell: { value: 'news' },
     });
   });
 
@@ -127,5 +131,25 @@ describe('generated run/provenance transport', () => {
     expect(Object.keys(manifest.receipts[0]).sort()).toEqual([
       'actionKind', 'createdAt', 'receiptId', 'runId', 'status',
     ]);
+  });
+
+  it('retains research observations, truncation, and the exact-run failed cell', async () => {
+    const research = { steps: [{
+      tool: 'search', query: 'synthetic question', provider: 'ddgs', service: 'text',
+      status: 'ok', results: [{ title: 'Source', url: 'https://example.org', snippet: 'A result' }],
+      duration_ms: 12, truncated: false,
+    }], truncated: false };
+    stubFetch({
+      ...RUN_ROW,
+      cell: { value: null, error: 'budget exceeded' },
+      trace: { ...RUN_ROW.trace, row: {
+        ...RUN_ROW.trace.row, research, research_incomplete: true, truncated: true,
+      } },
+    });
+    const evidence = await api.getRunTraceRow('7', '9', '4');
+    expect(evidence.trace?.row).toMatchObject({
+      research, researchIncomplete: true, truncated: true,
+    });
+    expect(evidence.cell).toEqual({ value: null, error: 'budget exceeded' });
   });
 });

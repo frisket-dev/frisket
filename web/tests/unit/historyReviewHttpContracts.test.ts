@@ -801,7 +801,7 @@ describe('history and review generated HTTP reads', () => {
         .slice(0, 400),
     );
     expect(bundle.context).toHaveLength(400);
-    expect(bundle).not.toHaveProperty('items');
+    expect(bundle.items).toEqual([...bundle.fields, ...bundle.evidence]);
     expect(bundle.fields[0]).not.toHaveProperty('error');
     await expect(api.getReviewCount()).resolves.toBe(0);
   });

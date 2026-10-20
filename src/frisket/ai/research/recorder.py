@@ -7,13 +7,24 @@ import copy
 import time
 from typing import Any
 
+from frisket.redaction import REDACTED, redact_text
+
+
+def redact_research_text(text: str, secret_values: tuple[str, ...]) -> str:
+    """Remove selected credential echoes before any observation is clipped."""
+    for secret in sorted(set(secret_values), key=len, reverse=True):
+        if secret:
+            text = text.replace(secret, REDACTED)
+    return text
+
 
 class ResearchRecorder:
     """Diagnostic space never limits execution, and failures never escape."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, secret_values: tuple[str, ...] = ()) -> None:
         self._steps: list[dict[str, Any]] = []
         self._truncated = False
+        self._secret_values = secret_values
 
     def start(self, tool: str, **fields: str) -> tuple[int, float] | None:
         try:
@@ -37,11 +48,15 @@ class ResearchRecorder:
             self._truncated = True
             return None
 
-    @staticmethod
-    def _clip(step: dict[str, Any], value: str, limit: int) -> str:
+    def _clip(self, step: dict[str, Any], value: str, limit: int) -> str:
+        value = redact_research_text(value, self._secret_values)
         if len(value) > limit:
             step["truncated"] = True
-        return value[:limit]
+        # Redact while a credential crossing the recording boundary is whole.
+        # Once clipped, its prefix cannot be recognized by later trace passes.
+        return redact_text(
+            value, secret_values=self._secret_values, max_chars=limit, one_line=False
+        )
 
     def finish(
         self,
@@ -52,12 +67,14 @@ class ResearchRecorder:
         error: BaseException | None = None,
         error_code: str | None = None,
         error_detail: str | None = None,
+        truncated: bool = False,
     ) -> None:
         try:
             if token is None:
                 return
             index, started = token
             step = self._steps[index]
+            step["truncated"] = step["truncated"] or truncated
             step["duration_ms"] = max(0, round((time.monotonic() - started) * 1000))
             step["status"] = (
                 "cancelled"

@@ -32,13 +32,22 @@ async def test_capability_finally_attaches_tools_and_preserves_failure_identity(
             raise RuntimeError("Diagnostics unavailable")
         snapshots.append(snapshot)
 
-    router = SimpleNamespace(set_research=attach, add_secret_values=secrets.extend)
+    model_secret = "selected-model-secret-abcdefghijk"
+    router = SimpleNamespace(
+        set_research=attach,
+        add_secret_values=secrets.extend,
+        secret_values_for_model=lambda model: (model_secret,),
+    )
     ctx = SimpleNamespace(extras={"router": router}, http=None)
     owner = SimpleNamespace(_model="test", accounting_by_row={})
     searcher = SimpleNamespace(secret_values=lambda: ("selected-search-secret",))
     bound = research_read._BoundResearcher(owner, object(), 1, ctx, searcher)
 
     async def interrupted_research(*args, recorder, **kwargs):
+        search = recorder.start("search", query="q" * 490 + model_secret)
+        recorder.finish(
+            search, error=RuntimeError("e" * 490 + "selected-search-secret")
+        )
         completed = recorder.start("fetch", url="https://example.test/done")
         recorder.finish(completed, text="Completed page text")
         recorder.start("fetch", url="https://example.test/interrupted")
@@ -56,6 +65,10 @@ async def test_capability_finally_attaches_tools_and_preserves_failure_identity(
     assert secrets == ["selected-search-secret"]
     if not trace_broken:
         steps = snapshots[0]["steps"]
-        assert [step["status"] for step in steps] == ["ok", "cancelled"]
-        assert steps[0]["text"] == "Completed page text"
+        assert [step["status"] for step in steps] == ["error", "ok", "cancelled"]
+        assert "selected-m" not in steps[0]["query"]
+        assert "[REDACTED]" in steps[0]["query"]
+        assert "selected-s" not in steps[0]["error"]
+        assert "[REDACTED]" in steps[0]["error"]
+        assert steps[1]["text"] == "Completed page text"
         assert all(step["status"] != "started" for step in steps)

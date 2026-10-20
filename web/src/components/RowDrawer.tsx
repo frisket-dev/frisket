@@ -367,7 +367,7 @@ export function RowField({
         )}
         <div className="row-field-actions">
           <span className="row-field-action-slot">
-            {actionsVisible && col.ai && runId ? (
+            {col.ai && runId ? (
               <ExplainBlock
                 key={`${runId}:${row.id}:${prov?.currentValueRef?.columnId ?? col.id}`}
                 runId={runId}
@@ -376,6 +376,7 @@ export function RowField({
                 compact
                 columnName={col.name}
                 testId="cell-action-explain"
+                visible={actionsVisible}
               />
             ) : (
               <span className="row-field-action-placeholder" aria-hidden="true" />

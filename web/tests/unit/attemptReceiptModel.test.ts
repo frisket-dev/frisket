@@ -180,10 +180,10 @@ describe('noChargeReason', () => {
     expect(noChargeReason(summary, true)).toContain('Anthropic and OpenAI key');
   });
 
-  it('says free only when every call really did run locally', () => {
+  it('does not confuse an operator-borne zero platform charge with free local execution', () => {
     const summary = attemptReceiptsSummary([receipt(FREE)]);
     expect(noChargeReason(summary, true)).toBe(
-      'No charges \u2014 this ran locally, at no cost.',
+      'No charge recorded on this run.',
     );
   });
 

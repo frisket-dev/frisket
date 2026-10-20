@@ -15,7 +15,7 @@ from pydantic_ai.usage import UsageLimits
 from frisket.ai.llm.structured import FrisketRouterModel, _content_to_pai
 from frisket.ai.llm.types import LLMResponse
 from frisket.ai.models.metadata import ModelCallMeta, PROVIDER_KIND
-from frisket.ai.research.recorder import ResearchRecorder
+from frisket.ai.research.recorder import ResearchRecorder, redact_research_text
 from frisket.ai.research.search import (
     SearchProviderError,
     SearchResponse,
@@ -115,6 +115,7 @@ async def run_research(
     ],
     fetch: Callable[[str], Awaitable[str | ResearchFetchObservation]],
     recorder: ResearchRecorder | None = None,
+    secret_values: tuple[str, ...] = (),
 ) -> tuple[dict, dict]:
     """Return logical answer/source values and actual model-call accounting.
 
@@ -157,7 +158,7 @@ async def run_research(
         for u in hits:
             if u and u not in sources:
                 sources.append(u)
-        return obs
+        return redact_research_text(obs, secret_values)
 
     async def fetch(url: str) -> str:
         token = _capture(recorder, "start", "fetch", url=url)
@@ -171,7 +172,10 @@ async def run_research(
             if isinstance(fetched, ResearchFetchObservation)
             else ResearchFetchObservation(text=fetched)
         )
-        obs = observation.text[:FETCH_CHARS]
+        # Strip selected credential echoes while whole, before the model's
+        # existing text limit can turn them into unrecognizable key prefixes.
+        safe_text = redact_research_text(observation.text, secret_values)
+        obs = safe_text[:FETCH_CHARS]
         _capture(
             recorder,
             "finish",
@@ -179,6 +183,7 @@ async def run_research(
             text=obs,
             error_code=observation.error_code,
             error_detail=observation.error,
+            truncated=len(safe_text) > FETCH_CHARS,
         )
         if url and url not in sources:
             sources.append(url)

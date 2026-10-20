@@ -8,6 +8,7 @@ import { handleAutoResizeTextareaInput, resizeTextareaToContent } from '../actio
 import { ReviewSourcePreview } from './ReviewSourcePreview';
 import { ReviewValue } from './ReviewValue';
 import { ReviewExcerpt } from './ReviewExcerpt';
+import { ReviewResearch } from './ReviewResearch';
 import type { ReviewItemLocation, ReviewItemSelection } from './reviewItemLocations';
 import { decisionLabel, isDecided } from './reviewDecisions';
 import { isPlainTextReviewField, useReviewSession, type ReviewSessionController, type ReviewSessionOptions } from './useReviewSession';
@@ -86,6 +87,8 @@ function FieldDecision({ field, controller: c, onSelectItem, selectableItemIndic
     {selected && (field.boundedJustification
       ? <div className={styles.justification} aria-label="Reason excerpt"><ReviewExcerpt excerpt={field.boundedJustification} /></div>
       : field.justification && <p className={styles.justification}>{field.justification}</p>)}
+    {selected && c.bundle?.actionKind === 'research.answer' && field.outputKey !== 'sources' &&
+      <ReviewResearch key={`${field.runId}:${field.rowId}:${field.columnId}`} bundle={c.bundle} field={field} />}
   </section>;
 }
 

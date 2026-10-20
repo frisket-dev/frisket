@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from dataclasses import replace
 
 import pytest
 
@@ -41,7 +43,7 @@ def _response(query: str, *, count: int = 6) -> SearchResponse:
     )
 
 
-async def _run(turns, search, fetch, recorder):
+async def _run(turns, search, fetch, recorder, *, secret_values=()):
     adapter = ScriptedResearchAdapter(turns)
     router = ModelRouter(keys={"anthropic": "test-key"}, cache=None, cache_mode="off")
     router._adapters["anthropic"] = adapter
@@ -54,6 +56,7 @@ async def _run(turns, search, fetch, recorder):
         search=search,
         fetch=fetch,
         recorder=recorder,
+        secret_values=secret_values,
     )
     return data, accounting, adapter
 
@@ -252,3 +255,115 @@ def test_recorded_integer_timings_survive_disk_and_strict_wire_normalization(
     assert validated.research.truncated is False
     assert [step.duration_ms for step in validated.research.steps] == [2, 0]
     assert all(step.status == "ok" for step in validated.research.steps)
+
+
+@pytest.mark.parametrize(
+    "field,limit",
+    [
+        ("query", 500),
+        ("url", 2000),
+        ("title", 300),
+        ("snippet", 1000),
+        ("error", 500),
+        ("error_code", 500),
+        ("text", 8000),
+    ],
+)
+def test_credentials_crossing_every_recording_bound_are_redacted_before_clipping(
+    tmp_path, field, limit
+):
+    secret = "opaque-credential-abcdefghijklmno"
+    value = "q" * (limit - 12) + secret + " ending"
+    recorder = ResearchRecorder(secret_values=(secret,))
+    token = recorder.start("search", query=value if field == "query" else "record")
+    response = _response("record", count=1)
+    if field in {"title", "snippet"}:
+        hit = replace(
+            response.results[0], **{"excerpt" if field == "snippet" else field: value}
+        )
+        response = replace(response, results=(hit,))
+    recorder.finish(
+        token,
+        response=response,
+        error_detail=value if field == "error" else None,
+        error_code=value if field == "error_code" else None,
+    )
+    if field in {"url", "text"}:
+        token = recorder.start(
+            "fetch", url=value if field == "url" else "https://example.test/"
+        )
+        recorder.finish(token, text=value if field == "text" else "Page text")
+    snapshot = recorder.snapshot()
+    assert secret[:10] not in json.dumps(snapshot)
+    assert "[REDACTED]" in json.dumps(snapshot)
+    row = RowTrace(row_id=1, trace_id="redact-before-clip")
+    row.research = snapshot
+    writer = TraceWriter.open(tmp_path, 1)
+    writer.write_row(row.record(secret_values=(secret,)))
+    persisted = read_trace_row(tmp_path, 1, 1)["row"]
+    assert secret[:10] not in json.dumps(persisted)
+
+
+@pytest.mark.asyncio
+async def test_fetch_credential_echo_is_redacted_before_model_and_capture_clipping():
+    secret = "opaque-credential-abcdefghijklmno"
+    page = "q" * 7988 + secret + " remainder"
+    recorder = ResearchRecorder(secret_values=(secret,))
+
+    async def search(query):
+        pytest.fail("unused")
+
+    async def fetch(url):
+        return ResearchFetchObservation(page)
+
+    data, _, adapter = await _run(
+        [
+            [
+                {
+                    "name": "fetch",
+                    "args": {"url": "https://example.test/page"},
+                    "id": "f1",
+                }
+            ],
+            "Answer",
+        ],
+        search,
+        fetch,
+        recorder,
+        secret_values=(secret,),
+    )
+    messages = str(adapter.requests[-1].messages)
+    assert secret[:10] not in messages
+    assert "q" * 7988 + "[REDACTED]" in messages
+    step = recorder.snapshot()["steps"][0]
+    assert secret[:10] not in step["text"]
+    assert "[REDACTED]" in step["text"]
+    assert step["text"] == ("q" * 7988 + "[REDACTED] remainder")[:8000]
+    assert step["truncated"] is True
+    assert step["status"] == "ok"
+    assert len(step["text"]) <= 8000
+    assert data["answer"] == "Answer"
+
+
+@pytest.mark.asyncio
+async def test_search_credential_echo_is_removed_from_model_observation():
+    secret = "opaque-credential-abcdefghijklmno"
+    recorder = ResearchRecorder(secret_values=(secret,))
+
+    async def search(query):
+        response = _response("record", count=1)
+        hit = replace(response.results[0], title=secret, excerpt=f"Evidence {secret}")
+        return search_observation(query, replace(response, results=(hit,)))
+
+    async def fetch(url):
+        pytest.fail("unused")
+
+    _, _, adapter = await _run(
+        [[{"name": "search", "args": {"query": "record"}, "id": "s1"}], "Answer"],
+        search,
+        fetch,
+        recorder,
+        secret_values=(secret,),
+    )
+    assert secret not in str(adapter.requests[-1].messages)
+    assert "Evidence [REDACTED]" in str(adapter.requests[-1].messages)
