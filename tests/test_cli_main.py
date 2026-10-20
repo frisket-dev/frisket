@@ -18,6 +18,14 @@ import pytest
 FRISKET_CLI = str(Path(sys.executable).with_name("frisket"))
 
 
+@pytest.fixture(autouse=True)
+def no_background_pricing_refresh(monkeypatch):
+    """Serve-dispatch tests must not leave a catalog refresher in the test worker."""
+    monkeypatch.setattr(
+        "frisket.ai.llm.pricing_refresh.start_pricing_refresh", lambda: None
+    )
+
+
 def _run(args, cwd):
     return subprocess.run(
         [FRISKET_CLI, *args],
