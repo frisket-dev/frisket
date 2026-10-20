@@ -6,7 +6,7 @@ import json
 import asyncio
 import re
 from contextlib import AbstractContextManager, nullcontext
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 if TYPE_CHECKING:
@@ -49,6 +49,11 @@ from frisket.server.services.project_qa_research import (
 )
 from frisket.server.services.project_qa_capabilities import (
     compose_project_qa_capabilities,
+)
+from frisket.server.services.project_qa_skill_authoring import (
+    ProjectQASkillAuthoring,
+    skill_authoring_instructions,
+    skill_runtime_instructions,
 )
 from frisket.ai.research.search import SearchService, SearchProviderError
 from frisket.cloud_execution import (
@@ -110,8 +115,12 @@ async def run_turn(
     selected_egress_class: str | None = None,
     embedding_runtime: EmbeddingRuntime | None = None,
     setup_scope: Literal["workspace", "organization"] | None = None,
+    skill_snapshots: Sequence[Mapping[str, object]] = (),
+    skill_authoring: ProjectQASkillAuthoring | None = None,
 ) -> dict[str, Any]:
     """Investigate one admitted turn; the caller owns terminalization."""
+
+    ordinary_skill_snapshots = tuple(dict(snapshot) for snapshot in skill_snapshots)
 
     from frisket.server.services.project_qa_output_scope import (
         derive_output_read_grants,
@@ -214,7 +223,15 @@ async def run_turn(
         conversational = [
             event
             for event in events
-            if event["kind"] in {"question", "assistant", "answer", "action_proposal"}
+            if event["kind"]
+            in {
+                "question",
+                "assistant",
+                "answer",
+                "action_proposal",
+                "skill_proposal",
+                "skill_saved",
+            }
             and event["turn_id"] != turn["id"]
         ][-RECENT_HISTORY_EVENTS:]
         summary = []
@@ -224,11 +241,38 @@ async def run_turn(
                 safe_payload = {"question": str(payload.get("question", ""))}
             elif event["kind"] in {"assistant", "answer"}:
                 safe_payload = {"text": str(payload.get("text", ""))}
-            else:
+            elif event["kind"] == "action_proposal":
                 safe_payload = {
                     key: payload[key]
                     for key in ("kind", "title")
                     if isinstance(payload.get(key), str)
+                }
+            elif event["kind"] == "skill_proposal":
+                safe_payload = {
+                    key: payload[key]
+                    for key in (
+                        "proposal_id",
+                        "target_skill_id",
+                        "base_revision",
+                        "name",
+                        "description",
+                    )
+                    if isinstance(payload.get(key), (str, int))
+                    and not isinstance(payload.get(key), bool)
+                }
+            else:
+                safe_payload = {
+                    key: payload[key]
+                    for key in (
+                        "attempt_id",
+                        "proposal_id",
+                        "skill_id",
+                        "name",
+                        "revision",
+                        "status",
+                    )
+                    if isinstance(payload.get(key), (str, int))
+                    and not isinstance(payload.get(key), bool)
                 }
             summary.append({"kind": event["kind"], "payload": safe_payload})
         return json.dumps(summary, ensure_ascii=False)[:MAX_HISTORY_CHARS]
@@ -620,13 +664,57 @@ async def run_turn(
         await progress("execute_action", "completed", status=result["status"])
         return result
 
+    async def list_skills() -> dict[str, Any]:
+        """List installed skill metadata for a manager-authorized authoring request."""
+
+        assert skill_authoring is not None
+        try:
+            return await skill_authoring.list_skills()
+        except (PermissionError, ValueError) as error:
+            raise ModelRetry(str(error)) from error
+
+    async def read_skill(skill_id: str) -> dict[str, Any]:
+        """Read one chosen installed skill, including disabled skills, for editing."""
+
+        assert skill_authoring is not None
+        try:
+            return await skill_authoring.read_skill(skill_id)
+        except (PermissionError, ValueError) as error:
+            raise ModelRetry(str(error)) from error
+
+    async def propose_skill(
+        content: str,
+        target_skill_id: str | None = None,
+        expected_revision: int | None = None,
+    ) -> dict[str, Any]:
+        """Validate one complete SKILL.md and persist a reviewable proposal.
+
+        For updates, pass the exact target skill id and revision returned by
+        read_skill. This tool never saves or enables the proposed skill.
+        """
+
+        assert skill_authoring is not None
+        try:
+            return await skill_authoring.propose_skill(
+                content,
+                target_skill_id=target_skill_id,
+                expected_revision=expected_revision,
+            )
+        except (PermissionError, ValueError) as error:
+            raise ModelRetry(str(error)) from error
+
     research_record = (
         await await_thread_worker(research.store.get, research.id) if research else None
     )
-    capability_context = (
-        compose_project_qa_capabilities(model, research_record["skills"])
+    admitted_skill_snapshots = (
+        research_record["skills"]
         if research_record is not None
-        else nullcontext([])
+        else ordinary_skill_snapshots
+    )
+    capability_context = compose_project_qa_capabilities(
+        model,
+        admitted_skill_snapshots,
+        enable_compaction=research_record is not None,
     )
     with capability_context as capabilities:
         agent = Agent(
@@ -687,6 +775,8 @@ async def run_turn(
                 "For evidence-backed answers, call final_result with non-empty text and only current-turn "
                 "citation_ids. Plain text is allowed for clarifications, explanations that need no project "
                 "citation, or when the selected scope cannot answer the question."
+                + skill_runtime_instructions(available=bool(admitted_skill_snapshots))
+                + skill_authoring_instructions(available=skill_authoring is not None)
                 + (
                     "\nRun actions is enabled. Carry out the requested investigation using available skills and project actions. "
                     f"Use the selected chat model {model_id} for action parameters that require an LLM model, "
@@ -729,6 +819,10 @@ async def run_turn(
         if execution is not None:
             agent.tool_plain(prepare_action, name="prepare_action")
             agent.tool_plain(execute_action, name="execute_action")
+        if skill_authoring is not None:
+            agent.tool_plain(list_skills, name="list_skills")
+            agent.tool_plain(read_skill, name="read_skill")
+            agent.tool_plain(propose_skill, name="propose_skill")
 
         @agent.output_validator
         def known_citations(

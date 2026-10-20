@@ -94,22 +94,36 @@ or browser, while the Frisket server and its worker remain running. A server
 restart interrupts the run; it does not automatically replay actions.
 
 Use **Settings → Skills** to create, upload, edit, and enable an instruction-only
-`SKILL.md`. Team administrators manage the shared library. Select the skills
-available to Ask in its settings. A file starts with a name and description:
+`SKILL.md`. Team administrators manage the shared library. You can also ask Ask
+to save or revise a workflow as a skill when you have permission to manage the
+library. Ask creates a draft; **Review the text** opens the complete instructions
+in a full-size editor. Saving makes the revision available to your next message
+in the same conversation, without running the workflow by itself.
+
+Ordinary Ask turns can use enabled skills. Research settings can narrow that list
+for research runs. Each new turn takes a fresh snapshot of the enabled, selected
+instructions, while work already in progress keeps the revision it started with.
+A file starts with a name and description:
 
 ```markdown
 ---
 name: review-filings
 description: Extract and compare facts from selected court filings.
 ---
-Convert the selected PDFs to Markdown, inspect the results, then extract the
-parties and filing dates into new columns. Use a filter to count matching
-filings and cite the supporting records. Do not overwrite existing columns.
+At use time, inspect the selected sheet, columns, and row scope. Convert the
+selected PDFs to Markdown, inspect a small sample, then extract the parties and
+filing dates into new columns over the requested rows. Use the available filter
+and analytics tools to count matching filings and cite the supporting records.
+Discover the current action and its parameters before preparing it. Do not
+overwrite existing columns or expand a selected row scope.
 ```
 
 Skills guide the agent’s existing tools; they do not install or run Python or
-shell scripts. You can also configure Exa or Tavily in provider settings for
-web search. Ask uses Exa first, then Tavily, when their keys are available.
+shell scripts, grant action access, or override the selected sheets and rows.
+Write reusable steps that resolve sheet, column, row, model, and action
+identifiers at use time. Do not put credentials or secrets in skills. You can
+also configure Exa or Tavily in provider settings for web search. Ask uses Exa
+first, then Tavily, when their keys are available.
 
 #### Project Ask traces
 
