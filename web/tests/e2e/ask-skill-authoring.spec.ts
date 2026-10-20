@@ -44,7 +44,7 @@ test('review a long skill, save twice, and reopen its saved text', async ({ page
       savedBodies.push(body.content);
       revision += 1;
       const attemptId = `attempt-${revision}`;
-      add('skill_save_attempt', { attempt_id: attemptId, proposal_id: 'proposal', request_id: body.request_id, name: 'check-supplier', description: 'Check the selected supplier and explain the evidence.', content: body.content, expected_revision: body.expected_revision });
+      add('skill_save_attempt', { attempt_id: attemptId, proposal_id: 'proposal', request_id: body.request_id, name: 'check-supplier', description: 'Check the selected supplier and explain the evidence.', enabled: true, content: body.content, expected_revision: body.expected_revision });
       add('skill_saved', { attempt_id: attemptId, proposal_id: 'proposal', skill_id: 'skill', name: 'check-supplier', description: 'Check the selected supplier and explain the evidence.', enabled: true, revision, status: 'saved' });
       return route.fulfill({ json: { status: 'saved', attempt_id: attemptId, proposal_id: 'proposal', skill: { id: 'skill', name: 'check-supplier', description: 'Check the selected supplier and explain the evidence.', content: body.content, enabled: true, revision, createdAt: '', updatedAt: '' } } });
     }
@@ -75,6 +75,9 @@ test('review a long skill, save twice, and reopen its saved text', async ({ page
   await expect(dock.getByText('Use it now', { exact: true })).toHaveCount(0);
   await dock.getByRole('button', { name: 'Review the text', exact: true }).click();
   await expect(editor).toHaveValue(savedBodies[1]);
+  await page.evaluate(() => document.documentElement.setAttribute('data-frisket-theme', 'dark'));
+  await page.screenshot({ path: test.info().outputPath('skill-review-dark.png'), fullPage: true });
+  await page.evaluate(() => document.documentElement.setAttribute('data-frisket-theme', 'light'));
   await page.setViewportSize({ width: 800, height: 700 });
   await page.screenshot({ path: test.info().outputPath('skill-review-narrow.png'), fullPage: true });
   expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
