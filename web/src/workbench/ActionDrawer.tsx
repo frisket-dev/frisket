@@ -1,3 +1,4 @@
+import './ActionDrawer.css';
 // Action drawer: a fixed-400px right-docked pane that re-hosts the ActionPanel
 // form. While open, the shell reserves the same width in its work regions so
 // the grid, ribbon, tabs, and Monitor end at the drawer's left edge.

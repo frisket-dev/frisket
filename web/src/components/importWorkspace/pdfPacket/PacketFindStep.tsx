@@ -1,3 +1,5 @@
+import { Button } from '../../Button';
+import { TextInput } from '../../FormControls';
 import {
   lazy,
   Suspense,
@@ -18,6 +20,7 @@ import {
 } from '../../../api/pdfPacketSplits';
 import { countLabel } from '../../../format';
 import { SegmentedToggle } from '../../PanelPrimitives';
+import { ProgressBar } from '../../ActivityProgress';
 import {
   confirmedDocuments,
   matchForPage,
@@ -261,6 +264,7 @@ export function PacketFindStep({
           <span><i className="unsure" /> Unsure</span>
           <SegmentedToggle
             ariaLabel="Pages shown"
+            size="compact"
             value={gridFilter}
             onValueChange={(value) => setGridFilter(value as GridFilter)}
             options={[
@@ -401,8 +405,8 @@ export function PacketFindStep({
         {ocrJob && (ocrJob.progress.status === 'queued' || ocrJob.progress.status === 'running') ? (
           <div className="pdf-packet-ocr-progress" role="status">
             <span>Reading text · {ocrJob.progress.done} of {ocrJob.progress.total ?? pageCount}</span>
-            <progress max={ocrJob.progress.total ?? pageCount} value={ocrJob.progress.done} />
-            <button type="button" className="mini-btn" onClick={() => onCancelOcr(ocrJob.job_id)}>Stop OCR</button>
+            <ProgressBar label="Reading text" completed={ocrJob.progress.done} total={ocrJob.progress.total ?? pageCount} state="active" />
+            <Button type="button" onClick={() => onCancelOcr(ocrJob.job_id)}>Stop OCR</Button>
           </div>
         ) : null}
         <SegmentedToggle
@@ -441,8 +445,9 @@ export function PacketFindStep({
                   aria-label={`Enable ${phrase.text || 'phrase'}`}
                   onChange={(event) => clearCandidatesAndDispatch({ type: 'phrase', id: phrase.id, patch: { enabled: event.target.checked } })}
                 />
-                <input
-                  className="form-input mono"
+                <TextInput
+                  className="mono"
+                  density="compact"
                   value={phrase.text}
                   placeholder="First-page phrase"
                   onChange={(event) => clearCandidatesAndDispatch({ type: 'phrase', id: phrase.id, patch: { text: event.target.value } })}
@@ -458,9 +463,9 @@ export function PacketFindStep({
                 </button>
               </div>
             ))}
-            <button type="button" className="btn" onClick={() => clearCandidatesAndDispatch({ type: 'addPhrase' })}>
+            <Button type="button" onClick={() => clearCandidatesAndDispatch({ type: 'addPhrase' })}>
               <Plus size={13} /> Add a phrase
-            </button>
+            </Button>
             <label className="import-check-inline">
               <input
                 type="checkbox"
@@ -503,12 +508,12 @@ export function PacketFindStep({
           {state.confirmedStarts.length} marked · {unsure.length} to review
           {suggested.length ? ` (${suggested.length} suggested)` : ''}
         </span>
-        <button type="button" className="btn" disabled={!state.matches || !suggested.length} onClick={acceptAllSuggestions}>
+        <Button type="button" disabled={!state.matches || !suggested.length} onClick={acceptAllSuggestions}>
           Accept all {suggested.length} suggested
-        </button>
-        <button type="button" className="btn btn-primary" onClick={() => dispatch({ type: 'stage', stage: 'import' })}>
+        </Button>
+        <Button type="button" className="btn-primary" onClick={() => dispatch({ type: 'stage', stage: 'import' })}>
           Continue to import →
-        </button>
+        </Button>
       </footer>
       {largeViewPage != null && state.snapshot ? (
         <Suspense fallback={null}>

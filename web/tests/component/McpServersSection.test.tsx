@@ -10,7 +10,7 @@ import userEvent from '@testing-library/user-event';
 import type { ComponentProps } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { McpServersSection } from '../../src/settings/SettingsSections';
+import { McpServersSection } from '../../src/settings/McpServersSection';
 import { groupedSettingsNavItems } from '../../src/settings/settingsNav';
 
 afterEach(() => {

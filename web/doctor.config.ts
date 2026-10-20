@@ -82,20 +82,19 @@ export default {
         ],
       },
       {
-        // The sheet tab's nested "sheet info"
-        // span (App.tsx:1990, role="button") — already investigated and left
+        // The sheet tab's nested "sheet info" and delete spans
+        // (WorkspaceSheetTabs.tsx, role="button") moved from App.tsx;
+        // the sheet-info span was already investigated and left
         // alone by a prior lane (commit f4802d56b, "doctor: fix App.tsx
         // mechanicals ... document 4 verified-unsafe findings left alone"):
         // a real <button> can't nest inside its parent tab's own <button>
         // (the naive fix traded prefer-tag-over-role for doctor's own
         // html-no-nested-interactive).
         //
-        // The work-split resize seam this entry ALSO used to cover
-        // (App.tsx:3057, role="separator") moved out of this file
-        // (role-primitives-consolidation-v1): App.tsx now renders
-        // <ResizeSeam>, so its separator finding — and this entry's old
-        // reasoning for it — lives at the ResizeSeam.tsx entry below.
-        files: ['src/App.tsx'],
+        // The work-split resize seam this entry once also covered now
+        // renders through <ResizeSeam> in WorkspaceSurface.tsx, so its
+        // separator finding lives at the ResizeSeam.tsx entry below.
+        files: ['src/workspace/WorkspaceSheetTabs.tsx'],
         rules: ['react-doctor/prefer-tag-over-role'],
       },
       {

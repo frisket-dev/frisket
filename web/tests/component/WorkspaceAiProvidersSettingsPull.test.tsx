@@ -10,7 +10,7 @@ import { cleanup, screen, waitFor, render } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
 
-import { WorkspaceAiProvidersSettings } from '../../src/settings/SettingsSections';
+import { WorkspaceAiProvidersSettings } from '../../src/settings/AiProviderSettings';
 import type { LocalHttpEndpointEntry, LocalProviderCatalog, ModelPullDto } from '../../src/api/types';
 
 vi.mock('../../src/api/modelsGateway', async (importOriginal) => ({

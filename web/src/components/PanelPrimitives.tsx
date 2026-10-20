@@ -1,6 +1,9 @@
+import './PanelPrimitives.css';
 import { useId, type InputHTMLAttributes, type ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { WindowCloseButton } from './WindowCloseButton';
+import { TextInput } from './FormControls';
+import './SegmentedToggle.css';
 
 /**
  * Shared action-panel form primitives: a full-width segmented switch and a
@@ -100,14 +103,26 @@ export function PanelError({
   );
 }
 
+/** Informational feedback; errors use PanelError's assertive announcement. */
+export function PanelNotice({
+  children, tone = 'neutral', className, role = 'status',
+}: {
+  children: ReactNode;
+  tone?: 'neutral' | 'success' | 'warning';
+  className?: string;
+  role?: string;
+}) {
+  return <div className={['panel-notice', className].filter(Boolean).join(' ')} data-tone={tone} role={role}>{children}</div>;
+}
+
 /**
  * The one status/state chip. Replaces four
  * re-declared tone->color maps (notification-status-pill, ollama-badge,
  * embedding-badge, sheet-info-badge, and LineagePanel's lineage-node-sync)
  * with a single primitive: tone maps to
  * color in exactly ONE place — the `.status-chip[data-tone=...]` rules in
- * styles.css. Count/removable chips (RemovableChip, engine-tier-chip,
- * ocr-compare-vote-chip) are a different genus and are NOT this primitive.
+ * styles.css. It also presents compact counts; it has no live-status role.
+ * Removable chips retain their own interaction component.
  */
 export type StatusTone = 'success' | 'warning' | 'error' | 'info' | 'neutral';
 
@@ -179,6 +194,7 @@ export function SegmentedToggle({
   testId,
   className,
   disabled = false,
+  size = 'standard',
 }: {
   options: SegmentedOption[];
   value: string;
@@ -195,12 +211,13 @@ export function SegmentedToggle({
   className?: string;
   /** Temporarily disable every option without rewriting each option. */
   disabled?: boolean;
+  size?: 'compact' | 'standard';
 }) {
   const classes = ['segmented', fullWidth ? 'segmented-full' : '', className ?? '']
     .filter(Boolean)
     .join(' ');
   return (
-    <div className={classes} role="group" aria-label={ariaLabel} data-testid={testId}>
+    <div className={classes} role="group" aria-label={ariaLabel} data-testid={testId} data-segment-size={size}>
       {options.map((option) => {
         const optionDisabled = disabled || Boolean(option.disabledReason);
         const Icon = option.icon;
@@ -216,6 +233,7 @@ export function SegmentedToggle({
               .join(' ')}
             data-testid={buttonTestId ? buttonTestId(option.value) : undefined}
             aria-pressed={value === option.value}
+            aria-label={option.label}
             disabled={optionDisabled}
             data-disabled-reason={option.disabledReason}
             title={option.disabledReason ?? option.title}
@@ -366,7 +384,7 @@ export interface ConfirmTypeInputProps
  */
 export function ConfirmTypeInput({ value, onChange, ...rest }: ConfirmTypeInputProps) {
   return (
-    <input
+    <TextInput
       {...rest}
       autoComplete="off"
       value={value}

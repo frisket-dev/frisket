@@ -42,7 +42,7 @@ export function useOptionsPopover(
   const position = useAnchoredPosition(triggerRef, {
     enabled: open,
     align: 'right',
-    width: 232,
+    width: (_rect, viewportWidth) => Math.min(360, viewportWidth - 16),
     gap: 4,
   });
   const popoverStyle: CSSProperties = position

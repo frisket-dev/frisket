@@ -1,3 +1,8 @@
+import './SkillsSettings.css';
+import { Button } from './Button';
+import { IconButton } from './IconButton';
+import { PanelEmpty, PanelError } from './PanelPrimitives';
+import { TextArea } from './FormControls';
 import { useEffect, useRef, useState } from 'react';
 import { FileText, Plus, RefreshCw, Save, Trash2, Upload } from 'lucide-react';
 import { skillsApi, type InstructionSkill } from '../api/skills';
@@ -141,31 +146,31 @@ export function SkillsSettings() {
   };
 
   return (
-    <section className="skills-settings settings-stack" data-testid="skills-settings">
+    <section className="skills-settings content-stack" data-testid="skills-settings">
       <div className="skills-settings-head">
         <div>
           <h2><FileText size={16} aria-hidden /> Skills</h2>
           <p>Text-only instructions for Ask. Skills cannot run code or add tools. Do not include credentials or secrets.</p>
         </div>
-        <div className="settings-actions">
-          <button type="button" className="icon-btn" aria-label="Refresh skills" onClick={() => void load()} disabled={busy}><RefreshCw size={14} /></button>
+        <div className="control-row">
+          <IconButton icon={RefreshCw} label="Refresh skills" onClick={() => void load()} disabled={busy} />
           <label className="btn"><Upload size={14} /> Upload SKILL.md<input data-testid="skills-upload" type="file" accept="text/markdown,text/plain,.md" hidden disabled={busy} onChange={(event) => void upload(event.currentTarget.files?.[0])} /></label>
-          <button type="button" className="btn" onClick={() => { setSelectedId(null); setDraft(starter); }} disabled={busy}><Plus size={14} /> New skill</button>
+          <Button type="button" onClick={() => { setSelectedId(null); setDraft(starter); }} disabled={busy}><Plus size={14} /> New skill</Button>
         </div>
       </div>
-      {error && <p className="settings-error" role="alert">{error}</p>}
+      {error && <PanelError>{error}</PanelError>}
       <div className="skills-settings-split">
         <div className="skills-settings-list" aria-label="Saved skills">
           {skills.map((skill) => <button key={skill.id} type="button" className={`skills-settings-list-item${skill.id === selectedId ? ' selected' : ''}`} onClick={() => { setSelectedId(skill.id); setDraft(skill.content); }} disabled={busy}><strong>{skill.name}</strong><span>{skill.enabled ? 'Enabled' : 'Disabled'}</span></button>)}
-          {skills.length === 0 && <p className="muted">No skills saved yet.</p>}
+          {skills.length === 0 && <PanelEmpty>No skills saved yet.</PanelEmpty>}
         </div>
         <div className="skills-settings-editor">
           <label htmlFor="skill-content">SKILL.md</label>
-          <textarea id="skill-content" className="form-input" data-testid="skills-editor" value={draft} rows={16} onChange={(event) => setDraft(event.currentTarget.value)} disabled={busy} />
-          <div className="settings-actions">
-            <button type="button" className="btn btn-accept" onClick={() => void save()} disabled={busy}><Save size={14} /> Save</button>
-            {selected && <button type="button" className="btn" onClick={() => void toggle()} disabled={busy}>{selected.enabled ? 'Disable' : 'Enable'}</button>}
-            {selected && <button type="button" className="btn btn-reject" onClick={() => void remove()} disabled={busy}><Trash2 size={14} /> Delete</button>}
+          <TextArea id="skill-content"  data-testid="skills-editor" value={draft} rows={16} onChange={(event) => setDraft(event.currentTarget.value)} disabled={busy} />
+          <div className="control-row">
+            <Button type="button" className="btn-accept" onClick={() => void save()} disabled={busy}><Save size={14} /> Save</Button>
+            {selected && <Button type="button" onClick={() => void toggle()} disabled={busy}>{selected.enabled ? 'Disable' : 'Enable'}</Button>}
+            {selected && <Button type="button" className="btn-reject" onClick={() => void remove()} disabled={busy}><Trash2 size={14} /> Delete</Button>}
           </div>
         </div>
       </div>

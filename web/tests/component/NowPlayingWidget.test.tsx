@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createProjectApi } from '../../src/api/real';
 import { NowPlayingWidget } from '../../src/components/NowPlayingWidget';
-import { FieldValue } from '../../src/components/RowDrawer';
+import { FieldValue } from '../../src/components/rowInspection/FieldValue';
 import { createAudioPlaybackSource } from '../../src/state/audioPlaybackStore';
 import { columnDef, row } from '../support/domainFixtures';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';

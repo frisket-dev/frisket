@@ -33,7 +33,7 @@ vi.mock('../../src/api/open', async (importOriginal) => {
   };
 });
 
-import { ProjectAiProvidersSettings } from '../../src/settings/SettingsSections';
+import { ProjectAiProvidersSettings } from '../../src/settings/AiProviderSettings';
 import { createProjectApi } from '../../src/api/real';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
 

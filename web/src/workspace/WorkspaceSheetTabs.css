@@ -1,0 +1,191 @@
+.workbench-mainView-promotedTab {
+  cursor: pointer;
+}
+.workbench-mainView-tabs {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  min-height: 36px;
+  padding: 6px 8px 0;
+  overflow: hidden;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+.workbench-mainView-tab-list {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  min-width: 0;
+  overflow: hidden;
+  overflow-y: hidden;
+  flex-wrap: nowrap;
+}
+.workbench-mainView-sheetTabs {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+.workbench-mainView-tab-measure {
+  position: absolute;
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  visibility: hidden;
+  pointer-events: none;
+}
+.workbench-mainView-moreTabs {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  min-height: 30px;
+  margin-bottom: -1px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 9px 9px 0 0;
+  background: transparent;
+  color: var(--text-mid);
+  cursor: pointer;
+}
+.workbench-mainView-moreTabs:hover,
+.workbench-mainView-moreTabs.open {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.menu-pop.workbench-mainView-moreTabsMenu {
+  max-height: min(320px, 50vh);
+}
+.workbench-mainView-tab {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  max-width: 220px;
+  margin-bottom: -1px;
+  padding: 5px 12px;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 9px 9px 0 0;
+  color: var(--text-mid);
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.workbench-mainView-tab:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.workbench-mainView-tab.active {
+  border-color: var(--border);
+  border-top: 2px solid var(--accent);
+  padding-top: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font-weight: 600;
+}
+.workbench-mainView-tab-glyph {
+  flex: 0 0 auto;
+  color: var(--text-light);
+}
+.workbench-mainView-tab[data-derived='true'] .workbench-mainView-tab-glyph,
+.workbench-mainView-tab.active .workbench-mainView-tab-glyph {
+  color: var(--accent);
+}
+.workbench-mainView-tab-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workbench-mainView-tab-rowcount {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 99px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+}
+.workbench-mainView-tab-syncDot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 99px;
+  background: var(--green);
+}
+.workbench-mainView-tab-syncDot[data-sync-state='stale'] {
+  background: var(--amber);
+}
+.workbench-mainView-tab-info {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px;
+  border-radius: var(--radius-6);
+  color: var(--text-light);
+  cursor: pointer;
+  line-height: 0;
+}
+.workbench-mainView-tab-info:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.workbench-mainView-add-sheet {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 4px;
+  padding: 4px;
+  border-radius: var(--radius-7);
+  color: var(--text-light);
+  line-height: 0;
+}
+.workbench-mainView-add-sheet:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.workbench-mainView-previewTab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.workbench-mainView-previewTab .preview-tab-glyph {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: conic-gradient(var(--preview-accent) 0 50%, transparent 50% 100%);
+  border: 1.5px solid var(--preview-accent);
+  box-sizing: border-box;
+}
+.preview-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-light);
+  cursor: pointer;
+  padding: 1px;
+  border-radius: var(--radius-4);
+  line-height: 0;
+}
+.preview-tab-close:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+.workbench-promotedTab-label {
+  font-style: italic;
+}

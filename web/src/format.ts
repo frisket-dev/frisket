@@ -24,8 +24,8 @@ const GROUPED_NUMBER_FORMAT = new Intl.NumberFormat(undefined, {
   maximumFractionDigits: 20,
 });
 
-function formatBytes(n: number): string {
-  if (!Number.isFinite(n) || n < 0) return String(n);
+export function formatBytes(n: unknown): string {
+  if (typeof n !== 'number' || !Number.isFinite(n) || n < 0) return '—';
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   let v = n;
   let u = 0;

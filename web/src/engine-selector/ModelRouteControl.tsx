@@ -1,3 +1,4 @@
+import '../components/engine-selector/EngineSelector.css';
 import { useState } from 'react';
 
 import type { SelectorChoice } from '../api/selectorChoices';
@@ -73,6 +74,7 @@ export function ModelRouteControl({
     <div className="engine-selector__route-control-body">
       <SegmentedToggle
         ariaLabel="Use model through"
+        fullWidth={false}
         className="engine-selector__route-toggle"
         disabled={busy || !selection.can_mutate}
         options={selection.options.map(routeOption)}
@@ -80,7 +82,7 @@ export function ModelRouteControl({
         onValueChange={(value) => void changeRoute(value)}
         buttonTestId={(value) => `model-route-${value}`}
       />
-      {!selection.can_mutate && <p className="settings-help">You do not have permission to change this route.</p>}
+      {!selection.can_mutate && <p className="form-hint">You do not have permission to change this route.</p>}
       {error && <p className="engine-selector__route-error" role="alert">{error}</p>}
     </div>
   </section>;

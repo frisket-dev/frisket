@@ -1,4 +1,8 @@
+import './PanelPrimitives.css';
+import { Button } from './Button';
+import { TextInput } from './FormControls';
 import { useState } from 'react';
+import { Modal } from './Modal';
 
 import { updateProfile } from '../api/open';
 
@@ -27,15 +31,13 @@ export function CostPreapprovalSetupModal({ onComplete }: { onComplete?: () => v
   };
 
   return (
-    <div className="modal-backdrop" data-testid="cost-preapproval-setup">
+    <Modal title="Choose your cost pre-approval amount" testId="cost-preapproval-setup">
       <form
-        className="modal-card"
         onSubmit={(event) => {
           event.preventDefault();
-          void save();
+          if (!saving) void save();
         }}
       >
-        <div className="modal-title">Choose your cost pre-approval amount</div>
         <p className="modal-body-text">
           Frisket always shows a price estimate. Runs at or below this amount can
           continue without another prompt, including sending their inputs to the
@@ -44,9 +46,9 @@ export function CostPreapprovalSetupModal({ onComplete }: { onComplete?: () => v
         <label className="form-label" htmlFor="cost-preapproval-setup-input">
           Amount in USD per run
         </label>
-        <input
+        <TextInput
           id="cost-preapproval-setup-input"
-          className="form-input"
+
           data-testid="cost-preapproval-setup-input"
           type="number"
           min="0"
@@ -57,18 +59,18 @@ export function CostPreapprovalSetupModal({ onComplete }: { onComplete?: () => v
           disabled={saving}
           autoFocus
         />
-        {error && <p className="settings-inline-error" role="alert">{error}</p>}
+        {error && <p className="panel-error" role="alert">{error}</p>}
         <div className="form-actions">
-          <button
+          <Button
             type="submit"
-            className="btn btn-primary"
+            className="btn-primary"
             data-testid="cost-preapproval-setup-save"
             disabled={saving || amount.trim() === ''}
           >
             {saving ? 'Saving…' : 'Continue'}
-          </button>
+          </Button>
         </div>
       </form>
-    </div>
+    </Modal>
   );
 }

@@ -13,7 +13,7 @@ import {
 
 // Region content frames must use consistent wrappers, padding, tables, fonts,
 // and headers. Precedents: .discover-body (the gutter-owner contract), SectionFrame
-// (SettingsSections.tsx), ChromeBarShell (this spec's model — computed-style
+// (SettingsWorkspace.tsx), ChromeBarShell (this spec's model — computed-style
 // parity assertions, cf. workbench-ia-shell 'Home and workspace share ONE
 // chrome bar').
 //

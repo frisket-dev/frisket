@@ -127,7 +127,9 @@ def test_invalid_refresh_does_not_replace_or_cache_catalog(tmp_path):
     assert not (tmp_path / "pricing_data.json").exists()
 
 
-def test_start_loads_cached_catalog_and_starts_only_once(tmp_path, monkeypatch):
+def test_start_loads_cached_catalog_and_starts_only_once(
+    tmp_path, monkeypatch, pricing_refresh_lifecycle
+):
     root = tmp_path / "frisket" / "pricing"
     root.mkdir(parents=True)
     (root / "pricing_data.json").write_bytes(_catalog(2.0))

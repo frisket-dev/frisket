@@ -1,3 +1,5 @@
+import './EmbeddingsPanel.css';
+import { Button } from './Button';
 import { Plus } from 'lucide-react';
 import type { SheetMeta } from '../api/open';
 import type { EmbeddingApiPort } from '../api/ports';
@@ -44,7 +46,7 @@ export function EmbeddingsPanel({
       <section className="sidebar-embeddings" data-testid="embeddings">
         <div className="embeddings-body" data-testid="embeddings-panel">
           {panel.error && (
-            <div className="form-error" data-testid="embeddings-error" role="alert">
+            <div className="panel-error" data-testid="embeddings-error" role="alert">
               {panel.error}
             </div>
           )}
@@ -70,14 +72,14 @@ export function EmbeddingsPanel({
             />
           ))}
 
-          <button
+          <Button
             type="button"
-            className="mini-btn embeddings-add"
+            className="embeddings-add"
             data-testid="embeddings-add-button"
             onClick={() => void panel.openCreate()}
           >
             <Plus size={12} aria-hidden /> Create embedding index
-          </button>
+          </Button>
         </div>
         {panel.adding && (
           <CreateEmbeddingIndexDialog

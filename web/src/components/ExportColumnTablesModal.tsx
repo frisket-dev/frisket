@@ -1,3 +1,7 @@
+import './PanelPrimitives.css';
+import { Button } from './Button';
+import { Modal } from './Modal';
+import { TextInput, TextArea } from './FormControls';
 import { useMemo, useState, type FormEvent } from 'react';
 import { Download, Loader2 } from 'lucide-react';
 import { type ActionCatalogEntry, type SheetMeta, type V1Receipt } from '../api/open';
@@ -102,17 +106,9 @@ export function ExportColumnTablesModal({
   };
 
   return (
-    <div
-      className="modal-backdrop"
-      data-testid="export-column-tables-modal"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="export-column-tables-title"
-    >
-      <form className="modal-card" onSubmit={submit}>
-        <div className="modal-title" id="export-column-tables-title">
-          <Download size={15} /> Export tables as ZIP
-        </div>
+    <Modal title={<><Download size={15} /> Export tables as ZIP</>}
+      testId="export-column-tables-modal" onClose={onClose}>
+      <form className="form-stack" onSubmit={submit}>
         {tableColumns.length === 0 ? (
           <p className="modal-body-text">This sheet has no JSON columns to export.</p>
         ) : (
@@ -133,8 +129,7 @@ export function ExportColumnTablesModal({
             </label>
             <label className="form-field">
               Group by nested field (optional)
-              <input
-                className="form-input"
+              <TextInput
                 data-testid="export-column-tables-group-by"
                 value={groupBy}
                 onChange={(event) => setGroupBy(event.target.value)}
@@ -144,8 +139,7 @@ export function ExportColumnTablesModal({
             </label>
             <label className="form-field">
               Exclude nested fields (optional)
-              <textarea
-                className="form-input"
+              <TextArea
                 data-testid="export-column-tables-exclude-columns"
                 value={excludeColumns}
                 onChange={(event) => setExcludeColumns(event.target.value)}
@@ -159,7 +153,7 @@ export function ExportColumnTablesModal({
         )}
         {!catalogEntry && (
           <div
-            className="form-error"
+            className="panel-error"
             role="alert"
             data-testid="export-column-tables-catalog-unavailable"
           >
@@ -171,7 +165,7 @@ export function ExportColumnTablesModal({
             <Loader2 size={14} className="spin" /> Preparing ZIP…
           </p>
         )}
-        {error && <div className="form-error" role="alert">{error}</div>}
+        {error && <div className="panel-error" role="alert">{error}</div>}
         {download && (
           <a
             className="btn"
@@ -183,24 +177,24 @@ export function ExportColumnTablesModal({
           </a>
         )}
         <div className="form-actions">
-          <button
+          <Button
             type="button"
-            className="btn"
+
             data-testid="export-column-tables-cancel"
             onClick={onClose}
           >
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
             type="submit"
-            className="btn btn-primary"
+            className="btn-primary"
             data-testid="export-column-tables-submit"
             disabled={!selected || !catalogEntry || state === 'running'}
           >
             {state === 'running' ? 'Exporting…' : 'Export'}
-          </button>
+          </Button>
         </div>
       </form>
-    </div>
+    </Modal>
   );
 }

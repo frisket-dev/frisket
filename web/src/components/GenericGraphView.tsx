@@ -1,3 +1,6 @@
+import './GenericGraphView.css';
+import './FormControls.css';
+import { FormField } from './FormControls';
 import {
   useCallback,
   useEffect,
@@ -791,8 +794,8 @@ function GraphConfigPanel({
   return (
     <div className="graph-config-panel" data-testid="graph-config-panel">
       <h3>Configure</h3>
-      <label className="graph-config-field">
-        <span>Direction</span>
+      <FormField label="Direction" className="graph-config-field">
+
         <PanelSelect
           className="row-height-select"
           data-testid="graph-config-direction"
@@ -803,9 +806,9 @@ function GraphConfigPanel({
           <option value="directed">Directed</option>
           <option value="undirected">Undirected</option>
         </PanelSelect>
-      </label>
-      <label className="graph-config-field">
-        <span>Node label</span>
+      </FormField>
+      <FormField label="Node label" className="graph-config-field">
+
         <PanelSelect
           className="row-height-select"
           data-testid="graph-config-node-label"
@@ -819,9 +822,9 @@ function GraphConfigPanel({
             </option>
           ))}
         </PanelSelect>
-      </label>
-      <label className="graph-config-field">
-        <span>Node color</span>
+      </FormField>
+      <FormField label="Node color" className="graph-config-field">
+
         <PanelSelect
           className="row-height-select"
           data-testid="graph-config-node-color"
@@ -835,9 +838,9 @@ function GraphConfigPanel({
             </option>
           ))}
         </PanelSelect>
-      </label>
-      <label className="graph-config-field">
-        <span>Node size</span>
+      </FormField>
+      <FormField label="Node size" className="graph-config-field">
+
         <PanelSelect
           className="row-height-select"
           data-testid="graph-config-node-size"
@@ -851,9 +854,9 @@ function GraphConfigPanel({
             </option>
           ))}
         </PanelSelect>
-      </label>
-      <label className="graph-config-field">
-        <span>Edge label</span>
+      </FormField>
+      <FormField label="Edge label" className="graph-config-field">
+
         <PanelSelect
           className="row-height-select"
           data-testid="graph-config-edge-label"
@@ -867,7 +870,7 @@ function GraphConfigPanel({
             </option>
           ))}
         </PanelSelect>
-      </label>
+      </FormField>
     </div>
   );
 }

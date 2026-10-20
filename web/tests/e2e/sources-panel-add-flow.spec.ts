@@ -2,7 +2,7 @@
 // that cannot add a source is a dead end.
 //
 // sources.spec.ts already pins that source creation itself lives in the
-// Import workspace dialog (ImportCsv.tsx's "Feed" mode: source-name/
+// Import workspace dialog (FeedSourceForm's "Feed" mode: source-name/
 // source-url/source-interval/source-create, wired to the source.create v1
 // action) and that SourcesPanel must NOT own a second independent creation
 // form (`source-add-button` pinned to count 0 there). So this spec proves the

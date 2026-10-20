@@ -1,3 +1,4 @@
+import './PdfViewer.css';
 import {
   useCallback,
   useEffect,

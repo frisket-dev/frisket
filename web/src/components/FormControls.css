@@ -1,0 +1,126 @@
+@layer base, action-panel;
+
+@layer base {
+/* Form header: back chevron + big action title (with change-action menu) +
+   quiet "on <sheet>" context. Calm-hierarchy redesign. */
+/* The form variant wins over PanelHeader regardless of which primitive loads
+   first (including independent form stories). */
+.panel-header.form-header {
+  display: flex; align-items: center; gap: 8px;
+  text-transform: none; letter-spacing: 0;
+  font-size: 13px; color: var(--text);
+  padding: 16px 14px 10px;
+}
+.form-header > .muted { flex-shrink: 0; font-size: 12.5px; }
+.form-label-row {
+  display: flex; align-items: center; justify-content: space-between;
+  margin: var(--space-12) 0 var(--space-4);
+}
+}
+/* Two fields side by side (design card 5b: target sheet/column, match/confident
+   threshold) — each child owns its own label + input stack. */
+.form-row-pair { display: flex; gap: 14px; }
+.form-row-pair > * { flex: 1; min-width: 0; }
+/* Prompt-style
+   textareas grow with their content instead of scrolling a fixed 3-5 rows.
+   field-sizing is the primary mechanism; the paired ref/onInput JS fallback
+   (formControlHelpers.ts resizeTextareaToContent/handleAutoResizeTextareaInput)
+   covers browsers without field-sizing support. Bounded so a pasted essay
+   doesn't push the run button off-panel — scrolls internally past ~50vh. */
+.form-textarea-autogrow {
+  field-sizing: content;
+  /* The scrolling form owns overflow until this editor reaches its height cap. */
+  flex-shrink: 0;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+@layer base {
+.form-check {
+  display: flex; align-items: center; gap: 7px;
+  margin-top: 12px; font-size: 12px; color: var(--text-mid);
+}
+}
+.form-actions .btn-primary { min-width: 74px; }
+
+/* ---- action form extras ----------------------------------------------------- */
+
+.field-group { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.field-labels { font-size: 12px; }
+.field-help { color: var(--text-mid); font-size: 11.5px; line-height: 1.35; }
+.brand-project-btn:hover { background: var(--accent-bg); color: var(--accent); }
+
+/* Native controls share appearance; their owners retain layout, validation and
+   specialized editing (code, templates, auto-growing text, etc.). */
+@layer base {
+  .form-input {
+    box-sizing: border-box;
+    min-width: 0;
+    width: 100%;
+    font-family: inherit;
+    font-size: var(--font-size-control);
+    font-weight: 400;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-6);
+    padding: var(--space-6) var(--space-8);
+  }
+  .form-textarea { resize: vertical; line-height: 1.45; }
+}
+.form-input[data-control-density='compact'] { padding: 3px 6px; font-size: 11px; }
+.form-input[data-control-full-width='false'] { width: auto; }
+.form-input:focus {
+  outline: 2px solid var(--accent-bg);
+  border-color: var(--accent);
+}
+.form-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  min-width: 0;
+  font-size: var(--font-size-control);
+  font-weight: 600;
+  color: var(--text-mid);
+}
+.form-label { display: block; margin: 12px 0 6px; font-size: var(--font-size-control); font-weight: 600; color: var(--text-mid); }
+.form-field > .form-label { margin: 0; }
+.form-field[data-field-layout='inline'] { display: grid; grid-template-columns: 120px minmax(0, 1fr); align-items: center; gap: 12px; }
+.form-field[data-field-layout='inline'] > .form-hint { grid-column: 1 / -1; }
+.form-field > .form-input, .form-field > .panel-select-shell { width: 100%; }
+.form-hint { margin: 6px 0 0; font-size: 12px; line-height: 1.45; font-weight: 400; color: var(--text-light); }
+.form-field > .form-hint { margin: 0; }
+.param-row > .form-label { margin: 0; }
+.form-hint code { font-size: inherit; }
+.form-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.content-stack { display: grid; align-content: start; gap: 12px; min-width: 0; }
+.control-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.control-row[data-align='end'] { justify-content: flex-end; }
+.panel-list { display: flex; flex-direction: column; gap: 8px; list-style: none; margin: 0; padding: 0; min-width: 0; }
+.panel-card { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-7); }
+.panel-card[data-layout='row'] { flex-direction: row; flex-wrap: wrap; align-items: center; }
+.panel-item-main { flex: 1 1 140px; min-width: 0; }
+.panel-item-title { min-width: 0; margin: 0; font-size: 12.5px; font-weight: 600; color: var(--text); line-height: 1.4; overflow-wrap: anywhere; }
+.panel-item-description { min-width: 0; margin: 0; font-size: 11px; color: var(--text-mid); line-height: 1.4; overflow-wrap: anywhere; }
+.panel-item-meta { min-width: 0; margin: 0; font-size: 11px; color: var(--text-light); line-height: 1.4; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.unit-input { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.unit-input > input { flex: 1; min-width: 0; }
+.unit-input-suffix { font-size: 12px; color: var(--text-light); }
+.search-field { position: relative; min-width: 0; }
+.search-field > svg { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); color: var(--text-light); pointer-events: none; }
+.search-field > .form-input { padding-left: 30px; }
+.form-inline { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
+.form-inline > .form-field, .form-inline > .form-input { flex: 1 1 160px; }
+.form-inline > .form-hint, .form-inline > .panel-error, .form-inline > .panel-notice { flex: 1 0 100%; }
+.form-stack { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.form-stack > *, .form-stack > fieldset > * { margin-block: 0; }
+.form-stack > .btn, .form-stack > fieldset > .btn { align-self: flex-start; }
+.row-height-select:hover { background: var(--bg-hover); }
+.form-input-invalid,
+.form-input-invalid:focus {
+  border-color: var(--red);
+}

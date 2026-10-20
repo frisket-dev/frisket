@@ -1,0 +1,135 @@
+.workbench-bottom-dock {
+  flex: 0 0 auto;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  /* Monitor dock height seam clamp: 56–340px. */
+  min-height: 56px;
+  max-height: min(340px, 60vh);
+  overflow: hidden;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+.workbench-bottom-resize-handle {
+  appearance: none;
+  position: absolute;
+  top: -3px;
+  left: 0;
+  right: 0;
+  z-index: 4;
+  height: 6px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  cursor: row-resize;
+}
+.workbench-bottom-resize-handle::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 2px;
+  width: 48px;
+  height: 2px;
+  transform: translateX(-50%);
+  border-radius: var(--radius-999);
+  background: var(--border-strong);
+  opacity: 0;
+}
+.workbench-bottom-resize-handle:hover::after,
+.workbench-bottom-resize-handle:focus-visible::after,
+.workbench-bottom-dock-resizing .workbench-bottom-resize-handle::after {
+  opacity: 1;
+}
+.workbench-bottom-resize-handle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+}
+.workbench-bottom-tablist {
+  display: flex;
+  align-items: flex-end;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: 3px 8px 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+/* The Monitor tab strip sits ABOVE its panel, so the active tab is a card
+   joined to the surface below: top-edge accent, square/open bottom edge, and
+   one layer above the strip border. An inset bottom underline made these read
+   as detached pills and put the accent on the wrong side. */
+/* Mono count chip (e.g. Errors (2)). */
+.workbench-bottom-tab-chip {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: var(--radius-999);
+  color: var(--monitor);
+  background: var(--monitor-bg);
+}
+/* Right-aligned live run summary + amber progress bar. */
+.workbench-bottom-summary {
+  margin-left: auto;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 4px;
+}
+.workbench-bottom-summary-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-mid);
+}
+.workbench-bottom-summary[data-run-state='running'] .workbench-bottom-summary-label {
+  color: var(--monitor);
+}
+/* "complete with errors" reads in the same warning tone the Errors chip and
+   the dock's own status column already use, so the pill is not a calm green
+   claim over a job that failed rows. */
+.workbench-bottom-summary[data-run-state='complete-with-errors'] .workbench-bottom-summary-label {
+  color: var(--red);
+}
+.workbench-bottom-progress { width: 96px; }
+.workbench-bottom-tab-wrap {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 1px;
+}
+.workbench-bottom-tab-close {
+  height: 18px;
+  width: 18px;
+  color: var(--text-mid);
+}
+.workbench-bottom-tab-close:hover { color: var(--text); }
+.workbench-bottom-panel {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+  min-height: 0;
+  /* Zero: the gutter moved into .bottom-dock-tab-body, the ONE owner
+     (ui-region-frames-v1). The panel owns scroll, the frame owns padding. */
+  padding: 0;
+  overflow: auto;
+  color: var(--text-light);
+  font-size: 12px;
+}
+/* run-row-error-observability-v1: grouped per-row failure list (Jobs +
+   Errors tabs' shared job-detail pane, HistoryPanel's run-detail — the
+   grouped-by-message alternative to a flat per-row error dump). */
+.bottom-dock-plugin-error-settings-link {
+  margin-top: 8px;
+}
+
+/* Monitor dock minimize (parity with Discover's collapse): collapsed = the
+   tab strip only; the strip's chevron and any tab click re-expand. */
+.workbench-bottom-dock-collapsed { height: auto !important; min-height: 0; }
+.workbench-bottom-collapse { flex-shrink: 0; margin-left: 4px; color: var(--text-mid); }
+.workbench-bottom-collapse:hover { color: var(--text); background: var(--bg-hover); }

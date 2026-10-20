@@ -1,5 +1,9 @@
-import { Fragment, useDeferredValue, useMemo, useRef, useState, type DragEvent } from 'react';
-import { AlertTriangle, CheckCircle2, LockKeyhole, Search, Upload } from 'lucide-react';
+import { PanelFrame, PanelBody, PanelFooter } from '../../PanelLayout';
+import { ImportDropArea } from '../ImportDropArea';
+import { Button } from '../../Button';
+import { FormField, TextInput, TextArea } from '../../FormControls';
+import { Fragment, useDeferredValue, useMemo, useRef, useState } from 'react';
+import { AlertTriangle, CheckCircle2, LockKeyhole, Search } from 'lucide-react';
 
 import type {
   TableImportColumn,
@@ -12,9 +16,8 @@ import type {
   TableImportTargetType,
 } from '../../../api/tableImports';
 import { PanelSelect } from '../../PanelSelect';
-import { SegmentedToggle } from '../../PanelPrimitives';
-import { ImportDestinationChoice, ImportDestinationOptions } from '../ImportDestinationChoice';
-import { ImportStepFooter } from '../ImportStepFooter';
+import { PanelNotice, SegmentedToggle } from '../../PanelPrimitives';
+import { ImportDestinationPicker } from '../ImportDestinationPicker';
 import {
   summarizePasteForDisplay,
   type TableImportSourceIssue,
@@ -22,6 +25,7 @@ import {
 } from './model';
 
 import './TableImportFlow.css';
+import { formatBytes } from '../../../format';
 
 export interface TableImportDestinationSheet {
   columns: Array<{ id: number; name: string }>;
@@ -32,12 +36,6 @@ export interface TableImportDestinationSheet {
 
 function count(value: number, singular: string, plural = `${singular}s`): string {
   return `${value.toLocaleString()} ${value === 1 ? singular : plural}`;
-}
-
-function formatBytes(value: number): string {
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 ** 2) return `${Math.ceil(value / 1024).toLocaleString()} KB`;
-  return `${(value / 1024 ** 2).toFixed(value < 10 * 1024 ** 2 ? 1 : 0)} MB`;
 }
 
 function displayPasteSummary(value: string): string {
@@ -94,15 +92,12 @@ export function AddDataStep({
   const deferredPasteText = useDeferredValue(pasteText);
   const pasteSummary = useMemo(() => displayPasteSummary(deferredPasteText), [deferredPasteText]);
   const submitPaste = issue?.kind === 'large_paste' ? onLargePasteConfirm : onPasteSubmit;
-  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    if (!busy) onFiles(Array.from(event.dataTransfer.files));
-  };
 
-  return <section className="table-import-step table-import-add" aria-label="Add data">
-    <div className="table-import-step-body table-import-add-body">
+  return <PanelFrame fill className="table-import-add" aria-label="Add data">
+    <PanelBody className="import-entry-body">
       <SegmentedToggle
         ariaLabel="Table source"
+        fullWidth={false}
         value={mode}
         disabled={busy}
         onValueChange={(value) => onChooseMode(value as TableImportSourceMode)}
@@ -112,30 +107,28 @@ export function AddDataStep({
       {passwordFilename ? <div className="table-import-message" data-tone="warning">
         <LockKeyhole size={20} aria-hidden />
         <div><small>PASSWORD</small><h3>This workbook is password-protected</h3><p>Enter the password to open {passwordFilename}. It isn’t saved.</p></div>
-        <label><span>Password</span><input className="form-input" type="password" autoComplete="off" value={password} disabled={busy} onChange={(event) => onPasswordChange(event.currentTarget.value)} /></label>
-        <button type="button" className="btn btn-primary" disabled={busy || !password} onClick={onUnlock}>{busy ? 'Opening…' : 'Open'}</button>
+        <FormField label="Password" ><TextInput type="password" autoComplete="off" value={password} disabled={busy} onChange={(event) => onPasswordChange(event.currentTarget.value)} /></FormField>
+        <Button type="button" className="btn-primary" disabled={busy || !password} onClick={onUnlock}>{busy ? 'Opening…' : 'Open'}</Button>
       </div> : issue ? <SourceIssue issue={issue} busy={busy} onFiles={onFiles} onMultipleFiles={onMultipleFiles} onReset={onResetIssue} onSplitPdf={onSplitPdf} onChooseFtm={onChooseFtm} />
         : mode === 'file' ? <>
-          <div className="table-import-dropzone" onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = busy ? 'none' : 'copy'; }} onDrop={handleDrop}>
+          <ImportDropArea title={selectedFile ? selectedFile.name : 'Drop a CSV or Excel file here'}
+            description=".csv · .tsv · .txt · .xlsx · .xls · .ods" disabled={busy} onFiles={onFiles}>
             <input ref={inputRef} type="file" multiple hidden onChange={(event) => { onFiles(Array.from(event.currentTarget.files ?? [])); event.currentTarget.value = ''; }} />
-            <Upload size={32} aria-hidden />
-            <h3>{selectedFile ? selectedFile.name : 'Drop a CSV or Excel file here'}</h3>
-            <button type="button" className="btn btn-primary" disabled={busy} onClick={() => inputRef.current?.click()}>{busy ? 'Checking…' : 'Choose file'}</button>
-            <p>.csv · .tsv · .txt · .xlsx · .xls · .ods</p>
-          </div>
+            <Button type="button" className="btn-primary" disabled={busy} onClick={() => inputRef.current?.click()}>{busy ? 'Checking…' : 'Choose file'}</Button>
+          </ImportDropArea>
           <p className="table-import-source-note">One file at a time. To bring in many files or a folder, use <button type="button" className="text-btn" onClick={() => onMultipleFiles()}>Multiple files</button>.</p>
         </> : <div className="table-import-paste">
-          <textarea aria-label="Paste rows" autoFocus spellCheck={false} value={pasteText} disabled={busy} placeholder={'Name\tAmount\tDate'} onChange={(event) => onPasteChange(event.currentTarget.value)} />
+          <TextArea aria-label="Paste rows" autoFocus spellCheck={false} value={pasteText} disabled={busy} placeholder={'Name\tAmount\tDate'} onChange={(event) => onPasteChange(event.currentTarget.value)} />
           <p data-ready={pasteText.trim().length > 0 || undefined}><i />{pasteSummary}</p>
         </div>}
-    </div>
-    <ImportStepFooter>
-      <button type="button" className="btn" disabled={busy} onClick={onCancel}>Cancel</button>
+    </PanelBody>
+    <PanelFooter>
+      <Button type="button" disabled={busy} onClick={onCancel}>Cancel</Button>
       <span>{passwordFilename ? `${passwordFilename} is selected. Enter its password to continue.` : mode === 'paste' ? 'Pasted rows are read the same way as a file.' : selectedFile ? `${selectedFile.name} is selected.` : 'Choose or drop a file to continue.'}</span>
-      {mode === 'paste' ? <button type="button" className="btn btn-primary" disabled={busy || !pasteText.trim()} onClick={submitPaste}>{busy ? 'Checking…' : issue?.kind === 'large_paste' ? 'Continue with the paste' : 'Check rows →'}</button>
-        : <button type="button" className="btn btn-primary" disabled={busy || !selectedFile || issue !== null || passwordFilename !== null} onClick={onSelectedFileSubmit}>{busy ? 'Checking…' : 'Check rows →'}</button>}
-    </ImportStepFooter>
-  </section>;
+      {mode === 'paste' ? <Button type="button" className="btn-primary" disabled={busy || !pasteText.trim()} onClick={submitPaste}>{busy ? 'Checking…' : issue?.kind === 'large_paste' ? 'Continue with the paste' : 'Check rows →'}</Button>
+        : <Button type="button" className="btn-primary" disabled={busy || !selectedFile || issue !== null || passwordFilename !== null} onClick={onSelectedFileSubmit}>{busy ? 'Checking…' : 'Check rows →'}</Button>}
+    </PanelFooter>
+  </PanelFrame>;
 }
 
 function SourceIssue({ issue, busy, onFiles, onMultipleFiles, onReset, onSplitPdf, onChooseFtm }: {
@@ -174,11 +167,11 @@ function SourceIssue({ issue, busy, onFiles, onMultipleFiles, onReset, onSplitPd
     <AlertTriangle size={20} aria-hidden />
     <div><h3>{title}</h3><p>{body}</p></div>
     <div className="table-import-message-actions">
-      {issue.kind === 'multiple' && <><button type="button" className="btn btn-primary" disabled={busy} onClick={() => onFiles([issue.files[0]])}>Import {issue.files[0].name}</button><button type="button" className="btn" disabled={busy} onClick={() => onMultipleFiles(issue.files)}>Use Multiple files</button></>}
-      {issue.kind === 'pdf' && <><button type="button" className="btn btn-primary" disabled={busy} onClick={() => onMultipleFiles([issue.file])}>Use Multiple files</button><button type="button" className="btn" disabled={busy} onClick={() => onSplitPdf(issue.file)}>Split a PDF</button></>}
-      {issue.kind === 'follow_the_money' && <button type="button" className="btn btn-primary" disabled={busy} onClick={() => onChooseFtm(issue.file)}>Use FollowTheMoney import</button>}
-      {(issue.kind === 'unsupported' || issue.kind === 'empty') && <button type="button" className="btn" disabled={busy} onClick={() => chooseRef.current?.click()}>Choose another file</button>}
-      {issue.kind === 'large_paste' && <button type="button" className="btn" disabled={busy} onClick={onReset}>Choose a file instead</button>}
+      {issue.kind === 'multiple' && <><Button type="button" className="btn-primary" disabled={busy} onClick={() => onFiles([issue.files[0]])}>Import {issue.files[0].name}</Button><Button type="button" disabled={busy} onClick={() => onMultipleFiles(issue.files)}>Use Multiple files</Button></>}
+      {issue.kind === 'pdf' && <><Button type="button" className="btn-primary" disabled={busy} onClick={() => onMultipleFiles([issue.file])}>Use Multiple files</Button><Button type="button" disabled={busy} onClick={() => onSplitPdf(issue.file)}>Split a PDF</Button></>}
+      {issue.kind === 'follow_the_money' && <Button type="button" className="btn-primary" disabled={busy} onClick={() => onChooseFtm(issue.file)}>Use FollowTheMoney import</Button>}
+      {(issue.kind === 'unsupported' || issue.kind === 'empty') && <Button type="button" disabled={busy} onClick={() => chooseRef.current?.click()}>Choose another file</Button>}
+      {issue.kind === 'large_paste' && <Button type="button" disabled={busy} onClick={onReset}>Choose a file instead</Button>}
     </div>
     <input ref={chooseRef} hidden type="file" onChange={(event) => { onFiles(Array.from(event.currentTarget.files ?? [])); event.currentTarget.value = ''; }} />
   </div>;
@@ -248,26 +241,26 @@ export function CheckRowsStep({ draft, busy, onBack, onContinue, onSettings }: {
   const rowCount = draft.analysis.exact_rows ?? draft.analysis.estimated_rows ?? draft.analysis.scanned_rows;
   const footerRows = draft.analysis.complete ? count(rowCount, 'row') : `${count(rowCount, 'row')} so far`;
   const numericExample = numberSample(draft);
-  return <section className="table-import-step table-import-rows" aria-label="Check rows">
-    <div className="table-import-step-body">
+  return <PanelFrame fill className="table-import-rows" aria-label="Check rows">
+    <PanelBody className="">
       <div className="table-import-reader-controls">
         {delimited ? <>
-          <label><span>Separator</span><PanelSelect value={requested.delimiter ?? ''} disabled={busy} onChange={(event) => update('delimiter', event.currentTarget.value || null)}>{DELIMITERS.map((option) => <option key={option.value} value={option.value}>{option.value === '' ? resolvedAuto('Auto', resolved.delimiter ?? null) : option.label}</option>)}</PanelSelect></label>
-          {draft.source.input_kind === 'file' && <label><span>Character encoding</span><PanelSelect value={requested.encoding ?? ''} disabled={busy} onChange={(event) => update('encoding', event.currentTarget.value || null)}>{ENCODINGS.map((option) => <option key={option.value} value={option.value}>{option.value === '' ? resolvedAuto('Auto', resolved.encoding ?? null) : option.label}</option>)}</PanelSelect></label>}
-          <label className="table-import-number-format"><span>Numbers{numericExample ? ` · ${numericExample}` : ''}</span><PanelSelect value={`${requested.decimal_separator}:${requested.thousands_separator}`} disabled={busy} onChange={(event) => {
+          <FormField label="Separator" ><PanelSelect value={requested.delimiter ?? ''} disabled={busy} onChange={(event) => update('delimiter', event.currentTarget.value || null)}>{DELIMITERS.map((option) => <option key={option.value} value={option.value}>{option.value === '' ? resolvedAuto('Auto', resolved.delimiter ?? null) : option.label}</option>)}</PanelSelect></FormField>
+          {draft.source.input_kind === 'file' && <FormField label="Character encoding" ><PanelSelect value={requested.encoding ?? ''} disabled={busy} onChange={(event) => update('encoding', event.currentTarget.value || null)}>{ENCODINGS.map((option) => <option key={option.value} value={option.value}>{option.value === '' ? resolvedAuto('Auto', resolved.encoding ?? null) : option.label}</option>)}</PanelSelect></FormField>}
+          <FormField label={<span>Numbers{numericExample ? ` · ${numericExample}` : ''}</span>} className="table-import-number-format"><PanelSelect value={`${requested.decimal_separator}:${requested.thousands_separator}`} disabled={busy} onChange={(event) => {
             const [decimal, thousands] = event.currentTarget.value.split(':') as [TableImportRequestedSettings['decimal_separator'], TableImportRequestedSettings['thousands_separator']];
             onSettings({ ...requested, decimal_separator: decimal, thousands_separator: thousands });
-          }}><option value="auto:auto">Auto ({resolved.thousands_separator ? `1${resolved.thousands_separator}234${resolved.decimal_separator}56` : `1234${resolved.decimal_separator}56`})</option><option value=".:,">1,234.56</option><option value=",:.">1.234,56</option></PanelSelect></label>
-        </> : <label className="table-import-sheet-control"><span>Sheet</span><PanelSelect value={requested.worksheet ?? ''} disabled={busy} onChange={(event) => update('worksheet', event.currentTarget.value)}>{draft.source.sheets.map((sheet) => <option key={sheet.index} value={sheet.name} disabled={sheet.empty}>{sheet.name}{sheet.hidden ? ' (hidden)' : ''}{sheet.empty ? ' · no cells' : ''}</option>)}</PanelSelect></label>}
+          }}><option value="auto:auto">Auto ({resolved.thousands_separator ? `1${resolved.thousands_separator}234${resolved.decimal_separator}56` : `1234${resolved.decimal_separator}56`})</option><option value=".:,">1,234.56</option><option value=",:.">1.234,56</option></PanelSelect></FormField>
+        </> : <FormField label="Sheet" className="table-import-sheet-control"><PanelSelect value={requested.worksheet ?? ''} disabled={busy} onChange={(event) => update('worksheet', event.currentTarget.value)}>{draft.source.sheets.map((sheet) => <option key={sheet.index} value={sheet.name} disabled={sheet.empty}>{sheet.name}{sheet.hidden ? ' (hidden)' : ''}{sheet.empty ? ' · no cells' : ''}</option>)}</PanelSelect></FormField>}
         <NumberStepper label="Skip rows at start" value={requested.skip_rows_start ?? 0} disabled={busy} onChange={(value) => update('skip_rows_start', value)} />
         <label className="table-import-header-check"><input type="checkbox" checked={requested.first_row_is_header ?? true} disabled={busy} onChange={(event) => update('first_row_is_header', event.currentTarget.checked)} /> First row has column names</label>
         <NumberStepper label="Skip rows at end" value={requested.skip_rows_end ?? 0} disabled={busy} onChange={(value) => update('skip_rows_end', value)} />
       </div>
       {preview ? <TablePreview preview={preview} firstRowIsHeader={requested.first_row_is_header ?? true} onRecordClick={(ordinal) => update('skip_rows_start', Math.max(0, ordinal - 1))} /> : <div className="table-import-preview-loading" role="status">Reading rows…</div>}
       {preview && <PreviewNotice preview={preview} firstRowIsHeader={requested.first_row_is_header ?? true} />}
-    </div>
-    <ImportStepFooter><button type="button" className="btn" disabled={busy} onClick={onBack}>Back</button><span>{footerRows} · {count(preview?.columns.length ?? draft.columns.length, 'column')}{delimited ? ` · ${displayDelimiter(resolved.delimiter)} · ${displayEncoding(resolved.encoding)}` : ''}</span><button type="button" className="btn btn-primary" disabled={busy || preview === null || preview.columns.length === 0} onClick={onContinue}>Columns →</button></ImportStepFooter>
-  </section>;
+    </PanelBody>
+    <PanelFooter><Button type="button" disabled={busy} onClick={onBack}>Back</Button><span>{footerRows} · {count(preview?.columns.length ?? draft.columns.length, 'column')}{delimited ? ` · ${displayDelimiter(resolved.delimiter)} · ${displayEncoding(resolved.encoding)}` : ''}</span><Button type="button" className="btn-primary" disabled={busy || preview === null || preview.columns.length === 0} onClick={onContinue}>Columns →</Button></PanelFooter>
+  </PanelFrame>;
 }
 
 function NumberStepper({ label, value, disabled, onChange }: { label: string; value: number; disabled: boolean; onChange(value: number): void }) {
@@ -331,7 +324,7 @@ function PreviewNotice({ preview, firstRowIsHeader }: { preview: TableImportPrev
   else if (notice.kind === 'counting') text = 'Checking the rest of the file…';
   else text = `Every line shown has ${notice.common_values ?? preview.expected_values} values.`;
   const tone = notice.kind === 'consistent' ? 'success' : notice.kind === 'counting' ? 'neutral' : 'warning';
-  return <div className="table-import-preview-notice" data-tone={tone}>{tone === 'success' ? <CheckCircle2 size={15} /> : tone === 'warning' ? <AlertTriangle size={15} /> : null}<span>{text}</span></div>;
+  return <PanelNotice className="table-import-preview-notice" tone={tone}>{tone === 'success' ? <CheckCircle2 size={15} /> : tone === 'warning' ? <AlertTriangle size={15} /> : null}<span>{text}</span></PanelNotice>;
 }
 
 const TARGET_TYPES: Array<{ value: TableImportTargetType; label: string }> = [
@@ -383,18 +376,18 @@ export function ColumnsStep({ draft, busy, onBack, onColumns, onContinue }: {
     });
     selectionAnchor.current = sourceIndex;
   };
-  return <section className="table-import-step table-import-columns" aria-label="Columns" onKeyDown={(event) => { if (event.key === 'Shift') shiftHeld.current = true; }} onKeyUp={(event) => { if (event.key === 'Shift') shiftHeld.current = false; }}>
-    <div className="table-import-step-body">
+  return <PanelFrame fill className="table-import-columns" aria-label="Columns" onKeyDown={(event) => { if (event.key === 'Shift') shiftHeld.current = true; }} onKeyUp={(event) => { if (event.key === 'Shift') shiftHeld.current = false; }}>
+    <PanelBody className="">
       <div className="table-import-column-toolbar">
-        {selected.size > 0 ? <><strong>{count(selected.size, 'column')} selected</strong><label>Set type <PanelSelect value={bulkType} onChange={(event) => setBulkType(event.currentTarget.value as TableImportTargetType)}>{TARGET_TYPES.filter((type) => type.value !== 'omit').map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</PanelSelect></label><button type="button" className="btn" disabled={busy} onClick={() => applySelected(bulkType)}>Apply</button><button type="button" className="btn" disabled={busy} onClick={() => applySelected('omit')}>Leave out</button><button type="button" className="text-btn" onClick={() => { setSelected(new Set()); selectionAnchor.current = null; }}>Clear</button></> : <><label className="table-import-column-search"><Search size={14} /><input value={query} placeholder="Find columns" aria-label="Find columns" onChange={(event) => setQuery(event.currentTarget.value)} /></label><div className="table-import-filter-chips">{([['all', `All ${draft.columns.length}`], ['review', `Needs a look ${reviewCount}`], ['omitted', `Left out ${omittedCount}`]] as Array<[ColumnFilter, string]>).map(([value, label]) => <button type="button" key={value} className={filter === value ? 'active' : ''} onClick={() => setFilter(value)}>{label}</button>)}</div><span>Shift-click to select a range.</span></>}
+        {selected.size > 0 ? <><strong>{count(selected.size, 'column')} selected</strong><label className="form-field">Set type <PanelSelect value={bulkType} onChange={(event) => setBulkType(event.currentTarget.value as TableImportTargetType)}>{TARGET_TYPES.filter((type) => type.value !== 'omit').map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</PanelSelect></label><Button type="button" disabled={busy} onClick={() => applySelected(bulkType)}>Apply</Button><Button type="button" disabled={busy} onClick={() => applySelected('omit')}>Leave out</Button><button type="button" className="text-btn" onClick={() => { setSelected(new Set()); selectionAnchor.current = null; }}>Clear</button></> : <><label className="table-import-column-search"><Search size={14} /><input value={query} placeholder="Find columns" aria-label="Find columns" onChange={(event) => setQuery(event.currentTarget.value)} /></label><div className="table-import-filter-chips">{([['all', `All ${draft.columns.length}`], ['review', `Needs a look ${reviewCount}`], ['omitted', `Left out ${omittedCount}`]] as Array<[ColumnFilter, string]>).map(([value, label]) => <button type="button" key={value} className={filter === value ? 'active' : ''} onClick={() => setFilter(value)}>{label}</button>)}</div><span>Shift-click to select a range.</span></>}
       </div>
       <div className="table-import-column-list" role="table" aria-label="Columns to import">
         <div role="row" className="table-import-column-heading"><span role="columnheader"><input type="checkbox" aria-label="Select shown columns" checked={shown.length > 0 && shown.every((column) => selected.has(column.source_index))} onChange={(event) => { selectionAnchor.current = null; setSelected((current) => { const next = new Set(current); shown.forEach((column) => event.currentTarget.checked ? next.add(column.source_index) : next.delete(column.source_index)); return next; }); }} /></span><strong role="columnheader">Column</strong><strong role="columnheader">Type</strong><strong role="columnheader">Values as imported</strong><strong role="columnheader">Note</strong></div>
         {shown.map((column) => <ColumnRow key={column.source_index} column={column} selected={selected.has(column.source_index)} busy={busy} onSelected={(checked, shiftKey) => selectColumn(column.source_index, checked, shiftKey || shiftHeld.current)} onChange={(patch) => changeOne(column, patch)} />)}
       </div>
-    </div>
-    <ImportStepFooter><button type="button" className="btn" disabled={busy} onClick={onBack}>Back</button><span>{draft.columns.filter((column) => column.included && column.target_type !== 'omit').length} of {draft.columns.length} columns will be imported.</span><button type="button" className="btn btn-primary" disabled={busy || draft.columns.every((column) => !column.included || column.target_type === 'omit')} onClick={onContinue}>Continue →</button></ImportStepFooter>
-  </section>;
+    </PanelBody>
+    <PanelFooter><Button type="button" disabled={busy} onClick={onBack}>Back</Button><span>{draft.columns.filter((column) => column.included && column.target_type !== 'omit').length} of {draft.columns.length} columns will be imported.</span><Button type="button" className="btn-primary" disabled={busy || draft.columns.every((column) => !column.included || column.target_type === 'omit')} onClick={onContinue}>Continue →</Button></PanelFooter>
+  </PanelFrame>;
 }
 
 function ColumnRow({ column, selected, busy, onSelected, onChange }: { column: TableImportColumn; selected: boolean; busy: boolean; onSelected(checked: boolean, shiftKey: boolean): void; onChange(patch: Partial<TableImportColumnPatch>): void }) {
@@ -469,17 +462,11 @@ export function ImportTableStep({ draft, destination, destinationSheets, preferr
   const columnSummary = [omittedColumns > 0 ? `${count(omittedColumns, 'column')} left out` : '', newColumns > 0 ? `${count(newColumns, 'new column')} added` : ''].filter(Boolean).join(' · ');
   const invalidValues = draft.columns.reduce((total, column) => total + (column.included && column.target_type !== 'omit' ? column.conversion_counts.invalid : 0), 0);
   const invalidColumnNames = draft.columns.filter((column) => column.included && column.target_type !== 'omit' && column.conversion_counts.invalid > 0).map((column) => column.name);
-  const newSheetName = destination.kind === 'new' ? destination.sheet_name : draft.source.input_kind === 'paste' ? 'Pasted rows' : draft.source.filename.replace(/\.[^.]+$/, '');
-  return <section className="table-import-step table-import-destination" aria-label="Import">
-    <div className="table-import-step-body">
-      <ImportDestinationOptions>
-        <ImportDestinationChoice name="table-import-destination" selected={destination.kind === 'new'} disabled={busy} title="New sheet" showInactiveChildren onSelect={() => onDestination({ kind: 'new', sheet_name: newSheetName })}>
-          <label className="import-destination-choice-field"><span className="sr-only">Sheet name</span><input aria-label="Sheet name" className="form-input" value={newSheetName} disabled={busy || destination.kind !== 'new'} onChange={(event) => onDestination({ kind: 'new', sheet_name: event.currentTarget.value })} /></label>
-        </ImportDestinationChoice>
-        <ImportDestinationChoice name="table-import-destination" selected={destination.kind === 'existing'} disabled={busy || destinationSheets.length === 0} title="Add to an existing sheet" showInactiveChildren onSelect={() => { const sheet = destinationSheets.find((candidate) => candidate.id === preferredDestinationSheetId) ?? destinationSheets[0]; if (sheet) onDestination({ kind: 'existing', sheet_id: sheet.id }); }}>
-          <label className="import-destination-choice-field"><span className="sr-only">Sheet</span><PanelSelect aria-label="Sheet" value={String(destination.kind === 'existing' ? destination.sheet_id : destinationSheets.find((candidate) => candidate.id === preferredDestinationSheetId)?.id ?? destinationSheets[0]?.id ?? '')} disabled={busy || destination.kind !== 'existing' || destinationSheets.length === 0} onChange={(event) => onDestination({ kind: 'existing', sheet_id: Number(event.currentTarget.value) })}>{destinationSheets.length === 0 && <option value="">No sheets yet</option>}{destinationSheets.map((sheet) => <option value={sheet.id} key={sheet.id}>{sheet.name} · {count(sheet.rowCount, 'row')}</option>)}</PanelSelect></label>
-        </ImportDestinationChoice>
-      </ImportDestinationOptions>
+  return <PanelFrame fill className="table-import-destination" aria-label="Import">
+    <PanelBody className="">
+      <ImportDestinationPicker destination={destination} sheets={destinationSheets}
+        defaultSheetName={draft.source.input_kind === 'paste' ? 'Pasted rows' : draft.source.filename.replace(/\.[^.]+$/, '')}
+        preferredSheetId={preferredDestinationSheetId} busy={busy} onDestination={onDestination} />
       {destination.kind === 'existing' && <ExistingDestination draft={draft} destination={destination} sheet={existingSheet ?? null} busy={busy} onDestination={onDestination} />}
       <div className="table-import-summary">
         <div><span>Rows to add</span><strong>{importRows == null ? 'Counting…' : `${draft.analysis.complete || comparison?.import_rows != null ? '' : 'About '}${importRows.toLocaleString()}`}</strong><small /></div>
@@ -488,9 +475,9 @@ export function ImportTableStep({ draft, destination, destinationSheets, preferr
         {invalidValues > 0 && <div><span>Values left blank</span><strong>{invalidValues.toLocaleString()}</strong><small>{invalidColumnNames.join(', ')}; originals listed in Errors</small></div>}
         {(draft.analysis.issue_counts.missing_values ?? 0) > 0 && <div><span>Lines with missing values</span><strong>{draft.analysis.issue_counts.missing_values!.toLocaleString()}</strong><small>Missing cells stay blank</small></div>}
       </div>
-    </div>
-    <ImportStepFooter><button type="button" className="btn" disabled={busy} onClick={onBack}>Back</button><span>{destination.kind === 'new' ? 'The new sheet opens when you click Import.' : `Rows are added below the existing ${existingSheet?.rowCount.toLocaleString() ?? 0}.`}</span><button type="button" className="btn btn-primary" disabled={busy || !draft.can_commit || (destination.kind === 'new' && !destination.sheet_name.trim())} onClick={onCommit}>{busy ? 'Importing…' : importRows == null ? 'Import' : `Import ${draft.analysis.complete || comparison?.import_rows != null ? '' : 'about '}${count(importRows, 'row')}`}</button></ImportStepFooter>
-  </section>;
+    </PanelBody>
+    <PanelFooter><Button type="button" disabled={busy} onClick={onBack}>Back</Button><span>{destination.kind === 'new' ? 'The new sheet opens when you click Import.' : `Rows are added below the existing ${existingSheet?.rowCount.toLocaleString() ?? 0}.`}</span><Button type="button" className="btn-primary" disabled={busy || !draft.can_commit || (destination.kind === 'new' && !destination.sheet_name.trim())} onClick={onCommit}>{busy ? 'Importing…' : importRows == null ? 'Import' : `Import ${draft.analysis.complete || comparison?.import_rows != null ? '' : 'about '}${count(importRows, 'row')}`}</Button></PanelFooter>
+  </PanelFrame>;
 }
 
 function ExistingDestination({ draft, destination, sheet, busy, onDestination }: { draft: TableImportDraft; destination: Extract<TableImportDestinationConfig, { kind: 'existing' }>; sheet: TableImportDestinationSheet | null; busy: boolean; onDestination(destination: TableImportDestinationConfig, snapshot?: TableImportDestinationSnapshot | null): void }) {
@@ -511,7 +498,7 @@ function ExistingDestination({ draft, destination, sheet, busy, onDestination }:
         : { kind: 'existing' as const, column_id: Number(event.currentTarget.value.slice('existing:'.length)) };
       changeMapping(mapping.source_index, target);
     }}><option value="new">+ New column</option>{sheet?.columns.map((column) => <option key={column.id} value={`existing:${column.id}`}>{column.name}</option>)}</PanelSelect><span className="table-import-mapping-status"><b data-match={mapping.match}>{mapping.match === 'matched' ? 'Matched' : mapping.match === 'similar' ? 'Similar name' : mapping.match === 'type_clash' ? mapping.detail ?? 'Type clash' : 'Not in the sheet yet'}</b>{mapping.match === 'type_clash' && <button type="button" className="text-btn" disabled={busy} onClick={() => changeMapping(mapping.source_index, { kind: 'new', name: mapping.source_name })}>Add as new {targetTypeLabel(mapping.source_type)} column</button>}</span></div>)}</div>
-    <label className="table-import-dedup"><input type="checkbox" checked={eligibleKeys.length > 0 && snapshot.dedup.enabled} disabled={busy || eligibleKeys.length === 0} onChange={(event) => onDestination(destination, { ...snapshot, dedup: { enabled: event.currentTarget.checked, key_source_index: event.currentTarget.checked ? snapshot.dedup.key_source_index ?? eligibleKeys[0]?.source_index ?? null : null } })} /> Skip rows already in {sheet?.name ?? 'this sheet'}, matched on <PanelSelect aria-label="Duplicate key" value={snapshot.dedup.key_source_index ?? ''} disabled={busy || !snapshot.dedup.enabled || eligibleKeys.length === 0} onChange={(event) => onDestination(destination, { ...snapshot, dedup: { enabled: true, key_source_index: Number(event.currentTarget.value) } })}><option value="">Choose a matched column</option>{eligibleKeys.map((column) => <option key={column.source_index} value={column.source_index}>{column.name}</option>)}</PanelSelect>{eligibleKeys.length === 0 ? <span>Match a column to use this</span> : snapshot.comparison.duplicate_rows != null && <span>{count(snapshot.comparison.duplicate_rows, 'row')} found</span>}</label>
+    <label className="table-import-dedup form-field"><input type="checkbox" checked={eligibleKeys.length > 0 && snapshot.dedup.enabled} disabled={busy || eligibleKeys.length === 0} onChange={(event) => onDestination(destination, { ...snapshot, dedup: { enabled: event.currentTarget.checked, key_source_index: event.currentTarget.checked ? snapshot.dedup.key_source_index ?? eligibleKeys[0]?.source_index ?? null : null } })} /> Skip rows already in {sheet?.name ?? 'this sheet'}, matched on <PanelSelect aria-label="Duplicate key" value={snapshot.dedup.key_source_index ?? ''} disabled={busy || !snapshot.dedup.enabled || eligibleKeys.length === 0} onChange={(event) => onDestination(destination, { ...snapshot, dedup: { enabled: true, key_source_index: Number(event.currentTarget.value) } })}><option value="">Choose a matched column</option>{eligibleKeys.map((column) => <option key={column.source_index} value={column.source_index}>{column.name}</option>)}</PanelSelect>{eligibleKeys.length === 0 ? <span>Match a column to use this</span> : snapshot.comparison.duplicate_rows != null && <span>{count(snapshot.comparison.duplicate_rows, 'row')} found</span>}</label>
   </div>;
 }
 

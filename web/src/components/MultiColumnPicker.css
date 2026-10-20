@@ -1,0 +1,57 @@
+/* ============================================================================
+   MultiColumnPicker: chip/token multi-select for column lists.
+   ========================================================================== */
+.multi-col-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  align-content: flex-start;
+  gap: 6px;
+  min-height: 38px;
+  /* A sheet with 40+ columns can wrap dozens of chips — cap the box at
+     ~5 rows and scroll internally past that, rather than let the field grow
+     unbounded and drag the whole action panel into an endless scroll. */
+  max-height: 160px;
+  overflow-y: auto;
+  cursor: text;
+}
+.multi-col-picker.is-open {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-ring);
+}
+.multi-col-add {
+  font-size: 12.5px;
+  color: var(--text-light);
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.multi-col-filter {
+  flex: 1;
+  min-width: 80px;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 13px;
+  color: var(--text);
+  padding: 4px 2px;
+}
+.multi-col-caret {
+  margin-left: auto;
+  align-self: center;
+}
+.multi-col-check {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border-radius: var(--radius-4);
+  border: 1.5px solid var(--border-strong);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-on-solid);
+}
+.multi-col-check.is-selected {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.multi-col-ai { color: var(--ai); }

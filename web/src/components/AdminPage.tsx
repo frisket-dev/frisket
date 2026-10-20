@@ -1,3 +1,6 @@
+import './AdminPage.css';
+import { Button } from './Button';
+import { TextInput } from './FormControls';
 import {
   Fragment,
   type FormEvent,
@@ -38,7 +41,7 @@ import {
 } from '../api/open';
 import { BrandLink } from './BrandLink';
 import { useEditionModule } from '../editions/module';
-import { DiagnosticsSettings } from '../settings/SettingsSections';
+import { DiagnosticsSettings } from '../settings/DiagnosticsSettings';
 
 const ADMIN_LINKS = [
   { path: '/admin', label: 'Overview' },
@@ -704,9 +707,9 @@ function AdminUsersPanel({
         <span className="job-count" data-testid="admin-invite-count">
           invites {inviteRows.length}
         </span>
-        <button type="button" className="mini-btn" onClick={onRefresh}>
+        <Button type="button" onClick={onRefresh}>
           Refresh
-        </button>
+        </Button>
       </div>
 
       <form className="admin-user-invite" data-testid="admin-invite-form" onSubmit={submitInvite}>
@@ -722,9 +725,9 @@ function AdminUsersPanel({
             <option key={org.id} value={org.id}>{org.name}</option>
           ))}
         </PanelSelect>
-        <input
+        <TextInput
           aria-label="Invite email"
-          className="form-input"
+
           data-testid="admin-invite-email"
           type="email"
           placeholder="email@example.com"
@@ -734,40 +737,40 @@ function AdminUsersPanel({
           )}
           disabled={orgs.length === 0 || busy !== null || pendingInvite !== null}
         />
-        <button
+        <Button
           type="submit"
-          className="mini-btn"
+
           data-testid="admin-invite-submit"
           disabled={
             !inviteEmail.trim() || !activeOrgId || busy !== null || pendingInvite !== null
           }
         >
           Invite
-        </button>
+        </Button>
       </form>
       {pendingInvite && (
         <div className="account-note" data-testid="admin-invite-confirm">
           This adds <strong>{pendingInvite.email}</strong> to{' '}
           <strong>{pendingInvite.orgName}</strong>.
           <div className="admin-job-actions">
-            <button
+            <Button
               type="button"
-              className="mini-btn"
+
               data-testid="admin-invite-confirm-send"
               disabled={busy !== null}
               onClick={confirmInvite}
             >
               {busy ? 'Sending…' : 'Confirm & send invite'}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              className="mini-btn"
+
               data-testid="admin-invite-confirm-cancel"
               disabled={busy !== null}
               onClick={cancelInvite}
             >
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -871,15 +874,15 @@ function AdminUsersTable({
             </td>
             <td>{user.created_at ?? '—'}</td>
             <td>
-              <button
+              <Button
                 type="button"
-                className="mini-btn"
+
                 data-testid={`admin-user-revoke-${user.user_id}`}
                 disabled={busy !== null}
                 onClick={() => onRevoke(org, user.user_id)}
               >
                 Remove membership
-              </button>
+              </Button>
             </td>
           </tr>
         ))}
@@ -928,15 +931,15 @@ function AdminInvitesTable({
             <td>{invite.email}</td>
             <td>{invite.expires_at ?? '—'}</td>
             <td>
-              <button
+              <Button
                 type="button"
-                className="mini-btn"
+
                 data-testid={`admin-invite-revoke-${invite.email}`}
                 disabled={busy !== null}
                 onClick={() => onRevoke(org, invite.email)}
               >
                 Revoke
-              </button>
+              </Button>
             </td>
           </tr>
         ))}
@@ -1002,9 +1005,9 @@ function AdminAuditPanel({
         <span className="job-count" data-testid="admin-audit-count">
           events {events.length}
         </span>
-        <button type="button" className="mini-btn" onClick={() => { void onRefresh(currentFilters()); }}>
+        <Button type="button" onClick={() => { void onRefresh(currentFilters()); }}>
           Refresh
-        </button>
+        </Button>
       </div>
 
       <form className="admin-audit-filters" data-testid="admin-audit-filters" onSubmit={submitFilters}>
@@ -1034,9 +1037,9 @@ function AdminAuditPanel({
             </option>
           ))}
         </PanelSelect>
-        <input
+        <TextInput
           aria-label="Audit user"
-          className="form-input"
+
           data-testid="admin-audit-user-filter"
           placeholder="user or email"
           value={userFilter}
@@ -1054,17 +1057,17 @@ function AdminAuditPanel({
             <option key={item} value={item}>{item}</option>
           ))}
         </PanelSelect>
-        <button type="submit" className="mini-btn" data-testid="admin-audit-apply">
+        <Button type="submit" data-testid="admin-audit-apply">
           Apply
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className="mini-btn"
+
           data-testid="admin-audit-clear"
           onClick={clearFilters}
         >
           Clear
-        </button>
+        </Button>
       </form>
 
       {error && (
@@ -1150,9 +1153,9 @@ function AdminErrorsPanel({
         <span className="job-count job-failed" data-testid="admin-error-count">
           recent {events.length}
         </span>
-        <button type="button" className="mini-btn" onClick={onRefresh}>
+        <Button type="button" onClick={onRefresh}>
           Refresh
-        </button>
+        </Button>
       </div>
       <table className="admin-table admin-errors-table" data-testid="admin-errors-table">
         <thead>
@@ -1271,9 +1274,9 @@ export function AdminHealthPanel({
             ))}
           </>
         )}
-        <button type="button" className="mini-btn" onClick={onRefresh}>
+        <Button type="button" onClick={onRefresh}>
           Refresh
-        </button>
+        </Button>
       </div>
       {error && health !== null ? (
         <div className="picker-error" data-testid="admin-health-error">
@@ -1333,9 +1336,9 @@ function AdminJobsPanel({
         >
           {noLiveWorker ? 'no live worker' : `${liveWorkers} live worker(s)`}
         </span>
-        <button type="button" className="mini-btn" onClick={onRefresh}>
+        <Button type="button" onClick={onRefresh}>
           Refresh
-        </button>
+        </Button>
       </div>
       {actionError ? (
         <div className="picker-error" data-testid="admin-job-action-error">
@@ -1419,21 +1422,21 @@ function AdminJobsPanel({
                           Open project
                         </a>
                       ) : (
-                        <button type="button" className="mini-btn" disabled>
+                        <Button type="button" disabled>
                           Open project
-                        </button>
+                        </Button>
                       )}
-                      <button
+                      <Button
                         type="button"
-                        className="mini-btn"
+
                         data-testid={`admin-job-copy-${job.id}`}
                         onClick={() => copyAdminJob(job)}
                       >
                         Copy JSON
-                      </button>
-                      <button
+                      </Button>
+                      <Button
                         type="button"
-                        className="mini-btn"
+
                         data-testid={`admin-job-cancel-${job.id}`}
                         disabled={
                           pending !== null ||
@@ -1442,7 +1445,7 @@ function AdminJobsPanel({
                         onClick={() => void remediate(job.id, 'cancel')}
                       >
                         {pending?.id === job.id && pending.action === 'cancel' ? 'Cancelling…' : 'Cancel'}
-                      </button>
+                      </Button>
                     </div>
                     <div className="admin-job-json">
                       <details open data-testid={`admin-job-refs-${job.id}`}>

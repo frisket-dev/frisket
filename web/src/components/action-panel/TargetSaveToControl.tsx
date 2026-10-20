@@ -1,3 +1,8 @@
+import '../PanelPrimitives.css';
+import '../IconButton.css';
+import '../PanelSelect.css';
+import { TextInput } from '../FormControls';
+import { MenuPop } from '../MenuPop';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { DropdownIndicator } from '../DropdownIndicator';
@@ -111,10 +116,10 @@ export function OutputNameCombobox({
       <div className={styles.row}>
         <label className={`form-label ${styles.label}`} htmlFor={generatedInputId}>{label}</label>
         <div className={styles.combobox} ref={comboboxRef}>
-          <input
+          <TextInput
             ref={inputRef}
             id={generatedInputId}
-            className={`form-input ${styles.input}`}
+            className={`form-input select-trigger ${styles.input}`}
             value={value}
             list={allowExistingTargets ? datalistId : undefined}
             aria-expanded={open}
@@ -217,7 +222,7 @@ export function OutputNameCombobox({
             ))}
           </datalist>
           {open && (
-            <div
+            <MenuPop sizing="anchored"
               className={styles.options}
               role="listbox"
               id={listboxId}
@@ -229,7 +234,8 @@ export function OutputNameCombobox({
                   type="button"
                   role="option"
                   id={outputNameRichOptionId(inputTestId, column.id)}
-                  className={`${styles.option} ${effectiveActiveOptionId === column.id ? 'is-active' : ''}`}
+                  className="menu-item"
+                  data-active={effectiveActiveOptionId === column.id}
                   data-testid={`${inputTestId}-option-${optionSlug(column.name)}`}
                   aria-selected={column.name === value}
                   tabIndex={-1}
@@ -242,15 +248,15 @@ export function OutputNameCombobox({
                     setWarningColumnName(null);
                   }}
                 >
-                  <span>{column.name}</span>
-                  <span className="muted">{column.type}{column.ai ? ' AI' : ''}</span>
+                  <span className="menu-item-name">{column.name}</span>
+                  <span className="menu-item-description">{column.type}{column.ai ? ' AI' : ''}</span>
                 </button>
               )) : (
-                <div className={styles.optionEmpty} data-testid={`${inputTestId}-no-options`}>
+                <div className="menu-empty" data-testid={`${inputTestId}-no-options`}>
                   New column
                 </div>
               )}
-            </div>
+            </MenuPop>
           )}
         </div>
         {allowExistingTargets && overwriteColumn ? (
@@ -330,7 +336,7 @@ export function TargetSaveToControl({
           }
         }}
       />
-      {error && <p className="form-error" data-testid="new-column-error">{error}</p>}
+      {error && <p className="panel-error" data-testid="new-column-error">{error}</p>}
       {defaultColumnNameCollision &&
         targetCol === NEW_COLUMN &&
         newColName === defaultColumnNameCollision.renamed && (

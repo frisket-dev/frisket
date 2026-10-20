@@ -1,19 +1,20 @@
+import { CompareToolbar, CompareEngineChip } from './CompareLayout';
+import { Button } from '../components/Button';
+import { TextInput } from '../components/FormControls';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, Play, Plus, Settings2, X } from 'lucide-react';
+import { Play, Plus } from 'lucide-react';
 
 import type { PreviewSampleResult, TranscribeCompareScratchInput } from '../api/types';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import type { EngineOption, TranscribeCompareEngineResult } from '../api/open';
 import {
   TRANSCRIBE_ENGINE_FALLBACK,
-  tierForEngine,
   transcribeActiveTarget,
   transcribeActiveTargetOptionReason,
   resolveTranscribeDiarizationMode,
   transcribeDiarizationForEngine,
   transcribeEnginesFromCatalog,
 } from '../actions/transcribeEngineCatalog';
-import { EngineTierBadge } from '../components/EngineTierBadge';
 import { SegmentedToggle } from '../components/PanelPrimitives';
 import { PanelSelect } from '../components/PanelSelect';
 import { alignTranscriptSegments } from './transcriptAlign';
@@ -28,7 +29,6 @@ import { ConfigureVariantPopover, MediaCompareBody } from './MediaCompareShell';
 import { usePaidMediaComparison } from './usePaidMediaComparison';
 import { useTranscribeVariantConfigure } from './useTranscribeVariantConfigure';
 import {
-  VARIANT_PIP_GLYPH,
   useMediaCompareSession,
   variantPip,
   type AlignedUnit,
@@ -159,7 +159,6 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
     runningCount,
     sourceOpen,
     setSourceOpen,
-    removeColumn,
     updateColumnOptions,
   } = session;
   const quoteInputKey = useMemo(() => JSON.stringify({
@@ -176,7 +175,7 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
   const moreInputRef = useRef<HTMLInputElement>(null);
   const {
     configureVariantId,
-    setConfigureVariantId,
+    onRemoveVariant,
     popoverShift,
     configureAnchorRef,
     engineSelectorRef,
@@ -210,155 +209,94 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
 
   return (
     <section className="ocr-compare-tab" data-testid="transcribe-compare-tab">
-      <div
-        className="ocr-compare-toolbar"
-        data-testid="transcribe-compare-toolbar"
-        data-running={runningCount > 0 ? 'true' : 'false'}
-      >
-        <div className="ocr-compare-controls-row" data-testid="transcribe-compare-controls-row">
-          <label className="form-label">First seconds
-            <input className="form-input" type="number" min="0.001" step="any"
+      {session.selectorOwners}
+      <CompareToolbar testIdPrefix="transcribe-compare" running={runningCount > 0} label="ENGINES" chipsTestId="transcribe-compare-engine-chips" disabled={busy} tag="temporary files · usage is recorded"
+        controls={<>
+          <label className="form-label form-field">First seconds
+            <TextInput type="number" min="0.001" step="any"
               data-testid="transcribe-compare-duration" value={timeLimit} disabled={busy}
               onChange={(event) => {
                 setTimeLimit(event.target.value);
                 for (const column of session.columns) session.invalidateColumn(column.id);
               }} />
           </label>
-          <button type="button" className="btn btn-primary" data-testid="transcribe-compare-run"
+          <Button type="button" className="btn-primary" data-testid="transcribe-compare-run"
             disabled={!active || busy || !session.docs.length || !runnableColumns.length || !Number.isFinite(Number(timeLimit)) || Number(timeLimit) <= 0}
             onClick={() => session.pendingPairs.length ? session.runPending() : session.runAll()}>
             <Play size={13} /> {session.preparing ? 'Estimating…' : 'Run comparison'}
-          </button>
-          {busy && <button type="button" className="btn" data-testid="transcribe-compare-cancel" onClick={session.cancelRuns}>Cancel</button>}
-          <button
+          </Button>
+          {busy && <Button type="button" data-testid="transcribe-compare-cancel" onClick={session.cancelRuns}>Cancel</Button>}
+          <Button
             type="button"
-            className="ocr-compare-source-toggle row-height-select"
+            className="ocr-compare-source-toggle"
             data-testid="transcribe-compare-source-toggle"
             aria-pressed={sourceOpen}
             onClick={() => setSourceOpen((open) => !open)}
           >
             ⊟ Source
-          </button>
-        </div>
-
-        <fieldset className="ocr-compare-chips-row" data-testid="transcribe-compare-chips-row" disabled={busy}
-          style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-          <span className="ocr-compare-scratch-tag" data-testid="transcribe-compare-scratch-tag">
-            temporary files · usage is recorded
-          </span>
-          <span className="ocr-compare-variants-label">ENGINES</span>
-          <div className="ocr-compare-variant-chips" data-testid="transcribe-compare-engine-chips">
-            {columns.map((column) => {
-              const pip = variantPip(column, activeDoc?.runs[column.id]);
-              const summary = variantSummary(column);
-              const chipEngine = catalog.find((candidate) => candidate.id === column.engineId);
-              return (
-                <div
-                  key={column.id}
-                  className="ocr-compare-variant"
-                  ref={configureVariantId === column.id ? configureAnchorRef : undefined}
-                >
-                  <div
-                    className="ocr-compare-variant-chip engine-tier-chip"
-                    data-testid="transcribe-compare-engine-chip"
-                    data-engine-id={column.engineId ?? ''}
-                    data-variant-id={column.id}
-                    data-pip={pip}
-                  >
-                    <span className="ocr-compare-pip" data-pip={pip} aria-hidden>
-                      {pip === 'running' ? (
-                        <Loader2 size={10} className="ocr-compare-spin" />
-                      ) : (
-                        VARIANT_PIP_GLYPH[pip]
-                      )}
-                    </span>
-                    <button
-                      type="button"
-                      className="ocr-compare-variant-body"
-                      data-testid="transcribe-compare-variant-body"
-                      onClick={() => openConfigure(column.id)}
-                      title="Configure variant"
-                    >
-                      <span className="ocr-compare-variant-name">{engineLabel(column.engineId)}</span>
-                      {/* Where the chosen engine runs, visible on the chip
-                          itself. */}
-                      {chipEngine && (
-                        <EngineTierBadge
-                          tier={tierForEngine(chipEngine)}
-                          testId="transcribe-compare-variant-tier"
-                        />
-                      )}
-                      {summary ? (
-                        <span className="ocr-compare-variant-summary muted"> · {summary}</span>
-                      ) : null}
-                    </button>
-                    <button
-                      type="button"
-                      className="ocr-compare-variant-gear"
-                      data-testid="transcribe-compare-variant-gear"
-                      aria-label={`Configure ${engineLabel(column.engineId)}`}
-                      onClick={() => openConfigure(column.id)}
-                    >
-                      <Settings2 size={12} />
-                    </button>
-                    <button
-                      type="button"
-                      className="ocr-compare-variant-remove"
-                      data-testid={`transcribe-compare-engine-chip-remove-${column.engineId ?? ''}`}
-                      aria-label={`Remove ${engineLabel(column.engineId)}`}
-                      onClick={() => {
-                        setConfigureVariantId((prev) => (prev === column.id ? null : prev));
-                        removeColumn(column.id);
-                      }}
-                    >
-                      <X size={11} />
-                    </button>
-                  </div>
-                  {configureVariantId === column.id ? (
-                    <ConfigureVariantPopover
-                      onCurrentChoiceChange={session.reportColumnChoice}
-                      testidPrefix="transcribe-compare"
-                      actionId="media.transcribe"
-                      popoverRef={configurePopoverRef}
-                      style={popoverShift ? { transform: `translateX(${popoverShift}px)` } : undefined}
-                      column={column}
-                      catalog={column.engineId ? catalog : catalog.filter((engine) => !columns.some((variant) => variant.engineId === engine.id))}
-                      engineSelectorRef={engineSelectorRef}
-                      errorMessage={
-                        activeDoc?.runs[column.id]?.status === 'error'
-                          ? (activeDoc.runs[column.id] as { message: string }).message
-                          : null
-                      }
-                      onChooseEngine={(engineId) => onConfigureChooseEngine(column.id, engineId)}
-                      onDuplicate={() => onConfigureDuplicate(column.id)}
-                      renderOptionFields={(col) => (
-                        <TranscribeOptionFields
-                          column={col}
-                          engine={catalog.find((candidate) => candidate.id === col.engineId)}
-                          onSetLanguage={(language) => updateColumnOptions(col.id, { language })}
-                          onSetModelSize={(modelSize) => updateColumnOptions(col.id, { modelSize })}
-                          onSetVad={(vad) => updateColumnOptions(col.id, { vad })}
-                          onSetDiarize={(diarize) => updateColumnOptions(col.id, { diarize })}
-                        />
-                      )}
-                      laterHint="Additional per-engine options stack here as engines declare them."
-                    />
-                  ) : null}
-                </div>
-              );
-            })}
-            <button
-              type="button"
-              className="ocr-compare-add-engine engine-tier-chip"
-              data-testid="transcribe-compare-add-engine"
-              disabled={busy}
-              onClick={addVariant}
+          </Button>
+        </>}
+      >
+        {columns.map((column) => {
+          const pip = variantPip(column, activeDoc?.runs[column.id]);
+          const summary = variantSummary(column);
+          const chipEngine = catalog.find((candidate) => candidate.id === column.engineId);
+          return (
+            <div
+              key={column.id}
+              className="ocr-compare-variant"
+              ref={configureVariantId === column.id ? configureAnchorRef : undefined}
             >
-              <Plus size={12} /> engine
-            </button>
-          </div>
-        </fieldset>
-      </div>
+              <CompareEngineChip testIdPrefix="transcribe-compare" engine={chipEngine}
+                engineId={column.engineId} label={engineLabel(column.engineId)} variantId={column.id}
+                pip={pip} summary={summary}
+                onConfigure={() => openConfigure(column.id)}
+                onRemove={() => onRemoveVariant(column.id)}
+                chipTestId="transcribe-compare-engine-chip"
+                removeTestId={`transcribe-compare-engine-chip-remove-${column.engineId ?? ''}`} />
+              {configureVariantId === column.id ? (
+                <ConfigureVariantPopover
+                  selectorProjection={session.selectorProjection(column)}
+                  testidPrefix="transcribe-compare"
+                  actionId="media.transcribe"
+                  popoverRef={configurePopoverRef}
+                  style={popoverShift ? { transform: `translateX(${popoverShift}px)` } : undefined}
+                  column={column}
+                  catalog={column.engineId ? catalog : catalog.filter((engine) => !columns.some((variant) => variant.engineId === engine.id))}
+                  engineSelectorRef={engineSelectorRef}
+                  errorMessage={
+                    activeDoc?.runs[column.id]?.status === 'error'
+                      ? (activeDoc.runs[column.id] as { message: string }).message
+                      : null
+                  }
+                  onChooseEngine={(engineId) => onConfigureChooseEngine(column.id, engineId)}
+                  onDuplicate={() => onConfigureDuplicate(column.id)}
+                  renderOptionFields={(col) => (
+                    <TranscribeOptionFields
+                      column={col}
+                      engine={catalog.find((candidate) => candidate.id === col.engineId)}
+                      onSetLanguage={(language) => updateColumnOptions(col.id, { language })}
+                      onSetModelSize={(modelSize) => updateColumnOptions(col.id, { modelSize })}
+                      onSetVad={(vad) => updateColumnOptions(col.id, { vad })}
+                      onSetDiarize={(diarize) => updateColumnOptions(col.id, { diarize })}
+                    />
+                  )}
+                  laterHint="Additional per-engine options stack here as engines declare them."
+                />
+              ) : null}
+            </div>
+          );
+        })}
+        <button
+          type="button"
+          className="ocr-compare-add-engine engine-tier-chip"
+          data-testid="transcribe-compare-add-engine"
+          disabled={busy}
+          onClick={addVariant}
+        >
+          <Plus size={12} /> engine
+        </button>
+      </CompareToolbar>
 
       <MediaCompareBody
         session={session}
@@ -460,7 +398,7 @@ function TranscribeOptionFields({
         </div>
       ) : null}
       {fields.language ? (
-        <label className="ocr-compare-configure-field">
+        <label className="ocr-compare-configure-field form-field">
           <span className="ocr-compare-configure-label">Language</span>
           <PanelSelect
             className="row-height-select"

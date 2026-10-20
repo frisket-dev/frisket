@@ -1,3 +1,6 @@
+import './contributions.css';
+import './WorkbenchBottomDock.css';
+import { Button, TabButton } from '../components/Button';
 import {
   useCallback,
   useEffect,
@@ -10,6 +13,7 @@ import { ChevronDown, ChevronUp, X } from 'lucide-react';
 import type { ActionJob, RunProgress } from '../api/open';
 import { runCompletedWithErrors } from '../runStatusModel';
 import { useResizable } from '../components/useResizable';
+import { ProgressBar } from '../components/ActivityProgress';
 import { navigate, useRoute } from '../routes';
 import {
   isErrorJob,
@@ -265,9 +269,9 @@ function HaltedRunResumeSection({
         {progress.totalRows.toLocaleString()} rows finished before the stop.
         Resuming keeps them — only the remaining rows run.
       </p>
-      <button
+      <Button
         type="button"
-        className="mini-btn"
+
         data-testid="bottom-dock-halt-resume-run"
         disabled={requested}
         onClick={() => {
@@ -276,7 +280,7 @@ function HaltedRunResumeSection({
         }}
       >
         {requested ? 'Resume requested' : 'Resume run'}
-      </button>
+      </Button>
     </section>
   );
 }
@@ -309,14 +313,14 @@ function renderJobDetail(
           <h4>Error</h4>
           <pre>{dockJobErrorMessage(job)}</pre>
           {isPluginFailure && (
-            <button
+            <Button
               type="button"
-              className="btn bottom-dock-plugin-error-settings-link"
+              className="bottom-dock-plugin-error-settings-link"
               data-testid="bottom-dock-plugin-error-settings-link"
               onClick={() => openPluginSettingsFromError(job, projectId)}
             >
               Open in Settings → Plugins
-            </button>
+            </Button>
           )}
         </section>
       )}
@@ -495,20 +499,8 @@ function DockRunSummaryView({ summary }: { summary?: DockRunSummary }) {
       aria-live="polite"
     >
       {state === 'running' && (
-        <span
-          className={`workbench-bottom-progress${percent === null ? ' indeterminate' : ''}`}
-          data-testid="bottom-dock-run-progressbar"
-          role="progressbar"
-          aria-label="Run progress"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          {...(percent !== null ? { 'aria-valuenow': Math.round(percent) } : {})}
-        >
-          <span
-            className="workbench-bottom-progress-fill"
-            style={percent !== null ? { width: `${percent}%` } : undefined}
-          />
-        </span>
+        <ProgressBar label="Run progress" completed={percent === null ? null : Math.round(percent)} total={100} state="active"
+          className="workbench-bottom-progress" testId="bottom-dock-run-progressbar" />
       )}
       <span className="workbench-bottom-summary-label">{label}</span>
     </output>
@@ -651,10 +643,11 @@ export function WorkbenchBottomDock({
           const badge = tabBadges?.[tab.placementId] ?? 0;
           return (
             <span key={tab.placementId} className="workbench-bottom-tab-wrap">
-              <button
+              <TabButton
+                tone="monitor"
                 type="button"
                 role="tab"
-                className={`workbench-bottom-tab${isActive ? ' active' : ''}`}
+                className={`tab-button${isActive ? ' active' : ''}`}
                 aria-selected={isActive}
                 aria-controls="workbench-bottom-dock-panel"
                 id={`workbench-bottom-dock-tab-${tab.placementId}`}
@@ -679,7 +672,7 @@ export function WorkbenchBottomDock({
                     {badge.toLocaleString()}
                   </span>
                 )}
-              </button>
+              </TabButton>
               {closeable && (
                 <button
                   type="button"

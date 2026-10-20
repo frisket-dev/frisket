@@ -1,16 +1,20 @@
+import './Modal.css';
+import { Button } from './Button';
+import { ListEditorActions } from './ListEditorActions';
+import { TextInput } from './FormControls';
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
-import { PanelEmpty, PanelError } from './PanelPrimitives';
+import { PanelEmpty, PanelError, StatusChip } from './PanelPrimitives';
 import { ChevronDown, ChevronRight, Play, RefreshCw, Watch } from 'lucide-react';
 import {
   ApiError,
-  type NotificationSummary,
   type WatchInfo,
   type WatchRun,
   type WatchRunEvent,
   type WatchRunsPage,
 } from '../api/open';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
-import { NOTIFICATIONS_CHANGED_EVENT } from './NotificationsPanel';
+import { dispatchNotificationsChanged, useNotificationSummary } from './notifications/useNotificationSummary';
+import { ConfirmDialog } from './Modal';
 import { useWatchRunLinkHandle } from '../bind/useWatchRunLinkHandle';
 import { useSelector } from '../bind/useSelector';
 import type {
@@ -20,6 +24,7 @@ import type {
   WatchRunLink,
 } from '../state/watchRunLinkStore';
 import { useEditionModule } from '../editions/module';
+import './WatchesPanel.css';
 
 type RunsByWatch = Record<number, WatchRunsPage>;
 type EventsByRun = Record<number, WatchRunEvent[]>;
@@ -29,7 +34,6 @@ interface WatchesPanelState {
   runsByWatch: RunsByWatch;
   eventsByRun: EventsByRun;
   highlightedEventsByRun: Record<number, number[]>;
-  watchNotificationCounts: WatchNotificationCounts;
   expanded: Record<number, boolean>;
   listLoading: boolean;
   creating: boolean;
@@ -51,7 +55,6 @@ const initialWatchesPanelState: WatchesPanelState = {
   runsByWatch: {},
   eventsByRun: {},
   highlightedEventsByRun: {},
-  watchNotificationCounts: {},
   expanded: {},
   listLoading: false,
   creating: false,
@@ -121,7 +124,8 @@ function failedWatchActionOutcome(error: Error): WatchActionOutcome {
  * notification channels; it only lists promoted queries and records run history.
  */
 function useWatchesPanelController(canEdit: boolean) {
-  const { projectApi } = useWorkspaceStores();
+  const { projectApi, chromePreferences: { projectId } } = useWorkspaceStores();
+  const notificationSummary = useNotificationSummary();
   const watchRunLinkHandle = useWatchRunLinkHandle();
   const [panelState, setPanelState] = useReducer(
     reduceWatchesPanelState,
@@ -132,7 +136,6 @@ function useWatchesPanelController(canEdit: boolean) {
     runsByWatch,
     eventsByRun,
     highlightedEventsByRun,
-    watchNotificationCounts,
     expanded,
     listLoading,
     creating,
@@ -150,23 +153,12 @@ function useWatchesPanelController(canEdit: boolean) {
     setPanelState({ listLoading: false });
   }, []);
 
-  const applyNotificationSummary = useCallback((summary: NotificationSummary) => {
-    const counts: WatchNotificationCounts = {};
-    for (const item of summary.bySourceRef) {
-      if (item.sourceKind !== 'watch') continue;
-      const watchId = Number(item.sourceRef.watch_id);
-      if (!Number.isInteger(watchId) || watchId <= 0) continue;
-      counts[watchId] = item.unseen;
-    }
-    setPanelState({ watchNotificationCounts: counts });
-  }, []);
-
-  const loadNotificationSummary = useCallback(() => {
-    void projectApi
-      .getNotificationsSummary()
-      .then(applyNotificationSummary)
-      .catch(() => undefined);
-  }, [applyNotificationSummary, projectApi]);
+  const watchNotificationCounts: WatchNotificationCounts = {};
+  for (const item of notificationSummary?.bySourceRef ?? []) {
+    if (item.sourceKind !== 'watch') continue;
+    const watchId = Number(item.sourceRef.watch_id);
+    if (Number.isInteger(watchId) && watchId > 0) watchNotificationCounts[watchId] = item.unseen;
+  }
 
   const load = useCallback(() => {
     const generation = ++watchListGeneration.current;
@@ -226,20 +218,10 @@ function useWatchesPanelController(canEdit: boolean) {
   }, [load]);
 
   useEffect(() => {
-    loadNotificationSummary();
-  }, [loadNotificationSummary]);
-
-  useEffect(() => {
     const onChanged = () => load();
     window.addEventListener('frisket:watches-changed', onChanged);
     return () => window.removeEventListener('frisket:watches-changed', onChanged);
   }, [load]);
-
-  useEffect(() => {
-    const onNotificationsChanged = () => loadNotificationSummary();
-    window.addEventListener(NOTIFICATIONS_CHANGED_EVENT, onNotificationsChanged);
-    return () => window.removeEventListener(NOTIFICATIONS_CHANGED_EVENT, onNotificationsChanged);
-  }, [loadNotificationSummary]);
 
   const applyWatchRunLink = useCallback((link: WatchRunLink) => {
     const watchId = Number(link.watchId);
@@ -349,8 +331,7 @@ function useWatchesPanelController(canEdit: boolean) {
           watch: result.watch,
           focusWatchId: watchId,
         };
-        loadNotificationSummary();
-        window.dispatchEvent(new CustomEvent(NOTIFICATIONS_CHANGED_EVENT));
+        dispatchNotificationsChanged(projectId);
         if (expanded[watchId]) {
           void loadRuns(watchId).catch((e: Error) => setPanelState({ error: e.message }));
         }
@@ -363,7 +344,7 @@ function useWatchesPanelController(canEdit: boolean) {
         watchRunLinkHandle.settleWatchAction(claim, outcome);
         window.dispatchEvent(new Event('frisket:watches-changed'));
       });
-  }, [canEdit, expanded, invalidateWatchList, loadNotificationSummary, loadRuns, projectApi, watchRunLinkHandle]);
+  }, [canEdit, expanded, invalidateWatchList, projectId, loadRuns, projectApi, watchRunLinkHandle]);
 
   const updateWatch = useCallback((
     watchId: number,
@@ -430,7 +411,7 @@ function useWatchesPanelController(canEdit: boolean) {
           watch: null,
           focusWatchId: focusAfterDeleteId,
         };
-        loadNotificationSummary();
+        dispatchNotificationsChanged(projectId);
         return true;
       })
       .catch((e: Error) => {
@@ -442,7 +423,7 @@ function useWatchesPanelController(canEdit: boolean) {
         watchRunLinkHandle.settleWatchAction(claim, outcome);
         window.dispatchEvent(new Event('frisket:watches-changed'));
       });
-  }, [canEdit, invalidateWatchList, loadNotificationSummary, projectApi, watchRunLinkHandle]);
+  }, [canEdit, invalidateWatchList, projectId, projectApi, watchRunLinkHandle]);
 
   // Refresh a blocked embedding watch's index, then re-run the watch.
   const refreshWatchIndex = useCallback((watchId: number, indexId: string) => {
@@ -463,8 +444,7 @@ function useWatchesPanelController(canEdit: boolean) {
           watch: result.watch,
           focusWatchId: watchId,
         };
-        loadNotificationSummary();
-        window.dispatchEvent(new CustomEvent(NOTIFICATIONS_CHANGED_EVENT));
+        dispatchNotificationsChanged(projectId);
         if (expanded[watchId]) {
           void loadRuns(watchId).catch((e: Error) => setPanelState({ error: e.message }));
         }
@@ -475,7 +455,7 @@ function useWatchesPanelController(canEdit: boolean) {
         watchRunLinkHandle.settleWatchAction(claim, outcome);
         window.dispatchEvent(new Event('frisket:watches-changed'));
       });
-  }, [canEdit, expanded, invalidateWatchList, loadNotificationSummary, loadRuns, projectApi, watchRunLinkHandle]);
+  }, [canEdit, expanded, invalidateWatchList, projectId, loadRuns, projectApi, watchRunLinkHandle]);
 
   const toggleRuns = useCallback((watchId: number) => {
     const nextOpen = !expanded[watchId];
@@ -568,12 +548,6 @@ function useWatchesPanelController(canEdit: boolean) {
 // notification/item count badges visible somewhere once their old toggle
 // header is gone; it renders nothing when there is nothing to show.
 //
-// ALLOWLISTED, not folded into
-// PanelHeader. It has no title/kicker and no close button — just two
-// conditional count badges, and it can render null entirely — so it does not
-// fit PanelHeader's kicker/title/chips/actions/onClose shape. It is a
-// different genus (a summary strip), not a variant of the header anatomy the
-// other six sites share.
 function WatchesPanelHeader({
   itemCount,
   notificationTotal,
@@ -583,13 +557,13 @@ function WatchesPanelHeader({
 }) {
   if (notificationTotal <= 0 && !(itemCount !== null && itemCount > 0)) return null;
   return (
-    <div className="watches-header-slim" data-testid="watches-header">
+    <div className="control-row" data-align="end" data-testid="watches-header">
       {notificationTotal > 0 && (
-        <span className="watches-alert-count" data-testid="watches-notification-count">
+        <StatusChip tone="info" size="sm" testId="watches-notification-count">
           {notificationTotal}
-        </span>
+        </StatusChip>
       )}
-      {itemCount !== null && itemCount > 0 && <span className="watches-count">{itemCount}</span>}
+      {itemCount !== null && itemCount > 0 && <StatusChip tone="neutral" size="sm">{itemCount}</StatusChip>}
     </div>
   );
 }
@@ -609,16 +583,16 @@ function WatchCreateComposer({
 }) {
   const trimmedName = draft.name.trim();
   return (
-    <div className="watches-create" data-testid="watch-create-composer">
-      <div className="watches-create-heading">
-        <span className="panel-kicker">New Watch</span>
-        <strong>Keep an eye on new matches.</strong>
+    <div className="panel-card" data-testid="watch-create-composer">
+      <div>
+        <div className="panel-item-meta">New Watch</div>
+        <strong className="panel-item-title">Keep an eye on new matches.</strong>
       </div>
-      <label className="watches-create-field">
+      <label className="form-field">
         <span className="form-label">Watch name</span>
-        <input
+        <TextInput
           autoFocus
-          className="form-input"
+
           data-testid="watch-create-name"
           aria-label="Watch name"
           aria-describedby={trimmedName ? undefined : 'watch-create-name-error'}
@@ -628,29 +602,13 @@ function WatchCreateComposer({
         />
       </label>
       {!trimmedName && <span id="watch-create-name-error" data-testid="watch-create-name-error">Enter a name to continue.</span>}
-      <div className="watches-create-notifications">
-        <p>{NOTIFICATION_SETUP_GUIDANCE}</p>
+      <div className="panel-notice">
+        {NOTIFICATION_SETUP_GUIDANCE}
       </div>
       <div className="form-actions">
-        <button
-          type="button"
-          className="btn btn-primary"
-          data-testid="create-watch-button"
-          aria-busy={creating}
-          disabled={creating || !trimmedName}
-          onClick={onCreate}
-        >
-          <WatchIcon size={14} aria-hidden /> {creating ? 'Creating…' : 'Create new watch'}
-        </button>
-        <button
-          type="button"
-          className="btn"
-          data-testid="cancel"
-          disabled={creating}
-          onClick={onCancel}
-        >
-          Cancel
-        </button>
+        <ListEditorActions testId="create-watch-button" cancelTestId="cancel"
+          icon={WatchIcon} saveLabel={creating ? 'Creating…' : 'Create new watch'}
+          busy={creating} saveDisabled={!trimmedName} onSave={onCreate} onCancel={onCancel} />
       </div>
     </div>
   );
@@ -665,13 +623,13 @@ function WatchRunEvents({
 }) {
   if (!events) return null;
   return (
-    <ul className="watch-run-events" data-testid="watch-run-events">
+    <ul className="panel-list watch-run-events" data-testid="watch-run-events">
       {events.map((event) => (
         <li
-          className={highlightedEventIds.includes(event.id) ? 'highlighted' : ''}
+          className={`control-row panel-item-meta${highlightedEventIds.includes(event.id) ? ' highlighted' : ''}`}
           key={event.id}
         >
-          <span>{event.eventKind}</span>
+          <strong>{event.eventKind}</strong>
           <span>{event.snippet ?? event.subjectKind}</span>
         </li>
       ))}
@@ -689,18 +647,20 @@ function WatchRunHistory({
   page: WatchRunsPage | undefined;
 }) {
   return (
-    <ul className="watch-runs" data-testid="watch-run-history">
+    <ul className="panel-list" data-testid="watch-run-history">
       {!page || page.runs.length === 0 ? (
         <li className="panel-empty">No runs yet.</li>
       ) : (
         page.runs.map((run) => (
-          <li className="watch-run" key={run.id}>
-            <span className={`watch-run-status status-${run.status}`}>{run.status}</span>
-            <span className="watch-run-rows">
-              {run.status === 'error'
-                ? (run.errorCode ?? run.error ?? 'Run failed')
-                : `${run.matchedRows.toLocaleString()} matched · ${run.newRows.toLocaleString()} new`}
-            </span>
+          <li className="panel-list" key={run.id}>
+            <div className="control-row">
+              <StatusChip tone={run.status === 'ok' ? 'success' : run.status === 'error' ? 'error' : 'neutral'} size="sm" uppercase>{run.status}</StatusChip>
+              <span className="panel-item-meta panel-item-main">
+                {run.status === 'error'
+                  ? (run.errorCode ?? run.error ?? 'Run failed')
+                  : `${run.matchedRows.toLocaleString()} matched · ${run.newRows.toLocaleString()} new`}
+              </span>
+            </div>
             <WatchRunEvents
               events={eventsByRun[run.id]}
               highlightedEventIds={highlightedEventsByRun[run.id] ?? []}
@@ -709,65 +669,6 @@ function WatchRunHistory({
         ))
       )}
     </ul>
-  );
-}
-
-function ConfirmDeleteWatchDialog({
-  busy,
-  error,
-  id,
-  name,
-  onCancel,
-  onConfirm,
-}: {
-  busy: boolean;
-  error: string | undefined;
-  id: number;
-  name: string;
-  onCancel(): void;
-  onConfirm(): void;
-}) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const titleId = `delete-watch-title-${id}`;
-  const descriptionId = `${titleId}-description`;
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (dialog && !dialog.open) dialog.showModal();
-  }, []);
-
-  return (
-    <dialog
-      ref={dialogRef}
-      className="modal-card"
-      data-testid="delete-watch-confirmation"
-      aria-labelledby={titleId}
-      aria-describedby={descriptionId}
-      aria-busy={busy}
-      onCancel={(event) => {
-        event.preventDefault();
-        if (!busy) onCancel();
-      }}
-    >
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (!busy) onConfirm();
-        }}
-      >
-        <div className="modal-title" id={titleId}>Delete {name}?</div>
-        <p className="modal-body-text" id={descriptionId}>
-          Deleting this Watch means its run history and in-app notifications will be deleted; already-sent email or external notifications cannot be recalled.
-        </p>
-        {error && <PanelError testId="watch-mutation-error">{error}</PanelError>}
-        <div className="form-actions">
-          <button autoFocus type="button" className="btn" disabled={busy} onClick={onCancel}>Cancel</button>
-          <button type="submit" className="btn btn-reject" data-testid="confirm-delete-watch" disabled={busy}>
-            {busy ? 'Deleting…' : 'Delete Watch'}
-          </button>
-        </div>
-      </form>
-    </dialog>
   );
 }
 
@@ -851,13 +752,13 @@ function WatchItem({
     void onDeleteWatch(watch.id, focusAfterDeleteId);
   };
   return (
-    <li ref={itemRef} className="watch-item" data-testid="watch-item" tabIndex={-1}>
-      <div className="watch-head">
-        <span className="watch-name">{watch.name}</span>
+    <li ref={itemRef} className="panel-card watch-item" data-testid="watch-item" tabIndex={-1}>
+      <div className="control-row">
+        <span className="panel-item-title panel-item-main">{watch.name}</span>
         {notificationCount > 0 && (
-          <span className="watch-notification-count" data-testid="watch-notification-count">
+          <StatusChip tone="info" size="sm" testId="watch-notification-count">
             {notificationCount}
-          </span>
+          </StatusChip>
         )}
         {canEdit && (
           <button
@@ -879,16 +780,15 @@ function WatchItem({
           </button>
         )}
       </div>
-      <div className="watch-query">
+      <div className="panel-item-description">
         {watchSummary(watch)}
       </div>
-      {!watch.enabled && <span className="watch-status" data-testid="watch-status">Paused</span>}
-      <div className="watch-meta" data-testid="watch-latest-run">
+      {!watch.enabled && <div className="control-row"><StatusChip tone="neutral" size="sm" testId="watch-status">Paused</StatusChip></div>}
+      <div className="control-row panel-item-meta" data-testid="watch-latest-run">
         {runSummary(watch.latestRun)}
         {canEdit && blockedIndexId && (
-          <button
+          <Button
             type="button"
-            className="mini-btn watch-refresh-index"
             data-testid={`watch-refresh-index-${watch.id}`}
             // Ruling 4 honesty: this refreshes the embedding index AND then
             // runs the whole watch again — two purchases, named up front.
@@ -898,18 +798,17 @@ function WatchItem({
             onClick={() => onRefreshIndex(watch.id, blockedIndexId)}
           >
             <RefreshCw size={11} className={isRefreshingIndex ? 'spin' : undefined} /> {isRefreshingIndex ? 'Refreshing index…' : 'Refresh index & re-run'}
-          </button>
+          </Button>
         )}
       </div>
       {canEdit && (
-        <div className="watch-lifecycle-controls">
+        <div className="control-row">
           {pendingActionLabel && (
             <span data-testid="watch-pending-action" role="status">{pendingActionLabel}</span>
           )}
           {renaming ? (
             <>
-              <input
-                className="form-input"
+              <TextInput
                 data-testid="watch-rename-input"
                 aria-label={`Rename ${watch.name}`}
                 aria-describedby={trimmedRename ? undefined : `watch-rename-error-${watch.id}`}
@@ -918,26 +817,29 @@ function WatchItem({
                 onChange={(event) => setRenameValue(event.target.value)}
               />
               {!trimmedRename && <span id={`watch-rename-error-${watch.id}`} data-testid="watch-rename-error">Enter a name to continue.</span>}
-              <button type="button" className="mini-btn" data-testid="save-watch-rename" aria-busy={isRenaming} disabled={isPending || !trimmedRename} onClick={() => { void onUpdateWatch(watch.id, { name: trimmedRename }).then((saved) => { if (saved) setRenaming(false); }); }}>{isRenaming ? 'Renaming…' : 'Save rename'}</button>
-              <button type="button" className="mini-btn" disabled={isPending} onClick={() => setRenaming(false)}>Cancel</button>
+              <ListEditorActions testId="save-watch-rename" saveLabel={isRenaming ? 'Renaming…' : 'Save rename'}
+                busy={isRenaming} disabled={isPending} saveDisabled={!trimmedRename}
+                onSave={() => { void onUpdateWatch(watch.id, { name: trimmedRename }).then((saved) => { if (saved) setRenaming(false); }); }}
+                onCancel={() => setRenaming(false)} />
             </>
           ) : (
-            <button type="button" className="mini-btn" data-testid="rename-watch" disabled={isPending} onClick={() => { setRenameValue(watch.name); setRenaming(true); }}>Rename</button>
+            <Button type="button" data-testid="rename-watch" disabled={isPending} onClick={() => { setRenameValue(watch.name); setRenaming(true); }}>Rename</Button>
           )}
-          <button type="button" className="mini-btn" data-testid={watch.enabled ? 'pause-watch' : 'resume-watch'} aria-busy={isPausing || isResuming} disabled={isPending} onClick={() => { void onUpdateWatch(watch.id, { enabled: !watch.enabled }); }}>{isPausing ? 'Pausing…' : isResuming ? 'Resuming…' : watch.enabled ? 'Pause' : 'Resume'}</button>
-          <button ref={deleteButtonRef} type="button" className="mini-btn danger" data-testid="delete-watch" disabled={isPending} onClick={() => setConfirmingDelete(true)}>Delete</button>
+          <Button type="button" data-testid={watch.enabled ? 'pause-watch' : 'resume-watch'} aria-busy={isPausing || isResuming} disabled={isPending} onClick={() => { void onUpdateWatch(watch.id, { enabled: !watch.enabled }); }}>{isPausing ? 'Pausing…' : isResuming ? 'Resuming…' : watch.enabled ? 'Pause' : 'Resume'}</Button>
+          <Button ref={deleteButtonRef} type="button" className="danger" data-testid="delete-watch" disabled={isPending} onClick={() => setConfirmingDelete(true)}>Delete</Button>
         </div>
       )}
       {mutationError && !confirmingDelete && <PanelError testId="watch-mutation-error">{mutationError}</PanelError>}
       {confirmingDelete && (
-        <ConfirmDeleteWatchDialog
-          busy={isDeleting}
-          error={mutationError}
-          id={watch.id}
-          name={watch.name}
-          onCancel={closeDeleteDialog}
-          onConfirm={confirmDelete}
-        />
+        <ConfirmDialog title={`Delete ${watch.name}?`} busy={isDeleting} danger
+          testId="delete-watch-confirmation" confirmTestId="confirm-delete-watch"
+          confirmLabel={isDeleting ? 'Deleting…' : 'Delete Watch'}
+          onCancel={closeDeleteDialog} onConfirm={confirmDelete}>
+          <p className="modal-body-text">
+            Deleting this Watch means its run history and in-app notifications will be deleted; already-sent email or external notifications cannot be recalled.
+          </p>
+          {mutationError && <PanelError testId="watch-mutation-error">{mutationError}</PanelError>}
+        </ConfirmDialog>
       )}
       {canEdit && WatchControlSlot && (
         <WatchControlSlot
@@ -946,15 +848,17 @@ function WatchItem({
           refreshWatches={onRefreshWatches}
         />
       )}
-      <button
-        type="button"
-        className="watch-runs-toggle"
-        data-testid="toggle-watch-runs"
-        aria-expanded={expanded}
-        onClick={() => onToggleRuns(watch.id)}
-      >
-        <RunChevron size={11} /> Runs
-      </button>
+      <div className="control-row panel-item-meta">
+        <Button
+          type="button"
+          variant="text"
+          data-testid="toggle-watch-runs"
+          aria-expanded={expanded}
+          onClick={() => onToggleRuns(watch.id)}
+        >
+          <RunChevron size={11} /> Runs
+        </Button>
+      </div>
       {expanded && (
         <WatchRunHistory
           eventsByRun={eventsByRun}
@@ -1026,7 +930,7 @@ function WatchesPanelBody({
   watchNotificationCounts: WatchNotificationCounts;
 }) {
   return (
-    <div className="watches-body" data-testid="watches-panel" aria-busy={listLoading}>
+    <div className="content-stack" data-testid="watches-panel" aria-busy={listLoading}>
       {canEdit && draft && (
         <WatchCreateComposer
           creating={creating}
@@ -1037,13 +941,13 @@ function WatchesPanelBody({
         />
       )}
       {canEdit && canCreateFromCurrentView && !draft && (
-        <button type="button" className="btn btn-primary" data-testid="new-watch-from-current-grid" onClick={onCreateFromCurrentView}>
+        <Button type="button" className="btn-primary" data-testid="new-watch-from-current-grid" onClick={onCreateFromCurrentView}>
           <WatchIcon size={14} aria-hidden /> Create new watch
-        </button>
+        </Button>
       )}
       {error && <PanelError testId="watches-error">{error}</PanelError>}
       {notificationSetupNotice && (
-        <div className="watch-notification-setup-notice" data-testid="watch-notification-setup-notice" role="status">
+        <div className="panel-notice" data-tone="warning" data-testid="watch-notification-setup-notice" role="status">
           <span>{notificationSetupNotice}</span>
           <button type="button" className="icon-btn" aria-label="Dismiss notification setup guidance" onClick={onDismissNotificationSetupNotice}>×</button>
         </div>
@@ -1053,7 +957,7 @@ function WatchesPanelBody({
       ) : items.length === 0 ? (
         <PanelEmpty testId="watches-empty">No watches yet.</PanelEmpty>
       ) : (
-        <ul className="watches-list">
+        <ul className="panel-list">
           {items.map((watch, index) => (
             <WatchItem
               key={watch.id}
@@ -1100,7 +1004,7 @@ export function WatchesPanel({
     panel.clearFocusPanel();
   }, [panel]);
   return (
-    <section ref={panelRef} className="sidebar-watchlists" data-testid="watches" tabIndex={-1}>
+    <section ref={panelRef} className="content-stack" data-testid="watches" tabIndex={-1}>
       <span className="sr-only" role="status" aria-live="polite">{panel.status}</span>
       <WatchesPanelHeader
         itemCount={panel.items?.length ?? null}

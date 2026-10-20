@@ -1,3 +1,7 @@
+import './MentionsPanel.css';
+import './EntityFacetsPanel.css';
+import { Button } from './Button';
+import { FormField, TextInput } from './FormControls';
 // Preserve server ordering and counts; this read-only panel never starts extraction.
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import { ChevronDown, ChevronRight, Filter, RefreshCw, Tags, X } from 'lucide-react';
@@ -331,8 +335,8 @@ export function MentionsPanel({
       <div className="facets-body">
         <div className="facets-controls">
           {eligibleColumns.length > 1 && (
-            <label>
-              <span>Entity column</span>
+            <FormField label="Entity column" >
+
               <PanelSelect
                 className="form-input"
                 data-testid="mentions-column-select"
@@ -346,12 +350,12 @@ export function MentionsPanel({
                   <option key={column.id} value={column.id}>{column.name}</option>
                 ))}
               </PanelSelect>
-            </label>
+            </FormField>
           )}
-          <label>
-            <span>Search mentions</span>
-            <input
-              className="form-input"
+          <FormField label="Search mentions" >
+
+            <TextInput
+              density="compact"
               type="search"
               data-testid="mentions-search"
               placeholder="Search every spelling…"
@@ -361,7 +365,7 @@ export function MentionsPanel({
                 value: event.target.value,
               })}
             />
-          </label>
+          </FormField>
           <button
             type="button"
             className="icon-btn facets-refresh"
@@ -474,15 +478,15 @@ function MentionsEmptyColumnState({
         {MENTIONS_EMPTY_COLUMN_BLURB}
       </p>
       {onExtractEntities && (
-        <button
+        <Button
           type="button"
-          className="btn btn-primary mentions-cta"
+          className="btn-primary mentions-cta"
           data-testid="mentions-extract-cta"
           onClick={onExtractEntities}
         >
           <Tags size={13} aria-hidden />
           Extract entities
-        </button>
+        </Button>
       )}
     </section>
   );
@@ -590,9 +594,9 @@ function TypeSection({
             </div>
           )}
           {remaining > 0 && (
-            <button
+            <Button
               type="button"
-              className="btn mentions-load-more"
+              className="mentions-load-more"
               data-testid={`mentions-show-more-${testIdKey(type)}`}
               disabled={loading}
               title={
@@ -608,7 +612,7 @@ function TypeSection({
               onClick={onShowMore}
             >
               {loading ? 'Loading…' : error !== null ? 'Try again' : `Show ${step.toLocaleString()} more`}
-            </button>
+            </Button>
           )}
         </div>
       )}

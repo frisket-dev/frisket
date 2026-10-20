@@ -1,0 +1,212 @@
+/* ---- account/funding tables ------------------------------------------------ */
+
+.account-note { font-size: 11.5px; color: var(--text-light); line-height: 1.55; margin: 12px 0 0; }
+.account-note svg { vertical-align: -2px; margin-right: 4px; }
+.account-note code { font-family: var(--mono); color: var(--text-mid); }
+
+/* ---- admin page -------------------------------------------------------------- */
+
+.admin-card { width: min(1120px, calc(100vw - 32px)); }
+.admin-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 12px 0 18px;
+  border-bottom: 1px solid var(--border);
+}
+.admin-nav a {
+  padding: 7px 9px;
+  color: var(--text-mid);
+  font-size: 12px;
+  font-weight: 650;
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+}
+.admin-nav a:hover { color: var(--text); }
+.admin-nav a[aria-current='page'] {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.admin-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.admin-table th {
+  text-align: left;
+  font-size: 10.5px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--text-light);
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-strong);
+  white-space: nowrap;
+}
+.admin-table td { padding: 7px 8px; border-bottom: 1px solid var(--bg-hover); vertical-align: top; }
+.admin-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.admin-table tfoot td { font-weight: 650; border-bottom: none; border-top: 2px solid var(--border-strong); }
+.admin-users { color: var(--text-mid); font-size: 11.5px; overflow-wrap: anywhere; }
+.admin-users-panel,
+.admin-audit,
+.admin-jobs { margin-top: 18px; }
+.admin-jobs-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.job-count {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-6);
+  color: var(--text-mid);
+  background: var(--bg-panel);
+  font-size: 11px;
+  font-weight: 650;
+}
+.job-stalled,
+.job-failed { color: var(--red); background: var(--red-bg); border-color: #f2c8c5; }
+.job-running { color: var(--accent); background: var(--accent-bg); border-color: #cbd9f6; }
+.admin-user-invite {
+  display: grid;
+  grid-template-columns: minmax(160px, 220px) minmax(220px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  margin: 8px 0 10px;
+}
+.admin-role-select { min-width: 92px; margin-top: 0; }
+.admin-audit-filters {
+  display: grid;
+  grid-template-columns: minmax(130px, 170px) minmax(150px, 210px) minmax(150px, 1fr) minmax(150px, 210px) auto auto;
+  gap: 8px;
+  align-items: center;
+  margin: 8px 0 10px;
+}
+.admin-audit-category {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  margin-bottom: 3px;
+  padding: 1px 6px;
+  border-radius: var(--radius-6);
+  border: 1px solid var(--border);
+  color: var(--text-mid);
+  background: var(--bg-panel);
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.audit-run { color: var(--accent); background: var(--accent-bg); border-color: #cbd9f6; }
+.audit-billing { color: #3a6d48; background: #edf8ef; border-color: #c6e8cf; }
+.audit-security { color: var(--red); background: var(--red-bg); border-color: #f2c8c5; }
+.audit-invite,
+.audit-member { color: #6f549f; background: #f4effb; border-color: #dfd2f1; }
+.admin-audit-details summary {
+  cursor: pointer;
+  color: var(--text-mid);
+  font-weight: 650;
+}
+.admin-audit-detail-grid {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 3px 8px;
+  margin-top: 6px;
+  color: var(--text-light);
+}
+.admin-audit-detail-grid strong {
+  min-width: 0;
+  color: var(--text-mid);
+  font-weight: 550;
+  overflow-wrap: anywhere;
+}
+.admin-audit-details pre {
+  margin: 8px 0 0;
+  max-height: 160px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-mid);
+}
+.admin-job-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.admin-job-json {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.admin-job-json details {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-6);
+  padding: 6px 8px;
+  background: var(--bg-panel);
+}
+.admin-job-json summary {
+  cursor: pointer;
+  color: var(--text-mid);
+  font-weight: 650;
+}
+.admin-job-json pre {
+  margin: 6px 0 0;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.admin-errors { margin-top: 18px; }
+.admin-error-kind {
+  display: inline-block;
+  min-width: 66px;
+  margin-right: 6px;
+  font-weight: 650;
+  color: var(--red);
+}
+.admin-error-source { color: var(--text-light); }
+.admin-error-message {
+  max-width: 360px;
+  overflow-wrap: anywhere;
+}
+.admin-error-bundle {
+  margin-top: 6px;
+}
+.admin-error-bundle summary {
+  cursor: pointer;
+  color: var(--text-mid);
+  font-weight: 650;
+}
+.admin-error-bundle pre {
+  margin: 6px 0 0;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-mid);
+}
+.mini-link {
+  color: var(--accent);
+  font-weight: 650;
+  text-decoration: none;
+}
+.mini-link:hover { text-decoration: underline; }
+
+@media (max-width: 820px) {
+  .admin-user-invite,
+  .admin-audit-filters,
+  .admin-job-json { grid-template-columns: 1fr; }
+}
+
+.job-workers { white-space: nowrap; }
+
+.page-tag {
+  margin-left: auto;
+  font-size: 11px; color: var(--text-light);
+  background: var(--bg-hover); border-radius: var(--radius-4); padding: 2px 6px;
+}

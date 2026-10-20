@@ -1,3 +1,6 @@
+import './gridMenus.css';
+import { FormField } from '../components/FormControls';
+import { Button } from '../components/Button';
 // Toolbar-grade grid sort panel, opened from the column header menu's
 // "Advanced sort…".
 import { WindowCloseButton } from '../components/WindowCloseButton';
@@ -31,8 +34,8 @@ export function GridSortPanel({
         title="Close"
         onClick={onClose}
       />
-      <label>
-        <span>Column</span>
+      <FormField label="Column" >
+
         <PanelSelect
           className="row-height-select"
           data-testid="grid-sort-column"
@@ -43,9 +46,9 @@ export function GridSortPanel({
             <option key={col.id} value={col.name}>{col.name}</option>
           ))}
         </PanelSelect>
-      </label>
-      <label>
-        <span>Direction</span>
+      </FormField>
+      <FormField label="Direction" >
+
         <PanelSelect
           className="row-height-select"
           data-testid="grid-sort-direction"
@@ -55,15 +58,15 @@ export function GridSortPanel({
           <option value="asc">ascending</option>
           <option value="desc">descending</option>
         </PanelSelect>
-      </label>
-      <button
+      </FormField>
+      <Button
         type="button"
-        className="btn btn-primary"
+        className="btn-primary"
         data-testid="apply-grid-sort"
         onClick={onApply}
       >
         Apply
-      </button>
+      </Button>
     </section>
   );
 }

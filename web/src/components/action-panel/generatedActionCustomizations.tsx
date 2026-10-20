@@ -1,3 +1,5 @@
+import { Button } from '../Button';
+import { TextInput } from '../FormControls';
 /* eslint-disable react-refresh/only-export-components -- sparse first-party field bindings */
 import { Plus, Trash2 } from 'lucide-react';
 import { useEffect, type ReactNode } from 'react';
@@ -129,19 +131,19 @@ function ColumnsFromJsonRoutesField({ value, onChange }: GeneratedActionFieldPro
     <div className="field-group" data-testid="columns-from-json-routes">
       <div className="api-pair-heading">
         <span className="field-labels">Fields to extract</span>
-        <button type="button" className="mini-btn" data-testid="columns-from-json-add-route"
+        <Button type="button" data-testid="columns-from-json-add-route"
           onClick={() => onChange([...visible, { name: '', path: '' }])}>
           <Plus size={12} /> Add field
-        </button>
+        </Button>
       </div>
       <span className="form-hint">Use paths like $.address.city or $.items[0].name.</span>
       {visible.map((route, index) => (
         <div className="api-route-row" key={`route-${index}`}>
-          <input className="form-input" aria-label={`Field ${index + 1} JSON path`}
+          <TextInput aria-label={`Field ${index + 1} JSON path`}
             placeholder="$.path.to.value" value={route.path}
             data-testid={`columns-from-json-path-${index}`}
             onChange={(event) => update(index, 'path', event.target.value)} />
-          <input className="form-input" aria-label={`Field ${index + 1} output name`}
+          <TextInput aria-label={`Field ${index + 1} output name`}
             placeholder="Output name" value={route.name}
             data-testid={`columns-from-json-name-${index}`}
             onChange={(event) => update(index, 'name', event.target.value)} />

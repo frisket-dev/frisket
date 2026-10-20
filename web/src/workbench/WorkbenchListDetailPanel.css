@@ -1,0 +1,214 @@
+.bottom-dock-table-wrap {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+.bottom-dock-table {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--text);
+  table-layout: fixed;
+}
+.bottom-dock-table th,
+.bottom-dock-table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bottom-dock-table tbody tr {
+  cursor: pointer;
+}
+.bottom-dock-table tbody tr:hover {
+  background: var(--bg-hover);
+}
+.bottom-dock-row-selected {
+  background: var(--accent-bg);
+}
+.bottom-dock-row-button {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+}
+.bottom-dock-row-button strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bottom-dock-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 0;
+  background: var(--bg-panel);
+  color: var(--text-mid);
+  font-size: 11px;
+  font-weight: 700;
+}
+.bottom-dock-column-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 100%;
+  padding: 5px 16px 5px 8px;
+}
+.bottom-dock-column-header span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bottom-dock-column-resize-handle {
+  appearance: none;
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 9px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+}
+.bottom-dock-column-resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 5px;
+  right: 3px;
+  bottom: 5px;
+  width: 1px;
+  background: var(--border-strong);
+  opacity: 0;
+}
+.bottom-dock-column-resize-handle:hover::after,
+.bottom-dock-column-resize-handle:focus-visible::after {
+  opacity: 1;
+}
+.bottom-dock-column-resize-handle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.bottom-dock-status-error,
+.bottom-dock-error-message {
+  color: var(--red);
+}
+.bottom-dock-error-message {
+  display: block;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bottom-dock-split {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+.bottom-dock-split-handle {
+  appearance: none;
+  position: relative;
+  flex: 0 0 7px;
+  align-self: stretch;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  cursor: col-resize;
+  border-left: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+.bottom-dock-split-handle::after {
+  content: '';
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 3px;
+  width: 2px;
+  border-radius: var(--radius-999);
+  background: var(--border-strong);
+  opacity: 0;
+}
+.bottom-dock-split-handle:hover::after,
+.bottom-dock-split-handle:focus-visible::after,
+.bottom-dock-split-resizing .bottom-dock-split-handle::after {
+  opacity: 1;
+}
+.bottom-dock-split-handle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.bottom-dock-detail {
+  flex: 0 0 auto;
+  min-width: 260px;
+  max-width: min(720px, 60vw);
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 12px;
+  color: var(--text);
+  background: var(--bg);
+}
+.bottom-dock-detail-empty {
+  color: var(--text-light);
+}
+.bottom-dock-detail-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.bottom-dock-detail-header strong,
+.bottom-dock-detail-header span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bottom-dock-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(92px, max-content) minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 0;
+}
+.bottom-dock-detail-grid div {
+  display: contents;
+}
+.bottom-dock-detail-grid dt {
+  color: var(--text-mid);
+  font-weight: 700;
+}
+.bottom-dock-detail-grid dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.bottom-dock-detail-section {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.bottom-dock-detail-section h4 {
+  margin: 0 0 6px;
+  color: var(--text-mid);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.bottom-dock-detail-section pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--red);
+  font-family: var(--font);
+}
+.bottom-dock-empty-cell {
+  color: var(--text-light);
+}

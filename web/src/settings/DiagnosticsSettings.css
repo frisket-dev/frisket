@@ -1,0 +1,45 @@
+/* ---- diagnostics settings section (settings/DiagnosticsSettings.tsx's
+   DiagnosticsSettings, diagnose-modal-to-settings-v1) ---------------------- */
+
+.diagnose-panel-status { font-weight: 600; margin: 6px 0; }
+.diagnose-panel-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-7);
+}
+.diagnose-panel-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  text-align: left;
+}
+.diagnose-panel-table th,
+.diagnose-panel-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.diagnose-panel-table thead th {
+  color: var(--text-light);
+  background: var(--bg-panel);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.diagnose-panel-table tbody th { font-weight: 650; white-space: nowrap; }
+.diagnose-panel-table tbody tr:last-child > * { border-bottom: 0; }
+.diagnose-row-failed { background: color-mix(in srgb, var(--red) 7%, transparent); }
+.diagnose-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 66px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.diagnose-status-ok { color: var(--green); }
+.diagnose-status-failed { color: var(--red); }
+.diagnose-status-info,
+.diagnose-status-unknown { color: var(--text-mid); }

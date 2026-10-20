@@ -1,3 +1,4 @@
+import './InspectDetailColumn.css';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { useMemo, useRef, type ReactNode } from 'react';
 import { RowDrawerBody, PreviewFieldValue } from '../components/RowDrawer';
@@ -5,6 +6,7 @@ import { useEscapeDismiss } from '../hooks/useEscapeDismiss';
 import { useResizable } from '../components/useResizable';
 import { ResizeSeam } from '../components/ResizeSeam';
 import { PanelHeader } from '../components/PanelPrimitives';
+import { PanelFrame, PanelBody } from '../components/PanelLayout';
 import { IconButton } from '../components/IconButton';
 import type { CellValue, ColumnDef, PreviewCellDetail, Row, SheetMeta } from '../api/open';
 import type { WorkbenchResolvedLayoutContribution } from './layout';
@@ -110,7 +112,7 @@ export function InspectDetailColumn({
   );
 
   return (
-    <aside
+    <PanelFrame as="aside"
       className={`inspect-detail-column${resizing ? ' inspect-detail-column-resizing' : ''}`}
       style={{ width }}
       // `row-drawer` is the pinned e2e hook carried over from the retired
@@ -171,7 +173,7 @@ export function InspectDetailColumn({
       />
       {/* `drawer-body` is retained as the scoped scroll container class the
           selected-cell smooth-scroll effect (and its e2e probe) targets. */}
-      <div className="inspect-detail-body drawer-body" ref={bodyRef} data-testid="inspect-detail-body">
+      <PanelBody padding="compact" className="drawer-body" ref={bodyRef} data-testid="inspect-detail-body">
         {preview ? (
           <PreviewFieldValue preview={preview} />
         ) : (
@@ -190,7 +192,7 @@ export function InspectDetailColumn({
             onToggleRunResultField={onToggleRunResultField}
           />
         )}
-      </div>
-    </aside>
+      </PanelBody>
+    </PanelFrame>
   );
 }

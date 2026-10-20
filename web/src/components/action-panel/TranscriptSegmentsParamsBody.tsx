@@ -1,3 +1,4 @@
+import { TextArea } from '../FormControls';
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { GeneratedActionParams } from '../../generated/actionTypes';
 import {
@@ -149,7 +150,7 @@ function TemporalSegmentsEditor({
         } else enterManual(mode);
       }} ariaLabel="Selection source" buttonTestId={(value) => `split-selection-${value}`} />
     </div>
-    {fromColumn ? <label className="field-group">
+    {fromColumn ? <label className="field-group form-field">
       <span className="field-labels">{mode === 'points' ? 'Timestamp' : 'Time range'}</span>
       <PanelSelect className="form-input" value={selectedColumn?.name ?? ''}
         data-testid="split-selection-column-select"
@@ -168,8 +169,8 @@ function TemporalSegmentsEditor({
         Choose timestamps or time ranges above to replace it with a pasted draft.</p>
       <Field name="selection" label="Saved temporal selection" />
     </> : mode === 'points' ? <>
-      <label className="field-group"><span className="field-labels">Timestamps</span>
-        <textarea className="form-input temporal-paste-input" rows={7} spellCheck={false}
+      <label className="field-group form-field"><span className="field-labels">Timestamps</span>
+        <TextArea className="temporal-paste-input" rows={7} spellCheck={false}
           value={pointText} data-testid="split-points-textarea"
           placeholder={'00:30\n01:15,Opening\n02:45\tInterview begins'}
           onChange={(event) => setPoints(event.target.value)} />
@@ -179,8 +180,8 @@ function TemporalSegmentsEditor({
       {pointsError ? <p role="alert" className="temporal-validation-error" data-testid="split-points-error">{pointsError}</p>
         : parsedPoints.ok && <PointDraftPreview items={parsedPoints.items} purpose={purpose} />}
     </> : <>
-      <label className="field-group"><span className="field-labels">Time ranges</span>
-        <textarea className="form-input temporal-paste-input" rows={7} spellCheck={false}
+      <label className="field-group form-field"><span className="field-labels">Time ranges</span>
+        <TextArea className="temporal-paste-input" rows={7} spellCheck={false}
           value={rangeText} data-testid="split-ranges-textarea"
           placeholder={'00:10,00:45,Opening\n01:20,02:00,Interview'}
           onChange={(event) => setRanges(event.target.value)} />

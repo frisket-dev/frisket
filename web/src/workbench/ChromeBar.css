@@ -1,0 +1,68 @@
+/* ============================================================================
+   Workbench IA global chrome bar + Act ribbon ⇄ menu bar.
+   Region-accent tokens (--act*) only; no raw hexes.
+   ============================================================================ */
+
+/* ---- Global chrome bar (§2) ------------------------------------------------ */
+.chrome-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  flex: 0 0 44px;
+  padding: 0 12px;
+  background: var(--bg-sidebar);
+  border-bottom: 1px solid var(--border);
+}
+.chrome-bar-brand { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.chrome-bar-brand .project-menu { margin-left: 2px; }
+.chrome-bar .brand-tile { background: var(--text); color: var(--bg); }
+.chrome-bar .brand-link:hover .brand-tile { background: var(--text); }
+.chrome-bar-spacer { flex: 1 1 auto; }
+.chrome-command-pill {
+  display: inline-flex; align-items: center; gap: 8px;
+  height: 28px; padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 99px;
+  background: var(--bg);
+  color: var(--text-light);
+  font-size: 12.5px;
+}
+.chrome-command-pill:hover { background: var(--bg-hover); color: var(--text-mid); }
+.chrome-command-label { font-size: 12.5px; }
+.chrome-command-kbd {
+  font-family: var(--mono); font-size: 10.5px;
+  color: var(--text-light);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-5); padding: 1px 5px;
+}
+.chrome-guide-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 30px; padding: 0 9px; border-radius: var(--radius-8);
+  color: var(--text-mid); background: transparent; font-size: 12px;
+}
+.chrome-guide-btn:hover { background: var(--bg-hover); }
+.chrome-guide-btn.open { background: var(--focus-bg); color: var(--focus); }
+.chrome-guide-btn.new,
+.chrome-guide-btn.new:hover {
+  background: var(--focus);
+  color: var(--text-on-solid);
+}
+.chrome-guide-resume {
+  display: inline-flex; align-items: center; justify-content: center; gap: 2px;
+  height: 28px; margin-left: -3px; padding: 0 7px;
+  border: 1px solid var(--focus);
+  border-radius: var(--radius-8);
+  background: var(--focus-bg);
+  color: var(--focus);
+  font-size: 11.5px;
+}
+.chrome-guide-resume:hover { filter: brightness(0.97); }
+.chrome-ask-btn, .chrome-account-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: var(--radius-8);
+  color: var(--text-mid); background: transparent;
+}
+.chrome-account-btn:hover { background: var(--bg-hover); }
+.chrome-ask-btn { background: var(--accent); color: var(--text-on-solid); }
+.chrome-ask-btn:hover, .chrome-ask-btn.open { background: var(--accent-strong); }

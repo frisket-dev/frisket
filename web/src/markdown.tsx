@@ -1,3 +1,4 @@
+import './markdown.css';
 // Markdown rendering for cells whose column carries format='markdown'. The grid
 // uses Glide's native Markdown cell for the in-grid preview overlay; the row
 // drawer (and anything else DOM-side) renders

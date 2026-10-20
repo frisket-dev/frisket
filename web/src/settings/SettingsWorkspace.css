@@ -1,0 +1,160 @@
+/* ---- settings workspace ---------------------------------------------------- */
+
+.settings-workspace {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg);
+}
+.settings-chrome-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--radius-6);
+  color: var(--text-mid);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.settings-chrome-back:hover { background: var(--bg-hover); color: var(--text); }
+.settings-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.settings-rail {
+  width: 276px;
+  flex: 0 0 276px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-panel);
+  padding: 12px;
+}
+.settings-rail-brand {
+  display: grid;
+  gap: 10px;
+}
+.settings-context {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.settings-context-label,
+.settings-nav-group-label {
+  color: var(--text-light);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+.settings-context strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.settings-project-switcher {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: var(--text-light);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+.settings-project-error {
+  color: var(--red);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.3;
+  text-transform: none;
+}
+.settings-nav {
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-right: 2px;
+}
+.settings-nav-group {
+  display: grid;
+  gap: 4px;
+}
+.settings-nav-item {
+  width: 100%;
+  min-height: 34px;
+  display: grid;
+  gap: 2px;
+  align-items: center;
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: var(--radius-6);
+  color: var(--text-mid);
+}
+.settings-nav-item:hover { background: var(--bg-hover); color: var(--text); }
+.settings-nav-item.active {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+.settings-nav-item:disabled {
+  opacity: 1;
+  color: var(--text-light);
+}
+.settings-nav-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.settings-nav-reason {
+  display: block;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.3;
+}
+.settings-content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 28px clamp(20px, 5vw, 64px);
+}
+
+/* In-app model pull progress uses the shared activity card inline in the
+   Download flow and the Settings active/recent pulls strip. */
+/* AI call mode (Settings → Preferences). Local instances render the list as
+   radio options; deployment-owned team/managed configurations retain the
+   quiet read-only description-list presentation. */
+/* Tone states for provider-key validation feedback (success / rejected key /
+   unreachable). Applied on top of .settings-inline-status or .settings-row-note. */
+/* Row-note variant is inline (no card border); tone carries via text color. */
+/* A failed probe's own words, one disclosure below the humanized status chip
+   (which is inside .settings-meta-label above — note it UPPERCASES, which is
+   how a raw errno became "OLLAMA [ERRNO 111] CONNECTION REFUSED"). */
+
+@media (max-width: 760px) {
+  .settings-body {
+    flex-direction: column;
+    overflow: auto;
+  }
+  .settings-rail {
+    width: 100%;
+    flex-basis: auto;
+    max-height: 46vh;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .settings-content {
+    overflow: visible;
+    padding: 22px 16px;
+  }
+}

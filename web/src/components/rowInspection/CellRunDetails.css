@@ -1,0 +1,49 @@
+/* provenance */
+.provenance {
+  margin-top: 8px;
+  background: var(--ai-bg);
+  border-radius: var(--radius-7);
+  padding: 9px 11px;
+}
+.prov-justification {
+  margin: 8px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--text-mid);
+}
+/* "Explain this cell" (debug trace: exact prompt + raw model output) */
+.explain { margin-top: 6px; }
+.explain-toggle { display: inline-flex; align-items: center; }
+.explain-panel {
+  /* Native `popover="manual"` element (see RowDrawer.tsx's ExplainBlock,
+     same top-layer recipe as .model-picker-menu/.engine-license-popover):
+     keep `position: fixed`, then neutralize the UA `[popover] { inset: 0;
+     margin: auto }` centering box with `inset: auto`/`margin: 0` so the JS
+     useAnchoredPosition top/left/width own the placement instead of the
+     old inline `margin-top` flow (which rendered inside the fixed 20px
+     action slot and could push the panel off the edge of the screen). */
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  overflow-y: auto;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-7);
+  box-shadow: var(--shadow-menu);
+  padding: 9px 11px;
+}
+.explain-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.explain-panel-title { font-size: 11px; font-weight: 650; color: var(--text-mid); }
+.explain-close { flex-shrink: 0; }
+.explain-meta { margin-bottom: 4px; }
+.explain-meta .prov-key { color: var(--text-mid); }
+.explain-note { font-size: 11.5px; color: var(--text-light); line-height: 1.5; }
+.explain-error { color: var(--red); }
+.explain-section-head {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 11px; font-weight: 650; color: var(--text-mid);
+  margin: 8px 0 4px;
+}

@@ -1,3 +1,5 @@
+import './WorkbenchCommandPalette.css';
+import '../workspace/WorkspaceOverlays.css';
 import { useMemo } from 'react';
 import type { SheetMeta } from '../api/types';
 import { useEscapeDismiss } from '../hooks/useEscapeDismiss';
@@ -7,7 +9,7 @@ import type { WorkbenchHostContext } from './hostContext';
 import { PluginHostShell } from './pluginHostShell';
 import { buildPluginPeekContext } from './pluginPeekContext';
 import { resolvePluginPanelAvailability } from './pluginPanelContext';
-import { TrustedLocalPluginComponent } from './TrustedLocalPluginComponent';
+import { PluginRuntimeContribution } from './PluginRuntimeContribution';
 
 export interface PluginPeekHostProps {
   descriptor: WorkbenchPanelDescriptor;
@@ -111,24 +113,16 @@ function MountedPluginPeek({
   }
 
   return (
-    <WorkbenchContributionFrame
+    <PluginRuntimeContribution
       descriptor={descriptor}
       host="modalOrPeek"
       className="workbench-contribution-host plugin-peek-contribution-host"
       dataAttributes={{
         'data-plugin-peek-status': 'mounted',
         'data-plugin-peek-context-schema-version': ctx.schemaVersion,
-        'data-plugin-runtime-module-url': descriptor.runtimeComponent.moduleUrl,
-        'data-plugin-runtime-package-sha256': descriptor.runtimeComponent.packageSha256,
       }}
-    >
-      <TrustedLocalPluginComponent
-        moduleUrl={descriptor.runtimeComponent.moduleUrl}
-        componentKey={descriptor.runtimeComponent.componentKey}
-        contributionId={descriptor.runtimeComponent.contributionId}
-        pluginId={descriptor.runtimeComponent.pluginId}
-        ctx={ctx}
-      />
-    </WorkbenchContributionFrame>
+      runtime={descriptor.runtimeComponent}
+      ctx={ctx}
+    />
   );
 }

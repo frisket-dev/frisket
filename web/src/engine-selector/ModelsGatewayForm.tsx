@@ -1,3 +1,6 @@
+import '../components/PanelPrimitives.css';
+import { Button } from '../components/Button';
+import { TextInput } from '../components/FormControls';
 import { useState, type FormEvent } from 'react';
 import { saveModelsGateway, validateModelsGateway, type ModelsGatewayScope } from '../api/modelsGateway';
 import { safeSetupDetail, useSetupEditing, useSetupRequests } from './setupLifetime';
@@ -49,15 +52,15 @@ export function ModelsGatewayForm({ scope, initialOrigin = '', compact = false, 
     event.preventDefault(); void test();
   };
   const actionLabel = busy === 'test' ? 'Testing…' : busy === 'save' ? 'Saving…' : receipt ? 'Save' : 'Test';
-  return <form className={`settings-form settings-inline-form selector-setup-form${compact ? ' selector-setup-form--compact' : ''}`} autoComplete="off" onSubmit={compact ? compactSubmit : submit} onFocus={() => editing(true)}>
-    <p className="settings-help"><a href="https://github.com/frisket-dev/frisket/blob/main/sidecar/README.md" target="_blank" rel="noreferrer">Models server setup guide</a></p>
-    <label><span className={compact ? 'sr-only' : undefined}>Gateway URL</span><input aria-label="Gateway URL" type="url" placeholder="https://models.example.org" value={origin} disabled={busy === 'save'} onChange={(event) => { edit(); setOrigin(event.currentTarget.value); }} /></label>
-    <label><span className={compact ? 'sr-only' : undefined}>Gateway token</span><input aria-label="Gateway token" placeholder={compact ? 'Gateway token' : undefined} type="password" autoComplete="new-password" value={token} disabled={busy === 'save'} onChange={(event) => { edit(); setToken(event.currentTarget.value); }} /></label>
-    {!compact && <p className="settings-help">Use HTTPS or a loopback address. Test this URL and token before saving.</p>}
-    {compact ? <button className="btn btn-primary" type="submit" disabled={Boolean(busy) || !origin.trim() || !token.trim()}>{actionLabel}</button>
-      : <><button className="btn" type="button" disabled={Boolean(busy) || !origin.trim() || !token.trim()} onClick={() => void test()}>{busy === 'test' ? 'Testing…' : 'Test'}</button>
-        <button className="btn btn-primary" type="submit" disabled={Boolean(busy) || !receipt}>{busy === 'save' ? 'Saving…' : 'Save'}</button>
-        <button className="btn" type="button" disabled={Boolean(busy)} onClick={() => void test(true)}>{busy === 'recheck' ? 'Checking…' : 'Recheck saved gateway'}</button></>}
-    {(error || message) && <p className={`settings-inline-status settings-validation-message is-${error ? 'error' : 'success'}`} role={error ? 'alert' : 'status'}>{error ?? message}</p>}
+  return <form className={`form-inline selector-setup-form${compact ? ' selector-setup-form--compact' : ''}`} autoComplete="off" onSubmit={compact ? compactSubmit : submit} onFocus={() => editing(true)}>
+    <p className="form-hint"><a href="https://github.com/frisket-dev/frisket/blob/main/sidecar/README.md" target="_blank" rel="noreferrer">Models server setup guide</a></p>
+    <label className="form-field"><span className={compact ? 'sr-only' : undefined}>Gateway URL</span><TextInput aria-label="Gateway URL" type="url" placeholder="https://models.example.org" value={origin} disabled={busy === 'save'} onChange={(event) => { edit(); setOrigin(event.currentTarget.value); }} /></label>
+    <label className="form-field"><span className={compact ? 'sr-only' : undefined}>Gateway token</span><TextInput aria-label="Gateway token" placeholder={compact ? 'Gateway token' : undefined} type="password" autoComplete="new-password" value={token} disabled={busy === 'save'} onChange={(event) => { edit(); setToken(event.currentTarget.value); }} /></label>
+    {!compact && <p className="form-hint">Use HTTPS or a loopback address. Test this URL and token before saving.</p>}
+    {compact ? <Button className="btn-primary" type="submit" disabled={Boolean(busy) || !origin.trim() || !token.trim()}>{actionLabel}</Button>
+      : <><Button type="button" disabled={Boolean(busy) || !origin.trim() || !token.trim()} onClick={() => void test()}>{busy === 'test' ? 'Testing…' : 'Test'}</Button>
+        <Button className="btn-primary" type="submit" disabled={Boolean(busy) || !receipt}>{busy === 'save' ? 'Saving…' : 'Save'}</Button>
+        <Button type="button" disabled={Boolean(busy)} onClick={() => void test(true)}>{busy === 'recheck' ? 'Checking…' : 'Recheck saved gateway'}</Button></>}
+    {(error || message) && <p className="panel-notice" data-tone={error ? 'error' : 'success'} role={error ? 'alert' : 'status'}>{error ?? message}</p>}
   </form>;
 }

@@ -1,3 +1,4 @@
+import './ReplayModeBanner.css';
 // A persistent top bar — never a toast — shown whenever the active router cache
 // mode means live AI calls cannot happen. That is ONLY strict replay
 // (live_calls_possible=false): plain replay is cache-first but falls through to

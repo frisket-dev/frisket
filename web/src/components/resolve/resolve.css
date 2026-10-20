@@ -28,14 +28,6 @@
    chrome (the row provides the border) but keeps its font/color/reset. */
 .resolve-value-search-row .form-input.resolve-value-search {
   flex: 1;
-  min-width: 0;
-  border: 0;
-  background: transparent;
-  padding: 3px 2px;
-}
-.resolve-value-search-row .form-input.resolve-value-search:focus {
-  outline: none;
-  border-color: transparent;
 }
 .resolve-value-viewport {
   position: relative;
@@ -123,9 +115,6 @@
   position: sticky;
   top: 0;
   z-index: 5;
-  display: flex;
-  align-items: center;
-  gap: 8px;
   padding: 5px 6px 5px 10px;
   border: 1px solid var(--accent);
   border-radius: var(--radius-7);
@@ -139,42 +128,12 @@
   font-variant-numeric: tabular-nums;
 }
 .resolve-selection-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
   flex: 1;
   min-width: 0;
-}
-.resolve-selection-clear {
-  margin-left: auto;
-  flex-shrink: 0;
-  color: var(--accent-strong);
 }
 
 /* ── GroupCard ─────────────────────────────────────────────────────────── */
 
-.resolve-group-card {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-8);
-}
-.resolve-group-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
-}
-.resolve-group-collapse {
-  display: inline-flex;
-  align-items: center;
-  border: 0;
-  background: transparent;
-  color: var(--text-light);
-  cursor: pointer;
-  padding: 2px;
-  border-radius: var(--radius-4);
-  flex-shrink: 0;
-}
-.resolve-group-collapse:hover { background: var(--bg-hover); color: var(--text); }
 .resolve-group-diamond { color: var(--accent); flex-shrink: 0; }
 .resolve-group-name {
   flex: 1;
@@ -187,7 +146,6 @@
   font-variant-numeric: tabular-nums;
   font-size: 12px;
 }
-.resolve-group-delete { flex-shrink: 0; }
 .resolve-group-summary {
   display: flex;
   align-items: baseline;
@@ -207,38 +165,6 @@
   font-size: 11.5px;
   flex-shrink: 0;
 }
-.resolve-group-members {
-  border-top: 1px solid var(--border);
-  padding: 4px 0 6px;
-  display: flex;
-  flex-direction: column;
-}
-.resolve-group-member {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 2px 8px;
-  font-size: 12px;
-}
-.resolve-member-promote {
-  display: inline-flex;
-  align-items: center;
-  border: 0;
-  background: transparent;
-  color: var(--text-light);
-  cursor: pointer;
-  padding: 2px;
-  border-radius: var(--radius-4);
-  flex-shrink: 0;
-}
-.resolve-member-promote:hover:not(:disabled) {
-  color: var(--accent);
-  background: var(--bg-hover);
-}
-.resolve-member-promote:disabled {
-  color: var(--accent);
-  cursor: default;
-}
 .resolve-member-value {
   flex: 1;
   min-width: 0;
@@ -254,7 +180,6 @@
   font-variant-numeric: tabular-nums;
   font-size: 11px;
 }
-.resolve-member-remove { flex-shrink: 0; }
 
 /* Preserve each rich editor's existing flex/layout tree while using native
    fieldset disabling to lock its controls during host-owned preflight/run. */

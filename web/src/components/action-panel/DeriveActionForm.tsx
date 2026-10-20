@@ -1,3 +1,4 @@
+import { TextInput } from '../FormControls';
 import { useState } from 'react';
 
 import type { GeneratedActionCatalogEntry, GeneratedActionDraft, OutputField, DeriveCompositeRequest } from '../../api/open';
@@ -52,7 +53,7 @@ function DeriveFromSheetForm({ extractEntry, onCompositeRun, ...props }:
         { value: 'column', label: 'From existing list column' }]} />
     {mode === 'column' ? <GeneratedActionForm {...props} /> : extractEntry && extractTemplate ? <>
       <label className="form-label" htmlFor="derive-target-sheet">New sheet name</label>
-      <input id="derive-target-sheet" className="form-input" value={sheetName}
+      <TextInput id="derive-target-sheet"  value={sheetName}
         onChange={(event) => setSheetName(event.target.value)} />
       <GeneratedActionForm {...props} catalogEntry={extractEntry} actionTemplate={extractTemplate}
         initialDraft={initialExtract} initializeSelectorDefaults title="Generate a table" onExecute={(request, intent, done) => {
@@ -70,7 +71,7 @@ function DeriveFromSheetForm({ extractEntry, onCompositeRun, ...props }:
             sheet_name: sheetName.trim(), extraction: request,
           });
         }} />
-      {problem && <p className="form-error" role="alert">{problem}</p>}
-    </> : <p className="form-error">Extraction is unavailable.</p>}
+      {problem && <p className="panel-error" role="alert">{problem}</p>}
+    </> : <p className="panel-error">Extraction is unavailable.</p>}
   </>;
 }

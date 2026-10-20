@@ -1,0 +1,9 @@
+/* Repeatable editors share row rhythm and tools, not values or controllers. */
+.editor-list { display: grid; gap: 12px; min-width: 0; }
+.editor-row { display: grid; gap: 8px; min-width: 0; padding-block: 12px; border-bottom: 1px solid var(--border); }
+.editor-row:first-child { padding-top: 0; }
+.editor-row-controls { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.editor-row-controls > .form-input, .editor-row-controls > .panel-select-shell { flex: 1; min-width: 0; }
+.editor-row-tools { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+.editor-row-details { min-width: 0; }
+.editor-inset { display: grid; gap: 12px; padding-left: 12px; border-left: 2px solid var(--border); min-width: 0; }

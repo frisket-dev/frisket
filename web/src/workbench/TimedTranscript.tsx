@@ -1,3 +1,5 @@
+import './DocumentView.css';
+import '../components/evidence/EvidenceReading.css';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   parseTimedTranscriptSegments,

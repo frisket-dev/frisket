@@ -9,7 +9,8 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { FieldValue, RowField } from '../../src/components/RowDrawer';
+import { RowField } from '../../src/components/RowDrawer';
+import { FieldValue } from '../../src/components/rowInspection/FieldValue';
 import { fieldValueDependencyColumnIds } from '../../src/components/fieldValueDependencies';
 import { createProjectApi } from '../../src/api/real';
 import { aiMeta, columnDef, row } from '../support/domainFixtures';
@@ -101,6 +102,28 @@ describe('FieldValue renderer', () => {
     const track = document.querySelector('track');
     expect(track).toHaveAttribute('label', 'interview transcript');
     expect(track?.getAttribute('src')).toContain(encodeURIComponent('Projected caption text'));
+  });
+
+  it.each(['-->', '--!>'])('keeps %s and markup literal inside generated WebVTT cue text', (ending) => {
+    const video = columnDef({ id: 'video', name: 'interview', type: 'video' });
+    const transcript = columnDef({ id: 'transcript', name: 'interview transcript', type: 'text' });
+    const value = 'https://example.test/interview.mp4';
+    render(<FieldValue col={video} columns={[video, transcript]} value={value}
+      row={row({ video: value, transcript: `First line\r\n<!-- note ${ending}<b>literal &amp; & text</b>` })} />);
+    const src = document.querySelector('track')!.getAttribute('src')!;
+    const vtt = decodeURIComponent(src.slice('data:text/vtt;charset=utf-8,'.length));
+    expect(vtt).toBe(`WEBVTT\n\n00:00:00.000 --> 99:59:59.000\nFirst line\n&lt;!-- note ${ending.slice(0, -1)}&gt;&lt;b&gt;literal &amp;amp; &amp; text&lt;/b&gt;\n`);
+  });
+
+  it('keeps paragraphs after blank or whitespace-only lines inside the same caption cue', () => {
+    const video = columnDef({ id: 'video', name: 'interview', type: 'video' });
+    const transcript = columnDef({ id: 'transcript', name: 'interview transcript', type: 'text' });
+    const value = 'https://example.test/interview.mp4';
+    render(<FieldValue col={video} columns={[video, transcript]} value={value}
+      row={row({ video: value, transcript: 'First line\r\nSecond line\r\n\r\nThird paragraph\n \t \n\nFinal paragraph' })} />);
+    const src = document.querySelector('track')!.getAttribute('src')!;
+    const vtt = decodeURIComponent(src.slice('data:text/vtt;charset=utf-8,'.length));
+    expect(vtt).toBe('WEBVTT\n\n00:00:00.000 --> 99:59:59.000\nFirst line\nSecond line\nThird paragraph\nFinal paragraph\n');
   });
 
   it('decodes literal escaped newline and unicode sequences for AI text columns', () => {

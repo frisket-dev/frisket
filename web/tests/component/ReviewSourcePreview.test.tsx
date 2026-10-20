@@ -14,10 +14,10 @@ const projectApi = vi.hoisted(() => ({
 vi.mock('../../src/bind/useWorkspaceStores', () => ({
   useWorkspaceStores: () => ({ projectApi }),
 }));
-vi.mock('../../src/components/RowDrawer', () => ({
+vi.mock('../../src/components/rowInspection/FieldValue', () => ({
   FieldValue: ({ value }: { value: unknown }) => <span>{value == null ? '(empty)' : String(value)}</span>,
 }));
-vi.mock('../../src/components/EvidenceViewer', () => ({
+vi.mock('../../src/components/evidence/ArtifactSource', () => ({
   ArtifactSource: ({ artifact, emphasizedSpanIds }: { artifact: { stable_id: string }; emphasizedSpanIds?: string[] }) => (
     <div data-testid="artifact-source" data-source-id={artifact.stable_id} data-emphasized={emphasizedSpanIds?.join(',') ?? ''}>
       <button className={emphasizedSpanIds?.length ? 'evidence-temporal-segment-emphasized' : ''}

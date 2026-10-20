@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 import { useState } from 'react';
@@ -43,6 +43,19 @@ describe('NerEngineFields', () => {
 
     await user.click(screen.getByRole('button', { name: 'GLiNER' }));
     expect(screen.getAllByTestId('ner-gliner-labels-chip')).toHaveLength(2);
+  });
+
+  it('drops uncommitted chip text on an external engine change while retaining authored labels', () => {
+    const props = { labels: ['person'], onLabelsChange: () => {} };
+    const { rerender } = render(<NerEngineFields {...props} engine="gliner" />);
+    fireEvent.change(screen.getByTestId('ner-gliner-labels-draft'), { target: { value: 'unfinished' } });
+    rerender(<NerEngineFields {...props} engine="llm" />);
+    expect(screen.getByTestId('ner-llm-labels-draft')).toHaveValue('');
+    expect(screen.getByTestId('ner-llm-labels')).toHaveTextContent('person');
+    fireEvent.change(screen.getByTestId('ner-llm-labels-draft'), { target: { value: 'another draft' } });
+    rerender(<NerEngineFields {...props} engine="gliner" />);
+    expect(screen.getByTestId('ner-gliner-labels-draft')).toHaveValue('');
+    expect(screen.getByTestId('ner-gliner-labels')).not.toHaveTextContent('unfinished');
   });
 
   it('preserves the spaCy controls and their delegated blocking error', () => {

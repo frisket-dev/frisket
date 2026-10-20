@@ -1,3 +1,4 @@
+import { TextArea } from '../FormControls';
 import type { ReactNode } from 'react';
 
 import {
@@ -29,9 +30,9 @@ export function ActionPromptField({
   return (
     <>
       <label className="form-label" htmlFor={id}>{label}</label>
-      <textarea
+      <TextArea
         id={id}
-        className="form-input form-textarea form-textarea-autogrow"
+        className="form-textarea-autogrow"
         ref={resizeTextareaToContent}
         rows={rows}
         value={value}

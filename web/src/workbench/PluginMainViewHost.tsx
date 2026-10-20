@@ -1,3 +1,5 @@
+import './PluginContributionHosts.css';
+import './GeoMapProjection.css';
 import { useMemo } from 'react';
 import type { ColumnDef, SheetDataPage, SheetMeta } from '../api/types';
 import { ImageGalleryWorkbenchViewFrame, WorkbenchContributionFrame } from './contributions';
@@ -21,7 +23,7 @@ import {
   type PluginViewContext,
 } from './pluginViewContext';
 import { TimelineProjectionView } from './TimelineProjectionView';
-import { TrustedLocalPluginComponent } from './TrustedLocalPluginComponent';
+import { PluginRuntimeContribution } from './PluginRuntimeContribution';
 import type { WorkbenchHostContext } from './hostContext';
 import {
   buildSelectionFragment,
@@ -230,22 +232,12 @@ function MountedPluginMainView({
     };
     if (descriptor.runtimeComponent) {
       return (
-        <WorkbenchContributionFrame
+        <PluginRuntimeContribution
           descriptor={descriptor}
-          dataAttributes={{
-            ...projectionDataAttributes,
-            'data-plugin-runtime-module-url': descriptor.runtimeComponent.moduleUrl,
-            'data-plugin-runtime-package-sha256': descriptor.runtimeComponent.packageSha256,
-          }}
-        >
-          <TrustedLocalPluginComponent
-            moduleUrl={descriptor.runtimeComponent.moduleUrl}
-            componentKey={descriptor.runtimeComponent.componentKey}
-            contributionId={descriptor.runtimeComponent.contributionId}
-            pluginId={descriptor.runtimeComponent.pluginId}
-            ctx={projectionCtx}
-          />
-        </WorkbenchContributionFrame>
+          dataAttributes={projectionDataAttributes}
+          runtime={descriptor.runtimeComponent}
+          ctx={projectionCtx}
+        />
       );
     }
     const BuiltInProjectionView = BUILT_IN_PROJECTION_VIEW_COMPONENTS[descriptor.componentKey];
@@ -261,23 +253,15 @@ function MountedPluginMainView({
 
   if (descriptor.runtimeComponent) {
     return (
-      <WorkbenchContributionFrame
+      <PluginRuntimeContribution
         descriptor={descriptor}
         dataAttributes={{
           'data-plugin-view-status': 'mounted',
           'data-plugin-view-context-schema-version': ctx.schemaVersion,
-          'data-plugin-runtime-module-url': descriptor.runtimeComponent.moduleUrl,
-          'data-plugin-runtime-package-sha256': descriptor.runtimeComponent.packageSha256,
         }}
-      >
-        <TrustedLocalPluginComponent
-          moduleUrl={descriptor.runtimeComponent.moduleUrl}
-          componentKey={descriptor.runtimeComponent.componentKey}
-          contributionId={descriptor.runtimeComponent.contributionId}
-          pluginId={descriptor.runtimeComponent.pluginId}
-          ctx={ctx}
-        />
-      </WorkbenchContributionFrame>
+        runtime={descriptor.runtimeComponent}
+        ctx={ctx}
+      />
     );
   }
 

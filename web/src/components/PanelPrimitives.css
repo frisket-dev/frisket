@@ -1,0 +1,329 @@
+@layer base, action-panel;
+
+/* THE one muted loading placeholder (ui-panel-loading-v1,
+   components/PanelPrimitives.tsx PanelLoading). Replaces the four re-declared
+   "muted text, no icon" blocks (app-loading, drawer-loading,
+   evidence-viewer-loading, action-drawer-loading) with a single base rule;
+   `panel-loading-page` composes on top for the full-height centered
+   page/route states that app-loading used to own alone. */
+.panel-loading { color: var(--text-light); padding: 14px 0; }
+.panel-loading-page {
+  display: grid; place-items: center; height: 100%;
+  padding: 0;
+}
+@layer base {
+.panel-header {
+  font-size: 12px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--text-mid);
+  padding: 14px 14px 8px;
+}
+}
+.panel-subheader {
+  font-size: 10.5px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--text-light);
+  padding: 8px 14px 4px;
+}
+/* THE one muted empty line + inline error block (ui-region-frames-v1 / C6,
+   components/PanelPrimitives.tsx PanelEmpty/PanelError). Replaces the
+   literal-duplicate .history-empty/.sources-empty/.notifications-empty/
+   .watches-empty/.source-run-empty/.watch-run-empty and
+   .sources-error/.watches-error rules, so an empty/error state renders
+   identically in every host region (dock, Discover, drawers). */
+.panel-empty { font-size: 11.5px; color: var(--text-light); padding: 4px 8px; }
+li.panel-empty { list-style: none; }
+.panel-error, .panel-notice {
+  font-size: 12px; line-height: 1.45;
+  border-radius: var(--radius-6); padding: 8px 10px;
+  word-break: break-word;
+}
+.panel-error { color: var(--red); background: var(--red-bg); }
+.panel-notice { color: var(--text-mid); background: var(--bg-hover); }
+.panel-notice > svg { flex-shrink: 0; vertical-align: middle; margin-inline-end: 6px; }
+.panel-notice[data-tone='success'] { color: var(--green); background: var(--green-bg); }
+.panel-notice[data-tone='warning'] { color: var(--amber); background: var(--amber-bg); }
+.panel-notice[data-tone='error'] { color: var(--red); background: var(--red-bg); }
+/* THE one status/state chip (ui-chips-segmented-v1 / C4,
+   components/PanelPrimitives.tsx StatusChip). Replaces the five re-declared
+   tone->color pairs (.notification-status-pill, .ollama-badge,
+   .embedding-badge, .sheet-info-badge, .lineage-node-sync — each with its
+   own drifting padding/radius/case) with ONE tone->color mapping. Count/
+   removable chips (.multi-col-chip, .engine-tier-chip, .ocr-compare-vote-chip)
+   are a different genus and are NOT this primitive. */
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  border-radius: var(--radius-999);
+  font-weight: 600;
+}
+.status-chip[data-size='sm'] { padding: 1px 7px; font-size: 9.5px; }
+.status-chip[data-size='md'] { padding: 2px 9px; font-size: 10.5px; }
+.status-chip[data-caps='true'] { text-transform: uppercase; letter-spacing: 0.03em; }
+.status-chip[data-tone='success'] { color: var(--green); background: var(--green-bg); }
+.status-chip[data-tone='warning'] { color: var(--amber); background: var(--amber-bg); }
+.status-chip[data-tone='error'] { color: var(--red); background: var(--red-bg); }
+.status-chip[data-tone='info'] { color: var(--accent); background: var(--accent-bg); }
+.status-chip[data-tone='neutral'] { color: var(--text-light); background: var(--bg-hover); }
+.empty-inline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-light);
+  font-size: 12px;
+}
+.drawer-title { font-weight: 650; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+.drawer-section-title {
+  font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--text-mid);
+  margin: 18px 0 6px;
+}
+.status-complete { color: var(--green); }
+.status-completed { color: var(--green); }
+.status-partial { color: var(--amber); }
+.status-superseded { color: var(--text-light); text-decoration: line-through; }
+.status-running { color: var(--accent); }
+.status-queued { color: var(--amber); }
+.status-failed { color: var(--red); }
+.status-cancelled { color: var(--text-light); }
+
+/* Vertical stack of toggle-row cards (e.g. census "Data" section). */
+.toggle-row-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Toggle-row card: a described boolean setting (e.g. voice-activity detection). */
+.toggle-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 13px 14px;
+  background: var(--bg);
+  border: 1px solid var(--bg-hover);
+  border-radius: 11px;
+  cursor: pointer;
+}
+.toggle-row-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.toggle-row-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+.toggle-row-desc {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-light);
+}
+/* The wrap gives the switch its box; the input is stacked exactly on top of
+   it at full size (opacity 0, not width/height 0) so it stays a real,
+   actionable hit target for pointer users, assistive tech, and Playwright's
+   visibility checks — only its paint is hidden, not its geometry. */
+.toggle-row-switch-wrap {
+  position: relative;
+  flex-shrink: 0;
+  width: 38px;
+  height: 22px;
+  margin-top: 2px;
+}
+.toggle-row-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.toggle-row-switch {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-999);
+  background: var(--border-strong);
+  transition: background 0.12s ease;
+  pointer-events: none;
+}
+.toggle-row-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.3);
+  transition: transform 0.12s ease;
+}
+.toggle-row-input:checked ~ .toggle-row-switch {
+  background: var(--accent);
+}
+.toggle-row-input:checked ~ .toggle-row-switch::after {
+  transform: translateX(16px);
+}
+.toggle-row-input:focus-visible ~ .toggle-row-switch {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* Locked variant: a required setting the backend never exposes as a real
+   toggle (e.g. census core demographics). Muted card, muted "required" tag,
+   and the switch stays gray even when checked so it doesn't read as active. */
+.toggle-row-disabled {
+  background: var(--bg-panel);
+  cursor: default;
+}
+.toggle-row-tag {
+  margin-left: 7px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-light);
+}
+.toggle-row-input:disabled {
+  cursor: default;
+}
+.toggle-row-input:disabled:checked ~ .toggle-row-switch {
+  background: var(--border-strong);
+}
+
+/* THE one panel-header frame (ui-region-frames-v1 / C2). Adopters:
+   .inspect-detail-header / .drawer-header / .document-reader-header /
+   .lineage-panel-header. It owns the vertical padding (the old 8/10/12px
+   drift for the same concept) and the close-chip hit size; borders,
+   backgrounds and justify-content stay per-surface. Headers hosted inside an
+   owned-gutter frame (lineage, inside .bottom-dock-tab-body) zero their
+   HORIZONTAL padding at their own rule — the host owns that gutter.
+   EXCLUDED: .ocr-compare-head (workbench-ocr-compare-bakeoff-v1 owns it). */
+.panel-frame-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px;
+  flex-shrink: 0;
+}/* ---- project picker ------------------------------------------------------ */
+
+.picker-screen {
+  display: grid; place-items: center; height: 100%;
+  background: var(--bg-panel);
+}
+.picker-card {
+  width: 420px; max-width: calc(100vw - 32px);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(20, 26, 40, 0.08);
+  padding: 22px 22px 18px;
+}
+.picker-brand {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 16px;
+}
+.picker-brand .brand-name { font-size: 16px; }
+.picker-create { display: flex; gap: 8px; }
+.picker-create .form-input { flex: 1; }
+.picker-section-label {
+  font-size: 10.5px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--text-light);
+  margin: 18px 0 6px;
+}
+.picker-empty { color: var(--text-light); padding: 10px 2px; }
+.picker-error {
+  margin-top: 10px;
+  background: var(--red-bg); color: var(--red);
+  border-radius: var(--radius-6); padding: 8px 10px; font-size: 12px;
+}
+.picker-error-remediation { margin-top: 4px; color: var(--text-mid); font-weight: 450; }
+/* doctor-semantic-tags-v1: AdminPage's quota banner is a real <output> now
+   (was a role="status" div) — <output> defaults to display: inline, but its
+   content here is block rows, so pin it back to block for that one site. */
+output.picker-error,
+output.account-note {
+  display: block;
+}
+.main-view-loading {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  background: var(--bg);
+}
+.grid-view-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+}
+.conf-pill {
+  font-variant-numeric: tabular-nums;
+  border-radius: var(--radius-4); padding: 0 6px; font-weight: 650; font-size: 11px;
+}
+.conf-high { background: var(--green-bg); color: var(--green); }
+.conf-mid { background: var(--amber-bg); color: var(--amber); }
+.conf-low { background: var(--red-bg); color: var(--red); }
+@layer base {
+.badge {
+  background: var(--red); color: var(--text-on-solid);
+  font-size: var(--font-size-caption); font-weight: 700;
+  border-radius: var(--radius-8); padding: 1px 6px;
+  font-variant-numeric: tabular-nums;
+}
+}
+.provenance-grid {
+  display: grid; grid-template-columns: 84px 1fr;
+  gap: 3px 8px;
+  font-size: 11.5px;
+}
+.prov-key { color: var(--ai); font-weight: 600; font-size: 11px; }
+.provenance-actions {
+  display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+  padding: 4px 0 10px; border-bottom: 1px solid var(--border);
+}
+.explain-pre {
+  margin: 0;
+  font-family: var(--mono); font-size: 11px; line-height: 1.55;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-6);
+  padding: 8px 10px;
+  max-height: 260px; overflow-y: auto;
+}
+.row-field-empty { color: var(--text-light); font-style: italic; font-size: 12px; }
+.row-field-json {
+  font-family: var(--mono); font-size: 11px; line-height: 1.5;
+  background: var(--bg-panel); border-radius: var(--radius-6); padding: 8px 10px;
+  margin: 0; overflow-x: auto;
+}
+.ai-bolt { color: var(--ai); }
+.column-update-result {
+  margin-top: 8px;
+  color: var(--green);
+  font-size: 12px;
+}
+.version-line { display: flex; align-items: center; gap: 8px; }
+.version-status { font-size: 11px; font-weight: 600; }
+.version-sub { font-size: 11px; color: var(--text-light); margin-top: 2px; }
+.col-field-name { font-family: var(--mono); font-weight: 600; font-size: 11.5px; }
+.bottom-dock-row-error-count {
+  color: var(--red);
+  font-weight: 700;
+}
+.bottom-dock-empty {
+  display: flex;
+  align-items: center;
+}
+.provenance-run-list {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.provenance-run-list li {
+  border: 1px solid var(--border); border-radius: var(--radius-7);
+  background: var(--bg-panel); padding: 8px 9px;
+}
+.run-failed { color: var(--red); font-weight: 650; }

@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useReducer } from 'react';
-import { PanelEmpty, PanelError } from './PanelPrimitives';
+import { useCallback, useEffect, useReducer, useRef } from 'react';
+import { PanelEmpty, PanelError, StatusChip } from './PanelPrimitives';
+import { IconButton } from './IconButton';
 import {
   Check,
   ExternalLink,
@@ -10,14 +11,14 @@ import {
 import {
   type NotificationActorState,
   type NotificationItem,
-  type NotificationSummary,
 } from '../api/open';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { useWorkspaceChromeCommands } from '../bind/useWorkspaceChromeState';
 import { useWatchRunLinkHandle } from '../bind/useWatchRunLinkHandle';
 import type { WatchRunLink } from '../state/watchRunLinkStore';
+import './NotificationsPanel.css';
 
-export const NOTIFICATIONS_CHANGED_EVENT = 'frisket:notifications-changed';
+import { dispatchNotificationsChanged, NOTIFICATIONS_CHANGED_EVENT, useNotificationSummary } from './notifications/useNotificationSummary';
 
 function sourceRefLabel(ref: Record<string, unknown>): string {
   const entries = Object.entries(ref);
@@ -32,10 +33,6 @@ function itemSourceLabel(item: NotificationItem): string {
   if (item.sourceKind === 'run') return 'Run';
   if (item.sourceKind === 'job') return 'Job';
   return item.sourceKind || 'Source';
-}
-
-function dispatchNotificationsChanged() {
-  window.dispatchEvent(new CustomEvent(NOTIFICATIONS_CHANGED_EVENT));
 }
 
 function watchRunLink(item: NotificationItem): WatchRunLink | null {
@@ -55,9 +52,8 @@ function watchRunLink(item: NotificationItem): WatchRunLink | null {
 }
 
 interface NotificationsPanelState {
-  summary: NotificationSummary | null;
   items: NotificationItem[] | null;
-  busy: number | 'load' | null;
+  pending: ReadonlySet<number>;
   error: string | null;
 }
 
@@ -66,9 +62,8 @@ type NotificationsPanelPatch =
   | ((state: NotificationsPanelState) => Partial<NotificationsPanelState>);
 
 const initialNotificationsPanelState: NotificationsPanelState = {
-  summary: null,
   items: null,
-  busy: null,
+  pending: new Set(),
   error: null,
 };
 
@@ -80,47 +75,43 @@ function reduceNotificationsPanelState(
 }
 
 export function NotificationsPanel() {
-  const { projectApi: api } = useWorkspaceStores();
+  const { projectApi: api, chromePreferences: { projectId } } = useWorkspaceStores();
+  const summary = useNotificationSummary();
+  const pendingItems = useRef(new Set<number>());
+  const listGeneration = useRef(0);
   const [panelState, setPanelState] = useReducer(
     reduceNotificationsPanelState,
     initialNotificationsPanelState,
   );
-  const { summary, items, busy, error } = panelState;
+  const { items, pending, error } = panelState;
   const { openDiscover } = useWorkspaceChromeCommands();
   const watchRunLinkHandle = useWatchRunLinkHandle();
 
-  const refreshSummary = useCallback(() => {
-    void api
-      .getNotificationsSummary()
-      .then((nextSummary) => setPanelState({ summary: nextSummary }))
-      .catch(() => undefined);
-  }, []);
-
   const load = useCallback(() => {
-    setPanelState((current) => ({ busy: current.busy ?? 'load', error: null }));
-    void Promise.all([
-      api.getNotificationsSummary(),
-      api.listNotifications({ state: 'all', offset: 0, limit: 20 }),
-    ])
-      .then(([nextSummary, page]) => {
-        setPanelState({ summary: nextSummary, items: page.notifications });
+    const generation = ++listGeneration.current;
+    setPanelState({ error: null });
+    return api.listNotifications({ state: 'all', offset: 0, limit: 20 })
+      .then((page) => {
+        if (generation === listGeneration.current) setPanelState({ items: page.notifications });
       })
-      .catch((e: Error) => setPanelState({ error: e.message }))
-      .finally(() => {
-        setPanelState((current) => ({ busy: current.busy === 'load' ? null : current.busy }));
+      .catch((e: Error) => {
+        if (generation === listGeneration.current) setPanelState({ error: e.message });
       });
-  }, []);
+  }, [api]);
 
   useEffect(() => {
-    const timer = window.setTimeout(load, 0);
-    return () => window.clearTimeout(timer);
+    const timer = window.setTimeout(() => void load(), 0);
+    return () => { window.clearTimeout(timer); listGeneration.current += 1; };
   }, [load]);
 
   useEffect(() => {
-    const onChanged = () => load();
+    const onChanged = (event: Event) => {
+      const scope = (event as CustomEvent<{ projectId?: string }>).detail?.projectId;
+      if (scope === undefined || scope === projectId) void load();
+    };
     window.addEventListener(NOTIFICATIONS_CHANGED_EVENT, onChanged);
     return () => window.removeEventListener(NOTIFICATIONS_CHANGED_EVENT, onChanged);
-  }, [load]);
+  }, [load, projectId]);
 
   const applyState = (state: NotificationActorState) => {
     setPanelState((current) => ({
@@ -138,26 +129,29 @@ export function NotificationsPanel() {
           : item,
       ),
     }));
-    refreshSummary();
-    dispatchNotificationsChanged();
+    dispatchNotificationsChanged(projectId);
   };
 
-  const markSeen = (item: NotificationItem) => {
-    setPanelState({ busy: item.id });
-    void api
-      .markNotificationsSeen({ notificationIds: [item.id] })
-      .then(() => load())
-      .then(dispatchNotificationsChanged)
+  const mutateItem = (item: NotificationItem, operation: () => Promise<unknown>) => {
+    if (pendingItems.current.has(item.id)) return;
+    pendingItems.current.add(item.id);
+    setPanelState({ pending: new Set(pendingItems.current) });
+    void operation()
       .catch((e: Error) => setPanelState({ error: e.message }))
-      .finally(() => setPanelState({ busy: null }));
+      .finally(() => {
+        pendingItems.current.delete(item.id);
+        setPanelState({ pending: new Set(pendingItems.current) });
+      });
   };
+
+  const markSeen = (item: NotificationItem) => mutateItem(item, () => api
+    .markNotificationsSeen({ notificationIds: [item.id] })
+    .then(() => dispatchNotificationsChanged(projectId)));
 
   const markRead = (item: NotificationItem, openSource = false) => {
-    setPanelState({ busy: item.id });
-    const next = item.state === 'acknowledged'
+    mutateItem(item, () => (item.state === 'acknowledged'
       ? Promise.resolve<NotificationActorState | null>(null)
-      : api.markNotificationRead(item.id);
-    void next
+      : api.markNotificationRead(item.id))
       .then((state) => {
         if (state) applyState(state);
         if (!openSource) return;
@@ -170,133 +164,72 @@ export function NotificationsPanel() {
           watchRunLinkHandle.setPendingWatchRunLink(link, 'watches');
           openDiscover('Watches');
         }
-      })
-      .catch((e: Error) => setPanelState({ error: e.message }))
-      .finally(() => setPanelState({ busy: null }));
+      }));
   };
 
-  const ack = (item: NotificationItem) => {
-    setPanelState({ busy: item.id });
-    void api
-      .ackNotification(item.id)
-      .then(applyState)
-      .catch((e: Error) => setPanelState({ error: e.message }))
-      .finally(() => setPanelState({ busy: null }));
-  };
-
-  const unack = (item: NotificationItem) => {
-    setPanelState({ busy: item.id });
-    void api
-      .unackNotification(item.id)
-      .then(applyState)
-      .catch((e: Error) => setPanelState({ error: e.message }))
-      .finally(() => setPanelState({ busy: null }));
-  };
+  const ack = (item: NotificationItem) => mutateItem(item, () => api.ackNotification(item.id).then(applyState));
+  const unack = (item: NotificationItem) => mutateItem(item, () => api.unackNotification(item.id).then(applyState));
 
   const unseen = summary?.unseen ?? 0;
 
   return (
-    <section className="sidebar-notifications" data-testid="notifications">
+    <section className="content-stack" data-testid="notifications">
       {/* Notifications is its own Discover tab
           — the tab strip already carries the label/icon, so the panel itself
           only surfaces the unseen count, matching WatchesPanel's slim header. */}
       {unseen > 0 && (
-        <div className="notifications-header-slim">
-          <span className="notifications-count" data-testid="notifications-count">
+        <div className="control-row" data-align="end">
+          <StatusChip tone="info" size="sm" testId="notifications-count">
             {unseen}
-          </span>
+          </StatusChip>
         </div>
       )}
 
-      <div className="notifications-body" data-testid="notifications-panel">
+      <div className="content-stack" data-testid="notifications-panel">
         {error && (
           <PanelError>{error}</PanelError>
         )}
-        {items === null || busy === 'load' ? (
+        {items === null ? (
           <PanelEmpty>loading...</PanelEmpty>
           ) : items.length === 0 ? (
             <PanelEmpty>No notifications.</PanelEmpty>
           ) : (
-            <ul className="notifications-list">
+            <ul className="panel-list">
               {items.map((item) => (
                 <li
-                  className={`notification-item severity-${item.severity} state-${item.state}`}
+                  className={`panel-card notification-item severity-${item.severity} state-${item.state}`}
                   data-testid="notification-item"
                   key={item.id}
                 >
-                  <div className="notification-head">
-                    <span className="notification-source">{itemSourceLabel(item)}</span>
-                    <span className="notification-state" data-testid="notification-state">
+                  <div className="control-row">
+                    <span className="panel-item-meta panel-item-main">{itemSourceLabel(item)}</span>
+                    <StatusChip tone="neutral" size="sm" uppercase testId="notification-state">
                       {item.state}
-                    </span>
+                    </StatusChip>
                   </div>
-                  <div className="notification-title">{item.title}</div>
-                  <div className="notification-summary">{item.summary}</div>
-                  <div className="notification-ref" data-testid="notification-source-ref">
+                  <div className="panel-item-title">{item.title}</div>
+                  <div className="panel-item-description">{item.summary}</div>
+                  <div className="panel-item-meta" data-testid="notification-source-ref">
                     {sourceRefLabel(item.sourceRef)}
                   </div>
-                  <div className="notification-actions">
-                    <button
-                      type="button"
-                      className="icon-btn"
-                      title="Open source"
-                      aria-label="Open source"
-                      data-testid="notification-open-source"
-                      disabled={busy === item.id}
-                      onClick={() => markRead(item, true)}
-                    >
-                      {busy === item.id ? <RefreshCw size={12} className="spin" /> : <ExternalLink size={12} />}
-                    </button>
+                  <div className="control-row">
+                    <IconButton icon={pending.has(item.id) ? RefreshCw : ExternalLink} size="inline" label="Open source"
+                      title="Open source" data-testid="notification-open-source" aria-busy={pending.has(item.id)}
+                      disabled={pending.has(item.id)} onClick={() => markRead(item, true)} />
                     {item.state === 'unseen' && (
-                      <button
-                        type="button"
-                        className="icon-btn"
-                        title="Mark seen"
-                        aria-label="Mark seen"
-                        data-testid="notification-seen"
-                        disabled={busy === item.id}
-                        onClick={() => markSeen(item)}
-                      >
-                        <Eye size={12} />
-                      </button>
+                      <IconButton icon={Eye} size="inline" label="Mark seen" title="Mark seen"
+                        data-testid="notification-seen" disabled={pending.has(item.id)} onClick={() => markSeen(item)} />
                     )}
                     {item.state !== 'read' && item.state !== 'acknowledged' && (
-                      <button
-                        type="button"
-                        className="icon-btn"
-                        title="Mark read"
-                        aria-label="Mark read"
-                        data-testid="notification-read"
-                        disabled={busy === item.id}
-                        onClick={() => markRead(item)}
-                      >
-                        <Check size={12} />
-                      </button>
+                      <IconButton icon={Check} size="inline" label="Mark read" title="Mark read"
+                        data-testid="notification-read" disabled={pending.has(item.id)} onClick={() => markRead(item)} />
                     )}
                     {item.state === 'acknowledged' ? (
-                      <button
-                        type="button"
-                        className="icon-btn"
-                        title="Unacknowledge"
-                        aria-label="Unacknowledge"
-                        data-testid="notification-unack"
-                        disabled={busy === item.id}
-                        onClick={() => unack(item)}
-                      >
-                        <RotateCcw size={12} />
-                      </button>
+                      <IconButton icon={RotateCcw} size="inline" label="Unacknowledge" title="Unacknowledge"
+                        data-testid="notification-unack" disabled={pending.has(item.id)} onClick={() => unack(item)} />
                     ) : (
-                      <button
-                        type="button"
-                        className="icon-btn"
-                        title="Acknowledge"
-                        aria-label="Acknowledge"
-                        data-testid="notification-ack"
-                        disabled={busy === item.id}
-                        onClick={() => ack(item)}
-                      >
-                        <Check size={12} />
-                      </button>
+                      <IconButton icon={Check} size="inline" label="Acknowledge" title="Acknowledge"
+                        data-testid="notification-ack" disabled={pending.has(item.id)} onClick={() => ack(item)} />
                     )}
                   </div>
                 </li>

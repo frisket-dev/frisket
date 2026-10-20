@@ -1,0 +1,18 @@
+/* ---- §5C account menu ---- */
+.account-menu-root { position: relative; display: inline-flex; }
+.account-menu-trigger.open {
+  box-shadow: 0 0 0 2px var(--accent-bg), 0 0 0 3px var(--accent);
+  color: var(--accent);
+}
+.account-menu { position: absolute; top: 40px; right: 0; z-index: 60; min-width: 236px; }
+.account-menu-header { display: flex; align-items: center; gap: 10px; padding: 9px 10px 7px; }
+.account-menu-avatar {
+  display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: 99px;
+  background: var(--accent-bg); color: var(--accent); flex: 0 0 auto;
+}
+.account-menu-identity { display: flex; flex-direction: column; min-width: 0; }
+.account-menu-name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-menu-email { font-size: 11px; color: var(--text-light); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-appearance { position: relative; }
+.account-appearance-submenu { margin: 2px 0 2px 14px; }

@@ -1,3 +1,5 @@
+import '../FormControls.css';
+import '../ActionPanel.css';
 import type { GeneratedActionParamsBodyProps } from './GeneratedActionParamsBody';
 
 export function PdfTablesParamsBody({ Field }:

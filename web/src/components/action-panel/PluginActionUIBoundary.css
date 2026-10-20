@@ -1,0 +1,25 @@
+@layer base, action-panel;
+
+@layer action-panel {
+
+/* Fail-closed card for an action whose output shape could not be resolved
+   from its declaration (ActionForm outputShapeError). Distinct from the amber
+   credential gate: this is a hard misconfiguration, not a fixable input. */
+.action-shape-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 10px 0;
+  padding: 10px 12px;
+  background: var(--red-bg);
+  border: 1px solid var(--red);
+  border-radius: var(--radius-8);
+  color: var(--red);
+}
+.action-shape-error-copy { flex: 1; font-size: 13px; color: var(--text-mid); }
+.action-shape-error-copy strong { color: var(--text); }
+.action-shape-error-copy code {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+}

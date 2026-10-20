@@ -1,0 +1,14 @@
+.bottom-dock-row-error-groups {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.bottom-dock-row-error-group {
+  overflow-wrap: anywhere;
+}
+.bottom-dock-row-error-rows {
+  color: var(--text-light);
+}

@@ -1,3 +1,4 @@
+import '../ActionPanel.css';
 import type { GeneratedActionParams } from '../../generated/actionTypes';
 import type { GeneratedActionParamsBodyProps } from './GeneratedActionParamsBody';
 import { StructuredFieldsEditor } from './StructuredFieldsEditor';

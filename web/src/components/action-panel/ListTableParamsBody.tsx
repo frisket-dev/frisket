@@ -1,3 +1,6 @@
+import '../PanelPrimitives.css';
+import '../ActionPanel.css';
+import { TextInput, TextArea } from '../FormControls';
 import { useEffect, useRef, useState } from 'react';
 import type { GeneratedActionParamsBodyProps } from './GeneratedActionParamsBody';
 
@@ -47,7 +50,7 @@ export function ListTableParamsBody({ sheet, params, setParams }:
       <p className="form-hint">Each list item becomes a row. Columns are discovered from the stored values.</p>
       {liveSource && <>
         <label className="form-label" htmlFor="list-table-properties">Include properties</label>
-        <input id="list-table-properties" className="form-input"
+        <TextInput id="list-table-properties"
           placeholder="All properties" value={includeText}
           onChange={(event) => {
             const text = event.target.value;
@@ -63,7 +66,7 @@ export function ListTableParamsBody({ sheet, params, setParams }:
       <summary>Source and column mapping</summary>
       <pre data-testid="derive-table-saved-configuration-json">{JSON.stringify(source, null, 2)}</pre>
       {namedSource && <><label className="form-label" htmlFor="list-table-projection">Column projection and item schema</label>
-      <textarea id="list-table-projection" className="form-input" rows={7}
+      <TextArea id="list-table-projection"  rows={7}
         value={configuration} onChange={(event) => {
           setConfiguration(event.target.value);
           try {
@@ -80,7 +83,7 @@ export function ListTableParamsBody({ sheet, params, setParams }:
             setConfigurationError(true);
           }
         }} />
-      {configurationError && <p role="alert" className="form-error">Enter an object containing columns and item_schema.</p>}</>}
+      {configurationError && <p role="alert" className="panel-error">Enter an object containing columns and item_schema.</p>}</>}
     </details>
   </div>;
 }

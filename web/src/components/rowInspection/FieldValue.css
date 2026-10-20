@@ -1,0 +1,81 @@
+.row-field-value { line-height: 1.5; overflow-wrap: break-word; white-space: pre-wrap; }
+/* Density cap: every field value is clamped to half the viewport so one long
+   transcript/entity table/text blob can't crowd out the rest of Inspect. The
+   ClampedField renderer latches a "Show more" toggle only when the value
+   actually overflows (data-clamped) — short values keep the natural flow. */
+.row-field-clamp { position: relative; }
+.row-field-clamp-content { position: relative; max-height: 50vh; overflow: hidden; }
+.row-field-clamp-expanded { max-height: none; overflow: visible; }
+/* Subtle bottom fade cueing clipped content, shown only while clamped. */
+.row-field-clamp[data-clamped='true'] .row-field-clamp-content::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 44px;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--bg-sidebar));
+}
+.row-field-clamp-toggle { margin-top: 4px; }
+.row-field-temporal { display: grid; gap: 7px; }
+.row-field-temporal-anchor {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-light);
+  font-size: 11px;
+}
+.row-field-temporal-items {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding-left: 22px;
+}
+.row-field-temporal-items li { padding-left: 2px; }
+.row-field-temporal-items strong { font-variant-numeric: tabular-nums; }
+.row-field-temporal-items span { display: block; color: var(--text-mid); font-size: 11px; }
+.row-field-temporal-invalid { color: var(--red); font-size: 12px; }
+.row-field-rich-text { display: grid; gap: 6px; }
+.row-field-html { white-space: normal; }
+.row-field-html p { margin: 0 0 6px; }
+.row-field-html p:last-child { margin-bottom: 0; }
+.row-field-html ul,
+.row-field-html ol { margin: 4px 0 4px 20px; padding: 0; }
+.row-field-raw summary {
+  cursor: pointer;
+  color: var(--text-light);
+  font-size: 11px;
+  font-weight: 600;
+}
+.row-field-raw pre {
+  margin: 6px 0 0;
+  padding: 8px;
+  border-radius: var(--radius-6);
+  background: var(--bg-panel);
+  color: var(--text-mid);
+  overflow: auto;
+  white-space: pre-wrap;
+}
+.row-field-media { width: 100%; border-radius: var(--radius-6); display: block; background: var(--bg-panel); }
+.row-field-region-media { position: relative; width: 100%; }
+.row-field-region-box {
+  position: absolute;
+  pointer-events: none;
+  border: 2px solid #e03b3b;
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9);
+}
+.row-field-audio-control {
+  display: flex; align-items: center; gap: 7px; width: 100%; min-width: 0;
+  padding: 7px 9px; border: 1px solid var(--border); border-radius: var(--radius-6);
+  background: var(--bg-panel); color: var(--text); text-align: left;
+}
+.row-field-audio-control:hover { border-color: var(--accent); color: var(--accent); }
+.row-field-audio-control span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-field-link { color: var(--accent); word-break: break-all; }
+.geo-point-detail {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: #e8f3f1; border: 1px solid #cfe2de; border-radius: var(--radius-6);
+  padding: 8px 10px;
+}
+.geo-point-coords {
+  display: inline-flex; align-items: center; gap: 6px;
+  color: #1d766e; font-weight: 650; font-variant-numeric: tabular-nums;
+}
+.row-field-media-label { font-size: 11px; color: var(--text-light); margin-top: 3px; }

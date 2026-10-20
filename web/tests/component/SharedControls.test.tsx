@@ -61,6 +61,21 @@ it('removes a source chip without opening the picker or submitting; disabled chi
   expect(screen.getByRole('button', { name: 'Remove notes' })).toBeDisabled();
 });
 
+it('keeps multi-selection when sharing the single-select menu surface', async () => {
+  const onValueChange = vi.fn();
+  render(<MultiColumnPicker ariaLabel="Source columns" value={['notes']}
+    options={[{ name: 'notes', type: 'text' }, { name: 'title', type: 'text' }]}
+    onValueChange={onValueChange} />);
+  await userEvent.click(screen.getByRole('group', { name: 'Source columns' }));
+  const menu = screen.getByRole('listbox');
+  expect(menu).toHaveClass('menu-pop', 'select-menu');
+  expect(menu).toHaveAttribute('aria-multiselectable', 'true');
+  expect(screen.getByRole('option', { name: /notes/ })).toHaveAttribute('aria-selected', 'true');
+  await userEvent.click(screen.getByRole('option', { name: /title/ }));
+  expect(onValueChange).toHaveBeenCalledWith(['notes', 'title']);
+  expect(screen.getByRole('listbox')).toBeInTheDocument();
+});
+
 it('keeps label entry, deduplication, and keyboard chip removal', async () => {
   function Labels() {
     const [value, setValue] = useState<readonly string[]>(['person']);

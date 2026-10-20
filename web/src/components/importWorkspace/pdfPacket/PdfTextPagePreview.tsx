@@ -1,3 +1,5 @@
+import '../../FormControls.css';
+import './PdfTextPagePreview.css';
 import { LoaderCircle } from 'lucide-react';
 
 export function PdfTextPagePreview({

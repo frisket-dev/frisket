@@ -87,6 +87,31 @@ afterEach(() => {
 });
 
 describe('WatchesPanel pending actions', () => {
+  it('keeps rename cancellation available for an invalid draft and retains a failed rename', async () => {
+    const projectApi = {
+      qa: projectQAFixture(),
+      listWatches: vi.fn().mockResolvedValue([watch(1, 'Alpha')]),
+      getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
+      updateWatch: vi.fn().mockRejectedValue(new Error('Rename unavailable')),
+    } as unknown as ProjectApiPort;
+    const harness = createWorkspaceTestHarness({ projectId: 'rename-validation', api: { projectApi } });
+    harness.render(<WatchesPanel canEdit />);
+    fireEvent.click(await screen.findByTestId('rename-watch'));
+    fireEvent.change(screen.getByTestId('watch-rename-input'), { target: { value: '   ' } });
+    expect(screen.getByTestId('save-watch-rename')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(projectApi.updateWatch).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('rename-watch'));
+    fireEvent.change(screen.getByTestId('watch-rename-input'), { target: { value: 'New Alpha' } });
+    fireEvent.click(screen.getByTestId('save-watch-rename'));
+    expect(await screen.findByTestId('watch-mutation-error')).toHaveTextContent('Rename unavailable');
+    expect(screen.getByTestId('watch-rename-input')).toHaveValue('New Alpha');
+    expect(screen.getByTestId('save-watch-rename')).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled();
+  });
+
   it('creates an independent Watch from the captured current grid and shows local notification guidance', async () => {
     const projectApi = {
       qa: projectQAFixture(),
@@ -320,6 +345,33 @@ describe('WatchesPanel pending actions', () => {
     rename.resolve(renamed);
     await waitFor(() => expect(screen.queryByTestId('watch-pending-action')).not.toBeInTheDocument());
     await waitFor(() => expect(screen.getByTestId('watch-item')).toHaveTextContent(renamed.name));
+  });
+
+  it('keeps a pending delete confirmation open after forced closure and restores Cancel focus', async () => {
+    const remove = deferred<void>();
+    const projectApi = {
+      qa: projectQAFixture(), listWatches: vi.fn().mockResolvedValue([watch(1, 'Alpha')]),
+      getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
+      deleteWatch: vi.fn(() => remove.promise),
+    } as unknown as ProjectApiPort;
+    const harness = createWorkspaceTestHarness({ projectId: 'delete-dialog-owner', api: { projectApi } });
+    harness.render(<WatchesPanel canEdit />);
+    const trigger = await screen.findByTestId('delete-watch');
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByTestId('confirm-delete-watch'));
+    const dialog = screen.getByTestId('delete-watch-confirmation') as HTMLDialogElement;
+    dialog.showModal = vi.fn(() => { dialog.setAttribute('open', ''); });
+    dialog.close = () => { dialog.removeAttribute('open'); fireEvent(dialog, new Event('close')); };
+    expect(dialog).toHaveAttribute('aria-busy', 'true');
+    fireEvent(dialog, new Event('close'));
+    expect(dialog.showModal).toHaveBeenCalledTimes(1);
+    fireEvent(dialog, new Event('cancel', { bubbles: true, cancelable: true }));
+    expect(dialog).toHaveAttribute('open');
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+    remove.reject(new Error('Delete unavailable'));
+    expect(await screen.findByTestId('watch-mutation-error')).toHaveTextContent('Delete unavailable');
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(trigger).toHaveFocus());
   });
 
   it('keeps an in-flight deletion visibly owned across a panel remount', async () => {

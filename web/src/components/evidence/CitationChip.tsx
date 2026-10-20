@@ -1,3 +1,4 @@
+import '../rowInspection/CellEvidence.css';
 import { FileText } from 'lucide-react';
 import { openEvidenceViewerViaGlobalEvent } from './openEvidenceViewerViaGlobalEvent';
 

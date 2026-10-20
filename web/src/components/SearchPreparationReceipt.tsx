@@ -1,3 +1,9 @@
+import './PanelPrimitives.css';
+import './FormControls.css';
+import './ActivityProgress.css';
+import './SearchPreparationReceipt.css';
+import { Button } from './Button';
+import { PanelFrame, PanelBody, PanelFooter } from './PanelLayout';
 import { CircleAlert, LoaderCircle } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
@@ -120,9 +126,9 @@ function TextReview({
         </div>
       </header>
       {documents.length > 1 && (
-        <label className="search-preparation-document">
+        <label className="search-preparation-document form-field">
           Sample document
-          <PanelSelect ariaLabel="Sample document" topLayer disabled={busy}
+          <PanelSelect ariaLabel="Sample document" disabled={busy}
             value={sample ? `${sample.row_id}:${sample.column_id}` : ''}
             onValueChange={(value) => {
               const document = documents.find((item) => `${item.row_id}:${item.column_id}` === value);
@@ -158,9 +164,9 @@ function TextReview({
       ) : null}
       {!needsOcr && (
         <>
-          <label className="search-preparation-ocr-option">
+          <label className="search-preparation-ocr-option form-field">
             PDF text
-            <PanelSelect ariaLabel="PDF text" topLayer
+            <PanelSelect ariaLabel="PDF text"
               data-testid="search-preparation-force-ocr"
               value={batch.force_ocr ? 'ocr' : 'keep'} disabled={busy}
               onValueChange={(value) => onReplan(value === 'ocr')}
@@ -188,6 +194,7 @@ export function SearchPreparationReceipt({
   onError,
   importSummary,
   onBack,
+  fill = false,
 }: {
   projectId: string;
   batchId: string;
@@ -196,6 +203,7 @@ export function SearchPreparationReceipt({
   onError(message: string): void;
   importSummary?: ReactNode;
   onBack?(): void;
+  fill?: boolean;
 }) {
   const [batch, setBatch] = useState<SearchPreparationBatch | null>(null);
   const [loadingError, setLoadingError] = useState<string | null>(null);
@@ -315,16 +323,16 @@ export function SearchPreparationReceipt({
 
   if (!batch) {
     return (
-      <section className="search-preparation-receipt" data-testid="search-preparation-receipt">
-        <div className="search-preparation-receipt-body">
+      <PanelFrame fill={fill} className="search-preparation-receipt" data-testid="search-preparation-receipt">
+        <PanelBody className="content-stack">
           {importSummary}
           <div role="status"><LoaderCircle className="spin" size={18} /> Checking search preparation…</div>
-          {loadingError && <div className="import-field-error" role="alert">{loadingError}</div>}
-        </div>
-        <footer className="search-preparation-actions">
-          <button type="button" className="btn" onClick={onDone}>Close</button>
-        </footer>
-      </section>
+          {loadingError && <div className="panel-error" role="alert">{loadingError}</div>}
+        </PanelBody>
+        <PanelFooter align="end">
+          <Button type="button" onClick={onDone}>Close</Button>
+        </PanelFooter>
+      </PanelFrame>
     );
   }
 
@@ -341,8 +349,8 @@ export function SearchPreparationReceipt({
   const canPrepare = batch.can_setup || allRequiredModelsReady;
   const warnings = batch.warnings ?? [];
   return (
-    <section className="search-preparation-receipt" data-testid="search-preparation-receipt">
-      <div className="search-preparation-receipt-body">
+    <PanelFrame fill={fill} className="search-preparation-receipt" data-testid="search-preparation-receipt">
+      <PanelBody className="content-stack">
         {importSummary}
         <header>
           <div>
@@ -388,7 +396,7 @@ export function SearchPreparationReceipt({
         )}
 
         {batch.status !== 'needs_consent' && unavailableModels.length > 0 && (
-          <div className="import-field-error" role="alert">
+          <div className="panel-error" role="alert">
             {unavailableModels.map((model) => (
               <p key={model.setup_ref}>
                 <strong>{model.display_name} is unavailable on this device.</strong>{' '}
@@ -449,7 +457,7 @@ export function SearchPreparationReceipt({
               </div>
             )}
             {!canPrepare && (
-              <div className="import-field-error" role="alert">
+              <div className="panel-error" role="alert">
                 Model setup is unavailable. See the model details above.
               </div>
             )}
@@ -457,17 +465,17 @@ export function SearchPreparationReceipt({
         )}
 
         {batch.errors.length > 0 && (
-          <div className="import-field-error" role="alert">
+          <div className="panel-error" role="alert">
             <CircleAlert size={14} /> {batch.errors.join(' ')}
           </div>
         )}
-      </div>
+      </PanelBody>
       {batch.status === 'needs_consent' ? (
-        <footer className="search-preparation-actions">
-          {onBack && <button type="button" className="btn" disabled={busy} onClick={onBack}>Back to files</button>}
-          <button
+        <PanelFooter align="end">
+          {onBack && <Button type="button" disabled={busy} onClick={onBack}>Back to files</Button>}
+          <Button
             type="button"
-            className="btn btn-primary"
+            className="btn-primary"
             data-testid="search-preparation-decision-prepare"
             disabled={busy || !canPrepare}
             onClick={() => void prepare()}
@@ -477,20 +485,20 @@ export function SearchPreparationReceipt({
               : hasSelectedDownloads
                 ? 'Download and make searchable'
                 : 'Make searchable'}
-          </button>
-        </footer>
+          </Button>
+        </PanelFooter>
       ) : (
-        <footer className="search-preparation-actions">
-          <button
+        <PanelFooter align="end">
+          <Button
             type="button"
-            className="btn btn-primary"
+            className="btn-primary"
             data-testid="search-preparation-done"
             onClick={onDone}
           >
             {active ? 'Close' : 'Done'}
-          </button>
-        </footer>
+          </Button>
+        </PanelFooter>
       )}
-    </section>
+    </PanelFrame>
   );
 }

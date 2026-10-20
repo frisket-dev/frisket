@@ -1,3 +1,5 @@
+import '../ActionPanel.css';
+import { TextInput } from '../FormControls';
 import { useState } from 'react';
 import type { GeneratedActionParamsBodyProps } from './GeneratedActionParamsBody';
 import { PanelSelect } from '../PanelSelect';
@@ -184,9 +186,9 @@ export function DownloadMediaOptions({ params, setParams, Field }:
                 <label className="form-label" htmlFor="youtube-format-selector-custom" title="Custom yt-dlp format">
                   yt-dlp format
                 </label>
-                <input
+                <TextInput
                   id="youtube-format-selector-custom"
-                  className="form-input"
+
                   data-testid="youtube-format-selector-input"
                   value={params.format_selector ?? ''}
                   placeholder="e.g. bestvideo[height<=720]+bestaudio/best[height<=720]"

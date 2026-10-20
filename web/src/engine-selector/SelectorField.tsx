@@ -1,3 +1,4 @@
+import { Button } from '../components/Button';
 import { useEffect, useMemo, type ReactNode, type Ref } from 'react';
 
 import {
@@ -9,7 +10,8 @@ import type { HttpSelectorChoicesQuery, SelectorChoice } from '../api/selectorCh
 import { projectModelRoutesApi } from '../api/modelRoutes';
 import { ModelRouteControl } from './ModelRouteControl';
 import { SelectorSetup } from './SelectorSetup';
-import { useSelectorChoices, type SelectorChoicesLoader } from './useSelectorChoices';
+import { useSelectorChoices, type SelectorChoicesLoader, type SelectorChoicesState } from './useSelectorChoices';
+import { currentSelectorChoice, selectorQueryKey } from './selectorProjection';
 
 export interface SelectorFieldProps {
   projectId: string | null | undefined;
@@ -20,6 +22,8 @@ export interface SelectorFieldProps {
   disabled?: boolean;
   testId?: string;
   load?: SelectorChoicesLoader;
+  /** Comparison variants already own a headless selector lifecycle. */
+  projection?: SelectorChoicesState;
   triggerRef?: Ref<HTMLButtonElement>;
   /** Host-specific policy may further narrow offered choices, never broaden them. */
   allowChoice?(choice: SelectorChoice): boolean;
@@ -142,63 +146,55 @@ function selectorProjection(
   return { groups, choicesById };
 }
 
-function selectorQueryKey(
-  query: HttpSelectorChoicesQuery,
-  response: ReturnType<typeof useSelectorChoices>['response'],
-): string {
-  const subject = query.subject;
-  if (subject.kind === 'action') {
-    const names = new Set([subject.field, 'engine', 'model', ...(response?.depends_on ?? [])]);
-    const params = Object.fromEntries(Object.entries(subject.params ?? {}).filter(([name]) => names.has(name)));
-    return JSON.stringify({ kind: subject.kind, action_id: subject.action_id, field: subject.field, params });
-  }
-  return JSON.stringify(subject);
-}
-
 /**
  * Binds the visual selector to one authoritative project-scoped projection.
  * Callers receive the opaque authored selection from the raw server choice.
  */
-export function SelectorField({
+export function SelectorField(props: SelectorFieldProps) {
+  return props.projection
+    ? <SelectorFieldContent {...props} projection={props.projection} />
+    : <ConnectedSelectorField {...props} />;
+}
+
+function ConnectedSelectorField(props: SelectorFieldProps) {
+  const projection = useSelectorChoices({
+    projectId: props.projectId,
+    query: props.query,
+    queryKey: selectorQueryKey,
+    // Disabling authoring must not disable readiness for the next run.
+    enabled: Boolean(props.projectId),
+    load: props.load,
+  });
+  return <SelectorFieldContent {...props} projection={projection} />;
+}
+
+function SelectorFieldContent({
   projectId,
   label,
-  query,
   recentNamespace,
   onSelect,
   disabled = false,
   testId,
-  load,
+  projection: state,
   triggerRef,
   allowChoice = () => true,
   onCurrentChoiceChange,
   renderDetailExtra,
-}: SelectorFieldProps) {
-  const state = useSelectorChoices({
-    projectId,
-    query,
-    queryKey: selectorQueryKey,
-    // A running host disables authoring, not the authoritative readiness
-    // projection it needs to offer Queue for the next run.
-    enabled: Boolean(projectId),
-    load,
-  });
+}: SelectorFieldProps & { projection: SelectorChoicesState }) {
   const projection = useMemo(
     () => selectorProjection(state.response, allowChoice),
     [allowChoice, state.response],
   );
   const { groups, choicesById } = projection;
   const currentChoiceId = state.response?.current_choice_id ?? state.response?.default_choice_id ?? null;
-  const currentChoice = state.stale || state.error || !currentChoiceId
-    ? null
-    : choicesById.get(currentChoiceId)
-      ?? null;
+  const currentChoice = currentSelectorChoice(state);
   useEffect(() => {
     onCurrentChoiceChange?.(currentChoice);
   }, [currentChoice, onCurrentChoiceChange]);
   if (state.error && !state.response) {
     return <div data-testid={testId} className="engine-selector-field-error" role="alert">
       <p>Could not load choices. {state.error.message}</p>
-      <button type="button" className="btn" onClick={state.refresh}>Retry</button>
+      <Button type="button" onClick={state.refresh}>Retry</Button>
     </div>;
   }
   if (state.loading || !state.response) {
@@ -211,7 +207,7 @@ export function SelectorField({
   }
   const refreshNotice = state.error && <div className="engine-selector-field-error" role="alert">
     <p>Could not refresh choices. {state.error.message}</p>
-    <button type="button" className="btn" onClick={state.refresh}>Retry</button>
+    <Button type="button" onClick={state.refresh}>Retry</Button>
   </div>;
   return <div data-testid={testId}>
     <EngineSelector

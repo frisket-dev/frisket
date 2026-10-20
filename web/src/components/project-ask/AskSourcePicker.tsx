@@ -1,3 +1,6 @@
+import '../Modal.css';
+import '../ProjectAskDock.css';
+import { Button } from '../Button';
 import { useEffect, useRef, useState } from 'react';
 import type { AskScope } from '../../api/projectQA';
 import type { Row, SheetMeta } from '../../api/types';
@@ -43,7 +46,7 @@ function SheetFiles({ sheet, selected, onToggle }: {
       return <label key={`${row.id}:${column.id}`}><input type="checkbox" checked={checked} disabled={selected.some((s) => s.kind === 'sheet' && s.sheet_id === source.sheet_id)} onChange={() => onToggle(source)} />{media.filename ?? media.label ?? `${column.name} · row ${row.id}`}</label>;
     }))}
     {loading && <PanelLoading label="Loading files…" />}
-    {!loading && rows.length < total && <button type="button" className="btn" onClick={() => void more()}>More files</button>}
+    {!loading && rows.length < total && <Button type="button" onClick={() => void more()}>More files</Button>}
     {!loading && !rows.length && <p>No files in this sheet.</p>}
   </div>;
 }
@@ -71,13 +74,13 @@ export function AskSourcePicker({ scope, sheets, onApply, onClose }: {
       <div className="ask-source-options">
         {sheets.map((sheet) => <div key={sheet.id}>
           <div className="ask-source-sheet"><label><input type="checkbox" checked={wholeProject || sources.some((s) => s.kind === 'sheet' && s.sheet_id === Number(sheet.id))} disabled={wholeProject} onChange={() => toggle({ kind: 'sheet', sheet_id: Number(sheet.id) })} />{sheet.name}</label>
-            {documentMediaColumns(sheet).length > 0 && <button type="button" className="btn" aria-expanded={expanded === sheet.id} onClick={() => setExpanded(expanded === sheet.id ? null : sheet.id)}>Files</button>}
+            {documentMediaColumns(sheet).length > 0 && <Button type="button" aria-expanded={expanded === sheet.id} onClick={() => setExpanded(expanded === sheet.id ? null : sheet.id)}>Files</Button>}
           </div>
           {!wholeProject && sources.filter((s) => s.kind === 'rows' && s.sheet_id === Number(sheet.id)).map((source) => <label key={key(source)}><input type="checkbox" checked onChange={() => toggle(source)} />{source.kind === 'rows' ? source.row_ids.length : 0} selected rows</label>)}
           {expanded === sheet.id && !wholeProject && <SheetFiles sheet={sheet} selected={sources} onToggle={toggle} />}
         </div>)}
       </div>
-      <div className="form-actions"><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="submit" className="btn btn-primary" disabled={!wholeProject && !sources.length}>Use sources</button></div>
+      <div className="form-actions"><Button type="button" onClick={onClose}>Cancel</Button><Button type="submit" className="btn-primary" disabled={!wholeProject && !sources.length}>Use sources</Button></div>
     </form>
   </dialog>;
 }

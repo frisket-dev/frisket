@@ -1,3 +1,5 @@
+import '../ActionPanel.css';
+import { TextInput } from '../FormControls';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { parseRangeDraftText } from '../../temporal/draft';
 import { formatTimecode } from '../../temporal/model';
@@ -59,7 +61,7 @@ export function TemporalExtractParamsBody({ sheet, params, setParams, request, F
           } else updateRange(start, end);
         }} />
     </div>
-    {fromColumn ? <label className="field-group"><span className="field-labels">Time range</span>
+    {fromColumn ? <label className="field-group form-field"><span className="field-labels">Time range</span>
       <PanelSelect className="form-input" data-testid="extract-range-column-select"
         value={selectedColumn?.name ?? ''} onChange={(event) => setParams({ ...params,
           selection: { kind: 'column', column: event.target.value } })}>
@@ -73,12 +75,12 @@ export function TemporalExtractParamsBody({ sheet, params, setParams, request, F
       <Field name="selection" label="Saved temporal selection" />
     </> : <>
       <div className="dense-grid">
-        <label className="field-group"><span className="field-labels">Start</span>
-          <input className="form-input" data-testid="extract-range-start" value={start}
+        <label className="field-group form-field"><span className="field-labels">Start</span>
+          <TextInput data-testid="extract-range-start" value={start}
             placeholder="00:10" onChange={(event) => updateRange(event.target.value, end)} />
         </label>
-        <label className="field-group"><span className="field-labels">End</span>
-          <input className="form-input" data-testid="extract-range-end" value={end}
+        <label className="field-group form-field"><span className="field-labels">End</span>
+          <TextInput data-testid="extract-range-end" value={end}
             placeholder="00:45" onChange={(event) => updateRange(start, event.target.value)} />
         </label>
       </div>

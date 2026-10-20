@@ -1,17 +1,20 @@
+import './PdfBatchImportFlow.css';
+import { PanelFrame, PanelBody, PanelFooter } from '../../PanelLayout';
+import { Button } from '../../Button';
 import { AlertTriangle, CheckCircle2, ExternalLink, FileText, LoaderCircle, Pause, Play, RefreshCw } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import type { PdfImportCategory, PdfImportChoices, PdfImportDestination, PdfImportFileSummary, PdfImportOcrSelection, PdfImportPage, PdfImportSnapshot } from '../../../api/pdfImports';
 import type { SelectorChoice } from '../../../api/selectorChoices';
 import { SelectorField } from '../../../engine-selector/SelectorField';
-import { PanelSelect } from '../../PanelSelect';
 import { SegmentedToggle } from '../../PanelPrimitives';
 import { PdfTextPagePreview } from '../pdfPacket/PdfTextPagePreview';
 import { routePath } from '../../../routes';
-import { ImportDestinationChoice, ImportDestinationOptions } from '../ImportDestinationChoice';
-import { ImportStepFooter } from '../ImportStepFooter';
+import { ActivityProgressCard, ProgressBar } from '../../ActivityProgress';
+import { ImportDestinationPicker } from '../ImportDestinationPicker';
 import type { PdfBatchDestinationSheet } from './PdfBatchImportFlow';
-import { PDF_CATEGORY_LABEL, PDF_CATEGORY_ORDER, PDF_CATEGORY_TONE, PDF_CHECK_CATEGORY_ORDER, bytesLabel, canOpenCheckText, count, destinationIsReady, ocrPolicyCount } from './model';
+import { PDF_CATEGORY_LABEL, PDF_CATEGORY_ORDER, PDF_CATEGORY_TONE, PDF_CHECK_CATEGORY_ORDER, canOpenCheckText, count, destinationIsReady, ocrPolicyCount } from './model';
+import { formatBytes } from '../../../format';
 
 function ocrSelectionOf(choice: SelectorChoice): PdfImportOcrSelection | null {
   const selected = choice.authored_selection;
@@ -52,14 +55,14 @@ export function AddFilesStep({
   const uploadBytesTotal = snapshot.upload.bytes_total ?? 0;
   const checkedTotal = snapshot.analysis.files_total ?? snapshot.upload.files_done;
   const uploadComplete = snapshot.upload.files_done >= uploadTotal;
-  return <section className="pdf-batch-step pdf-batch-add" aria-label="Add files">
-    <div className="pdf-batch-step-body">
+  return <PanelFrame fill className="pdf-batch-add" aria-label="Add files">
+    <PanelBody className="">
       <header><h2>Add files</h2><p>Files are copied to a holding area. Nothing is added to the project until Import.</p></header>
-      {snapshot.preflight.state === 'insufficient' ? <div className="pdf-batch-preflight-error" role="alert">
+      {snapshot.preflight.state === 'insufficient' ? <div className="panel-error" role="alert">
         <AlertTriangle size={18} />
-        <div><strong>Not enough disk space</strong><span>This import needs {bytesLabel(uploadBytesTotal)}. {bytesLabel(snapshot.preflight.free_bytes ?? 0)} is free.</span></div>
-        <button type="button" className="btn" disabled={retryingPreflight} onClick={onRetryPreflight}>{retryingPreflight ? 'Checking…' : 'Check again'}</button>
-        <button type="button" className="btn" onClick={onCancel}>Choose different files</button>
+        <div><strong>Not enough disk space</strong><span>This import needs {formatBytes(uploadBytesTotal)}. {formatBytes(snapshot.preflight.free_bytes ?? 0)} is free.</span></div>
+        <Button type="button" disabled={retryingPreflight} onClick={onRetryPreflight}>{retryingPreflight ? 'Checking…' : 'Check again'}</Button>
+        <Button type="button" onClick={onCancel}>Choose different files</Button>
       </div> : <><div className="pdf-batch-progress-grid">
         <ProgressCard
           title={reading ? 'Reading folder' : uploadComplete ? 'Copying complete' : 'Copying files'}
@@ -67,10 +70,10 @@ export function AddFilesStep({
           total={reading ? null : uploadTotal}
           detail={reading
             ? `${count(snapshot.upload.files_done, 'file')} found so far`
-            : `${bytesLabel(snapshot.upload.bytes_done ?? 0)} of ${bytesLabel(uploadBytesTotal)} copied`}
-          action={uploadComplete ? <span className="pdf-batch-complete"><CheckCircle2 size={14} /> Complete</span> : <button type="button" className="btn btn-quiet" onClick={onPause}>
+            : `${formatBytes(snapshot.upload.bytes_done ?? 0)} of ${formatBytes(uploadBytesTotal)} copied`}
+          action={uploadComplete ? <span className="pdf-batch-complete"><CheckCircle2 size={14} /> Complete</span> : <Button type="button" className="btn-quiet" onClick={onPause}>
             {snapshot.paused ? <Play size={14} /> : <Pause size={14} />}{snapshot.paused ? 'Resume' : 'Pause'}
-          </button>}
+          </Button>}
         />
         <ProgressCard
           title="Checking text layers"
@@ -83,10 +86,10 @@ export function AddFilesStep({
         ? <LoaderCircle className="spin" size={14} aria-hidden />
         : <CheckCircle2 size={14} aria-hidden />}
         {snapshot.preflight.state === 'waiting'
-          ? `Checking space for ${bytesLabel(uploadBytesTotal)}.`
+          ? `Checking space for ${formatBytes(uploadBytesTotal)}.`
           : snapshot.preflight.state === 'ready'
-            ? `Enough space · needs ${bytesLabel(uploadBytesTotal)} · ${bytesLabel(snapshot.preflight.free_bytes ?? 0)} free`
-            : `More disk space is needed · needs ${bytesLabel(uploadBytesTotal)} · ${bytesLabel(snapshot.preflight.free_bytes ?? 0)} free`}
+            ? `Enough space · needs ${formatBytes(uploadBytesTotal)} · ${formatBytes(snapshot.preflight.free_bytes ?? 0)} free`
+            : `More disk space is needed · needs ${formatBytes(uploadBytesTotal)} · ${formatBytes(snapshot.preflight.free_bytes ?? 0)} free`}
       </p></>}
       {needsReselection && <div className="pdf-batch-reselect" role="status">
         <div><strong>Some files still need to be copied</strong><span>Select the same files or folder again. Only pending files are uploaded.</span></div>
@@ -119,15 +122,15 @@ export function AddFilesStep({
         </label>
       </div>}
       <CategoryTable snapshot={snapshot} showUnchecked />
-    </div>
-    <ImportStepFooter>
-      <button type="button" className="btn" onClick={onCancel}>Cancel</button>
+    </PanelBody>
+    <PanelFooter>
+      <Button type="button" onClick={onCancel}>Cancel</Button>
       <span>{canOpenCheckText(snapshot)
         ? 'You can review samples while the remaining files are copied.'
         : 'Check text opens once each type has a few files.'}</span>
-      <button type="button" className="btn btn-primary" disabled={!canOpenCheckText(snapshot)} onClick={onContinue}>Check text →</button>
-    </ImportStepFooter>
-  </section>;
+      <Button type="button" className="btn-primary" disabled={!canOpenCheckText(snapshot)} onClick={onContinue}>Check text →</Button>
+    </PanelFooter>
+  </PanelFrame>;
 }
 
 function ProgressCard({ title, done, total, detail, action }: {
@@ -137,11 +140,10 @@ function ProgressCard({ title, done, total, detail, action }: {
   detail: string;
   action?: ReactNode;
 }) {
-  return <article className="pdf-batch-progress-card">
-    <header><strong>{title}</strong>{action}</header>
-    <div><b>{total == null ? `${done.toLocaleString()} found so far` : `${done.toLocaleString()} of ${total.toLocaleString()}`}</b><span>{detail}</span></div>
-    <progress max={Math.max(1, total ?? 1)} value={total == null ? 1 : done} data-indeterminate={total == null || undefined} />
-  </article>;
+  return <ActivityProgressCard state="active" title={title} footer={action}
+    detail={<>{total == null ? `${done.toLocaleString()} found so far` : `${done.toLocaleString()} of ${total.toLocaleString()}`} · {detail}</>}>
+    <ProgressBar label={title} completed={done} total={total} state="active" />
+  </ActivityProgressCard>;
 }
 
 function CategoryTable({ snapshot, showUnchecked = false }: { snapshot: PdfImportSnapshot; showUnchecked?: boolean }) {
@@ -197,14 +199,14 @@ export function CheckTextStep({
   const ocrReady = Boolean(page && page.ocr_text !== null && pageUsesSelection(page, currentOcr));
   const shownText = textSource === 'ocr' ? page?.ocr_text ?? '' : page?.native_text ?? '';
   const unreadableCount = snapshot.category_counts.unreadable ?? 0;
-  return <section className="pdf-batch-step pdf-batch-check" aria-label="Check text">
+  return <PanelFrame fill className="pdf-batch-check" aria-label="Check text">
     <div className="pdf-batch-check-body">
       <aside className="pdf-batch-check-sidebar">
         <h2>Text from your files</h2>
         <p>{count(snapshot.analysis.files_done, 'file')} checked so far. Review representative files before choosing a batch OCR policy.</p>
         {checkRunning && <div className="pdf-batch-analysis-progress" role="status"><LoaderCircle className="spin" size={15} />
           <span>Checking text layers {snapshot.analysis.files_done.toLocaleString()} of {(snapshot.analysis.files_total ?? snapshot.upload.files_done).toLocaleString()}</span>
-          <progress max={Math.max(1, snapshot.analysis.files_total ?? snapshot.upload.files_done)} value={snapshot.analysis.files_done} />
+          <ProgressBar label="Checking text layers" completed={snapshot.analysis.files_done} total={snapshot.analysis.files_total ?? snapshot.upload.files_done} state="active" />
         </div>}
         <div className="pdf-batch-type-list">
           {PDF_CHECK_CATEGORY_ORDER.filter((category) => categories.includes(category)).map((category) => (
@@ -243,7 +245,7 @@ export function CheckTextStep({
             : chosenFile ? <>
             <header><div><strong>{chosenFile.filename}</strong><span>{selectedCategory === 'image' ? 'Image' : chosenFile.page_count == null ? 'Reading pages…' : count(chosenFile.page_count, 'page')}</span></div>
             {selectedCategory === 'image'
-              ? <button type="button" className="btn" onClick={() => { if (ocrReady) onTextSource('ocr'); else onPreview(); }}>OCR preview</button>
+              ? <Button type="button" onClick={() => { if (ocrReady) onTextSource('ocr'); else onPreview(); }}>OCR preview</Button>
               : <SegmentedToggle ariaLabel="Text preview" className="segmented-toolbar" fullWidth={false} value={textSource} onValueChange={(value) => {
                 if (value === 'ocr' && !ocrReady) onPreview();
                 else onTextSource(value as 'native' | 'ocr');
@@ -289,8 +291,8 @@ export function CheckTextStep({
         </div>
       </div>
     </div>
-    <ImportStepFooter><button type="button" className="btn" disabled={busy} onClick={onBack}>Back</button><span>{checkRunning ? 'You can continue now. Files checked later follow your choice.' : `OCR will apply to ${count(ocrPolicyCount(snapshot, snapshot.choices.ocr_policy), 'file')}${unreadableCount > 0 ? ` · ${unreadableCount.toLocaleString()} couldn't be read` : ''}.`}</span><button type="button" className="btn btn-primary" disabled={busy} onClick={onContinue}>{busy ? 'Saving…' : 'Continue →'}</button></ImportStepFooter>
-  </section>;
+    <PanelFooter><Button type="button" disabled={busy} onClick={onBack}>Back</Button><span>{checkRunning ? 'You can continue now. Files checked later follow your choice.' : `OCR will apply to ${count(ocrPolicyCount(snapshot, snapshot.choices.ocr_policy), 'file')}${unreadableCount > 0 ? ` · ${unreadableCount.toLocaleString()} couldn't be read` : ''}.`}</span><Button type="button" className="btn-primary" disabled={busy} onClick={onContinue}>{busy ? 'Saving…' : 'Continue →'}</Button></PanelFooter>
+  </PanelFrame>;
 }
 
 function OcrPolicy({ snapshot, checking, busy, onPolicy }: { snapshot: PdfImportSnapshot; checking: boolean; busy: boolean; onPolicy(policy: PdfImportChoices['ocr_policy']): void }) {
@@ -368,32 +370,12 @@ export function DestinationStep({ projectId, snapshot, destination, sheets, busy
   const reviewCounts = destination.kind === 'existing' && snapshot.match.state === 'ready'
     ? snapshot.match.new_category_counts ?? snapshot.category_counts
     : snapshot.category_counts;
-  return <section className="pdf-batch-step pdf-batch-destination" aria-label="Review destination">
-    <div className="pdf-batch-step-body">
-      <header><h2>Review destination</h2><p>Choose where these files belong, then review exactly what will be added.</p></header>
-      <ImportDestinationOptions>
-        <ImportDestinationChoice
-          name="destination"
-          selected={destination.kind === 'new'}
-          disabled={busy}
-          title="New sheet"
-          description="Create a sheet for this batch"
-          onSelect={() => onDestination({ kind: 'new', sheet_name: destination.kind === 'new' ? destination.sheet_name : 'Imported files' })}
-        >
-          <label className="import-destination-choice-field">Sheet name<input className="form-input" disabled={busy} value={destination.kind === 'new' ? destination.sheet_name : ''} onChange={(event) => onDestination({ kind: 'new', sheet_name: event.currentTarget.value })} /></label>
-        </ImportDestinationChoice>
-        <ImportDestinationChoice
-          name="destination"
-          selected={destination.kind === 'existing'}
-          disabled={busy}
-          title="Existing sheet"
-          description="Skip matching file names and sizes"
-          onSelect={() => { const sheet = sheets[0]; if (sheet) onDestination({ kind: 'existing', sheet_id: sheet.id }); }}
-        >
-          {destination.kind === 'existing' && <label className="import-destination-choice-field">Existing sheet<PanelSelect ariaLabel="Existing sheet" topLayer disabled={busy} value={destination.sheet_id} onValueChange={(value) => onDestination({ kind: 'existing', sheet_id: Number(value) })}>{sheets.map((sheet) => <option key={sheet.id} value={sheet.id}>{sheet.name}</option>)}</PanelSelect></label>}
-        </ImportDestinationChoice>
-      </ImportDestinationOptions>
-      {matching && <div className="pdf-batch-matching" role="status"><LoaderCircle className="spin" size={16} /> <span>Comparing with {sheets.find((sheet) => destination.kind === 'existing' && sheet.id === destination.sheet_id)?.name ?? 'sheet'} · {snapshot.match.checked.toLocaleString()} of {snapshot.match.total.toLocaleString()} checked</span><progress max={Math.max(1, snapshot.match.total)} value={snapshot.match.checked} /></div>}
+  return <PanelFrame fill className="pdf-batch-destination" aria-label="Review destination">
+    <PanelBody className="">
+      <ImportDestinationPicker destination={destination} sheets={sheets}
+        defaultSheetName="Imported files" busy={busy} onDestination={onDestination} />
+      {destination.kind === 'existing' && <p className="form-hint">Skip matching file names and sizes.</p>}
+      {matching && <div className="pdf-batch-matching" role="status"><LoaderCircle className="spin" size={16} /> <span>Comparing with {sheets.find((sheet) => destination.kind === 'existing' && sheet.id === destination.sheet_id)?.name ?? 'sheet'} · {snapshot.match.checked.toLocaleString()} of {snapshot.match.total.toLocaleString()} checked</span><ProgressBar label="Comparing existing rows" completed={snapshot.match.checked} total={snapshot.match.total} state="active" /></div>}
       <p className="pdf-batch-destination-summary"><strong>{count(importing, destination.kind === 'existing' ? 'new file' : 'file')}</strong>{destination.kind === 'existing' && matched > 0 && <span>{count(matched, 'file')} already in {sheetName} and left as is</span>}</p>
       <div className="pdf-batch-destination-table" role="table" aria-label="File import review">
         <div role="row" className="pdf-batch-destination-heading"><strong role="columnheader">Type</strong><strong role="columnheader">Files</strong><strong role="columnheader">Text</strong></div>
@@ -408,11 +390,11 @@ export function DestinationStep({ projectId, snapshot, destination, sheets, busy
           <TextSourceBadge category={category} policy={snapshot.choices.ocr_policy} />
         </div>)}
       </div>
-    </div>
-    <ImportStepFooter><button type="button" className="btn" disabled={busy} onClick={onBack}>Back</button><span>{matching
+    </PanelBody>
+    <PanelFooter><Button type="button" disabled={busy} onClick={onBack}>Back</Button><span>{matching
       ? 'Comparing file names and sizes…'
-      : destination.kind === 'new' ? `Creates “${sheetName}”.` : `New rows are added at the end of ${sheetName}.`}</span><button type="button" className="btn btn-primary" disabled={busy || !destinationIsReady(snapshot, destination) || matching} onClick={onContinue}>{matching ? 'Comparing…' : busy ? 'Saving…' : 'Search setup →'}</button></ImportStepFooter>
-  </section>;
+      : destination.kind === 'new' ? `Creates “${sheetName}”.` : `New rows are added at the end of ${sheetName}.`}</span><Button type="button" className="btn-primary" disabled={busy || !destinationIsReady(snapshot, destination) || matching} onClick={onContinue}>{matching ? 'Comparing…' : busy ? 'Saving…' : 'Search setup →'}</Button></PanelFooter>
+  </PanelFrame>;
 }
 
 function TextSourceBadge({ category, policy }: { category: PdfImportCategory; policy: PdfImportChoices['ocr_policy'] }) {
@@ -452,13 +434,13 @@ export function SearchSetupStep({ snapshot, semanticEnabled, consent, busy, impo
   const ocrDisplayName = snapshot.choices.ocr_selection.engine === 'rapidocr'
     ? 'RapidOCR'
     : snapshot.choices.ocr_selection.engine;
-  return <section className="pdf-batch-step pdf-batch-search" aria-label="Search setup">
-    <div className="pdf-batch-step-body">
+  return <PanelFrame fill className="pdf-batch-search" aria-label="Search setup">
+    <PanelBody className="">
       <header><h2>Search setup</h2><p>Keyword search is included. You can also prepare these documents for search by meaning.</p></header>
       <label className="pdf-batch-semantic-choice"><input type="checkbox" disabled={busy} checked={semanticEnabled} onChange={(event) => onSemantic(event.currentTarget.checked)} /><span><strong>Search by meaning</strong><small>Find related ideas even when the exact words differ.</small></span></label>
       {semanticEnabled && <div className="pdf-batch-model-setup" data-state={setup.ready ? 'ready' : setup.available ? 'setup' : 'unavailable'}>
         <div><strong>{setup.display_name}</strong><span>{setup.ready ? 'Ready on this device' : setup.runtime_ready ? 'Required for search by meaning' : 'Model and runtime setup required'}</span></div>
-        <b>{setup.download_bytes == null ? 'Size not measured' : `About ${bytesLabel(setup.download_bytes)}`}</b>
+        <b>{setup.download_bytes == null ? 'Size not measured' : `About ${formatBytes(setup.download_bytes)}`}</b>
         {setup.needs_confirmation && <label><input type="checkbox" disabled={busy} checked={consent} onChange={(event) => onConsent(event.currentTarget.checked)} /> Download this model when the import starts</label>}
         {!setup.available && <p role="alert">Model setup is unavailable.</p>}
       </div>}
@@ -475,16 +457,16 @@ export function SearchSetupStep({ snapshot, semanticEnabled, consent, busy, impo
           : snapshot.batch_ocr?.state === 'ready'
           ? <b>Estimate ready</b>
             : snapshot.batch_ocr?.state === 'error' || batchEstimateError
-              ? <button type="button" className="btn" title={batchEstimateError ?? snapshot.batch_ocr?.error ?? undefined} disabled={batchEstimateBusy} onClick={onEstimateOcr}>{batchEstimateBusy ? 'Checking…' : 'Try again'}</button>
+              ? <Button type="button" title={batchEstimateError ?? snapshot.batch_ocr?.error ?? undefined} disabled={batchEstimateBusy} onClick={onEstimateOcr}>{batchEstimateBusy ? 'Checking…' : 'Try again'}</Button>
               : <span className="pdf-batch-inline-progress"><LoaderCircle className="spin" size={13} /> Checking…</span>}
       </div>}
       {snapshot.paused && <p className="pdf-batch-paused-import" role="status">Copying is paused. Go back to Add files to resume before importing.</p>}
-    </div>
-    <ImportStepFooter><button type="button" className="btn" disabled={busy} onClick={onBack}>Back</button><span>{snapshot.paused
+    </PanelBody>
+    <PanelFooter><Button type="button" disabled={busy} onClick={onBack}>Back</Button><span>{snapshot.paused
       ? 'Copying is paused. Go back to Add files to resume.'
       : semanticWaitingForConsent
-      ? `Allow the ${setup.download_bytes == null ? 'model' : bytesLabel(setup.download_bytes)} download, or turn off search by meaning.`
-      : semanticEnabled ? 'Keyword search and search by meaning will be prepared.' : 'Keyword search will be prepared.'}</span><button type="button" className="btn btn-primary" disabled={!canImport} onClick={onImport}>{busy ? 'Importing…' : importLabel}</button></ImportStepFooter>
-  </section>;
+      ? `Allow the ${setup.download_bytes == null ? 'model' : formatBytes(setup.download_bytes)} download, or turn off search by meaning.`
+      : semanticEnabled ? 'Keyword search and search by meaning will be prepared.' : 'Keyword search will be prepared.'}</span><Button type="button" className="btn-primary" disabled={!canImport} onClick={onImport}>{busy ? 'Importing…' : importLabel}</Button></PanelFooter>
+  </PanelFrame>;
 }
 

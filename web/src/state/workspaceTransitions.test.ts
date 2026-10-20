@@ -13,7 +13,7 @@
 // that test's own comment for what "adjacent" means and the calibration notes on
 // false positives it deliberately does not chase.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -257,7 +257,7 @@ describe('gridViewStore + selection/detail stores — cross-domain transaction p
     // hop between them, which lives inside a React hook and has no other
     // seam. Red if applyGridEntityFilter stops forwarding its valueLabel.
     const source = readFileSync(
-      resolve(dirname(fileURLToPath(import.meta.url)), '../workspace/useWorkspaceModel.tsx'),
+      resolve(dirname(fileURLToPath(import.meta.url)), '../workspace/useWorkspaceGridController.ts'),
       'utf8',
     );
     const body = source.slice(source.indexOf('const applyGridEntityFilter'));
@@ -272,7 +272,9 @@ describe('gridViewStore + selection/detail stores — cross-domain transaction p
     // …and the host capability must hand it over rather than dropping it on
     // the floor at the columnId->name resolution.
     expect(
-      /applyGridEntityFilter\(column\.name, value, valueLabel\)/.test(source),
+      /applyGridEntityFilter\(column\.name, value, valueLabel\)/.test(readFileSync(
+        resolve(dirname(fileURLToPath(import.meta.url)), '../workspace/useWorkspaceModel.tsx'), 'utf8',
+      )),
       'grid.filter.applyEntity must forward valueLabel to applyGridEntityFilter',
     ).toBe(true);
   });
@@ -742,7 +744,9 @@ describe('invariant 10b closure — no multi-store handler sequence survives out
   // .test.ts's ALLOW-map shape, so a future genuinely-safe exception has a
   // documented place to go instead of widening the scan's window.
   const ALLOW: Record<string, string[]> = {
-    'workspace/useWorkspaceModel.tsx': [],
+    ...Object.fromEntries(readdirSync(resolve(srcRoot, 'workspace'))
+      .filter((name) => /^(?:useWorkspace.*|Workspace.*|useReplayReviewController)\.tsx?$/.test(name))
+      .map((name) => [`workspace/${name}`, []])),
     'App.tsx': [],
   };
 
@@ -775,11 +779,13 @@ describe('invariant 10b closure — no multi-store handler sequence survives out
 
   it('the six swept call sites now call a *Transition helper, not the raw store pair, at their production call sites', () => {
     const model = read('workspace/useWorkspaceModel.tsx');
-    expect(model).toMatch(/openRowPanelTransition\(\{ detail, selection \}/);
-    expect(model).toMatch(/openColumnPanelTransition\(\{ detail, selection \}/);
-    expect(model).toMatch(/openRowRefTransition\(\{ selection \}/);
-    expect(model).toMatch(/closeRoutePanelTransition\(\{ detail, selection \}/);
+    const navigation = read('workspace/useWorkspaceNavigationController.ts');
+    const actions = read('workspace/useWorkspaceActionController.ts');
+    expect(navigation).toMatch(/openRowPanelTransition\(\{ detail, selection \}/);
+    expect(navigation).toMatch(/openColumnPanelTransition\(\{ detail, selection \}/);
+    expect(navigation).toMatch(/openRowRefTransition\(\{ selection \}/);
+    expect(navigation).toMatch(/closeRoutePanelTransition\(\{ detail, selection \}/);
     expect(model).toMatch(/confirmDeleteRowsTransition\(\{ selection, detail \}/);
-    expect(model).toMatch(/applyLensTransition\(\s*\{ gridView, detail, lensView: lensViewHandle \}/);
+    expect(actions).toMatch(/applyLensTransition\(\s*\{ gridView, detail, lensView: lensViewHandle \}/);
   });
 });

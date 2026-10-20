@@ -9,7 +9,7 @@ import {
   type PluginDetailSubject,
 } from './pluginDetailContext';
 import { resolvePluginPanelAvailability } from './pluginPanelContext';
-import { TrustedLocalPluginComponent } from './TrustedLocalPluginComponent';
+import { PluginRuntimeContribution } from './PluginRuntimeContribution';
 
 export interface PluginDetailHostProps {
   descriptor: WorkbenchPanelDescriptor;
@@ -89,7 +89,7 @@ function MountedPluginDetailHost({
 
   if (descriptor.runtimeComponent) {
     return (
-      <WorkbenchContributionFrame
+      <PluginRuntimeContribution
         descriptor={descriptor}
         host={host}
         className="workbench-contribution-host plugin-detail-contribution-host"
@@ -97,18 +97,10 @@ function MountedPluginDetailHost({
           'data-plugin-detail-status': 'mounted',
           'data-plugin-detail-context-schema-version': ctx.schemaVersion,
           'data-plugin-detail-subject-kind': ctx.detail.subject.kind,
-          'data-plugin-runtime-module-url': descriptor.runtimeComponent.moduleUrl,
-          'data-plugin-runtime-package-sha256': descriptor.runtimeComponent.packageSha256,
         }}
-      >
-        <TrustedLocalPluginComponent
-          moduleUrl={descriptor.runtimeComponent.moduleUrl}
-          componentKey={descriptor.runtimeComponent.componentKey}
-          contributionId={descriptor.runtimeComponent.contributionId}
-          pluginId={descriptor.runtimeComponent.pluginId}
-          ctx={ctx}
-        />
-      </WorkbenchContributionFrame>
+        runtime={descriptor.runtimeComponent}
+        ctx={ctx}
+      />
     );
   }
 

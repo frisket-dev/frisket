@@ -1,3 +1,7 @@
+import '../action-panel/RunScopeFooter.css';
+import { Button } from '../Button';
+import { FormField, TextInput, TextArea } from '../FormControls';
+import { IconButton } from '../IconButton';
 // The bespoke drawer body for the "Substitute values" action. One row per
 // distinct column value (value + count, ◆ marks the most common) with an inline
 // editable "maps to" target; targets support an
@@ -20,6 +24,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, X } from 'lucide-react';
 import { PanelSelect } from '../PanelSelect';
+import { SegmentedToggle } from '../PanelPrimitives';
 import type { GeneratedActionParamsBodyProps } from '../action-panel/GeneratedActionParamsBody';
 import {
   useColumnValuesPreview,
@@ -149,10 +154,8 @@ function parsePastedMap(raw: string): {
   return { entries: [...entries.entries()], skipped, duplicates };
 }
 
-/** Inline target editor: a free text input ("maps to") plus an ∅ toggle for
- *  an explicit (null); the null state renders as a dashed chip with a clear
- *  affordance instead of the design's ▾ dropdown — same choices, one less
- *  popover. */
+/** Inline target editor: free text or an explicit null, with a clear action
+ *  that restores the empty, unmapped state. */
 function TargetEditor({
   state,
   onChange,
@@ -163,40 +166,42 @@ function TargetEditor({
   if (state.isNull) {
     return (
       <span className="resolve-substitute-null-chip" data-testid="resolve-substitute-null-chip">
-        (null)
-        <button
+        <Button
           type="button"
           className="resolve-substitute-null-clear"
           data-testid="resolve-substitute-null-clear"
+          aria-pressed="true"
           aria-label="Clear null target"
           title="Clear the (null) target"
           onClick={() => onChange({ text: '', isNull: false })}
         >
+          (null)
           <X size={11} />
-        </button>
+        </Button>
       </span>
     );
   }
   return (
     <>
-      <input
-        className="form-input resolve-substitute-target"
+      <TextInput
+        className="resolve-substitute-target"
         data-testid="resolve-substitute-target-input"
         placeholder="keep as-is"
         aria-label="Maps to"
         value={state.text}
         onChange={(e) => onChange({ text: e.target.value, isNull: false })}
       />
-      <button
+      <Button
         type="button"
-        className="resolve-substitute-null-toggle"
+        className="btn-icon"
         data-testid="resolve-substitute-null-toggle"
+        aria-pressed="false"
         aria-label="Set target to null"
         title="Map to (null) — blank the cell"
         onClick={() => onChange({ text: '', isNull: true })}
       >
         ∅
-      </button>
+      </Button>
     </>
   );
 }
@@ -527,32 +532,29 @@ function SubstituteFormBody({
   const hasRows = enumRows.length > 0 || extraRows.length > 0;
 
   return (
-    <div className="resolve-substitute-form" data-testid="resolve-substitute-form">
-      <div className="resolve-substitute-scope">
-        <Field name="source" testId="resolve-substitute-column" />
-        {preview && (
+    <div className="content-stack" data-testid="resolve-substitute-form">
+      <Field name="source" testId="resolve-substitute-column" />
+      {preview && (
+        <div className="control-row resolve-substitute-status">
           <span className="resolve-substitute-facts" data-testid="resolve-substitute-facts">
             {preview.distinct.toLocaleString()} distinct
             {preview.missing > 0 ? ` · ${preview.missing.toLocaleString()} empty` : ''}
           </span>
-        )}
-        {preview && (
-          <button
+          <Button
             type="button"
-            className="btn resolve-substitute-reload"
             data-testid="resolve-substitute-reload"
             disabled={loading}
             title="Re-fetch column values — keeps your mapping; use after the source changed under a preview"
             onClick={reload}
           >
             Reload values
-          </button>
-        )}
-      </div>
+          </Button>
+        </div>
+      )}
 
       {reloadNotice && (
         <div
-          className="form-hint resolve-substitute-reload-notice"
+          className="panel-notice"
           data-testid="resolve-substitute-reload-notice"
           role="status"
         >
@@ -566,12 +568,12 @@ function SubstituteFormBody({
         </div>
       )}
       {error && (
-        <div className="form-error" data-testid="resolve-substitute-error">{error}</div>
+        <div className="panel-error" data-testid="resolve-substitute-error">{error}</div>
       )}
 
       {overThreshold && preview && (
         <div
-          className="form-hint resolve-substitute-threshold"
+          className="panel-notice"
           data-testid="resolve-substitute-threshold-notice"
         >
           {preview.distinct.toLocaleString()} distinct values — too many to list row-by-row.
@@ -580,37 +582,27 @@ function SubstituteFormBody({
       )}
 
       {preview && (
-        <div className="resolve-substitute-modes">
-          <span className="field-labels">Start from</span>
-          <div className="resolve-substitute-mode-buttons" role="group" aria-label="Start from">
-            <button
-              type="button"
-              data-testid="resolve-substitute-mode-values"
-              className={mode === 'values' ? 'is-active' : ''}
-              aria-pressed={mode === 'values'}
-              disabled={overThreshold}
-              title={overThreshold ? 'Too many distinct values to list row-by-row' : undefined}
-              onClick={() => setMode('values')}
-            >
-              column values
-            </button>
-            <button
-              type="button"
-              data-testid="resolve-substitute-mode-paste"
-              className={mode === 'paste' ? 'is-active' : ''}
-              aria-pressed={mode === 'paste'}
-              onClick={() => setMode('paste')}
-            >
-              pasted map
-            </button>
-          </div>
+        <div className="control-row">
+          <strong>Start from</strong>
+          <SegmentedToggle
+            ariaLabel="Start from"
+            size="compact"
+            fullWidth={false}
+            value={mode}
+            onValueChange={(value) => setMode(value === 'paste' ? 'paste' : 'values')}
+            buttonTestId={(value) => `resolve-substitute-mode-${value}`}
+            options={[
+              { value: 'values', label: 'column values', disabledReason: overThreshold ? 'Too many distinct values to list row-by-row' : undefined },
+              { value: 'paste', label: 'pasted map' },
+            ]}
+          />
         </div>
       )}
 
       {mode === 'paste' && (
-        <div className="resolve-substitute-paste-block">
-          <textarea
-            className="form-input resolve-substitute-paste"
+        <div className="content-stack">
+          <TextArea
+            className="resolve-substitute-paste"
             data-testid="resolve-substitute-paste"
             rows={5}
             aria-label="Pasted map"
@@ -618,15 +610,15 @@ function SubstituteFormBody({
             value={pasteText}
             onChange={(e) => setPasteText(e.target.value)}
           />
-          <button
+          <Button
             type="button"
-            className="btn resolve-substitute-paste-apply"
+            className="resolve-substitute-paste-apply"
             data-testid="resolve-substitute-paste-apply"
             disabled={!pasteText.trim()}
             onClick={applyPaste}
           >
             Use map
-          </button>
+          </Button>
           {pasteReport && (
             <p className="form-hint" data-testid="resolve-substitute-paste-report">
               {`Parsed ${pasteReport.applied} mapping${pasteReport.applied === 1 ? '' : 's'}`}
@@ -645,19 +637,19 @@ function SubstituteFormBody({
       )}
 
       {hasRows && (
-        <div className="resolve-substitute-table" data-testid="resolve-substitute-table">
-          <div className="resolve-substitute-table-head">
-            <span className="field-labels">Each value maps to</span>
+        <div className="content-stack" data-testid="resolve-substitute-table">
+          <div className="control-row resolve-substitute-table-head">
+            <strong>Each value maps to</strong>
             <span className="resolve-substitute-legend">◆ = most common</span>
           </div>
-          <div className="resolve-substitute-rows">
+          <div className="panel-list resolve-substitute-rows">
             {enumRows.map((row) => {
               const mapped = mapping.get(row.value);
               const merges =
                 typeof mapped === 'string' && (targetShareCounts.get(mapped) ?? 0) > 1;
               return (
                 <div
-                  className="resolve-substitute-row"
+                  className="control-row resolve-substitute-row"
                   data-testid="resolve-substitute-row"
                   data-value={row.value}
                   key={`v:${row.value}`}
@@ -679,7 +671,7 @@ function SubstituteFormBody({
                   </span>
                   <span className="resolve-substitute-count">{row.count.toLocaleString()}</span>
                   <span className="resolve-substitute-arrow" aria-hidden>→</span>
-                  <div className="resolve-substitute-target-cell">
+                  <div className="control-row resolve-substitute-target-cell">
                     <TargetEditor
                       state={targets.get(row.value) ?? KEEP}
                       onChange={(t) => setEnumTarget(row.value, t)}
@@ -691,13 +683,13 @@ function SubstituteFormBody({
             })}
             {extraRows.map((row) => (
               <div
-                className="resolve-substitute-row resolve-substitute-row-extra"
+                className="control-row resolve-substitute-row"
                 data-testid="resolve-substitute-row"
                 data-value={row.value}
                 key={`x:${row.id}`}
               >
-                <input
-                  className="form-input resolve-substitute-value-input"
+                <TextInput
+                  className="resolve-substitute-value-input"
                   data-testid="resolve-substitute-value-input"
                   placeholder="value"
                   aria-label="Value"
@@ -725,7 +717,7 @@ function SubstituteFormBody({
                   </span>
                 )}
                 <span className="resolve-substitute-arrow" aria-hidden>→</span>
-                <div className="resolve-substitute-target-cell">
+                <div className="control-row resolve-substitute-target-cell">
                   <TargetEditor
                     state={row.target}
                     onChange={(t) => updateExtra(row.id, { target: t })}
@@ -741,16 +733,13 @@ function SubstituteFormBody({
                       </span>
                     )}
                 </div>
-                <button
-                  type="button"
-                  className="icon-btn resolve-substitute-row-remove"
+                <IconButton
+                  icon={X}
                   data-testid="resolve-substitute-row-remove"
-                  aria-label="Remove value"
+                  label="Remove value"
                   title="Remove this value"
                   onClick={() => removeExtra(row.id)}
-                >
-                  <X size={12} />
-                </button>
+                />
               </div>
             ))}
           </div>
@@ -767,21 +756,19 @@ function SubstituteFormBody({
       )}
 
       {preview && !loading && (
-        <button
+        <Button
           type="button"
-          className="btn resolve-substitute-add"
+          className="resolve-substitute-add"
           data-testid="resolve-substitute-add-value"
           onClick={addExtra}
         >
           <Plus size={13} /> Add value
-        </button>
+        </Button>
       )}
 
       {preview && (
-        <label className="resolve-substitute-policy-row">
-          <span className="field-labels">Values not listed</span>
+        <FormField label="Values not listed" layout="inline">
           <PanelSelect
-            className="form-input"
             data-testid="resolve-substitute-policy"
             value={unmatched}
             onChange={(e) => setUnmatched(e.target.value === 'null' ? 'null' : 'keep')}
@@ -789,7 +776,7 @@ function SubstituteFormBody({
             <option value="keep">keep original</option>
             <option value="null">set null</option>
           </PanelSelect>
-        </label>
+        </FormField>
       )}
 
       <p className="run-scope-summary resolve-footer-summary"

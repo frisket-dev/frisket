@@ -23,6 +23,10 @@ describe('first-use telemetry sequencing', () => {
     expect(screen.getByTestId('ready')).toHaveTextContent('false');
     await act(async () => resolve({ product_telemetry_available: true }));
     expect(screen.getByTestId('ready')).toHaveTextContent('false');
+    const disclosure = screen.getByRole('dialog', { name: 'Help improve frisket' });
+    fireEvent(disclosure, new Event('cancel', { bubbles: true, cancelable: true }));
+    expect(screen.getByTestId('ready')).toHaveTextContent('false');
+    expect(disclosure).toHaveAttribute('open');
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     expect(screen.getByTestId('ready')).toHaveTextContent('true');
   });

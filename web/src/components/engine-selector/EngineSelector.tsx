@@ -1,3 +1,5 @@
+import '../PanelSelect.css';
+import { TextInput } from '../FormControls';
 import {
   useEffect,
   useImperativeHandle,
@@ -394,7 +396,7 @@ export function EngineSelector({
       <button
         ref={triggerRef}
         type="button"
-        className="engine-selector__trigger form-input"
+        className="engine-selector__trigger form-input select-trigger"
         aria-haspopup="dialog"
         aria-expanded={open}
         disabled={disabled}
@@ -434,11 +436,11 @@ export function EngineSelector({
           onSubmit={(event) => event.stopPropagation()}
         >
           <header className="engine-selector__header">
-            <input
+            <TextInput
               ref={searchRef}
               type="text"
               role="searchbox"
-              className="form-input engine-selector__search"
+              className="engine-selector__search"
               aria-label={`Search ${label}`}
               placeholder={searchPlaceholder}
               value={query}
@@ -496,10 +498,10 @@ export function EngineSelector({
 
             <section className="engine-selector__choices" aria-label={`${label} choices`}>
               {showProviderFilter && (
-                <input
+                <TextInput
                   type="text"
                   role="searchbox"
-                  className="form-input engine-selector__provider-filter"
+                  className="engine-selector__provider-filter"
                   aria-label={`Filter ${currentGroup?.label ?? 'provider'} choices`}
                   placeholder={`Filter ${currentGroup?.label ?? 'choices'}…`}
                   value={providerFilter}

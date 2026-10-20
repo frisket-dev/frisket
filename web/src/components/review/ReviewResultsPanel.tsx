@@ -1,3 +1,4 @@
+import '../Modal.css';
 import { useEffect, useRef } from 'react';
 import type { ReviewRun, ReviewRunCounts } from '../../api/types';
 import { WindowCloseButton } from '../WindowCloseButton';

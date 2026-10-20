@@ -28,8 +28,8 @@ vi.mock('../../src/api/open', async (importOriginal) => {
   };
 });
 
-import { OrganizationAiProvidersSettings } from '../../src/settings/SettingsSections';
-import { ApiError, listOrgLocalEndpoints, listOrgKeys, orgListModelPulls, orgStartArtifactPull, providerCatalog } from '../../src/api/open';
+import { OrganizationAiProvidersSettings } from '../../src/settings/OrganizationSettings';
+import { ApiError, listOrgLocalEndpoints, listOrgKeys, orgCancelModelPull, orgGetModelPull, orgListModelPulls, orgStartArtifactPull, providerCatalog } from '../../src/api/open';
 import type { LocalEndpointCatalog, LocalHttpEndpointEntry, ModelPullDto } from '../../src/api/types';
 
 
@@ -161,6 +161,22 @@ describe('OrgLocalModelsSettings (organization AI-providers section)', () => {
       /FRISKET_ENABLE_MODEL_PULL/,
     );
     expect(screen.queryByTestId('org-model-pull-start')).not.toBeInTheDocument();
+  });
+
+  it('keeps active and recent organization downloads on organization routes', async () => {
+    const active = pull({ id: 41 });
+    const completed = pull({ id: 40, status: 'done', resolved_size: 1024 });
+    (listOrgLocalEndpoints as unknown as Mock).mockResolvedValue(catalog([endpoint()]));
+    (orgListModelPulls as unknown as Mock).mockResolvedValueOnce({ pulls: [active, completed] });
+    (orgGetModelPull as unknown as Mock).mockResolvedValue(active);
+    (orgCancelModelPull as unknown as Mock).mockResolvedValue({});
+    await renderOrgAiProviders();
+
+    await screen.findByTestId('org-model-pull-list');
+    expect(await screen.findByTestId('org-model-pull-history-40')).toHaveTextContent('done');
+    await userEvent.click(await screen.findByTestId('model-pull-cancel'));
+    expect(orgCancelModelPull).toHaveBeenCalledWith(41);
+    await waitFor(() => expect(orgGetModelPull).toHaveBeenCalledWith(41), { timeout: 2500 });
   });
 
   describe('owner download flow', () => {

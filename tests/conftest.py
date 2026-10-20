@@ -100,6 +100,28 @@ def client(tmp_path: Path) -> TestClient:
     return make_client(tmp_path)
 
 
+@pytest.fixture(autouse=True)
+def no_background_pricing_refresh(
+    monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+) -> None:
+    """Keep CLI/app tests from leaking catalog maintenance into later tests.
+
+    Only the explicit lifecycle fixture opts into real startup; those tests
+    replace Thread before calling it. Catalog refresh behavior is exercised
+    directly by tests/ai, without a process-lifetime daemon.
+    """
+    if "pricing_refresh_lifecycle" in request.fixturenames:
+        return
+    monkeypatch.setattr(
+        "frisket.ai.llm.pricing_refresh.start_pricing_refresh", lambda: None
+    )
+
+
+@pytest.fixture
+def pricing_refresh_lifecycle() -> None:
+    """Opt into real refresh startup in lifecycle tests that supply a fake Thread."""
+
+
 @pytest.fixture
 def replay_client(tmp_path: Path) -> TestClient:
     """Server client wired to the committed cache in replay_strict mode."""

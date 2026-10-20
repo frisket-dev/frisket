@@ -1,15 +1,13 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef } from 'react';
 
-import { modelSetupErrorFactory } from '../api/engineSetup';
-import { createLocalProvidersApi } from '../api/localProviders';
+import { readModelPull } from '../api/modelPullOperations';
 import type {
   HttpSelectorChoicesQuery,
   HttpSelectorChoicesResponse,
 } from '../api/selectorChoices';
 import { selectorChoicesApi } from '../api/selectorChoices';
-import { createTeamLocalModelsApi } from '../api/teamLocalModels';
 import type { ModelPullDto } from '../api/types';
-import { usePoll } from '../hooks/usePoll';
+import { useModelPullPolling } from '../hooks/useModelPullPolling';
 import { CLOUD_CONNECTION_CHANGED } from '../cloud/connectionChanged';
 
 export type SelectorChoicesLoader = (
@@ -193,19 +191,6 @@ function defaultLoad(
   return selectorChoicesApi.getSelectorChoices(projectId, query, options);
 }
 
-const workspaceModels = createLocalProvidersApi(modelSetupErrorFactory);
-const organizationModels = createTeamLocalModelsApi(modelSetupErrorFactory);
-
-function defaultLoadPull(
-  scope: ModelPullScope,
-  id: number,
-  options: { signal: AbortSignal },
-): Promise<ModelPullDto> {
-  return scope === 'organization'
-    ? organizationModels.orgGetModelPull(id, options)
-    : workspaceModels.getModelPull(id, options);
-}
-
 function isAbort(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError';
 }
@@ -234,7 +219,7 @@ export function useSelectorChoices({
   queryKey,
   enabled = true,
   load = defaultLoad,
-  loadPull = defaultLoadPull,
+  loadPull = readModelPull,
 }: UseSelectorChoicesOptions): SelectorChoicesState {
   const [state, dispatch] = useReducer(reducer, {
     response: null,
@@ -256,7 +241,6 @@ export function useSelectorChoices({
     promise: Promise<boolean>;
     resolve(result: boolean): void;
   } | null>(null);
-  const progressRequests = useRef(new Set<AbortController>());
   const queryRef = useRef(query);
   const effectiveQueryKey = typeof queryKey === 'function' ? queryKey(query, state.response) : queryKey;
   const scopeKey = `${projectId ?? ''}\u0000${effectiveQueryKey}`;
@@ -322,14 +306,6 @@ export function useSelectorChoices({
     };
   }, [enabled, load, presentationKey, projectId, refreshRevision, scopeKey, settleRefresh]);
 
-  useEffect(() => {
-    const requests = progressRequests.current;
-    return () => {
-      requests.forEach((controller) => controller.abort());
-      requests.clear();
-    };
-  }, [enabled, scopeKey]);
-
   const acceptedResponse = state.responseScopeKey === scopeKey ? state.response : null;
   const projectedOperation = acceptedResponse === null ? null : activeOperation(acceptedResponse);
   const pollingOperation = projectedOperation !== null
@@ -338,58 +314,20 @@ export function useSelectorChoices({
     : null;
   const pollingOperationId = pollingOperation?.id ?? null;
   const pollingOperationScope = pollingOperation?.scope ?? null;
-  const pollingKey = pollingOperationId === null ? null : `${scopeKey}\u0000${pollingOperationId}`;
-  const [pollBackoff, setPollBackoff] = useState({ key: '', attempts: 0 });
-  const pollIntervalMs = pollBackoff.key === pollingKey
-    ? Math.min(2000 * 2 ** pollBackoff.attempts, 16_000)
-    : 2000;
-  const pollContext = useMemo(() => pollingOperationId === null || pollingOperationScope === null ? null : {
+  useModelPullPolling({
     id: pollingOperationId,
-    scope: pollingOperationScope,
-    scopeKey,
-    revision: state.revision,
-  }, [pollingOperationId, pollingOperationScope, scopeKey, state.revision]);
-  const pollContextRef = useRef(pollContext);
-  useLayoutEffect(() => {
-    pollContextRef.current = pollContext;
-  }, [pollContext]);
-
-  usePoll(
-    async () => {
-      const current = pollContextRef.current;
-      if (current === null) return 'stop';
-      const controller = new AbortController();
-      progressRequests.current.add(controller);
-      try {
-        const fresh = await loadPull(current.scope, current.id, { signal: controller.signal });
-        if (controller.signal.aborted || pollContextRef.current?.scopeKey !== current.scopeKey
-          || pollContextRef.current?.id !== current.id || pollContextRef.current?.revision !== current.revision) {
-          return undefined;
-        }
-        const terminal = fresh.status === 'done' || fresh.status === 'failed' || fresh.status === 'cancelled';
-        dispatch({ type: 'progress', revision: current.revision, scopeKey: current.scopeKey, pull: fresh, terminal });
-        setPollBackoff({ key: pollingKey ?? '', attempts: 0 });
-        if (terminal) {
-          requestRefresh();
-          return 'stop';
-        }
-      } catch (caught) {
-        if (!controller.signal.aborted && pollContextRef.current?.scopeKey === current.scopeKey
-          && pollContextRef.current?.id === current.id && pollContextRef.current?.revision === current.revision) {
-          dispatch({ type: 'progressFailure', revision: current.revision, scopeKey: current.scopeKey,
-            error: caught instanceof Error ? caught : new Error('Could not refresh setup progress.') });
-          setPollBackoff((backoff) => ({
-            key: pollingKey ?? '',
-            attempts: backoff.key === pollingKey ? backoff.attempts + 1 : 1,
-          }));
-        }
-      } finally {
-        progressRequests.current.delete(controller);
-      }
-      return undefined;
+    scopeKey: `${scopeKey}\u0000${pollingOperationScope}\u0000${state.revision}`,
+    active: enabled && Boolean(projectId) && pollingOperationScope !== null,
+    fetchPull: (id, signal) => loadPull(pollingOperationScope!, id, { signal }),
+    onProgress: (pull, terminal) => {
+      dispatch({ type: 'progress', revision: state.revision, scopeKey, pull, terminal });
+      if (terminal) requestRefresh();
     },
-    { intervalMs: pollIntervalMs, active: enabled && Boolean(projectId) && pollContext !== null, mode: 'settle-relative' },
-  );
+    onError: (error) => dispatch({ type: 'progressFailure', revision: state.revision, scopeKey, error }),
+    intervalMs: 2000,
+    maxIntervalMs: 16_000,
+    mode: 'settle-relative',
+  });
 
   const refreshChoices = useCallback((): Promise<boolean> => {
     if (!enabled || !projectId) return Promise.resolve(false);

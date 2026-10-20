@@ -1,3 +1,7 @@
+import '../PanelPrimitives.css';
+import '../ActionPanel.css';
+import { Button } from '../Button';
+import { TextInput } from '../FormControls';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Search } from 'lucide-react';
 import { ApiError, type ClusterGroup, type ClusterValuesMethod } from '../../api/open';
@@ -155,14 +159,14 @@ function ClusterParamsBodyForSheet({ sheet, params, setParams, setEditorProblem 
 
   return <div className="cluster-review-form" data-testid="cluster-review-form">
     <div className="cluster-controls">
-      <label className="field-group"><span className="field-labels">Column</span>
+      <label className="field-group form-field"><span className="field-labels">Column</span>
         <PanelSelect className="form-input" data-testid="cluster-column-select"
           value={source} disabled={busy} onChange={(event) => update({ source: event.target.value })}>
           {!sourceExists && <option value={source}>{source ? `${source} (unavailable)` : 'Choose a column'}</option>}
           {columns.map((column) => <option key={column.id} value={column.name}>{column.name}</option>)}
         </PanelSelect>
       </label>
-      <label className="field-group"><span className="field-labels">Method</span>
+      <label className="field-group form-field"><span className="field-labels">Method</span>
         <PanelSelect className="form-input" data-testid="cluster-method-select" value={method}
           disabled={busy} onChange={(event) => update({ method: event.target.value as ClusterValuesMethod,
             threshold: undefined, ngram_size: undefined })}>
@@ -170,26 +174,26 @@ function ClusterParamsBodyForSheet({ sheet, params, setParams, setEditorProblem 
         </PanelSelect>
       </label>
       <p className="form-hint" data-testid="cluster-method-hint">{METHODS.find((item) => item.value === method)?.hint}</p>
-      {method === 'semantic' && <label className="field-group" data-testid="cluster-threshold-field">
+      {method === 'semantic' && <label className="field-group form-field" data-testid="cluster-threshold-field">
         <span className="field-labels">Similarity threshold</span>
-        <input className="form-input" type="number" min={0} max={1} step={0.01} value={threshold}
+        <TextInput type="number" min={0} max={1} step={0.01} value={threshold}
           disabled={busy} onChange={(event) => update({ threshold: Number(event.target.value) })} />
       </label>}
-      {method === 'ngram_fingerprint' && <label className="field-group" data-testid="cluster-ngram-size-field">
+      {method === 'ngram_fingerprint' && <label className="field-group form-field" data-testid="cluster-ngram-size-field">
         <span className="field-labels">N-gram size</span>
-        <input className="form-input" type="number" min={1} max={6} step={1} value={ngramSize}
+        <TextInput type="number" min={1} max={6} step={1} value={ngramSize}
           disabled={busy} onChange={(event) => update({ ngram_size: Number(event.target.value) })} />
       </label>}
       <details className="action-advanced cluster-advanced" data-testid="cluster-advanced">
         <summary>Advanced settings</summary>
         <div className="action-advanced-body">
-          <label className="field-group"><span className="field-labels">Minimum distinct values</span>
-            <input className="form-input" type="number" data-testid="cluster-min-size" min={2} step={1}
+          <label className="field-group form-field"><span className="field-labels">Minimum distinct values</span>
+            <TextInput type="number" data-testid="cluster-min-size" min={2} step={1}
               value={minSize} disabled={busy} onChange={(event) => update({ min_size: Math.max(2, Number(event.target.value) || 2) })} />
             <span className="form-hint">Only show groups with at least this many different values. Repeated rows of the same value count once.</span>
           </label>
-          <label className="field-group"><span className="field-labels">Cluster key template</span>
-            <input className="form-input" data-testid="cluster-key-template" placeholder="{{value}}"
+          <label className="field-group form-field"><span className="field-labels">Cluster key template</span>
+            <TextInput data-testid="cluster-key-template" placeholder="{{value}}"
               value={keyTemplate} disabled={busy} onChange={(event) => update({ key_template: event.target.value })} />
             <p className="form-hint">Compare a transformed value while keeping the original values for review.
               Example: <code>{'{{value|before:" of "}}'}</code> groups “President of Honduras” with “President”.</p>
@@ -197,13 +201,13 @@ function ClusterParamsBodyForSheet({ sheet, params, setParams, setEditorProblem 
         </div>
       </details>
     </div>
-    {unavailable && <div className="form-error" data-testid="cluster-semantic-unavailable">
+    {unavailable && <div className="panel-error" data-testid="cluster-semantic-unavailable">
       {error} Choose Fingerprint or N-gram fingerprint to cluster without embeddings.
     </div>}
-    {error && !unavailable && <div className="form-error" data-testid="cluster-error">{error}</div>}
-    {savedRepair && <div className="form-error" data-testid="cluster-saved-review-repair" role="alert">
-      {savedRepair}{' '}<button type="button" className="btn" data-testid="cluster-saved-review-reset"
-        onClick={() => { setSavedReview(null); setSavedRepair(null); }}>Use current groups</button>
+    {error && !unavailable && <div className="panel-error" data-testid="cluster-error">{error}</div>}
+    {savedRepair && <div className="panel-error" data-testid="cluster-saved-review-repair" role="alert">
+      {savedRepair}{' '}<Button type="button" data-testid="cluster-saved-review-reset"
+        onClick={() => { setSavedReview(null); setSavedRepair(null); }}>Use current groups</Button>
     </div>}
     {hasGroups && currentReview && <div className="cluster-list">
       {currentReview.clusters.map((cluster) => {
@@ -211,11 +215,11 @@ function ClusterParamsBodyForSheet({ sheet, params, setParams, setEditorProblem 
         return <div className="cluster-card" data-testid="cluster-card" key={cluster.key}>
           <div className="cluster-card-top"><span>{cluster.size.toLocaleString()} rows</span>
             <span>{cluster.values.length.toLocaleString()} distinct values</span></div>
-          <label className="field-group"><span className="field-labels">Combined value</span>
-            <input className={value.trim() ? 'form-input' : 'form-input form-input-invalid'}
+          <label className="field-group form-field"><span className="field-labels">Combined value</span>
+            <TextInput className={value.trim() ? 'form-input' : 'form-input form-input-invalid'}
               data-testid="cluster-canonical-input" aria-invalid={!value.trim()} value={value}
               onChange={(event) => setDrafts((before) => ({ ...before, [cluster.key]: event.target.value }))} />
-            {!value.trim() && <span className="form-error" data-testid="cluster-canonical-blank">A canonical value is required.</span>}
+            {!value.trim() && <span className="panel-error" data-testid="cluster-canonical-blank">A canonical value is required.</span>}
           </label>
           <ul className="cluster-values">{cluster.values.map((member) => <li key={member.value}>
             <label className="cluster-member"><input type="checkbox" data-testid="cluster-member-checkbox"
@@ -228,9 +232,9 @@ function ClusterParamsBodyForSheet({ sheet, params, setParams, setEditorProblem 
         </div>;
       })}
     </div>}
-    <button type="button" className="btn" data-testid="cluster-preview-button"
+    <Button type="button" data-testid="cluster-preview-button"
       disabled={busy || !sourceExists} onClick={() => { void preview(); }}>
       <Search size={13} /> {busy ? 'Working…' : 'Preview groups'}
-    </button>
+    </Button>
   </div>;
 }

@@ -125,6 +125,7 @@ describe('TableImportFlow', () => {
     expect(await screen.findByLabelText('Import')).toBeVisible();
     expect(screen.getByRole('radio', { name: /New sheet/ })).toBeChecked();
     expect(screen.getByRole('textbox', { name: 'Sheet name' })).toHaveValue('contributions');
+    expect(api.createFromFile).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(api.updateDestination).toHaveBeenCalled());
     fireEvent.click(await screen.findByRole('button', { name: 'Import 2 rows' }));
     await waitFor(() => expect(onImported).toHaveBeenCalledWith(41));
@@ -220,7 +221,7 @@ describe('TableImportFlow', () => {
     const onUseMultipleFiles = vi.fn();
     renderFlow(api, { initialFile: null, onUseMultipleFiles });
     const files = [new File(['a'], 'a.csv'), new File(['b'], 'b.xlsx')];
-    fireEvent.change(screen.getByRole('button', { name: 'Choose file' }).closest('.table-import-dropzone')!.querySelector('input')!, { target: { files } });
+    fireEvent.change(screen.getByRole('button', { name: 'Choose file' }).closest('.import-drop-area')!.querySelector('input')!, { target: { files } });
     expect(await screen.findByRole('heading', { name: 'One file at a time' })).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Use Multiple files' }));
     await waitFor(() => expect(onUseMultipleFiles).toHaveBeenCalledWith(files));
@@ -232,7 +233,7 @@ describe('TableImportFlow', () => {
     const onUsePdfSplit = vi.fn();
     renderFlow(api, { initialFile: null, onUsePdfSplit });
     const file = new File(['%PDF'], 'packet.pdf', { type: 'application/pdf' });
-    fireEvent.change(screen.getByRole('button', { name: 'Choose file' }).closest('.table-import-dropzone')!.querySelector('input')!, { target: { files: [file] } });
+    fireEvent.change(screen.getByRole('button', { name: 'Choose file' }).closest('.import-drop-area')!.querySelector('input')!, { target: { files: [file] } });
     fireEvent.click(await screen.findByRole('button', { name: 'Split a PDF' }));
     await waitFor(() => expect(onUsePdfSplit).toHaveBeenCalledWith(file));
   });
@@ -255,14 +256,14 @@ describe('TableImportFlow', () => {
     const api = mockApi();
     renderFlow(api, { initialFile: null });
     const file = new File(['name\nAda\n'], 'uploaded-table', { type: 'application/octet-stream' });
-    const input = screen.getByRole('button', { name: 'Choose file' }).closest('.table-import-dropzone')!.querySelector('input')!;
+    const input = screen.getByRole('button', { name: 'Choose file' }).closest('.import-drop-area')!.querySelector('input')!;
 
     fireEvent.change(input, { target: { files: [file] } });
     await waitFor(() => expect(api.createFromFile).toHaveBeenCalledWith('project-1', file, expect.anything()));
     expect(await screen.findByLabelText('Check rows')).toBeVisible();
   });
 
-  it('restarts initial file inspection after a Strict Mode effect replay', async () => {
+  it('starts once after Strict Mode replay and ignores a replaced initial file response', async () => {
     const api = mockApi();
     const stale = deferred<TableImportDraft>();
     const current = deferred<TableImportDraft>();
@@ -270,13 +271,59 @@ describe('TableImportFlow', () => {
       .mockImplementationOnce(() => stale.promise)
       .mockImplementationOnce(() => current.promise);
 
-    renderFlow(api, { initialFile: new File(['name\nAda'], 'people.csv', { type: 'text/csv' }) }, true);
+    const props: ComponentProps<typeof TableImportFlow> = {
+      api, projectId: 'project-1', destinationSheets: [],
+      initialFile: new File(['name\nAda'], 'people.csv', { type: 'text/csv' }),
+      onContextChange: vi.fn(), registerCloseGuard: vi.fn(), onImported: vi.fn(),
+      onDiscarded: vi.fn(), onError: vi.fn(), onUseMultipleFiles: vi.fn(),
+      onUsePdfSplit: vi.fn(), onUseFollowTheMoney: vi.fn(),
+    };
+    const view = render(<StrictMode><TableImportFlow {...props} /></StrictMode>);
+    await waitFor(() => expect(api.createFromFile).toHaveBeenCalledTimes(1));
+    const retiredSignal = vi.mocked(api.createFromFile).mock.calls[0][2]?.signal;
+    view.rerender(<StrictMode><TableImportFlow {...props} initialFile={new File(['name\nBea'], 'current.csv')} /></StrictMode>);
     await waitFor(() => expect(api.createFromFile).toHaveBeenCalledTimes(2));
+    expect(retiredSignal?.aborted).toBe(true);
 
     await act(async () => { stale.resolve(draft({ draft_id: 'stale-file', id: 'stale-file' })); await stale.promise; });
     expect(screen.queryByLabelText('Check rows')).not.toBeInTheDocument();
     await act(async () => { current.resolve(draft()); await current.promise; });
     expect(await screen.findByLabelText('Check rows')).toBeVisible();
+  });
+
+  it('uses the same intake for a replacement initial file and ignores its superseded discard', async () => {
+    const api = mockApi();
+    const oldDiscard = deferred<void>();
+    vi.mocked(api.discard).mockImplementationOnce(() => oldDiscard.promise);
+    vi.mocked(api.createFromFile).mockImplementation(async (_projectId, file) => draft({
+      draft_id: file.name, id: file.name,
+      source: { ...draft().source, filename: file.name },
+    }));
+    const props: ComponentProps<typeof TableImportFlow> = {
+      api, projectId: 'project-1', destinationSheets: [],
+      initialFile: new File(['name\nAda'], 'First.csv'),
+      onContextChange: vi.fn(), registerCloseGuard: vi.fn(), onImported: vi.fn(),
+      onDiscarded: vi.fn(), onError: vi.fn(), onUseMultipleFiles: vi.fn(),
+      onUsePdfSplit: vi.fn(), onUseFollowTheMoney: vi.fn(),
+    };
+    const view = render(<TableImportFlow {...props} />);
+    await screen.findByLabelText('Check rows');
+    expect(api.createFromFile).toHaveBeenCalledTimes(1);
+    view.rerender(<TableImportFlow {...props} initialFile={new File(['name\nBea'], 'Superseded.csv')} />);
+    await waitFor(() => expect(api.discard).toHaveBeenCalledTimes(1));
+    const discardedRequest = vi.mocked(api.discard).mock.calls[0][2]?.signal;
+
+    view.rerender(<TableImportFlow {...props} initialFile={new File(['name\nCam'], 'Current.csv')} />);
+    await waitFor(() => expect(api.createFromFile).toHaveBeenCalledTimes(2));
+    expect(discardedRequest?.aborted).toBe(true);
+    await act(async () => { oldDiscard.resolve(); await oldDiscard.promise; });
+    expect(vi.mocked(api.createFromFile).mock.calls.map((call) => call[1].name)).toEqual(['First.csv', 'Current.csv']);
+    expect(screen.getByLabelText('Check rows')).toBeVisible();
+    expect(props.onError).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Columns →' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue →' }));
+    expect(await screen.findByRole('textbox', { name: 'Sheet name' })).toHaveValue('Current');
   });
 
   it('uses record ordinals when a displayed physical line follows a multiline record', async () => {
@@ -388,7 +435,7 @@ describe('TableImportFlow', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Continue →' }));
     fireEvent.click(await screen.findByRole('radio', { name: /Add to an existing sheet/ }));
 
-    expect(screen.getByRole('combobox', { name: 'Sheet' })).toHaveValue('9');
+    expect(screen.getByRole('combobox', { name: 'Existing sheet' })).toHaveValue('9');
     const mapping = await screen.findByRole('combobox', { name: 'Map contributor_id' });
     expect(mapping).toHaveValue('existing:77');
     expect(within(mapping).getByRole('option', { name: '+ New column' })).toBeVisible();

@@ -1,3 +1,4 @@
+import './PluginManager.css';
 import { useEffect, useReducer, useRef, useState, type FormEvent } from 'react';
 import { AlertTriangle, CheckCircle2, Info, XCircle } from 'lucide-react';
 import type {
@@ -8,6 +9,8 @@ import type {
 import type { WorkbenchApiPort } from '../api/ports';
 import { formatFrontendComponentBindings } from './pluginUiRuntime';
 import { StatusChip, type StatusTone } from '../components/PanelPrimitives';
+import { Button } from '../components/Button';
+import { FormField, TextInput } from '../components/FormControls';
 
 export interface PluginManagerProps {
   runtimeIndex: WorkbenchPluginRuntimeIndex | null;
@@ -343,7 +346,7 @@ export function PluginManager({
       data-mode={mode}
     >
       {mode === 'settings' && !canMutate && (
-        <div className="settings-empty-state" data-testid="plugin-manager-readonly">
+        <div className="panel-empty" data-testid="plugin-manager-readonly">
           Plugin lifecycle controls require project owner access.
         </div>
       )}
@@ -362,9 +365,13 @@ export function PluginManager({
             </div>
           </div>
           <form className="plugin-manager-install" onSubmit={installLocal}>
-            <label className="plugin-manager-field">
-              <span>Plugin folder or manifest path</span>
-              <input
+            <FormField label="Plugin folder or manifest path" hint={
+              <span id="plugin-manager-source-help">
+                Use an absolute server-local path to the plugin folder or its plugin.json file.
+                Browser uploads are not supported.
+              </span>
+            }>
+              <TextInput
                 aria-label="Plugin folder or manifest path"
                 aria-describedby="plugin-manager-source-help"
                 placeholder="/absolute/path/to/plugin"
@@ -374,14 +381,13 @@ export function PluginManager({
                 }
                 data-testid="plugin-manager-install-source"
               />
-              <small id="plugin-manager-source-help">
-                Use an absolute server-local path to the plugin folder or its plugin.json file.
-                Browser uploads are not supported.
-              </small>
-            </label>
-            <label className="plugin-manager-field">
-              <span>Manifest plugin ID</span>
-              <input
+            </FormField>
+            <FormField label="Manifest plugin ID" hint={
+              <span id="plugin-manager-id-help">
+                Copy the exact id from plugin.json. Frisket uses it to verify the expected plugin.
+              </span>
+            }>
+              <TextInput
                 aria-label="Manifest plugin ID"
                 aria-describedby="plugin-manager-id-help"
                 placeholder="example.plugin"
@@ -391,24 +397,21 @@ export function PluginManager({
                 }
                 data-testid="plugin-manager-install-plugin-id"
               />
-              <small id="plugin-manager-id-help">
-                Copy the exact id from plugin.json. Frisket uses it to verify the expected plugin.
-              </small>
-            </label>
-            <button
-              className="plugin-manager-primary"
+            </FormField>
+            <Button
+              className="btn-primary"
               type="submit"
               disabled={busyKey !== null}
               title="Read and validate the local manifest before adding the plugin to this workspace."
               data-testid="plugin-manager-install-local"
             >
               Review and install
-            </button>
+            </Button>
           </form>
         </section>
       )}
       {lifecycleEnabled && !allowLocalInstall && (
-        <div className="settings-empty-state" data-testid="plugin-manager-local-install-disabled">
+        <div className="panel-empty" data-testid="plugin-manager-local-install-disabled">
           Local plugin install is unavailable in hosted workspaces because the service cannot read
           paths or uploads from your computer.
         </div>
@@ -437,7 +440,7 @@ export function PluginManager({
           </span>
         </div>
         {plugins.length === 0 && (
-          <div className="settings-empty-state" data-testid="plugin-manager-empty">
+          <div className="panel-empty" data-testid="plugin-manager-empty">
             No plugins are installed for this workspace.
           </div>
         )}
@@ -561,7 +564,7 @@ export function PluginManager({
               <section className="plugin-manager-actions" aria-label={`Manage ${plugin.pluginId}`}>
                 <div className="plugin-manager-action-buttons">
                   {allowLocalInstall && (
-                    <button
+                    <Button
                       type="button"
                       disabled={busyKey !== null || !pluginSourceValue(plugin)}
                       onClick={() => void reloadPlugin(plugin)}
@@ -569,9 +572,9 @@ export function PluginManager({
                       data-testid="plugin-manager-reload"
                     >
                       Reload files
-                    </button>
+                    </Button>
                   )}
-                  <button
+                  <Button
                     type="button"
                     disabled={busyKey !== null || !plugin.receiptId || plugin.installState === 'enabled'}
                     onClick={() => dispatch({ type: 'beginTrust', pluginId: plugin.pluginId })}
@@ -581,8 +584,8 @@ export function PluginManager({
                     data-testid="plugin-manager-enable"
                   >
                     Review and enable
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
                     disabled={busyKey !== null || plugin.installState !== 'enabled'}
                     onClick={() => void activateBackend(plugin)}
@@ -590,8 +593,8 @@ export function PluginManager({
                     data-testid="plugin-manager-activate-backend"
                   >
                     Start backend
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
                     disabled={busyKey !== null || plugin.installState !== 'enabled'}
                     onClick={() => void disablePlugin(plugin)}
@@ -599,9 +602,9 @@ export function PluginManager({
                     data-testid="plugin-manager-disable"
                   >
                     Disable
-                  </button>
-                  <button
-                    className="plugin-manager-danger"
+                  </Button>
+                  <Button
+                    className="btn-danger"
                     type="button"
                     disabled={busyKey !== null || plugin.installState === 'uninstalled'}
                     onClick={() => void uninstallPlugin(plugin)}
@@ -609,7 +612,7 @@ export function PluginManager({
                     data-testid="plugin-manager-uninstall"
                   >
                     Uninstall
-                  </button>
+                  </Button>
                 </div>
                 <details className="plugin-manager-action-guide">
                   <summary>What do these actions do?</summary>
@@ -664,7 +667,7 @@ export function PluginManager({
                   <span>Secret names: {(plugin.requires?.secrets ?? []).join(', ')}</span>
                 )}
                 <div className="plugin-manager-trust-actions">
-                  <button
+                  <Button
                     type="button"
                     disabled={
                       busyKey !== null ||
@@ -677,15 +680,15 @@ export function PluginManager({
                     data-testid="plugin-manager-confirm-enable"
                   >
                     Trust and enable
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
                     disabled={busyKey !== null}
                     onClick={() => dispatch({ type: 'cancelTrust' })}
                     data-testid="plugin-manager-cancel-trust"
                   >
                     Cancel
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}

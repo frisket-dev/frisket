@@ -310,7 +310,7 @@ def test_unexpected_worker_exit_stops_server_nonzero_and_cleans_up(
 
 
 def test_desktop_server_loads_cached_prices_before_creating_the_app(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, pricing_refresh_lifecycle
 ):
     from frisket.ai.llm import pricing, pricing_refresh
     from frisket.operability import structured_logging

@@ -1,0 +1,10 @@
+.document-text {
+  margin: 0;
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  max-width: 78ch;
+}

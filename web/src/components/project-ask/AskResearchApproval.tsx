@@ -1,3 +1,5 @@
+import { Button } from '../Button';
+import { FormField, TextInput } from '../FormControls';
 import { useState } from 'react';
 import './AskResearch.css';
 
@@ -73,9 +75,9 @@ function Actions({
   continueDisabled?: boolean;
 }) {
   return <div className="ask-research-approval-actions">
-    <button type="button" className="btn btn-primary" disabled={disabled || continueDisabled} onClick={onContinue}>Continue</button>
-    {onSkip && <button type="button" className="btn" disabled={disabled} onClick={onSkip}>Skip</button>}
-    <button type="button" className="btn" disabled={disabled} onClick={onStop}>Stop</button>
+    <Button type="button" className="btn-primary" disabled={disabled || continueDisabled} onClick={onContinue}>Continue</Button>
+    {onSkip && <Button type="button" disabled={disabled} onClick={onSkip}>Skip</Button>}
+    <Button type="button" disabled={disabled} onClick={onStop}>Stop</Button>
   </div>;
 }
 
@@ -88,10 +90,10 @@ function BudgetApproval({ approval, onContinue, onStop, disabled = false }: Omit
   return <>
     <h3>Research budget reached</h3>
     <p>Spent {amount(micros(approval.settled_micros))} · reserved {amount(micros(approval.reserved_micros))} · next action about {amount(micros(approval.next_estimate_micros))}</p>
-    <label className="ask-research-approval-field">
-      <span>New total budget (USD)</span>
-      <input className="form-input" type="text" inputMode="decimal" aria-label="New total budget (USD)" value={budget} disabled={disabled} onChange={(event) => setBudget(event.target.value.trim())} />
-    </label>
+    <FormField label="New total budget (USD)" className="ask-research-approval-field">
+
+      <TextInput type="text" inputMode="decimal" aria-label="New total budget (USD)" value={budget} disabled={disabled} onChange={(event) => setBudget(event.target.value.trim())} />
+    </FormField>
     <Actions disabled={disabled} continueDisabled={!valid} onContinue={() => onContinue({ budget_usd: budget })} onStop={onStop} />
   </>;
 }
@@ -106,10 +108,10 @@ function TurnLimitApproval({ approval, onContinue, onStop, disabled = false }: O
   return <>
     <h3>Research turn limit reached</h3>
     <p>This run used {approval.turns_used} turns. Raise the limit or remove it to continue.</p>
-    <label className="ask-research-approval-field">
-      <span>New max turns</span>
-      <input className="form-input" type="number" min={approval.max_turns + 1} step={1} aria-label="New max turns" value={turns} disabled={disabled || noLimit} onChange={(event) => setTurns(event.target.value)} />
-    </label>
+    <FormField label="New max turns" className="ask-research-approval-field">
+
+      <TextInput type="number" min={approval.max_turns + 1} step={1} aria-label="New max turns" value={turns} disabled={disabled || noLimit} onChange={(event) => setTurns(event.target.value)} />
+    </FormField>
     <label className="ask-research-no-limit"><input type="checkbox" checked={noLimit} disabled={disabled} onChange={(event) => setNoLimit(event.target.checked)} />No limit</label>
     <Actions disabled={disabled} continueDisabled={!valid} onContinue={() => onContinue({ max_turns: noLimit ? null : parsed })} onStop={onStop} />
   </>;
@@ -134,7 +136,7 @@ export function AskResearchApproval({ approval, onContinue, onSkip, onStop, disa
     {approval.kind === 'unknown_cost' && <>
       <h3>Cost unavailable</h3>
       <p>This run cannot continue because the cost of its next {approval.operation} is unavailable. Stop it and choose a priced model or engine.</p>
-      <div className="ask-research-approval-actions"><button type="button" className="btn" disabled={disabled} onClick={onStop}>Stop</button></div>
+      <div className="ask-research-approval-actions"><Button type="button" disabled={disabled} onClick={onStop}>Stop</Button></div>
     </>}
     {approval.kind === 'skills' && <>
       <h3>Research skill unavailable</h3>

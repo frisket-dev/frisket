@@ -1,3 +1,6 @@
+import '../components/PanelPrimitives.css';
+import './ImageGallery.css';
+import { Button } from '../components/Button';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Row } from '../api/types';
 import { mediaFilename } from '../media/resolveMediaValue';
@@ -193,15 +196,15 @@ export function ImageGallery({ ctx }: { ctx: PluginViewContext }) {
         className="plugin-image-gallery-footer"
         hidden={visibleState.loading && visibleState.rows.length === 0}
       >
-        <button
+        <Button
           type="button"
-          className="mini-btn"
+
           data-testid="plugin-image-gallery-load-more"
           disabled={!canLoadMore || visibleState.loading}
           onClick={() => void loadNextPage()}
         >
           {visibleState.loading ? 'Loading' : canLoadMore ? 'Load more' : 'All images loaded'}
-        </button>
+        </Button>
       </div>
     </div>
   );

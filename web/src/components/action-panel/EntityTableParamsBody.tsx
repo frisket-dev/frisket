@@ -1,3 +1,7 @@
+import '../PanelPrimitives.css';
+import '../FormControls.css';
+import '../ActionPanel.css';
+import { Button } from '../Button';
 import { useEffect, useState } from 'react';
 import { useChromeHandle } from '../../bind/useChromeHandle';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
@@ -30,9 +34,9 @@ export function EntityTableParamsBody({ params }:
     {receiptId ? <>
       <p className="form-hint">Receipt {receiptId}</p>
       {!loaded && <p className="form-hint">Loading result…</p>}
-      {loaded?.error && <p className="form-error" role="alert">{loaded.error}</p>}
+      {loaded?.error && <p className="panel-error" role="alert">{loaded.error}</p>}
       {receipt && (receipt.actionKind !== 'cluster.values' || receipt.status !== 'completed')
-        && <p className="form-error" role="alert">This is not a completed Cluster values result.</p>}
+        && <p className="panel-error" role="alert">This is not a completed Cluster values result.</p>}
       <p className="form-hint">Creates a table from the committed groups and canonical names.
         No clustering is run again. The source is checked when you create the table.</p>
       {(params.cluster_keys != null || Object.keys(params.canonical_overrides ?? {}).length > 0)
@@ -42,8 +46,8 @@ export function EntityTableParamsBody({ params }:
         </details>}
     </> : <p className="form-hint">First write your reviewed groups with Cluster values.
       Then open that completed result and choose Create entity table. A preview alone is not a result.</p>}
-    <button type="button" className="mini-btn" onClick={() => {
+    <Button type="button" onClick={() => {
       if (!chrome.store.get().provenanceOpen) chrome.toggleProvenanceOpen();
-    }}>Open receipt history</button>
+    }}>Open receipt history</Button>
   </div>;
 }

@@ -1,0 +1,144 @@
+/* ---- mentions panel ------------------------------------------------------
+   Reuses the facets panel's blurb/controls/summary/list/chip anatomy (same
+   sidebar genus, same click-to-filter loop); only the pieces the facets panel
+   has no equivalent for are declared here: the coverage line, the collapsible
+   type section, the group disclosure caret, and the disclosed raw spellings. */
+.sidebar-mentions {
+  display: flex; flex-direction: column;
+}
+.sidebar-mentions .facets-list { gap: 3px; }
+.mentions-coverage {
+  color: var(--text-light);
+  font-size: 10.5px;
+  padding: 2px 6px;
+  font-variant-numeric: tabular-nums;
+}
+/* Rows the extraction never covered: the counts beside it are true about the
+   run and wrong about the sheet, so the line stops being a quiet footnote. */
+.mentions-coverage[data-uncovered='true'] {
+  color: var(--amber);
+}
+.mentions-cta {
+  align-self: flex-start;
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.mentions-type-section {
+  display: flex; flex-direction: column; gap: 3px;
+  margin-top: 4px;
+}
+.mentions-type-heading {
+  display: flex; align-items: center; gap: 4px;
+}
+.mentions-type-toggle {
+  display: flex; align-items: center; gap: 4px;
+  flex: 1; min-width: 0;
+  border: none; background: none; cursor: pointer;
+  padding: 2px 4px; margin: 0;
+  color: var(--text-mid);
+  text-align: left;
+}
+.mentions-type-toggle:hover { color: var(--text); }
+/* The heading carries the READABLE type name ("Works of art", "Nationalities,
+   religious & political groups") — the same words the NER form used. No
+   text-transform: uppercasing a sentence-shaped name reads as shouting, and
+   the long ones need to wrap rather than truncate to "NATIONALITIES,…". */
+.mentions-type-name {
+  min-width: 0;
+  font-size: 10.5px; font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.mentions-type-filter {
+  display: inline-flex; align-items: center;
+  border: 1px solid transparent; border-radius: var(--radius-4);
+  background: none; cursor: pointer;
+  padding: 2px; color: var(--text-light);
+}
+.mentions-type-filter:not(:disabled):hover {
+  color: var(--text); border-color: var(--border);
+}
+.mentions-type-filter:disabled { cursor: default; opacity: 0.5; }
+.mentions-type-filter.is-active {
+  color: var(--accent); border-color: var(--accent); background: var(--accent-bg);
+}
+.mentions-group-line {
+  display: flex; align-items: center; gap: 2px;
+}
+/* Name over counts, both in a mention group row and in a disclosed spelling.
+   The sidebar is ~270px wide by default and the counts ("3 forms", "5 rows",
+   "6 mentions", "EXACT SPELLING") add up to more than half of it, so a
+   single-line grid left the NAME — the only part being read — ellipsized to
+   "AC…". The name now owns its own line at full width and wraps; the counts,
+   which are short and fixed, share the line below. */
+.mentions-group-line .facet-value-hit,
+.mentions-surface-hit {
+  grid-template-columns: minmax(0, 1fr);
+  row-gap: 1px;
+}
+/* pre-wrap, not normal: WHICH spellings were combined is the point of the
+   disclosure, and two surfaces differing only in whitespace ("NEW YORK" vs
+   "NEW  YORK", a trailing space) are exactly the kind of pair a user opens the
+   list to see. `normal` collapses those runs and renders both identically —
+   the list then claims a merge it cannot show. Wrapping is unaffected:
+   pre-wrap still wraps at the panel width, and overflow-wrap keeps a single
+   long spelling inside it. */
+.mentions-group-line .facet-label,
+.mentions-surface-hit .facet-label {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.mentions-row-meta {
+  display: flex; align-items: center; flex-wrap: wrap;
+  gap: 4px 6px;
+  min-width: 0;
+}
+.mentions-group-caret,
+.mentions-group-caret-spacer {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; min-width: 16px; height: 16px;
+}
+.mentions-group-caret {
+  border: none; background: none; cursor: pointer;
+  padding: 0; margin: 0; color: var(--text-light);
+}
+.mentions-group-caret:hover { color: var(--text); }
+.mentions-forms {
+  border-radius: var(--radius-8);
+  padding: 1px 6px;
+  font-size: 9.5px; font-weight: 650;
+  color: var(--text-light);
+  background: var(--bg-hover);
+}
+.mentions-mention-count {
+  font-size: 9.5px;
+  color: var(--text-light);
+  font-variant-numeric: tabular-nums;
+}
+.mentions-surface-list {
+  list-style: none; margin: 2px 0 4px 18px; padding: 0;
+  display: flex; flex-direction: column; gap: 2px;
+  border-left: 1px solid var(--border);
+  padding-left: 6px;
+}
+.mentions-surface-hit .facet-label { font-weight: 500; font-size: 11.5px; }
+.mentions-exact-tag {
+  font-size: 9px; font-weight: 650;
+  text-transform: uppercase; letter-spacing: 0.03em;
+  color: var(--text-light);
+}
+/* A section's own footer: the "Show more" step and, when that page failed, the
+   scoped error directly above the button that retries it. */
+.mentions-type-more {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
+}
+.mentions-type-error { align-self: stretch; }
+.mentions-load-more {
+  align-self: flex-start;
+  font-size: 11px;
+}
+.mentions-rerun-link {
+  border: none; background: none; padding: 0; margin: 0;
+  font: inherit; color: var(--accent); cursor: pointer;
+  text-decoration: underline;
+}

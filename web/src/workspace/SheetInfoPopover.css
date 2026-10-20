@@ -1,0 +1,92 @@
+.workbench-mainView-stalePill {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  margin-right: 8px;
+  align-self: center;
+  padding: 3px 10px;
+  border-radius: 99px;
+  background: var(--amber-bg);
+  color: var(--amber);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.workbench-mainView-stalePill:hover { filter: brightness(0.97); }
+.sheet-info-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(30, 27, 22, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sheet-info-popover,
+.sheet-cascade-confirm {
+  min-width: 288px;
+  max-width: 380px;
+  /* --surface/--hairline were never defined, so these resolved to the
+     initial values (transparent background, no border) — the popover read
+     straight through to the grid behind it. Use the real panel tokens. */
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-modal);
+  padding: 16px 18px;
+}
+.sheet-info-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.sheet-info-name { font-weight: 700; font-size: 14px; }
+.sheet-info-section { margin-bottom: 11px; }
+.sheet-info-label {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  color: var(--text-light);
+  margin-bottom: 3px;
+}
+.sheet-info-value { font-size: 12.5px; color: var(--text); }
+.sheet-info-parent-link {
+  font-size: 12.5px;
+  color: var(--accent);
+  cursor: pointer;
+}
+.sheet-info-parent-link:hover { text-decoration: underline; }
+.sheet-info-error,
+.sheet-cascade-confirm-error {
+  margin: 6px 0;
+  font-size: 11.5px;
+  color: var(--red);
+}
+.sheet-info-footer,
+.sheet-cascade-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+.sheet-info-costGate {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 10px 0 2px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  background: var(--amber-bg);
+}
+.sheet-info-costGate-message {
+  font-size: 11.5px;
+  color: var(--amber);
+  font-weight: 600;
+}

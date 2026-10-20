@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { ColumnDef, ReviewBundle, Row } from '../../api/types';
-import { FieldValue } from '../RowDrawer';
+import { FieldValue } from '../rowInspection/FieldValue';
 import { OverflowRow } from '../OverflowRow';
 import { ReviewExcerpt } from './ReviewExcerpt';
 import styles from './ReviewSourcePreview.module.css';

@@ -2,7 +2,7 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ArtifactSource } from '../../src/components/EvidenceViewer';
+import { ArtifactSource } from '../../src/components/evidence/ArtifactSource';
 import { artifactRef, blobRef, evidenceArtifact, evidenceSpan } from '../support/evidenceFixtures';
 
 beforeEach(() => { Element.prototype.scrollIntoView = vi.fn(); });

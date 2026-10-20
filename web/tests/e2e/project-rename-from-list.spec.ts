@@ -1,7 +1,7 @@
 // The Home screen's project-card ⋯
 // menu (HomeScreen.tsx) gains a Rename entry that reuses the SAME additive
 // PATCH /api/projects/{id} `updateProject` call the project-scope General
-// settings page's Name field already rides (SettingsSections.tsx's
+// settings page's Name field already rides (ProjectSettings.tsx's
 // ProjectGeneralSettings -> api.updateCurrentProject, both riding real.ts's
 // shared PATCH endpoint) — no new API surface.
 

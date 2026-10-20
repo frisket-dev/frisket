@@ -1,3 +1,5 @@
+import '../components/MenuPop.css';
+import './ActSurface.css';
 // Menu bar: the compact density of the SAME ResolvedActTab[] model rendered by
 // ActRibbon. Tabs remain adaptive — Misc,
 // contextual tabs, plugin actions, and plugin launchers appear in both

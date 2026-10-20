@@ -8,9 +8,9 @@ import { navigate } from '../../src/routes';
 
 vi.mock('../../src/api/open', () => ({ listProjects: async () => [] }));
 vi.mock('../../src/editions/module', () => ({ useEditionModule: () => ({ settingsSections: [] }) }));
-vi.mock('../../src/settings/SettingsSections', () => ({
-  SectionFrame: ({ children }: { children?: ReactNode }) => <>{children}</>,
-  SettingsSectionRenderer: () => null,
+vi.mock('../../src/settings/ProjectSettings', () => ({
+  ProjectGeneralSettings: () => null,
+  ProjectAccessSettings: () => null,
 }));
 vi.mock('../../src/workbench/ChromeBar', () => ({
   ChromeBarShell: ({ brandExtra }: { brandExtra: ReactNode }) => <header>{brandExtra}</header>,

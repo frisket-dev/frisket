@@ -1,3 +1,4 @@
+import './ImportWorkspaceDialog.css';
 import type { ImportSessionStatus } from '../../api/open';
 import { ProgressBar } from '../ActivityProgress';
 

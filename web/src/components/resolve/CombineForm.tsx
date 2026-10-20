@@ -1,3 +1,7 @@
+import '../PanelPrimitives.css';
+import '../action-panel/RunScopeFooter.css';
+import { Button } from '../Button';
+import { FormField, SearchInput, TextInput } from '../FormControls';
 // The bespoke drawer body for the Combine action ("Group values"). The core
 // loop: select unassigned values (click toggle · shift range · ⌘ add) → ＋ New
 // bucket / Add to ▾ → name the bucket (defaults to its most frequent member, ◆
@@ -19,6 +23,7 @@ import {
 } from 'react';
 import { AlertTriangle, ChevronDown, Plus, Search } from 'lucide-react';
 import { PanelSelect } from '../PanelSelect';
+import { AnchoredMenu } from '../MenuPop';
 import {
   type ColumnValueCount,
 } from '../../api/open';
@@ -164,7 +169,7 @@ function CombineFormBody({
   const [addQueries, setAddQueries] = useState<Record<string, string>>({});
   const [addToOpen, setAddToOpen] = useState(false);
   const bucketSeqRef = useRef(initialGroups?.length ?? 0);
-  const addToRef = useRef<HTMLDivElement>(null);
+  const addToTriggerRef = useRef<HTMLButtonElement>(null);
 
   // ── server-side search (truncated enumerations only) ───────────────────
   // One limit-2000 page can't show every value of a big column, so when the
@@ -266,26 +271,6 @@ function CombineFormBody({
     return () => window.clearTimeout(timer);
   }, [truncated, searchStale, serverQuery, serverMatches, previewHash, sheet.id, activeColumn,
     projectApi]);
-
-  // Close the Add to ▾ menu on outside click / Escape.
-  useEffect(() => {
-    if (!addToOpen) return;
-    const onPointerDown = (event: globalThis.MouseEvent) => {
-      const wrap = addToRef.current;
-      if (wrap && event.target instanceof Node && !wrap.contains(event.target)) {
-        setAddToOpen(false);
-      }
-    };
-    const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Escape') setAddToOpen(false);
-    };
-    document.addEventListener('mousedown', onPointerDown);
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', onPointerDown);
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [addToOpen]);
 
   // ── derived ────────────────────────────────────────────────────────────
   /** Loaded-page counts EXTENDED with server-search hits, so a beyond-page
@@ -517,11 +502,9 @@ function CombineFormBody({
         ].slice(0, 8)
       : [];
     return (
-      <div className="resolve-combine-add-value" data-testid="resolve-combine-bucket-add-value">
-        <div className="resolve-combine-add-value-row">
-          <Search size={12} aria-hidden />
-          <input
-            className="form-input resolve-combine-add-value-input"
+      <div className="panel-list resolve-combine-add-value" data-testid="resolve-combine-bucket-add-value">
+        <div className="control-row resolve-combine-add-value-row">
+          <SearchInput
             data-testid="resolve-combine-bucket-add-value-input"
             value={query}
             placeholder="Add a value"
@@ -534,11 +517,12 @@ function CombineFormBody({
           <span className="resolve-combine-add-value-hint">add to this group</span>
         </div>
         {q !== '' && matches.length > 0 && (
-          <div className="resolve-combine-add-value-options">
+          <div className="panel-list">
             {matches.map((entry) => (
               <button
                 key={entry.value}
                 type="button"
+                className="menu-item"
                 data-testid="resolve-combine-bucket-add-value-option"
                 onClick={() => addValueToBucket(bucket.id, entry.value)}
               >
@@ -563,32 +547,31 @@ function CombineFormBody({
   };
 
   return (
-    <div className="resolve-combine-form" data-testid="resolve-combine-form">
-      <div className="resolve-combine-scope">
+    <div className="panel-list" data-testid="resolve-combine-form">
+      <div className="panel-list">
         <div className="resolve-combine-column">
           <Field name="source" testId="resolve-combine-column-select" />
         </div>
         {preview && (
-          <div className="resolve-combine-status">
+          <div className="control-row resolve-combine-status">
             <span className="resolve-combine-scope-meta" data-testid="resolve-combine-scope-meta">
               {scopeMeta}
             </span>
-            <button
+            <Button
               type="button"
-              className="btn resolve-combine-reload"
               data-testid="resolve-combine-reload"
               title="Reload column values while keeping your groups"
               onClick={reload}
             >
               Reload values
-            </button>
+            </Button>
           </div>
         )}
       </div>
 
       {reloadNotice && (
         <div
-          className="form-hint resolve-combine-reload-notice"
+          className="panel-notice"
           data-testid="resolve-combine-reload-notice"
           role="status"
         >
@@ -596,54 +579,55 @@ function CombineFormBody({
         </div>
       )}
 
-      <div className="resolve-combine-body">
-          <SelectionBar count={selected.size} onClear={() => setSelected(new Set())}>
-            <button
+      <div className="panel-list resolve-combine-body">
+          <SelectionBar count={selected.size} onClear={() => { setSelected(new Set()); setAddToOpen(false); }}>
+            <Button
               type="button"
-              className="btn btn-primary resolve-combine-bar-btn"
+              className="btn-primary"
               data-testid="resolve-combine-new-bucket"
               onClick={createBucket}
             >
               <Plus size={12} /> New bucket
-            </button>
-            <div className="resolve-combine-add-to-wrap" ref={addToRef}>
-              <button
-                type="button"
-                className="btn resolve-combine-bar-btn"
-                data-testid="resolve-combine-add-to"
-                disabled={buckets.length === 0}
-                title={buckets.length === 0 ? 'No buckets yet — create one first' : undefined}
-                aria-haspopup="menu"
-                aria-expanded={addToOpen}
-                onClick={() => setAddToOpen((open) => !open)}
+            </Button>
+            <Button
+              ref={addToTriggerRef}
+              type="button"
+              data-testid="resolve-combine-add-to"
+              disabled={buckets.length === 0}
+              title={buckets.length === 0 ? 'No buckets yet — create one first' : undefined}
+              aria-haspopup="menu"
+              aria-expanded={addToOpen}
+              onClick={() => setAddToOpen((open) => !open)}
+            >
+              Add to <ChevronDown size={12} />
+            </Button>
+            {addToOpen && (
+              <AnchoredMenu
+                anchorRef={addToTriggerRef}
+                onClose={() => setAddToOpen(false)}
+                width={(_rect, viewportWidth) => Math.min(260, viewportWidth - 16)}
+                aria-label="Add selected values to group"
+                data-testid="resolve-combine-add-to-menu"
               >
-                Add to <ChevronDown size={12} />
-              </button>
-              {addToOpen && (
-                <div
-                  className="resolve-combine-add-to-menu"
-                  role="menu"
-                  data-testid="resolve-combine-add-to-menu"
-                >
-                  {buckets.map((bucket) => (
-                    <button
-                      key={bucket.id}
-                      type="button"
-                      role="menuitem"
-                      data-testid="resolve-combine-add-to-option"
-                      onClick={() => addSelectionTo(bucket.id)}
-                    >
-                      <span className="resolve-combine-add-to-name" title={bucket.canonical}>
-                        {bucket.canonical}
-                      </span>
-                      <span className="muted">
-                        {bucket.members.length} value{bucket.members.length === 1 ? '' : 's'}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+                {buckets.map((bucket) => (
+                  <button
+                    key={bucket.id}
+                    type="button"
+                    className="menu-item"
+                    role="menuitem"
+                    data-testid="resolve-combine-add-to-option"
+                    onClick={() => addSelectionTo(bucket.id)}
+                  >
+                    <span className="menu-item-name" title={bucket.canonical}>
+                      {bucket.canonical}
+                    </span>
+                    <span className="muted">
+                      {bucket.members.length} value{bucket.members.length === 1 ? '' : 's'}
+                    </span>
+                  </button>
+                ))}
+              </AnchoredMenu>
+            )}
           </SelectionBar>
 
           {loading && (
@@ -652,28 +636,27 @@ function CombineFormBody({
             </div>
           )}
           {loadError && !loading && (
-            <div className="form-error resolve-combine-load-error" data-testid="resolve-combine-load-error">
+            <div className="panel-error control-row" data-testid="resolve-combine-load-error">
               <span>{loadError}</span>
-              <button
+              <Button
                 type="button"
-                className="btn"
                 onClick={reload}
               >
                 Retry
-              </button>
+              </Button>
             </div>
           )}
 
           {buckets.length > 0 && (
-            <div className="resolve-combine-section">
-              <div className="resolve-combine-section-label">
+            <div className="panel-list">
+              <strong className="control-row">
                 Groups
                 <span className="resolve-combine-section-count">{buckets.length}</span>
-              </div>
+              </strong>
               {duplicateNames.map(({ name, n }) => (
                 <div
                   key={name}
-                  className="resolve-combine-dup"
+                  className="panel-notice control-row"
                   data-testid="resolve-combine-dup-nudge"
                   role="status"
                 >
@@ -682,17 +665,16 @@ function CombineFormBody({
                     {n === 2 ? 'Two' : n} groups are named{' '}
                     <strong>{name}</strong> — merge them?
                   </span>
-                  <button
+                  <Button
                     type="button"
-                    className="btn resolve-combine-dup-merge"
                     data-testid="resolve-combine-dup-merge"
                     onClick={() => mergeDuplicates(name)}
                   >
                     Merge
-                  </button>
+                  </Button>
                 </div>
               ))}
-              <div className="resolve-combine-buckets">
+              <div className="panel-list">
                 {buckets.map((bucket) => (
                   <GroupCard
                     key={bucket.id}
@@ -719,18 +701,18 @@ function CombineFormBody({
           )}
 
           {preview && (
-            <div className="resolve-combine-section">
-              <div className="resolve-combine-section-label">
+            <div className="panel-list">
+              <strong className="control-row">
                 Unassigned
                 <span className="resolve-combine-section-count">
                   {unassignedEntries.length.toLocaleString()}
                 </span>
-              </div>
+              </strong>
               {preview.truncated && (
                 <div className="resolve-value-search-row resolve-combine-server-search">
                   <Search size={13} aria-hidden />
-                  <input
-                    className="form-input resolve-value-search"
+                  <TextInput
+                    className="resolve-value-search"
                     data-testid="resolve-combine-unassigned-search"
                     value={unassignedQuery}
                     placeholder="Search all values"
@@ -758,7 +740,7 @@ function CombineFormBody({
               />
               {searchStale && (
                 <div
-                  className="form-error resolve-combine-search-stale"
+                  className="panel-error resolve-combine-search-stale"
                   data-testid="resolve-combine-search-stale"
                   role="status"
                 >
@@ -785,10 +767,8 @@ function CombineFormBody({
       </div>
 
       {preview && (
-        <label className="resolve-combine-setting" data-testid="resolve-combine-remainder-policy-row">
-          <span className="resolve-combine-setting-label">Values not grouped</span>
+        <FormField label="Values not grouped" layout="inline" data-testid="resolve-combine-remainder-policy-row">
           <PanelSelect
-            className="form-input"
             data-testid="resolve-combine-remainder-policy"
             value={unmatched}
             onChange={(event) =>
@@ -804,19 +784,17 @@ function CombineFormBody({
             <option value="null">set null (clear them)</option>
             <option value="value">change to one value…</option>
           </PanelSelect>
-        </label>
+        </FormField>
       )}
       {unmatched === 'value' && (
-        <label className="resolve-combine-setting" data-testid="resolve-combine-remainder">
-          <span className="resolve-combine-setting-label">Send remaining values to</span>
-          <input
-            className="form-input"
+        <FormField label="Send remaining values to" layout="inline" data-testid="resolve-combine-remainder">
+          <TextInput
             data-testid="resolve-combine-remainder-input"
             value={unmatchedValue}
             placeholder="e.g. Other"
             onChange={(event) => setUnmatchedValue(event.target.value)}
           />
-        </label>
+        </FormField>
       )}
       {summary && (
         <p className="run-scope-summary resolve-footer-summary"

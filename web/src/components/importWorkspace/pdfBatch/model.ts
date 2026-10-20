@@ -5,7 +5,6 @@ import type {
   PdfImportOcrPolicy,
   PdfImportSnapshot,
 } from '../../../api/pdfImports';
-import { formatNumberDisplay } from '../../../format';
 
 export type PdfBatchStage = 'add' | 'check' | 'destination' | 'search';
 
@@ -131,10 +130,6 @@ export function newerSnapshot(
   if (current && current.draft_id !== next.draft_id) return current;
   if (current && next.revision < current.revision) return current;
   return next;
-}
-
-export function bytesLabel(value: number): string {
-  return formatNumberDisplay(value, 'filesize') ?? `${value} B`;
 }
 
 export function count(value: number, singular: string, plural = `${singular}s`): string {

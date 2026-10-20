@@ -1,3 +1,5 @@
+import { Button } from '../Button';
+import { TextInput, TextArea } from '../FormControls';
 import { useState } from 'react';
 import { ClipboardPaste, Plus, Trash2 } from 'lucide-react';
 import { API_CALL_MAX_TIMEOUT_SECONDS } from '../../actions/apiCallValidation';
@@ -47,21 +49,20 @@ function PairEditor({
     <div className="field-group api-pair-editor" data-testid={`${id}-editor`}>
       <div className="api-pair-heading">
         <span className="field-labels">{label}</span>
-        <button
+        <Button
           type="button"
-          className="mini-btn"
+
           data-testid={`${id}-add`}
           onClick={() => onChange([...entries, ['', '']])}
         >
           <Plus size={12} /> Add
-        </button>
+        </Button>
       </div>
       {entries.length === 0 ? (
         <span className="form-hint">None</span>
       ) : entries.map((entry, index) => (
         <div className="api-pair-row" key={`${id}-${index}`}>
-          <input
-            className="form-input"
+          <TextInput
             aria-label={`${label} ${index + 1} name`}
             data-testid={`${id}-name-${index}`}
             placeholder={namePlaceholder}
@@ -161,19 +162,19 @@ export function ApiCallParamsBody({ params, setParams, sheet }:
   return (
       <div className="api-action-body">
         <div className="api-curl-import">
-          <button
+          <Button
             type="button"
-            className="mini-btn api-curl-toggle"
+            className="api-curl-toggle"
             data-testid="api-call-curl-toggle"
             aria-expanded={curlOpen}
             onClick={() => setCurlOpen((open) => !open)}
           >
             <ClipboardPaste size={13} /> Paste a cURL command
-          </button>
+          </Button>
           {curlOpen && (
             <div className="api-curl-panel">
-              <textarea
-                className="form-input form-textarea api-curl-textarea"
+              <TextArea
+                className="api-curl-textarea"
                 value={curlText}
                 placeholder="curl 'https://api.example.com/...' -H 'Authorization: Bearer ...'"
                 data-testid="api-call-curl-input"
@@ -186,19 +187,19 @@ export function ApiCallParamsBody({ params, setParams, sheet }:
                 }}
               />
               <div className="api-curl-actions">
-                <button
+                <Button
                   type="button"
-                  className="btn btn-secondary"
+                  className="btn-secondary"
                   data-testid="api-call-curl-apply"
                   disabled={!curlText.trim()}
                   onClick={applyCurl}
                 >
                   Autofill from cURL
-                </button>
+                </Button>
                 {curlError && (
                   <span
                     id="api-call-curl-error"
-                    className="form-error"
+                    className="panel-error"
                     data-testid="api-call-curl-error"
                     role="alert"
                   >
@@ -228,7 +229,7 @@ export function ApiCallParamsBody({ params, setParams, sheet }:
           Use {'{{column}}'} for row values and {'{{secret.NAME}}'} for project secrets.
         </span>
         <div className="api-method-row">
-          <label className="field-group api-method-field">
+          <label className="field-group api-method-field form-field">
             <span className="field-labels">Method</span>
             <PanelSelect
               className="form-input"
@@ -260,7 +261,7 @@ export function ApiCallParamsBody({ params, setParams, sheet }:
         />
 
         <>
-            <label className="field-group">
+            <label className="field-group form-field">
               <span className="field-labels">Body</span>
               <PanelSelect
                 className="form-input"
@@ -297,14 +298,13 @@ export function ApiCallParamsBody({ params, setParams, sheet }:
                   ariaLabel={bodyMode === 'json' ? 'JSON body' : 'Raw body'}
                   placeholder={'{"customer":"{{customer_id}}"}'}
                 />
-                {jsonError && <span className="form-error" role="alert">{jsonError}</span>}
+                {jsonError && <span className="panel-error" role="alert">{jsonError}</span>}
               </label>
             )}
             {bodyMode === 'raw' && (
-              <label className="field-group">
+              <label className="field-group form-field">
                 <span className="field-labels">Content-Type</span>
-                <input
-                  className="form-input"
+                <TextInput
                   value={contentType}
                   placeholder="text/plain"
                   data-testid="api-call-content-type"
@@ -327,10 +327,9 @@ export function ApiCallParamsBody({ params, setParams, sheet }:
               valuePlaceholder="Cookie value"
             />
             <div className="api-number-row">
-              <label className="field-group">
+              <label className="field-group form-field">
                 <span className="field-labels">Timeout (seconds)</span>
-                <input
-                  className="form-input"
+                <TextInput
                   type="number"
                   min="0.1"
                   max={API_CALL_MAX_TIMEOUT_SECONDS}
@@ -340,10 +339,9 @@ export function ApiCallParamsBody({ params, setParams, sheet }:
                   onChange={(event) => setTimeoutValue(event.target.value)}
                 />
               </label>
-              <label className="field-group">
+              <label className="field-group form-field">
                 <span className="field-labels">Max requests / second</span>
-                <input
-                  className="form-input"
+                <TextInput
                   type="number"
                   min="0.01"
                   step="any"

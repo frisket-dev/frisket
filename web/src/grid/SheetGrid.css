@@ -1,0 +1,217 @@
+.workspace { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.grid-host { flex: 1; min-height: 0; overscroll-behavior-x: none; position: relative; }
+
+/* Header overlay band: DOM affordances (revive chevrons + add-column "+") over
+   glide's canvas header, positioned via column x-offsets. The band itself is
+   click-through; only its buttons capture pointer events. */
+.grid-hidden-columns-band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  pointer-events: none;
+}
+.grid-hidden-boundary,
+.grid-add-column-button {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  padding: 0 5px;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-999);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+}
+.grid-hidden-boundary {
+  top: 0;
+  transform: translate(-50%, 0);
+}
+.grid-add-column-button {
+  min-width: 22px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.grid-hidden-boundary:hover,
+.grid-add-column-button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  opacity: 1;
+}
+
+/* Floating "open row details" icon (grid-in-place-edit-v1): appears once a
+   cell is selected, anchored straddling the cell's top-right corner (mostly
+   outside the cell rect) so it never covers the value text or sits on top of
+   glide's own overlay editor. Positioned in JS via SheetGrid's
+   detailIconBounds (host-relative pixels from DataEditorRef.getBounds). */
+.grid-cell-details-float {
+  position: absolute;
+  z-index: 25;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  color: var(--text-mid);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-999);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+}
+.grid-cell-details-float:hover,
+.grid-cell-details-float:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* new-columns-scroll-annotation-v1: the reusable column-annotation chip. Rides
+   the same header overlay band as the badges/chevrons above, anchored at the
+   left edge of its spanned columns; carries a message + an optional slim
+   populate-progress bar along its bottom edge. Sits ABOVE the header row
+   (never over the column name it announces) with a small caret tail pointing
+   down at the annotated column. */
+.grid-column-annotation {
+  position: absolute;
+  bottom: calc(100% + 7px + var(--grid-column-annotation-header-offset, 0px));
+  pointer-events: auto;
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  max-width: 360px;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-8);
+  box-shadow: var(--shadow-sm);
+  white-space: nowrap;
+}
+.grid-column-annotation[data-dismissible='true'] {
+  padding-right: 32px;
+}
+/* The caret tail: an accent-colored outer triangle with a background-colored
+   inner one laid 1px inside it, so the bubble's border appears to wrap the
+   notch (same two-triangle idiom every bordered speech bubble uses). */
+.grid-column-annotation::before,
+.grid-column-annotation::after {
+  content: '';
+  position: absolute;
+  border-style: solid;
+  border-color: transparent;
+}
+.grid-column-annotation::before {
+  top: 100%;
+  left: 16px;
+  border-width: 7px 7px 0;
+  border-top-color: var(--accent);
+}
+.grid-column-annotation::after {
+  top: calc(100% - 1.5px);
+  left: 17px;
+  border-width: 6px 6px 0;
+  border-top-color: var(--bg);
+}
+/* Distinct attribute vocabulary from StatusChip's tone selector
+   (ui-chips-segmented-v1's single tone->color map): this overlay chip is a
+   different genus, so it keeps its own `data-annotation-tone` hook. */
+.grid-column-annotation[data-annotation-tone='success'] {
+  border-color: var(--border);
+  color: var(--text-mid);
+}
+.grid-column-annotation[data-annotation-tone='success']::before {
+  border-top-color: var(--border);
+}
+.grid-column-annotation-body {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.grid-column-annotation-message {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+.grid-column-annotation-dismiss {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text-mid);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-999);
+  cursor: pointer;
+}
+.grid-column-annotation-dismiss:hover {
+  color: var(--accent);
+}
+/* Native <progress> (doctor-semantic-tags-v1, F3 — was a role="progressbar"
+   span + an absolutely-positioned fill child). appearance: none hands the
+   track/value pseudo-elements to us in Chromium/Safari and Firefox alike;
+   the reset base rule is the fallback paint for engines that ignore the
+   pseudo-elements below. */
+.grid-column-annotation-progress {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  display: block;
+  width: 100%;
+  height: 3px;
+  border: 0;
+  border-radius: var(--radius-999);
+  background: var(--border);
+  color: var(--accent);
+}
+.grid-column-annotation-progress::-webkit-progress-bar {
+  background: var(--border);
+  border-radius: var(--radius-999);
+}
+.grid-column-annotation-progress::-webkit-progress-value {
+  background: var(--accent);
+  border-radius: var(--radius-999);
+  transition: width 200ms ease;
+}
+.grid-column-annotation-progress::-moz-progress-bar {
+  background: var(--accent);
+  border-radius: var(--radius-999);
+  transition: width 200ms ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .grid-column-annotation-progress::-webkit-progress-value,
+  .grid-column-annotation-progress::-moz-progress-bar {
+    transition: none;
+  }
+}
+.grid-host > div { height: 100%; }
+/* Glide's internal scroller chains horizontal overscroll to the page — stop it. */
+.grid-host .dvn-scroller { overscroll-behavior: none; }
+
+/* Glide sizes its text editor from an invisible shadow div. Both the shadow
+   and the textarea need an anywhere wrap point: filenames, hashes, and other
+   long tokens otherwise keep the editor one line tall and scroll sideways. */
+.gdg-growing-entry > div,
+.gdg-growing-entry > textarea.gdg-input {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}

@@ -1,6 +1,10 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import '../FormControls.css';
+import './RunScopeFooter.css';
+import { Button } from '../Button';
+import { useId, useRef, useState, type ReactNode } from 'react';
 import { Eye, Play, RefreshCcw } from 'lucide-react';
 import { DropdownIndicator } from '../DropdownIndicator';
+import { AnchoredMenu } from '../MenuPop';
 
 export interface RunScopeFooterProps {
   children?: ReactNode;
@@ -67,20 +71,9 @@ export function RunScopeFooter({
     selectedAllowed && selectedCount > 0 ? 'selected' : 'all',
   );
   const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement | null>(null);
   const toggleRef = useRef<HTMLButtonElement | null>(null);
   const scopePopupId = useId();
 
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onMouseDown = (event: MouseEvent) => {
-      const target = event.target;
-      if (target instanceof Node && menuRef.current?.contains(target)) return;
-      setMenuOpen(false);
-    };
-    document.addEventListener('mousedown', onMouseDown);
-    return () => document.removeEventListener('mousedown', onMouseDown);
-  }, [menuOpen]);
 
   // Clamp at render and invocation time. No state-sync effect is needed: when
   // selection is empty, neither the summary nor either callback can observe a
@@ -112,10 +105,6 @@ export function RunScopeFooter({
     toggleRef.current?.focus();
   };
 
-  const closeScopePopup = (restoreFocus: boolean) => {
-    setMenuOpen(false);
-    if (restoreFocus) toggleRef.current?.focus();
-  };
 
   const disabledTitle = !canRun
     ? disabledReason ?? 'Complete the required fields.'
@@ -137,32 +126,32 @@ export function RunScopeFooter({
           : `${selectedCount.toLocaleString()} selected rows will run`}
       </p>
       <div className="run-actions-row">
-        <button
+        <Button
           type="button"
-          className="btn"
+
           disabled={!canPreview || !scopeAvailable}
           title={!canPreview ? previewDisabledReason ?? disabledTitle : disabledTitle}
           data-testid={`${testIdPrefix}-preview`}
           onClick={() => onPreview(effectiveScope)}
         >
           <Eye size={13} /> {previewLabel}
-        </button>
-          <div className="run-scope-control" ref={menuRef}>
+        </Button>
+          <div className="run-scope-control">
             <div className="run-scope-button-row">
-            <button
+            <Button
               type={primaryButtonType}
-              className="btn btn-primary run-primary"
+              className="btn-primary run-primary"
               disabled={!canRun || !scopeAvailable}
               title={disabledTitle}
               data-testid={primaryTestId ?? `${testIdPrefix}-run`}
               onClick={primaryButtonType === 'button' ? () => onRun(effectiveScope) : undefined}
             >
               <Play size={13} /> {visiblePrimaryLabel}
-            </button>
-            {hasScopeMenu && <button
+            </Button>
+            {hasScopeMenu && <Button
               ref={toggleRef}
               type="button"
-              className="btn btn-primary run-scope-toggle"
+              className="btn-primary run-scope-toggle"
               aria-label="Choose run scope"
               aria-expanded={menuOpen}
               aria-controls={scopePopupId}
@@ -170,45 +159,39 @@ export function RunScopeFooter({
               title={disabledTitle}
               data-testid={`${testIdPrefix}-run-scope-menu-button`}
               onClick={() => setMenuOpen((open) => !open)}
-              onKeyDown={(event) => {
-                if (event.key !== 'Escape' || !menuOpen) return;
-                event.preventDefault();
-                closeScopePopup(false);
-              }}
             >
               <DropdownIndicator className="run-scope-indicator" />
-            </button>}
+            </Button>}
           </div>
           {hasScopeMenu && menuOpen && (
-            <div
+            <AnchoredMenu
+              anchorRef={toggleRef}
+              onClose={() => setMenuOpen(false)}
+              align="right"
               id={scopePopupId}
-              className="run-scope-menu"
               role="group"
               aria-label="Run scope options"
               data-testid={`${testIdPrefix}-run-scope-menu`}
-              onKeyDown={(event) => {
-                if (event.key !== 'Escape') return;
-                event.preventDefault();
-                closeScopePopup(true);
-              }}
             >
               {hasScopeChoice && <button
                 type="button"
-                className={effectiveScope === 'all' ? 'active' : ''}
+                className="menu-item"
+                data-active={effectiveScope === 'all'}
                 data-testid={`${testIdPrefix}-row-scope-all`}
                 onClick={() => runScope('all')}
               >
-                <span>Run all</span>
+                <span className="menu-item-name">Run all</span>
                 <span className="muted">{rowCount.toLocaleString()} rows</span>
               </button>}
               {hasScopeChoice && <button
                 type="button"
-                className={effectiveScope === 'selected' ? 'active' : ''}
+                className="menu-item"
+                data-active={effectiveScope === 'selected'}
                 data-testid={`${testIdPrefix}-row-scope-selected`}
                 disabled={selectedCount === 0}
                 onClick={() => runScope('selected')}
               >
-                <span>Run on selected</span>
+                <span className="menu-item-name">Run on selected</span>
                 <span className="muted">
                   {selectedCount > 0 ? `${selectedCount.toLocaleString()} selected` : 'No rows selected'}
                 </span>
@@ -217,15 +200,17 @@ export function RunScopeFooter({
                 <button
                   type="button"
                   role="menuitem"
+                  className="menu-item"
                   data-testid={`${testIdPrefix}-row-scope-backfill`}
                   disabled={!canBackfill}
                   title={backfillTitle}
                   onClick={() => {
                     if (backfillTargetName && canBackfill) onBackfill(backfillTargetName);
-                    closeScopePopup(true);
+                    setMenuOpen(false);
+                    toggleRef.current?.focus();
                   }}
                 >
-                  <span><RefreshCcw size={12} aria-hidden /> Re-run failed/missing rows</span>
+                  <span className="menu-item-label menu-item-name"><RefreshCcw size={12} aria-hidden /> Re-run failed/missing rows</span>
                   <span className="muted">
                     {backfillTargetName
                       ? backfillHasGaps
@@ -235,7 +220,7 @@ export function RunScopeFooter({
                   </span>
                 </button>
               )}
-            </div>
+            </AnchoredMenu>
           )}
         </div>
       </div>

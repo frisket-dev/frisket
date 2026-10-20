@@ -1,0 +1,97 @@
+.act-ribbon { display: flex; flex-direction: column; }
+.act-ribbon-tabstrip {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+.act-ribbon-tabs { display: flex; align-items: stretch; min-width: 0; overflow: clip; }
+.act-ribbon-tab-wrap { display: flex; align-items: center; }
+.act-ribbon-tab-divider { width: 1px; height: 20px; background: var(--border); margin: 0 6px; }
+.act-ribbon-tab-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: currentColor;
+}
+.act-ribbon-collapse, .act-menubar-expand {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 9px; border-radius: var(--radius-6);
+  font-size: 11.5px; color: var(--text-light);
+  border: 1px solid var(--border);
+}
+.act-ribbon-collapse:hover, .act-menubar-expand:hover { background: var(--bg-hover); color: var(--text-mid); }
+
+.act-ribbon-band { display: flex; align-items: stretch; padding: 8px 6px 4px; min-height: 88px; overflow-x: auto; }
+.act-ribbon-group {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 0 12px; position: relative;
+}
+.act-ribbon-group-divider {
+  position: absolute; left: 0; top: 6px; bottom: 18px;
+  width: 1px; background: var(--border);
+}
+.act-ribbon-group-body { display: flex; align-items: flex-start; gap: 8px; flex: 1; }
+.act-ribbon-group-caption {
+  margin-top: 6px;
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--text-light);
+}
+.act-ribbon-primary {
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  width: 62px; padding: 4px 2px; border-radius: var(--radius-8);
+}
+.act-ribbon-primary:hover { background: var(--act-bg); }
+.act-ribbon-primary-tile {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: var(--radius-8);
+  background: var(--act-bg); color: var(--act);
+}
+.act-ribbon-primary-label { font-size: 11.5px; color: var(--text-mid); text-align: center; line-height: 1.2; }
+/* Small actions cap at TWO rows and wrap into further columns — a third
+   stacked row made groups taller than the band. */
+.act-ribbon-secondaries {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(2, auto);
+  align-content: start;
+  column-gap: 4px; row-gap: 2px; padding-top: 2px;
+}
+.act-ribbon-secondary {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 8px; border-radius: var(--radius-6);
+  font-size: 12.5px; color: var(--text-mid); white-space: nowrap;
+}
+.act-ribbon-secondary:hover { background: var(--act-bg); color: var(--act); }
+.act-ribbon-secondary svg { color: var(--act); }
+
+/* ---- Menu bar (§3.2) ------------------------------------------------------- */
+.act-menubar {
+  position: relative;
+  display: flex; align-items: center; justify-content: space-between;
+  height: 37px; padding: 0 10px;
+}
+/* The trigger row sits above the (now top-layer) dropdown's own painting, so
+   sibling triggers stay hoverable/clickable while a menu is open — switching
+   menus is one gesture, like a native menu bar. The hand-rolled full-screen
+   `.act-menubar-backdrop` (an invisible fixed div that used to own the
+   outside-click dismiss) retired with doctor-popover-fanout-v1, F1 row 14:
+   the dropdown is a native `popover="manual"` element now, so outside-
+   pointerdown dismissal is structural (useNativePopover), no backdrop needed. */
+.act-menubar-menus { display: flex; align-items: stretch; position: relative; z-index: 50; }
+.act-menubar-expand { position: relative; z-index: 50; }
+.act-menubar-menu { position: relative; display: flex; align-items: center; }
+.act-menubar-trigger {
+  padding: 6px 11px; border-radius: var(--radius-6);
+  font-size: 13px; color: var(--text-mid);
+}
+.act-menubar-trigger:hover { background: var(--bg-hover); color: var(--text); }
+.act-menubar-trigger.open { background: var(--act-bg); color: var(--act); }
+.act-menubar-pop {
+  /* Native `popover="manual"` element (ActMenuBar.tsx's ActMenuDropdown): the
+     top-layer positioning recipe — `position: fixed`, then neutralize the UA
+     `[popover] { inset: 0; margin: auto }` centering box so the JS
+     `useAnchoredPosition` top/left/width own the placement. */
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  min-width: 224px;
+  border-radius: 12px;
+}

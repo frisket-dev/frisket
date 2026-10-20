@@ -1,0 +1,25 @@
+.document-pdf {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  box-sizing: border-box;
+}
+.document-pdf-two-up {
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-content: flex-start;
+}
+.document-pdf-page {
+  background: var(--bg);
+  box-shadow: var(--shadow-menu);
+}
+.document-pdf-page-inner { position: relative; line-height: 0; }
+.document-pdf-textlayer-off { display: none; }
+.document-pdf-error { color: var(--red); padding: 16px; }

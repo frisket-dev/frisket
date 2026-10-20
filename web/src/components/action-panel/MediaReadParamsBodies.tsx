@@ -1,3 +1,4 @@
+import { Button } from '../Button';
 import { useEffect, useRef } from 'react';
 import {
   transcribeActiveTarget,
@@ -108,7 +109,7 @@ export function TranscribeParamsBody({ params, setParams, setEditorProblem, engi
     <Field name="source" label="Media" />
     <Field name="engine" />
     {unavailableReason && <p className="form-hint" data-testid="transcribe-option-availability">{unavailableReason}</p>}
-    {unsupportedSavedKeys.length > 0 && <button type="button" className="btn"
+    {unsupportedSavedKeys.length > 0 && <Button type="button"
       data-testid="transcribe-clear-unavailable-settings"
       onClick={() => {
         const next = { ...params };
@@ -116,7 +117,7 @@ export function TranscribeParamsBody({ params, setParams, setEditorProblem, engi
         setParams(next);
       }}>
       Clear unavailable settings
-    </button>}
+    </Button>}
     {support.language && <EngineLanguageControl declaration={engine?.language}
       value={Array.isArray(params.language) ? params.language.join(', ') : ''} onChange={(language) => setParams({
         ...params, language: language.split(',').map((code) => code.trim()).filter(Boolean),

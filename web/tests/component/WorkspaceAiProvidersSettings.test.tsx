@@ -11,7 +11,7 @@ import { cleanup, screen, waitFor, render, within } from '@testing-library/react
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
 
-import { WorkspaceAiProvidersSettings } from '../../src/settings/SettingsSections';
+import { WorkspaceAiProvidersSettings } from '../../src/settings/AiProviderSettings';
 import type {
   LocalProviderCatalog,
   LocalProviderEntry,

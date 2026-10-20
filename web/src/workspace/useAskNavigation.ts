@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import type { AskCitation } from '../api/projectQA';
 import type { GridFilterSpec, GridSortSpec, SheetMeta } from '../api/types';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
@@ -105,5 +105,5 @@ export function useAskNavigation(
     }
   }, [commands, detail, gridView, route, selection, sheets, showGrid]);
 
-  return { open };
+  return useMemo(() => ({ open }), [open]);
 }

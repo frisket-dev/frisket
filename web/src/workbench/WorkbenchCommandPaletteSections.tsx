@@ -1,3 +1,4 @@
+import './WorkbenchCommandPalette.css';
 // The command palette's "production work" sections (BEST MATCH / ACTIONS / GO
 // TO) and the click-only COMMANDS section. Purely presentational: keyboard-nav
 // state and every handler stay in the parent and are threaded in — DOM/classes/

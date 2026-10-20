@@ -1,0 +1,20 @@
+@layer base, action-panel;
+
+@layer base {
+/* TranslatePairPicker status badges: before this, badge-installed/badge-downloadable/badge-
+   unavailable had zero rules and fell back to the bare .badge above — built
+   for StatusBar's red unread-count pill, so "installed", "downloadable", and
+   "unavailable" all rendered as the same alert-red chip. Three distinct,
+   QUIET tones instead — same weight class as .engine-tier-unavailable/
+   .engine-license-badge nearby (muted text, not a shouting alert): green for
+   an already-installed pair (the calm, done state), accent/info for a
+   downloadable one (an action is available, not a problem), and a neutral
+   gray-bordered chip for unavailable (blocked, but not an error — no red). */
+.badge-installed { background: var(--green-bg); color: var(--green); }
+.badge-downloadable { background: var(--accent-bg); color: var(--accent); }
+.badge-unavailable {
+  background: transparent;
+  color: var(--text-light);
+  border: 1px solid var(--border-strong);
+}
+}

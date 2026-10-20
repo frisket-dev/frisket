@@ -1,0 +1,24 @@
+.workbench-resolved-layout-region { display: contents; }
+.workbench-contribution-host {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.workbench-region { min-height: 0; min-width: 0; }
+.bottom-dock-tab-body {
+  display: flex;
+  align-items: flex-start;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  /* THE one gutter for every Monitor dock tab (ui-region-frames-v1 / R1, the
+     .discover-body pattern). The frame owns it entirely: the host panel and
+     the hosted tab content contribute zero padding of their own, so a new tab
+     gets the gutter for free and none can drift. Collapses the old three-way
+     split (.workbench-bottom-panel 0 10px / .bottom-dock-contribution 6px 0 /
+     .bottom-dock-ocr-contribution 8px 0). */
+  padding: 6px 10px;
+}

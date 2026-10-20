@@ -1,0 +1,75 @@
+/* The docked mention-detail panel: a third column beside the reader, NOT an
+   overlay — it is a drill-down you read alongside the document, and clicking a
+   result must not cost you the list. */
+.mention-detail {
+  width: 300px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--border);
+  background: var(--bg);
+}
+.mention-detail-title { display: inline-flex; align-items: baseline; gap: 2px; min-width: 0; }
+.mention-detail-label { font-weight: 600; }
+.mention-detail-counts { margin: 8px 12px 2px; font-size: 12px; font-weight: 600; }
+.mention-detail-basis { margin: 0 12px 8px; font-size: 11px; line-height: 1.4; }
+.mention-detail-list { list-style: none; margin: 0; padding: 0; }
+.mention-detail-doc {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+}
+.mention-detail-doc:hover { background: var(--bg-hover, rgba(0, 0, 0, 0.04)); }
+.mention-detail-doc.is-active { background: var(--accent-bg); font-weight: 600; }
+.mention-detail-doc-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The disclosure and the title are two controls on one line: peeking inside a
+   document must not cost you the one you are reading. */
+.mention-detail-doc-row { display: flex; align-items: center; gap: 2px; }
+.mention-detail-doc-row .mention-detail-doc { flex: 1; min-width: 0; }
+.mention-detail-doc-toggle {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 2px;
+  border: 0;
+  background: none;
+  color: var(--text-light);
+  cursor: pointer;
+}
+.mention-detail-doc-toggle:hover { color: var(--text); }
+
+/* Level 2: the occurrences inside one expanded document. */
+.mention-occurrence-list { list-style: none; margin: 0 0 4px; padding: 0 0 0 18px; }
+.mention-occurrence {
+  display: block;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  border-left: 2px solid var(--border);
+  border-radius: 0 4px 4px 0;
+  background: none;
+  text-align: left;
+  font: inherit;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-mid);
+  cursor: pointer;
+}
+.mention-occurrence:hover { background: var(--bg-hover, rgba(0, 0, 0, 0.04)); color: var(--text); }
+.mention-occurrence-mark {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  border-radius: 2px;
+  color: var(--text);
+  font-weight: 600;
+}
+.mention-occurrence-note { margin: 2px 0 6px 26px; font-size: 11px; line-height: 1.4; }
+.mention-occurrence-more { margin: 0 0 6px 26px; }

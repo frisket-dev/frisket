@@ -1,3 +1,9 @@
+import '../media/PdfViewer.css';
+import './DocumentView.css';
+import '../components/BoundedTextReader.css';
+import '../components/EntityFacetsPanel.css';
+import './AnnotatedTextReader.css';
+import { Button } from '../components/Button';
 // Read one long text cell with the pipeline's entities marked in place, toggle
 // each family off, and click a mark.
 //
@@ -247,8 +253,8 @@ export function AnnotatedTextReader({
               {selectionCount > 0 ? `${selectionCount} selected` : 'browsing'}
             </span>
             <span className="document-reader-spacer" />
-            {onShowAlongside && <button ref={alongsideTriggerRef} type="button" className="mini-btn" data-testid="document-show-alongside"
-              onClick={onShowAlongside}>Show alongside</button>}
+            {onShowAlongside && <Button ref={alongsideTriggerRef} type="button" data-testid="document-show-alongside"
+              onClick={onShowAlongside}>Show alongside</Button>}
             <button
               type="button"
               className="icon-btn"
@@ -316,8 +322,8 @@ export function AnnotatedTextReader({
         {error !== null && (
           <div className="document-pdf-error" role="alert" data-testid="annotated-text-error">
             {error}
-            <button type="button" className="mini-btn" onClick={() => setNavigation({ contextKey,
-              attempt: (request?.attempt ?? 0) + 1 })}>Reload passage</button>
+            <Button type="button" onClick={() => setNavigation({ contextKey,
+              attempt: (request?.attempt ?? 0) + 1 })}>Reload passage</Button>
           </div>
         )}
         {loading && (
@@ -445,14 +451,14 @@ function LayerToggleChip({
                 not a resume: the whole column is charged again, including
                 rows that are already correct.
               </p>
-              <button
+              <Button
                 type="button"
-                className="mini-btn"
+
                 data-testid={`annotation-replay-${toggle.toggleKey}`}
                 onClick={onReplay}
               >
                 Re-run NER for this column
-              </button>
+              </Button>
             </>
           ) : (
             <p className="muted">

@@ -1,0 +1,24 @@
+.entity-detail-shell {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.entity-detail-contribution-tab {
+  min-width: 0;
+}
+.entity-detail-panel {
+  display: grid;
+  gap: 3px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-6);
+  background: #f8fafc;
+  color: var(--text-mid);
+  font-size: 12px;
+}
+.entity-detail-panel strong {
+  color: var(--text);
+  font-size: 13px;
+}

@@ -1,3 +1,4 @@
+import './CodeEditor.css';
 import { useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 import EditorModule from 'react-simple-code-editor';
