@@ -23,6 +23,14 @@ ORIGIN = "https://team-models.example.test"
 TOKEN = "team-gateway-secret"
 
 
+@pytest.fixture(autouse=True)
+def no_background_pricing_refresh(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep in-process worker probes from starting process-lifetime maintenance."""
+    monkeypatch.setattr(
+        "frisket.ai.llm.pricing_refresh.start_pricing_refresh", lambda: None
+    )
+
+
 def _encrypt(value: str) -> str:
     return f"sealed:{value}"
 
