@@ -97,8 +97,10 @@ Use **Settings → Skills** to create, upload, edit, and enable an instruction-o
 `SKILL.md`. Team administrators manage the shared library. You can also ask Ask
 to save or revise a workflow as a skill when you have permission to manage the
 library. Ask creates a draft; **Review the text** opens the complete instructions
-in a full-size editor. Saving makes the revision available to your next message
-in the same conversation, without running the workflow by itself.
+in a full-size editor. Saving an enabled skill makes the revision available to
+your next message in the same conversation, without running the workflow by
+itself. A disabled skill remains unavailable to Ask until it is enabled in
+Settings.
 
 Ordinary Ask turns can use enabled skills. Research settings can narrow that list
 for research runs. Each new turn takes a fresh snapshot of the enabled, selected

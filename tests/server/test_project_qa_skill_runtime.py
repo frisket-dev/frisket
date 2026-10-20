@@ -237,6 +237,58 @@ def test_manager_bound_adapter_exposes_review_only_authoring_tools(
         project.close()
 
 
+def test_authoring_request_without_management_tools_gets_draft_only_guidance(
+    tmp_path: Path,
+) -> None:
+    class Provider:
+        def __init__(self) -> None:
+            self.requests: list[LLMRequest] = []
+
+        async def complete(self, request: LLMRequest, client: Any) -> LLMResponse:
+            del client
+            self.requests.append(request)
+            names = {tool["name"] for tool in request.tools or []}
+            assert {"list_skills", "read_skill", "propose_skill"}.isdisjoint(names)
+            guidance = _system_text(request)
+            assert "may draft instructions as ordinary response text" in guidance
+            assert "library cannot be changed from this turn" in guidance
+            assert "server has not configured chat authoring" in guidance
+            return LLMResponse(
+                content=None,
+                data=None,
+                tokens_in=10,
+                tokens_out=3,
+                cost=0.01,
+                model=request.model,
+                tool_calls=[
+                    {
+                        "name": _output_tool(request),
+                        "args": {
+                            "text": (
+                                "I can draft the instructions here, but this turn "
+                                "cannot save them to the skill library."
+                            ),
+                            "citation_ids": [],
+                        },
+                        "id": "draft-only-answer",
+                    }
+                ],
+            )
+
+    project, store, turn = _turn(tmp_path)
+    turn["question"] = "Save this workflow as a skill."
+    provider = Provider()
+    try:
+        answer = asyncio.run(run_turn(project, _router(provider), turn, store))
+        assert answer["text"] == (
+            "I can draft the instructions here, but this turn cannot save them to "
+            "the skill library."
+        )
+        assert len(provider.requests) == 1
+    finally:
+        project.close()
+
+
 def test_followup_history_keeps_skill_references_without_replaying_body(
     tmp_path: Path,
     monkeypatch: Any,

@@ -54,7 +54,16 @@ def skill_authoring_instructions(*, available: bool) -> str:
     """Return the manager-only skill-authoring policy shown to the model."""
 
     if not available:
-        return ""
+        return (
+            "\nSkill library management tools are unavailable in this turn. If the "
+            "user asks to create, revise, or save a skill, you may draft instructions "
+            "as ordinary response text, but do not claim you inspected disabled skills, "
+            "created a review proposal, edited the library, or saved anything. Explain "
+            "that the library cannot be changed from this turn. Management access may "
+            "require a library manager or organization administrator, but unavailable "
+            "tools can also mean this server has not configured chat authoring; do not "
+            "promise that an administrator can enable an unsupported server feature."
+        )
     return (
         "\nSkill authoring tools are available because this turn's submitter may "
         "manage the skill library. Use them only when the user asks to inspect, "
