@@ -465,7 +465,7 @@ export function SearchSetupStep({ snapshot, semanticEnabled, consent, busy, impo
     <PanelFooter><Button type="button" disabled={busy} onClick={onBack}>Back</Button><span>{snapshot.paused
       ? 'Copying is paused. Go back to Add files to resume.'
       : semanticWaitingForConsent
-      ? `Allow the ${setup.download_bytes == null ? 'model' : bytesLabel(setup.download_bytes)} download, or turn off search by meaning.`
+      ? `Allow the ${setup.download_bytes == null ? 'model' : formatBytes(setup.download_bytes)} download, or turn off search by meaning.`
       : semanticEnabled ? 'Keyword search and search by meaning will be prepared.' : 'Keyword search will be prepared.'}</span><Button type="button" className="btn-primary" disabled={!canImport} onClick={onImport}>{busy ? 'Importing…' : importLabel}</Button></PanelFooter>
   </PanelFrame>;
 }

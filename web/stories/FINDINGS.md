@@ -16,9 +16,13 @@ plugin mounts, clipboard controls and byte formatting replace their old copies.
 Feature-specific policies/renderers remain local; no universal manager added.
 Reviews caught and repaired stale source errors and clipboard A→B→A feedback.
 
-The integrated run passed 3,763 tests in 474 files; targeted follow-ups cover
-subsequent review repairs. Final builds, lint and before/after browser capture
-are underway. Claude reviews the frozen candidate after those checks.
+The integrated run passed 3,763 tests in 474 files; 73 targeted follow-up tests
+cover subsequent review repairs and the final formatter cleanup. Types,
+Local/Team builds, lint (zero errors, 32 existing warnings) and dependency
+boundaries pass. Baseline browser capture passed seven scenarios; after captures
+and Claude's frozen-candidate review are underway. Final build checking caught
+one remaining call to the deleted byte-label alias; it now calls the shared
+formatter directly, with no formatting policy change.
 
 ### Audit rationale and original implementation map
 
