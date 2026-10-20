@@ -798,13 +798,10 @@ def test_research_hosted_failure_reaches_existing_row_accounting_handler(
             )
             returned_calls = len(_ADAPTER[0].requests)
             assert returned_calls > 0
-            assert (
-                env.project.db.execute(
-                    "SELECT COUNT(*) FROM model_calls WHERE run_id=?",
-                    (result.run_id,),
-                ).fetchone()[0]
-                == returned_calls + len(refused_calls)
-            )
+            assert env.project.db.execute(
+                "SELECT COUNT(*) FROM model_calls WHERE run_id=?",
+                (result.run_id,),
+            ).fetchone()[0] == returned_calls + len(refused_calls)
 
 
 def test_unconfirmed_run_pauses_before_model_or_search_work(
