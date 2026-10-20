@@ -1,3 +1,6 @@
+import '../components/SearchPreparationReceipt.css';
+import './SettingsPrimitives.css';
+import { FormField } from '../components/FormControls';
 import type {
   ProjectRetrievalSettings as ProjectRetrievalSettingsValue,
   ProjectSettingsPatch,
@@ -59,7 +62,7 @@ export function ProjectRetrievalSettings({
 }: ProjectRetrievalSettingsProps) {
   const automaticPreparation = settings.prepare_new_files_automatically;
   return (
-    <section className="settings-subsection" data-testid="project-retrieval-settings">
+    <section className="content-stack" data-testid="project-retrieval-settings">
       <div className="settings-section-subhead">
         <h2>Search preparation</h2>
         <p>
@@ -81,7 +84,7 @@ export function ProjectRetrievalSettings({
         />
         <span>
           Prepare new files automatically
-          <small className="settings-field-help">
+          <small className="form-hint">
             Read PDFs and images and transcribe recordings after import. Missing local models
             are downloaded only after you approve them.
           </small>
@@ -101,13 +104,13 @@ export function ProjectRetrievalSettings({
             />
             <span>
               {label}
-              {help && <small className="settings-field-help">{help}</small>}
+              {help && <small className="form-hint">{help}</small>}
             </span>
           </label>
         ))}
       </div>
-      <label className="settings-field">
-        <span>Video indexing</span>
+      <FormField label="Video indexing" >
+
         <PanelSelect
           testId="project-retrieval-video-strategy"
           ariaLabel="Video indexing"
@@ -122,10 +125,10 @@ export function ProjectRetrievalSettings({
             },
           })}
         />
-        <small className="settings-field-help">
+        <small className="form-hint">
           Periodic frames process less video. Fixed clips use overlapping time windows.
         </small>
-      </label>
+      </FormField>
     </section>
   );
 }

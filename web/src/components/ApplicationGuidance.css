@@ -1,0 +1,46 @@
+/* Local-server install guidance in Settings. */
+.local-server-guidance {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+.local-server-guidance-copy {
+  margin: 0;
+  color: var(--text-mid);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.guidance-command {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  overflow-x: auto;
+  font-size: 11.5px;
+  padding: 6px 8px;
+  border-radius: var(--radius-6);
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.guidance-command-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.local-server-guidance-copied {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 650;
+}
+.guidance-download {
+  width: fit-content;
+}
+.guidance-download-confirm {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border-radius: var(--radius-6);
+  background: var(--bg-hover);
+}
+.support-contact-note { margin-top: 6px; font-size: 11.5px; opacity: 0.85; }

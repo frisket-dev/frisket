@@ -1,0 +1,25 @@
+/* ---- review overlay ----------------------------------------------------------- */
+
+.review-overlay {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: var(--bg);
+  color: var(--text);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+/* Review source and decision panes own their scrolling. */
+.review-run-header { display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid var(--border); flex: 0 0 auto; min-height: 48px; }
+.review-run-header > section { flex: 1; min-width: 0; }
+.review-run-header > .icon-btn { flex: 0 0 auto; }
+.review-load-error { margin: 6px 18px; font-size: 12px; }
+.review-empty { flex: 1; display: grid; place-content: center; color: var(--text-mid); font-size: 13px; }

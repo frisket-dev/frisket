@@ -1,3 +1,5 @@
+import './ReplayAcceptPopover.css';
+import { Button } from '../components/Button';
 // Replay preserve+surface cell popover: a minimal top-layer popover — NOT the
 // deferred fast-scan compare, just two
 // labeled values (your edit vs the newer generated value) and two buttons
@@ -70,24 +72,24 @@ export function ReplayAcceptPopover({
         </label>
       </div>
       <div className="replay-accept-popover-actions">
-        <button
+        <Button
           type="button"
-          className="btn btn-primary"
+          className="btn-primary"
           data-testid="replay-accept-button"
           disabled={busy}
           onClick={onAccept}
         >
           Accept newer
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className="btn"
+
           data-testid="replay-keep-button"
           disabled={busy}
           onClick={onKeep}
         >
           Keep edit
-        </button>
+        </Button>
       </div>
     </div>
   );

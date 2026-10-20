@@ -1,0 +1,26 @@
+.modal-card {
+  width: 400px; max-width: calc(100vw - 32px);
+  background: var(--bg);
+  border: 0;
+  border-radius: 10px;
+  color: inherit;
+  box-shadow: var(--shadow-drawer);
+  margin: auto;
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  padding: 18px 18px 16px;
+  display: flex; flex-direction: column;
+}
+dialog.modal-card::backdrop {
+  background: rgba(20, 26, 40, 0.4);
+}
+.modal-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.modal-title {
+  display: flex; align-items: center; gap: 7px;
+  font-weight: 700; font-size: 14px;
+}
+.modal-warn-icon { color: var(--amber); }
+.modal-danger-icon { color: var(--red); }
+.modal-body-text { color: var(--text-mid); margin: 8px 0 4px; line-height: 1.45; }
+
+.modal-card[data-size="wide"] { width: 720px; }

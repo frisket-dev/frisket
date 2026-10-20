@@ -6,7 +6,7 @@
 //
 // The original spec's third test also drove the Personal settings page
 // (`personal-preferences-settings` / `personal-pref-theme`), which lives in
-// src/settings/SettingsSections.tsx -- a large, unrelated settings surface
+// src/settings/PersonalSettings.tsx -- an unrelated settings surface
 // outside this conversion's assigned component set (AccountMenu / the theme
 // submenu). That page's Theme <select> is a thin, direct reader/writer of the
 // exact same `readPersonalPreferences`/`applyPersonalPreferences` module
@@ -112,7 +112,7 @@ describe('AccountMenu Appearance submenu (System option)', () => {
     expect(readPersonalPreferences().theme).toBe('dark');
 
     // Writing through the exact mechanism the settings page's own `update()`
-    // uses (settings/SettingsSections.tsx PersonalPreferencesSettings: write
+    // uses (settings/PersonalSettings.tsx PersonalPreferencesSettings: write
     // localStorage, then applyPersonalPreferences) -- not a re-implementation,
     // the same exported function AccountMenu itself calls.
     const next = { ...readPersonalPreferences(), theme: 'system' as const };

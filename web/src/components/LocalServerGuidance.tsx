@@ -1,3 +1,7 @@
+import './FormControls.css';
+import './IconButton.css';
+import './ApplicationGuidance.css';
+import { Button, TabButton } from './Button';
 // Install-guidance empty states for the local LLM server slot: every dead end
 // for the 'ollama' catalog entry (any OpenAI-compatible local server, not just
 // Ollama proper) becomes
@@ -135,9 +139,9 @@ export function LocalServerGuidance({ entry, variant, onRecheck }: LocalServerGu
   };
 
   const recheck = (
-    <button
+    <Button
       type="button"
-      className="btn btn-compact guidance-recheck"
+      className="btn-compact guidance-recheck"
       data-testid="guidance-recheck"
       disabled={recheckBusy}
       aria-busy={recheckBusy}
@@ -151,7 +155,7 @@ export function LocalServerGuidance({ entry, variant, onRecheck }: LocalServerGu
     >
       <RefreshCcw size={12} className={recheckBusy ? 'spin' : undefined} />
       {recheckBusy ? 'Rechecking…' : 'Recheck'}
-    </button>
+    </Button>
   );
 
   let body: React.ReactNode;
@@ -172,26 +176,26 @@ export function LocalServerGuidance({ entry, variant, onRecheck }: LocalServerGu
             Install a local model server on the machine that will run your
             models — that may not be the computer you are using right now.
           </p>
-          <div className="guidance-tabs" role="tablist" aria-label="Install platform">
+          <div className="tab-list" role="tablist" aria-label="Install platform">
             {(Object.keys(PLATFORM_LABEL) as Platform[]).map((p) => (
-              <button
+              <TabButton
                 key={p}
                 type="button"
                 role="tab"
                 aria-selected={p === platform}
-                className={`guidance-tab ${p === platform ? 'is-active' : ''}`}
+                className={`tab-button ${p === platform ? 'is-active' : ''}`}
                 data-testid={`guidance-tab-${p}`}
                 onClick={() => setPlatform(p)}
               >
                 {PLATFORM_LABEL[p]}
-              </button>
+              </TabButton>
             ))}
           </div>
           {command ? (
             <>
               <code className="guidance-command" data-testid="guidance-command">{command}</code>
               {platform === 'macos' && (
-                <p className="settings-help">
+                <p className="form-hint">
                   Alternative: download the installer from{' '}
                   <a href="https://ollama.com/download" target="_blank" rel="noreferrer">
                     ollama.com/download
@@ -232,41 +236,41 @@ export function LocalServerGuidance({ entry, variant, onRecheck }: LocalServerGu
               This downloads about 523 MB to the machine running your local
               server.
             </p>
-            <div className="settings-row-actions">
-              <button
+            <div className="control-row">
+              <Button
                 type="button"
-                className="btn btn-primary"
+                className="btn-primary"
                 data-testid="guidance-download-confirm-yes"
                 disabled={downloadBusy}
                 onClick={() => void startDownload()}
               >
                 Confirm
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
-                className="btn"
+
                 data-testid="guidance-download-cancel"
                 disabled={downloadBusy}
                 onClick={() => setDownloadPhase('idle')}
               >
                 Cancel
-              </button>
+              </Button>
             </div>
           </div>
         )}
         {entry.pull_enabled === true && (downloadPhase === 'idle' || downloadPhase === 'error') && (
           <>
-            <button
+            <Button
               type="button"
-              className="btn btn-primary guidance-download"
+              className="btn-primary guidance-download"
               data-testid="guidance-download"
               onClick={() => setDownloadPhase('confirm')}
             >
               <Download size={14} /> Download {PULL_MODEL}
-            </button>
+            </Button>
             {downloadPhase === 'error' && downloadError && (
               <p
-                className="settings-inline-status settings-validation-message is-error"
+                className="panel-notice" data-tone="error"
                 data-testid="guidance-download-error"
               >
                 {downloadError}
@@ -317,7 +321,7 @@ export function LocalServerGuidance({ entry, variant, onRecheck }: LocalServerGu
     >
       {body}
       {recheck}
-      {recheckError && <p className="settings-inline-status is-error" role="alert">{recheckError}</p>}
+      {recheckError && <p className="panel-notice" data-tone="error" role="alert">{recheckError}</p>}
     </div>
   );
 }

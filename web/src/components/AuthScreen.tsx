@@ -1,3 +1,4 @@
+import './BrandLink.css';
 import type { FormHTMLAttributes, ReactNode } from 'react';
 import { Table2 } from 'lucide-react';
 import { useInstanceIdentity } from '../instanceIdentity';

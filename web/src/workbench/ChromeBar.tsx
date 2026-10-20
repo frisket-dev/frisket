@@ -1,3 +1,4 @@
+import './ChromeBar.css';
 // Global chrome bar: the page-wide top strip carrying the app mark + project
 // switcher, a spacer, the Command palette pill, the Ask toggle, and an
 // account affordance. It is the single home for the ProjectMenu — the sidebar no
@@ -5,16 +6,9 @@
 
 import { BookOpen, Bot, ChevronRight, Search } from 'lucide-react';
 import { useRef, type ReactNode } from 'react';
-import type {
-  ProjectInfo,
-  SheetViewExportOptions,
-  SheetMeta,
-} from '../api/open';
-import type { ProjectApiPort } from '../api/ports';
-import type { ExportTarget } from '../exportTargets';
+import type { ProjectInfo } from '../api/open';
 import { AccountMenu } from '../components/AccountMenu';
 import { BrandLink } from '../components/BrandLink';
-import { ProjectMenu } from '../components/TopNav';
 import { useShellIdentity } from '../shellIdentity';
 import { GuideHint } from './GuideHint';
 import styles from './GuideHint.module.css';
@@ -45,11 +39,7 @@ export function ChromeBarShell({
 
 export function ChromeBar({
   project,
-  projectApi,
-  currentSheet,
-  sheets,
-  currentSheetExportOptions,
-  catalogExportTargets,
+  projectMenu,
   onOpenCommandPalette,
   askOpen,
   onToggleAsk,
@@ -63,11 +53,7 @@ export function ChromeBar({
   onResumeWalkthrough,
 }: {
   project: ProjectInfo;
-  projectApi: ProjectApiPort;
-  currentSheet?: SheetMeta | null;
-  sheets: SheetMeta[];
-  currentSheetExportOptions?: SheetViewExportOptions | null;
-  catalogExportTargets: ExportTarget[];
+  projectMenu: ReactNode;
   onOpenCommandPalette(): void;
   askOpen: boolean;
   onToggleAsk(): void;
@@ -85,18 +71,7 @@ export function ChromeBar({
     typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
   const { identityMode, me } = useShellIdentity();
   return (
-    <ChromeBarShell
-      brandExtra={
-        <ProjectMenu
-          project={project}
-          projectApi={projectApi}
-          currentSheet={currentSheet}
-          sheets={sheets}
-          currentSheetExportOptions={currentSheetExportOptions}
-          catalogExportTargets={catalogExportTargets}
-        />
-      }
-    >
+    <ChromeBarShell brandExtra={projectMenu}>
       <button
         type="button"
         ref={guideRef}

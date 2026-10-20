@@ -43,6 +43,33 @@ it('bulk suffix editing changes only host output names and leaves semantic Param
     output_names: { city_left: 'city_reported', city_right: 'Official city', _merge: 'Match status' } });
 });
 
+it('clicking projection field headings never activates a selected-column remove button', async () => {
+  const view = openSaved();
+  await ready();
+  fireEvent.click(screen.getByText('Left fields', { exact: true }));
+  fireEvent.click(screen.getByText('Right fields', { exact: true }));
+  await ready();
+  fireEvent.click(screen.getByTestId('generated-action-run'));
+  expect(view.onExecute.mock.calls[0][0].params).toEqual(saved.params);
+});
+
+it('keeps projection reorder, duplicate and remove controls bound to their own row', async () => {
+  const view = openSaved();
+  await ready();
+  expect(screen.getByRole('button', { name: 'Move projection 1 up' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Move projection 3 down' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Move projection 2 up' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Duplicate projection 1' }));
+  expect(screen.getByLabelText('Projection 4 column')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Remove projection 2' }));
+  expect(screen.queryByLabelText('Projection 4 column')).not.toBeInTheDocument();
+  await ready();
+  fireEvent.click(screen.getByTestId('generated-action-run'));
+  expect(view.onExecute.mock.calls[0][0].params.columns).toEqual([
+    { side: 'left', column: 'city' }, { side: 'right', column: 'city' }, { side: 'right', column: 'city' },
+  ]);
+});
+
 it('blocks Run while source metadata is pending and enables it after resolution', async () => {
   let resolve!: (value: typeof joinLeft[]) => void;
   joinApi.listSheets.mockReturnValueOnce(new Promise((done) => { resolve = done; }));

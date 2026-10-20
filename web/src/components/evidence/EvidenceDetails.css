@@ -1,0 +1,62 @@
+.evidence-card-head { justify-content: space-between; }
+.evidence-card-head span {
+  color: var(--text-light);
+  font-size: 11px;
+}
+.evidence-meta-grid {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 4px 8px;
+  margin: 0;
+  font-size: 11.5px;
+}
+.evidence-meta-grid dt {
+  color: var(--text-light);
+  font-weight: 650;
+}
+.evidence-meta-grid dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.evidence-span {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.evidence-span header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 5px;
+}
+.evidence-span-navigable {
+  cursor: pointer;
+}
+.evidence-span-navigable:hover,
+.evidence-span-navigable:focus-visible {
+  background: var(--bg-hover);
+}
+.evidence-span-goto {
+  margin-left: auto;
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 650;
+}
+.evidence-required {
+  color: var(--green);
+  background: var(--green-bg);
+  border-radius: var(--radius-4);
+  padding: 1px 5px;
+  font-size: 10px;
+  font-weight: 650;
+}
+.evidence-span blockquote {
+  margin: 0 0 7px;
+  border-left: 3px solid var(--accent);
+  padding-left: 8px;
+  color: var(--text);
+  line-height: 1.45;
+}
+.evidence-span-meta {
+  grid-template-columns: 76px minmax(0, 1fr);
+}

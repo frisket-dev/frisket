@@ -1,3 +1,6 @@
+import './IconButton.css';
+import './ApplicationGuidance.css';
+import { Button } from './Button';
 import { useState } from 'react';
 import { Check, Copy } from 'lucide-react';
 import { getMediaProxyStatus, type RunRowErrorGroup } from '../api/open';
@@ -122,15 +125,15 @@ export function MediaProxyRemediationCard({
         </div>
       )}
       {onRetryRows && (
-        <button
+        <Button
           type="button"
-          className="mini-btn"
+
           data-testid="media-proxy-retry"
           disabled={!retryEnabled || retried}
           onClick={retry}
         >
           {retried ? 'Retry requested' : 'Retry failed rows'}
-        </button>
+        </Button>
       )}
     </div>
   );

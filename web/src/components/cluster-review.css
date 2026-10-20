@@ -1,3 +1,63 @@
+/* ---- cluster panel -------------------------------------------------------- */
+.cluster-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 84px;
+  gap: 8px;
+  align-items: end;
+}
+.cluster-controls .btn {
+  grid-column: 1 / -1;
+}
+.cluster-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+.cluster-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-8);
+  padding: 10px;
+  background: var(--bg-panel);
+}
+.cluster-card-top {
+  display: flex;
+  justify-content: space-between;
+  color: var(--text-light);
+  font-size: 11px;
+  margin-bottom: 8px;
+}
+.cluster-values {
+  list-style: none;
+  margin: 8px 0 10px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+}
+.cluster-values li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.cluster-values li span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cluster-values li span:last-child {
+  color: var(--text-light);
+  font-variant-numeric: tabular-nums;
+}
+.cluster-member {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 /* The generated action host owns the drawer and footer. These styles target
    its nested clustering body, which does not carry .action-form. */
 
@@ -18,9 +78,6 @@
   margin-top: 0;
 }
 /* The method hint hugs the Method select (4px) instead of taking a full row. */
-.cluster-review-form .cluster-controls > .form-hint {
-  margin-top: 6px;
-}
 
 /* Sentence-case semibold labels: the shared `.field-labels` is only a font
    size, so mirror `.action-panel .form-label`'s weight/color/size here. */
@@ -31,13 +88,6 @@
 }
 
 /* Preview-state notices sit under the controls with a little air. */
-.cluster-review-form > .form-hint,
-.cluster-review-form > .form-error {
-  margin-top: 14px;
-}
-.cluster-review-form > .btn {
-  margin-top: 12px;
-}
 
 /* Group cards: keep the existing bordered `.cluster-card` look (its styles.css
    rules stay) but give the list room below the controls and read like Extract's

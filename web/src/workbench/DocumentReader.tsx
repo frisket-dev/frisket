@@ -1,3 +1,5 @@
+import './DocumentView.css';
+import { Button } from '../components/Button';
 import {
   lazy,
   Suspense,
@@ -316,8 +318,8 @@ export function DocumentReader({
               {selectionCount > 0 ? `${selectionCount} selected` : 'browsing'}
             </span>
             <span className="document-reader-spacer" />
-            {onShowAlongside && <button ref={alongsideTriggerRef} type="button" className="mini-btn" data-testid="document-show-alongside"
-              onClick={onShowAlongside}>Show alongside</button>}
+            {onShowAlongside && <Button ref={alongsideTriggerRef} type="button" data-testid="document-show-alongside"
+              onClick={onShowAlongside}>Show alongside</Button>}
             {isPdf && (
               <div className="document-page-controls" role="group" aria-label="Page navigation">
                 <button

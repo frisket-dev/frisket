@@ -1,3 +1,5 @@
+import '../settings/SettingsPrimitives.css';
+import { Button } from '../components/Button';
 import { useEffect, useState } from 'react';
 import type { HttpModelsGatewayStatus } from '../api/modelsGateway';
 import { getModelsGateway, type ModelsGatewayScope } from '../api/modelsGateway';
@@ -25,21 +27,21 @@ function ScopedModelsGatewaySettings({ scope }: { scope: ModelsGatewayScope }) {
     );
   }, [begin, scope]);
   const reload = () => { setLoading(true); setError(null); void load(); };
-  return <section className="settings-subsection" data-testid="models-gateway-settings">
+  return <section className="content-stack" data-testid="models-gateway-settings">
     <div className="settings-section-subhead"><h2>Models gateway</h2>
       <p>Attach a Frisket models server with its URL and bearer token.</p>
     </div>
     {loading && <p role="status">Loading models gateway configuration…</p>}
     {error && <p role="alert">{error}</p>}
     {status && <>
-      <p className="settings-help">{status.configured ? `Configured at ${status.origin ?? 'the configured server'}${status.token_hint ? ` (${status.token_hint})` : ''}` : 'No models gateway configured.'}</p>
+      <p className="form-hint">{status.configured ? `Configured at ${status.origin ?? 'the configured server'}${status.token_hint ? ` (${status.token_hint})` : ''}` : 'No models gateway configured.'}</p>
       {status.error && <p role="alert">{status.error}</p>}
       {status.can_mutate ? <ModelsGatewayForm key={`${scope}:${status.source}:${status.origin}`} scope={scope} initialOrigin={status.origin ?? ''} onSaved={reload} />
-        : <p className="settings-help">{status.source === 'environment'
+        : <p className="form-hint">{status.source === 'environment'
           ? `Read-only configuration. Change ${status.environment_names.join(' and ')} in the server environment.`
           : 'Read-only configuration. Ask an organization owner to change the models gateway.'}</p>}
     </>}
-    <button className="btn" type="button" disabled={loading} onClick={reload}>Recheck configuration</button>
+    <Button type="button" disabled={loading} onClick={reload}>Recheck configuration</Button>
   </section>;
 }
 

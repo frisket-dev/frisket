@@ -1,7 +1,11 @@
+import './FormControls.css';
+import './TranslatePairPicker.css';
+import './PanelPrimitives.css';
 /** Language-pair controls for Opus-MT. Execution prepares missing models. */
 import { useMemo } from 'react';
 import type { DownloadablePair } from '../api/types';
 import { PanelSelect } from './PanelSelect';
+import { formatBytes } from '../format';
 
 export interface TranslatePairPickerProps {
   /** Pair ids present in the current catalog. */
@@ -40,13 +44,6 @@ function parsePair(pair: string): Parsed | null {
     if (SIDE_RE.test(src) && SIDE_RE.test(tgt)) return { src, tgt };
   }
   return null;
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes >= 1_000_000_000) return `${(bytes / 1_000_000_000).toFixed(1)} GB`;
-  if (bytes >= 1_000_000) return `${Math.round(bytes / 1_000_000)} MB`;
-  if (bytes >= 1000) return `${Math.round(bytes / 1000)} KB`;
-  return `${bytes} B`;
 }
 
 export function TranslatePairPicker({

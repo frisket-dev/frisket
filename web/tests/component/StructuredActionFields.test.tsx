@@ -41,3 +41,18 @@ it('preserves nested list schemas while editing the field name', () => {
   fireEvent.change(screen.getByLabelText('Field 1 name'), { target: { value: 'records' } });
   expect(onChange.mock.lastCall?.[0][0]).toEqual({ name: 'records', type: 'list', description: '', items });
 });
+
+it('uses the same editable controls for nested fields without changing add/remove limits', () => {
+  const onChange = vi.fn();
+  render(<Editor initial={[{ name: 'items', type: 'list', description: '', items: {
+    type: 'object', properties: { name: { type: 'string' } }, required: ['name'],
+  } }]} onChange={onChange} />);
+  expect(screen.getByTestId('list-item-field-delete')).toBeDisabled();
+  fireEvent.click(screen.getByTestId('list-item-field-add'));
+  expect(screen.getAllByTestId('list-item-field-name')).toHaveLength(2);
+  fireEvent.change(screen.getAllByTestId('list-item-field-name')[1], { target: { value: 'city' } });
+  expect(onChange.mock.lastCall?.[0][0].items.properties).toHaveProperty('city');
+  fireEvent.click(screen.getAllByTestId('list-item-field-delete')[1]);
+  expect(screen.getByTestId('list-item-field-delete')).toBeDisabled();
+  expect(onChange.mock.lastCall?.[0][0].items.properties).not.toHaveProperty('city');
+});

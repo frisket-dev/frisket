@@ -1,0 +1,266 @@
+import { execFileSync } from 'node:child_process';
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+import { expect, test, type Page } from '@playwright/test';
+import { createProject, importCsv, openImportWorkspace, openProject } from '../e2e/helpers';
+import { captureActionScenes, captureAskAndComparisonScenes, captureInspectionScenes } from './action-scenes';
+import { captureImportScenes } from './import-scenes';
+import { captureMediaScenes } from './media-scenes';
+import { captureMentionsScenes, capturePanelCardScenes, capturePanelScenes, capturePopulatedPanelScenes, captureSettingsScenes } from './workbench-scenes';
+import { captureTeamSettingsScenes } from './team-scenes';
+import { captureElements } from './elements';
+import { captureDialogScenes } from './dialog-scenes';
+import { observeInventoryCatalog, waitForInventoryCatalog } from './readiness';
+
+const output = path.resolve(process.env.FRISKET_INVENTORY_OUTPUT ?? 'screenshots/inventory');
+type Capture = { kind?: 'small'; family: string; name: string; source: string; file: string; detail?: string; theme: string; context?: string; scene?: string; selector?: string; state?: string };
+const manifest = path.join(output, 'captures.ndjson');
+let browserErrors: string[] = [];
+const detailSelectors: Record<string, string> = {
+  Actions: '[data-testid="action-drawer"]', Settings: '[data-testid="settings-content"]',
+  'Team settings': '[data-testid="settings-content"]',
+  'Side panels': '[data-testid="discover-panel"]', 'Bottom dock': '[data-testid="bottom-dock-panel"]',
+  Import: '[data-testid="import-workspace-dialog"]', 'Import workflow': '[data-testid="import-workspace-dialog"]',
+  Ask: '[data-testid="ask-dock"]', Extract: '[data-testid="extract-view"], [data-testid="action-drawer"]',
+};
+
+async function shot(page: Page, family: string, name: string, source: string, detailSelector?: string) {
+  await waitForInventoryCatalog(page);
+  console.info(`Capture: ${family} / ${name}`);
+  await page.evaluate(() => document.fonts.ready);
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(value => { document.documentElement.dataset.frisketTheme = value; }, theme);
+    const base = `${family}-${name}-${theme}`.toLowerCase().replace(/[^a-z0-9-]+/g, '-');
+    const file = `${base}.png`;
+    await page.screenshot({ path: path.join(output, file), fullPage: true, animations: 'disabled' });
+    let detail: string | undefined;
+    const selector = detailSelector ?? detailSelectors[family];
+    if (selector) {
+      const pane = !detailSelector && family === 'Side panels' && await page.getByTestId('import-workspace-dialog').isVisible()
+        ? page.getByTestId('import-workspace-dialog')
+        : page.locator(selector).first();
+      if (await pane.isVisible()) {
+        detail = `${base}-detail.png`;
+        await pane.screenshot({ path: path.join(output, detail), animations: 'disabled' });
+      }
+    }
+    appendFileSync(manifest, `${JSON.stringify({ family, name, source, file, detail, theme })}\n`);
+    if (theme === 'light') await captureElements(page, output, file, `${family} / ${name}`, source);
+  }
+}
+
+function html(value: string) {
+  return value.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!);
+}
+
+test.beforeAll(() => mkdirSync(output, { recursive: true }));
+test.beforeEach(async ({ context, page }) => {
+  browserErrors = [];
+  observeInventoryCatalog(page);
+  page.on('pageerror', error => browserErrors.push(error.message));
+  const allowed = new Set([process.env.FRISKET_INVENTORY_APP_URL, process.env.FRISKET_INVENTORY_STORY_URL, process.env.FRISKET_INVENTORY_TEAM_URL]);
+  await context.route('**/*', async route => {
+    const url = new URL(route.request().url());
+    if (allowed.has(url.origin)) return route.continue();
+    await route.abort();
+    throw new Error(`Unexpected external inventory request: ${url.origin}${url.pathname}`);
+  });
+});
+test.afterEach(() => expect(browserErrors, 'Uncaught browser errors').toEqual([]));
+
+test.afterAll(() => {
+  const captures: Capture[] = existsSync(manifest)
+    ? readFileSync(manifest, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line)) : [];
+  const commit = process.env.FRISKET_INVENTORY_COMMIT ?? execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  for (const document of ['COVERAGE.md', 'FINDINGS.md']) copyFileSync(path.resolve('stories', document), path.join(output, document));
+  const small = captures.filter(item => item.kind === 'small');
+  const large = captures.filter(item => item.kind !== 'small' && item.theme === 'light');
+  const smallFamilies = [...new Set(small.map(item => item.family))];
+  const largeFamilies = [...new Set(large.map(item => item.family))];
+  writeFileSync(path.join(output, 'index.html'), `<!doctype html><html lang="en"><meta charset="utf-8">
+    <title>Frisket UI inventory</title><style>
+    body{font:15px system-ui;margin:28px;background:#f4f4f4;color:#222}nav a{margin-right:18px}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,480px),1fr));gap:20px}
+    .small-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr))}
+    figure{margin:0;background:white;padding:16px;min-width:0}img{max-width:100%;height:auto}
+    .large img{width:100%}.specimen{min-height:100px;display:flex;align-items:center;margin:12px 0}
+    code{overflow-wrap:anywhere;font-size:11px}figcaption{font-size:12px;color:#555}summary{cursor:pointer}
+    h2{margin-top:48px;border-bottom:2px solid #ccc;padding-bottom:12px}h3{margin-top:32px}
+    </style><h1>Frisket UI inventory</h1><p>Captured ${html(new Date().toISOString())} · commit ${html(commit)}</p>
+    <p>This index lists captured examples, not exhaustive coverage. <a href="COVERAGE.md">Coverage and remaining states</a> · <a href="FINDINGS.md">Findings</a>. Synthetic API states are labeled in captions.</p>
+    <nav><a href="#small">Small elements (${small.length})</a><a href="#large">Larger components and screens (${large.length})</a></nav>
+    <h2 id="small">Small elements</h2><p>Actual rendered controls, grouped by purpose. Repeated labels with the same classes, state and styling are collapsed. These are observed treatments—not proposed standards. Light theme only here; screen-level dark versions remain available below.</p>
+    <nav>${smallFamilies.map((family, index) => `<a href="#small-${index}">${html(family)}</a>`).join('')}</nav>
+    ${smallFamilies.map((family, index) => `<h3 id="small-${index}">${html(family)}</h3><div class="grid small-grid">${small.filter(item => item.family === family).map(item => `<figure><strong>${html(item.name)}</strong><div class="specimen"><a href="${html(item.file)}"><img loading="lazy" src="${html(item.file)}" alt="${html(item.name)}"></a></div><figcaption><a href="${html(item.context!)}">${html(item.scene!)}</a><details><summary>Implementation / source</summary><code>${html(item.selector!)}<br>${html(item.state!)}<br>${html(item.source)}</code></details></figcaption></figure>`).join('')}</div>`).join('')}
+    <h2 id="large">Larger components and screens</h2><p>Forms, panels, dialogs and complete workflows. Dark theme is an optional link, not a second gallery card.</p>
+    <nav>${largeFamilies.map((family, index) => `<a href="#large-${index}">${html(family)}</a>`).join('')}</nav>
+    ${largeFamilies.map((family, index) => `<h3 id="large-${index}">${html(family)}</h3><div class="grid large">${large.filter(item => item.family === family).map(item => {
+      const dark = captures.find(other => other.kind !== 'small' && other.family === item.family && other.name === item.name && other.theme === 'dark');
+      return `<figure><figcaption><strong>${html(item.name)}</strong><br><code>${html(item.source)}</code><br><a href="${html(item.file)}">Full screen context</a>${dark ? ` · <a href="${html(dark.detail ?? dark.file)}">Dark version</a>` : ''}</figcaption><a href="${html(item.detail ?? item.file)}"><img loading="lazy" src="${html(item.detail ?? item.file)}" alt="${html(item.name)}"></a></figure>`;
+    }).join('')}</div>`).join('')}
+    </html>`);
+});
+
+test('shared controls in production styling', async ({ page }) => {
+  const storyURL = process.env.FRISKET_INVENTORY_STORY_URL!;
+  for (const [id, name, source] of [
+    ['inventory-buttons-and-close-controls--shared-and-activity-close', 'close-controls', 'src/components/IconButton.tsx; ActivityProgress.tsx'],
+    ['inventory-selects-and-menus--comparison', 'selects', 'src/components/PanelSelect.tsx; PanelPrimitives.tsx'],
+    ['inventory-feedback-and-progress--shared-states', 'feedback', 'src/components/PanelPrimitives.tsx; ActivityProgress.tsx'],
+    ['inventory-structured-fields--multiple-types', 'structured-fields', 'src/components/action-panel/StructuredFieldsEditor.tsx; OutputFieldsEditor.tsx'],
+    ['inventory-structured-fields--native-fields', 'text-fields', 'src/components/FormControls.tsx'],
+  ]) {
+    await page.goto(`${storyURL}/iframe.html?id=${id}&viewMode=story`);
+    await expect(page.locator('.inventory-example').first()).toBeVisible();
+    await shot(page, 'Shared controls', name, source);
+    if (name === 'selects') {
+      await page.getByLabel('Source column', { exact: true }).click();
+      await expect(page.getByRole('listbox')).toBeVisible();
+      await shot(page, 'Shared controls', 'select-open', source);
+    }
+  }
+  await page.goto(`${storyURL}/iframe.html?id=inventory-selects-and-menus--in-dialog&viewMode=story`);
+  await page.getByLabel('Source column', { exact: true }).click();
+  await expect(page.getByRole('listbox')).toBeVisible();
+  await shot(page, 'Shared controls', 'dialog-select-open', 'src/components/PanelSelect.tsx');
+});
+
+test('compound dropdown menus in production styling', async ({ page }) => {
+  await page.goto(`${process.env.FRISKET_INVENTORY_STORY_URL}/iframe.html?id=inventory-selects-and-menus--compound&viewMode=story`);
+  await page.getByRole('group', { name: 'Source columns' }).click();
+  await expect(page.getByRole('listbox')).toHaveAttribute('aria-multiselectable', 'true');
+  await shot(page, 'Shared controls', 'multi-column-menu', 'src/components/MultiColumnPicker.tsx');
+  await page.getByLabel('Save to', { exact: true }).click();
+  const output = page.getByTestId('new-column-name-listbox');
+  await expect(output).toBeVisible();
+  await expect(output.getByRole('option', { name: /summary/ })).toHaveAttribute('aria-selected', 'true');
+  const inputBox = await page.getByTestId('new-column-name').boundingBox();
+  const menuBox = await output.boundingBox();
+  expect(Math.abs(inputBox!.width - menuBox!.width)).toBeLessThan(2);
+  await shot(page, 'Shared controls', 'output-column-menu', 'src/components/action-panel/TargetSaveToControl.tsx');
+});
+
+test('four import entry surfaces', async ({ page }) => {
+  const pid = await createProject(page.request, 'Visual inventory');
+  const sheet = await importCsv(page.request, pid, 'records.csv', 'name,amount,notes\nAda,1200,Council meeting\nMax,50,Planning hearing\n');
+  await openProject(page, pid, sheet);
+  await openImportWorkspace(page);
+  const rail = page.getByRole('tablist', { name: 'Import type', exact: true });
+  const modes = rail.getByRole('tab');
+  await expect(modes).toHaveCount(4);
+  for (const [mode, label] of [['csv', 'one-file'], ['files', 'multiple-files'], ['pdf_split', 'split-pdf'], ['feed', 'feed-source']]) {
+    await page.getByTestId(`import-mode-${mode}`).click();
+    await expect(page.getByTestId(`import-mode-${mode}`)).toHaveAttribute('aria-selected', 'true');
+    const panel = page.locator('.import-workspace-panel');
+    const desktopTabs = await modes.evaluateAll(elements => elements.map(element => element.getBoundingClientRect().left));
+    expect(Math.max(...desktopTabs) - Math.min(...desktopTabs), 'Import modes form one desktop column').toBeLessThan(1);
+    const footer = panel.locator('.panel-footer');
+    await expect(footer.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
+    const panelBounds = await panel.boundingBox();
+    const footerBounds = await footer.boundingBox();
+    expect(Math.abs(panelBounds!.y + panelBounds!.height - footerBounds!.y - footerBounds!.height)).toBeLessThan(2);
+    if (mode !== 'feed') {
+      const dropArea = panel.locator('.import-drop-area');
+      await expect(dropArea).toBeVisible();
+      expect((await dropArea.boundingBox())!.height).toBe(300);
+    }
+    await shot(page, 'Import', label, 'src/components/importWorkspace/ImportWorkspaceDialog.tsx; importWorkspace/');
+  }
+  const desktopViewport = page.viewportSize()!;
+  try {
+    await page.setViewportSize({ width: 720, height: desktopViewport.height });
+    await expect.poll(() => rail.evaluate(element => getComputedStyle(element).gridTemplateColumns.split(/\s+/).length),
+      { message: 'Narrow import rail uses three columns' }).toBe(3);
+    const bounds = await modes.evaluateAll(elements => elements.map(element => {
+      const { left, top } = element.getBoundingClientRect();
+      return { left, top };
+    }));
+    expect(Math.max(...bounds.slice(0, 3).map(item => item.top)) - bounds[0].top).toBeLessThan(1);
+    expect(bounds[1].left).toBeGreaterThan(bounds[0].left);
+    expect(bounds[2].left).toBeGreaterThan(bounds[1].left);
+    expect(bounds[3].top).toBeGreaterThan(bounds[0].top);
+    expect(await rail.evaluate(element => element.scrollWidth <= element.clientWidth), 'Import rail fits its width').toBe(true);
+    expect(await page.locator('.import-workspace-panel').evaluate(element => element.scrollWidth <= element.clientWidth),
+      'Narrow import panel does not overflow horizontally').toBe(true);
+  } finally {
+    await page.setViewportSize(desktopViewport);
+  }
+  await page.getByTestId('import-mode-files').click();
+  await page.getByTestId('import-source-urls').click();
+  await expect(page.locator('.panel-footer').getByTestId('import-url-submit')).toBeVisible();
+  await shot(page, 'Import', 'multiple-file-urls', 'src/components/importWorkspace/ImportWorkspaceDialog.tsx');
+});
+
+test('representative action forms', async ({ page }) => captureActionScenes(page, shot));
+test('model routing labels fit without page-specific styling', async ({ page }) => {
+  const pid = await createProject(page.request, 'Model route controls');
+  const sid = await importCsv(page.request, pid, 'records.csv', 'name,notes\nAda,Council meeting\n');
+  await page.goto(`/p/${pid}/s/${sid}/action/map.extract`);
+  await page.getByTestId('engine-selector').getByRole('button', { expanded: false }).click();
+  const dialog = page.getByTestId('engine-selector-dialog');
+  const routes = dialog.getByTestId('model-route-control');
+  for (const provider of ['Anthropic', 'OpenAI']) {
+    if (provider === 'OpenAI') {
+      await dialog.locator('[data-engine-selector-group]').filter({ hasText: 'OpenAI' }).click();
+      await dialog.locator('[data-engine-selector-choice]').first().click();
+    }
+    const label = routes.getByRole('button', { name: new RegExp(`Your ${provider} key`) }).locator('.segmented-option-label');
+    await expect(label).toBeVisible();
+    expect(await label.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await shot(page, provider === 'Anthropic' ? 'Actions' : 'Shared controls',
+      provider === 'Anthropic' ? 'extract-model-picker' : 'model-route-openai', 'src/engine-selector/ModelRouteControl.tsx');
+  }
+});
+test('inspection and command search', async ({ page }) => captureInspectionScenes(page, shot));
+test('local settings suite', async ({ page }) => {
+  test.setTimeout(180_000);
+  await captureSettingsScenes(page, shot);
+});
+test('Team organization settings', async ({ page }) => {
+  test.setTimeout(180_000);
+  await captureTeamSettingsScenes(page, shot);
+});
+test('workbench panels and dock', async ({ page }) => {
+  test.setTimeout(180_000);
+  await capturePanelScenes(page, shot);
+});
+test('populated panel states', async ({ page }) => capturePopulatedPanelScenes(page, shot));
+test('populated card contents and histories', async ({ page }) => capturePanelCardScenes(page, shot));
+test('grouped entity mentions', async ({ page }) => captureMentionsScenes(page, shot));
+test('import workflow stages', async ({ page }) => {
+  test.setTimeout(180_000);
+  await captureImportScenes(page, shot);
+});
+test('documents and extraction', async ({ page }) => {
+  test.setTimeout(180_000);
+  await captureMediaScenes(page, shot);
+});
+test('Ask and comparisons', async ({ page }) => captureAskAndComparisonScenes(page, shot));
+
+test('dialog treatments', async ({ page }) => {
+  for (const [id, selector] of [['delete-rows', '[data-testid="delete-rows-modal"]'],
+    ['extract-sheet', 'dialog'], ['cost-gate', '[data-testid="cost-gate-modal"]']]) {
+    await page.goto(`${process.env.FRISKET_INVENTORY_STORY_URL}/iframe.html?id=inventory-dialogs--${id}&viewMode=story`);
+    await expect(page.locator(selector)).toBeVisible();
+    await shot(page, 'Dialogs', id, 'src/components/*Modal.tsx; src/workbench/extract/ExtractSheetNameDialog.tsx');
+  }
+});
+
+test('remaining application dialogs', async ({ page }) => {
+  try {
+    await captureDialogScenes(page, shot);
+  } finally {
+    // The synthetic catalog/config handlers may still be fetching after the
+    // last dialog closes. Settle them before Playwright closes this page.
+    await page.unrouteAll({ behavior: 'wait' });
+  }
+});
+
+test('timed transcript components', async ({ page }) => {
+  for (const kind of ['audio', 'video']) {
+    await page.goto(`${process.env.FRISKET_INVENTORY_STORY_URL}/iframe.html?id=inventory-timed-transcript--${kind}&viewMode=story`);
+    await expect(page.getByTestId('document-transcript-segment')).toHaveCount(2);
+    await expect.poll(() => page.locator(kind).evaluate(element => (element as HTMLMediaElement).readyState)).toBeGreaterThanOrEqual(2);
+    await shot(page, 'Transcript components', `${kind}-transcript`, 'src/workbench/TimedTranscript.tsx; synthetic segments, real bundled media');
+  }
+});

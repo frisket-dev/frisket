@@ -1,3 +1,7 @@
+import './WorkbenchCommandPalette.css';
+import '../components/IconButton.css';
+import '../components/SearchPreparationReceipt.css';
+import { Button } from '../components/Button';
 import { Bell, Bookmark, LoaderCircle, SearchCheck, X } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import {
@@ -315,9 +319,9 @@ export function PaletteSearchSection({
             />
             <span>Rerank</span>
           </label>
-          <button
+          <Button
             type="button"
-            className="mini-btn search-watch-btn"
+            className="search-watch-btn"
             data-testid="watch-search-button"
             aria-label={watchBusy ? 'Watching…' : 'Watch search'}
             aria-busy={watchBusy}
@@ -330,10 +334,10 @@ export function PaletteSearchSection({
                 : 'Watch a keyword search'}
           >
             {watchBusy ? <LoaderCircle size={12} className="spin" aria-hidden /> : <Bell size={12} aria-hidden />}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="mini-btn search-save-btn"
+            className="search-save-btn"
             data-testid="save-search-lens-button"
             aria-label={saveBusy ? 'Saving…' : 'Save view'}
             aria-busy={saveBusy}
@@ -342,7 +346,7 @@ export function PaletteSearchSection({
             title="Save this named-index search as a view"
           >
             {saveBusy ? <LoaderCircle size={12} className="spin" aria-hidden /> : <Bookmark size={12} aria-hidden />}
-          </button>
+          </Button>
           {watchStatus && (
             <span className="search-watch-status" data-testid="watch-search-status">
               {watchStatus}
@@ -375,15 +379,15 @@ export function PaletteSearchSection({
         <div className="search-empty" role="status">
           {status}
           {setup && !operationForSetup && (
-            <button
+            <Button
               type="button"
-              className="mini-btn"
+
               data-testid="search-setup"
               disabled={setupBusy}
               onClick={() => setSetupConsentRef(setup.setup_ref)}
             >
               Set up semantic search
-            </button>
+            </Button>
           )}
         </div>
       )}
@@ -400,24 +404,24 @@ export function PaletteSearchSection({
           </div>
           <p>Search by meaning.</p>
           <div className="search-preparation-actions">
-            <button
+            <Button
               type="button"
-              className="btn"
+
               data-testid="search-setup-not-now"
               disabled={setupBusy}
               onClick={() => setSetupConsentRef(null)}
             >
               Not now
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              className="btn btn-primary"
+              className="btn-primary"
               data-testid="search-setup-confirm"
               disabled={setupBusy}
               onClick={() => onStartSetup(consentSetup.setup_ref, consentSetup.scope)}
             >
               {setupBusy ? 'Starting…' : 'Download and set up'}
-            </button>
+            </Button>
           </div>
         </section>
       )}
@@ -430,10 +434,10 @@ export function PaletteSearchSection({
                 {currentSetupOperation.pull.error?.message || (currentSetupOperation.pull.status === 'cancelled'
                   ? 'Model setup was cancelled.' : 'Model setup failed.')}
               </p>
-              <button type="button" className="btn btn-primary" data-testid="search-setup-retry"
+              <Button type="button" className="btn-primary" data-testid="search-setup-retry"
                 disabled={setupBusy} onClick={() => onStartSetup(currentSetupOperation.setupRef, currentSetupOperation.scope)}>
                 {setupBusy ? 'Starting…' : 'Retry setup'}
-              </button>
+              </Button>
             </>
           ) : <span>Semantic search setup is running.</span>}
         </section>
@@ -455,14 +459,14 @@ export function PaletteSearchSection({
               : `${materialGapCount.toLocaleString()} ${materialGapCount === 1 ? 'file needs' : 'files need'} search preparation.`}
           </span>
           {materialGap.state === 'pending' ? (
-            <button
+            <Button
               type="button"
-              className="mini-btn"
+
               data-testid="search-preparation-view-jobs"
               onClick={onViewJobs}
             >
               View Jobs
-            </button>
+            </Button>
           ) : effectiveGapSheetKey && (
             <>
               {gapSheetKeys.length > 1 && (
@@ -479,9 +483,9 @@ export function PaletteSearchSection({
                   ))}
                 </PanelSelect>
               )}
-              <button
+              <Button
                 type="button"
-                className="mini-btn"
+
                 data-testid="search-preparation-gap-action"
                 disabled={!canPrepareGap || preparationBusy}
                 onClick={() => onPrepareGap(Number(effectiveGapSheetKey))}
@@ -489,7 +493,7 @@ export function PaletteSearchSection({
                 {preparationBusy
                   ? 'Starting…'
                   : `Prepare ${sheetName(effectiveGapSheetKey)}`}
-              </button>
+              </Button>
             </>
           )}
         </div>

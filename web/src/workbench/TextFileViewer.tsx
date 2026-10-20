@@ -1,3 +1,4 @@
+import './DocumentView.css';
 import { useCallback } from 'react';
 import { readDocumentTextResource, readDocumentTextWindow } from '../api/raw/blobText';
 import { BoundedTextReader, type BlobTextReaderProps } from '../components/BoundedTextReader';

@@ -1,5 +1,8 @@
+import { CompareToolbar, CompareEngineChip } from './CompareLayout';
+import { Button } from '../components/Button';
+import { TextInput } from '../components/FormControls';
 import { useEffect, useMemo, useRef } from 'react';
-import { Loader2, Play, Plus, RotateCw, Settings2, X } from 'lucide-react';
+import { Loader2, Play, Plus, RotateCw } from 'lucide-react';
 
 import type {
   OcrComparePreviewBlock,
@@ -10,8 +13,7 @@ import type {
 } from '../api/types';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import type { OcrCompareTarget } from '../actions/ocrCompare';
-import { OCR_ENGINE_FALLBACK, ocrEnginesFromCatalog, tierForEngine } from '../actions/engineCatalog';
-import { EngineTierBadge } from '../components/EngineTierBadge';
+import { OCR_ENGINE_FALLBACK, ocrEnginesFromCatalog } from '../actions/engineCatalog';
 import { SegmentedToggle } from '../components/PanelPrimitives';
 import { PanelSelect } from '../components/PanelSelect';
 import { ConfigureVariantPopover, MediaCompareBody } from './MediaCompareShell';
@@ -19,7 +21,6 @@ import { useOcrVariantConfigure } from './useOcrVariantConfigure';
 import { usePaidMediaComparison } from './usePaidMediaComparison';
 import {
   MEDIA_LANGUAGE_OPTIONS,
-  VARIANT_PIP_GLYPH,
   useMediaCompareSession,
   variantPip,
   type AlignedUnit,
@@ -295,13 +296,10 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
 
   return (
     <section className="ocr-compare-tab" data-testid="ocr-compare-tab">
-      <div
-        className="ocr-compare-toolbar"
-        data-testid="ocr-compare-toolbar"
-        data-running={runningCount > 0 ? 'true' : 'false'}
-      >
-        <div className="ocr-compare-controls-row" data-testid="ocr-compare-controls-row">
-          <button
+      {session.selectorOwners}
+      <CompareToolbar testIdPrefix="ocr-compare" running={runningCount > 0}
+        controls={<>
+          <Button
             type="button"
             className={`btn ocr-compare-run${runState === 'pending' ? ' btn-primary' : ''}`}
             data-testid="ocr-compare-run"
@@ -337,7 +335,7 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
             {runState === 'running' ? (
               <span className="ocr-compare-run-progress" data-testid="ocr-compare-run-progress" />
             ) : null}
-          </button>
+          </Button>
           <SegmentedToggle
             testId="ocr-compare-mode-switch"
             className="ocr-compare-mode-switch"
@@ -356,144 +354,87 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
               { value: 'survey', label: '◫ Survey' },
             ]}
           />
-          <button
+          <Button
             type="button"
-            className="ocr-compare-source-toggle row-height-select"
+            className="ocr-compare-source-toggle"
             data-testid="ocr-compare-source-toggle"
             aria-pressed={sourceOpen}
             onClick={() => setSourceOpen((open) => !open)}
           >
             ⊟ Source
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="ocr-compare-wrap-toggle row-height-select"
+            className="ocr-compare-wrap-toggle"
             data-testid="ocr-compare-wrap-toggle"
             aria-pressed={wrapText}
             title={wrapText ? 'Wrap text to the panel (on)' : 'No wrap — scroll horizontally'}
             onClick={() => setWrapText((wrap) => !wrap)}
           >
             ⏎ Wrap
-          </button>
-        </div>
-
-        <div className="ocr-compare-chips-row" data-testid="ocr-compare-chips-row">
-          <span className="ocr-compare-scratch-tag" data-testid="ocr-compare-scratch-tag">
-            scratch · not in a project
-          </span>
-          <span className="ocr-compare-variants-label">VARIANTS</span>
-          <div className="ocr-compare-variant-chips" data-testid="ocr-compare-variant-chips">
-            {columns.map((column) => {
-              const pip = variantPip(column, activeDoc?.runs[column.id]);
-              const summary = variantSummary(column);
-              const chipEngine = catalog.find((candidate) => candidate.id === column.engineId);
-              return (
-                <div
-                  key={column.id}
-                  className="ocr-compare-variant"
-                  ref={configureVariantId === column.id ? configureAnchorRef : undefined}
-                >
-                  <div
-                    className="ocr-compare-variant-chip engine-tier-chip"
-                    data-testid="ocr-compare-variant-chip"
-                    data-engine-id={column.engineId ?? ''}
-                    data-variant-id={column.id}
-                    data-pip={pip}
-                  >
-                    <span className="ocr-compare-pip" data-pip={pip} aria-hidden>
-                      {pip === 'running' ? (
-                        <Loader2 size={10} className="ocr-compare-spin" />
-                      ) : (
-                        VARIANT_PIP_GLYPH[pip]
-                      )}
-                    </span>
-                    <button
-                      type="button"
-                      className="ocr-compare-variant-body"
-                      data-testid="ocr-compare-variant-body"
-                      disabled={busy}
-                      onClick={() => openConfigure(column.id)}
-                      title="Configure variant"
-                    >
-                      <span className="ocr-compare-variant-name">{engineLabel(column.engineId)}</span>
-                      {chipEngine && (
-                        <EngineTierBadge
-                          tier={tierForEngine(chipEngine)}
-                          testId="ocr-compare-variant-tier"
-                        />
-                      )}
-                      {summary ? (
-                        <span className="ocr-compare-variant-summary muted"> · {summary}</span>
-                      ) : null}
-                    </button>
-                    <button
-                      type="button"
-                      className="ocr-compare-variant-gear"
-                      data-testid="ocr-compare-variant-gear"
-                      aria-label={`Configure ${engineLabel(column.engineId)}`}
-                      disabled={busy}
-                      onClick={() => openConfigure(column.id)}
-                    >
-                      <Settings2 size={12} />
-                    </button>
-                    <button
-                      type="button"
-                      className="ocr-compare-variant-remove"
-                      data-testid="ocr-compare-variant-remove"
-                      aria-label={`Remove ${engineLabel(column.engineId)}`}
-                      disabled={busy}
-                      onClick={() => onRemoveVariant(column.id)}
-                    >
-                      <X size={11} />
-                    </button>
-                  </div>
-                  {configureVariantId === column.id ? (
-                    <ConfigureVariantPopover
-                      onCurrentChoiceChange={session.reportColumnChoice}
-                      testidPrefix="ocr-compare"
-                      actionId="media.ocr"
-                      popoverRef={configurePopoverRef}
-                      style={popoverShift ? { transform: `translateX(${popoverShift}px)` } : undefined}
-                      column={column}
-                      catalog={catalog}
-                      engineSelectorRef={engineSelectorRef}
-                      errorMessage={
-                        activeDoc?.runs[column.id]?.status === 'error'
-                          ? (activeDoc.runs[column.id] as { message: string }).message
-                          : null
-                      }
-                      onChooseEngine={(engineId) => onChooseEngine(column.id, engineId)}
-                      onDuplicate={() => onDuplicate(column.id)}
-                      renderOptionFields={(col) => (
-                        <OcrOptionFields
-                          column={col}
-                          onSetDpi={(dpi) => updateColumnOptions(col.id, { dpi })}
-                          onSetLanguage={(language) => updateColumnOptions(col.id, { language })}
-                          onSetPagesText={(pagesText) => updateColumnOptions(col.id, { pagesText })}
-                          onSetSearchablePdf={(searchablePdf) =>
-                            updateColumnOptions(col.id, { searchablePdf })
-                          }
-                          disabled={busy}
-                        />
-                      )}
-                      laterHint="More per-engine options (model tier, page range, deskew, table mode) stack here as engines declare them."
-                    />
-                  ) : null}
-                </div>
-              );
-            })}
-            <button
-              type="button"
-              className="ocr-compare-add-engine engine-tier-chip"
-              data-testid="ocr-compare-add-engine"
-              disabled={busy}
-              onClick={addEngineFlow}
+          </Button>
+        </>}
+      >
+        {columns.map((column) => {
+          const pip = variantPip(column, activeDoc?.runs[column.id]);
+          const summary = variantSummary(column);
+          const chipEngine = catalog.find((candidate) => candidate.id === column.engineId);
+          return (
+            <div
+              key={column.id}
+              className="ocr-compare-variant"
+              ref={configureVariantId === column.id ? configureAnchorRef : undefined}
             >
-              <Plus size={12} /> engine
-            </button>
-          </div>
-        </div>
-      </div>
+              <CompareEngineChip testIdPrefix="ocr-compare" engine={chipEngine}
+                engineId={column.engineId} label={engineLabel(column.engineId)} variantId={column.id}
+                pip={pip} summary={summary} disabled={busy}
+                onConfigure={() => openConfigure(column.id)}
+                onRemove={() => onRemoveVariant(column.id)} />
+              {configureVariantId === column.id ? (
+                <ConfigureVariantPopover
+                  selectorProjection={session.selectorProjection(column)}
+                  testidPrefix="ocr-compare"
+                  actionId="media.ocr"
+                  popoverRef={configurePopoverRef}
+                  style={popoverShift ? { transform: `translateX(${popoverShift}px)` } : undefined}
+                  column={column}
+                  catalog={catalog}
+                  engineSelectorRef={engineSelectorRef}
+                  errorMessage={
+                    activeDoc?.runs[column.id]?.status === 'error'
+                      ? (activeDoc.runs[column.id] as { message: string }).message
+                      : null
+                  }
+                  onChooseEngine={(engineId) => onChooseEngine(column.id, engineId)}
+                  onDuplicate={() => onDuplicate(column.id)}
+                  renderOptionFields={(col) => (
+                    <OcrOptionFields
+                      column={col}
+                      onSetDpi={(dpi) => updateColumnOptions(col.id, { dpi })}
+                      onSetLanguage={(language) => updateColumnOptions(col.id, { language })}
+                      onSetPagesText={(pagesText) => updateColumnOptions(col.id, { pagesText })}
+                      onSetSearchablePdf={(searchablePdf) =>
+                        updateColumnOptions(col.id, { searchablePdf })
+                      }
+                      disabled={busy}
+                    />
+                  )}
+                  laterHint="More per-engine options (model tier, page range, deskew, table mode) stack here as engines declare them."
+                />
+              ) : null}
+            </div>
+          );
+        })}
+        <button
+          type="button"
+          className="ocr-compare-add-engine engine-tier-chip"
+          data-testid="ocr-compare-add-engine"
+          disabled={busy}
+          onClick={addEngineFlow}
+        >
+          <Plus size={12} /> engine
+        </button>
+      </CompareToolbar>
 
       <MediaCompareBody
         session={session}
@@ -567,7 +508,7 @@ function OcrOptionFields({
           higher = sharper, slower · default {DEFAULT_DPI}
         </span>
       </div>
-      <label className="ocr-compare-configure-field">
+      <label className="ocr-compare-configure-field form-field">
         <span className="ocr-compare-configure-label">Language</span>
         <PanelSelect
           className="row-height-select"
@@ -582,10 +523,9 @@ function OcrOptionFields({
           ))}
         </PanelSelect>
       </label>
-      <label className="ocr-compare-configure-field">
+      <label className="ocr-compare-configure-field form-field">
         <span className="ocr-compare-configure-label">Pages</span>
-        <input
-          className="form-input"
+        <TextInput
           data-testid="ocr-compare-configure-pages"
           value={options.pagesText}
           placeholder="1,2,3"
@@ -596,7 +536,7 @@ function OcrOptionFields({
         <span id="ocr-compare-pages-hint" className="ocr-compare-configure-hint muted">
           comma-separated · up to {MAX_SAMPLE_PAGES} pages · default 1
         </span>
-        {pagesProblem ? <span className="form-error" role="alert">{pagesProblem}</span> : null}
+        {pagesProblem ? <span className="panel-error" role="alert">{pagesProblem}</span> : null}
       </label>
       <label className="ocr-compare-configure-field">
         <span>

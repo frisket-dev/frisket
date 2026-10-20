@@ -1,3 +1,6 @@
+import './PluginContributionHosts.css';
+import '../components/PanelPrimitives.css';
+import { Button } from '../components/Button';
 import type { PluginPanelContext } from './pluginPanelContext';
 
 export const SELECTION_SUMMARY_PANEL_COMPONENT_KEY =
@@ -36,9 +39,9 @@ export function SelectionSummaryPanel({ ctx }: { ctx: PluginPanelContext }) {
           {visibleIds.length > 0 ? visibleIds.join(', ') : 'None'}
           {overflowCount > 0 ? `, +${overflowCount}` : ''}
         </div>
-        <button
+        <Button
           type="button"
-          className="mini-btn"
+
           data-testid="selection-summary-open-first-row"
           disabled={!firstSelected}
           onClick={() => {
@@ -46,7 +49,7 @@ export function SelectionSummaryPanel({ ctx }: { ctx: PluginPanelContext }) {
           }}
         >
           Open first selected row
-        </button>
+        </Button>
       </div>
     </aside>
   );

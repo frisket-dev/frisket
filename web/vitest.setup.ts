@@ -8,6 +8,10 @@
 // in-memory stand-in. This is NOT a jsdom shim; it implements only the
 // Storage methods this codebase actually calls.
 
+import { installDialogPolyfill } from './tests/support/domPolyfills';
+
+if (typeof HTMLDialogElement !== 'undefined') installDialogPolyfill();
+
 class MemoryStorage implements Storage {
   private store = new Map<string, string>();
 

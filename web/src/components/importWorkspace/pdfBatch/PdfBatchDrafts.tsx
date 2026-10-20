@@ -1,8 +1,11 @@
+import '../../IconButton.css';
+import { Button } from '../../Button';
 import { FileText, LoaderCircle, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import { pdfImportsApi, type PdfImportSnapshot, type PdfImportsApi } from '../../../api/pdfImports';
-import { bytesLabel, count } from './model';
+import { count } from './model';
+import { formatBytes } from '../../../format';
 import './PdfBatchImportFlow.css';
 
 export interface PdfBatchDraftsProps {
@@ -63,14 +66,14 @@ export function PdfBatchDrafts({ projectId, onResume, api = pdfImportsApi }: Pdf
       return <article key={draft.draft_id}>
         <FileText size={17} aria-hidden />
         <div><strong>{draft.source_label || count(total, 'file')}</strong><span>{draft.state === 'cancelling'
-          ? `Removing ${bytesLabel(draft.cleanup.bytes_done)} of ${bytesLabel(draft.cleanup.bytes_total ?? 0)}`
+          ? `Removing ${formatBytes(draft.cleanup.bytes_done)} of ${formatBytes(draft.cleanup.bytes_total ?? 0)}`
           : `${copied.toLocaleString()} of ${total.toLocaleString()} copied${draft.paused ? ' · Paused' : ''}`}</span></div>
         {draft.state === 'cancelling' ? <LoaderCircle className="spin" size={15} aria-label="Removing import" /> : confirming ? <div className="pdf-batch-draft-confirm">
           <span>Discard this import?</span>
-          <button type="button" className="btn" onClick={() => setDiscardId(null)}>Keep</button>
-          <button type="button" className="btn btn-danger" disabled={busyId === draft.draft_id} onClick={() => void discard(draft)}>Discard draft</button>
+          <Button type="button" onClick={() => setDiscardId(null)}>Keep</Button>
+          <Button type="button" className="btn-danger" disabled={busyId === draft.draft_id} onClick={() => void discard(draft)}>Discard draft</Button>
         </div> : <div className="pdf-batch-draft-actions">
-          <button type="button" className="btn" onClick={() => onResume(draft.draft_id)}>Resume</button>
+          <Button type="button" onClick={() => onResume(draft.draft_id)}>Resume</Button>
           <button type="button" className="icon-btn" aria-label={`Discard ${draft.source_label || 'file import'}`} onClick={() => setDiscardId(draft.draft_id)}><Trash2 size={14} /></button>
         </div>}
       </article>;

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useImportRequest } from '../useImportRequest';
 
 import type {
   PdfImportFileSummary,
@@ -11,8 +12,15 @@ import type {
 
 interface PendingPreviewConsent {
   estimate: PdfImportPreviewEstimate;
-  fileId: string;
-  page: number;
+  intent: {
+    scope: string;
+    projectId: string;
+    draftId: string;
+    fileId: string;
+    page: number;
+    selection: PdfImportOcrSelection;
+  };
+  signal: AbortSignal;
 }
 
 function selectionKey(selection: PdfImportOcrSelection): string {
@@ -52,11 +60,19 @@ export function usePdfBatchPreview({
   const [page, setPage] = useState<PdfImportPage | null>(null);
   const [pageLoading, setPageLoading] = useState(false);
   const [textSource, setTextSource] = useState<'native' | 'ocr'>('native');
-  const [starting, setStarting] = useState(false);
+  const [startingRequest, setStartingRequest] = useState<{ controller: AbortController; scope: string } | null>(null);
   const [consent, setConsent] = useState<PendingPreviewConsent | null>(null);
   const selectedFileRef = useRef<string | null>(null);
-  const requestEpoch = useRef(0);
-  const pageController = useRef<AbortController | null>(null);
+  const pageRequest = useImportRequest(projectId);
+  const intentRequest = useImportRequest(projectId);
+  const inFlight = useRef<AbortController | null>(null);
+  const draftId = snapshot?.draft_id ?? null;
+  const selectedOcrKey = snapshot ? selectionKey(snapshot.choices.ocr_selection) : null;
+  const scope = JSON.stringify([projectId, draftId, selectedOcrKey, selectedFileId]);
+  const starting = Boolean(startingRequest?.scope === scope && !startingRequest.controller.signal.aborted);
+  const activeConsent = consent?.intent.scope === scope && !consent.signal.aborted ? consent : null;
+
+  useEffect(() => () => intentRequest.abort(), [intentRequest, scope]);
 
   const chosenFile = sampleFiles.find((file) => file.occurrence_id === selectedFileId) ?? null;
   const previewJob = snapshot?.preview_jobs?.find((job) => (
@@ -69,35 +85,30 @@ export function usePdfBatchPreview({
 
   const loadPage = useCallback(async (file: PdfImportFileSummary) => {
     if (!snapshot) return;
-    const epoch = ++requestEpoch.current;
-    const controller = new AbortController();
-    pageController.current?.abort();
-    pageController.current = controller;
+    const controller = pageRequest.begin();
     setPageLoading(true);
     try {
       const result = await api.getPage(
         projectId, snapshot.draft_id, file.occurrence_id, 1, { signal: controller.signal },
       );
       if (!controller.signal.aborted
-        && epoch === requestEpoch.current
         && selectedFileRef.current === result.occurrence_id
         && currentDraft() === result.draft_id) setPage(result);
     } catch (problem) {
       if (!controller.signal.aborted) reportError(problem);
     } finally {
-      if (!controller.signal.aborted && epoch === requestEpoch.current) setPageLoading(false);
+      if (!controller.signal.aborted) setPageLoading(false);
     }
-  }, [api, currentDraft, projectId, reportError, snapshot]);
+  }, [api, currentDraft, pageRequest, projectId, reportError, snapshot]);
 
   const select = useCallback(async (file: PdfImportFileSummary | null) => {
     selectedFileRef.current = file?.occurrence_id ?? null;
     setSelectedFileId(file?.occurrence_id ?? null);
     setTextSource('native');
     setPage(null);
-    requestEpoch.current += 1;
-    pageController.current?.abort();
+    pageRequest.abort();
     if (file && file.category !== 'other' && file.category !== 'unreadable') await loadPage(file);
-  }, [loadPage]);
+  }, [loadPage, pageRequest]);
 
   const clear = useCallback(() => {
     selectedFileRef.current = null;
@@ -105,68 +116,104 @@ export function usePdfBatchPreview({
     setTextSource('native');
     setPage(null);
     setPageLoading(false);
-    setStarting(false);
+    intentRequest.abort();
+    setStartingRequest(null);
     setConsent(null);
-    requestEpoch.current += 1;
-    pageController.current?.abort();
-  }, []);
+    pageRequest.abort();
+  }, [intentRequest, pageRequest]);
 
   useEffect(() => {
     if (previewJob?.status !== 'done' || cached || !chosenFile) return;
     queueMicrotask(() => void loadPage(chosenFile));
   }, [cached, chosenFile, loadPage, previewJob?.status]);
 
-  const start = useCallback(async (
-    fileId: string,
-    selectedPage = 1,
-    confirmation?: string,
+  const execute = useCallback(async (
+    intent: PendingPreviewConsent['intent'],
+    controller: AbortController,
+    confirmation: string | undefined,
     refresh?: () => Promise<void>,
   ) => {
-    if (!snapshot || starting) return;
-    setStarting(true);
+    await api.startOcrPreview(
+      intent.projectId, intent.draftId, intent.fileId, intent.page,
+      intent.selection, confirmation, { signal: controller.signal },
+    );
+    if (controller.signal.aborted || currentDraft() !== intent.draftId) return;
+    setTextSource('ocr');
+    await refresh?.();
+  }, [api, currentDraft]);
+
+  const start = useCallback(async (fileId: string, selectedPage = 1, refresh?: () => Promise<void>) => {
+    if (!snapshot || (inFlight.current && !inFlight.current.signal.aborted)) return;
+    const controller = intentRequest.begin();
+    inFlight.current = controller;
+    setStartingRequest({ controller, scope });
+    setConsent(null);
+    const intent: PendingPreviewConsent['intent'] = {
+      scope, projectId, draftId: snapshot.draft_id, fileId, page: selectedPage,
+      selection: { ...snapshot.choices.ocr_selection },
+    };
     try {
-      if (!confirmation) {
-        const estimate = await api.estimateOcrPreview(
-          projectId, snapshot.draft_id, fileId, selectedPage, snapshot.choices.ocr_selection,
-        );
-        const token = estimate.estimate?.promise_set_hash;
-        if (estimate.estimate?.requires_confirmation) {
-          if (!token) throw new Error('The OCR estimate did not include an authorization token.');
-          setConsent({ estimate, fileId, page: selectedPage });
-          return;
-        }
-        if (estimate.cached) {
-          const file = sampleFiles.find((item) => item.occurrence_id === fileId);
-          if (file) await loadPage(file);
-          setTextSource('ocr');
-          return;
-        }
-      }
-      await api.startOcrPreview(
-        projectId, snapshot.draft_id, fileId, selectedPage,
-        snapshot.choices.ocr_selection, confirmation,
+      const estimate = await api.estimateOcrPreview(
+        intent.projectId, intent.draftId, intent.fileId, intent.page, intent.selection,
+        { signal: controller.signal },
       );
-      setTextSource('ocr');
-      await refresh?.();
+      if (controller.signal.aborted || currentDraft() !== intent.draftId) return;
+      if (estimate.estimate?.requires_confirmation) {
+        if (!estimate.estimate.promise_set_hash) throw new Error('The OCR estimate did not include an authorization token.');
+        setConsent({ estimate, intent, signal: controller.signal });
+        return;
+      }
+      if (estimate.cached) {
+        const file = sampleFiles.find((item) => item.occurrence_id === fileId);
+        if (file) await loadPage(file);
+        if (!controller.signal.aborted) setTextSource('ocr');
+        return;
+      }
+      await execute(intent, controller, undefined, refresh);
     } catch (problem) {
-      reportError(problem);
+      if (!controller.signal.aborted) reportError(problem);
     } finally {
-      setStarting(false);
+      if (inFlight.current === controller) inFlight.current = null;
+      setStartingRequest((current) => current?.controller === controller ? null : current);
     }
-  }, [api, loadPage, projectId, reportError, sampleFiles, snapshot, starting]);
+  }, [api, currentDraft, execute, intentRequest, loadPage, projectId, reportError, sampleFiles, scope, snapshot]);
+
+  const cancelConsent = useCallback(() => {
+    intentRequest.abort();
+    setConsent(null);
+  }, [intentRequest]);
+
+  const confirm = useCallback(async (pending: PendingPreviewConsent, refresh?: () => Promise<void>) => {
+    if (pending.signal.aborted || pending.intent.scope !== scope
+      || currentDraft() !== pending.intent.draftId
+      || (inFlight.current && !inFlight.current.signal.aborted)) return;
+    const controller = intentRequest.begin();
+    inFlight.current = controller;
+    setConsent(null);
+    setStartingRequest({ controller, scope });
+    try {
+      await execute(pending.intent, controller, pending.estimate.estimate?.promise_set_hash ?? undefined, refresh);
+    } catch (problem) {
+      if (!controller.signal.aborted) reportError(problem);
+    } finally {
+      if (inFlight.current === controller) inFlight.current = null;
+      setStartingRequest((current) => current?.controller === controller ? null : current);
+    }
+  }, [currentDraft, execute, intentRequest, reportError, scope]);
 
   return {
     cached,
     chosenFile,
     clear,
-    consent,
+    consent: activeConsent,
+    cancelConsent,
+    confirm,
     page,
     pageLoading,
     previewJob,
     running,
     select,
     selectedFileId,
-    setConsent,
     setTextSource,
     start,
     textSource,

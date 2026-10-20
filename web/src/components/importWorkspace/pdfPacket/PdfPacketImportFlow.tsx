@@ -1,3 +1,8 @@
+import './PdfPacketImportFlow.css';
+import { Button } from '../../Button';
+import { PanelFrame, PanelBody, PanelFooter } from '../../PanelLayout';
+import { ImportDropArea } from '../ImportDropArea';
+import { FormField, TextInput } from '../../FormControls';
 import {
   useCallback,
   useEffect,
@@ -24,7 +29,9 @@ import {
   type PdfPacketSplitSnapshot,
 } from '../../../api/pdfPacketSplits';
 import { SelectorField } from '../../../engine-selector/SelectorField';
-import { countLabel } from '../../../format';
+import { countLabel, formatBytes } from '../../../format';
+import { usePoll } from '../../../hooks/usePoll';
+import { useImportRequest } from '../useImportRequest';
 import { CostGateModal } from '../../CostGateModal';
 import { SegmentedToggle } from '../../PanelPrimitives';
 import {
@@ -57,6 +64,7 @@ interface PdfPacketImportFlowProps {
   registerCloseGuard(guard: (() => boolean) | null): void;
   onImported(sheetId: number): void;
   onError(message: string): void;
+  onCancel(): void;
 }
 
 interface PendingOcrConsent {
@@ -92,11 +100,6 @@ function progressText(snapshot: PdfPacketSplitSnapshot): string {
   return total ? `Preparing pages · ${progress.done} of ${total}` : 'Reading the packet…';
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-  return `${Math.round(bytes / (1024 * 1024))} MB`;
-}
-
 function rememberedOptionsKey(projectId: string): string {
   return `frisket.pdf-packet-split.options.${projectId}`;
 }
@@ -121,6 +124,7 @@ export function PdfPacketImportFlow({
   registerCloseGuard,
   onImported,
   onError,
+  onCancel,
 }: PdfPacketImportFlowProps) {
   const [state, dispatch] = useReducer(pdfPacketFlowReducer, initialPdfPacketFlowState);
   const [uploading, setUploading] = useState(false);
@@ -140,6 +144,7 @@ export function PdfPacketImportFlow({
   const committedSheet = useRef<number | null>(null);
   const latestStatus = useRef(state.snapshot?.status);
   const serverCommitBusy = state.snapshot?.status === 'committing';
+  const pollRequest = useImportRequest(projectId);
 
   const beginAction = useCallback(() => {
     actionController.current?.abort();
@@ -243,19 +248,16 @@ export function PdfPacketImportFlow({
     }
   }, [onImported, projectId, splitId]);
 
-  useEffect(() => {
-    if (!state.snapshot) return undefined;
-    const active = state.snapshot.status === 'preparing'
-      || state.snapshot.status === 'committing'
-      || state.snapshot.jobs.some((job) => job.progress.status === 'queued' || job.progress.status === 'running');
-    if (!active) return undefined;
-    const controller = new AbortController();
-    const timer = window.setInterval(() => void refreshSnapshot(controller.signal), 900);
-    return () => {
-      controller.abort();
-      window.clearInterval(timer);
-    };
-  }, [refreshSnapshot, state.snapshot]);
+  const polling = Boolean(splitId && state.snapshot && (
+    state.snapshot.status === 'preparing'
+    || state.snapshot.status === 'committing'
+    || state.snapshot.jobs.some((job) => job.progress.status === 'queued' || job.progress.status === 'running')
+  ));
+  const pollSnapshot = useCallback(async () => {
+    await refreshSnapshot(pollRequest.begin().signal);
+  }, [pollRequest, refreshSnapshot]);
+  usePoll(pollSnapshot, { active: polling, intervalMs: 900, guardOverlap: true, mode: 'settle-relative' });
+  useEffect(() => () => pollRequest.abort(), [pollRequest, polling, projectId, splitId]);
 
   const loadPage = useCallback(async (page: number, signal?: AbortSignal) => {
     if (!splitId) return;
@@ -633,7 +635,7 @@ export function PdfPacketImportFlow({
   };
 
   if (!state.snapshot) {
-    return <PacketChooser uploading={uploading} error={state.error} onChoose={chooseFile} />;
+    return <PacketChooser uploading={uploading} error={state.error} onChoose={chooseFile} onCancel={onCancel} />;
   }
 
   if (state.snapshot.status === 'preparing' || !pageCount) {
@@ -647,7 +649,7 @@ export function PdfPacketImportFlow({
           value={state.snapshot.prepare.progress.done}
         />
         <span>{progressText(state.snapshot)}</span>
-        {state.error && <div className="import-field-error" role="alert">{state.error}</div>}
+        {state.error && <div className="panel-error" role="alert">{state.error}</div>}
       </div>
     );
   }
@@ -695,7 +697,7 @@ export function PdfPacketImportFlow({
           dispatch={dispatch}
         />
       )}
-      {state.error && <div className="pdf-packet-error import-field-error" role="alert">{state.error}</div>}
+      {state.error && <div className="panel-error panel-error" role="alert">{state.error}</div>}
       </div>
       {ocrConsent ? (
         <CostGateModal
@@ -717,35 +719,22 @@ function PacketChooser({
   uploading,
   error,
   onChoose,
+  onCancel,
 }: {
   uploading: boolean;
   error: string | null;
   onChoose(file: File): void;
+  onCancel(): void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [dragging, setDragging] = useState(false);
   const [dropError, setDropError] = useState<string | null>(null);
   return (
-    <div
-      className="pdf-packet-chooser"
-      data-testid="pdf-packet-chooser"
-      data-dragging={dragging || undefined}
-      onDragOver={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        event.dataTransfer.dropEffect = uploading ? 'none' : 'copy';
-        if (!uploading) setDragging(true);
-      }}
-      onDragLeave={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false);
-      }}
-      onDrop={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        setDragging(false);
-        if (uploading) return;
-        const files = event.dataTransfer.files;
-        if (!files.length) return;
+    <PanelFrame fill>
+    <PanelBody className="import-entry-body">
+    <ImportDropArea title="Drop a PDF packet here"
+      description="Mark the first page of each document. The original PDF is never changed."
+      testId="pdf-packet-chooser" disabled={uploading}
+      onFiles={(files) => {
         if (files.length !== 1) {
           setDropError('Choose one PDF packet at a time.');
           return;
@@ -754,9 +743,6 @@ function PacketChooser({
         onChoose(files[0]);
       }}
     >
-      <FileText size={34} aria-hidden />
-      <h2>Split a PDF packet</h2>
-      <p>Mark the first page of each document. The original PDF is never changed.</p>
       <input
         ref={inputRef}
         type="file"
@@ -772,12 +758,17 @@ function PacketChooser({
           }
         }}
       />
-      <button type="button" className="btn btn-primary" disabled={uploading} onClick={() => inputRef.current?.click()}>
+      <Button type="button" className="btn-primary" disabled={uploading} onClick={() => inputRef.current?.click()}>
         {uploading ? 'Reading packet…' : 'Choose PDF packet'}
-      </button>
-      <span className="form-hint">or drop a PDF here</span>
-      {(dropError || error) && <div className="import-field-error" role="alert">{dropError || error}</div>}
-    </div>
+      </Button>
+    </ImportDropArea>
+      {(dropError || error) && <div className="panel-error" role="alert">{dropError || error}</div>}
+    </PanelBody>
+    <PanelFooter>
+      <Button type="button" disabled={uploading} onClick={onCancel}>Cancel</Button>
+      <span>Choose or drop a PDF to start checking its pages.</span>
+    </PanelFooter>
+    </PanelFrame>
   );
 }
 
@@ -871,15 +862,15 @@ function PacketTextStep({
                 return selected !== null;
               }}
             />
-            <button type="button" className="btn" disabled={busy} onClick={() => {
+            <Button type="button" disabled={busy} onClick={() => {
               setPreferredSource('ocr');
               onRunSample();
             }}>
               Extract text
-            </button>
+            </Button>
           </div>
         ) : (
-          <button type="button" className="btn" onClick={onShowOcr}>Looks wrong? Run OCR</button>
+          <Button type="button" onClick={onShowOcr}>Looks wrong? Run OCR</Button>
         )}
       </aside>
       <section className="pdf-packet-text-preview">
@@ -904,24 +895,24 @@ function PacketTextStep({
           emptyCopy={source === 'ocr' ? 'Run OCR to read this page.' : 'No extracted text on this page.'}
         />
         <footer>
-          <button type="button" className="btn" onClick={onBack}>Back</button>
+          <Button type="button" onClick={onBack}>Back</Button>
           <strong>Does this text look right?</strong>
           <div>
             {nativeText && source === 'native' ? (
               <>
-                <button type="button" className="btn" disabled={busy} onClick={onShowOcr}>No, run OCR</button>
-                <button type="button" className="btn btn-primary" disabled={busy} onClick={onAcceptNative}>Yes, use extracted text</button>
+                <Button type="button" disabled={busy} onClick={onShowOcr}>No, run OCR</Button>
+                <Button type="button" className="btn-primary" disabled={busy} onClick={onAcceptNative}>Yes, use extracted text</Button>
               </>
             ) : null}
             {ocrText && source === 'ocr' ? (
-              <button type="button" className="btn btn-primary" disabled={busy} onClick={onAcceptOcr}>
+              <Button type="button" className="btn-primary" disabled={busy} onClick={onAcceptOcr}>
                 Use this OCR and read all {countLabel(pageCount, 'page')}
-              </button>
+              </Button>
             ) : null}
             {!nativeText && !ocrText ? (
-              <button type="button" className="btn btn-primary" disabled={busy} onClick={onAcceptNative}>
+              <Button type="button" className="btn-primary" disabled={busy} onClick={onAcceptNative}>
                 Continue without OCR
-              </button>
+              </Button>
             ) : null}
           </div>
         </footer>
@@ -941,16 +932,17 @@ function PacketImportStep({ state, pageCount, canKeepOcrText, onBack, onSubmit, 
     state.snapshot!.packet.filename,
     document,
   ) ?? 'Invalid file name pattern';
-  return <div className="pdf-packet-import-step">
+  return <PanelFrame fill>
+    <PanelBody className="pdf-packet-import-body">
     <header><h2>Import {countLabel(documents.length, 'document')}</h2><p>Each becomes a normal PDF. The original packet stays as it is.</p></header>
     <div className="pdf-packet-import-options">
-      <label className="pdf-packet-import-field"><span>New sheet</span>
-        <input className="form-input" value={state.destinationName} onChange={(event) => dispatch({ type: 'destinationName', value: event.target.value })} />
-      </label>
-      <label className="pdf-packet-import-field"><span>File names</span>
-        <input className="form-input mono" value={state.namePattern} onChange={(event) => dispatch({ type: 'namePattern', value: event.target.value })} />
-        {patternError && <span className="import-field-error" role="alert">{patternError}</span>}
-      </label>
+      <FormField label="New sheet" className="pdf-packet-import-field">
+        <TextInput value={state.destinationName} onChange={(event) => dispatch({ type: 'destinationName', value: event.target.value })} />
+      </FormField>
+      <FormField label="File names" className="pdf-packet-import-field">
+        <TextInput className="mono" value={state.namePattern} onChange={(event) => dispatch({ type: 'namePattern', value: event.target.value })} />
+        {patternError && <span className="panel-error" role="alert">{patternError}</span>}
+      </FormField>
       <div className="pdf-packet-import-choice">
         <label className="import-check-inline"><input type="checkbox" disabled={!canKeepOcrText} checked={canKeepOcrText && state.keepOcrText} onChange={(event) => dispatch({ type: 'keepOcrText', value: event.target.checked })} /> Keep OCR text and boxes with each PDF</label>
         {!canKeepOcrText && <p className="form-hint">Finish OCR for every page to keep its text and boxes.</p>}
@@ -962,8 +954,9 @@ function PacketImportStep({ state, pageCount, canKeepOcrText, onBack, onSubmit, 
     <div className="pdf-packet-import-table"><table><thead><tr><th>#</th><th>Name</th><th>Source</th><th>Starts with</th></tr></thead><tbody>
       {documents.map((document) => <tr key={document.start}><td>{document.index}</td><td>{nameFor(document)}</td><td>packet pp {document.start}–{document.end} · {document.pages} pp</td><td>{firstLine(state.pages[document.start]?.ocr_text ?? state.pages[document.start]?.native_text)}</td></tr>)}
     </tbody></table></div>
-    <footer><button type="button" className="btn" onClick={onBack}>Back</button><span>{documents.length} {documents.length === 1 ? 'PDF' : 'PDFs'} · {countLabel(pageCount, 'page')} · each linked to the packet and its page range</span><button type="button" className="btn btn-primary" disabled={commitBusy || !state.destinationName.trim() || Boolean(patternError)} onClick={onSubmit}>{commitBusy ? 'Importing…' : `Import ${countLabel(documents.length, 'document')}`}</button></footer>
-  </div>;
+    </PanelBody>
+    <PanelFooter><Button type="button" onClick={onBack}>Back</Button><span>{documents.length} {documents.length === 1 ? 'PDF' : 'PDFs'} · {countLabel(pageCount, 'page')} · each linked to the packet and its page range</span><Button type="button" className="btn-primary" disabled={commitBusy || !state.destinationName.trim() || Boolean(patternError)} onClick={onSubmit}>{commitBusy ? 'Importing…' : `Import ${countLabel(documents.length, 'document')}`}</Button></PanelFooter>
+  </PanelFrame>;
 }
 
 function firstLine(text: string | null | undefined): string {

@@ -12,7 +12,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import * as apiModule from '../../src/api/open';
 import type { RuntimeConfig } from '../../src/api/types';
-import { AiCallModeSettings } from '../../src/settings/SettingsSections';
+import { AiCallModeSettings } from '../../src/settings/PersonalSettings';
 
 
 

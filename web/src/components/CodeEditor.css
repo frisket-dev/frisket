@@ -1,0 +1,71 @@
+.code-editor {
+  border-radius: 11px;
+  border: 1px solid #1c2331;
+  box-shadow: 0 14px 30px -18px rgba(15, 23, 42, 0.5);
+  overflow: hidden;
+  background: #0d1117;
+}
+.code-editor-contract {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 13px;
+  background: #161c28;
+  border-bottom: 1px solid #232b3b;
+}
+.code-editor-badge {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: #8b98b0;
+}
+.code-editor-contract-sep { color: #5f6b83; }
+.code-editor-contract-text { font-size: 11.5px; color: #8b98b0; }
+.code-editor-contract .cm-builtin { color: #d2a8ff; font-weight: 600; }
+.code-editor-contract .cm-result { color: #ffa657; font-weight: 600; }
+.code-editor .npm__react-simple-code-editor__textarea,
+.code-editor pre {
+  font-family: var(--mono) !important;
+  font-size: 12.5px !important;
+  line-height: 1.75 !important;
+  color: #e6edf3;
+}
+.code-editor .npm__react-simple-code-editor__textarea {
+  caret-color: #e6edf3;
+  outline: none;
+}
+.code-editor .npm__react-simple-code-editor__textarea:focus {
+  outline: none;
+}
+.code-editor .token.comment { color: #8b949e; }
+.code-editor .token.string { color: #a5d6ff; }
+.code-editor .token.number { color: #79c0ff; }
+.code-editor .token.keyword { color: #ff7b72; }
+.code-editor .token.builtin,
+.code-editor .token.function { color: #d2a8ff; }
+.code-editor .token.operator { color: #ff7b72; }
+.code-editor-status {
+  display: flex;
+  /* The trust warning below is a sentence, not a chip: it must wrap inside the
+     bar rather than squeeze the label or overflow the editor chrome. */
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding: 8px 13px;
+  background: #161c28;
+  border-top: 1px solid #232b3b;
+}
+/* Amber warning tone, same idiom as .cost-line.cost-warn / .run-warning-icon.
+   Hardcoded rather than var(--amber) because this bar is dark editor chrome in
+   BOTH themes (like its sibling status colors above), and the light-theme amber
+   is unreadable on #161c28. */
+.code-editor-status-warn { font-size: 11px; font-weight: 600; color: #d9a24f; white-space: nowrap; }
+/* The enforced-fence label. Deliberately NOT the green success tone the old
+   "● sandboxed" badge wore: what it reports is a real kernel fence, but the
+   badge that reassured on no evidence is why this bar exists, so the confined
+   case states itself in the bar's own muted-foreground tone rather than
+   celebrating. */
+.code-editor-status-note { font-size: 11px; font-weight: 600; color: #8b98b0; white-space: nowrap; }
+.code-editor-status-muted { font-size: 11px; color: #5f6b83; }
+.code-editor-status-warn + .code-editor-status-muted,
+.code-editor-status-note + .code-editor-status-muted { flex: 1 1 220px; min-width: 0; line-height: 1.45; }

@@ -56,7 +56,7 @@
     },
     {
       "rule": "react-doctor/click-events-have-key-events",
-      "file": "src/App.tsx"
+      "file": "src/workspace/SheetInfoPopover.tsx"
     },
     {
       "rule": "react-doctor/click-events-have-key-events",
@@ -116,7 +116,7 @@
     },
     {
       "rule": "react-doctor/js-index-maps",
-      "file": "src/components/EvidenceViewer.tsx"
+      "file": "src/components/evidence/EvidenceMediaSource.tsx"
     },
     {
       "rule": "react-doctor/js-index-maps",
@@ -168,7 +168,7 @@
     },
     {
       "rule": "react-doctor/label-has-associated-control",
-      "file": "src/settings/SettingsSections.tsx"
+      "file": "src/settings/ProjectDataManagementSettings.tsx"
     },
     {
       "rule": "react-doctor/label-has-associated-control",
@@ -180,7 +180,7 @@
     },
     {
       "rule": "react-doctor/no-array-index-as-key",
-      "file": "src/components/RowDrawer.tsx"
+      "file": "src/components/rowInspection/JsonValue.tsx"
     },
     {
       "rule": "react-doctor/no-array-index-as-key",
@@ -224,7 +224,7 @@
     },
     {
       "rule": "react-doctor/no-derived-useState",
-      "file": "src/settings/SettingsSections.tsx"
+      "file": "src/settings/AiProviderSettings.tsx"
     },
     {
       "rule": "react-doctor/no-dynamic-import-path",
@@ -240,7 +240,11 @@
     },
     {
       "rule": "react-doctor/no-event-handler",
-      "file": "src/components/EvidenceViewer.tsx"
+      "file": "src/components/evidence/EvidenceMediaSource.tsx"
+    },
+    {
+      "rule": "react-doctor/no-event-handler",
+      "file": "src/components/evidence/EvidenceTextSource.tsx"
     },
     {
       "rule": "react-doctor/no-event-handler",
@@ -256,7 +260,7 @@
     },
     {
       "rule": "react-doctor/no-event-handler",
-      "file": "src/settings/SettingsSections.tsx"
+      "file": "src/settings/ProjectIntegrationSettings.tsx"
     },
     {
       "rule": "react-doctor/no-event-handler",
@@ -288,7 +292,11 @@
     },
     {
       "rule": "react-doctor/no-giant-component",
-      "file": "src/components/ImportCsv.tsx"
+      "file": "src/components/importWorkspace/ImportWorkspaceDialog.tsx"
+    },
+    {
+      "rule": "react-doctor/no-giant-component",
+      "file": "src/components/importWorkspace/FeedSourceForm.tsx"
     },
     {
       "rule": "react-doctor/no-giant-component",
@@ -360,7 +368,7 @@
     },
     {
       "rule": "react-doctor/no-noninteractive-element-interactions",
-      "file": "src/App.tsx"
+      "file": "src/workspace/SheetInfoPopover.tsx"
     },
     {
       "rule": "react-doctor/no-noninteractive-element-interactions",
@@ -408,7 +416,7 @@
     },
     {
       "rule": "react-doctor/no-static-element-interactions",
-      "file": "src/App.tsx"
+      "file": "src/workspace/SheetInfoPopover.tsx"
     },
     {
       "rule": "react-doctor/no-static-element-interactions",
@@ -428,7 +436,7 @@
     },
     {
       "rule": "react-doctor/prefer-html-dialog",
-      "file": "src/components/RowDrawer.tsx"
+      "file": "src/components/rowInspection/CellRunDetails.tsx"
     },
     {
       "rule": "react-doctor/prefer-module-scope-pure-function",
@@ -444,7 +452,7 @@
     },
     {
       "rule": "react-doctor/prefer-module-scope-pure-function",
-      "file": "src/settings/SettingsSections.tsx"
+      "file": "src/settings/AiProviderSettings.tsx"
     },
     {
       "rule": "react-doctor/prefer-module-scope-pure-function",
@@ -492,7 +500,11 @@
     },
     {
       "rule": "react-doctor/prefer-tag-over-role",
-      "file": "src/components/RowDrawer.tsx"
+      "file": "src/components/rowInspection/CellRunDetails.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-tag-over-role",
+      "file": "src/components/rowInspection/FieldValue.tsx"
     },
     {
       "rule": "react-doctor/prefer-tag-over-role",
@@ -560,7 +572,19 @@
     },
     {
       "rule": "react-doctor/prefer-useReducer",
-      "file": "src/settings/SettingsSections.tsx"
+      "file": "src/settings/AiProviderSettings.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-useReducer",
+      "file": "src/settings/OrganizationSettings.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-useReducer",
+      "file": "src/settings/PersonalSettings.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-useReducer",
+      "file": "src/settings/ProjectIntegrationSettings.tsx"
     },
     {
       "rule": "react-doctor/prefer-useReducer",
@@ -604,7 +628,7 @@
     },
     {
       "rule": "react-doctor/rerender-state-only-in-handlers",
-      "file": "src/settings/SettingsSections.tsx"
+      "file": "src/settings/AiProviderSettings.tsx"
     },
     {
       "rule": "react-doctor/rerender-state-only-in-handlers",

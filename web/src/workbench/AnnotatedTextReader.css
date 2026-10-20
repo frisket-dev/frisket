@@ -1,0 +1,79 @@
+/* annotated-text reader: the per-family toggle strip. */
+/* A real <fieldset> (its <legend> names the group for a screen reader), so its
+   default chrome is reset to the strip this was before. */
+.annotation-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 6px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  min-width: 0;
+}
+.annotation-toggle { display: inline-flex; align-items: center; gap: 2px; position: relative; }
+.annotation-toggle-btn { display: inline-flex; align-items: center; gap: 6px; }
+/* Off reads as off at a glance; a stale layer additionally loses its swatch,
+   because it has no marks on screen to match. */
+.annotation-toggle-btn:not(.is-active) { opacity: 0.55; }
+.annotation-toggle-btn[data-positioned='false'] .annotation-toggle-label { text-decoration: line-through; }
+.annotation-toggle-status { color: var(--amber, #b45309); }
+/* An <output> element (implicitly role="status"); `display` is the only thing
+   it needs beyond what the note already was. */
+.annotation-status-note {
+  display: block;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  width: 280px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow-menu);
+  font-size: 12px;
+}
+.annotation-status-note p { margin: 0 0 8px; }
+.annotation-status-note p:last-child { margin-bottom: 0; }
+
+/* The marks themselves. Colour carries the entity TYPE; the underline carries
+   "this is a mark" so the distinction survives without colour, and the border
+   thickens with nesting depth so "Boeing" inside "Boeing Company" is visibly
+   two marks rather than one. */
+.annotation-mark {
+  background: color-mix(in srgb, var(--mark-tint, #6b7280) 16%, transparent);
+  border: 0;
+  border-bottom: 2px solid color-mix(in srgb, var(--mark-tint, #6b7280) 70%, transparent);
+  border-radius: 2px;
+  color: inherit;
+  padding: 0 1px;
+  cursor: pointer;
+  /* A clickable mark is a <button> (R18: native focus + Enter/Space). It must
+     still flow and WRAP inside the paragraph, so it is display:inline and
+     inherits the reader's font and pre-wrap whitespace rather than the UA's
+     button defaults. */
+  display: inline;
+  font: inherit;
+  text-align: inherit;
+  white-space: inherit;
+}
+.annotation-mark[data-depth='2'] { border-bottom-width: 3px; border-bottom-style: double; }
+.annotation-mark[data-depth='3'] { border-bottom-width: 4px; border-bottom-style: double; }
+.annotation-mark:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.annotation-mark[data-active='true'] {
+  background: color-mix(in srgb, var(--mark-tint, #6b7280) 38%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--mark-tint, #6b7280) 80%, transparent);
+}
+.annotation-mark[data-entity-type='person'] { --mark-tint: #2563eb; }
+.annotation-mark[data-entity-type='organization'] { --mark-tint: #7c3aed; }
+.annotation-mark[data-entity-type='location'] { --mark-tint: #059669; }
+.annotation-mark[data-entity-type='date'] { --mark-tint: #d97706; }
+.annotation-mark[data-entity-type='time'] { --mark-tint: #d97706; }
+.annotation-mark[data-entity-type='money'] { --mark-tint: #be123c; }
+.annotation-mark[data-entity-type='product'] { --mark-tint: #0891b2; }
+.annotation-mark[data-entity-type='event'] { --mark-tint: #c026d3; }
+.annotation-mark[data-entity-type='norp'] { --mark-tint: #4f46e5; }
+.annotation-mark[data-entity-type='fac'] { --mark-tint: #0d9488; }

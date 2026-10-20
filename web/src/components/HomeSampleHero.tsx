@@ -1,3 +1,4 @@
+import { Button } from './Button';
 import { ArrowRight, FolderPlus } from 'lucide-react';
 import styles from './HomeSampleHero.module.css';
 
@@ -19,15 +20,15 @@ export function HomeSampleHero({
           Explore sample data with guided walkthroughs.
         </p>
         <div className={styles.actions}>
-          <button
+          <Button
             type="button"
-            className="btn btn-primary"
+            className="btn-primary"
             data-testid="try-sample-project"
             onClick={onOpenSample}
             disabled={busy}
           >
             {busy ? 'Setting up the sample…' : <>Try the sample project <ArrowRight size={13} /></>}
-          </button>
+          </Button>
         </div>
       </div>
       <button type="button" className={styles.newProject} onClick={onNewProject}>

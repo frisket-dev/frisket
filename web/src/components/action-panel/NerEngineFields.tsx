@@ -1,3 +1,4 @@
+import '../PanelPrimitives.css';
 import { LabelChipsInput } from './LabelChipsInput';
 import { SpacyTypeMultiSelect } from './NerFieldControls';
 import styles from './NerEngineFields.module.css';
@@ -35,43 +36,25 @@ export function NerEngineFields({
             />
           </>
         )}
-        {engine === 'gliner' && (
+        {(engine === 'gliner' || engine === 'llm') && (
           <>
-            <div className="form-label">Labels</div>
+            <div className="form-label">{engine === 'gliner' ? 'Labels' : 'Entity schema'}</div>
             <p className="form-hint">
-              GLiNER is zero-shot — type any label and press Enter or comma to add it.
+              {engine === 'gliner'
+                ? 'GLiNER is zero-shot — type any label and press Enter or comma to add it.'
+                : 'LLM extraction uses these labels as the structured entity types.'}
             </p>
             <LabelChipsInput
+              key={engine}
               typed
               value={labels}
               onChange={onLabelsChange}
               placeholder="e.g. person, organization, ship name"
-              ariaLabel="Entity labels"
-              testId="ner-gliner-labels"
+              ariaLabel={engine === 'gliner' ? 'Entity labels' : 'LLM entity labels'}
+              testId={`ner-${engine}-labels`}
             />
             {labelsError && (
-              <p className="form-error" data-testid="ner-gliner-labels-error" role="alert">
-                {labelsError}
-              </p>
-            )}
-          </>
-        )}
-        {engine === 'llm' && (
-          <>
-            <div className="form-label">Entity schema</div>
-            <p className="form-hint">
-              LLM extraction uses these labels as the structured entity types.
-            </p>
-            <LabelChipsInput
-              typed
-              value={labels}
-              onChange={onLabelsChange}
-              placeholder="e.g. person, organization, ship name"
-              ariaLabel="LLM entity labels"
-              testId="ner-llm-labels"
-            />
-            {labelsError && (
-              <p className="form-error" data-testid="ner-llm-labels-error" role="alert">
+              <p className="panel-error" data-testid={`ner-${engine}-labels-error`} role="alert">
                 {labelsError}
               </p>
             )}

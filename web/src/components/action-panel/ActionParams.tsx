@@ -1,3 +1,5 @@
+import '../ActionPanel.css';
+import { TextArea, TextInput } from '../FormControls';
 // Generic catalog-parameter rendering. ActionParams receives an ALREADY-FILTERED
 // parameter list: the action-kind bespoke/internal exclusions (NER, semantic/tabular
 // joins, YouTube media, video frames, census, clean_dates, derive
@@ -145,6 +147,7 @@ export function ActionParams({
       if (param.denseGroup !== denseGroupKey) flushDense();
       continue;
     }
+    const dense = Boolean(param.denseGroup && param.layout !== 'grid' && !param.advanced && !param.advancedGroup);
     const rendered = (
       <ParamInput
         key={param.name}
@@ -156,6 +159,7 @@ export function ActionParams({
         diagnostic={diagnostics?.[param.name] ?? null}
         testId={testIdOverrides?.[param.name]}
         renderField={renderField}
+        dense={dense}
       />
     );
     if (param.layout === 'grid' && !param.advanced && !param.advancedGroup) {
@@ -170,17 +174,7 @@ export function ActionParams({
       denseGroupKey = param.denseGroup;
       denseBuffer.push(
         <div key={param.name} className="dense-grid-item" data-span={denseSpanFor(param)}>
-          <ParamInput
-            param={param}
-            value={values[param.name] ?? ''}
-            columnValue={columnValues?.[param.name]}
-            columns={columns}
-            onChange={(value) => onChange(param.name, value)}
-            diagnostic={diagnostics?.[param.name] ?? null}
-            testId={testIdOverrides?.[param.name]}
-            renderField={renderField}
-            dense
-          />
+          {rendered}
         </div>,
       );
       continue;
@@ -429,7 +423,7 @@ export function ParamInput({
   // both ordinary and locally presented fields.
   const paramError = diagnostic && diagnostic.ok === false
     ? (
-        <p className="form-error" data-testid={`${testid}-error`} role="alert">
+        <p className="panel-error" data-testid={`${testid}-error`} role="alert">
           {diagnostic.message ?? 'Invalid value'}
           {diagnostic.position !== undefined ? ` (at position ${diagnostic.position})` : ''}
         </p>
@@ -462,40 +456,9 @@ export function ParamInput({
   }
   if (param.input === 'checkbox') {
     const checked = value === '' ? param.defaultValue === 'true' : value === 'true';
-    // A dense-grid checkbox packs like the grid variant — a bare compact box
-    // with the description on a `title` tooltip, not a tall toggle-row card.
-    if (dense) {
-      return (
-        <label className="form-check" htmlFor={id} title={param.hint}>
-          <input
-            id={id}
-            type="checkbox"
-            checked={checked}
-            data-testid={testid}
-            onChange={(e) => onChange(e.target.checked ? 'true' : 'false')}
-          />
-          {param.label}
-        </label>
-      );
-    }
-    // Grid-layout booleans (clean_column's Cleanings) stay a bare compact
-    // checkbox even when described — the description becomes a `title` tooltip
-    // so a dozen of them fit a multi-column grid without a scroll.
-    if (param.layout === 'grid') {
-      return (
-        <label className="form-check cleanings-grid-item" htmlFor={id} title={param.hint}>
-          <input
-            id={id}
-            type="checkbox"
-            checked={checked}
-            data-testid={testid}
-            onChange={(e) => onChange(e.target.checked ? 'true' : 'false')}
-          />
-          {param.label}
-        </label>
-      );
-    }
-    if (param.hint) {
+    // Dense and grid booleans share compact checkboxes. Described ordinary
+    // booleans keep their full ToggleRow; only compact labels use tooltips.
+    if (param.hint && !dense && param.layout !== 'grid') {
       return (
         <ToggleRow
           title={param.label}
@@ -507,7 +470,8 @@ export function ParamInput({
       );
     }
     return (
-      <label className="form-check" htmlFor={id}>
+      <label className={`form-check${!dense && param.layout === 'grid' ? ' cleanings-grid-item' : ''}`}
+        htmlFor={id} title={dense || param.layout === 'grid' ? param.hint : undefined}>
         <input
           id={id}
           type="checkbox"
@@ -537,9 +501,9 @@ export function ParamInput({
     return (
       <>
         <label className="form-label" htmlFor={id}>{param.label}</label>
-        <textarea
+        <TextArea
           id={id}
-          className="form-input form-textarea form-textarea-autogrow"
+          className="form-textarea-autogrow"
           ref={resizeTextareaToContent}
           rows={5}
           style={style}
@@ -617,9 +581,9 @@ export function ParamInput({
         ariaInvalid={paramError ? true : undefined}
       />
     ) : (
-      <input
+      <TextInput
         id={id}
-        className="form-input"
+
         style={style}
         value={value}
         placeholder={param.placeholder}

@@ -1,15 +1,21 @@
+import { CompareToolbar, CompareEngineChip, CompareResultColumn } from './CompareLayout';
+import { Button } from '../components/Button';
+import { FormField, TextArea, TextInput } from '../components/FormControls';
+import { PanelBody } from '../components/PanelLayout';
+import { PanelEmpty, PanelError } from '../components/PanelPrimitives';
+import styles from './TranslateCompareTab.module.css';
 import { useEffect, useMemo, useState } from 'react';
-import { Loader2, Play, X } from 'lucide-react';
+import { Loader2, Play } from 'lucide-react';
 
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import type { EngineOption, TranslateCompareEngineResult } from '../api/open';
 import { translateEnginesFromCatalog } from '../actions/translateEngineCatalog';
-import { engineIsRemote, tierForEngine } from '../actions/engineCatalog';
-import { EngineTierBadge } from '../components/EngineTierBadge';
+import { engineIsRemote } from '../actions/engineCatalog';
 import { CompareBillableEnginesNote } from './MediaCompareShell';
 import { PanelSelect } from '../components/PanelSelect';
 import { mediaSelectorQuery } from './mediaCompareSelector';
 import { useCompareSelectorReadiness } from './useCompareSelectorReadiness';
+import { useComparisonCatalog } from './useComparisonCatalog';
 import { SelectorField } from '../engine-selector/SelectorField';
 
 // TranslateCompareTab — the TEXT-source sibling of the OCR/Transcribe
@@ -32,6 +38,7 @@ import { SelectorField } from '../engine-selector/SelectorField';
 // event to fire on, so the user edits text + engines freely, then Runs once.
 
 const DEFAULT_TARGET = 'Spanish';
+const NO_ENGINES: EngineOption[] = [];
 
 // Auto + a few common source hints (single-select; '' = auto-detect). Kept
 // short — the target box is free text; the source is only a hint for engines
@@ -53,10 +60,9 @@ interface TranslateCompareTabProps {
 
 export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProps) {
   const { projectApi: api, chromePreferences: { projectId } } = useWorkspaceStores();
-  const [engines, setEngines] = useState<EngineOption[]>([]);
-  const [catalogLoading, setCatalogLoading] = useState(true);
-  const [catalogError, setCatalogError] = useState(false);
-  const [catalogAttempt, setCatalogAttempt] = useState(0);
+  const { engines, status: catalogStatus, retry: retryCatalog } = useComparisonCatalog(translateEnginesFromCatalog, NO_ENGINES);
+  const catalogLoading = catalogStatus === 'idle' || catalogStatus === 'loading';
+  const catalogError = catalogStatus === 'error';
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [selectorEngineId, setSelectorEngineId] = useState<string | null>(null);
   const [text, setText] = useState('');
@@ -66,36 +72,6 @@ export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProp
   const [results, setResults] = useState<TranslateCompareEngineResult[] | null>(null);
   const [runErrors, setRunErrors] = useState<Record<string, string>>({});
   const [runError, setRunError] = useState<string | null>(null);
-
-  // This catalog only supplies compare labels and its existing free/billed
-  // policy. The selector service owns offered choices and readiness.
-  useEffect(() => {
-    let cancelled = false;
-    api
-      .listActionCatalog()
-      .then((catalog) => {
-        // THE filter point: billable engines never enter the picker, so a
-        // compare column cannot hold one and there is no consent gate to
-        // forget. `billableEngines` keeps them for the explanatory note.
-        if (!cancelled) setEngines(translateEnginesFromCatalog(catalog));
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setEngines([]);
-          setCatalogError(true);
-        }
-      })
-      .finally(() => { if (!cancelled) setCatalogLoading(false); });
-    return () => {
-      cancelled = true;
-    };
-  }, [api, catalogAttempt]);
-
-  const retryCatalog = () => {
-    setCatalogError(false);
-    setCatalogLoading(true);
-    setCatalogAttempt((attempt) => attempt + 1);
-  };
 
   const freeEngines = useMemo(
     () => engines.filter((engine) => !engineIsRemote(engine)),
@@ -124,9 +100,11 @@ export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProp
   const selectedColumns = useMemo(() => selectedIds.map((id) => ({
     id, engineId: id, options: { language: sourceLanguage, target_language: targetLanguage },
   })), [selectedIds, sourceLanguage, targetLanguage]);
-  const { isRunnable, reportColumnChoice } = useCompareSelectorReadiness(projectId, 'map.translate', selectedColumns);
-  const selectorColumn = { id: selectorEngineId ?? 'add', engineId: selectorEngineId,
-    options: { language: sourceLanguage, target_language: targetLanguage } };
+  const selectorColumn = useMemo(() => ({ id: selectorEngineId ?? 'add', engineId: selectorEngineId,
+    options: { language: sourceLanguage, target_language: targetLanguage } }), [selectorEngineId, sourceLanguage, targetLanguage]);
+  const projectionColumns = useMemo(() => selectedColumns.some((column) => column.id === selectorColumn.id)
+    ? selectedColumns : [...selectedColumns, selectorColumn], [selectedColumns, selectorColumn]);
+  const { isRunnable, selectorProjection, selectorOwners } = useCompareSelectorReadiness(projectId, 'map.translate', projectionColumns);
 
   const canRun =
     Boolean(text.trim()) && selectedIds.length > 0 && !running
@@ -176,124 +154,12 @@ export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProp
 
   return (
     <section className="ocr-compare-tab" data-testid="translate-compare-tab">
-      <div
-        className="ocr-compare-toolbar"
-        data-testid="translate-compare-toolbar"
-        data-running={running ? 'true' : 'false'}
-      >
-        <div className="ocr-compare-chips-row" data-testid="translate-compare-chips-row">
-          <span className="ocr-compare-scratch-tag" data-testid="translate-compare-scratch-tag">
-            scratch · not in a project
-          </span>
-          <span className="ocr-compare-variants-label">ENGINES</span>
-          <div
-            className="ocr-compare-variant-chips"
-            data-testid="translate-compare-engine-chips"
-          >
-            {selectedEngines.map((engine) => (
-              <div
-                key={engine.id}
-                className="ocr-compare-variant-chip engine-tier-chip"
-                data-testid="translate-compare-engine-chip"
-                data-engine-id={engine.id}
-              >
-                <span className="ocr-compare-variant-name">{engine.label}</span>
-                {/* Where the chosen engine runs, visible on the chip
-                    itself. */}
-                <EngineTierBadge
-                  tier={tierForEngine(engine)}
-                  testId="translate-compare-engine-chip-tier"
-                />
-                <button
-                  type="button"
-                  className="ocr-compare-variant-remove"
-                  data-testid={`translate-compare-engine-chip-remove-${engine.id}`}
-                  aria-label={`Remove ${engine.label}`}
-                  onClick={() => removeEngine(engine.id)}
-                >
-                  <X size={11} />
-                </button>
-              </div>
-            ))}
-            <div className="ocr-compare-add-wrap" data-testid="translate-compare-add-engine">
-              {catalogError ? (
-                <div role="alert" className="form-hint">
-                  Could not load comparison engines.{' '}
-                  <button type="button" className="mini-btn" onClick={retryCatalog}>Retry</button>
-                </div>
-              ) : catalogLoading ? (
-                <span className="form-hint" role="status">Loading comparison engines…</span>
-              ) : <SelectorField
-                projectId={projectId}
-                label="Add engine"
-                query={mediaSelectorQuery('map.translate', selectorColumn)}
-                onCurrentChoiceChange={(choice) => reportColumnChoice(selectorColumn, choice)}
-                recentNamespace={`${projectId}:translate-compare`}
-                allowChoice={(choice) => {
-                  const authored = choice.authored_selection;
-                  const engineId = authored.kind === 'engine' || authored.kind === 'engine_model'
-                    ? authored.engine : null;
-                  return engineId !== null
-                    && !selectedIds.includes(engineId)
-                    && freeEngines.some((engine) => engine.id === engineId);
-                }}
-                onSelect={(choice) => {
-                  const authored = choice.authored_selection;
-                  if (authored.kind === 'engine' || authored.kind === 'engine_model') addEngine(authored.engine);
-                }}
-              />}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="ocr-compare-body" data-testid="translate-compare-body">
-        <label className="ocr-compare-configure-field">
-          <span className="ocr-compare-configure-label">Sample text</span>
-          <textarea
-            className="form-input"
-            data-testid="translate-compare-text"
-            rows={5}
-            value={text}
-            placeholder="Paste a sentence or two to translate with every selected engine…"
-            onChange={(event) => setText(event.target.value)}
-          />
-        </label>
-
-        <div className="ocr-compare-controls-row">
-          <label className="ocr-compare-configure-field">
-            <span className="ocr-compare-configure-label">Translate from</span>
-            <PanelSelect
-              className="row-height-select"
-              testId="translate-compare-source-language"
-              ariaLabel="Translate from"
-              value={sourceLanguage}
-              onValueChange={setSourceLanguage}
-              options={SOURCE_LANGUAGE_OPTIONS}
-            />
-          </label>
-          <label className="ocr-compare-configure-field">
-            <span className="ocr-compare-configure-label">Target language</span>
-            <input
-              className="form-input"
-              data-testid="translate-compare-target-language"
-              value={targetLanguage}
-              placeholder="e.g. Japanese, Spanish, French"
-              onChange={(event) => setTargetLanguage(event.target.value)}
-            />
-          </label>
-        </div>
-
-        <CompareBillableEnginesNote
-          testidPrefix="translate-compare"
-          engines={billableEngines}
-          actionLabel="the Translate action"
-        />
-
-        <div className="ocr-compare-controls-row">
-          <button
+      {selectorOwners}
+      <CompareToolbar testIdPrefix="translate-compare" running={running} label="ENGINES" chipsTestId="translate-compare-engine-chips"
+        controls={<>
+          <Button
             type="button"
-            className="btn btn-primary"
+            className="btn-primary"
             data-testid="translate-compare-run"
             disabled={!canRun}
             title={
@@ -307,28 +173,92 @@ export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProp
           >
             {running ? <Loader2 size={13} className="ocr-compare-spin" /> : <Play size={13} />}{' '}
             {running ? 'Translating…' : 'Translate'}
-          </button>
+          </Button>
+        </>}
+        note={<CompareBillableEnginesNote
+          testidPrefix="translate-compare"
+          engines={billableEngines}
+          actionLabel="the Translate action"
+        />}
+      >
+        {selectedEngines.map((engine) => (
+          <CompareEngineChip key={engine.id} testIdPrefix="translate-compare" engine={engine}
+            engineId={engine.id} label={engine.label} onRemove={() => removeEngine(engine.id)} />
+        ))}
+        <div className="ocr-compare-add-wrap" data-testid="translate-compare-add-engine">
+          {catalogError ? (
+            <div role="alert" className="form-hint">
+              Could not load comparison engines.{' '}
+              <Button type="button" onClick={retryCatalog}>Retry</Button>
+            </div>
+          ) : catalogLoading ? (
+            <span className="form-hint" role="status">Loading comparison engines…</span>
+          ) : <SelectorField
+            projectId={projectId}
+            label="Add engine"
+            query={mediaSelectorQuery('map.translate', selectorColumn)}
+            projection={selectorProjection(selectorColumn)}
+            recentNamespace={`${projectId}:translate-compare`}
+            allowChoice={(choice) => {
+              const authored = choice.authored_selection;
+              const engineId = authored.kind === 'engine' || authored.kind === 'engine_model'
+                ? authored.engine : null;
+              return engineId !== null
+                && !selectedIds.includes(engineId)
+                && freeEngines.some((engine) => engine.id === engineId);
+            }}
+            onSelect={(choice) => {
+              const authored = choice.authored_selection;
+              if (authored.kind === 'engine' || authored.kind === 'engine_model') addEngine(authored.engine);
+            }}
+          />}
         </div>
+      </CompareToolbar>
 
-        {runError ? (
-          <p className="form-hint" data-testid="translate-compare-run-error">
-            {runError}
-          </p>
-        ) : null}
+      <div className={`ocr-compare-body ${styles.workspace}`} data-testid="translate-compare-body">
+        <PanelBody padding="compact" className={styles.source} data-testid="translate-compare-source">
+          <div className="content-stack">
+            <FormField label="Sample text">
+              <TextArea
+                data-testid="translate-compare-text"
+                rows={8}
+                value={text}
+                placeholder="Paste a sentence or two to translate with every selected engine…"
+                onChange={(event) => setText(event.target.value)}
+              />
+            </FormField>
+            <FormField label="Translate from">
+              <PanelSelect
+                className="row-height-select"
+                testId="translate-compare-source-language"
+                ariaLabel="Translate from"
+                value={sourceLanguage}
+                onValueChange={setSourceLanguage}
+                options={SOURCE_LANGUAGE_OPTIONS}
+              />
+            </FormField>
+            <FormField label="Target language">
+              <TextInput
+                data-testid="translate-compare-target-language"
+                value={targetLanguage}
+                placeholder="e.g. Japanese, Spanish, French"
+                onChange={(event) => setTargetLanguage(event.target.value)}
+              />
+            </FormField>
+            {runError && <PanelError testId="translate-compare-run-error">{runError}</PanelError>}
+          </div>
+        </PanelBody>
 
         {results !== null ? (
-          <div className="ocr-compare-results" data-testid="translate-compare-results">
+          <div className={`ocr-compare-columns ${styles.results}`} data-testid="translate-compare-results">
             {selectedEngines.map((engine) => {
               const result = resultByEngine.get(engine.id);
               const error = runErrors[engine.id] ?? (result?.errors ?? [])[0];
               return (
-                <div
-                  key={engine.id}
-                  className="ocr-compare-result-card"
+                <CompareResultColumn key={engine.id}
                   data-testid="translate-compare-result-card"
                   data-engine-id={engine.id}
-                >
-                  <div className="ocr-compare-result-head">
+                  header={<>
                     <span className="ocr-compare-variant-name">{engine.label}</span>
                     {result?.detected_language ? (
                       <span
@@ -338,27 +268,30 @@ export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProp
                         detected: {result.detected_language}
                       </span>
                     ) : null}
-                  </div>
+                  </>}
+
+                >
                   {error ? (
-                    <p
-                      className="form-hint ocr-compare-result-error"
-                      data-testid={`translate-compare-result-error-${engine.id}`}
-                    >
+                    <PanelError testId={`translate-compare-result-error-${engine.id}`}>
                       {error}
-                    </p>
+                    </PanelError>
                   ) : (
                     <p
-                      className="ocr-compare-result-text"
+                      className="ocr-compare-plain-text"
                       data-testid={`translate-compare-result-text-${engine.id}`}
                     >
                       {result?.translation || '—'}
                     </p>
                   )}
-                </div>
+                </CompareResultColumn>
               );
             })}
           </div>
-        ) : null}
+        ) : (
+          <PanelBody padding="compact">
+            <PanelEmpty>Enter sample text and choose engines to compare translations.</PanelEmpty>
+          </PanelBody>
+        )}
       </div>
     </section>
   );

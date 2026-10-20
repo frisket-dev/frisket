@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// A plugin `stars` column resolves to RowDrawer's StarsValue presentation
+// A plugin `stars` column resolves to the inspector's StarsValue presentation
 // renderer. These tests prove the
 // star-glyph mapping + raw number the drawer showed for 4.5 and after the edit
 // to 3.5. The glyph string is asserted exactly (via the a11y label span) so an
@@ -10,7 +10,7 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, screen, render } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { StarsValue } from '../../src/components/RowDrawer';
+import { StarsValue } from '../../src/components/rowInspection/FieldValue';
 
 
 

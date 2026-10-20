@@ -85,7 +85,8 @@ vi.mock('../../src/api/tableImports', async (importOriginal) => {
   };
 });
 
-import { ImportDropzone, ImportWorkspaceDialog } from '../../src/components/ImportCsv';
+import { ImportDropzone } from '../../src/components/importWorkspace/ImportDropzone';
+import { ImportWorkspaceDialog } from '../../src/components/importWorkspace/ImportWorkspaceDialog';
 
 const plan = {
   plan_id: 'open-session-plan',
@@ -247,7 +248,7 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     });
     const file = new File(['name\nAda\n'], 'people.csv', { type: 'text/csv' });
     const input = screen.getByRole('button', { name: 'Choose file' })
-      .closest('.table-import-dropzone')?.querySelector('input');
+      .closest('.import-drop-area')?.querySelector('input');
     fireEvent.change(input!, { target: { files: [file] } });
 
     expect(await screen.findByLabelText('Check rows')).toBeVisible();
@@ -836,7 +837,7 @@ describe('ImportWorkspaceDialog controlled open session', () => {
       />,
     );
 
-    const input = screen.getByRole('button', { name: 'Choose file' }).closest('.table-import-dropzone')?.querySelector('input');
+    const input = screen.getByRole('button', { name: 'Choose file' }).closest('.import-drop-area')?.querySelector('input');
     fireEvent.change(input!, { target: { files: [new File(['{"id":"x"}\n'], 'entities.jsonl', { type: 'application/json' })] } });
     fireEvent.click(screen.getByRole('button', { name: 'Use FollowTheMoney import' }));
     fireEvent.change(screen.getByTestId('import-ftm-dataset-name'), { target: { value: 'Entities' } });
@@ -856,7 +857,7 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     render(
       <ImportWorkspaceDialog open onClose={vi.fn()} onImported={vi.fn()} onError={vi.fn()} onLaunchDownload={vi.fn()} />,
     );
-    const input = screen.getByRole('button', { name: 'Choose file' }).closest('.table-import-dropzone')?.querySelector('input');
+    const input = screen.getByRole('button', { name: 'Choose file' }).closest('.import-drop-area')?.querySelector('input');
     fireEvent.change(input!, { target: { files: [new File(['{"id":"x"}\n'], 'entities.jsonl', { type: 'application/json' })] } });
     expect(screen.queryByRole('button', { name: 'Use FollowTheMoney import' })).toBeNull();
     await waitFor(() => expect(createTableImportFromFile).toHaveBeenCalledWith(
@@ -927,6 +928,16 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     expect(view.container.querySelector('img, script, a')).toBeNull();
     expect((window as Window & { bulkFailurePathRan?: boolean }).bulkFailurePathRan).toBeUndefined();
     expect((window as Window & { bulkFailureReasonRan?: boolean }).bulkFailureReasonRan).toBeUndefined();
+  });
+
+  it.each(['csv', 'files', 'pdf_split', 'feed'])('closes the %s entry through its Cancel footer', (mode) => {
+    const onClose = vi.fn();
+    renderDialog(true, vi.fn(), onClose);
+    fireEvent.click(screen.getByTestId(`import-mode-${mode}`));
+    const cancel = screen.getByRole('button', { name: 'Cancel', exact: true });
+    expect(cancel).toBeEnabled();
+    fireEvent.click(cancel);
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
   it('paints preparation before scanning a large picker selection', async () => {

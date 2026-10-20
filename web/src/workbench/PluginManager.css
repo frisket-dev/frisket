@@ -1,0 +1,250 @@
+/* The projection-status dock panel retired to a status-bar chip
+   (projection-status-chip-v1, components/StatusBar.tsx); its .projection-status-*
+   panel styles retired with it. .plugin-manager-contribution is likewise gone
+   (ui-region-frames-v1): the tab renders through .bottom-dock-tab-body and the
+   plugin manager's double scroll container collapsed into the panel scroll. */
+.plugin-manager {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+  width: 100%;
+  min-width: 0;
+  color: var(--text);
+}
+.plugin-manager-install-panel,
+.plugin-manager-list {
+  display: grid;
+  gap: var(--space-12);
+  min-width: 0;
+}
+.plugin-manager-install-panel {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-8);
+  background: var(--bg-panel);
+}
+.plugin-manager-section-heading,
+.plugin-manager-plugin-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-16);
+  min-width: 0;
+}
+.plugin-manager-section-heading h3,
+.plugin-manager-plugin-heading h4,
+.plugin-manager-facts h5 {
+  margin: 0;
+  color: var(--text);
+}
+.plugin-manager-section-heading h3 { font-size: 14px; }
+.plugin-manager-plugin-heading h4 { font-size: 14px; overflow-wrap: anywhere; }
+.plugin-manager-facts h5 {
+  margin-bottom: 7px;
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.plugin-manager-section-heading p,
+.plugin-manager-plugin-heading p {
+  margin: 3px 0 0;
+  color: var(--text-light);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+.plugin-manager-count {
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  color: var(--text-mid);
+  font-size: 11px;
+  font-weight: 650;
+}
+.plugin-manager-install {
+  display: grid;
+  grid-template-columns: minmax(240px, 1.3fr) minmax(180px, 0.7fr) auto;
+  gap: 10px;
+  align-items: start;
+}
+.plugin-manager-install > button {
+  margin-top: 20px;
+}
+.plugin-manager-status,
+.plugin-manager-error {
+  align-self: flex-start;
+  padding: 2px 6px;
+  border-radius: var(--radius-5);
+  font-size: 11px;
+  font-weight: 650;
+}
+.plugin-manager-status {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+.plugin-manager-error {
+  background: var(--red-bg);
+  color: var(--red);
+}
+.plugin-manager-installed-plugin {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-8);
+  background: var(--bg);
+}
+.plugin-manager-state {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+  max-width: 360px;
+  text-align: right;
+}
+.plugin-manager-state-description { color: var(--text-light); font-size: 11px; line-height: 1.35; }
+.plugin-manager-plugin-failure {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: var(--radius-6);
+  background: var(--red-bg);
+  color: var(--red);
+  font-size: 11.5px;
+}
+.plugin-manager-plugin-failure strong { font-size: 10.5px; text-transform: uppercase; }
+.plugin-manager-facts {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(220px, 0.8fr);
+  gap: 20px;
+  padding: 12px;
+  border-radius: var(--radius-7);
+  background: var(--bg-panel);
+}
+.plugin-manager-fact-list {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.plugin-manager-fact-list li,
+.plugin-manager-access-list > div,
+.plugin-manager-technical-details dl > div,
+.plugin-manager-action-guide dl > div {
+  display: grid;
+  grid-template-columns: minmax(90px, auto) minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+}
+.plugin-manager-fact-list strong,
+.plugin-manager-access-list dt,
+.plugin-manager-technical-details dt,
+.plugin-manager-action-guide dt {
+  color: var(--text-mid);
+  font-weight: 650;
+}
+.plugin-manager-fact-list span,
+.plugin-manager-access-list dd,
+.plugin-manager-technical-details dd,
+.plugin-manager-action-guide dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.plugin-manager-access-list,
+.plugin-manager-technical-details dl,
+.plugin-manager-action-guide dl {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  font-size: 11.5px;
+}
+.plugin-manager-none {
+  margin: 4px 0 0;
+  color: var(--text-light);
+  font-size: 10.5px;
+}
+.plugin-manager-technical-details,
+.plugin-manager-action-guide {
+  color: var(--text-mid);
+  font-size: 11.5px;
+}
+.plugin-manager-technical-details summary,
+.plugin-manager-action-guide summary {
+  width: fit-content;
+  color: var(--text-mid);
+  font-weight: 650;
+  cursor: pointer;
+}
+.plugin-manager-technical-details dl,
+.plugin-manager-action-guide dl { margin-top: 8px; }
+.plugin-manager-technical-details code { font-size: 10.5px; }
+.plugin-manager-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.plugin-manager-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+/* plugins-errors-deeplink-v1: the Errors dock's "Open in Settings → Plugins"
+   CTA (WorkbenchBottomDock.tsx) arrives with ?plugin=<id>; this is the
+   landing highlight so the failed row is findable without scanning. */
+.plugin-manager-installed-plugin-highlighted {
+  background: var(--accent-bg);
+  border-radius: var(--radius-5);
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.plugin-manager-trust-prompt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-6);
+  background: var(--bg);
+}
+.plugin-manager-trust-copy {
+  display: grid;
+  flex: 1 0 100%;
+  gap: 2px;
+}
+.plugin-manager-trust-copy span {
+  color: var(--text-light);
+  font-size: 11px;
+}
+.plugin-manager-trust-prompt label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  color: var(--text-mid);
+  white-space: nowrap;
+}
+.plugin-manager-trust-prompt input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+}
+.plugin-manager-trust-actions { display: flex; gap: 6px; }
+@media (max-width: 760px) {
+  .plugin-manager-install {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .plugin-manager-install > button { margin-top: 0; justify-self: start; }
+  .plugin-manager-section-heading,
+  .plugin-manager-plugin-heading,
+  .plugin-manager-actions { align-items: flex-start; flex-direction: column; }
+  .plugin-manager-state { justify-items: start; max-width: none; text-align: left; }
+  .plugin-manager-facts { grid-template-columns: minmax(0, 1fr); }
+}

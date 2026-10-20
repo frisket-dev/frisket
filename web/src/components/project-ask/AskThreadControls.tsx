@@ -1,3 +1,7 @@
+import '../Modal.css';
+import '../ProjectAskDock.css';
+import { Button } from '../Button';
+import { TextInput } from '../FormControls';
 import { useEffect, useRef, useState } from 'react';
 import { Download, Pencil, Trash2 } from 'lucide-react';
 import type { AskThread } from '../../api/projectQA';
@@ -37,8 +41,8 @@ export function AskThreadControls({ thread, active }: { thread: AskThread; activ
     {editing && <dialog ref={dialog} className="modal-card ask-thread-dialog" aria-label={editing === 'rename' ? 'Rename conversation' : 'Delete conversation'} onCancel={(event) => { event.preventDefault(); if (!busy) setEditing(null); }}>
       <form onSubmit={(event) => { event.preventDefault(); void submit(); }}>
         <h2>{editing === 'rename' ? 'Rename conversation' : 'Delete conversation?'}</h2>
-        {editing === 'rename' ? <input aria-label="Conversation name" className="form-input" value={name} maxLength={200} onChange={(event) => setName(event.target.value)} /> : <p>This removes the conversation and its citations for everyone in the project.</p>}
-        <div className="form-actions"><button type="button" className="btn" disabled={busy} onClick={() => setEditing(null)}>Cancel</button><button type="submit" className="btn btn-primary" disabled={busy || editing === 'rename' && !name.trim()}>{editing === 'rename' ? 'Save' : 'Delete'}</button></div>
+        {editing === 'rename' ? <TextInput aria-label="Conversation name"  value={name} maxLength={200} onChange={(event) => setName(event.target.value)} /> : <p>This removes the conversation and its citations for everyone in the project.</p>}
+        <div className="form-actions"><Button type="button" disabled={busy} onClick={() => setEditing(null)}>Cancel</Button><Button type="submit" className="btn-primary" disabled={busy || editing === 'rename' && !name.trim()}>{editing === 'rename' ? 'Save' : 'Delete'}</Button></div>
       </form>
     </dialog>}
   </>;

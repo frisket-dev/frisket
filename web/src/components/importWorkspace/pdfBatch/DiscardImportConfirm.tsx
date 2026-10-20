@@ -1,4 +1,4 @@
-import { AlertTriangle } from 'lucide-react';
+import { ConfirmDialog } from '../../Modal';
 
 export interface DiscardImportConfirmProps {
   title: string;
@@ -19,16 +19,8 @@ export function DiscardImportConfirm({
   onKeep,
   onConfirm,
 }: DiscardImportConfirmProps) {
-  return (
-    <div className="modal-backdrop pdf-batch-discard-dialog" data-testid={testId}>
-      <form className="modal-card" onSubmit={(event) => { event.preventDefault(); onConfirm(); }}>
-        <div className="modal-title"><AlertTriangle size={15} className="modal-warn-icon" /> {title}</div>
-        <p className="modal-body-text">{message}</p>
-        <div className="form-actions">
-          <button type="button" className="btn" autoFocus disabled={busy} onClick={onKeep}>Keep working</button>
-          <button type="submit" className="btn btn-danger" disabled={busy}>{confirmLabel}</button>
-        </div>
-      </form>
-    </div>
-  );
+  return <ConfirmDialog title={title} onConfirm={onConfirm} onCancel={onKeep} busy={busy} danger
+    testId={testId} confirmLabel={confirmLabel} cancelLabel="Keep working">
+    <p className="modal-body-text">{message}</p>
+  </ConfirmDialog>;
 }

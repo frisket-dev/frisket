@@ -1,0 +1,10 @@
+/* Catalog framing only. Never restyle the production controls under review. */
+.inventory-canvas { padding: 24px; min-height: 100vh; }
+.inventory-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 28px; }
+.inventory-example { min-width: 0; }
+.inventory-example > h2 { font-size: 15px; margin: 0 0 8px; }
+.inventory-example > p { font-size: 12px; margin: 0 0 12px; overflow-wrap: anywhere; }
+.inventory-stack { display: flex; flex-direction: column; gap: 14px; }
+.inventory-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.inventory-narrow { width: 300px; max-width: 100%; }
+.inventory-popup-space { min-height: 420px; }

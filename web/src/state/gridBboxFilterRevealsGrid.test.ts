@@ -218,7 +218,7 @@ describe('grid.filter.applyBbox reveals the grid (grid-filter-apply-reveals-grid
     expect(chrome.store.get().promotedViews).toEqual([]);
   });
 
-  it('production wiring: useWorkspaceModel.tsx routes the applyBbox path through applyGridBboxFilterTransition', () => {
+  it('production wiring: the workspace grid controller routes applyBbox through applyGridBboxFilterTransition', () => {
     // Grep-shaped production pin (precedent: workspaceTransitions.test.ts's
     // adjacent-statement scan; core/route/writeCutover.test.ts): the state
     // tests above prove the transition's behavior, this proves production's
@@ -226,12 +226,12 @@ describe('grid.filter.applyBbox reveals the grid (grid-filter-apply-reveals-grid
     // function without wiring the capability would leave the bug live.
     const here = dirname(fileURLToPath(import.meta.url));
     const source = readFileSync(
-      resolve(here, '../workspace/useWorkspaceModel.tsx'),
+      resolve(here, '../workspace/useWorkspaceGridController.ts'),
       'utf-8',
     );
     expect(
       /applyGridBboxFilterTransition\(/.test(source),
-      "useWorkspaceModel.tsx's applyGridBboxFilter (the grid.filter.applyBbox " +
+      "useWorkspaceGridController.ts's applyGridBboxFilter (the grid.filter.applyBbox " +
         'capability body) must call applyGridBboxFilterTransition so the bbox ' +
         'apply and the grid reveal are one transaction',
     ).toBe(true);

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import { AlertTriangle, CheckCircle2, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { WindowCloseButton } from './WindowCloseButton';
 import './ActivityProgress.css';
 
 export type ActivityProgressState = 'active' | 'complete' | 'warning' | 'error';
@@ -58,15 +59,13 @@ export function ActivityProgressCard({
           </div>
         </div>
         {onDismiss && (
-          <button
-            type="button"
-            className="icon-btn activity-progress-card-dismiss"
+          <WindowCloseButton
+            size="compact"
+            className="activity-progress-card-dismiss"
             data-testid={dismissTestId}
-            aria-label={dismissLabel}
+            label={dismissLabel}
             onClick={onDismiss}
-          >
-            <X size={14} aria-hidden />
-          </button>
+          />
         )}
       </header>
       {children && <div className="activity-progress-card-body">{children}</div>}
@@ -81,12 +80,14 @@ export function ProgressBar({
   total,
   state,
   className,
+  testId,
 }: {
   label: string;
   completed: number | null;
   total: number | null;
   state: ActivityProgressState;
   className?: string;
+  testId?: string;
 }) {
   const boundedTotal = total !== null && total > 0 ? total : null;
   const boundedCompleted = boundedTotal !== null && completed !== null
@@ -99,6 +100,7 @@ export function ProgressBar({
     return (
       <progress
         className={classes}
+        data-testid={testId}
         aria-label={label}
         max={boundedTotal}
         value={boundedCompleted}
@@ -108,6 +110,7 @@ export function ProgressBar({
   return (
     <span
       className={classes}
+      data-testid={testId}
       role="progressbar"
       aria-label={label}
       aria-valuemin={0}

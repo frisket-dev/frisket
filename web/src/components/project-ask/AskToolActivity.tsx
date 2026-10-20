@@ -1,3 +1,4 @@
+import '../ProjectAskDock.css';
 import { useEffect, useRef, useState } from 'react';
 import type { AskEvent } from '../../api/projectQA';
 

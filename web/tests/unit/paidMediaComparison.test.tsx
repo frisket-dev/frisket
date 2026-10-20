@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { PreviewSampleResult, RunEstimate } from '../../src/api/types';
 import type { CompareColumn, ScratchDoc } from '../../src/workbench/mediaCompareSession';
 import { usePaidMediaComparison } from '../../src/workbench/usePaidMediaComparison';
@@ -13,6 +13,11 @@ const quote = (engine: string, price: number | null = 1250): RunEstimate => ({
   promise_set_hash: engine.repeat(64).slice(0, 64),
 });
 const done = { status: 'done', kind: 'table', rows: [], error: null } as unknown as PreviewSampleResult;
+
+afterEach(() => {
+  vi.useRealTimers();
+  Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+});
 
 function setup(estimate = vi.fn(async (_file: File, input: { engine: string }) => quote(input.engine))) {
   const start = vi.fn(async () => ({ previewId: 'preview', total: 1 }));
@@ -100,5 +105,29 @@ describe('paid upload comparisons', () => {
     expect(await running).toMatchObject({ ok: false });
     expect(api.cancelPreview).toHaveBeenCalledWith('late-preview');
     expect(api.getPreview).not.toHaveBeenCalled();
+  });
+
+  it('keeps simultaneous quoted jobs independent and continues polling while hidden', async () => {
+    const { result, start, api } = setup(vi.fn(async () => ({ ...quote('one'), requires_confirmation: false })));
+    const first = new AbortController();
+    const second = new AbortController();
+    await act(async () => {
+      await result.current.prepareRun(columns.map((column) => ({ doc, column })), first.signal);
+    });
+    vi.useFakeTimers();
+    Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+    start.mockResolvedValueOnce({ previewId: 'first', total: 1 }).mockResolvedValueOnce({ previewId: 'second', total: 1 });
+    api.getPreview.mockResolvedValueOnce({ ...done, status: 'running' }).mockResolvedValueOnce({ ...done, status: 'running' })
+      .mockResolvedValueOnce(done);
+    const one = result.current.runColumn(doc, columns[0], undefined, first.signal);
+    const two = result.current.runColumn(doc, columns[1], undefined, second.signal);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(api.getPreview.mock.calls).toEqual([['first'], ['second']]);
+    first.abort();
+    expect(await one).toMatchObject({ ok: false, message: 'Comparison cancelled.' });
+    await vi.advanceTimersByTimeAsync(250);
+    expect(await two).toMatchObject({ ok: true, results: 'transcript' });
+    expect(api.cancelPreview.mock.calls).toEqual([['first']]);
+    expect(api.getPreview.mock.calls).toEqual([['first'], ['second'], ['second']]);
   });
 });

@@ -115,6 +115,7 @@ function renderFlow(projectId = 'project-1') {
     registerCloseGuard: vi.fn(),
     onImported: vi.fn(),
     onError: vi.fn(),
+    onCancel: vi.fn(),
   };
   return { ...render(<PdfPacketImportFlow {...props} />), props };
 }
@@ -181,6 +182,8 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
+  Object.defineProperty(document, 'hidden', { configurable: true, value: false });
   vi.clearAllMocks();
   delete (HTMLDialogElement.prototype as Partial<HTMLDialogElement>).close;
   vi.unstubAllGlobals();
@@ -191,7 +194,7 @@ describe('PDF packet import flow boundaries', () => {
     const file = new File(['pdf'], 'Handed-off.pdf', { type: 'application/pdf' });
     const props = {
       projectId: 'project-1', initialFile: file, onContextChange: vi.fn(), registerCloseGuard: vi.fn(),
-      onImported: vi.fn(), onError: vi.fn(),
+      onImported: vi.fn(), onError: vi.fn(), onCancel: vi.fn(),
     };
     render(<PdfPacketImportFlow {...props} />);
 
@@ -678,6 +681,69 @@ describe('PDF packet import flow boundaries', () => {
     resolveUpload(baseSnapshot);
 
     await waitFor(() => expect(screen.getByTestId('pdf-packet-chooser')).toBeInTheDocument());
+    expect(screen.queryByTestId('pdf-packet-flow')).not.toBeInTheDocument();
+  });
+
+  it('waits 900 ms before polling and does not overlap slow packet requests', async () => {
+    vi.useFakeTimers();
+    const preparing = { ...baseSnapshot, status: 'preparing' as const };
+    api.createPdfPacketSplit.mockResolvedValueOnce(preparing);
+    let resolvePoll!: (snapshot: PdfPacketSplitSnapshot) => void;
+    api.getPdfPacketSplit.mockReturnValueOnce(new Promise((resolve) => { resolvePoll = resolve; }));
+    renderFlow();
+    fireEvent.change(screen.getByTestId('pdf-packet-input'), {
+      target: { files: [new File(['pdf'], 'Records.pdf', { type: 'application/pdf' })] },
+    });
+    await act(async () => {});
+    await act(async () => { await vi.advanceTimersByTimeAsync(899); });
+    expect(api.getPdfPacketSplit).not.toHaveBeenCalled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(api.getPdfPacketSplit).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_600); });
+    expect(api.getPdfPacketSplit).toHaveBeenCalledTimes(1);
+    await act(async () => { resolvePoll(preparing); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(899); });
+    expect(api.getPdfPacketSplit).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(api.getPdfPacketSplit).toHaveBeenCalledTimes(2);
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_600); });
+    expect(api.getPdfPacketSplit).toHaveBeenCalledTimes(2);
+  });
+
+  it('pauses packet polling in a hidden tab and catches up on refocus', async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+    api.createPdfPacketSplit.mockResolvedValueOnce({ ...baseSnapshot, status: 'preparing' });
+    renderFlow();
+    fireEvent.change(screen.getByTestId('pdf-packet-input'), {
+      target: { files: [new File(['pdf'], 'Records.pdf', { type: 'application/pdf' })] },
+    });
+    await act(async () => {});
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_800); });
+    expect(api.getPdfPacketSplit).not.toHaveBeenCalled();
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+    expect(api.getPdfPacketSplit).toHaveBeenCalledTimes(1);
+  });
+
+  it('aborts a packet poll on project change and ignores a late successful response', async () => {
+    vi.useFakeTimers();
+    api.createPdfPacketSplit.mockResolvedValueOnce({ ...baseSnapshot, status: 'preparing' });
+    let resolvePoll!: (snapshot: PdfPacketSplitSnapshot) => void;
+    api.getPdfPacketSplit.mockReturnValueOnce(new Promise((resolve) => { resolvePoll = resolve; }));
+    const view = renderFlow();
+    fireEvent.change(screen.getByTestId('pdf-packet-input'), {
+      target: { files: [new File(['pdf'], 'Records.pdf', { type: 'application/pdf' })] },
+    });
+    await act(async () => {});
+    await act(async () => { await vi.advanceTimersByTimeAsync(900); });
+    const signal = api.getPdfPacketSplit.mock.calls[0][2].signal as AbortSignal;
+    expect(signal.aborted).toBe(false);
+    view.rerender(<PdfPacketImportFlow {...view.props} projectId="project-2" />);
+    expect(signal.aborted).toBe(true);
+    await act(async () => { resolvePoll(baseSnapshot); });
+    expect(view.props.onImported).not.toHaveBeenCalled();
+    expect(screen.getByTestId('pdf-packet-chooser')).toBeInTheDocument();
     expect(screen.queryByTestId('pdf-packet-flow')).not.toBeInTheDocument();
   });
 });

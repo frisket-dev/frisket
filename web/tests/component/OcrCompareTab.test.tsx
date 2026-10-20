@@ -18,7 +18,11 @@ import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
 beforeAll(installDialogPolyfill);
 
 const api = createProjectApi('test-project');
-const { render } = createWorkspaceTestHarness({ projectId: 'test-project', api: { projectApi: api } });
+const harness = createWorkspaceTestHarness({ projectId: 'test-project', api: { projectApi: api } });
+const render: typeof harness.render = (...args) => {
+  void harness.stores.actionCatalog.start();
+  return harness.render(...args);
+};
 
 function completed(previewId: string): PreviewSampleResult {
   return { previewId, status: 'done', progress: { done: 1, total: 1 }, columns: [], sampled: 1,

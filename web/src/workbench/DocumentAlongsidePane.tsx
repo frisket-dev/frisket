@@ -1,9 +1,10 @@
+import '../components/Modal.css';
 import { Check, Columns2, Copy, Maximize2 } from 'lucide-react';
 import { WindowCloseButton } from '../components/WindowCloseButton';
 import { IconButton } from '../components/IconButton';
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
 import type { ColumnDef, Row } from '../api/types';
-import { FieldValue } from '../components/RowDrawer';
+import { FieldValue } from '../components/rowInspection/FieldValue';
 import { fieldValueDependencyColumnIds } from '../components/fieldValueDependencies';
 import { PanelSelect } from '../components/PanelSelect';
 import { ResizeSeam } from '../components/ResizeSeam';

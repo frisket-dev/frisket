@@ -1,3 +1,6 @@
+import { TextInput } from '../FormControls';
+import { IconButton } from '../IconButton';
+import '../EditorRows.css';
 // One canonical group/bucket. Header: collapse chevron · ◆ · editable
 // canonical-name input · total · delete. Body: member rows, each with a
 // promote-◆ (make this value the canonical name) and a remove ×. Fully
@@ -125,21 +128,18 @@ export function GroupCard({
 
   return (
     <section
-      className="resolve-group-card"
+      className="panel-card resolve-group-card"
       data-testid={testId}
       data-collapsed={collapsed ? 'true' : undefined}
     >
-      <div className="resolve-group-header">
-        <button
-          type="button"
-          className="resolve-group-collapse"
+      <div className="editor-row-controls">
+        <IconButton
+          icon={collapsed ? ChevronRight : ChevronDown}
           data-testid="resolve-group-collapse"
           aria-expanded={!collapsed}
-          aria-label={collapsed ? `Expand group ${name}` : `Collapse group ${name}`}
+          label={collapsed ? `Expand group ${name}` : `Collapse group ${name}`}
           onClick={() => onCollapsedChange?.(!collapsed)}
-        >
-          {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-        </button>
+        />
         {collapsed ? (
           <span className="resolve-group-summary" data-testid="resolve-group-summary">
             <span className="resolve-group-summary-name">{name}</span>
@@ -151,9 +151,9 @@ export function GroupCard({
         ) : (
           <>
             <Diamond size={12} className="resolve-group-diamond" aria-hidden />
-            <input
+            <TextInput
               ref={inputRef}
-              className="form-input resolve-group-name"
+              className="resolve-group-name"
               data-testid="resolve-group-canonical-input"
               value={draft}
               placeholder={defaultName}
@@ -166,35 +166,31 @@ export function GroupCard({
             <span className="resolve-group-total" data-testid="resolve-group-total">
               {total.toLocaleString()}
             </span>
-            <button
-              type="button"
-              className="icon-btn resolve-group-delete"
+            <IconButton
+              icon={Trash2}
               data-testid="resolve-group-delete"
-              aria-label={`Delete group ${name}`}
+              label={`Delete group ${name}`}
               title="Delete group and return its values"
               onClick={onDelete}
-            >
-              <Trash2 size={13} />
-            </button>
+            />
           </>
         )}
       </div>
       {!collapsed && (
-        <div className="resolve-group-members">
+        <div className="panel-list">
           {members.map((member) => {
             const isCanonical = member.value === name;
             return (
               <div
                 key={member.value}
-                className={`resolve-group-member${isCanonical ? ' is-canonical' : ''}`}
+                className="editor-row-controls"
                 data-testid="resolve-group-member"
                 data-value={member.value}
               >
-                <button
-                  type="button"
-                  className="resolve-member-promote"
+                <IconButton
+                  icon={Diamond}
                   data-testid="resolve-group-member-promote"
-                  aria-label={`Use "${member.value}" as the canonical name`}
+                  label={`Use "${member.value}" as the canonical name`}
                   aria-pressed={isCanonical}
                   disabled={isCanonical}
                   title={
@@ -203,28 +199,19 @@ export function GroupCard({
                       : `Use "${member.value}" as the canonical name`
                   }
                   onClick={() => onPromoteMember(member.value)}
-                >
-                  <Diamond
-                    size={11}
-                    aria-hidden
-                    fill={isCanonical ? 'currentColor' : 'none'}
-                  />
-                </button>
+                />
                 <span className="resolve-member-value" title={member.value}>
                   {member.value}
                 </span>
                 <span className="resolve-member-count">
                   {member.count.toLocaleString()}
                 </span>
-                <button
-                  type="button"
-                  className="icon-btn resolve-member-remove"
+                <IconButton
+                  icon={X}
                   data-testid="resolve-group-member-remove"
-                  aria-label={`Remove "${member.value}" from group`}
+                  label={`Remove "${member.value}" from group`}
                   onClick={() => onRemoveMember(member.value)}
-                >
-                  <X size={12} />
-                </button>
+                />
               </div>
             );
           })}

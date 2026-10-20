@@ -1,3 +1,4 @@
+import './BrandLink.css';
 import { Table2 } from 'lucide-react';
 import { navigate } from '../routes';
 import { useInstanceIdentity } from '../instanceIdentity';

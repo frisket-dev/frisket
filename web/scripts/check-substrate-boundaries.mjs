@@ -75,7 +75,7 @@ if (violations.length > 0) {
 //       review-close's raw window.history.back() is the other carve-out because
 //       a store mutation cannot pop the stack.
 {
-  const { readFileSync: read } = await import('node:fs');
+  const { readFileSync: read, readdirSync } = await import('node:fs');
 
   // (a) The controller must be imported+mounted in bind/.
   const mount = read(join(webRoot, 'src/bind/useRouteSyncController.ts'), 'utf8');
@@ -83,15 +83,20 @@ if (violations.length > 0) {
     console.error('check-substrate-boundaries: bind/useRouteSyncController.ts must mount createRouteSyncController (single workspace-route writer).');
     process.exit(1);
   }
-  const model = read(join(webRoot, 'src/workspace/useWorkspaceModel.tsx'), 'utf8');
-  if ((model.match(/useRouteSyncController\(/g) ?? []).length !== 1) {
-    console.error('check-substrate-boundaries: the RouteSyncController must be mounted exactly once in useWorkspaceModel.');
+  const workspaceControllers = readdirSync(join(webRoot, 'src/workspace'))
+    .filter((name) => /^(?:useWorkspace.*|Workspace.*|useReplayReviewController)\.tsx?$/.test(name))
+    .map((name) => `src/workspace/${name}`);
+  const routeMounts = workspaceControllers.flatMap((rel) =>
+    read(join(webRoot, rel), 'utf8').match(/useRouteSyncController\(/g) ?? []);
+  if (routeMounts.length !== 1) {
+    console.error('check-substrate-boundaries: the RouteSyncController must be mounted exactly once across workspace controllers.');
     process.exit(1);
   }
 
   // (b) No direct workspace-route write outside the adapter + allowlist.
   const ROUTE_WRITE_ALLOWLIST = {
-    'src/workspace/useWorkspaceModel.tsx': [
+    ...Object.fromEntries(workspaceControllers.map((rel) => [rel, []])),
+    'src/workspace/useWorkspaceNavigationController.ts': [
       // The controller's single write adapter (commitRoute → navigate/replaceRoute).
       "if (mode === 'replace') replaceRoute(nextRoute);",
       'else navigate(nextRoute);',

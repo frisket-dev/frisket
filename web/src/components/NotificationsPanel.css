@@ -1,0 +1,2 @@
+.notification-item.severity-warning { border-color: var(--amber); }
+.notification-item.severity-critical { border-color: var(--red); }

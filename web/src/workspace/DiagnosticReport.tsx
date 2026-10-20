@@ -1,3 +1,7 @@
+import '../components/PanelPrimitives.css';
+import './DiagnosticReport.css';
+import { Button } from '../components/Button';
+import { TextArea } from '../components/FormControls';
 // Hosted-tier diagnostic report surface: the "Report issue" button + popover
 // that bundles a diagnostic report, and the reader for recent client-side error
 // ids captured on window. Self-contained; rendered only in hosted mode.
@@ -97,11 +101,10 @@ export function DiagnosticReportButton() {
               onClick={() => setReport((state) => ({ ...state, open: false }))}
             />
           </div>
-          {report.error && <div className="form-error" role="alert" data-testid="diagnostic-error">{report.error}</div>}
-          <label className="field-group">
+          {report.error && <div className="panel-error" role="alert" data-testid="diagnostic-error">{report.error}</div>}
+          <label className="field-group form-field">
             <span className="field-labels">What went wrong?</span>
-            <textarea
-              className="form-input form-textarea"
+            <TextArea
               data-testid="diagnostic-description"
               value={description}
               rows={4}
@@ -112,16 +115,16 @@ export function DiagnosticReportButton() {
               onChange={(event) => setDescription(event.currentTarget.value)}
             />
           </label>
-          <button
+          <Button
             type="button"
-            className="btn diagnostic-send"
+            className="diagnostic-send"
             data-testid="diagnostic-submit"
             disabled={report.busy || !description.trim() || description.trim().length > 1000}
             onClick={submit}
           >
             <Send size={14} />
             {report.busy ? 'Sending…' : 'Send report'}
-          </button>
+          </Button>
         </div>
       )}
       {report.sentId !== null && (

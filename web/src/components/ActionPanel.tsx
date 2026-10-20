@@ -1,3 +1,6 @@
+import '../workbench/ActionDrawer.css';
+import './ActionPanel.css';
+import { Button } from './Button';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AlertTriangle, Eye, Play } from 'lucide-react';
 import { PanelHeader, PanelLoading } from './PanelPrimitives';
@@ -525,12 +528,12 @@ export function ActionPanel({
           </div>
           <div className="form-actions action-run-actions">
             <div className="run-actions-row">
-              <button type="button" className="btn" data-testid="preview-button" disabled>
+              <Button type="button" data-testid="preview-button" disabled>
                 <Eye size={13} /> Preview
-              </button>
-              <button type="button" className="btn btn-primary" data-testid="run-button" disabled>
+              </Button>
+              <Button type="button" className="btn-primary" data-testid="run-button" disabled>
                 <Play size={13} /> Run
-              </button>
+              </Button>
             </div>
           </div>
         </div>

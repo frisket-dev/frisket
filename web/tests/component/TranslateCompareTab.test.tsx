@@ -9,7 +9,7 @@
 // to test. No live calls — api is spied.
 
 import '@testing-library/jest-dom/vitest';
-import { cleanup, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -39,10 +39,14 @@ import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
 
 
 const api = createProjectApi('test-project');
-const { render } = createWorkspaceTestHarness({
+const harness = createWorkspaceTestHarness({
   projectId: 'test-project',
   api: { projectApi: api },
 });
+const render: typeof harness.render = (...args) => {
+  void harness.stores.actionCatalog.start();
+  return harness.render(...args);
+};
 
 function catalog(): ActionCatalogPayload {
   return {
@@ -133,6 +137,27 @@ describe('TranslateCompareTab', () => {
     expect(selector).toHaveAttribute('data-target', 'Spanish');
     await user.click(selector);
     expect(within(chips).getByTestId('translate-compare-engine-chip')).toHaveAttribute('data-engine-id', 'hy_mt2');
+  });
+
+  it('uses the shared catalog invalidation without resetting text, language or authored engines', async () => {
+    const user = userEvent.setup();
+    render(<TranslateCompareTab onSessionChange={() => {}} />);
+    await user.click(await screen.findByTestId('translate-compare-selector'));
+    await user.type(screen.getByTestId('translate-compare-text'), 'Keep my sample');
+    await user.clear(screen.getByTestId('translate-compare-target-language'));
+    await user.type(screen.getByTestId('translate-compare-target-language'), 'French');
+    await waitFor(() => expect(screen.getByTestId('translate-compare-run')).toBeEnabled());
+    expect(api.listActionCatalog).toHaveBeenCalledTimes(1);
+    const refreshed = catalog();
+    refreshed.actions[0].ui_hints!.engines!.find((engine) => engine.id === 'hy_mt2')!.label = 'Updated local label';
+    vi.mocked(api.listActionCatalog).mockResolvedValue(refreshed);
+    act(() => harness.stores.actionCatalog.invalidate());
+    await waitFor(() => expect(screen.getByTestId('translate-compare-engine-chip')).toHaveTextContent('Updated local label'));
+    expect(api.listActionCatalog).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId('translate-compare-text')).toHaveValue('Keep my sample');
+    expect(screen.getByTestId('translate-compare-target-language')).toHaveValue('French');
+    expect(screen.getByTestId('translate-compare-engine-chip')).toHaveAttribute('data-engine-id', 'hy_mt2');
+    await waitFor(() => expect(screen.getByTestId('translate-compare-run')).toBeEnabled());
   });
 
   it('shows catalog failure with Retry and recovers without losing the draft', async () => {

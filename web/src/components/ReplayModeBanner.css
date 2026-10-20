@@ -1,0 +1,41 @@
+/* Persistent replay-mode top bar (onboard-replay-banner-v1) — NOT a toast:
+   fixed at the true top of the viewport, above every screen (picker,
+   settings, admin, workbench). Collapses to a slim strip but is never fully
+   removed while cache_mode means live AI calls will not happen. */
+.replay-mode-banner {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 14px;
+  background: var(--amber-bg);
+  color: var(--amber);
+  border-bottom: 1px solid var(--border-strong);
+  font-size: 12px;
+}
+.replay-mode-banner.collapsed { height: 20px; gap: 4px; }
+.replay-mode-banner-icon { flex-shrink: 0; }
+.replay-mode-banner-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.replay-mode-banner-setup-link {
+  margin-left: 6px;
+  color: inherit;
+  font-weight: 650;
+  text-decoration: underline;
+}
+.replay-mode-banner-toggle {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px; height: 18px;
+  border-radius: var(--radius-4);
+  color: inherit;
+}
+.replay-mode-banner-toggle:hover { background: rgba(0, 0, 0, 0.06); }

@@ -6,6 +6,7 @@ workspace). These run in an empty cwd and assert nothing gets created."""
 import socket
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -16,14 +17,6 @@ import pytest
 # can emit env-manager chatter (or materialize env state) that has nothing
 # to do with frisket's own dispatch behavior.
 FRISKET_CLI = str(Path(sys.executable).with_name("frisket"))
-
-
-@pytest.fixture(autouse=True)
-def no_background_pricing_refresh(monkeypatch):
-    """Serve-dispatch tests must not leave a catalog refresher in the test worker."""
-    monkeypatch.setattr(
-        "frisket.ai.llm.pricing_refresh.start_pricing_refresh", lambda: None
-    )
 
 
 def _run(args, cwd):
@@ -246,6 +239,9 @@ def test_existing_workspace_path_reaches_serve_not_unknown_command(
     with pytest.raises(RuntimeError, match="reached uvicorn.run"):
         cli.main()
     assert events == ["lock", "stop", "unlock"]
+    assert not any(
+        thread.name == "frisket-pricing-refresh" for thread in threading.enumerate()
+    ), "CLI tests must not leave process-lifetime catalog refresh running"
 
 
 def test_existing_workspace_refuses_second_native_server(tmp_path, monkeypatch, capsys):

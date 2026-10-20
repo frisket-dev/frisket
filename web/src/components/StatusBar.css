@@ -1,0 +1,127 @@
+/* ---- status bar ----------------------------------------------------------- */
+
+.status-bar {
+  height: 34px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: space-between;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+  padding: 0 10px;
+  font-size: 12px;
+}
+.status-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.run-label { font-variant-numeric: tabular-nums; color: var(--text-mid); white-space: nowrap; }
+.run-done { color: var(--green); }
+.run-track {
+  width: 140px; height: 4px; border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+}
+.run-fill { display: block; height: 100%; background: var(--accent); transition: width 0.3s; }
+.run-no-worker-hint { display: block; color: var(--text-mid); font-size: 12px; margin-top: 2px; }
+.run-no-worker-hint code { font-size: 11px; }
+
+.status-right { display: flex; align-items: center; gap: 2px; }
+.status-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 8px; border-radius: var(--radius-5);
+  color: var(--text-mid); font-size: 12px; font-weight: 550;
+}
+.status-btn:hover:not(:disabled) { background: var(--bg-hover); }
+.status-sep { width: 1px; height: 16px; background: var(--border-strong); margin: 0 6px; }
+
+/* ---- run watcher popover ------------------------------------------------------ */
+
+.status-left { position: relative; }
+.run-summary {
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 3px 7px; border-radius: var(--radius-5);
+  max-width: 100%;
+}
+.run-summary:hover, .run-summary-open { background: var(--bg-hover); }
+.run-chevron { color: var(--text-light); flex-shrink: 0; }
+.run-summary-open .run-chevron { transform: rotate(180deg); }
+
+/* Projection chip (projection-status-chip-v1): reuses the run-summary trigger
+   shape; the popover reuses the run-watcher surface. */
+.projection-chip .projection-chip-icon { color: var(--text-light); flex-shrink: 0; }
+.projection-chip .run-label { color: var(--text-mid); }
+.projection-chip-updating { color: var(--amber); }
+.projection-watcher .projection-status-freshness { color: var(--text-mid); font-weight: 600; }
+.projection-watcher-mono {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-mid);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.run-watcher {
+  position: absolute; bottom: 32px; left: 0;
+  width: 380px; max-width: calc(100vw - 24px);
+  background: var(--bg);
+  border-radius: 9px;
+  box-shadow: var(--shadow-drawer);
+  padding: 12px 14px;
+  z-index: 55;
+  font-size: 12px;
+  text-align: left;
+}
+.run-watcher-title {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 8px;
+  font-weight: 650; font-size: 13px;
+  margin-bottom: 8px;
+}
+.run-watcher-heading {
+  display: flex; align-items: center; gap: 8px;
+  min-width: 0;
+}
+.run-watcher-close {
+  flex-shrink: 0;
+  margin: -4px -6px -2px 4px;
+}
+.run-watcher-status { font-size: 11px; font-weight: 600; }
+.run-watcher-status.status-queued { color: var(--amber); }
+.run-watcher-status.status-failed { color: var(--red); }
+.run-watcher-status.status-running { color: var(--accent); }
+.run-watcher-status.status-stalled,
+.run-watcher-status.status-orphaned { color: var(--amber); }
+.run-watcher-status.status-complete { color: var(--green); }
+.run-watcher-status.status-cancelled { color: var(--text-light); }
+.run-cancel {
+  color: var(--red);
+  flex-shrink: 0;
+}
+.run-cancel:hover { background: var(--red-bg); }
+.run-watcher-grid {
+  display: grid; grid-template-columns: 64px 1fr;
+  gap: 3px 10px;
+  font-variant-numeric: tabular-nums;
+}
+.run-watcher .prov-key { color: var(--text-mid); }
+.run-watcher-inline {
+  position: static;
+  width: auto;
+  max-width: none;
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  z-index: auto;
+}
+.run-watcher-inline > .activity-progress-row,
+.run-watcher .run-file-progress.activity-progress-row {
+  padding: 8px 0;
+}
+.run-watcher-inline > .activity-progress-row { border-top: 0; }
+.active-run-failures { margin-top: 4px; }
+.run-file-progress-list { display: grid; gap: 8px; margin: 8px 0; }
+.run-watcher-errors { margin-top: 10px; border-top: 1px solid var(--bg-hover); padding-top: 8px; }
+.run-watcher-errors-title { font-weight: 650; color: var(--red); margin-bottom: 5px; font-size: 11.5px; }
+.run-watcher-errors ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.run-watcher-errors li { display: flex; flex-direction: column; }
+.run-err-loc { font-size: 10.5px; color: var(--text-light); font-variant-numeric: tabular-nums; }
+.run-err-msg {
+  color: var(--text-mid); line-height: 1.4;
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+.run-retry { color: var(--amber); font-size: 11px; margin-top: 2px; }

@@ -355,7 +355,7 @@ export const BOTTOM_DOCK_LINEAGE_DESCRIPTOR: WorkbenchPanelDescriptor = firstPar
 
 // No PLUGIN_MANAGER_DESCRIPTOR: the frisket.core.panel.plugins dock tab
 // retired — it was a read-only duplicate of the full manager Settings
-// already hosts (SettingsSections.tsx's ProjectPluginsSettings renders the
+// already hosts (ProjectIntegrationSettings.tsx's ProjectPluginsSettings renders the
 // identical PluginManager component with mode="settings"). Failures now
 // route into the Errors dock tab (dockJobSummary.ts's derivePluginErrorJobs)
 // and health into Diagnostics; the descriptor entry was removed from the

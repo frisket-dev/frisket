@@ -5,13 +5,13 @@ import { ReviewExcerpt } from './ReviewExcerpt';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
 import { PanelLoading } from '../PanelPrimitives';
 import { ReviewInputSources } from './ReviewInputSources';
-import { FieldValue } from '../RowDrawer';
+import { FieldValue } from '../rowInspection/FieldValue';
 import { reviewItemLocations, type ReviewItemLocation, type ReviewItemSelection } from './reviewItemLocations';
 import { OverflowRow } from '../OverflowRow';
 import { focusedReviewArtifact, reviewTextPassageTargets, reviewCitationSources, sourceLocation, sourcesForField, type ReviewCitationPayload } from './reviewCitationSources';
 import styles from './ReviewSourcePreview.module.css';
 
-const LazyArtifactSource = lazy(() => import('../EvidenceViewer').then(({ ArtifactSource }) => ({ default: ArtifactSource })));
+const LazyArtifactSource = lazy(() => import('../evidence/ArtifactSource').then(({ ArtifactSource }) => ({ default: ArtifactSource })));
 
 type LoadState =
   | { key: string; phase: 'ready'; payloads: ReviewCitationPayload[] }

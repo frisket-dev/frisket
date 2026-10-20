@@ -1,3 +1,5 @@
+import '../workspace/WorkspaceSheetTabs.css';
+import './IconButton.css';
 // Small, presentational icon-only buttons, kept mountable in isolation -- App.tsx
 // itself pulls in a large transitive dependency graph (workbench contributions,
 // pdfjs, ...) unsuitable for component tests.

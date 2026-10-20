@@ -1,9 +1,13 @@
+import '../cloud/CloudConnectionPanel.css';
+import '../components/engine-selector/EngineSelector.css';
+import { Button } from '../components/Button';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { HttpSelectorChoicesResponse, SelectorChoice } from '../api/selectorChoices';
 import { createProjectProviderKeysApi } from '../api/projectProviderKeys';
 import { createLocalProvidersApi } from '../api/localProviders';
 import { createTeamLocalModelsApi } from '../api/teamLocalModels';
 import { ModelSetupRequestError, modelSetupErrorFactory, startEngineSetup } from '../api/engineSetup';
+import { cancelScopedModelPull, readModelPull } from '../api/modelPullOperations';
 import type { ModelPullDto } from '../api/types';
 import { ModelPullProgress } from '../components/ModelPullProgress';
 import { ProviderKeySetupCard } from './ProviderKeySetupCard';
@@ -29,7 +33,6 @@ type CloudSetup = Extract<Setup, { kind: 'cloud' }>;
 type ConfigurationAction = SelectorChoice['configuration_actions'][number];
 type EditingReporter = (owner: string, editing: boolean) => void;
 const requestError = () => new Error('Setup request failed');
-const workspace = createLocalProvidersApi(requestError);
 const projectKeys = createProjectProviderKeysApi(requestError);
 const downloads = createLocalProvidersApi(modelSetupErrorFactory);
 const teamModels = createTeamLocalModelsApi(modelSetupErrorFactory);
@@ -57,7 +60,7 @@ function CredentialSetupPanel({ setup, projectId, onChanged, onEditingChange }: 
     {setup.kind === 'models_gateway' && gatewayScope &&
       <ModelsGatewayForm key={gatewayScope.scope} scope={gatewayScope.scope} compact onSaved={onChanged} onEditingChange={onEditingChange} />}
     {((setup.kind === 'api_key' && !projectScope?.can_mutate) || (setup.kind === 'models_gateway' && !gatewayScope)) &&
-      <p className="settings-help">You do not have permission to complete this setup.</p>}
+      <p className="form-hint">You do not have permission to complete this setup.</p>}
   </section>;
 }
 
@@ -85,15 +88,13 @@ function DownloadSetupPanel({ setup, activeOperation, onChanged, sharedProgress 
   const fetchPull = async (id: number): Promise<ModelPullDto> => {
     const controller = new AbortController(); pollRequests.current.add(controller);
     try {
-      return org ? await teamModels.orgGetModelPull(id, { signal: controller.signal })
-        : await workspace.getModelPull(id, { signal: controller.signal });
+      return await readModelPull(setup.scope, id, { signal: controller.signal });
     } finally { pollRequests.current.delete(controller); }
   };
   const cancelPull = async (id: number) => {
     const controller = new AbortController(); pollRequests.current.add(controller);
     try {
-      return org ? await teamModels.orgCancelModelPull(id, { signal: controller.signal })
-        : await workspace.cancelModelPull(id, { signal: controller.signal });
+      return await cancelScopedModelPull(setup.scope, id, { signal: controller.signal });
     } finally { pollRequests.current.delete(controller); }
   };
   const start = async () => {
@@ -111,8 +112,7 @@ function DownloadSetupPanel({ setup, activeOperation, onChanged, sharedProgress 
       const busy = caught instanceof ModelSetupRequestError && caught.status === 409;
       if (busy && caught.activePullId !== null) {
         try {
-          const operation = org ? await teamModels.orgGetModelPull(caught.activePullId, { signal: request.signal })
-            : await downloads.getModelPull(caught.activePullId, { signal: request.signal });
+          const operation = await readModelPull(setup.scope, caught.activePullId, { signal: request.signal });
           if (!request.isCurrent()) return;
           setPull(operation); onChanged(); return;
         } catch { if (!request.isCurrent()) return; }
@@ -130,19 +130,19 @@ function DownloadSetupPanel({ setup, activeOperation, onChanged, sharedProgress 
     }
   };
   return <section className="selector-setup">
-    {!setup.can_mutate && <p className="settings-help">Only an authorized owner can start or cancel this setup operation.</p>}
-    {pull && !matching && <p className="settings-help">Another setup operation is active.</p>}
+    {!setup.can_mutate && <p className="form-hint">Only an authorized owner can start or cancel this setup operation.</p>}
+    {pull && !matching && <p className="form-hint">Another setup operation is active.</p>}
     {pull && <ModelPullProgress key={`${pull.id}:${pull.status}`} pull={pull} readOnly={!setup.can_mutate} fetchPull={fetchPull} cancelPull={cancelPull}
       poll={!sharedProgress} externalPollError={operationError}
       onDone={sharedProgress ? undefined : onTerminal}
       onFailed={sharedProgress ? undefined : onTerminal} />}
-    {!setup.can_start && !pull && <p className="settings-help">Setup cannot start yet. Recheck the available operations.</p>}
-    <div className="settings-actions">
-      {(!pull || (matching && pull.capabilities.retry && !active)) && <button className="btn btn-primary" type="button"
+    {!setup.can_start && !pull && <p className="form-hint">Setup cannot start yet. Recheck the available operations.</p>}
+    <div className="control-row">
+      {(!pull || (matching && pull.capabilities.retry && !active)) && <Button className="btn-primary" type="button"
         disabled={!setup.can_mutate || !setup.can_start || starting} onClick={() => void start()}>
         {starting ? 'Starting…' : pull ? 'Retry setup' : setup.kind === 'artifact_download' ? 'Download model' : 'Download and set up'}
-      </button>}
-      <button className="btn" type="button" onClick={onChanged}>Recheck</button>
+      </Button>}
+      <Button type="button" onClick={onChanged}>Recheck</Button>
     </div>
     {error && <p role="alert">{error}</p>}
   </section>;
@@ -177,9 +177,9 @@ function CloudSetupPanel({ setup, projectId, onChanged }: {
         {setup.add_credits_url && <a className="btn btn-primary" href={setup.add_credits_url}
           target="_blank" rel="noreferrer">Add credits ↗</a>}
         {setup.project_settings_url && <a className="btn" href={setup.project_settings_url}>Project settings</a>}
-        <button className="btn" type="button" disabled={checking} onClick={() => void recheck()}>
+        <Button type="button" disabled={checking} onClick={() => void recheck()}>
           {checking ? 'Checking…' : 'Recheck'}
-        </button>
+        </Button>
       </div>
       {checkError && <p role="alert">Could not refresh Cloud account details. Try again.</p>}
     </section>;
@@ -225,7 +225,7 @@ function SetupPanel({ setup, ...props }: SelectorSetupProps & { setup: Setup }) 
     case 'artifact_download': case 'engine_setup':
       return <DownloadSetupPanel setup={setup} activeOperation={activeOperation} onChanged={props.onChanged}
         sharedProgress={props.sharedProgress} operationError={props.operationError} />;
-    case 'first_use_download': return <p className="settings-help">{setup.disclosure}</p>;
+    case 'first_use_download': return <p className="form-hint">{setup.disclosure}</p>;
     case 'instructions': {
       const steps = setup.steps.filter((step) => step !== props.choice.blocker?.message);
       if (!steps.length && !setup.url) return null;
@@ -333,7 +333,7 @@ export function SelectorSetup(props: SelectorSetupProps) {
     {genericCloudSetup && <section key={`${props.projectId}:generic-cloud`}
       className="selector-generic-cloud-setup">
       {genericCloudSetup.state === 'connect' &&
-        <p className="settings-help">Connect Frisket Cloud to see available models.</p>}
+        <p className="form-hint">Connect Frisket Cloud to see available models.</p>}
       <SetupPanel key={`${props.projectId}:${setupKey(genericCloudSetup)}`}
         {...props} setup={genericCloudSetup} />
     </section>}

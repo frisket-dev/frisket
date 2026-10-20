@@ -1,3 +1,9 @@
+import './PanelPrimitives.css';
+import './IconButton.css';
+import './FriendlyFiltersPanel.css';
+import './EntityFacetsPanel.css';
+import { FormField } from './FormControls';
+import { Button } from './Button';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronDown, Filter, RefreshCw, Search, X } from 'lucide-react';
 import type {
@@ -582,7 +588,7 @@ function FacetCard({
       </div>
       {open && (
         <div className="friendly-facet-body">
-          {error && <div className="facets-error" role="alert">{error}</div>}
+          {error && <div className="panel-error" role="alert">{error}</div>}
           {!preview && !error && <div className="facets-empty">Loading values…</div>}
           {preview?.inventoryComplete === false && (
             <div className="friendly-facet-note" role="status">
@@ -594,7 +600,7 @@ function FacetCard({
           )}
           {preview && rangeColumn ? (
             <RangeFacet
-              key={`${column.id}:${column.type}:${preview.valueHash}`}
+              key={`range:${column.id}:${column.type}:${preview.valueHash}`}
               column={column}
               distribution={
                 facetBehavior?.kind === 'range'
@@ -631,7 +637,7 @@ function FacetCard({
           ) : null}
           {!collectionColumn && (
             <AdvancedConditionEditor
-              key={`${column.id}:${column.type}:${JSON.stringify(condition ?? null)}`}
+              key={`advanced:${column.id}:${column.type}:${JSON.stringify(condition ?? null)}`}
               column={column}
               condition={condition}
               canFilter={canFilter}
@@ -644,20 +650,114 @@ function FacetCard({
   );
 }
 
-/** A collection facet works over members, not the JSON cell's serialized
- * whole value. The preview hands us both the stable visual key and the closed
- * selector; selection itself compares the selector shape so a server label or
- * key change cannot alter which row set remains checked. */
-function CollectionFacet({
-  column,
-  preview,
-  condition,
-  search,
-  loading,
-  canFilter,
-  onSearch,
-  onChange,
+/** Scalar values and list members share their counted-choice presentation.
+ * Selection policy stays in the two adapters below: scalar bulk selection
+ * replaces a snapshot; member selection unions closed selectors. */
+interface FacetChoice {
+  key: string;
+  label: string;
+  count: number;
+  selected: boolean;
+  testId: string;
+  ariaLabel?: string;
+  toggle(): void;
+  only?(): void;
+}
+
+function FacetChecklist({
+  column, preview, inventory, choices, selection, search, loading, canFilter,
+  onSearch, onAddSearchFilter, emptyMessage,
 }: {
+  column: ColumnDef;
+  preview: ColumnValuesPreview;
+  inventory: Pick<ColumnValuesPreview, 'distinct' | 'search' | 'truncated'> & { missing?: number };
+  choices: FacetChoice[];
+  selection: { count: number; shownCount: number; allShown: boolean; selectAll(): void };
+  search: string;
+  loading: boolean;
+  canFilter: boolean;
+  onSearch(value: string): void;
+  onAddSearchFilter?(value: string): void;
+  emptyMessage: string;
+}) {
+  const searchable = inventory.distinct > ENUM_LIMIT || Boolean(inventory.search)
+    || preview.inventoryComplete === false;
+  const acceptedSearch = inventory.search?.trim() ?? '';
+  const actionsStale = loading || search.trim() !== acceptedSearch;
+  const snapshotTooLarge = selection.shownCount > MAX_SELECTED_VALUES;
+  const canSelectShown = canFilter && !actionsStale && selection.shownCount > 0 && !snapshotTooLarge;
+  const bulkNoteId = `facet-bulk-note-${testIdKey(column.name)}`;
+  return <>
+    {searchable && (
+      <label className="friendly-facet-search">
+        <Search size={12} aria-hidden />
+        <input type="search" value={search}
+          data-testid={`facet-search-${testIdKey(column.name)}`}
+          placeholder={`Find ${column.name}…`}
+          onChange={(event) => onSearch(event.target.value)} />
+      </label>
+    )}
+    <div className="friendly-facet-bulk-actions" role="group"
+      aria-label={`Bulk actions for ${column.name}`} aria-describedby={bulkNoteId}>
+      <button type="button" disabled={!canSelectShown || selection.allShown}
+        onClick={() => { if (canSelectShown) selection.selectAll(); }}>
+        Select all shown
+      </button>
+      {onAddSearchFilter && acceptedSearch && (
+        <button type="button" disabled={!canFilter || actionsStale}
+          onClick={() => {
+            if (canFilter && !actionsStale && acceptedSearch) onAddSearchFilter(acceptedSearch);
+          }}>
+          Add “{acceptedSearch}” filter
+        </button>
+      )}
+    </div>
+    <div id={bulkNoteId} className="friendly-facet-note" data-loading={loading ? 'true' : undefined}>
+      {actionsStale ? 'Updating shown values… · ' : ''}
+      {inventory.truncated ? `Showing first ${selection.shownCount.toLocaleString()} matches · ` : ''}
+      {(inventory.missing ?? 0) > 0 ? `${(inventory.missing ?? 0).toLocaleString()} blank · ` : ''}
+      {(preview.omittedRows ?? 0) > 0 ? 'counts exclude omitted cells' : 'counts across the full sheet'}
+    </div>
+    <div className={`friendly-checkbox-list${searchable ? ' is-searchable' : ''}`}
+      data-testid={`facet-values-${testIdKey(column.name)}`}
+      data-loading={loading ? 'true' : undefined} aria-busy={loading || undefined}>
+      {choices.map((choice) => (
+        <div key={choice.key} className="friendly-checkbox-row">
+          <label className="friendly-checkbox-choice">
+            <input type="checkbox" checked={choice.selected} aria-label={choice.ariaLabel}
+              disabled={!canFilter || (!choice.selected && selection.count >= MAX_SELECTED_VALUES)}
+              data-testid={choice.testId} onChange={choice.toggle} />
+            <span title={choice.label}>{choice.label}</span>
+          </label>
+          {choice.only && (
+            <span className="friendly-checkbox-actions">
+              <button type="button" disabled={!canFilter}
+                aria-label={`Only ${choice.label} in ${column.name}`} onClick={choice.only}>
+                only
+              </button>
+              {choice.selected && (
+                <button type="button" disabled={!canFilter}
+                  aria-label={`Remove ${choice.label} from ${column.name} filter`} onClick={choice.toggle}>
+                  <X size={11} aria-hidden />
+                </button>
+              )}
+            </span>
+          )}
+          <small>{choice.count > 0 ? choice.count.toLocaleString() : 'selected'}</small>
+        </div>
+      ))}
+      {choices.length === 0 && <div className="facets-empty">{emptyMessage}</div>}
+    </div>
+    {(selection.count >= MAX_SELECTED_VALUES || snapshotTooLarge) && (
+      <div className="friendly-facet-note">Maximum of 100 selected values reached.</div>
+    )}
+    {!searchable && inventory.distinct > choices.length && (
+      <div className="friendly-facet-note">Search to browse the remaining values.</div>
+    )}
+  </>;
+}
+
+interface ValueFacetProps {
   column: ColumnDef;
   preview: ColumnValuesPreview;
   condition?: FilterCondition;
@@ -666,42 +766,30 @@ function CollectionFacet({
   canFilter: boolean;
   onSearch(value: string): void;
   onChange(condition: FilterCondition | null): void;
-}) {
-  const facet = preview.listFacet ?? null;
+}
+
+/** List membership compares the closed selector, independently of the
+ * service's visual key. Entity labels also retain their type. */
+function CollectionFacet({ column, preview, condition, onChange, ...display }: ValueFacetProps) {
+  const facet = preview.listFacet;
+  if (!facet) return <div className="facets-empty">No list values in this column.</div>;
   const selected = selectedListSelectors(condition);
   const selectedKeys = new Set(selected.map(listSelectorKey));
-  const searchable = Boolean(facet && (facet.distinct > ENUM_LIMIT || facet.search || preview.inventoryComplete === false));
-  const acceptedSearch = facet?.search?.trim() ?? '';
-  const actionsStale = loading || search.trim() !== acceptedSearch;
-  const shown = facet?.choices ?? [];
-  const snapshotTooLarge = shown.length > MAX_SELECTED_VALUES;
+  const shown = facet.choices;
   const shownKeys = new Set(shown.map((choice) => listSelectorKey(choice.selector)));
-  const snapshotAlreadySelected = shown.length > 0
-    && shown.length === selected.length
-    && shown.every((choice) => selectedKeys.has(listSelectorKey(choice.selector)));
   const visible = [...shown];
   for (const selector of selected) {
     if (!shownKeys.has(listSelectorKey(selector))) {
-      visible.unshift({
-        key: listSelectorKey(selector),
-        label: listSelectorLabel(selector),
-        count: 0,
-        selector,
-      });
+      visible.unshift({ key: listSelectorKey(selector), label: listSelectorLabel(selector), count: 0, selector });
     }
   }
-
   const toggle = (selector: GridFilterListSelector) => {
-    const key = listSelectorKey(selector);
-    const next = selectedKeys.has(key)
-      ? selected.filter((candidate) => listSelectorKey(candidate) !== key)
+    const next = selectedKeys.has(listSelectorKey(selector))
+      ? selected.filter((candidate) => listSelectorKey(candidate) !== listSelectorKey(selector))
       : [...selected, selector];
-    if (next.length === 0) onChange(null);
-    else onChange({ list_contains_any: next.slice(0, MAX_SELECTED_VALUES) });
+    onChange(next.length === 0 ? null : { list_contains_any: next.slice(0, MAX_SELECTED_VALUES) });
   };
-
-  const selectAllShown = () => {
-    if (!canFilter || actionsStale || shown.length === 0 || snapshotTooLarge) return;
+  const selectAll = () => {
     const next = [...selected];
     const nextKeys = new Set(selectedKeys);
     for (const choice of shown) {
@@ -711,274 +799,55 @@ function CollectionFacet({
         nextKeys.add(key);
       }
     }
-    if (next.length > 0) onChange({ list_contains_any: next.slice(0, MAX_SELECTED_VALUES) });
+    onChange({ list_contains_any: next.slice(0, MAX_SELECTED_VALUES) });
   };
-
-  if (!facet) {
-    return <div className="facets-empty">No list values in this column.</div>;
-  }
-
-  const bulkNoteId = `facet-bulk-note-${testIdKey(column.name)}`;
-  return (
-    <>
-      {searchable && (
-        <label className="friendly-facet-search">
-          <Search size={12} aria-hidden />
-          <input
-            type="search"
-            value={search}
-            data-testid={`facet-search-${testIdKey(column.name)}`}
-            placeholder={`Find ${column.name}…`}
-            onChange={(event) => onSearch(event.target.value)}
-          />
-        </label>
-      )}
-      <div
-        className="friendly-facet-bulk-actions"
-        role="group"
-        aria-label={`Bulk actions for ${column.name}`}
-        aria-describedby={bulkNoteId}
-      >
-        <button
-          type="button"
-          disabled={
-            !canFilter
-            || actionsStale
-            || shown.length === 0
-            || snapshotTooLarge
-            || snapshotAlreadySelected
-          }
-          onClick={selectAllShown}
-        >
-          Select all shown
-        </button>
-      </div>
-      <div
-        id={bulkNoteId}
-        className="friendly-facet-note"
-        data-loading={loading ? 'true' : undefined}
-      >
-        {actionsStale ? 'Updating shown values… · ' : ''}
-        {facet.truncated ? `Showing first ${shown.length.toLocaleString()} matches · ` : ''}
-        {(preview.omittedRows ?? 0) > 0 ? 'counts exclude omitted cells' : 'counts across the full sheet'}
-      </div>
-      <div
-        className={`friendly-checkbox-list${searchable ? ' is-searchable' : ''}`}
-        data-testid={`facet-values-${testIdKey(column.name)}`}
-        data-loading={loading ? 'true' : undefined}
-        aria-busy={loading || undefined}
-      >
-        {visible.map((choice) => {
-          const selectorKey = listSelectorKey(choice.selector);
-          const isSelected = selectedKeys.has(selectorKey);
-          // The service's label is sufficient for scalar members, but an
-          // entity selector needs its type in the visible and accessible name:
-          // the same text can legitimately be a Person and an Organization.
-          const label = listSelectorLabel(choice.selector);
-          return (
-            <div key={`${choice.key}:${selectorKey}`} className="friendly-checkbox-row">
-              <label className="friendly-checkbox-choice">
-                <input
-                  type="checkbox"
-                  aria-label={label}
-                  checked={isSelected}
-                  disabled={!canFilter || (!isSelected && selected.length >= MAX_SELECTED_VALUES)}
-                  data-testid={`facet-check-${testIdKey(column.name)}-${testIdKey(choice.key)}`}
-                  onChange={() => toggle(choice.selector)}
-                />
-                <span title={label}>{label}</span>
-              </label>
-              <small>{choice.count > 0 ? choice.count.toLocaleString() : 'selected'}</small>
-            </div>
-          );
-        })}
-        {visible.length === 0 && (
-          <div className="facets-empty">
-            {preview.inventoryComplete === false ? 'No selectable list values in this preview.' : facet.search ? `No values match “${facet.search}”.` : 'No list values in this column.'}
-          </div>
-        )}
-      </div>
-      {(selected.length >= MAX_SELECTED_VALUES || snapshotTooLarge) && (
-        <div className="friendly-facet-note">Maximum of 100 selected values reached.</div>
-      )}
-      {!searchable && facet.distinct > visible.length && (
-        <div className="friendly-facet-note">Search to browse the remaining values.</div>
-      )}
-    </>
-  );
+  return <FacetChecklist {...display} column={column} preview={preview} inventory={facet}
+    selection={{ count: selected.length, shownCount: shown.length,
+      allShown: shown.length > 0 && shown.length === selected.length
+        && shown.every((choice) => selectedKeys.has(listSelectorKey(choice.selector))),
+      selectAll }}
+    choices={visible.map((choice) => ({
+      key: `${choice.key}:${listSelectorKey(choice.selector)}`,
+      label: listSelectorLabel(choice.selector), count: choice.count,
+      ariaLabel: listSelectorLabel(choice.selector),
+      selected: selectedKeys.has(listSelectorKey(choice.selector)),
+      testId: `facet-check-${testIdKey(column.name)}-${testIdKey(choice.key)}`,
+      toggle: () => toggle(choice.selector),
+    }))}
+    emptyMessage={preview.inventoryComplete === false ? 'No selectable list values in this preview.'
+      : facet.search ? `No values match “${facet.search}”.` : 'No list values in this column.'} />;
 }
 
-function CategoricalFacet({
-  column,
-  preview,
-  condition,
-  search,
-  loading,
-  canFilter,
-  onSearch,
-  onChange,
-}: {
-  column: ColumnDef;
-  preview: ColumnValuesPreview;
-  condition?: FilterCondition;
-  search: string;
-  loading: boolean;
-  canFilter: boolean;
-  onSearch(value: string): void;
-  onChange(condition: FilterCondition | null): void;
-}) {
+/** Scalar snapshots replace the existing selection; only/add-search actions
+ * remain scalar operations, never list-membership filters. */
+function CategoricalFacet({ column, preview, condition, onChange, ...display }: ValueFacetProps) {
   const selected = selectedValues(condition);
   const selectedSet = new Set(selected);
-  const searchable = preview.distinct > ENUM_LIMIT || Boolean(preview.search) || preview.inventoryComplete === false;
   const shownValues = preview.values.map((entry) => entry.value);
-  const acceptedSearch = preview.search?.trim() ?? '';
-  const actionsStale = loading || search.trim() !== acceptedSearch;
-  const snapshotTooLarge = shownValues.length > MAX_SELECTED_VALUES;
-  const snapshotAlreadySelected = (
-    (typeof condition?.eq === 'string' || Array.isArray(condition?.in))
-    && selected.length === shownValues.length
-    && shownValues.every((value) => selectedSet.has(value))
-  );
-  const bulkNoteId = `facet-bulk-note-${testIdKey(column.name)}`;
   const visible = [...preview.values];
   for (const value of selected) {
     if (!visible.some((entry) => entry.value === value)) visible.unshift({ value, count: 0 });
   }
-
   const toggle = (value: string) => {
     const next = selectedSet.has(value)
-      ? selected.filter((candidate) => candidate !== value)
-      : [...selected, value];
-    if (next.length === 0) onChange(null);
-    else if (next.length === 1) onChange({ eq: next[0] });
-    else onChange({ in: next.slice(0, MAX_SELECTED_VALUES) });
+      ? selected.filter((candidate) => candidate !== value) : [...selected, value];
+    onChange(next.length === 0 ? null : next.length === 1 ? { eq: next[0] }
+      : { in: next.slice(0, MAX_SELECTED_VALUES) });
   };
-
-  const selectAllShown = () => {
-    if (!canFilter || actionsStale || shownValues.length === 0 || snapshotTooLarge) return;
-    if (shownValues.length === 1) onChange({ eq: shownValues[0] });
-    else onChange({ in: shownValues });
-  };
-
-  const addSearchFilter = () => {
-    if (!canFilter || actionsStale || !acceptedSearch) return;
-    onChange({ contains: acceptedSearch });
-  };
-
-  return (
-    <>
-      {searchable && (
-        <label className="friendly-facet-search">
-          <Search size={12} aria-hidden />
-          <input
-            type="search"
-            value={search}
-            data-testid={`facet-search-${testIdKey(column.name)}`}
-            placeholder={`Find ${column.name}…`}
-            onChange={(event) => onSearch(event.target.value)}
-          />
-        </label>
-      )}
-      <div
-        className="friendly-facet-bulk-actions"
-        role="group"
-        aria-label={`Bulk actions for ${column.name}`}
-        aria-describedby={bulkNoteId}
-      >
-        <button
-          type="button"
-          disabled={
-            !canFilter
-            || actionsStale
-            || shownValues.length === 0
-            || snapshotTooLarge
-            || snapshotAlreadySelected
-          }
-          onClick={selectAllShown}
-        >
-          Select all shown
-        </button>
-        {acceptedSearch && (
-          <button
-            type="button"
-            disabled={!canFilter || actionsStale}
-            onClick={addSearchFilter}
-          >
-            Add “{acceptedSearch}” filter
-          </button>
-        )}
-      </div>
-      <div
-        id={bulkNoteId}
-        className="friendly-facet-note"
-        data-loading={loading ? 'true' : undefined}
-      >
-        {actionsStale ? 'Updating shown values… · ' : ''}
-        {preview.truncated ? `Showing first ${shownValues.length.toLocaleString()} matches · ` : ''}
-        {preview.missing > 0 ? `${preview.missing.toLocaleString()} blank · ` : ''}
-        {(preview.omittedRows ?? 0) > 0 ? 'counts exclude omitted cells' : 'counts across the full sheet'}
-      </div>
-      <div
-        className={`friendly-checkbox-list${searchable ? ' is-searchable' : ''}`}
-        data-testid={`facet-values-${testIdKey(column.name)}`}
-        data-loading={loading ? 'true' : undefined}
-        aria-busy={loading || undefined}
-      >
-        {visible.map((entry) => {
-          const isSelected = selectedSet.has(entry.value);
-          return (
-            <div key={entry.value} className="friendly-checkbox-row">
-              <label className="friendly-checkbox-choice">
-                <input
-                  type="checkbox"
-                  checked={isSelected}
-                  disabled={
-                    !canFilter
-                    || (!isSelected && selected.length >= MAX_SELECTED_VALUES)
-                  }
-                  data-testid={`facet-check-${testIdKey(column.name)}-${testIdKey(entry.value) || 'blank'}`}
-                  onChange={() => toggle(entry.value)}
-                />
-                <span title={entry.value}>{entry.value}</span>
-              </label>
-              <span className="friendly-checkbox-actions">
-                <button
-                  type="button"
-                  disabled={!canFilter}
-                  aria-label={`Only ${entry.value} in ${column.name}`}
-                  onClick={() => onChange({ eq: entry.value })}
-                >
-                  only
-                </button>
-                {isSelected && (
-                  <button
-                    type="button"
-                    disabled={!canFilter}
-                    aria-label={`Remove ${entry.value} from ${column.name} filter`}
-                    onClick={() => toggle(entry.value)}
-                  >
-                    <X size={11} aria-hidden />
-                  </button>
-                )}
-              </span>
-              <small>{entry.count > 0 ? entry.count.toLocaleString() : 'selected'}</small>
-            </div>
-          );
-        })}
-        {visible.length === 0 && (
-          <div className="facets-empty">
-            {preview.inventoryComplete === false ? 'No selectable values in this preview.' : preview.search ? `No values match “${preview.search}”.` : 'No values in this column.'}
-          </div>
-        )}
-      </div>
-      {(selected.length >= MAX_SELECTED_VALUES || snapshotTooLarge) && (
-        <div className="friendly-facet-note">Maximum of 100 selected values reached.</div>
-      )}
-      {!searchable && preview.distinct > visible.length && (
-        <div className="friendly-facet-note">Search to browse the remaining values.</div>
-      )}
-    </>
-  );
+  return <FacetChecklist {...display} column={column} preview={preview} inventory={preview}
+    selection={{ count: selected.length, shownCount: shownValues.length,
+      allShown: (typeof condition?.eq === 'string' || Array.isArray(condition?.in))
+        && selected.length === shownValues.length && shownValues.every((value) => selectedSet.has(value)),
+      selectAll: () => onChange(shownValues.length === 1 ? { eq: shownValues[0] } : { in: shownValues }) }}
+    onAddSearchFilter={(value) => onChange({ contains: value })}
+    choices={visible.map((entry) => ({
+      key: entry.value, label: entry.value, count: entry.count,
+      selected: selectedSet.has(entry.value),
+      testId: `facet-check-${testIdKey(column.name)}-${testIdKey(entry.value) || 'blank'}`,
+      toggle: () => toggle(entry.value), only: () => onChange({ eq: entry.value }),
+    }))}
+    emptyMessage={preview.inventoryComplete === false ? 'No selectable values in this preview.'
+      : preview.search ? `No values match “${preview.search}”.` : 'No values in this column.'} />;
 }
 
 function histogramBinExcluded(
@@ -1354,8 +1223,8 @@ function AdvancedConditionEditor({
                   onChange={(event) => setValue(event.target.value)}
                 />
               </label>
-              <label>
-                <span>Unit</span>
+              <FormField label="Unit" >
+
                 <PanelSelect
                   value={start}
                   testId={`facet-relative-unit-${testIdKey(column.name)}`}
@@ -1363,7 +1232,7 @@ function AdvancedConditionEditor({
                   onValueChange={setStart}
                   options={RELATIVE_UNITS}
                 />
-              </label>
+              </FormField>
             </div>
           ) : operator === 'date_year' ? (
             <input
@@ -1399,15 +1268,15 @@ function AdvancedConditionEditor({
             <input type={inputType} inputMode={inputMode} value={value} aria-label="Value" onChange={(event) => setValue(event.target.value)} />
           )}
           {validation && <span className="grid-filter-validation">{validation}</span>}
-          <button
+          <Button
             type="button"
-            className="btn"
+
             disabled={!canFilter || validation !== null}
             data-testid={`facet-advanced-apply-${testIdKey(column.name)}`}
             onClick={apply}
           >
             Apply
-          </button>
+          </Button>
         </div>
       )}
     </div>

@@ -1,3 +1,4 @@
+import { Button } from '../Button';
 import { useEffect, useMemo, useState } from 'react';
 import type { SheetMeta } from '../../api/open';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
@@ -77,14 +78,14 @@ function PdfTablesColumnReview({ sheetId, reviewColumn, outputName, onMaterializ
         <span className="pdf-tables-review-text">
           Review extracted tables before building a sheet. Current values may include edits or multiple runs.
         </span>
-        <button
+        <Button
           type="button"
-          className="btn"
+
           data-testid="review-tables"
           onClick={() => setPickerOpen(true)}
         >
           Review tables →
-        </button>
+        </Button>
       </div>
       {pickerOpen && (
         <div className="pdf-tables-picker-overlay">

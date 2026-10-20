@@ -1,3 +1,6 @@
+import '../ActionPanel.css';
+import { Button } from '../Button';
+import { TextArea, TextInput } from '../FormControls';
 import { createContext, Fragment, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState,
   type ReactNode } from 'react';
 import { Eye } from 'lucide-react';
@@ -83,7 +86,7 @@ function JsonSchemaField({ field, value, schemaType, onChange }: {
   }, [value]);
   return <div className="param-row">
     <label className="form-label" htmlFor={field.id}>{field.label}</label>
-    <textarea id={field.id} className="form-input form-textarea form-textarea-autogrow"
+    <TextArea id={field.id} className="form-textarea-autogrow"
       ref={resizeTextareaToContent} onInput={handleAutoResizeTextareaInput}
       rows={7} data-testid={field.testid}
       value={text} aria-invalid={typeof value === 'string'} onChange={(event) => {
@@ -100,7 +103,7 @@ function JsonSchemaField({ field, value, schemaType, onChange }: {
         lastValue.current = next;
         onChange(next);
       }} />
-    {typeof value === 'string' && <p className="form-error" role="alert">
+    {typeof value === 'string' && <p className="panel-error" role="alert">
       Enter a valid JSON {schemaType}.
     </p>}
   </div>;
@@ -122,7 +125,7 @@ function NumericSchemaField({ field, value, onChange }: {
   }, [value, field.value]);
   return <div className="param-row">
     <label className="form-label" htmlFor={field.id}>{field.label}</label>
-    <input id={field.id} className="form-input" inputMode="decimal"
+    <TextInput id={field.id}  inputMode="decimal"
       data-testid={field.testid} value={text} onChange={(event) => {
         const raw = event.target.value;
         setText(raw);
@@ -694,17 +697,28 @@ function GeneratedActionFormContents({
     staticCreatesSheet, requestScope, customization, dynamicOutputs, initialDraft, outputPrefix, paramsEdited, resolveParams,
     columns, sheetId]);
 
-  const updateField = (name: string, value: CanonicalFieldValue) => {
-    markFieldTouched(name);
-    setParamsEdited(true);
+  // All partial field writes invalidate the same authoritative resolution.
+  // Served defaults use this path without marking an authored user edit.
+  const invalidateParams = useCallback(() => {
     setResolved((current) => ({
       ...current,
       diagnostics: {},
       problem: dynamicOutputs ? 'Resolving outputs…' : 'Validating fields…',
     }));
+  }, [dynamicOutputs]);
+  const writeFields = (updates: Record<string, CanonicalFieldValue>) => {
+    invalidateParams();
+    setDraft((current) => Object.entries(updates).reduce(
+      (next, [name, value]) => setCanonicalDraftField(actionTemplate, next, name, value),
+      current,
+    ));
+  };
+  const updateField = (name: string, value: CanonicalFieldValue) => {
+    markFieldTouched(name);
+    setParamsEdited(true);
     const schema = catalogEntry.input_schema.properties?.[name];
     if (value === '' && schema?.default === null) {
-      setDraft((current) => setCanonicalDraftField(actionTemplate, current, name, null));
+      writeFields({ [name]: null });
       return;
     }
     const numeric = typeof value === 'string' && value !== '' ? Number(value) : value;
@@ -712,7 +726,7 @@ function GeneratedActionFormContents({
       && Number.isInteger(numeric) ? numeric
       : schema?.type === 'number' && typeof numeric === 'number' && Number.isFinite(numeric)
         ? numeric : value;
-    setDraft((current) => setCanonicalDraftField(actionTemplate, current, name, normalized));
+    writeFields({ [name]: normalized });
   };
   const selectorUpdates = (field: string, choice: SelectorChoice): Record<string, CanonicalFieldValue> | null => {
     const authored = choice.authored_selection;
@@ -729,15 +743,7 @@ function GeneratedActionFormContents({
     if (!updates) return;
     Object.keys(updates).forEach(markFieldTouched);
     setParamsEdited(true);
-    setResolved((current) => ({
-      ...current,
-      diagnostics: {},
-      problem: dynamicOutputs ? 'Resolving outputs…' : 'Validating fields…',
-    }));
-    setDraft((current) => Object.entries(updates).reduce(
-      (next, [name, value]) => setCanonicalDraftField(actionTemplate, next, name, value),
-      current,
-    ));
+    writeFields(updates);
   };
   const publishSelectorChoice = (field: string, choice: SelectorChoice | null) => {
     setSelectorCurrentChoice(choice);
@@ -759,15 +765,7 @@ function GeneratedActionFormContents({
     );
     if (!entries.every(([name, value]) => isUnset(draft[name]) || draft[name] === value)) return;
     if (!entries.some(([name, value]) => isUnset(draft[name]) && draft[name] !== value)) return;
-    setResolved((current) => ({
-      ...current,
-      diagnostics: {},
-      problem: dynamicOutputs ? 'Resolving outputs…' : 'Validating fields…',
-    }));
-    setDraft((current) => Object.entries(updates).reduce(
-      (next, [name, value]) => setCanonicalDraftField(actionTemplate, next, name, value),
-      current,
-    ));
+    writeFields(updates);
   };
   const updateBodyParams = useCallback((params: CanonicalDraft) => {
     const previous = latestDraft.current;
@@ -777,13 +775,9 @@ function GeneratedActionFormContents({
     changed.forEach(markFieldTouched);
     latestDraft.current = params;
     setParamsEdited(true);
-    setResolved((current) => ({
-      ...current,
-      diagnostics: {},
-      problem: dynamicOutputs ? 'Resolving outputs…' : 'Validating fields…',
-    }));
+    invalidateParams();
     setDraft(params);
-  }, [dynamicOutputs, markFieldTouched]);
+  }, [invalidateParams, markFieldTouched]);
   const renderField = (field: ActionParamFieldPresentationProps): ReactNode | undefined => {
     const CustomField = customization?.fields?.[field.name];
     if (CustomField) {
@@ -1021,18 +1015,10 @@ function GeneratedActionFormContents({
     if (!canRun || (!projectScoped && scope === 'selected'
       && selectedRowIds.length === 0 && !hasExactRowScopeInitializer)) return;
     const request = {
-      action_id: catalogEntry.kind,
+      ...estimateDraft,
       scope: scopeFor(scope),
-      params: serializeCanonicalDraft(draft),
-      ...(createsSheet ? { sheet_name: sheetName.trim() } : {}),
-      output_names: Object.fromEntries(Object.entries(outputNames)
-        .map(([key, value]) => [key, value.trim()])),
       idempotency_key: freshActionRequestKey(catalogEntry.kind),
     } satisfies GeneratedActionRequest;
-    if (intent === 'preview') {
-      onExecute(request, intent);
-      return;
-    }
     onExecute(request, intent);
   };
 
@@ -1109,7 +1095,7 @@ function GeneratedActionFormContents({
 
       {createsSheet && <div className="action-source-block">
         <label className="form-label" htmlFor="generated-sheet-name">New sheet name</label>
-        <input id="generated-sheet-name" className="form-input" data-testid="field-sheet_name"
+        <TextInput id="generated-sheet-name"  data-testid="field-sheet_name"
           value={sheetName} disabled={running} onChange={(event) => setSheetName(event.target.value)} />
       </div>}
 
@@ -1139,15 +1125,15 @@ function GeneratedActionFormContents({
         />
       )}
 
-      {editorProblem && <p className="form-error" role="alert" data-testid="generated-editor-problem">{editorProblem}</p>}
+      {editorProblem && <p className="panel-error" role="alert" data-testid="generated-editor-problem">{editorProblem}</p>}
 
       {catalogEntry.kind === 'media.ocr' && (
         <div className="form-actions">
-          <button type="button" className="btn" data-testid="ocr-compare-open"
+          <Button type="button" data-testid="ocr-compare-open"
             disabled={running || !onOpenOcrCompare}
             onClick={() => onOpenOcrCompare?.(ocrCompareTarget)}>
             Compare engines
-          </button>
+          </Button>
         </div>
       )}
 
@@ -1160,7 +1146,7 @@ function GeneratedActionFormContents({
           value={outputPrefix} allowExistingTargets={!createsSheet}
           onChange={updateOutputPrefix} /> : <div className="param-row">
           <label className="form-label" htmlFor="generated-output-prefix">{prefixLabel}</label>
-          <input id="generated-output-prefix" className="form-input"
+          <TextInput id="generated-output-prefix"
             data-testid="field-output-prefix" value={outputPrefix}
             onChange={(event) => updateOutputPrefix(event.target.value)} />
         </div>}
@@ -1216,7 +1202,7 @@ function GeneratedActionFormContents({
         }}>
         <summary>Rename output columns</summary>
         <p className="form-hint">Columns are discovered from the list. Optionally map their names to new names.</p>
-        <textarea className="form-input form-textarea form-textarea-autogrow"
+        <TextArea className="form-textarea-autogrow"
           ref={resizeTextareaToContent} onInput={handleAutoResizeTextareaInput}
           aria-label="Output column renames" value={renameText}
           disabled={running} onChange={(event) => {
@@ -1233,17 +1219,17 @@ function GeneratedActionFormContents({
           }} />
       </details>}
 
-      {outputNameProblem && <p className="form-error" role="alert">{outputNameProblem}</p>}
+      {outputNameProblem && <p className="panel-error" role="alert">{outputNameProblem}</p>}
       {staleOutputNames.length > 0 && <div className="form-hint" data-testid="stale-output-names">
         Saved names refer to unavailable outputs: {staleOutputNames.join(', ')}.
-        <button type="button" className="btn btn-ghost" disabled={running}
+        <Button type="button" className="btn-ghost" disabled={running}
           onClick={() => setOutputNames((names) => Object.fromEntries(
             Object.entries(names).filter(([key]) => !staleOutputNames.includes(key)),
-          ))}>Remove unavailable output names</button>
+          ))}>Remove unavailable output names</Button>
       </div>}
 
       {((resolutionProblem && !resolving) || globalDiagnostic || unownedDiagnostic) && (
-        <p className="form-error" role="alert">
+        <p className="panel-error" role="alert">
           {globalDiagnostic?.message ?? unownedDiagnostic?.message ?? resolutionProblem
             ?? 'Correct the invalid fields.'}
         </p>
@@ -1252,12 +1238,12 @@ function GeneratedActionFormContents({
       {projectScoped ? <div className="form-actions action-run-actions">
         {costLine}
         <div className="run-actions-row">
-          <button type="button" className="btn" data-testid="generated-action-preview"
+          <Button type="button" data-testid="generated-action-preview"
             disabled={!canRun || running} onClick={() => submit('all', 'preview')}>
             <Eye size={13} /> Preview
-          </button>
-          <button type="submit" className="btn btn-primary" data-testid="run-button"
-            disabled={!canRun || running}>{running ? runningLabel : customization?.primaryLabel ?? (createsSheet ? 'Create sheet' : 'Run')}</button>
+          </Button>
+          <Button type="submit" className="btn-primary" data-testid="run-button"
+            disabled={!canRun || running}>{running ? runningLabel : customization?.primaryLabel ?? (createsSheet ? 'Create sheet' : 'Run')}</Button>
         </div>
       </div> : <RunScopeFooter primaryLabel={customization?.primaryLabel ?? 'Run'} rowCount={sheet?.rowCount ?? 0}
         selectedCount={selectedRowIds.length} canRun={canRun}

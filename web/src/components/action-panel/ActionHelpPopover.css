@@ -1,0 +1,15 @@
+@layer base, action-panel;
+
+@layer action-panel {
+
+.action-help-popover { padding: 16px; }
+.action-help-popover header { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; }
+.action-help-popover h3 { margin: 0; font-size: 15px; }
+.action-help-popover header code { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
+.action-help-kicker { color: var(--text-light); font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.07em; }
+.action-help-section { margin-top: 13px; }
+.action-help-section h4 { margin: 0 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+.action-help-section p { margin: 0; }
+.action-help-section ul { margin: 0; padding-left: 18px; }
+
+}

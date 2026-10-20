@@ -1,0 +1,60 @@
+/* Replay preserve+surface (replay-accept-chrome-v1): the chip's inline Review /
+   Accept-all controls, and the two-value accept popover. */
+.replay-pending-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.replay-pending-review,
+.replay-pending-accept-all {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: inherit;
+  border-radius: var(--radius-999);
+  padding: 1px 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.replay-pending-review:hover,
+.replay-pending-accept-all:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+.replay-accept-popover {
+  position: fixed;
+  z-index: 60;
+  min-width: 260px;
+  max-width: 360px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-8);
+  background: var(--bg);
+  box-shadow: var(--shadow-menu);
+  font-size: 12px;
+}
+.replay-accept-popover-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.replay-accept-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.replay-accept-field-label {
+  font-size: 11px;
+  color: var(--text-mid);
+}
+.replay-accept-field-value {
+  font-family: var(--mono);
+  word-break: break-word;
+}
+.replay-accept-popover-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}

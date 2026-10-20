@@ -1,3 +1,7 @@
+import '../ActionPanel.css';
+import './SourceInputControl.css';
+import '../FormControls.css';
+import { TextArea } from '../FormControls';
 import { useCallback, useRef } from 'react';
 import type { ReactNode } from 'react';
 import type { ColumnDef } from '../../api/open';
@@ -141,9 +145,9 @@ export function TemplateComposer({
           <div className="template-highlight-layer" aria-hidden>
             {templateSegments(value, columns, knownTokenPrefixes)}
           </div>
-          <textarea
+          <TextArea
             ref={setNode}
-            className="form-input template-input"
+            className="template-input"
             data-testid={textareaTestId}
             value={value}
             rows={1}
@@ -256,6 +260,7 @@ export function SourceInputControl({
           <div className="form-label">{label}</div>
           <SegmentedToggle
             className="source-mode-switch"
+            size="compact"
             fullWidth={false}
             ariaLabel={`${label} mode`}
             value={isMultiTemplate ? 'template' : isAll ? 'all' : 'columns'}
@@ -320,6 +325,7 @@ export function SourceInputControl({
         {allowTemplate && (
           <SegmentedToggle
             className="source-mode-switch"
+            size="compact"
             fullWidth={false}
             ariaLabel={`${label} mode`}
             value={isTemplate ? 'template' : 'column'}

@@ -1,3 +1,5 @@
+import '../components/PanelPrimitives.css';
+import './RowErrorGroupList.css';
 import type { ActionJob, RunRowErrorGroup } from '../api/open';
 
 // Distinct per-row failure messages grouped with counts + example row ids,

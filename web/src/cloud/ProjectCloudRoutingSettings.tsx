@@ -1,3 +1,7 @@
+import '../components/PanelPrimitives.css';
+import '../settings/SettingsPrimitives.css';
+import './ProjectCloudRoutingSettings.css';
+import { FormField } from '../components/FormControls';
 import { useCallback, useEffect, useState } from 'react';
 
 import {
@@ -83,15 +87,15 @@ export function ProjectCloudRoutingSettings({
   };
 
   if (!routing) {
-    return <section className="settings-stack" data-testid="project-cloud-routing">
-      <div className={error ? 'settings-inline-error' : 'settings-inline-status'}
+    return <section className="content-stack" data-testid="project-cloud-routing">
+      <div className={error ? 'panel-error' : 'panel-notice'}
         role={error ? 'alert' : undefined}>{error || 'Loading Frisket Cloud settings…'}</div>
     </section>;
   }
 
   const selected = routing.accounts.find((account) => account.id === routing.selectedAccountId) ?? null;
   const selectedAccountUnavailable = routing.selectedAccountId !== null && !selected?.eligible;
-  return <section className="settings-stack project-cloud-routing" data-testid="project-cloud-routing">
+  return <section className="content-stack project-cloud-routing" data-testid="project-cloud-routing">
     <div className="settings-section-subhead">
       <h2>Frisket Cloud account</h2>
       <p>Pays for models in this project that run through Frisket Cloud.</p>
@@ -103,8 +107,8 @@ export function ProjectCloudRoutingSettings({
           : (id) => patch({ selectedAccountId: id }, true).then(() => undefined)}
         onChanged={() => { load(); }} />
     )}
-    {routing.connectionState === 'connected' && <label className="settings-field">
-      <span>Cloud account for this project</span>
+    {routing.connectionState === 'connected' && <FormField label="Cloud account for this project" >
+
       <select value={routing.selectedAccountId ?? ''} disabled={!routing.canMutate || busy}
         onChange={(event) => void patch({ selectedAccountId: Number(event.currentTarget.value) })}>
         <option value="" disabled>Choose an account</option>
@@ -116,19 +120,19 @@ export function ProjectCloudRoutingSettings({
           {account.name} · {cloudAccountKindLabel(account.kind)}{account.eligible ? '' : ' · unavailable'}
         </option>)}
       </select>
-      {selected?.balanceLabel && <small className="settings-help">
+      {selected?.balanceLabel && <small className="form-hint">
         {selected.balanceUrl
           ? <a href={selected.balanceUrl} target="_blank" rel="noreferrer">Frisket credits · {selected.balanceLabel}</a>
           : <>Frisket credits · {selected.balanceLabel}</>}
       </small>}
-    </label>}
+    </FormField>}
     {routing.connectionState === 'connected' && selectedAccountUnavailable && (
-      <div className="settings-inline-error" role="alert">
+      <div className="panel-error" role="alert">
         {selected?.name ?? 'The selected Cloud account'} can no longer fund this project.
         Choose another eligible account; Frisket won’t switch it automatically.
       </div>
     )}
 
-    {error && <div className="settings-inline-error" role="alert">{error}</div>}
+    {error && <div className="panel-error" role="alert">{error}</div>}
   </section>;
 }

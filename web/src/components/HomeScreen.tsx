@@ -1,3 +1,7 @@
+import './PanelPrimitives.css';
+import './HomeScreen.css';
+import { Button } from './Button';
+import { TextInput } from './FormControls';
 // Home / projects screen — the default landing surface and route-home. A
 // full-window route screen (not a modal): a top bar (app mark + ⌘K-openable
 // command pill + avatar/account menu), a left nav that scopes the list
@@ -457,9 +461,9 @@ export function HomeScreen({ onOpen }: HomeScreenProps) {
           {welcome && (
             <div className="account-note" data-testid="instance-welcome-message">
               {welcome.message}
-              <button type="button" className="mini-btn" onClick={dismissWelcome}>
+              <Button type="button" onClick={dismissWelcome}>
                 Got it
-              </button>
+              </Button>
             </div>
           )}
 
@@ -703,14 +707,14 @@ function HomeToolbar({
               { value: 'list', label: 'List' },
             ]}
           />
-          <button
+          <Button
             type="button"
-            className="btn btn-primary home-new-project"
+            className="btn-primary home-new-project"
             data-testid="home-new-project"
             onClick={onNewProject}
           >
             <Plus size={13} /> New project
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -727,16 +731,16 @@ function HomeToolbar({
             onChange={(e) => onFilterChange(e.target.value)}
           />
         </div>
-        <button
+        <Button
           type="button"
-          className="btn home-sample-btn"
+          className="home-sample-btn"
           data-testid="try-sample-project"
           onClick={onTrySample}
           disabled={busy || sampleBusy}
         >
           <FlaskConical size={13} />{' '}
           {sampleBusy ? 'Setting up the sample…' : 'Try the sample project'}
-        </button>
+        </Button>
       </div>}
 
       {creating && (
@@ -747,29 +751,29 @@ function HomeToolbar({
             onCreateSubmit();
           }}
         >
-          <input
+          <TextInput
             aria-label="New project name"
-            className="form-input"
+
             value={name}
             placeholder="new project name"
             data-testid="new-project-name"
             onChange={(e) => onNameChange(e.target.value)}
           />
-          <button
+          <Button
             type="submit"
-            className="btn btn-primary"
+            className="btn-primary"
             data-testid="create-project"
             disabled={!name.trim() || busy}
           >
             <Plus size={13} /> Create
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="btn"
+
             onClick={onCreateCancel}
           >
             Cancel
-          </button>
+          </Button>
         </form>
       )}
     </>
@@ -851,9 +855,9 @@ function HomeProjectCard({
               onRenameSubmit();
             }}
           >
-            <input
+            <TextInput
               ref={renameInputRef}
-              className="form-input home-card-rename-input"
+              className="home-card-rename-input"
               aria-label={`Rename ${project.name}`}
               data-testid={`home-card-rename-input-${project.id}`}
               value={renameValue}
@@ -866,21 +870,21 @@ function HomeProjectCard({
               }}
             />
             <div className="home-card-rename-actions">
-              <button
+              <Button
                 type="submit"
-                className="btn btn-primary"
+                className="btn-primary"
                 data-testid={`home-card-rename-save-${project.id}`}
               >
                 Save
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
-                className="btn"
+
                 data-testid={`home-card-rename-cancel-${project.id}`}
                 onClick={onRenameCancel}
               >
                 Cancel
-              </button>
+              </Button>
             </div>
           </form>
         </div>

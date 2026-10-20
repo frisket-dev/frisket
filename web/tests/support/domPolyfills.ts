@@ -20,11 +20,15 @@ export function installPopoverPolyfill(): void {
   if (typeof proto.showPopover !== 'function') {
     proto.showPopover = function (this: HTMLElement) {
       openPopovers.add(this);
+      // jsdom's UA stylesheet hides [popover] but cannot resolve the native
+      // open pseudo-class during computed-style/accessibility queries.
+      this.style.display = 'block';
     };
   }
   if (typeof proto.hidePopover !== 'function') {
     proto.hidePopover = function (this: HTMLElement) {
       openPopovers.delete(this);
+      this.style.display = 'none';
     };
   }
   const matchesProto = Element.prototype as Element & { __popoverPatched?: boolean };

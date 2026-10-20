@@ -1,4 +1,9 @@
-import { Search } from 'lucide-react';
+import '../components/PanelPrimitives.css';
+import '../components/BoundedTextReader.css';
+import './DocumentView.css';
+import '../components/evidence/EvidenceReading.css';
+import { FormField } from '../components/FormControls';
+import { DocumentList } from './DocumentList';
 import type { CSSProperties } from 'react';
 import type { DocumentListPage, Row, SheetMeta } from '../api/types';
 import { MenuPop } from '../components/MenuPop';
@@ -15,7 +20,6 @@ import { DocumentAlongsidePane } from './DocumentAlongsidePane';
 import { useDocumentAlongsidePreference } from '../workspace/useWorkspaceChromeState';
 import type { TimedTranscriptDocument } from './timedTranscriptModel';
 import { useDocumentView } from './useDocumentView';
-import { LIST_ITEM_HEIGHT } from './useWindowedRowList';
 import { PanelLoading } from '../components/PanelPrimitives';
 import { PanelSelect } from '../components/PanelSelect';
 import { mediaFilename } from '../media/resolveMediaValue';
@@ -111,9 +115,7 @@ export function DocumentView({
   }, [alongside.open]);
   // Each view-option select portals its custom menu to <body>, so the menu is
   // NOT a DOM descendant of the options popover. Two consequences, both
-  // handled by the props threaded below: the menu must be promoted to the top
-  // layer itself (`topLayer`) or the popover — which is already in the top
-  // layer — paints over it, and the popover's outside-pointerdown dismissal
+  // handled by shared top-layer menus and the refs below: the popover's dismissal
   // must count these menus as "inside" (`extraRefs`) or choosing an option
   // dismisses the popover the option belongs to.
   const optionSourceMenuRef = useRef<HTMLDivElement>(null);
@@ -131,6 +133,8 @@ export function DocumentView({
     ],
     [],
   );
+  const browse = useDocumentView({ projectId, sheet, state, onChangeState, onDocumentFocus,
+    queryDocuments, hydrateRow, orderKey, titleColumnOrder, annotatedTextColumnIds });
   const {
     sources,
     source,
@@ -139,12 +143,8 @@ export function DocumentView({
     titleColumn,
     list,
     pageCounts,
-    search,
-    setSearch,
     optionsOpen,
     setOptionsOpen,
-    listBodyRef,
-    items,
     activeRowId,
     activeItem,
     activeRow,
@@ -154,24 +154,8 @@ export function DocumentView({
     hydrationError,
     recordPageCount,
     selectDocument,
-    onListKeyDown,
-    onListScroll,
-    startIndex,
-    windowRows,
-    loadMore,
     setState,
-  } = useDocumentView({
-    projectId,
-    sheet,
-    state,
-    onChangeState,
-    onDocumentFocus,
-    queryDocuments,
-    hydrateRow,
-    orderKey,
-    titleColumnOrder,
-    annotatedTextColumnIds,
-  });
+  } = browse;
 
   const activeTimedTranscriptDocument = useMemo<TimedTranscriptDocument | null>(() => {
     if (
@@ -215,14 +199,13 @@ export function DocumentView({
   // ref + top-layer placement style alongside its trigger; this attaches them
   // via ordinary JSX so neither side touches a ref outside JSX).
   const optionsPopover = ({ popoverRef, style }: { popoverRef: (el: HTMLDivElement | null) => void; style: CSSProperties }) => (
-    <MenuPop ref={popoverRef} style={style} className="document-options" role="dialog" data-testid="document-options" aria-label="View options">
+    <MenuPop ref={popoverRef} style={style} sizing="anchored" className="document-options" role="dialog" data-testid="document-options" aria-label="View options">
       {sources.length > 1 && (
-        <label className="document-option-row">
-          <span>Source</span>
+        <FormField label="Source" layout="inline">
+
           <PanelSelect
             className="row-height-select"
             data-testid="document-option-source"
-            topLayer
             menuRef={optionSourceMenuRef}
             value={sourceColumn ? String(sourceColumn.id) : ''}
             onChange={(event) => setState({ sourceColumnId: event.target.value })}
@@ -237,18 +220,16 @@ export function DocumentView({
               </option>
             ))}
           </PanelSelect>
-        </label>
+        </FormField>
       )}
-      <label className="document-option-row">
+      <FormField label="Title override" layout="inline">
         {/* This is a per-view OVERRIDE of the sheet's default title column
             (set sheet-wide from the column '...' menu's "Use as row title")
             — the blank option restores that default instead of pinning a
             column forever. */}
-        <span>Title override</span>
         <PanelSelect
           className="row-height-select"
           data-testid="document-option-title"
-            topLayer
             menuRef={optionTitleMenuRef}
           value={state.titleColumnId ?? ''}
           onChange={(event) =>
@@ -262,18 +243,17 @@ export function DocumentView({
             </option>
           ))}
         </PanelSelect>
-      </label>
+      </FormField>
       {/* Layout / Fit are PDF page-rendering options; a text source has no
           pages, so offering them would be two controls that do nothing. List
           sort and Sync below are source-independent and stay. */}
       {source?.kind !== 'text' && (
         <>
-      <label className="document-option-row">
-        <span>Layout</span>
+      <FormField label="Layout" layout="inline">
+
         <PanelSelect
           className="row-height-select"
           data-testid="document-option-layout"
-            topLayer
             menuRef={optionLayoutMenuRef}
           value={state.layout}
           onChange={(event) =>
@@ -284,13 +264,12 @@ export function DocumentView({
           <option value="single">Single page</option>
           <option value="two-up">Two-up</option>
         </PanelSelect>
-      </label>
-      <label className="document-option-row">
-        <span>Fit</span>
+      </FormField>
+      <FormField label="Fit" layout="inline">
+
         <PanelSelect
           className="row-height-select"
           data-testid="document-option-fit"
-            topLayer
             menuRef={optionFitMenuRef}
           value={state.fit}
           onChange={(event) => setState({ fit: event.target.value as DocumentViewState['fit'] })}
@@ -298,7 +277,7 @@ export function DocumentView({
           <option value="width">Fit width</option>
           <option value="page">Fit page</option>
         </PanelSelect>
-      </label>
+      </FormField>
       <label className="document-option-row document-option-check">
         <input
           type="checkbox"
@@ -310,12 +289,11 @@ export function DocumentView({
       </label>
         </>
       )}
-      <label className="document-option-row">
-        <span>List sort</span>
+      <FormField label="List sort" layout="inline">
+
         <PanelSelect
           className="row-height-select"
           data-testid="document-option-listsort"
-            topLayer
             menuRef={optionListSortMenuRef}
           value={listSortDir ?? 'none'}
           onChange={(event) => {
@@ -327,7 +305,7 @@ export function DocumentView({
           <option value="asc">Title A→Z</option>
           <option value="desc">Title Z→A</option>
         </PanelSelect>
-      </label>
+      </FormField>
     </MenuPop>
   );
 
@@ -338,108 +316,35 @@ export function DocumentView({
       data-project-id={projectId}
       data-source-column-id={sourceColumn ? String(sourceColumn.id) : ''}
     >
-      <aside className="document-list" data-testid="document-list" aria-label="Documents">
-        <div className="document-list-search">
-          <Search size={13} aria-hidden />
-          <input
-            data-testid="document-list-search"
-            placeholder="Search documents…"
-            aria-label="Search documents"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
-        </div>
-        <div className="document-list-count muted mono">
-          {items.length.toLocaleString()} loaded
-        </div>
-        <div
-          className="document-list-body drawer-body"
-          data-testid="document-list-body"
-          ref={listBodyRef}
-          onScroll={onListScroll}
-          onKeyDown={onListKeyDown}
-          tabIndex={0}
-          role="listbox"
-          aria-label="Document list"
-        >
-          {list.error && (
-            <div className="document-list-message" role="alert">
-              {list.error}
-            </div>
-          )}
-          {!list.loading && items.length === 0 && (
-            <div className="document-list-empty" data-testid="document-list-empty">
-              No documents match.
-            </div>
-          )}
-          <div
-            className="document-list-scroller"
-            style={{ height: `${items.length * LIST_ITEM_HEIGHT}px` }}
-          >
-            {windowRows.map((item, offset) => {
-              const index = startIndex + offset;
-              const rowId = item.rowId;
-              const active = rowId === activeRowId;
-              const count = pageCounts[rowId];
-              const characterCount = item.sourceKind === 'annotated_text'
-                ? item.characterCount ?? 0
-                : item.characterCount;
-              const secondary =
-                characterCount !== null
-                  ? characterCount > 0
-                    ? `${characterCount.toLocaleString()} characters`
-                    : 'Empty'
-                  : !item.sourcePresent
-                    ? 'No document'
-                  : count != null
-                    ? `${count} page${count === 1 ? '' : 's'}`
-                    : item.sourceLabel
-                      ? mediaFilename({ url: item.sourceLabel, label: item.sourceLabel })
-                        ?? item.sourceKind.toUpperCase()
-                      : 'No document';
-              return (
-                <button
-                  type="button"
-                  key={rowId}
-                  className={`document-list-item${active ? ' active' : ''}`}
-                  data-testid="document-list-item"
-                  data-row-id={rowId}
-                  data-active={active ? 'true' : 'false'}
-                  data-has-media={item.sourceKind !== 'annotated_text' && item.sourcePresent ? 'true' : 'false'}
-                  role="option"
-                  aria-selected={active}
-                  style={{ position: 'absolute', top: `${index * LIST_ITEM_HEIGHT}px`, height: `${LIST_ITEM_HEIGHT}px` }}
-                  onClick={() => {
-                    selectDocument(rowId);
-                    if ((item.sourceKind === 'pdf' || item.sourceKind === 'image') && sourceColumn) {
-                      onRequestDocumentPriority?.(rowId, String(sourceColumn.id));
-                    }
-                  }}
-                  onDoubleClick={() => onOpenDetail(rowId)}
-                >
-                  <span className="document-list-item-title">{item.title}</span>
-                  <span className="document-list-item-secondary muted">
-                    {readingPriority && active ? (
-                      <span data-testid="document-reading-priority" role="status">Reading text now</span>
-                    ) : secondary}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-          {list.pages.at(-1)?.nextCursor && (
-            <button
-              type="button"
-              className="mini-btn document-list-more"
-              data-testid="document-list-more"
-              disabled={list.loading}
-              onClick={() => void loadMore()}
-            >
-              {list.loading ? 'Loading…' : 'Load more'}
-            </button>
-          )}
-        </div>
-      </aside>
+      <DocumentList browse={browse} activeRowId={activeRowId} onOpen={onOpenDetail}
+        onSelect={item => {
+          selectDocument(item.rowId);
+          if ((item.sourceKind === 'pdf' || item.sourceKind === 'image') && sourceColumn) {
+            onRequestDocumentPriority?.(item.rowId, String(sourceColumn.id));
+          }
+        }}
+        describe={item => {
+          const rowId = item.rowId;
+          const count = pageCounts[rowId];
+          const characterCount = item.sourceKind === 'annotated_text'
+            ? item.characterCount ?? 0
+            : item.characterCount;
+          const secondary = characterCount !== null
+            ? characterCount > 0
+              ? `${characterCount.toLocaleString()} characters`
+              : 'Empty'
+            : !item.sourcePresent
+              ? 'No document'
+              : count != null
+                ? `${count} page${count === 1 ? '' : 's'}`
+                : item.sourceLabel
+                  ? mediaFilename({ url: item.sourceLabel, label: item.sourceLabel })
+                    ?? item.sourceKind.toUpperCase()
+                  : 'No document';
+          return { secondary: readingPriority && rowId === activeRowId
+            ? <span data-testid="document-reading-priority" role="status">Reading text now</span>
+            : secondary };
+        }} />
       {source?.kind === 'text' ? (
         <AnnotatedTextReader
           key={`text-reader-${activeRowId ?? 'none'}`}

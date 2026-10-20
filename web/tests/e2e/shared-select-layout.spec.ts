@@ -50,7 +50,7 @@ test('import encoding focus is not clipped and mapping controls stay within thei
   await expect(encoding.locator('..')).toHaveCSS('overflow', 'visible');
   await reviewTableColumns(page);
   await page.getByRole('radio', { name: 'Add to an existing sheet' }).check();
-  await page.getByLabel('Sheet', { exact: true }).selectOption(String(sheet));
+  await page.getByRole('combobox', { name: 'Existing sheet', exact: true }).selectOption(String(sheet));
   const mapping = page.getByLabel('Map id');
   await expect(mapping).toBeVisible();
   await expect(mapping).toHaveValue(/^existing:/);

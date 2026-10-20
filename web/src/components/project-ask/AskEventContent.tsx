@@ -1,3 +1,5 @@
+import '../ProjectAskDock.css';
+import { Button } from '../Button';
 import { useState } from 'react';
 import { ChartColumnIncreasing, ChevronRight, Copy } from 'lucide-react';
 import type { AskCitation, AskEvent } from '../../api/projectQA';
@@ -39,7 +41,7 @@ export function AskEventContent({ event, onInspectProposal, onOpenSource, action
   if (event.kind === 'action_proposal') {
     const proposal = askActionProposal(event);
     if (!proposal) return null;
-    return <div className="ask-proposal"><strong>{proposal.title}</strong><p>Review the settings before running this action.</p><button type="button" className="btn" onClick={() => onInspectProposal(proposal.title, proposal.spec)}>Open action</button></div>;
+    return <div className="ask-proposal"><strong>{proposal.title}</strong><p>Review the settings before running this action.</p><Button type="button" onClick={() => onInspectProposal(proposal.title, proposal.spec)}>Open action</Button></div>;
   }
   if (event.kind === 'result_suggestion') {
     const title = String(payload.title ?? 'Matching records');

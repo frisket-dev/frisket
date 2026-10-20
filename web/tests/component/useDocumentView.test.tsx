@@ -8,11 +8,8 @@ import type { DocumentViewState } from '../../src/workspace/useWorkspaceChromeSt
 import { DocumentAlongsidePane } from '../../src/workbench/DocumentAlongsidePane';
 import { useDocumentView, type UseDocumentViewArgs } from '../../src/workbench/useDocumentView';
 
-vi.mock('../../src/components/RowDrawer', () => ({
+vi.mock('../../src/components/rowInspection/FieldValue', () => ({
   FieldValue: ({ value }: { value: unknown }) => <span>{String(value ?? '')}</span>,
-  fieldValueDependencyColumnIds: (columns: Array<{ id: string; type: string; name: string }>, column: { id: string; type: string }) =>
-    column.type === 'video' ? columns.filter((candidate) => candidate.id !== column.id && candidate.type === 'text')
-      .map((candidate) => candidate.id) : [],
 }));
 
 afterEach(cleanup);

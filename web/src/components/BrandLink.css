@@ -1,0 +1,13 @@
+.brand-name { font-weight: 700; font-size: 15px; letter-spacing: -0.01em; }
+.brand-link {
+  display: inline-flex; align-items: center; gap: 9px;
+  border-radius: var(--radius-8); padding: 2px 4px; margin: -2px -4px;
+}
+.brand-link:hover { color: var(--accent); }
+.brand-tile {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: var(--icon-button-size); height: var(--icon-button-size); border-radius: var(--radius-8);
+  background: var(--accent); color: var(--text-on-solid);
+  flex-shrink: 0;
+}
+.brand-link:hover .brand-tile { background: var(--accent-strong); }

@@ -123,13 +123,13 @@ async function expectAdditionalPromptAfterFields(page: Page): Promise<void> {
     'action-prompt',
   );
   const formOrder = await page
-    .locator('.fields-builder, [data-testid="action-prompt"]')
+    .locator('[data-testid="output-fields-editor"], [data-testid="action-prompt"]')
     .evaluateAll((elements) =>
       elements.map((element) =>
-        element.classList.contains('fields-builder') ? 'fields-builder' : 'action-prompt',
+        element.getAttribute('data-testid'),
       ),
     );
-  expect(formOrder).toEqual(['fields-builder', 'action-prompt']);
+  expect(formOrder).toEqual(['output-fields-editor', 'action-prompt']);
 }
 
 test('extract runs clean with fields but no instructions (item 1)', async ({ page }) => {

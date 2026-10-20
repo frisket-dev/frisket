@@ -1,3 +1,8 @@
+import '../PanelPrimitives.css';
+import '../resolve/resolve.css';
+import '../FormControls.css';
+import '../ActionPanel.css';
+import { Button } from '../Button';
 import { useEffect } from 'react';
 import { PanelSelect } from '../PanelSelect';
 import { MultiColumnPicker } from '../MultiColumnPicker';
@@ -39,14 +44,14 @@ function SemanticJoinParamsBodyForSheet({ params, setParams, setEditorProblem, s
     return () => setEditorProblem?.(null);
   }, [loading, error, target, missing.length, setEditorProblem]);
   return <div className="action-io-summary" data-testid="semantic-join-form">
-    <button type="button" className="btn btn-ghost" data-testid="semantic-join-refresh-sheets"
-      onClick={refresh}>{error ? 'Retry' : 'Refresh sheets'}</button>
+    <Button type="button" className="btn-ghost" data-testid="semantic-join-refresh-sheets"
+      onClick={refresh}>{error ? 'Retry' : 'Refresh sheets'}</Button>
     {loading && <p className="form-hint" role="status">Loading sheets…</p>}
-    {error && <p className="form-error" role="alert">{error}</p>}
-    {missing.length > 0 && <p className="form-error" role="alert" data-testid="semantic-join-repair">
+    {error && <p className="panel-error" role="alert">{error}</p>}
+    {missing.length > 0 && <p className="panel-error" role="alert" data-testid="semantic-join-repair">
       Source columns missing: {missing.join(', ')}. Choose replacements to repair the join.</p>}
     <fieldset className="resolve-drawer-body-fields" disabled={blocked}>
-    <label className="field-group"><span className="form-label">Source</span>
+    <label className="field-group form-field"><span className="form-label">Source</span>
       <PanelSelect testId="field-source" ariaLabel="Source" value={params.source ?? ''}
         disabled={blocked}
         options={[...(!primary.columns.some((column) => column.name === params.source)
@@ -54,14 +59,14 @@ function SemanticJoinParamsBodyForSheet({ params, setParams, setEditorProblem, s
           ...primary.columns.map((column) => ({ value: column.name, label: column.name }))]}
         onValueChange={(source) => setParams({ ...params, source })} />
     </label>
-    <label className="field-group"><span className="form-label">Target sheet</span>
+    <label className="field-group form-field"><span className="form-label">Target sheet</span>
       <PanelSelect testId="field-semantic_target_sheet" ariaLabel="Target sheet" value={target?.id ?? ''}
         disabled={blocked} options={[...(!target ? [{ value: '', label: params.target?.sheet_id != null ? 'Saved sheet unavailable' : 'Choose a sheet' }] : []),
           ...sheets.filter((item) => item.id !== sheet.id).map((item) => ({ value: item.id, label: item.name }))]}
         onValueChange={(id) => setParams({ ...params, target: { sheet_id: Number(id), column: '' } })} />
       <span className="form-hint">Match selected source rows against the whole target sheet.</span>
     </label>
-    <label className="field-group"><span className="form-label">Target</span>
+    <label className="field-group form-field"><span className="form-label">Target</span>
       <PanelSelect testId="field-semantic_target_column" ariaLabel="Target" value={params.target?.column ?? ''}
         disabled={blocked || !target}
         options={[...(!target?.columns.some((item) => item.name === params.target?.column)

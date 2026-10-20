@@ -1,0 +1,5 @@
+.workbench-act {
+  flex: 0 0 auto;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}

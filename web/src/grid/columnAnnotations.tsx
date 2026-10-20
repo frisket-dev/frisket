@@ -1,3 +1,4 @@
+import './SheetGrid.css';
 // Reusable column-annotation affordance.
 //
 // A header-band chip that annotates a SET of columns (keyed by column id) with

@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import '../../workbench/ActionDrawer.css';
+import '../ActionPanel.css';
+import { useRef, useState } from 'react';
 import {
   ArrowLeft,
   Braces,
@@ -23,6 +25,7 @@ import type { ActionTemplate } from '../../api/types';
 import { PanelHeader } from '../PanelPrimitives';
 import { DropdownIndicator } from '../DropdownIndicator';
 import { IconButton } from '../IconButton';
+import { AnchoredMenu } from '../MenuPop';
 import { ActionHelpPopover } from './ActionHelpPopover';
 
 const ACTION_ICONS: Partial<Record<string, LucideIcon>> = {
@@ -74,22 +77,8 @@ export function ActionFormHeader({
   onClose,
 }: ActionFormHeaderProps) {
   const [actionMenuOpen, setActionMenuOpen] = useState(false);
-  const actionMenuRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
 
-  useEffect(() => {
-    if (!actionMenuOpen) return;
-    const closeIfOutside = (event: PointerEvent | FocusEvent) => {
-      const target = event.target;
-      if (target instanceof Node && actionMenuRef.current?.contains(target)) return;
-      setActionMenuOpen(false);
-    };
-    document.addEventListener('pointerdown', closeIfOutside);
-    document.addEventListener('focusin', closeIfOutside);
-    return () => {
-      document.removeEventListener('pointerdown', closeIfOutside);
-      document.removeEventListener('focusin', closeIfOutside);
-    };
-  }, [actionMenuOpen]);
 
   const formTitle = title ?? actionTemplate.name;
   const HeaderIcon = ACTION_ICONS[actionTemplate.kind]
@@ -110,10 +99,11 @@ export function ActionFormHeader({
         <IconButton icon={ArrowLeft} onClick={onBack} label="Back to actions" />
       )}
       title={canSwitchActions ? (
-        <div className="action-title-menu" ref={actionMenuRef}>
+        <div className="action-title-menu">
           <button
             type="button"
             className="action-title-button"
+            ref={triggerRef}
             data-testid="action-title-menu-button"
             aria-haspopup="menu"
             aria-expanded={actionMenuOpen}
@@ -123,30 +113,31 @@ export function ActionFormHeader({
             <DropdownIndicator />
           </button>
           {actionMenuOpen && (
-            <div className="action-title-menu-list" role="menu" data-testid="action-title-menu">
-              <div className="action-title-menu-label">Change action</div>
+            <AnchoredMenu anchorRef={triggerRef} onClose={() => setActionMenuOpen(false)} width={280}
+              dismissOnFocusOutside data-testid="action-title-menu">
+              <div className="menu-label">Change action</div>
               {switchActions?.map((candidate) => (
                 <button
                   key={candidate.kind}
                   type="button"
                   role="menuitem"
-                  className="action-title-menu-item"
+                  className="menu-item"
                   data-testid={`action-switch-${candidate.kind}`}
                   onClick={() => {
                     setActionMenuOpen(false);
                     if (candidate.kind !== actionTemplate.kind) onSwitchAction?.(candidate);
                   }}
                 >
-                  <span>
-                    <span className="action-name">
+                  <span className="menu-item-copy">
+                    <span className="menu-item-label">
                       {candidate.name}
                       {candidate.kind === actionTemplate.kind && <Check size={12} aria-hidden />}
                     </span>
-                    <span className="action-desc">{candidate.description}</span>
+                    <span className="menu-item-description">{candidate.description}</span>
                   </span>
                 </button>
               ))}
-            </div>
+            </AnchoredMenu>
           )}
         </div>
       ) : (

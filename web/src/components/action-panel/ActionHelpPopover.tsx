@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import '../../workbench/ActionDrawer.css';
+import '../IconButton.css';
+import './ActionHelpPopover.css';
+import { useRef, useState } from 'react';
 import { CircleHelp } from 'lucide-react';
 
 import type { ActionTemplate } from '../../api/types';
-import { useAnchoredPosition } from '../../hooks/useAnchoredPosition';
+import { AnchoredMenu } from '../MenuPop';
 import { buildActionHelp } from './actionHelpModel';
 
 export function ActionHelpPopover({
@@ -15,38 +17,8 @@ export function ActionHelpPopover({
 }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const popoverRef = useRef<HTMLElement | null>(null);
-  const position = useAnchoredPosition(triggerRef, {
-    enabled: open,
-    width: (_rect, viewportWidth) => Math.min(360, viewportWidth - 16),
-    align: 'right',
-    gap: 6,
-    minHeight: 220,
-  });
   const content = buildActionHelp(action);
 
-  useEffect(() => {
-    if (!open) return undefined;
-    const close = (event: PointerEvent) => {
-      const target = event.target;
-      if (!(target instanceof Node)) return;
-      if (triggerRef.current?.contains(target) || popoverRef.current?.contains(target)) return;
-      setOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.stopPropagation();
-        setOpen(false);
-        triggerRef.current?.focus();
-      }
-    };
-    document.addEventListener('pointerdown', close);
-    document.addEventListener('keydown', closeOnEscape, true);
-    return () => {
-      document.removeEventListener('pointerdown', close);
-      document.removeEventListener('keydown', closeOnEscape, true);
-    };
-  }, [open]);
 
   return (
     <>
@@ -63,20 +35,16 @@ export function ActionHelpPopover({
       >
         <CircleHelp size={16} aria-hidden />
       </button>
-      {open && createPortal(
-        <section
-          ref={popoverRef}
+      {open && (
+        <AnchoredMenu
+          anchorRef={triggerRef}
+          onClose={() => setOpen(false)}
+          width={(_rect, viewportWidth) => Math.min(360, viewportWidth - 16)}
+          align="right"
           className="action-help-popover"
           data-testid="action-help-popover"
           role="dialog"
           aria-label={`About ${action.name}`}
-          style={position ? {
-            top: position.top,
-            bottom: position.bottom,
-            left: position.left,
-            width: position.width,
-            maxHeight: position.maxHeight,
-          } : { visibility: 'hidden' }}
         >
           <header>
             <span className="action-help-kicker">ABOUT THIS ACTION</span>
@@ -111,8 +79,7 @@ export function ActionHelpPopover({
             <h4>Good for</h4>
             <p>{content.goodFor}</p>
           </div>
-        </section>,
-        document.body,
+        </AnchoredMenu>
       )}
     </>
   );

@@ -1,3 +1,6 @@
+import '../PanelPrimitives.css';
+import '../FormControls.css';
+import { Button } from '../Button';
 import { useCallback, useReducer } from 'react';
 import type { EmbeddingIndexSummary } from '../../api/open';
 import type { EmbeddingApiPort } from '../../api/ports';
@@ -147,7 +150,7 @@ export function IndexPolicyDetail({ apiPort, index, onChanged }: IndexPolicyDeta
           Stored policy values were invalid. Saving replaces them with safe values.
         </p>
       )}
-      <label className="form-row">
+      <label className="form-row form-field">
         Maintenance
         <PanelSelect
           data-testid={`embedding-policy-mode-${index.indexId}`}
@@ -231,16 +234,16 @@ export function IndexPolicyDetail({ apiPort, index, onChanged }: IndexPolicyDeta
           )}
         </>
       )}
-      {state.error && <p className="form-error">{state.error}</p>}
-      <button
+      {state.error && <p className="panel-error">{state.error}</p>}
+      <Button
         type="button"
-        className="mini-btn"
+
         data-testid={`embedding-policy-save-${index.indexId}`}
         disabled={state.busy}
         onClick={() => void save()}
       >
         {state.busy ? 'Saving…' : 'Save policy'}
-      </button>
+      </Button>
     </div>
   );
 }

@@ -1,0 +1,23 @@
+/* --- Native embeddings panel --- */
+.sidebar-embeddings {
+  display: flex;
+  flex-direction: column;
+}
+.embeddings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  /* Zero own-padding: the host owns the gutter (the .discover-body contract,
+     re-enforced by ui-region-frames-v1 / R2). */
+  padding: 0;
+}
+.embeddings-add {
+  align-self: flex-start;
+}
+.embedding-index-name {
+  font-weight: 600;
+  font-size: 13px;
+}
+.embedding-index-meta {
+  margin: 0;
+}

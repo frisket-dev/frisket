@@ -1,3 +1,4 @@
+import '../FormControls.css';
 import { formatTimecode } from '../../temporal/model';
 import type {
   ParsedPointDraft,

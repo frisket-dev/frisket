@@ -22,7 +22,7 @@ import {
   updateLocalCostPreapproval,
   updateProfile,
 } from '../../src/api/open';
-import { PersonalProfileSettings } from '../../src/settings/SettingsSections';
+import { PersonalProfileSettings } from '../../src/settings/PersonalSettings';
 
 const runtimeConfig = (overrides: Partial<RuntimeConfig> = {}): RuntimeConfig => ({
   cache_mode: 'replay',

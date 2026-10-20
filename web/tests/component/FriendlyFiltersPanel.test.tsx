@@ -64,6 +64,15 @@ function valuesPreview(
   };
 }
 
+function memberValues(values: string[], search: string | null = null, distinct = values.length): ColumnValuesPreview {
+  return valuesPreview('agencies', { listFacet: {
+    distinct, offset: 0, limit: 50, truncated: false, search,
+    choices: values.map((value) => ({
+      key: value, label: value, count: 1, selector: { kind: 'scalar', value },
+    })),
+  } });
+}
+
 function mockFacets() {
   columnValuesPreview.mockImplementation(async (input) => {
     if (input.inputColumn === 'region') {
@@ -359,6 +368,80 @@ describe('FriendlyFiltersPanel', () => {
         ],
       },
     });
+  });
+
+  it('unions shown list members with carried selectors instead of replacing the selection', async () => {
+    columnValuesPreview.mockResolvedValue(memberValues(['shared', 'new']));
+    const onApply = vi.fn();
+    render(<FriendlyFiltersPanel sheets={[{ ...SHEET, columns: [SHEET.columns[4]] }]}
+      activeSheetId="7" gridFilter={{ status: { eq: 'open' }, agencies: { list_contains_any: [
+        { kind: 'scalar', value: 'carried' }, { kind: 'scalar', value: 'shared' },
+      ] } }} onApplyFilterSpec={onApply} />);
+    const facet = within(screen.getByTestId('friendly-facet-agencies'));
+    expect(await facet.findByRole('checkbox', { name: 'carried' })).toBeChecked();
+    fireEvent.click(facet.getByRole('button', { name: 'Select all shown' }));
+    expect(onApply).toHaveBeenLastCalledWith({
+      status: { eq: 'open' }, agencies: { list_contains_any: [
+        { kind: 'scalar', value: 'carried' }, { kind: 'scalar', value: 'shared' },
+        { kind: 'scalar', value: 'new' },
+      ] },
+    });
+    expect(facet.queryByRole('button', { name: /Only|Remove/ })).not.toBeInTheDocument();
+  });
+
+  it('blocks stale collection snapshots until the searched member inventory is accepted', async () => {
+    let resolveSearch!: (preview: ColumnValuesPreview) => void;
+    const pending = new Promise<ColumnValuesPreview>((resolve) => { resolveSearch = resolve; });
+    columnValuesPreview.mockImplementation(async (input) => input.search
+      ? pending : memberValues(['initial'], null, 25));
+    const onApply = vi.fn();
+    render(<FriendlyFiltersPanel sheets={[{ ...SHEET, columns: [SHEET.columns[4]] }]}
+      activeSheetId="7" gridFilter={{ agencies: {
+        list_contains_any: [{ kind: 'scalar', value: 'carried' }],
+      } }} onApplyFilterSpec={onApply} />);
+    const facet = within(screen.getByTestId('friendly-facet-agencies'));
+    const search = await facet.findByRole('searchbox');
+    fireEvent.change(search, { target: { value: 'new' } });
+    const selectAll = facet.getByRole('button', { name: 'Select all shown' });
+    expect(selectAll).toBeDisabled();
+    fireEvent.click(selectAll);
+    expect(onApply).not.toHaveBeenCalled();
+    await waitFor(() => expect(columnValuesPreview).toHaveBeenCalledWith({
+      sheetId: '7', inputColumn: 'agencies', valueMode: 'bounded', limit: 50, search: 'new',
+    }));
+    expect(facet.getByTestId('facet-values-agencies')).toHaveAttribute('aria-busy', 'true');
+    await act(async () => { resolveSearch(memberValues(['accepted'], 'new', 25)); await pending; });
+    expect(selectAll).toBeEnabled();
+    expect(facet.queryByRole('button', { name: /Add.*filter/ })).not.toBeInTheDocument();
+    fireEvent.click(selectAll);
+    expect(onApply).toHaveBeenLastCalledWith({ agencies: { list_contains_any: [
+      { kind: 'scalar', value: 'carried' }, { kind: 'scalar', value: 'accepted' },
+    ] } });
+  });
+
+  it.each([100, 0])('enforces collection caps with %i existing selections', async (selectedCount) => {
+    const selected = Array.from({ length: selectedCount }, (_, index) => ({ kind: 'scalar' as const, value: `kept-${index}` }));
+    const shown = Array.from({ length: selectedCount ? 2 : 101 }, (_, index) => `new-${index}`);
+    columnValuesPreview.mockResolvedValue(memberValues(shown));
+    const onApply = vi.fn();
+    render(<FriendlyFiltersPanel sheets={[{ ...SHEET, columns: [SHEET.columns[4]] }]}
+      activeSheetId="7" gridFilter={{ agencies: { list_contains_any: selected } }}
+      onApplyFilterSpec={onApply} />);
+    const facet = within(screen.getByTestId('friendly-facet-agencies'));
+    const newChoice = await facet.findByRole('checkbox', { name: 'new-0' });
+    expect(facet.getByText('Maximum of 100 selected values reached.')).toBeVisible();
+    if (selectedCount) {
+      expect(newChoice).toBeDisabled();
+      const kept = facet.getByRole('checkbox', { name: 'kept-0' });
+      expect(kept).toBeEnabled();
+      fireEvent.click(kept);
+      expect(onApply).toHaveBeenLastCalledWith({ agencies: { list_contains_any: selected.slice(1) } });
+    } else {
+      const selectAll = facet.getByRole('button', { name: 'Select all shown' });
+      expect(selectAll).toBeDisabled();
+      fireEvent.click(selectAll);
+      expect(onApply).not.toHaveBeenCalled();
+    }
   });
 
   it('distinguishes entity-object list choices with the same text by type', async () => {
@@ -771,6 +854,34 @@ describe('FriendlyFiltersPanel', () => {
     expect(within(region).getByRole('button', { name: 'Add “second” filter' })).toBeEnabled();
     fireEvent.click(within(region).getByRole('button', { name: 'Select all shown' }));
     expect(onApply).toHaveBeenLastCalledWith({ region: { eq: 'second-result' } });
+  });
+
+  it('keeps one range editor while unhashed previews and active filters change', async () => {
+    columnValuesPreview.mockImplementation(async (input) => valuesPreview(input.inputColumn,
+      input.inputColumn === 'amount' ? {
+        valueHash: null,
+        distribution: { kind: 'number', min: 10, max: 100, bins: [{ start: 10, end: 100, count: 100 }] },
+      } : {}));
+    const onApply = vi.fn();
+    const props = { sheets: [{ ...SHEET, columns: SHEET.columns.slice(0, 3) }], activeSheetId: '7', onApplyFilterSpec: onApply };
+    const view = render(<FriendlyFiltersPanel {...props} />);
+    const amount = within(screen.getByTestId('friendly-facet-amount'));
+    await amount.findByTestId('facet-range-start-amount');
+    for (const condition of [
+      { status: { eq: 'Planning' } },
+      { status: { in: ['Planning', 'Housing'] } },
+      null,
+      { amount: { between: { start: '20', end: '80' } } },
+      null,
+    ]) {
+      view.rerender(<FriendlyFiltersPanel {...props} gridFilter={condition} />);
+      fireEvent.click(screen.getByTestId('facets-refresh'));
+      await waitFor(() => {
+        expect(amount.getAllByTestId('facet-range-start-amount')).toHaveLength(1);
+        expect(amount.getAllByTestId('facet-range-end-amount')).toHaveLength(1);
+        expect(amount.getAllByRole('slider')).toHaveLength(2);
+      });
+    }
   });
 
   it('applies dual-handle and typed range changes immediately without a button', async () => {

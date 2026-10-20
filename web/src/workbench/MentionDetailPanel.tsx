@@ -1,3 +1,6 @@
+import '../components/EntityFacetsPanel.css';
+import './MentionDetailPanel.css';
+import { Button } from '../components/Button';
 // The drill-down the Mentions panel lacks. Clicking a mention group there
 // filters the GRID; this answers the question a reader actually has — which
 // documents does this mention appear in, and how many times in each — without
@@ -25,6 +28,7 @@ import {
 import { unpositionedExplanation } from './textAnnotationModel';
 import { entityTypeName } from '../components/action-panel/nerLabelModel';
 import { PanelHeader } from '../components/PanelPrimitives';
+import { PanelFrame, PanelBody } from '../components/PanelLayout';
 
 const PAGE_SIZE = 25;
 /** Occurrences per Level-2 page. Smaller than the documents page because these
@@ -222,7 +226,7 @@ export function MentionDetailPanel({
 
   const totals = page?.totals ?? null;
   return (
-    <aside className="mention-detail" data-testid="mention-detail-panel" aria-label="Mention detail">
+    <PanelFrame as="aside" className="mention-detail" data-testid="mention-detail-panel" aria-label="Mention detail">
       <PanelHeader
         className="panel-frame-header"
         testId="mention-detail-header"
@@ -273,7 +277,7 @@ export function MentionDetailPanel({
           ? 'Every spelling that normalizes to this mention.'
           : 'This exact spelling. Dates, amounts and quantities are never merged across spellings.'}
       </p>
-      <div className="mention-detail-body drawer-body">
+      <PanelBody padding="compact" className="drawer-body">
         {current?.error != null && (
           <div className="panel-error" role="alert" data-testid="mention-detail-error">
             {current.error}
@@ -337,9 +341,9 @@ export function MentionDetailPanel({
           })}
         </ul>
         {page?.nextOffset != null && (
-          <button
+          <Button
             type="button"
-            className="mini-btn"
+
             data-testid="mention-detail-more"
             disabled={state.loading}
             onClick={loadMore}
@@ -347,10 +351,10 @@ export function MentionDetailPanel({
             {state.loading
               ? 'Loading…'
               : `See ${Math.min(PAGE_SIZE, page.totals.documents - page.documents.length).toLocaleString()} more documents`}
-          </button>
+          </Button>
         )}
-      </div>
-    </aside>
+      </PanelBody>
+    </PanelFrame>
   );
 }
 
@@ -427,9 +431,9 @@ function MentionOccurrenceList({
         })}
       </ol>
       {page.nextOffset != null && (
-        <button
+        <Button
           type="button"
-          className="mini-btn mention-occurrence-more"
+          className="mention-occurrence-more"
           data-testid="mention-occurrence-more"
           disabled={state.loading}
           onClick={() => onLoadMore(page.nextOffset ?? 0)}
@@ -437,7 +441,7 @@ function MentionOccurrenceList({
           {state.loading
             ? 'Loading…'
             : `See ${remaining.toLocaleString()} more in this document`}
-        </button>
+        </Button>
       )}
     </>
   );

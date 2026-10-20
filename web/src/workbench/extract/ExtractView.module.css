@@ -5,12 +5,10 @@
 .saveStatus { display: inline-flex; flex: 0 0 auto; align-items: center; }
 .toolbarStatus { flex: 0 0 auto; color: var(--text-mid); }
 .tools { flex-shrink: 0; margin-left: 0; }
-.tools button { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
-.tools button:disabled { opacity: .5; cursor: default; }
+.tools button { white-space: nowrap; }
 .runButtons { display: flex; align-items: center; flex-wrap: nowrap; flex: 0 0 auto; gap: 8px; margin-left: auto; }
 .runButtons button { white-space: nowrap; }
 .runButtons label { display: flex; align-items: center; gap: 8px; font-size: 12px; }
-.toolbar :global(.form-input), .endPage :global(.form-input) { padding: 4px 6px; font-size: 12px; min-height: 26px; }
 .body { display: flex; min-height: 0; flex: 1; }
 .body > :global(.document-list) { width: clamp(160px, 20%, 266px); }
 .center { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
@@ -21,20 +19,14 @@
 .fields { width: clamp(200px, 22%, 280px); flex-shrink: 0; overflow: auto; border-left: 1px solid var(--border); padding: 10px; }
 .fields > header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 12px; }
 .fields h3, .fields h4 { margin: 0; font-size: 13px; }
-.field { padding: 10px 0; border-bottom: 1px solid var(--border, #e7e1db); }
 .activeField { background: var(--bg-panel, #f1ece7); }
-.fieldHeading { display: flex; align-items: center; gap: 5px; }
-.fieldName { min-width: 0; width: 100%; font-family: var(--mono, monospace); font-size: 12px; background: transparent; border: 1px solid transparent; padding: 5px; border-radius: 4px; color: inherit; }
-.fieldName:hover, .fieldName:focus { border-color: var(--border, #e7e1db); }
-.fieldExample { display: block; width: 100%; text-align: left; border: 0; background: none; font-size: 12px; padding: 5px; cursor: pointer; color: inherit; overflow-wrap: anywhere; }
+.fieldExample { width: 100%; justify-content: flex-start; text-align: left; white-space: normal; overflow-wrap: anywhere; }
 .fieldExample em { color: var(--text-mid, #756c66); }
-.previewField { display: flex; flex-direction: column; gap: 4px; width: 100%; padding: 10px 5px; border: 0; border-bottom: 1px solid var(--border, #e7e1db); background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.previewField { flex-direction: column; align-items: stretch; width: 100%; padding-block: 10px; border-bottom: 1px solid var(--border); text-align: left; white-space: normal; }
 .previewField span { overflow-wrap: anywhere; font: 12px var(--mono, monospace); }
 .previewField small { font-size: 11px; }
-.sectionFields { margin-top: 16px; border-left: 2px solid #1f7a5a; padding-left: 10px; }
-.sectionFields > .fieldHeading { color: #1f7a5a; font-weight: 600; }
-.endPage { display: flex; gap: 4px; align-items: center; font-size: 11px; color: var(--text-mid, #756c66); }
-.endPage input { width: 45px; }
+.previewField[data-button-variant='text'].activeField { background: var(--bg-panel); }
+.sectionFields { margin-top: 16px; }
 .ignored { margin-top: 24px; color: var(--text-mid, #756c66); }
 .warning { color: #986317; font-size: 12px; }
 .success { color: #1f7a5a; }
@@ -73,6 +65,5 @@
 
 @media (max-width: 1200px) {
   .tools button span, .toolbarLabelText { display: none; }
-  .tools button { padding-inline: 7px; }
   .toolbarLabel :global(.panel-select-shell) { max-width: 125px; }
 }

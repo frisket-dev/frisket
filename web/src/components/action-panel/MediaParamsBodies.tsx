@@ -1,5 +1,8 @@
+import '../ActionPanel.css';
+import { Button } from '../Button';
 import { useState } from 'react';
 import { PanelSelect } from '../PanelSelect';
+import { SegmentedToggle } from '../PanelPrimitives';
 import { looksLikeSupportedMediaUrl } from './formControlHelpers';
 import type { GeneratedActionParamsBodyProps } from './GeneratedActionParamsBody';
 
@@ -14,8 +17,8 @@ export function FetchUrlParamsBody({ sheet, params, Field, sampleColumnValues, o
     {suggestDownload && source && <div className="action-io-summary" data-testid="youtube-routing-chip">
       <p className="form-hint">"{source.name}" looks like it has supported media links — Download media
         handles those (formats, audio/video, subtitles) better than a plain download.</p>
-      <button type="button" className="btn btn-secondary" data-testid="youtube-routing-navigate"
-        onClick={() => onNavigateToAction?.('media.ytdlp_download', source.name)}>Use Download media</button>
+      <Button type="button" className="btn-secondary" data-testid="youtube-routing-navigate"
+        onClick={() => onNavigateToAction?.('media.ytdlp_download', source.name)}>Use Download media</Button>
     </div>}
   </>;
 }
@@ -43,12 +46,10 @@ export function VideoFramesParamsBody({ params, setParams, Field, errors }:
     <Field name="source" label="Video" />
     <div className="action-io-summary">
       <div className="form-label">Sampling</div>
-      <div className="segmented segmented-full" data-testid="frame-sampling-mode">
-        <button type="button" className={sampling.kind === 'count' ? 'active' : ''}
-          data-testid="frame-sampling-count" onClick={() => changeSampling('count')}>Frames per video</button>
-        <button type="button" className={sampling.kind === 'interval' ? 'active' : ''}
-          data-testid="frame-sampling-interval" onClick={() => changeSampling('interval')}>Every N seconds</button>
-      </div>
+      <SegmentedToggle ariaLabel="Sampling" testId="frame-sampling-mode" value={sampling.kind ?? 'count'}
+        options={[{ value: 'count', label: 'Frames per video' }, { value: 'interval', label: 'Every N seconds' }]}
+        buttonTestId={(value) => `frame-sampling-${value}`}
+        onValueChange={(value) => changeSampling(value as 'count' | 'interval')} />
       <div className="unit-input">
         <input data-testid={sampling.kind === 'count' ? 'field-frame_count' : 'field-interval_seconds'}
           aria-label={sampling.kind === 'count' ? 'Frames per video' : 'Seconds between sampled frames'}
@@ -61,7 +62,7 @@ export function VideoFramesParamsBody({ params, setParams, Field, errors }:
           }} />
         <span className="unit-input-suffix">{sampling.kind === 'count' ? 'frames' : 'seconds'}</span>
       </div>
-      {errors.sampling?.message && <p role="alert" className="form-error" data-testid="frame-sampling-error">{errors.sampling.message}</p>}
+      {errors.sampling?.message && <p role="alert" className="panel-error" data-testid="frame-sampling-error">{errors.sampling.message}</p>}
       <div className="param-row">
         <label className="form-label" htmlFor="video-frames-max-dimension">Max dimension</label>
         <PanelSelect id="video-frames-max-dimension" testId="video-frames-max-dimension-select"
@@ -91,7 +92,7 @@ export function VideoFramesParamsBody({ params, setParams, Field, errors }:
             setParams({ ...params, max_dimension: raw ? Number(raw) : 0 });
           }} /><span className="unit-input-suffix">px, longest side</span>
       </div>}
-      {errors.max_dimension?.message && <p role="alert" className="form-error"
+      {errors.max_dimension?.message && <p role="alert" className="panel-error"
         data-testid="video-frames-max-dimension-error">{errors.max_dimension.message}</p>}
       <p className="form-hint" data-testid="video-frames-max-dimension-hint">
         Downscale-only, aspect preserved. Original keeps each frame at native resolution.

@@ -58,6 +58,14 @@ under the project's license.
 - No secrets, no copyrighted media, and only public-domain or
   redistribution-clean fixture data.
 
+### Shared UI controls
+
+Use shared controls for ordinary inputs, segmented choices, icon buttons,
+feedback and progress. Page CSS arranges them; it should not restyle them.
+Express meaningful differences through component props (compact sizing,
+full width, status), not page-specific selectors. Specialized editors can
+remain specialized. Check changes in Storybook and the screenshot inventory.
+
 ### Action source inputs
 
 Built-in actions declare source columns in their typed Params: `ColumnRef`,

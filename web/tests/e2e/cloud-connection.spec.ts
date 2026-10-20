@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import {
   createProject,
@@ -79,6 +79,56 @@ async function confirmPreviewCost(page: Page): Promise<void> {
   const confirm = page.getByTestId('cost-gate-confirm');
   await expect(confirm).toBeEnabled();
   await confirm.click();
+}
+
+async function expectGatewayLayout(dialog: Locator, stacked: boolean): Promise<void> {
+  const guide = dialog.getByRole('link', { name: 'Models server setup guide' });
+  const url = dialog.getByLabel('Gateway URL');
+  const token = dialog.getByLabel('Gateway token');
+  const testButton = dialog.getByRole('button', { name: 'Test', exact: true });
+  const controls = [guide, url, token, testButton];
+  for (const control of controls) await expect(control).toBeVisible();
+  const layout = await url.evaluate((input) => {
+    const form = input.closest('form')!;
+    const bounds = (element: Element) => {
+      const { left, right, top, bottom } = element.getBoundingClientRect();
+      return { left, right, top, bottom };
+    };
+    return {
+      guide: bounds(form.querySelector('a')!),
+      url: bounds(input),
+      token: bounds(form.querySelector('[aria-label="Gateway token"]')!),
+      button: bounds(form.querySelector('button[type="submit"]')!),
+      fits: form.scrollWidth <= form.clientWidth,
+    };
+  });
+  expect(layout.guide.bottom).toBeLessThanOrEqual(Math.min(layout.url.top, layout.token.top));
+  const fields = [layout.url, layout.token, layout.button];
+  for (let index = 0; index < fields.length; index++) {
+    for (const other of fields.slice(index + 1)) {
+      const field = fields[index];
+      expect(
+        field.right <= other.left || other.right <= field.left
+        || field.bottom <= other.top || other.bottom <= field.top,
+      ).toBe(true);
+    }
+  }
+  if (stacked) {
+    expect(layout.token.top).toBeGreaterThanOrEqual(layout.url.bottom);
+    expect(
+      layout.button.top >= layout.token.bottom
+      || (layout.button.left >= layout.token.right
+        && layout.button.top < layout.token.bottom && layout.button.bottom > layout.token.top),
+    ).toBe(true);
+  } else {
+    expect(layout.button.top).toBeGreaterThanOrEqual(Math.max(layout.url.bottom, layout.token.bottom));
+  }
+  expect(layout.fits).toBe(true);
+  expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  for (const control of controls) {
+    await control.scrollIntoViewIfNeeded();
+    await expect(control).toBeInViewport({ ratio: 1 });
+  }
 }
 
 test('Per-model routes survive key setup and drive real Cloud and own previews', async ({
@@ -291,18 +341,13 @@ test('Per-model routes survive key setup and drive real Cloud and own previews',
     await page.getByTestId('field-engine').locator('.engine-selector__trigger').click();
     await expect(dialog).toContainText('Frisket Cloud');
     await dialog.getByRole('button', { name: 'Models server', exact: true }).click();
-    const guide = dialog.getByRole('link', { name: 'Models server setup guide' });
-    const url = dialog.getByLabel('Gateway URL');
-    const token = dialog.getByLabel('Gateway token');
-    const testButton = dialog.getByRole('button', { name: 'Test', exact: true });
-    const boxes = await Promise.all([guide, url, token, testButton].map((item) => item.boundingBox()));
-    for (let index = 1; index < boxes.length; index++) {
-      expect(boxes[index]!.y).toBeGreaterThanOrEqual(boxes[index - 1]!.y + boxes[index - 1]!.height);
-    }
+    await expectGatewayLayout(dialog, false);
     await dialog.screenshot({ path: testInfo.outputPath(`${engineId}-cloud-gateway.png`) });
-    await testButton.scrollIntoViewIfNeeded();
-    await dialog.screenshot({ path: testInfo.outputPath(`${engineId}-gateway-fields.png`) });
+    await page.setViewportSize({ width: 640, height: 900 });
+    await expectGatewayLayout(dialog, true);
+    await dialog.screenshot({ path: testInfo.outputPath(`${engineId}-gateway-fields-narrow.png`) });
     await page.keyboard.press('Escape');
+    await page.setViewportSize({ width: 1600, height: 900 });
   }
 
   await page.setViewportSize({ width: 720, height: 900 });

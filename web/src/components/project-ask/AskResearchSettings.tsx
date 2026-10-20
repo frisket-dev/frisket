@@ -1,3 +1,6 @@
+import '../ProjectAskDock.css';
+import { Button } from '../Button';
+import { FormField, TextInput } from '../FormControls';
 import { PanelSelect } from '../PanelSelect';
 import type { AskResearchConfiguration, AskResearchOptions } from '../../api/projectQA';
 import './AskResearch.css';
@@ -65,16 +68,15 @@ export function AskResearchSettings({
     </label>
     {availabilityMessage && <p className="ask-research-availability" role={onRetry ? 'alert' : undefined}>
       <span>{availabilityMessage}</span>
-      {onRetry && <button type="button" className="btn" disabled={loading} onClick={onRetry}>{loading ? 'Retrying…' : 'Retry'}</button>}
+      {onRetry && <Button type="button" disabled={loading} onClick={onRetry}>{loading ? 'Retrying…' : 'Retry'}</Button>}
     </p>}
 
     {value && <div className="ask-research-fields">
-      <label className="ask-research-field">
-        <span>Write access</span>
+      <FormField label="Write access" className="ask-research-field">
+
         <PanelSelect
           value={value.write_mode}
           disabled={disabled}
-          topLayer
           aria-label="Write access"
           options={[
             { value: 'ask_each', label: 'Ask before each action' },
@@ -83,12 +85,11 @@ export function AskResearchSettings({
           ]}
           onValueChange={(writeMode) => update({ write_mode: writeMode as AskResearchWriteMode })}
         />
-      </label>
+      </FormField>
 
-      <label className="ask-research-field">
-        <span>Total budget (USD)</span>
-        <input
-          className="form-input"
+      <FormField label="Total budget (USD)" className="ask-research-field">
+
+        <TextInput
           type="text"
           inputMode="decimal"
           aria-label="Total budget (USD)"
@@ -101,12 +102,11 @@ export function AskResearchSettings({
           }}
         />
         <small>Uses your current action approval limit{defaultBudgetUsd ? ` (${`$${defaultBudgetUsd}`})` : ''} when blank.</small>
-      </label>
+      </FormField>
 
-      <label className="ask-research-field">
-        <span>Max turns</span>
-        <input
-          className="form-input"
+      <FormField label="Max turns" className="ask-research-field">
+
+        <TextInput
           type="number"
           min={1}
           step={1}
@@ -121,7 +121,7 @@ export function AskResearchSettings({
           }}
         />
         <small>Leave blank for no limit.</small>
-      </label>
+      </FormField>
 
       <fieldset className="ask-research-skills" disabled={disabled}>
         <legend>Skills</legend>

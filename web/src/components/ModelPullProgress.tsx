@@ -1,3 +1,6 @@
+import './ModelPullProgress.css';
+import './PanelPrimitives.css';
+import { Button } from './Button';
 // Live progress for a single in-app model pull. Renders inline wherever a pull
 // needs to be watched: LocalServerGuidance's Download flow and the Settings
 // active/recent pulls strip. Polls GET /providers/models/pulls/{id} every ~1s via
@@ -12,11 +15,9 @@
 import { useState } from 'react';
 import { cancelModelPull, getModelPull, uninstallArtifact } from '../api/open';
 import type { ModelPullDto } from '../api/types';
-import { usePoll } from '../hooks/usePoll';
+import { modelPullActive, useModelPullPolling } from '../hooks/useModelPullPolling';
 import { formatNumberDisplay } from '../format';
 import { ActivityProgressCard, ProgressBar, type ActivityProgressState } from './ActivityProgress';
-
-const ACTIVE_STATUSES: ModelPullDto['status'][] = ['pending', 'running'];
 
 function humanBytes(n: number | null): string | null {
   if (n == null) return null;
@@ -88,18 +89,13 @@ export function ModelPullProgress({
     setPollError(false);
   }
 
-  const active = ACTIVE_STATUSES.includes(pull.status);
+  const active = modelPullActive(pull);
 
-  usePoll(
-    async () => {
-      let fresh: ModelPullDto;
-      try {
-        fresh = await fetchPull(pull.id);
-      } catch {
-        // Keep the latest projection and optimistic cancellation on a failed GET.
-        setPollError(true);
-        return;
-      }
+  useModelPullPolling({
+    id: pull.id, scopeKey: 'progress-card', active: poll && active,
+    fetchPull: (id) => fetchPull(id),
+    onError: () => setPollError(true),
+    onProgress: (fresh) => {
       setPollError(false);
       setPull(fresh);
       if (fresh.status === 'done') onDone?.(fresh);
@@ -107,8 +103,7 @@ export function ModelPullProgress({
         onFailed?.(fresh);
       }
     },
-    { intervalMs: 1000, active: poll && active, guardOverlap: true },
-  );
+  });
 
   const cancel = async () => {
     setCancelling(true);
@@ -180,26 +175,26 @@ export function ModelPullProgress({
       footer={canCancel || canUninstall ? (
         <>
           {canCancel && (
-            <button
+            <Button
               type="button"
-              className="btn btn-compact"
+              className="btn-compact"
               data-testid="model-pull-cancel"
               disabled={!pull.capabilities.cancel || cancelling || pull.cancel_requested}
               onClick={() => void cancel()}
             >
               {pull.cancel_requested ? 'Cancelling…' : 'Cancel'}
-            </button>
+            </Button>
           )}
           {canUninstall && (
-            <button
+            <Button
               type="button"
-              className="btn btn-compact"
+              className="btn-compact"
               data-testid="model-pull-uninstall"
               disabled={uninstalling}
               onClick={() => void doUninstall()}
             >
               {uninstalling ? 'Uninstalling…' : 'Uninstall'}
-            </button>
+            </Button>
           )}
         </>
       ) : undefined}
@@ -216,7 +211,7 @@ export function ModelPullProgress({
           {sizeLabel && <span className="model-pull-progress-size">{sizeLabel}</span>}
           {cancelError && (
             <p
-              className="settings-inline-status settings-validation-message is-error"
+              className="panel-notice" data-tone="error"
               data-testid="model-pull-cancel-error"
             >
               {cancelError}
@@ -225,7 +220,7 @@ export function ModelPullProgress({
         </>
       )}
       {(pollError || externalPollError) && (
-        <p className="settings-inline-status settings-validation-message is-error" role="alert">
+        <p className="panel-notice" data-tone="error" role="alert">
           Could not refresh setup progress. Waiting for the next update.
         </p>
       )}
@@ -247,7 +242,7 @@ export function ModelPullProgress({
       )}
       {uninstallError && (
         <p
-          className="settings-inline-status settings-validation-message is-error"
+          className="panel-notice" data-tone="error"
           data-testid="model-pull-uninstall-error"
         >
           {uninstallError}

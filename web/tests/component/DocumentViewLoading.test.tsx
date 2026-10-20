@@ -7,9 +7,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../src/media/pdfjsSetup', () => ({
   pdfjsLib: { getDocument: () => {}, TextLayer: class {} },
 }));
-vi.mock('../../src/components/RowDrawer', () => ({
+vi.mock('../../src/components/rowInspection/FieldValue', () => ({
   FieldValue: ({ value }: { value: unknown }) => <>{String(value ?? '')}</>,
-  fieldValueDependencyColumnIds: () => [],
 }));
 
 import type { SheetMeta } from '../../src/api/types';

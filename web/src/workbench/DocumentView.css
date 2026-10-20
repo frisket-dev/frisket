@@ -1,0 +1,232 @@
+/* ============================================================================
+   Document view — a first-class media-reading sheet view (list + reader).
+   Reuses the warm-paper tokens
+   and the resident-column / menu-pop idioms — no new visual language.
+   ========================================================================== */
+.document-view {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  background: var(--bg);
+}
+
+/* Left: the document list is the collection. */
+.document-list {
+  width: 266px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--border);
+  background: var(--bg-sidebar);
+}
+.document-list-count {
+  padding: 4px 10px;
+  font-size: 10.5px;
+  flex-shrink: 0;
+}
+.document-list-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  outline: none;
+}
+.document-list-scroller { position: relative; }
+.document-list-item {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 8px 12px;
+  box-sizing: border-box;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+.document-list-item:hover { background: var(--bg-hover); }
+.document-list-item.active {
+  background: var(--accent-bg);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.document-list-item-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.document-list-item-secondary {
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.document-list-item[data-has-media='false'] .document-list-item-title {
+  color: var(--text-light);
+  font-style: italic;
+}
+.document-list-empty,
+.document-list-message {
+  padding: 16px 12px;
+  font-size: 12px;
+  color: var(--text-light);
+}
+.document-list-more { margin: 8px; }
+
+/* Center: the reader — the only part that grows with spare width (point 3). */
+.document-reader {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--canvas);
+}
+/* Layout + padding come from the shared .panel-frame-header (C2); was
+   8px 12px, now the shared 10px 12px. */
+.document-reader-header {
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+.document-reader-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 38%;
+}
+.document-reader-chip {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 7px;
+  flex-shrink: 0;
+}
+.document-reader-selection { font-size: 10.5px; flex-shrink: 0; }
+.document-reader-spacer { flex: 1; }
+.document-page-controls { display: flex; align-items: center; gap: 2px; }
+.document-page-indicator {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  min-width: 54px;
+  text-align: center;
+  color: var(--text-mid);
+}
+.document-options-anchor { position: relative; }
+.document-reader-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.document-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--text-light);
+  padding: 40px;
+}
+.document-empty-title { font-size: 14px; font-weight: 600; color: var(--text-mid); }
+
+/* pdf.js page stack — the scroll container for continuous page nav. */
+
+/* Non-PDF media: centered with native controls (point 3). */
+.document-native {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.document-native-image img {
+  max-width: 100%;
+  object-fit: contain;
+  box-shadow: var(--shadow-menu);
+}
+.document-native video,
+.document-native audio { max-width: 100%; }
+.document-native-file { flex-direction: column; gap: 8px; color: var(--text-mid); }
+
+/* A transcribed recording is one reading surface: a sticky native player and
+   the seekable transcript beside it. TimedTranscript owns both pieces. */
+.document-temporal-layout {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 24px;
+  box-sizing: border-box;
+}
+.document-temporal-layout .evidence-temporal-player-sticky audio,
+.document-temporal-layout .evidence-temporal-player-sticky video {
+  width: 100%;
+  max-width: 100%;
+}
+
+/* Text documents (a text/* blob, and the annotated-cell reader below). The
+   exact string is what carries the coordinates every mark is drawn at, so the
+   body is `pre-wrap`: no collapsing, no re-flowing, no markdown parse. */
+.document-textfile {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px 28px;
+  box-sizing: border-box;
+}
+.document-text-truncated { margin: 16px 0 0; font-size: 12px; }
+/* document-view-video-fit-v1: 'full' is the video's natural size (width-capped
+   only, the historical default — may need vertical scroll for tall/portrait
+   clips); 'fit-height' additionally caps height so the whole clip fits the
+   reader without scrolling. */
+.document-video-full { max-width: 100%; height: auto; }
+.document-video-fit-height { max-width: 100%; max-height: 100%; width: auto; object-fit: contain; }
+
+/* ⚙ view options popover — reuses the menu-pop surface (point 7). Native
+   `popover="manual"` element (DocumentReader.tsx): the top-layer positioning
+   recipe — `position: fixed`, then neutralize the UA `[popover] { inset: 0;
+   margin: auto }` centering box so the JS `useAnchoredPosition` top/left/
+   width own the placement. */
+.document-options {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.document-option-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-mid);
+}
+.document-option-row select { min-width: 128px; }
+.document-option-check { justify-content: flex-start; gap: 8px; }
+.document-option-check input { flex-shrink: 0; }
+
+@media (max-width: 900px) {
+  .document-list { width: 184px; }
+  .document-view { flex-wrap: wrap; overflow-y: auto; align-content: flex-start; }
+  .document-reader { flex: 1 0 calc(100% - 184px); min-height: 360px; }
+}
+
+@media (max-width: 640px) {
+  .document-list { flex-basis: 160px; width: 160px; }
+  .document-reader { flex-basis: calc(100% - 160px); }
+}

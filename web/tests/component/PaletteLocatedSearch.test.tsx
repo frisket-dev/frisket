@@ -40,6 +40,11 @@ vi.mock('../../src/api/engineSetup', async (importOriginal) => ({
   startEngineSetup: (...args: unknown[]) => startEngineSetup(...args),
 }));
 
+vi.mock('../../src/api/modelPullOperations', () => ({
+  readModelPull: (scope: string, id: number) =>
+    scope === 'organization' ? orgGetModelPull(id) : getModelPull(id),
+}));
+
 vi.mock('../../src/api/searchPreparation', async (importOriginal) => ({
   ...await importOriginal<typeof import('../../src/api/searchPreparation')>(),
   createSearchPreparation: (...args: unknown[]) => createSearchPreparation(...args),

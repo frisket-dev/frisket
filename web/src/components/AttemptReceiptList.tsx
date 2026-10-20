@@ -1,3 +1,4 @@
+import './PanelPrimitives.css';
 import { useEffect, useState, type ReactNode } from 'react';
 import type { AttemptReceipt } from '../api/open';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';

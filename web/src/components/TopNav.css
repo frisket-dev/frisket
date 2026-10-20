@@ -1,0 +1,38 @@
+/* The .sidebar / .sidebar-body / .sidebar-contribution shell retired with the
+   left sidebar (workbench-ia-focus-v1). Panel-body classes below survive
+   because those panels now render in Discover. */
+.brand-project {
+  margin-left: auto;
+  font-size: 11.5px; color: var(--text-mid);
+  background: var(--bg-hover); border-radius: var(--radius-7); padding: 3px 8px;
+}
+
+/* ---- imports -------------------------------------------------------------- */
+
+/* Toolbar diet (workbench-ia-toolbar-diet-v1): a flex spacer pushes the
+   Discover toggle + ⋯ overflow to the trailing edge. */
+
+/* ---- nav chrome (brand link, project menu, account link) ------------------- */
+
+.project-menu { position: relative; margin-left: auto; display: flex; min-width: 0; }
+.project-menu .brand-project {
+  margin-left: 0;
+  display: inline-flex; align-items: center; gap: 3px;
+  max-width: 130px;
+}
+
+.form-help { display: inline-flex; margin-top: 10px; font-size: 12px; color: var(--accent); }
+
+/* ---- grid toolbar controls (row height / wrap) -------------------------------- */
+/* The project ▾ sits at the LEFT of the chrome bar, so its menu must extend
+   rightward (the shared .menu-pop right:0 would push a wide menu off-screen). */
+.project-menu-pop { min-width: 248px; left: 0; right: auto; }
+.project-menu-header { display: flex; align-items: center; gap: 10px; padding: 8px 10px 6px; }
+.project-menu-tile {
+  display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: var(--radius-8);
+  background: var(--accent-bg); color: var(--accent); flex: 0 0 auto;
+}
+.project-menu-identity { display: flex; flex-direction: column; min-width: 0; }
+.project-menu-name { font-size: 13px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-menu-ownership { font-size: 11px; color: var(--text-light); }

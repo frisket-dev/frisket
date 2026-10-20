@@ -1,3 +1,5 @@
+import './SearchPreparationReceipt.css';
+import './SearchPreparationNotice.css';
 import { useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import type { SearchPreparationNotice as Notice } from './useSearchPreparationNotice';

@@ -1,4 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import './FirstLaunchCloudSuggestion.css';
+import { Button } from './Button';
+import { useEffect, useState } from 'react';
+import { Modal } from './Modal';
 import { cloudConnectionApi } from '../api/cloudConnection';
 import { listProviders } from '../api/open';
 import { CloudConnectionPanel } from '../cloud/CloudConnectionPanel';
@@ -12,7 +15,6 @@ export function FirstLaunchCloudSuggestion({ projectId, onComplete }: {
   onComplete(): void;
 }) {
   const [visible, setVisible] = useState(false);
-  const dialogRef = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
     try {
@@ -39,9 +41,6 @@ export function FirstLaunchCloudSuggestion({ projectId, onComplete }: {
     return () => { window.clearTimeout(timeout); controller.abort(); };
   }, [projectId, onComplete]);
 
-  useEffect(() => {
-    if (visible) dialogRef.current?.showModal();
-  }, [visible]);
 
   function dismiss() {
     try { localStorage.setItem(DISMISSED_KEY, '1'); } catch { /* Optional persistence. */ }
@@ -49,9 +48,7 @@ export function FirstLaunchCloudSuggestion({ projectId, onComplete }: {
   }
 
   if (!visible) return null;
-  return <dialog ref={dialogRef} className="modal-card" aria-labelledby="cloud-welcome-title"
-    onCancel={(event) => { event.preventDefault(); dismiss(); }}>
-    <h2 className="modal-title" id="cloud-welcome-title">Try AI with Frisket Cloud</h2>
+  return <Modal title="Try AI with Frisket Cloud" onClose={dismiss}>
     <p>Use AI in Ask and actions without setting up API keys. You get $5 of free credit
       each month, and can also use your own keys or local models.</p>
     <div className="cloud-welcome-actions">
@@ -59,7 +56,7 @@ export function FirstLaunchCloudSuggestion({ projectId, onComplete }: {
         notifyCloudConnectionChanged();
         dismiss();
       }} />
-      <button type="button" className="btn" onClick={dismiss}>Continue without signing in</button>
+      <Button type="button" onClick={dismiss}>Continue without signing in</Button>
     </div>
-  </dialog>;
+  </Modal>;
 }

@@ -1,0 +1,460 @@
+.pdf-packet-source-card {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr);
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-8);
+  background: var(--bg);
+}
+.pdf-packet-source-thumb {
+  height: 92px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-5);
+  background: var(--bg-panel);
+  color: var(--text-light);
+  box-shadow: var(--shadow-sm);
+}
+.pdf-packet-source-thumb .document-pdf {
+  width: 100%;
+  height: 100%;
+  padding: 3px;
+  overflow: hidden;
+  background: var(--bg-panel);
+}
+.pdf-packet-source-thumb .document-pdf-page {
+  margin: 0;
+  box-shadow: none;
+}
+.pdf-packet-source-summary {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 4px;
+}
+.pdf-packet-source-kicker {
+  color: var(--text-light);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.pdf-packet-source-summary > strong {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pdf-packet-source-summary > span:not(.pdf-packet-source-kicker) {
+  color: var(--text-mid);
+  font-size: 11px;
+}
+.pdf-packet-source-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(2px, 1fr));
+  gap: 1px;
+  height: 9px;
+  margin-top: 5px;
+  overflow: hidden;
+}
+.pdf-packet-source-strip i {
+  min-width: 1px;
+  background: var(--border-strong);
+}
+.pdf-packet-source-strip i[data-selected='true'] {
+  background: #4b4ddb;
+}
+.pdf-packet-source-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 5px;
+}
+.pdf-packet-source-actions a,
+.pdf-packet-source-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 650;
+  text-decoration: none;
+}
+.pdf-packet-source-actions a:hover,
+.pdf-packet-source-actions button:hover:not(:disabled) {
+  text-decoration: underline;
+}
+.pdf-packet-source-actions button:disabled {
+  color: var(--text-light);
+}
+.pdf-packet-source-reader {
+  grid-column: 1 / -1;
+  display: grid;
+  height: min(68vh, 720px);
+  min-height: 360px;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-6);
+  background: var(--bg-panel);
+}
+.pdf-packet-source-reader > header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+.pdf-packet-source-reader > header button {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+}
+.pdf-packet-source-reader > header button:disabled {
+  color: var(--text-light);
+}
+.pdf-packet-source-reader .document-pdf {
+  min-height: 0;
+}
+.evidence-text-recovery-error {
+  flex-basis: 100%;
+  color: var(--amber);
+}
+.evidence-source-section {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+/* evidence-pane-reading-surface-v1: reveals/hides the ref-dump aside
+   (.evidence-viewer-detail-pane) — sits at the bottom of the source pane so
+   it reads as "more detail available", not a primary action. */
+.evidence-details-toggle {
+  justify-self: start;
+  margin-top: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-mid);
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: var(--radius-6);
+  cursor: pointer;
+}
+.evidence-details-toggle:hover,
+.evidence-details-toggle:focus-visible {
+  background: var(--bg-hover);
+  color: var(--text);
+  outline: none;
+}
+.evidence-artifact-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.evidence-artifact-title > div {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+.evidence-artifact-title span {
+  color: var(--text-light);
+  font-size: 11px;
+}
+.evidence-page {
+  display: grid;
+  gap: 7px;
+}
+.evidence-page-label {
+  color: var(--text-mid);
+  font-weight: 650;
+  font-size: 11px;
+}
+.evidence-page-image-frame {
+  position: relative;
+  width: min(100%, 760px);
+  min-height: 180px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-6);
+  overflow: hidden;
+}
+.evidence-page-image-pending {
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  color: var(--text-light);
+  font-size: 11px;
+}
+.evidence-page-image {
+  display: block;
+  width: 100%;
+  min-height: 180px;
+  object-fit: contain;
+  background: #fff;
+}
+.evidence-region {
+  outline: 2px solid #e23d32;
+  outline-offset: -2px;
+  border-radius: 3px;
+  background: rgba(226, 61, 50, 0.16);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.92);
+}
+.evidence-page-text,
+.evidence-page-fallback pre {
+  margin: 0;
+  padding: 9px 10px;
+  border-radius: var(--radius-6);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  white-space: pre-wrap;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.evidence-page-fallback {
+  color: var(--text-mid);
+  display: grid;
+  gap: 8px;
+}
+.evidence-media {
+  width: min(100%, 760px);
+  border-radius: var(--radius-6);
+}
+video.evidence-media {
+  background: #000;
+}
+audio.evidence-media {
+  background: transparent;
+}
+.document-pdf.evidence-pdf {
+  width: 100%;
+  height: 70vh;
+  min-height: 70vh;
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-6);
+  background: var(--bg);
+}
+/* evidence-text-renderer-v1: the segmented-transcript treatment's sibling
+   for plain text (row+json / text/plain sources). */
+.evidence-text-source {
+  display: grid;
+  gap: 8px;
+}
+.evidence-text-body {
+  margin: 0;
+  padding: 9px 10px;
+  border-radius: var(--radius-6);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  white-space: pre-wrap;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  max-height: 420px;
+  overflow-y: auto;
+}
+.evidence-text-highlight {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: var(--radius-4);
+  color: inherit;
+  padding: 0 1px;
+}
+.evidence-text-field-label {
+  color: var(--text-light);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.evidence-text-quotes {
+  display: grid;
+  gap: 6px;
+}
+.evidence-text-quote-block {
+  display: block;
+  padding: 9px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+/* Evidence-pane reading surface: the player sits LEFT and
+   STICKY, the transcript flows RIGHT as normal prose grouped into
+   contiguous runs — replaces the old two-column
+   video-beside-a-boxed-segment-list grid (which starved the video AND the
+   transcript of width in the compact Answers docked pane). */
+.evidence-temporal-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+.evidence-temporal-player-sticky {
+  flex: 0 0 auto;
+  width: min(100%, 380px);
+  position: sticky;
+  top: 0;
+  display: grid;
+  gap: 6px;
+}
+.evidence-temporal-player-sticky .evidence-media {
+  width: 100%;
+}
+.evidence-temporal-segments {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 0;
+}
+.evidence-temporal-run {
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+.evidence-temporal-run:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+.evidence-temporal-run-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 5px;
+}
+.evidence-temporal-run-range {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  border: none;
+  background: transparent;
+  padding: 2px 4px;
+  border-radius: var(--radius-4);
+  cursor: pointer;
+}
+.evidence-temporal-run-range:hover,
+.evidence-temporal-run-range:focus-visible {
+  background: var(--bg-hover);
+  outline: none;
+}
+.evidence-temporal-run-clip,
+.evidence-temporal-run-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  padding: 2px 6px;
+  border-radius: var(--radius-5);
+}
+.evidence-temporal-run-clip:hover,
+.evidence-temporal-run-open:hover {
+  background: var(--accent-bg);
+}
+.evidence-temporal-run-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text);
+}
+/* Timestamped passages read as individual lines; clip downloads are secondary. */
+.evidence-transcript-line { display: block; padding: 3px 0; overflow-wrap: anywhere; }
+@media (hover: hover) {
+  .evidence-contextual-download { opacity: 0; pointer-events: none; }
+  .evidence-transcript-line:hover .evidence-contextual-download,
+  .evidence-transcript-line:focus-within .evidence-contextual-download,
+  .evidence-temporal-run-header:hover .evidence-contextual-download,
+  .evidence-temporal-run-header:focus-within .evidence-contextual-download {
+    opacity: 1; pointer-events: auto;
+  }
+}
+.evidence-temporal-segment {
+  display: inline;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 3px;
+  padding: 0 1px;
+}
+.evidence-temporal-segment:hover,
+.evidence-temporal-segment:focus-visible {
+  background: var(--bg-hover);
+  outline: none;
+}
+.evidence-temporal-segment-cited {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.evidence-temporal-segment-active {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.evidence-temporal-segment-marker {
+  color: var(--text-light);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  vertical-align: text-top;
+  margin-right: 1px;
+}
+.evidence-temporal-segment-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  vertical-align: middle;
+}
+.evidence-temporal-segment-action {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-4);
+  color: var(--text-light);
+}
+.evidence-temporal-segment-action:hover,
+.evidence-temporal-segment-action:focus-visible {
+  background: var(--bg-hover);
+  color: var(--text);
+  outline: none;
+}
+.evidence-temporal-range {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-light);
+}
+@media (max-width: 860px) {
+  .evidence-temporal-layout {
+    flex-direction: column;
+  }
+  .evidence-temporal-player-sticky {
+    position: static;
+    width: 100%;
+  }
+}
+
+@media (max-width: 760px) {
+  .pdf-packet-source-card { grid-template-columns: 58px minmax(0, 1fr); }
+  .pdf-packet-source-thumb { height: 76px; }
+  .pdf-packet-source-reader { min-height: 280px; }
+}
+
+/* Align frame-normalized regions with the native video surface. */
+.evidence-video-frame { position: relative; line-height: 0; }
+.evidence-video-frame video { display: block; width: 100%; max-height: none; }
+.evidence-video-frame .evidence-region { pointer-events: none; }
+
+.evidence-annotated-transcript { min-width: 0; }
+.evidence-annotated-player { position: sticky; top: 0; z-index: 2; padding: 12px 16px; background: var(--bg); border-bottom: 1px solid var(--border); }
+.evidence-annotated-player audio, .evidence-annotated-player video { display: block; width: 100%; }
+.evidence-annotated-lines { padding: 16px 24px; }
+.evidence-annotated-lines .evidence-transcript-line { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; }
+.evidence-annotated-timestamp { flex: 0 0 auto; border: 0; padding: 2px; background: transparent; color: var(--accent); font-family: var(--mono); font-size: 11px; cursor: pointer; }
+.evidence-annotated-timestamp:disabled { color: var(--text-light); cursor: default; }
+.evidence-annotated-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.65; }

@@ -1,3 +1,6 @@
+import './PanelPrimitives.css';
+import './StatusBar.css';
+import { Button } from './Button';
 import { useEffect, useReducer, useRef, useState, type RefObject } from 'react';
 import { Activity, AlertTriangle, ChevronUp, Inbox, Redo2, Square, Undo2, X } from 'lucide-react';
 import { type HistoryState, type RunProgress, type RunRowsPage } from '../api/open';
@@ -101,15 +104,15 @@ export function ActionProgressNotice({
       testId="active-run-banner"
       className={`active-run-banner run-status-${run.status}`}
       footer={(
-        <button
+        <Button
           type="button"
-          className="mini-btn run-cancel"
+          className="run-cancel"
           data-testid="active-run-cancel"
           disabled={run.cancelRequested}
           onClick={() => onCancel(run.runId)}
         >
           <Square size={11} /> {run.cancelRequested ? 'Stopping…' : 'Cancel run'}
-        </button>
+        </Button>
       )}
     >
       <ActiveRunWatcher run={run} />
@@ -328,15 +331,15 @@ export function StatusBar({
               <ChevronUp size={12} className="run-chevron" aria-hidden />
             </button>
             {runActive && (
-              <button
+              <Button
                 type="button"
-                className="mini-btn run-cancel"
+                className="run-cancel"
                 data-testid="run-cancel-button"
                 disabled={run.cancelRequested}
                 onClick={() => onCancelRun(run.runId)}
               >
                 <Square size={11} /> {run.cancelRequested ? 'Stopping…' : 'Cancel run'}
-              </button>
+              </Button>
             )}
             {watcherOpen && (
               <RunWatcher
@@ -349,7 +352,7 @@ export function StatusBar({
             )}
           </>
         ) : !searchPreparationNotice && (
-          <span className="run-label muted">idle</span>
+          <span className="run-label">idle</span>
         )}
         {searchPreparationNotice && (
           <SearchActivityToggle

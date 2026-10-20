@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 
-import { useEffect } from 'react';
+import { memo, useEffect } from 'react';
 import { act, cleanup, waitFor, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useWorkspaceModel } from '../../src/workspace/useWorkspaceModel';
 import { useWorkspaceStores } from '../../src/bind/useWorkspaceStores';
 import { WorkspaceStoresProvider } from '../../src/bind/WorkspaceStoresProvider';
-import type { ProjectInfo } from '../../src/api/open';
+import type { ProjectInfo, RunActionLaunchResult } from '../../src/api/open';
 import type { WorkspaceStores } from '../../src/state/createWorkspaceStores';
 
 
@@ -16,6 +16,16 @@ const PROJECT: ProjectInfo = { id: 'p1', name: 'Lens generation test project' };
 type Model = ReturnType<typeof useWorkspaceModel>;
 let latestModel: Model | null = null;
 let latestStores: WorkspaceStores | null = null;
+const mainRegionCommit = vi.fn();
+const overlayRegionCommit = vi.fn();
+const MainRegion = memo(function MainRegion({ value }: { value: Model['mainViewModel'] }) {
+  useEffect(() => { mainRegionCommit(value); });
+  return null;
+});
+const OverlayRegion = memo(function OverlayRegion({ value }: { value: Model['overlayModel'] }) {
+  useEffect(() => { overlayRegionCommit(value); });
+  return null;
+});
 
 function Probe() {
   const currentModel = useWorkspaceModel({ project: PROJECT });
@@ -24,7 +34,7 @@ function Probe() {
     latestModel = currentModel;
     latestStores = currentStores;
   });
-  return null;
+  return <><MainRegion value={currentModel.mainViewModel} /><OverlayRegion value={currentModel.overlayModel} /></>;
 }
 
 function mountWorkspaceModel() {
@@ -174,6 +184,8 @@ async function readyWorkspace() {
 }
 
 beforeEach(() => {
+  mainRegionCommit.mockClear();
+  overlayRegionCommit.mockClear();
   installFetchStub();
 });
 
@@ -262,5 +274,96 @@ describe('STRUCT-A1 applyLens generation guard', () => {
     act(() => model().mainViewModel.exitLensView());
 
     expect(stores().lensView.isCurrentLensResolve(token)).toBe(false);
+  });
+});
+
+describe('workspace controller composition boundaries', () => {
+
+  it('a launch accepted after sheet navigation closes the current action route', async () => {
+    await readyWorkspace();
+    const launch = deferred<RunActionLaunchResult>();
+    const runAction = vi.spyOn(stores().projectApi, 'runAction').mockReturnValueOnce(launch.promise);
+    act(() => model().mainViewModel.startRun({
+      action_id: 'map.classify',
+      scope: { kind: 'sheet_rows', sheet_id: 1 },
+      params: { instruction: 'Classify this row', model: 'test' },
+      output_names: { result: 'classification' },
+      idempotency_key: 'late-launch',
+    }));
+    expect(runAction).toHaveBeenCalledOnce();
+
+    act(() => model().selectSheet('2'));
+    act(() => model().runActionFromSurface('media.ocr'));
+    expect(stores().route.store.get()).toMatchObject({ sheetId: '2', actionKind: 'media.ocr' });
+
+    await act(async () => { launch.resolve({ runId: 'late-run' }); });
+
+    expect(stores().route.store.get()).toMatchObject({ sheetId: '2', actionKind: null });
+    expect(stores().chrome.store.get().actionPanelOpen).toBe(false);
+  });
+
+  it('updates palette state without rerendering the main view projection', async () => {
+    await readyWorkspace();
+    const before = model().mainViewModel;
+    const askNavigation = model().askNavigation;
+    const mainCommits = mainRegionCommit.mock.calls.length;
+    const overlayCommits = overlayRegionCommit.mock.calls.length;
+
+    act(() => model().overlayModel.setCommandPaletteQuery('document search'));
+
+    expect(model().overlayModel.commandPaletteQuery).toBe('document search');
+    expect(model().mainViewModel).toBe(before);
+    expect(model().askNavigation).toBe(askNavigation);
+    expect(mainRegionCommit).toHaveBeenCalledTimes(mainCommits);
+    expect(overlayRegionCommit.mock.calls.length).toBeGreaterThan(overlayCommits);
+  });
+
+  it('updates comparison sessions without rerendering overlays', async () => {
+    await readyWorkspace();
+    const before = model().overlayModel;
+    const overlayCommits = overlayRegionCommit.mock.calls.length;
+
+    act(() => model().mainViewModel.setOcrCompareCloseWarn(true));
+
+    expect(model().mainViewModel.ocrCompareCloseWarn).toBe(true);
+    expect(model().overlayModel).toBe(before);
+    expect(overlayRegionCommit).toHaveBeenCalledTimes(overlayCommits);
+  });
+
+  it('keeps document focus separate from action selection while Answers selects rows', async () => {
+    await readyWorkspace();
+    act(() => model().mainViewModel.openRowById('101'));
+    const selected = stores().selection.store.get().selectedRows;
+
+    act(() => model().mainViewModel.selectDocumentRow('202'));
+
+    expect(stores().route.store.get().panel).toMatchObject({ kind: 'row', rowId: '202' });
+    expect(stores().selection.store.get().selectedRows).toBe(selected);
+
+    act(() => model().mainViewModel.selectAnswersRow('303'));
+
+    expect(stores().selection.store.get().selectedRows.rowIds).toEqual(['303']);
+    expect(stores().route.store.get().panel).toMatchObject({ kind: 'row', rowId: '202' });
+  });
+
+  it('confirms the captured delete request after selection and sheet change', async () => {
+    await readyWorkspace();
+    const deleteRows = vi.spyOn(stores().projectApi, 'deleteRows')
+      .mockResolvedValue({ rowIds: ['101'], deleted: 1, total: 1 });
+    act(() => {
+      stores().selection.setSelectedRows({ sheetId: '1', rowIds: ['101'], rowIndexes: [] });
+    });
+    act(() => model().mainViewModel.requestDeleteRows());
+    const captured = model().overlayModel.deleteRowsConfirm;
+    expect(captured).toEqual({ sheetId: '1', rowIds: ['101'] });
+
+    act(() => model().selectSheet('2'));
+    act(() => {
+      stores().selection.setSelectedRows({ sheetId: '2', rowIds: ['202'], rowIndexes: [] });
+    });
+    act(() => model().overlayModel.confirmDeleteRows());
+
+    await waitFor(() => expect(deleteRows).toHaveBeenCalledWith('1', ['101']));
+    expect(model().overlayModel.deleteRowsConfirm).toBeNull();
   });
 });

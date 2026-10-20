@@ -1,7 +1,9 @@
+import './HistoryPanel.css';
+import { CopyButton } from './CopyButton';
 import { useState, type ReactNode } from 'react';
 import { PanelEmpty } from './PanelPrimitives';
 import {
-  AlertTriangle, ArrowDownToLine, Check, ChevronDown, ChevronUp, Copy, FileInput,
+  AlertTriangle, ArrowDownToLine, ChevronDown, ChevronUp, FileInput,
   GitBranch, ListChecks, Wand2,
 } from 'lucide-react';
 import type { HistoryOp, HistoryOpRun, HistoryState } from '../api/open';
@@ -50,29 +52,6 @@ function formatOpTime(at: string): string {
 
 function opIcon(op: HistoryOp) {
   return op.barrier ? AlertTriangle : KIND_ICONS[op.kind];
-}
-
-/** Copy-to-clipboard, mirroring RowDrawer.tsx's
- * local CopyButton (not exported from there, so re-implemented here rather
- * than reaching across component boundaries for a five-line helper). */
-function CopyButton({ text, testId }: { text: string; testId: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      type="button"
-      className="mini-btn"
-      data-testid={testId}
-      title="Copy to clipboard"
-      onClick={() => {
-        void navigator.clipboard.writeText(text).then(() => {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1200);
-        });
-      }}
-    >
-      {copied ? <Check size={11} /> : <Copy size={11} />} {copied ? 'copied' : 'copy'}
-    </button>
-  );
 }
 
 function rowOutcomeSummary(run: HistoryOpRun): string {

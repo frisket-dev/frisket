@@ -1,12 +1,34 @@
-import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Search } from 'lucide-react';
+import './SettingsPrimitives.css';
+import './SettingsWorkspace.css';
+import { Button } from '../components/Button';
+import { FormField, SearchInput } from '../components/FormControls';
+import { type ComponentType, type ReactNode, useEffect, useMemo, useState } from 'react';
+import { ArrowLeft } from 'lucide-react';
 import { listProjects, type ProjectInfo } from '../api/open';
 import { navigate, returnToProjectFromSettings, type SettingsRoute } from '../routes';
 import { ChromeBarShell } from '../workbench/ChromeBar';
 import { PanelSelect } from '../components/PanelSelect';
-import { SectionFrame, SettingsSectionRenderer } from './SettingsSections';
+import { NotificationSettingsPanel } from '../components/NotificationSettingsPanel';
+import { SkillsSettings } from '../components/SkillsSettings';
+import { PersonalProfileSettings, PersonalPreferencesSettings, PersonalPrivacySettings } from './PersonalSettings';
+import { WorkspaceAiProvidersSettings, ProjectAiProvidersSettings } from './AiProviderSettings';
+import { DiagnosticsSettings } from './DiagnosticsSettings';
+import {
+  OrganizationAiProvidersSettings,
+  OrganizationSecretsSettings,
+  OrganizationApiKeysSettings,
+  OrganizationSpendSettings,
+} from './OrganizationSettings';
+import { ProjectGeneralSettings, ProjectAccessSettings } from './ProjectSettings';
+import {
+  ProjectSecretsSettings,
+  ProjectMcpServersSettings,
+  ProjectPluginsSettings,
+} from './ProjectIntegrationSettings';
+import { ProjectDataManagementSettings } from './ProjectDataManagementSettings';
 import {
   settingsSectionId,
+  type OpenSettingsSectionDefinition,
   type SettingsSectionDefinition,
 } from './settingsRegistry';
 import {
@@ -18,8 +40,112 @@ import {
   readSettingsProjectContext,
   writeSettingsProjectContext,
 } from './settingsProjectContext';
-import { useEditionModule } from '../editions/module';
+import { useEditionModule, type PersonalProfileSlotProps } from '../editions/module';
 import type { ActiveSettingsSection } from './openSettingsRegistry';
+
+/** The ONE settings section frame: kicker + h1 + summary inside
+ *  .settings-section-frame. The disabled / invalid / route-error sections in
+ *  SettingsWorkspace.tsx render through it too, so the frame's
+ *  padding/typography can never fork per state. Pass `definition` for a real
+ *  registry section (testid/kicker/title/summary derive from it, each
+ *  overridable), or the explicit props for the stateful variants. */
+function SectionFrame({
+  definition,
+  kicker,
+  title,
+  summary,
+  testId,
+  className,
+  children,
+}: {
+  definition?: SettingsSectionDefinition;
+  kicker?: string;
+  title?: string;
+  summary?: ReactNode;
+  testId?: string;
+  className?: string;
+  children?: ReactNode;
+}) {
+  const classes = ['settings-section-frame', className].filter(Boolean).join(' ');
+  const resolvedTestId =
+    testId ??
+    (definition ? `settings-section-${definition.scope}-${definition.section}` : undefined);
+  return (
+    <section
+      className={classes}
+      data-testid={resolvedTestId}
+      data-settings-section-id={definition?.id}
+    >
+      <div className="settings-section-kicker">{kicker ?? definition?.navGroup}</div>
+      <h1>{title ?? definition?.title}</h1>
+      <p className="settings-section-summary">{summary ?? definition?.summary}</p>
+      {children}
+    </section>
+  );
+}
+
+function SettingsSectionRenderer({
+  definition,
+  project,
+  identityMode,
+  PersonalProfileSlot,
+}: {
+  definition: OpenSettingsSectionDefinition;
+  route: SettingsRoute;
+  project?: ProjectInfo | null;
+  identityMode: boolean;
+  PersonalProfileSlot?: ComponentType<PersonalProfileSlotProps>;
+}) {
+  const body = (() => {
+    switch (definition.component) {
+      case 'personal.profile':
+        return <PersonalProfileSettings identityMode={identityMode}
+          PersonalProfileSlot={PersonalProfileSlot} />;
+      case 'personal.preferences':
+        return <PersonalPreferencesSettings />;
+      case 'personal.privacy':
+        return <PersonalPrivacySettings />;
+      case 'personal.aiProviders':
+        return <WorkspaceAiProvidersSettings />;
+      case 'personal.diagnostics':
+        return <DiagnosticsSettings />;
+      case 'personal.skills':
+        return <SkillsSettings />;
+      case 'organization.aiProviders':
+        return <OrganizationAiProvidersSettings />;
+      case 'organization.secrets':
+        return <OrganizationSecretsSettings />;
+      case 'organization.apiKeys':
+        return <OrganizationApiKeysSettings />;
+      case 'organization.spend':
+        return <OrganizationSpendSettings />;
+      case 'organization.skills':
+        return <SkillsSettings />;
+      case 'project.general':
+        return <ProjectGeneralSettings project={project} />;
+      case 'project.access':
+        return <ProjectAccessSettings project={project} identityMode={identityMode} />;
+      case 'project.aiProviders':
+        return <ProjectAiProvidersSettings project={project}
+          cloudConnectionAvailable={!identityMode} />;
+      case 'project.secrets':
+        return <ProjectSecretsSettings project={project} />;
+      case 'project.mcpServers':
+        return <ProjectMcpServersSettings />;
+      case 'project.notifications':
+        return <NotificationSettingsPanel />;
+      case 'project.plugins':
+        return <ProjectPluginsSettings project={project} identityMode={identityMode} />;
+      case 'project.dataManagement':
+        return <ProjectDataManagementSettings project={project} />;
+      default: {
+        const unsupported: never = definition.component;
+        throw new Error(`Unsupported open settings component: ${String(unsupported)}`);
+      }
+    }
+  })();
+  return <SectionFrame definition={definition}>{body}</SectionFrame>;
+}
 
 export interface SettingsWorkspaceProps {
   route: SettingsRoute;
@@ -119,10 +245,9 @@ function SettingsProjectSwitcher({
   const targetSection = route.scope === 'project' ? route.section : 'general';
 
   return (
-    <label className="settings-project-switcher">
-      <span>Project</span>
+    <FormField label="Project" className="settings-project-switcher">
+
       <PanelSelect
-        className="settings-project-select"
         data-testid="settings-project-switcher"
         aria-label="Project settings project"
         value={selectedValue}
@@ -148,7 +273,7 @@ function SettingsProjectSwitcher({
         ))}
       </PanelSelect>
       {error && <span className="settings-project-error">{error}</span>}
-    </label>
+    </FormField>
   );
 }
 
@@ -199,9 +324,9 @@ function SettingsDisabledSection({
       className="settings-section-disabled"
     >
       {definition.visibility === 'project' && (
-        <button className="btn" type="button" onClick={() => navigate({ kind: 'picker' })}>
+        <Button type="button" onClick={() => navigate({ kind: 'picker' })}>
           Open a project
-        </button>
+        </Button>
       )}
     </SectionFrame>
   );
@@ -226,9 +351,9 @@ function SettingsRouteError({ message }: { message: string }) {
       summary={message}
       testId="project-settings-unavailable"
     >
-      <button className="btn" type="button" onClick={() => navigate({ kind: 'picker' })}>
+      <Button type="button" onClick={() => navigate({ kind: 'picker' })}>
         Open a project
-      </button>
+      </Button>
     </SectionFrame>
   );
 }
@@ -317,19 +442,17 @@ export function SettingsWorkspace({
             error={projectsError}
           />
 
-          <label className="settings-search">
-            <Search size={14} />
-            <input
+            <SearchInput
               data-testid="settings-search"
+              aria-label="Search settings"
               value={query}
               placeholder="Search settings"
               onChange={(event) => setQuery(event.target.value)}
             />
-          </label>
 
           <nav className="settings-nav" data-testid="settings-nav" aria-label="Settings sections">
             {groups.length === 0 ? (
-              <div className="settings-empty-state" data-testid="settings-search-empty">
+              <div className="panel-empty" data-testid="settings-search-empty">
                 No matching settings
               </div>
             ) : (

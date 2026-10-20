@@ -1,3 +1,4 @@
+import './ImportModeRail.css';
 import type { ImportMode, ImportModeOption } from './model';
 
 interface ImportModeRailProps {
@@ -9,7 +10,7 @@ interface ImportModeRailProps {
 export function ImportModeRail({ modes, mode, onSelectMode }: ImportModeRailProps) {
   return (
     <div
-      className="import-mode-list import-workspace-mode-list"
+      className="import-mode-list"
       role="tablist"
       aria-label="Import type"
     >

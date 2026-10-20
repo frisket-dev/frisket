@@ -1338,7 +1338,7 @@ export function textPdf(
       ]),
     );
   });
-  const chunks = [Buffer.from('%PDF-1.4\n%\xe2\xe3\xcf\xd3\n', 'latin1')];
+  const chunks: Buffer[] = [Buffer.from('%PDF-1.4\n%\xe2\xe3\xcf\xd3\n', 'latin1')];
   const offsets: number[] = [];
   objects.forEach((obj, index) => {
     offsets.push(Buffer.concat(chunks).length);

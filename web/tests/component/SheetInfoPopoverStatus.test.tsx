@@ -5,7 +5,7 @@ import { cleanup, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { createProjectApi } from '../../src/api/real';
 import type { SheetMeta } from '../../src/api/types';
-import { SheetInfoPopover } from '../../src/App';
+import { SheetInfoPopover } from '../../src/workspace/SheetInfoPopover';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
 
 const { render } = createWorkspaceTestHarness({

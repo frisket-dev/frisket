@@ -1,0 +1,51 @@
+.import-mode-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+.import-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  min-height: 52px;
+  padding: 9px 10px;
+  border-radius: var(--radius-6);
+  border: 1px solid transparent;
+  color: var(--text-mid);
+  text-align: left;
+}
+.import-mode:hover { background: var(--bg-hover); }
+.import-mode-active {
+  color: var(--accent);
+  background: var(--accent-bg);
+  border-color: rgba(37, 99, 235, 0.18);
+}
+.import-mode span {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.import-mode small {
+  color: var(--text-light);
+  font-size: 11px;
+  line-height: 1.15;
+}
+
+.import-mode-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-mid);
+  font-size: 12px;
+}
+.import-mode-summary span,
+.import-field-label {
+  color: var(--text-light);
+  font-size: 11px;
+}
+
+@media (max-width: 760px) {
+  .import-mode-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}

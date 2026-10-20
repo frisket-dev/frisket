@@ -1,3 +1,5 @@
+import './ActionPanel.css';
+import { TextInput } from './FormControls';
 import { useState } from 'react';
 import { PanelSelect } from './PanelSelect';
 
@@ -83,10 +85,10 @@ export function CleanDatesForm({ format, onFormatChange }: CleanDatesFormProps) 
           <label className="form-label" htmlFor="clean-dates-format-input">
             strftime pattern
           </label>
-          <input
+          <TextInput
             id="clean-dates-format-input"
             type="text"
-            className="form-input"
+
             data-testid="clean-dates-format-input"
             placeholder="e.g. %m/%d/%Y"
             value={format}

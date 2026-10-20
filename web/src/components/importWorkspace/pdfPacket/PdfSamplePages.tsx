@@ -1,3 +1,6 @@
+import '../../IconButton.css';
+import './PdfSamplePages.css';
+import { Button } from '../../Button';
 import { RefreshCw } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { resamplePages, samplePages } from './model';
@@ -48,7 +51,7 @@ export function PdfSamplePages({
             onChange={(event) => setDraft({ page: selectedPage, text: event.currentTarget.value })} />
           {' '}of {pageCount}
         </label>
-        <button type="submit" className="btn" disabled={!validPage || requestedPage === selectedPage}>Go</button>
+        <Button type="submit" disabled={!validPage || requestedPage === selectedPage}>Go</Button>
       </form>
     </div>
   );

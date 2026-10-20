@@ -1,0 +1,11 @@
+/* Engine license hints are a quiet marker, never an alarm — same
+   muted-text weight as .engine-tier-unavailable, not the warning/danger
+   palette used for AlertTriangle elsewhere. Two render sites: a compact row
+   badge pre-selection (menu, unavailable rows), and ONE short generic
+   sentence + a "details" popover under the trigger once a flagged engine is
+   actually selected (design revision: the initial full-detail inline line
+   read too long). */
+/* Engine-tier badge (engine-tier-visibility lane): a StatusChip rendered by
+   components/EngineTierBadge.tsx — the chip's own tone/size rules live with
+   .status-chip; this only spaces it off the engine name it follows. */
+.engine-tier-badge { margin-left: 6px; }

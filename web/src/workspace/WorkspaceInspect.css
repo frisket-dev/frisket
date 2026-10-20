@@ -1,0 +1,33 @@
+.workbench-right-inspector
+  .workbench-contribution-host[data-contribution-id="frisket.investigative.panel.friendly_filters"] {
+  width: min(340px, 34vw);
+  overflow: auto;
+  border-left: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+.workbench-right-inspector {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  flex: 0 0 auto;
+  min-height: 0;
+  /* The action list can be wider than the inspector's fixed width; clip it at
+     the region boundary so it can never paint under a right-edge neighbor
+     (Discover's z-index raise covers it, but clipping fixes it at the source). */
+  overflow-x: clip;
+}
+
+.workbench-inspect-detail {
+  display: flex;
+  flex: 0 0 auto;
+  min-height: 0;
+  position: relative;
+  z-index: 2;
+}
+
+@media (max-width: 640px) {
+  .workbench-right-inspector {
+    display: none;
+  }
+}

@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -374,12 +375,16 @@ export function useImportProgress({ projectId, onChanged, onError }: {
     input.click();
   }, [continueSelection]);
 
-  const activities = sessions.flatMap((session) => {
-    const activity = importActivity(session);
-    return activity ? [activity] : [];
-  });
+  const activities = useMemo(() => {
+    // importActivity also reads browser upload state outside the session snapshot.
+    void browserUploadVersion;
+    return sessions.flatMap((session) => {
+      const activity = importActivity(session);
+      return activity ? [activity] : [];
+    });
+  }, [sessions, browserUploadVersion]);
 
-  return {
+  return useMemo<ImportProgressController>(() => ({
     activities,
     message,
     busyRef,
@@ -415,7 +420,7 @@ export function useImportProgress({ projectId, onChanged, onError }: {
           ))
       ));
     },
-  };
+  }), [activities, message, busyRef, preparingRef, command, requestReselect, projectId]);
 }
 
 export interface ImportSearchActivityLine {

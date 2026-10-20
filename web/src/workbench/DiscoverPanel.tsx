@@ -1,3 +1,5 @@
+import './DiscoverPanel.css';
+import { TabButton } from '../components/Button';
 import {
   ChevronLeft,
   ChevronRight,
@@ -69,25 +71,26 @@ function DiscoverTabStrip({
     const active = tab.id === activeTab;
     if (measuring) {
       return (
-        <span className={`discover-tab${active ? ' discover-tab-active' : ''}`}>
+        <span className={`tab-button${active ? ' discover-tab-active' : ''}`}>
           <Icon size={13} aria-hidden />
           <span>{tab.label}</span>
         </span>
       );
     }
     return (
-      <button
+      <TabButton
+        tone="discover"
         key={tab.id}
         type="button"
         role="tab"
         aria-selected={active}
-        className={`discover-tab${active ? ' discover-tab-active' : ''}`}
+        className={`tab-button${active ? ' discover-tab-active' : ''}`}
         data-testid={`discover-tab-${tab.slug}`}
         onClick={() => onSelectTab(tab.id)}
       >
         <Icon size={13} aria-hidden />
         <span>{tab.label}</span>
-      </button>
+      </TabButton>
     );
   };
 

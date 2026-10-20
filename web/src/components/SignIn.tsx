@@ -1,3 +1,5 @@
+import { Button } from './Button';
+import { FormField, TextInput } from './FormControls';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { KeyRound, Mail } from 'lucide-react';
 import { getRuntimeConfig, type RuntimeConfig } from '../api/open';
@@ -126,9 +128,9 @@ export function SignIn() {
       <AuthScreen heading="Create your password" headingId="sign-in-heading" testId="sign-in">
           <p className={styles.intro}>Use this password whenever you return. You can still request an email link.</p>
           <AuthForm onSubmit={(event) => void completeFirstUse(event)}>
-            <label>
-              <span>Password</span>
-              <input
+            <FormField label="Password" >
+
+              <TextInput
                 className={`form-input ${styles.control}`}
                 type="password"
                 autoComplete="new-password"
@@ -139,10 +141,10 @@ export function SignIn() {
                 required
                 autoFocus
               />
-            </label>
-            <label>
-              <span>Confirm password</span>
-              <input
+            </FormField>
+            <FormField label="Confirm password" >
+
+              <TextInput
                 className={`form-input ${styles.control}`}
                 type="password"
                 autoComplete="new-password"
@@ -152,10 +154,10 @@ export function SignIn() {
                 onChange={(event) => setPasswordConfirmation(event.target.value)}
                 required
               />
-            </label>
-            <button className={`btn btn-primary ${styles.control}`} type="submit" disabled={busy}>
+            </FormField>
+            <Button className={`btn btn-primary ${styles.control}`} type="submit" disabled={busy}>
               {busy ? 'Finishing…' : 'Create password and continue'}
-            </button>
+            </Button>
           </AuthForm>
           {error && <p className={styles.error} role="alert">{error}</p>}
       </AuthScreen>
@@ -184,9 +186,9 @@ export function SignIn() {
         {methods?.password && (
           <AuthForm onSubmit={(event) => void submitPassword(event)}>
             {methods.oidc.length > 0 && <div className={styles.divider}><span>or</span></div>}
-            <label>
-              <span>Email</span>
-              <input
+            <FormField label="Email" >
+
+              <TextInput
                 className={`form-input ${styles.control}`}
                 type="email"
                 autoComplete="username"
@@ -196,10 +198,10 @@ export function SignIn() {
                 data-testid="sign-in-email"
                 required
               />
-            </label>
-            <label>
-              <span>Password</span>
-              <input
+            </FormField>
+            <FormField label="Password" >
+
+              <TextInput
                 className={`form-input ${styles.control}`}
                 type="password"
                 autoComplete="current-password"
@@ -209,11 +211,11 @@ export function SignIn() {
                 data-testid="sign-in-password"
                 required
               />
-            </label>
-            <button className={`btn btn-primary ${styles.control}`} type="submit" disabled={busy}>
+            </FormField>
+            <Button className={`btn btn-primary ${styles.control}`} type="submit" disabled={busy}>
               <KeyRound size={14} aria-hidden="true" />
               {busy ? 'Signing in…' : 'Sign in'}
-            </button>
+            </Button>
           </AuthForm>
         )}
 
@@ -238,9 +240,9 @@ export function SignIn() {
                 </p>
               ) : (
                 <AuthForm onSubmit={(event) => void submitMagicLink(event)}>
-                  <label>
-                    <span>Email</span>
-                    <input
+                  <FormField label="Email" >
+
+                    <TextInput
                       ref={magicEmailRef}
                       className={`form-input ${styles.control}`}
                       type="email"
@@ -250,10 +252,10 @@ export function SignIn() {
                       onChange={(event) => setEmail(event.target.value)}
                       required
                     />
-                  </label>
-                  <button type="submit" className={`btn ${styles.control}`} data-testid="sign-in-submit" disabled={busy}>
+                  </FormField>
+                  <Button type="submit" className={`btn ${styles.control}`} data-testid="sign-in-submit" disabled={busy}>
                     <Mail size={14} aria-hidden="true" /> {busy ? 'Sending…' : 'Send sign-in link'}
-                  </button>
+                  </Button>
                 </AuthForm>
               )
             )}

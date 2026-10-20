@@ -8,7 +8,6 @@
 .ask-thread-trigger span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ask-new-thread { margin-left: auto; font-size: 12px !important; }
 .menu-pop.ask-thread-menu, .menu-pop.ask-options-menu { position: fixed; inset: auto; margin: 0; }
-.ask-thread-menu { max-height: min(320px, 50vh); }
 .ask-thread-menu .menu-item { border: 0; background: transparent; cursor: pointer; font: inherit; }
 .ask-history { flex: 1; min-height: 0; overflow-y: auto; overflow-wrap: anywhere; display: flex; flex-direction: column; gap: 12px; padding: 16px; }
 .ask-question { align-self: flex-end; max-width: 90%; padding: 9px 12px; border-radius: 10px 10px 2px 10px; background: var(--bg-hover); font-size: 14px; white-space: pre-wrap; }
@@ -44,7 +43,7 @@
 .ask-compose-controls button:disabled { opacity: .45; cursor: default; }
 .ask-options-trigger { color: var(--text-mid) !important; }
 .ask-options-menu:not(:popover-open) { display: none; }
-.ask-options-menu { display: flex; flex-direction: column; gap: 3px; padding: 6px; }
+.ask-options-menu { display: flex; flex-direction: column; gap: 3px; }
 .ask-option-check { display: flex; align-items: center; gap: 8px; border-radius: var(--radius-5); padding: 6px 8px; color: var(--text-mid); cursor: pointer; }
 .ask-option-check:hover { background: var(--bg-hover); }
 .ask-option-check input { margin: 0; }

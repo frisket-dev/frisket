@@ -17,7 +17,7 @@ describe('PanelSelect shared indicator', () => {
     render(<PanelSelect className="settings-project-select" value="one"
       ariaLabel="Project" options={[{ value: 'one', label: 'One' }]} />);
     const select = screen.getByRole('combobox', { name: 'Project' });
-    expect(select).toHaveClass('panel-select-control', 'settings-project-select');
+    expect(select).toHaveClass('panel-select-control', 'form-input', 'settings-project-select');
     const indicator = select.parentElement?.querySelector('.dropdown-indicator');
     expect(indicator).toHaveAttribute('aria-hidden', 'true');
     expect(indicator).toHaveAttribute('focusable', 'false');
@@ -121,7 +121,7 @@ describe('PanelSelect native-option compatibility', () => {
       const [value, setValue] = useState('one');
       return (
         <dialog open aria-label="Import">
-          <PanelSelect topLayer value={value} onValueChange={setValue}
+          <PanelSelect value={value} onValueChange={setValue}
             options={[{ value: 'one', label: 'One' }, { value: 'two', label: 'Two' }]}
             testId="dialog-picker" />
         </dialog>

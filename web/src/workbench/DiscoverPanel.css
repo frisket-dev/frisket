@@ -1,0 +1,98 @@
+/* ---- Discover region — panel ⇄ rail ---------------------------------------- */
+.workbench-discover {
+  display: flex;
+  flex: 0 0 auto;
+  min-height: 0;
+  position: relative;
+  /* Above the right inspector (z-index 3): the action panel's action list can
+     overflow its fixed width, and the Discover panel now sits to its right —
+     keep Discover's own controls on top and its opaque surface covering any
+     neighbor spill. */
+  z-index: 4;
+}
+.discover-panel {
+  position: relative;
+  flex-shrink: 0;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border-left: 1px solid var(--border);
+}
+.discover-seam {
+  position: absolute;
+  top: 0; bottom: 0; left: -5px;
+  width: 11px;
+  cursor: col-resize;
+  z-index: 6;
+}
+.discover-seam::after {
+  content: ""; position: absolute; top: 0; bottom: 0; left: 5px; width: 1px;
+  background: var(--border-strong); opacity: 0.7;
+}
+.discover-seam:hover::after,
+.discover-panel-resizing .discover-seam::after {
+  background: var(--discover); opacity: 1;
+}
+.discover-seam:focus-visible { outline: 2px solid var(--discover); outline-offset: -2px; }
+.discover-tabrow {
+  display: flex; align-items: stretch; gap: var(--space-2);
+  padding: 6px 6px 0;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  position: relative;
+}
+/* OverflowRow clips the visible tab track; this outer flex item stays visible
+   so its top-layer menu and the collapse button retain their own layout. */
+.discover-tabs {
+  flex: 1; min-width: 0; gap: var(--space-2);
+}
+/* Full teal accent on the active tab: background + text + underline. */
+.discover-overflow-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; border-radius: var(--radius-7) var(--radius-7) 0 0;
+  color: var(--text-mid); flex-shrink: 0;
+}
+.discover-overflow-btn:hover,
+.discover-overflow-btn[aria-expanded='true'] { background: var(--discover-bg); color: var(--discover); }
+/* OverflowRow mounts this as a native manual popover in the top layer. */
+.discover-overflow-menu {
+  display: flex; flex-direction: column; gap: 1px;
+}
+.discover-overflow-item[data-active='true'] { font-weight: 600; }
+.discover-collapse {
+  margin-left: auto;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: var(--radius-7);
+  color: var(--text-mid); flex-shrink: 0;
+}
+.discover-collapse:hover { background: var(--bg-hover); color: var(--text); }
+.discover-body {
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column;
+  overflow-y: auto;
+  /* THE one gutter for every Discover tab. The host owns
+     it entirely: the hosted panels' outer padding/margins are zeroed at their
+     own rules, so a new tab gets the gutter for free and none can drift. */
+  padding: 12px 14px 16px;
+  /* Match the retired sidebar-body: clip horizontal overflow so a slightly
+     wide panel body cannot oscillate the layout (form-control instability). */
+  overflow-x: hidden;
+}
+.discover-contribution { display: contents; }
+.discover-rail {
+  flex-shrink: 0;
+  height: 100%;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 4px; padding: 8px 0;
+  background: var(--bg-panel);
+  border-left: 1px solid var(--border);
+}
+.discover-rail-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border-radius: var(--radius-8);
+  color: var(--text-mid);
+}
+.discover-rail-btn:hover { background: var(--discover-bg); color: var(--discover); }
+.discover-rail-expand { color: var(--text-light); }

@@ -1,3 +1,5 @@
+import './ActSurface.css';
+import { TabButton } from '../components/Button';
 // Ribbon: the expanded density of the SAME ResolvedActTab[] model as the menu
 // bar. Adaptive promotions (contextual tabs,
 // Misc, plugins, and plugin launchers) therefore stay identical across both
@@ -85,18 +87,18 @@ export function ActRibbon({
       <div className="act-ribbon-tab-wrap">
         {needsDivider && <span className="act-ribbon-tab-divider" aria-hidden />}
         {measuring ? (
-          <span className={`act-ribbon-tab${active ? ' active' : ''}${
+          <span className={`tab-button${active ? ' active' : ''}${
             tab.contextual ? ` contextual contextual-${tab.accent}` : ''
           }`}>
             {tab.contextual && <span className="act-ribbon-tab-dot" aria-hidden />}
             {tab.label}
           </span>
         ) : (
-          <button
+          <TabButton
             type="button"
             role="tab"
             aria-selected={active}
-            className={`act-ribbon-tab${active ? ' active' : ''}${
+            className={`tab-button${active ? ' active' : ''}${
               tab.contextual ? ` contextual contextual-${tab.accent}` : ''
             }`}
             data-testid={`ribbon-tab-${tab.id}`}
@@ -105,7 +107,7 @@ export function ActRibbon({
           >
             {tab.contextual && <span className="act-ribbon-tab-dot" aria-hidden />}
             {tab.label}
-          </button>
+          </TabButton>
         )}
       </div>
     );

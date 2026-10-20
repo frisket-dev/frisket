@@ -1,3 +1,6 @@
+import './PanelPrimitives.css';
+import './ColumnDrawer.css';
+import { Button } from './Button';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { WorkbenchResolvedLayoutContribution } from '../workbench/layout';
 import { ChevronDown, ChevronUp, Columns3, RefreshCcw, Save, Zap } from 'lucide-react';
@@ -380,21 +383,21 @@ function ColumnStatsSection({ column, sheetId }: { column: ColumnDef; sheetId: s
           label={visibleState.force ? 'analyzing column...' : 'loading statistics...'}
         />
       ) : visibleState.phase === 'error' ? (
-        <div className="form-error" data-testid="column-stats-error">{visibleState.message}</div>
+        <div className="panel-error" data-testid="column-stats-error">{visibleState.message}</div>
       ) : visibleState.stats.requiresManualAnalyze ? (
         <div className="column-stats-deferred" data-testid="column-stats-deferred">
           <p>
             This column has {visibleState.stats.rowCount.toLocaleString()} rows. Analyze it when you
             are ready to scan the full column.
           </p>
-          <button
+          <Button
             type="button"
-            className="btn column-save"
+            className="column-save"
             data-testid="analyze-column-button"
             onClick={() => loadStats(true)}
           >
             Analyze column
-          </button>
+          </Button>
         </div>
       ) : (
         <ColumnStatsResult stats={visibleState.stats} />
@@ -638,7 +641,7 @@ function ColumnSettingsSection({
     <section>
       <h3 className="drawer-section-title">Column settings</h3>
       <div className="column-settings">
-        <label className="field-group">
+        <label className="field-group form-field">
           <span className="field-labels">Type</span>
           <PanelSelect
             className="form-input row-height-select"
@@ -660,7 +663,7 @@ function ColumnSettingsSection({
             </span>
           )}
         </label>
-        <label className="field-group">
+        <label className="field-group form-field">
           <span className="field-labels">Display format</span>
           <PanelSelect
             className="form-input row-height-select"
@@ -674,18 +677,18 @@ function ColumnSettingsSection({
             ))}
           </PanelSelect>
         </label>
-        <button
+        <Button
           type="button"
-          className="btn column-save"
+          className="column-save"
           data-testid="column-save-button"
           disabled={visibleUpdateState.busy || !hasChanges}
           onClick={() => { void saveColumn(); }}
         >
           <Save size={13} /> {visibleUpdateState.busy ? 'Saving...' : 'Save column'}
-        </button>
+        </Button>
       </div>
       {visibleUpdateState.error && (
-        <div className="form-error" data-testid="column-update-error">{visibleUpdateState.error}</div>
+        <div className="panel-error" data-testid="column-update-error">{visibleUpdateState.error}</div>
       )}
       {visibleUpdateState.message && (
         <div className="column-update-result" data-testid="column-update-result">
@@ -906,14 +909,14 @@ function AiColumnDetails({
           <div className="col-meta-row col-meta-action">
             <span className="prov-key">review</span>
             <span>
-              <button
+              <Button
                 type="button"
-                className="mini-btn"
+
                 data-testid="review-run-button"
                 onClick={() => onReviewRun(current.runId)}
               >
                 Review this run
-              </button>
+              </Button>
             </span>
           </div>
         )}
@@ -935,15 +938,15 @@ function AiColumnDetails({
           <div className="col-meta-row col-meta-action">
             <span className="prov-key">backfill</span>
             <span>
-              <button
+              <Button
                 type="button"
-                className="mini-btn"
+
                 data-testid="backfill-column-button"
                 disabled={backfill.busy}
                 onClick={() => { void runBackfill(); }}
               >
                 <RefreshCcw size={11} /> {backfill.busy ? 'Backfilling...' : 'Run missing cells'}
-              </button>
+              </Button>
             </span>
           </div>
         )}
@@ -1095,14 +1098,14 @@ function VersionItem({
         {run.durationMs != null && ` · ${formatDuration(run.durationMs)}`} · {when}
       </div>
       {run.humanScore.graded > 0 && supportsColumnRunRecovery(run) && (
-        <button
+        <Button
           type="button"
-          className="mini-btn"
+
           disabled={revising}
           onClick={onRevise}
         >
           {revising ? 'Opening…' : `Revise ${run.humanScore.graded.toLocaleString()} reviewed`}
-        </button>
+        </Button>
       )}
     </li>
   );
