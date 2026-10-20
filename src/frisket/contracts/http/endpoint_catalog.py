@@ -613,6 +613,7 @@ _TENANT_SKILLS: tuple[RouteSpec, ...] = (
     ("update_skill", "PUT"),
     ("set_skill_enabled", "PATCH"),
     ("delete_skill", "DELETE"),
+    ("qa_save_skill_proposal", "POST"),
 )
 
 _TENANT_EDITOR: tuple[RouteSpec, ...] = (
@@ -984,6 +985,7 @@ _BROWSER_CLIENT_IDS = (
             "tenant.list_project_column_types.get",
             "tenant.list_sheets.get",
             "tenant.list_skills.get",
+            "tenant.qa_save_skill_proposal.post",
             "tenant.list_sources.get",
             "tenant.list_views.get",
             "tenant.list_watch_run_events.get",

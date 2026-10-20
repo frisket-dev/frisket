@@ -26,11 +26,17 @@ EVENT_KINDS = frozenset(
         "answer",
         "result_suggestion",
         "action_proposal",
+        "skill_proposal",
+        "skill_save_attempt",
+        "skill_saved",
         "research_child",
         "usage",
         "status",
     }
 )
+SKILL_CONTENT_EVENT_KINDS = frozenset({"skill_proposal", "skill_save_attempt"})
+MAX_SKILL_CONTENT_BYTES = 128 * 1024
+MAX_SKILL_EVENT_ENVELOPE_BYTES = 1024 * 1024
 _UNSET = object()
 
 
@@ -590,7 +596,16 @@ class ProjectQAStore:
         if kind not in EVENT_KINDS:
             raise ValueError("unsupported event kind")
         saved_payload = _json(_json_object(payload, name="payload"))
-        if len(saved_payload.encode("utf-8")) > 65_536:
+        payload_bytes = len(saved_payload.encode("utf-8"))
+        if kind in SKILL_CONTENT_EVENT_KINDS:
+            content = payload.get("content")
+            if not isinstance(content, str) or not content:
+                raise ValueError(f"{kind} content must be a non-empty string")
+            if len(content.encode("utf-8")) > MAX_SKILL_CONTENT_BYTES:
+                raise ValueError("skill event content exceeds 128 KiB")
+            if payload_bytes > MAX_SKILL_EVENT_ENVELOPE_BYTES:
+                raise ValueError("skill event envelope exceeds 1 MiB")
+        elif payload_bytes > 65_536:
             raise ValueError("event payload exceeds 64 KiB")
         seq = int(
             db.execute(
@@ -635,6 +650,260 @@ class ProjectQAStore:
                 turn_id=turn_id,
                 kind=kind,
                 payload=payload,
+            )
+
+        return self._write(write)
+
+    def append_skill_proposal(
+        self, turn_id: str, *, payload: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        """Append one validated draft while its originating turn is active."""
+
+        saved = _json_object(payload, name="payload")
+        proposal_id = saved.get("proposal_id")
+        if not isinstance(proposal_id, str) or not proposal_id:
+            raise ValueError("proposal_id must be a non-empty string")
+        return self.append_event(turn_id, kind="skill_proposal", payload=saved)
+
+    @staticmethod
+    def _skill_event(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "thread_id": row["thread_id"],
+            "turn_id": row["turn_id"],
+            "seq": row["seq"],
+            "kind": row["kind"],
+            "payload": json.loads(row["payload_json"]),
+            "created_at": row["created_at"],
+        }
+
+    def skill_proposal(self, turn_id: str, proposal_id: str) -> dict[str, Any]:
+        """Resolve a typed proposal by its owning turn and opaque identifier."""
+
+        self.get_turn(turn_id)
+        rows = self.db.execute(
+            "SELECT * FROM project_qa_events WHERE turn_id=? AND kind='skill_proposal' "
+            "ORDER BY seq DESC",
+            (turn_id,),
+        ).fetchall()
+        for row in rows:
+            event = self._skill_event(row)
+            if event["payload"].get("proposal_id") == proposal_id:
+                return event
+        raise ProjectQANotFoundError("skill proposal not found")
+
+    def skill_save_request(
+        self, turn_id: str, proposal_id: str, request_id: str
+    ) -> dict[str, Any] | None:
+        """Read one exact retry record without opening a new attempt."""
+
+        self.skill_proposal(turn_id, proposal_id)
+        attempt = next(
+            (
+                self._skill_event(row)
+                for row in self.db.execute(
+                    "SELECT * FROM project_qa_events WHERE turn_id=? AND kind='skill_save_attempt' "
+                    "ORDER BY seq",
+                    (turn_id,),
+                )
+                if (
+                    json.loads(row["payload_json"]).get("proposal_id") == proposal_id
+                    and json.loads(row["payload_json"]).get("request_id") == request_id
+                )
+            ),
+            None,
+        )
+        if attempt is None:
+            return None
+        saved = next(
+            (
+                self._skill_event(row)
+                for row in self.db.execute(
+                    "SELECT * FROM project_qa_events WHERE turn_id=? AND kind='skill_saved' "
+                    "ORDER BY seq",
+                    (turn_id,),
+                )
+                if json.loads(row["payload_json"]).get("attempt_id")
+                == attempt["payload"].get("attempt_id")
+            ),
+            None,
+        )
+        return {"attempt": attempt, "saved": saved, "created": False}
+
+    def latest_skill_saved(
+        self, turn_id: str, proposal_id: str
+    ) -> dict[str, Any] | None:
+        """Return the newest successful Save for one durable proposal."""
+
+        self.skill_proposal(turn_id, proposal_id)
+        for row in self.db.execute(
+            "SELECT * FROM project_qa_events WHERE turn_id=? AND kind='skill_saved' "
+            "ORDER BY seq DESC",
+            (turn_id,),
+        ):
+            event = self._skill_event(row)
+            if event["payload"].get("proposal_id") == proposal_id:
+                return event
+        return None
+
+    def record_skill_save_attempt(
+        self,
+        turn_id: str,
+        *,
+        proposal_id: str,
+        request_id: str,
+        payload: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Bind one proposal/request pair to an exact post-response Save payload."""
+
+        if not isinstance(proposal_id, str) or not proposal_id:
+            raise ValueError("proposal_id must be a non-empty string")
+        if not isinstance(request_id, str) or not 1 <= len(request_id) <= 100:
+            raise ValueError("request_id must be between 1 and 100 characters")
+        saved = _json_object(payload, name="payload")
+
+        def write(db: sqlite3.Connection) -> dict[str, Any]:
+            turn = self._turn_record(
+                db.execute(
+                    "SELECT * FROM project_qa_turns WHERE id=?", (turn_id,)
+                ).fetchone()
+            )
+            proposal = None
+            for row in db.execute(
+                "SELECT * FROM project_qa_events WHERE turn_id=? AND kind='skill_proposal' "
+                "ORDER BY seq DESC",
+                (turn_id,),
+            ):
+                candidate = self._skill_event(row)
+                if candidate["payload"].get("proposal_id") == proposal_id:
+                    proposal = candidate
+                    break
+            if proposal is None:
+                raise ProjectQANotFoundError("skill proposal not found")
+
+            expected_payload = {
+                "attempt_id": None,
+                "proposal_id": proposal_id,
+                "request_id": request_id,
+                **saved,
+            }
+            existing_attempt = None
+            for row in db.execute(
+                "SELECT * FROM project_qa_events WHERE turn_id=? AND kind='skill_save_attempt' "
+                "ORDER BY seq",
+                (turn_id,),
+            ):
+                candidate = self._skill_event(row)
+                candidate_payload = candidate["payload"]
+                if (
+                    candidate_payload.get("proposal_id") == proposal_id
+                    and candidate_payload.get("request_id") == request_id
+                ):
+                    existing_attempt = candidate
+                    break
+            if existing_attempt is not None:
+                comparable = dict(existing_attempt["payload"])
+                expected_payload["attempt_id"] = comparable.get("attempt_id")
+                if comparable != expected_payload:
+                    raise ProjectQAConflictError(
+                        "request_id was already submitted with different content"
+                    )
+                saved_event = next(
+                    (
+                        self._skill_event(row)
+                        for row in db.execute(
+                            "SELECT * FROM project_qa_events WHERE turn_id=? AND kind='skill_saved' "
+                            "ORDER BY seq",
+                            (turn_id,),
+                        )
+                        if json.loads(row["payload_json"]).get("attempt_id")
+                        == comparable.get("attempt_id")
+                    ),
+                    None,
+                )
+                return {
+                    "attempt": existing_attempt,
+                    "saved": saved_event,
+                    "created": False,
+                }
+
+            attempt_payload = {
+                **expected_payload,
+                "attempt_id": _id("qa_skill_save"),
+            }
+            attempt = self._append_event(
+                db,
+                thread_id=turn["thread_id"],
+                turn_id=turn_id,
+                kind="skill_save_attempt",
+                payload=attempt_payload,
+            )
+            return {"attempt": attempt, "saved": None, "created": True}
+
+        return self._write(write)
+
+    def record_skill_saved(
+        self,
+        turn_id: str,
+        *,
+        proposal_id: str,
+        attempt_id: str,
+        payload: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Append the bounded result for one recorded Save attempt."""
+
+        if not isinstance(attempt_id, str) or not attempt_id:
+            raise ValueError("attempt_id must be a non-empty string")
+        saved = _json_object(payload, name="payload")
+
+        def write(db: sqlite3.Connection) -> dict[str, Any]:
+            turn = self._turn_record(
+                db.execute(
+                    "SELECT * FROM project_qa_turns WHERE id=?", (turn_id,)
+                ).fetchone()
+            )
+            attempt = next(
+                (
+                    self._skill_event(row)
+                    for row in db.execute(
+                        "SELECT * FROM project_qa_events WHERE turn_id=? AND kind='skill_save_attempt' "
+                        "ORDER BY seq",
+                        (turn_id,),
+                    )
+                    if json.loads(row["payload_json"]).get("attempt_id") == attempt_id
+                ),
+                None,
+            )
+            if attempt is None or attempt["payload"].get("proposal_id") != proposal_id:
+                raise ProjectQANotFoundError("skill save attempt not found")
+            result_payload = {
+                "attempt_id": attempt_id,
+                "proposal_id": proposal_id,
+                **saved,
+            }
+            existing = next(
+                (
+                    self._skill_event(row)
+                    for row in db.execute(
+                        "SELECT * FROM project_qa_events WHERE turn_id=? AND kind='skill_saved' "
+                        "ORDER BY seq",
+                        (turn_id,),
+                    )
+                    if json.loads(row["payload_json"]).get("attempt_id") == attempt_id
+                ),
+                None,
+            )
+            if existing is not None:
+                if existing["payload"] != result_payload:
+                    raise ProjectQAConflictError(
+                        "skill save attempt already has a different result"
+                    )
+                return existing
+            return self._append_event(
+                db,
+                thread_id=turn["thread_id"],
+                turn_id=turn_id,
+                kind="skill_saved",
+                payload=result_payload,
             )
 
         return self._write(write)

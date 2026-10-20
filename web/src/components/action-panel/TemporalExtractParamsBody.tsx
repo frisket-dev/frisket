@@ -1,6 +1,6 @@
 import '../ActionPanel.css';
 import { TextInput } from '../FormControls';
-import { useEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { parseRangeDraftText } from '../../temporal/draft';
 import { formatTimecode } from '../../temporal/model';
 import { RangeDraftPreview } from '../temporal/TemporalDraftEditor';
@@ -27,7 +27,7 @@ export function TemporalExtractParamsBody({ sheet, params, setParams, request, F
   const identity = JSON.stringify({ source: params.source, scope: request.scope,
     selection: selection?.kind === 'column' ? selection : { ...selection, repeat_for_rows: false } });
   const previousIdentity = useRef<string | null>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const changed = previousIdentity.current !== identity;
     previousIdentity.current = identity;
     if (changed && repeat && selection) {

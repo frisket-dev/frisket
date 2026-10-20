@@ -254,6 +254,11 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
             "qa_resume_research",
             "POST",
         ): "tenant.qa_resume_research.post",
+        (
+            "tenant",
+            "qa_save_skill_proposal",
+            "POST",
+        ): "tenant.qa_save_skill_proposal.post",
         ("tenant", "create_lens", "POST"): "tenant.create_lens.post",
         ("tenant", "create_skill", "POST"): "tenant.create_skill.post",
         ("tenant", "upload_skill", "POST"): "tenant.upload_skill.post",

@@ -97,3 +97,40 @@
 .ask-analysis-summary span { flex: 1; }
 .ask-analysis-summary svg:first-child { color: var(--accent); }
 .ask-source-preview a { overflow-wrap: anywhere; }
+
+.ask-skill-proposal { display: flex; align-items: flex-end; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-8); background: var(--bg-panel); }
+.ask-skill-proposal.is-superseded { opacity: .72; }
+.ask-skill-proposal-copy { display: grid; flex: 1; min-width: 0; gap: 3px; }
+.ask-skill-proposal-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ask-skill-proposal-copy span, .ask-skill-proposal-copy small { color: var(--text-mid); line-height: 1.4; }
+.ask-skill-proposal > button { flex-shrink: 0; }
+
+dialog.ask-skill-review-dialog { position: fixed; width: min(900px, calc(100vw - 40px)); height: min(760px, calc(100vh - 40px)); max-width: none; max-height: none; box-sizing: border-box; overflow: hidden; gap: 12px; padding: 0; border: 1px solid var(--border-strong); }
+.ask-skill-review-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 18px 12px; border-bottom: 1px solid var(--border); background: var(--bg-panel); }
+.ask-skill-review-header h2 { margin: 0; font-size: 20px; }
+.ask-skill-review-meta { display: flex; flex-wrap: wrap; gap: 5px 14px; padding: 0 18px; color: var(--text-mid); font-size: 12px; }
+.ask-skill-review-meta p { flex-basis: 100%; margin: 0 0 2px; color: var(--text); font-size: 14px; }
+.ask-skill-review-meta span { padding: 3px 7px; border-radius: 999px; background: var(--bg-hover); }
+.ask-skill-review-safety { margin: 0 18px; color: var(--text-mid); font-size: 12px; }
+.ask-skill-review-changes { margin: 0 18px; border: 1px solid var(--border); border-radius: var(--radius-6); padding: 8px 10px; font-size: 12px; }
+.ask-skill-review-changes summary { cursor: pointer; font-weight: 650; }
+.ask-skill-review-changes pre { max-height: 130px; margin: 8px 0 0; overflow: auto; white-space: pre-wrap; }
+.ask-skill-review-editor { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 6px; margin: 0 18px; color: var(--text-mid); font-size: 12px; font-weight: 650; }
+.ask-skill-review-editor textarea { flex: 1; min-height: 220px; width: 100%; box-sizing: border-box; resize: none; padding: 12px; color: var(--text); background: var(--bg); font: 14px/1.55 var(--font-mono, monospace); }
+.ask-skill-review-editor textarea:read-only { background: var(--bg-panel); }
+.ask-skill-review-readonly, .ask-skill-review-status { margin: 0 18px; border-radius: var(--radius-6); padding: 8px 10px; background: var(--accent-bg); color: var(--text-mid); font-size: 12px; }
+.ask-skill-review-error { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 18px; border-radius: var(--radius-6); padding: 8px 10px; background: color-mix(in srgb, var(--red) 10%, var(--bg)); color: var(--red); font-size: 12px; }
+.ask-skill-review-error p { margin: 0; }
+.ask-skill-review-footer { display: flex; justify-content: flex-end; gap: 7px; padding: 12px 18px 16px; border-top: 1px solid var(--border); background: var(--bg-panel); }
+.ask-skill-review-footer button { display: inline-flex; align-items: center; gap: 5px; }
+.ask-skill-discard { position: absolute; inset: 0; z-index: 1; display: grid; place-items: center; padding: 24px; background: color-mix(in srgb, var(--text) 35%, transparent); }
+.ask-skill-discard-card { width: min(420px, 100%); box-sizing: border-box; border-radius: var(--radius-8); padding: 18px; background: var(--bg); box-shadow: var(--shadow-drawer); }
+.ask-skill-discard-card > div { display: flex; justify-content: flex-end; gap: 7px; margin-top: 14px; }
+.ask-skill-discard p { margin: 7px 0 0; color: var(--text-mid); }
+
+@media (max-width: 700px) {
+  dialog.ask-skill-review-dialog { width: calc(100vw - 16px); height: calc(100vh - 16px); }
+  .ask-skill-review-header { padding: 12px; }
+  .ask-skill-review-meta, .ask-skill-review-safety, .ask-skill-review-editor, .ask-skill-review-error, .ask-skill-review-readonly, .ask-skill-review-status { margin-left: 12px; margin-right: 12px; }
+  .ask-skill-review-footer { padding: 10px 12px; }
+}

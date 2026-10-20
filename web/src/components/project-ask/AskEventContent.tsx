@@ -7,14 +7,22 @@ import type { ActionCatalogEntry, GeneratedActionDraft } from '../../api/types';
 import { askActionProposal, type AskActionProposal } from './actionProposal';
 import { AskAnswer } from './AskAnswer';
 import { useAskCitation } from './useAskCitation';
+import { askSkillProposal, type AskSkillProposal, type AskSkillSaved } from './skillProposal';
+import { SkillProposalCard } from './SkillProposalCard';
 
-export function AskEventContent({ event, onInspectProposal, onOpenSource, actionProposals = [], actionCatalog = [], onOpenAction }: {
+export function AskEventContent({ event, onInspectProposal, onOpenSource, actionProposals = [], actionCatalog = [], onOpenAction,
+  skillSaved = null, skillSavePending = false, skillDisplayProposal = null, skillSuperseded = false, onReviewSkill }: {
   event: AskEvent;
   onOpenSource(citation: AskCitation): void;
   onInspectProposal(title: string, spec: GeneratedActionDraft): void;
   actionProposals?: readonly AskActionProposal[];
   actionCatalog?: readonly ActionCatalogEntry[];
   onOpenAction?(actionId: string): void;
+  skillSaved?: AskSkillSaved | null;
+  skillSavePending?: boolean;
+  skillDisplayProposal?: AskSkillProposal | null;
+  skillSuperseded?: boolean;
+  onReviewSkill?(proposal: AskSkillProposal): void;
 }) {
   const payload = event.payload;
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
@@ -23,6 +31,13 @@ export function AskEventContent({ event, onInspectProposal, onOpenSource, action
     try { await navigator.clipboard.writeText(text); setCopyStatus('Copied'); }
     catch { setCopyStatus('Could not copy. Please try again.'); }
   }
+  if (event.kind === 'skill_proposal') {
+    const proposal = askSkillProposal(event);
+    if (!proposal || !onReviewSkill) return null;
+    return <SkillProposalCard proposal={skillDisplayProposal ?? proposal} saved={skillSaved} pendingSave={skillSavePending}
+      superseded={skillSuperseded} onReview={onReviewSkill} />;
+  }
+  if (event.kind === 'skill_save_attempt' || event.kind === 'skill_saved') return null;
   if (event.kind === 'action_proposal') {
     const proposal = askActionProposal(event);
     if (!proposal) return null;
