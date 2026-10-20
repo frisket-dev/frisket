@@ -24,4 +24,5 @@
 .icon-button:focus-visible, .icon-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .icon-button:disabled, .icon-btn:disabled { cursor: not-allowed; opacity: 0.45; }
 .icon-button[aria-pressed='true']:disabled { opacity: 1; }
+.icon-button[aria-busy='true'] > svg { animation: spin 0.8s linear infinite; }
 .icon-btn-active { background: var(--accent-bg); color: var(--accent); }

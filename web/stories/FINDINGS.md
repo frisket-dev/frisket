@@ -1,6 +1,6 @@
 # UI inventory findings
 
-## Comparison, import, list and field consolidation (implemented; verifying)
+## Comparison, import, list and field consolidation (implemented; visual review)
 
 Baseline: `bc61d79e`. Four bounded lanes: shared comparison markup; repeated
 import lifecycle operations; Watches/Notifications editable-list presentation;
@@ -24,8 +24,14 @@ the fix and passes afterward. No range arithmetic changed.
 
 This round removes **430 handwritten production lines**, counting all new
 components/hooks. CSS is +6; the reduction is in TypeScript/JSX this time.
-Focused tests and independent code review cover all four lanes. Integrated
-checks, screenshots and Claude visual review are the remaining verification.
+Focused tests and independent code review cover all four lanes. The integrated
+frontend suite passes all 3,649 tests in 459 files; types, dependency boundaries,
+Local/Team builds and lint pass (39 existing warnings). Six browser scenarios
+pass, including populated forms/results and narrow comparison toolbar ordering.
+Baseline captures used the frozen pre-change source; their numeric interaction
+failed on the real duplicate-key bug. The same strict interaction passes after
+the fix. Busy icon animation belongs to the shared icon button, not notifications.
+Claude and maintainer visual review remain before PR/merge.
 
 ## Card, dialog and compound-editor round (implemented)
 
@@ -247,14 +253,15 @@ These are candidates to investigate, not assertions that every difference is a d
 20. `StructuredFieldsEditor` depends on an `.action-panel` ancestor for its actual row layout. Without it the real component becomes a vertical stack, despite importing all production CSS. The story now supplies the real container; the hidden CSS dependency is a concrete obstacle to reuse elsewhere. Move ownership with the component if it is reused, rather than copying those selectors.
 21. `GeneratedActionForm` derives “Checking engine availability…” from a missing current choice, not a loading flag. The unconfigured-model capture can therefore look busy even when the picker has loaded. Check this distinction before standardizing loading/unavailable states.
 
-## Rendering anomaly to verify, not yet a confirmed product bug
+## Repeated range controls (confirmed and fixed)
 
 The [PDF extraction screenshot](extract-populated-local-extraction-preview-light.png)
-shows repeated numeric histogram/min/max controls inside the single `size` filter
-card. Source review finds one `RangeFacet` per card and one histogram per range,
-with no CSS repetition. Check live DOM counts versus screenshot rendering before
-filing this as duplicate product markup; the inventory alone cannot establish
-the cause.
+showed repeated numeric histogram/min/max controls inside one filter card.
+The subsequent browser interaction test confirmed real duplicate DOM, not a
+screenshot artifact. Range and advanced-condition sibling keys collided when
+the preview hash and condition were null. Their keys now have distinct prefixes;
+component regression coverage asserts one range editor across refresh/filter
+transitions. The numeric browser selector remains strict.
 
 ## Suggested first consolidation passes (after maintainer review)
 
