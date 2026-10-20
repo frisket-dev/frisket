@@ -51,23 +51,8 @@
   gap: 9px;
 }
 
-.import-destination-choice span {
-  display: grid;
-  gap: 3px;
-}
-
-.import-destination-choice small {
-  color: var(--text-light);
-  font-size: 11px;
-}
-
 .import-destination-choice-field {
-  display: grid;
-  gap: 6px;
   margin: 12px 0 0 25px;
-  color: var(--text-mid);
-  font-size: 12px;
-  font-weight: 650;
 }
 
 .table-import-workspace.table-import-workspace-mode-selection .import-workspace-main {

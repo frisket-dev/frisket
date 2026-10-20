@@ -10,6 +10,7 @@ import { captureMentionsScenes, capturePanelCardScenes, capturePanelScenes, capt
 import { captureTeamSettingsScenes } from './team-scenes';
 import { captureElements } from './elements';
 import { captureDialogScenes } from './dialog-scenes';
+import { observeInventoryCatalog, waitForInventoryCatalog } from './readiness';
 
 const output = path.resolve(process.env.FRISKET_INVENTORY_OUTPUT ?? 'screenshots/inventory');
 type Capture = { kind?: 'small'; family: string; name: string; source: string; file: string; detail?: string; theme: string; context?: string; scene?: string; selector?: string; state?: string };
@@ -24,6 +25,7 @@ const detailSelectors: Record<string, string> = {
 };
 
 async function shot(page: Page, family: string, name: string, source: string, detailSelector?: string) {
+  await waitForInventoryCatalog(page);
   console.info(`Capture: ${family} / ${name}`);
   await page.evaluate(() => document.fonts.ready);
   for (const theme of ['light', 'dark']) {
@@ -54,6 +56,7 @@ function html(value: string) {
 test.beforeAll(() => mkdirSync(output, { recursive: true }));
 test.beforeEach(async ({ context, page }) => {
   browserErrors = [];
+  observeInventoryCatalog(page);
   page.on('pageerror', error => browserErrors.push(error.message));
   const allowed = new Set([process.env.FRISKET_INVENTORY_APP_URL, process.env.FRISKET_INVENTORY_STORY_URL, process.env.FRISKET_INVENTORY_TEAM_URL]);
   await context.route('**/*', async route => {
@@ -142,10 +145,15 @@ test('four import entry surfaces', async ({ page }) => {
   const sheet = await importCsv(page.request, pid, 'records.csv', 'name,amount,notes\nAda,1200,Council meeting\nMax,50,Planning hearing\n');
   await openProject(page, pid, sheet);
   await openImportWorkspace(page);
+  const rail = page.getByRole('tablist', { name: 'Import type', exact: true });
+  const modes = rail.getByRole('tab');
+  await expect(modes).toHaveCount(4);
   for (const [mode, label] of [['csv', 'one-file'], ['files', 'multiple-files'], ['pdf_split', 'split-pdf'], ['feed', 'feed-source']]) {
     await page.getByTestId(`import-mode-${mode}`).click();
     await expect(page.getByTestId(`import-mode-${mode}`)).toHaveAttribute('aria-selected', 'true');
     const panel = page.locator('.import-workspace-panel');
+    const desktopTabs = await modes.evaluateAll(elements => elements.map(element => element.getBoundingClientRect().left));
+    expect(Math.max(...desktopTabs) - Math.min(...desktopTabs), 'Import modes form one desktop column').toBeLessThan(1);
     const footer = panel.locator('.panel-footer');
     await expect(footer.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
     const panelBounds = await panel.boundingBox();
@@ -157,6 +165,25 @@ test('four import entry surfaces', async ({ page }) => {
       expect((await dropArea.boundingBox())!.height).toBe(300);
     }
     await shot(page, 'Import', label, 'src/components/importWorkspace/ImportWorkspaceDialog.tsx; importWorkspace/');
+  }
+  const desktopViewport = page.viewportSize()!;
+  try {
+    await page.setViewportSize({ width: 720, height: desktopViewport.height });
+    await expect.poll(() => rail.evaluate(element => getComputedStyle(element).gridTemplateColumns.split(/\s+/).length),
+      { message: 'Narrow import rail uses three columns' }).toBe(3);
+    const bounds = await modes.evaluateAll(elements => elements.map(element => {
+      const { left, top } = element.getBoundingClientRect();
+      return { left, top };
+    }));
+    expect(Math.max(...bounds.slice(0, 3).map(item => item.top)) - bounds[0].top).toBeLessThan(1);
+    expect(bounds[1].left).toBeGreaterThan(bounds[0].left);
+    expect(bounds[2].left).toBeGreaterThan(bounds[1].left);
+    expect(bounds[3].top).toBeGreaterThan(bounds[0].top);
+    expect(await rail.evaluate(element => element.scrollWidth <= element.clientWidth), 'Import rail fits its width').toBe(true);
+    expect(await page.locator('.import-workspace-panel').evaluate(element => element.scrollWidth <= element.clientWidth),
+      'Narrow import panel does not overflow horizontally').toBe(true);
+  } finally {
+    await page.setViewportSize(desktopViewport);
   }
   await page.getByTestId('import-mode-files').click();
   await page.getByTestId('import-source-urls').click();

@@ -1,7 +1,8 @@
 /* Only schema geometry lives here. Inputs, toggles and rows use shared skins. */
 .output-field-name { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; }
 .output-field-name > input { flex: 1; min-width: 0; }
-.output-field-required[aria-pressed='true'] { color: var(--red); }
+.btn.output-field-required[data-button-variant='text'] { color: var(--text-light); justify-content: center; }
+.btn.output-field-required[aria-pressed='true'] { color: var(--red); }
 .output-field-type { flex: 0 0 auto; max-width: 45%; min-width: 0; }
 .output-field-description { field-sizing: content; overflow: hidden; white-space: pre-wrap; }
 .output-field-facts { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }

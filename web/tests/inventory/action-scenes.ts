@@ -1,5 +1,6 @@
 import { expect, type Page } from '@playwright/test';
 import { clickHeader, createProject, importCsv, openCellDrawer, openProject, sheetColumns } from '../e2e/helpers';
+import { waitForInventoryCatalog, waitForInventoryComparison } from './readiness';
 
 type Shot = (page: Page, family: string, name: string, source: string) => Promise<void>;
 
@@ -102,6 +103,7 @@ export async function captureAskAndComparisonScenes(page: Page, shot: Shot) {
   const pid = await createProject(page.request, 'Ask and comparison inventory');
   const sid = await importCsv(page.request, pid, 'stories.csv', 'story\nCouncil approved the contract\nSchool board met on Tuesday\n');
   await openProject(page, pid, sid);
+  await waitForInventoryCatalog(page);
   await page.getByTestId('chrome-ask-toggle').click();
   await expect(page.getByTestId('ask-dock')).toBeVisible();
   await shot(page, 'Ask', 'ask-no-provider', 'src/components/ProjectAskDock.tsx');
@@ -122,6 +124,7 @@ export async function captureAskAndComparisonScenes(page: Page, shot: Shot) {
     for (let i = 0; i < await tabs.count() && !await button.isVisible(); i++) await tabs.nth(i).click();
     await button.click();
     await expect(page.getByTestId(`${tab}-tab`)).toBeVisible();
+    await waitForInventoryComparison(page, tab);
     if (command === 'ocr-compare') {
       const source = page.getByTestId('ocr-compare-source-toggle');
       await expect(source).toBeVisible();

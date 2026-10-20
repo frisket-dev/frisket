@@ -126,14 +126,15 @@ export function SourceList({ actions, armedDelete, busy, expanded, items, runPag
                 type="button"
                 variant="text"
                 aria-expanded={isOpen}
+                aria-controls={`source-poll-history-${s.id}`}
                 onClick={() => { void actions.toggleRuns(s.id); }}
               >
-                <RunChevron size={11} aria-hidden /> poll history
+                <RunChevron size={14} aria-hidden /> Poll history
               </Button>
             </div>
 
             {isOpen && (
-              <ul className="panel-list" data-testid={`source-runs-${s.id}`}>
+              <ul id={`source-poll-history-${s.id}`} className="panel-list" data-testid={`source-runs-${s.id}`}>
                 {runs[s.id] === undefined ? (
                   <li className="panel-empty">loading...</li>
                 ) : runs[s.id].length === 0 ? (

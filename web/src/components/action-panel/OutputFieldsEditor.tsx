@@ -133,6 +133,7 @@ function FieldRow({
             />
             {showRequired && <Button
               type="button"
+              variant="text"
               className="btn-icon output-field-required"
               data-testid={requiredTestId}
               aria-pressed={required}

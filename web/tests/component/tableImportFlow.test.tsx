@@ -388,7 +388,7 @@ describe('TableImportFlow', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Continue →' }));
     fireEvent.click(await screen.findByRole('radio', { name: /Add to an existing sheet/ }));
 
-    expect(screen.getByRole('combobox', { name: 'Sheet' })).toHaveValue('9');
+    expect(screen.getByRole('combobox', { name: 'Existing sheet' })).toHaveValue('9');
     const mapping = await screen.findByRole('combobox', { name: 'Map contributor_id' });
     expect(mapping).toHaveValue('existing:77');
     expect(within(mapping).getByRole('option', { name: '+ New column' })).toBeVisible();

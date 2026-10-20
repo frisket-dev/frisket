@@ -17,7 +17,7 @@ import type {
 } from '../../../api/tableImports';
 import { PanelSelect } from '../../PanelSelect';
 import { PanelNotice, SegmentedToggle } from '../../PanelPrimitives';
-import { ImportDestinationChoice, ImportDestinationOptions } from '../ImportDestinationChoice';
+import { ImportDestinationPicker } from '../ImportDestinationPicker';
 import {
   summarizePasteForDisplay,
   type TableImportSourceIssue,
@@ -467,17 +467,11 @@ export function ImportTableStep({ draft, destination, destinationSheets, preferr
   const columnSummary = [omittedColumns > 0 ? `${count(omittedColumns, 'column')} left out` : '', newColumns > 0 ? `${count(newColumns, 'new column')} added` : ''].filter(Boolean).join(' · ');
   const invalidValues = draft.columns.reduce((total, column) => total + (column.included && column.target_type !== 'omit' ? column.conversion_counts.invalid : 0), 0);
   const invalidColumnNames = draft.columns.filter((column) => column.included && column.target_type !== 'omit' && column.conversion_counts.invalid > 0).map((column) => column.name);
-  const newSheetName = destination.kind === 'new' ? destination.sheet_name : draft.source.input_kind === 'paste' ? 'Pasted rows' : draft.source.filename.replace(/\.[^.]+$/, '');
   return <PanelFrame fill className="table-import-destination" aria-label="Import">
     <PanelBody className="">
-      <ImportDestinationOptions>
-        <ImportDestinationChoice name="table-import-destination" selected={destination.kind === 'new'} disabled={busy} title="New sheet" showInactiveChildren onSelect={() => onDestination({ kind: 'new', sheet_name: newSheetName })}>
-          <label className="import-destination-choice-field form-field"><span className="sr-only">Sheet name</span><TextInput aria-label="Sheet name"  value={newSheetName} disabled={busy || destination.kind !== 'new'} onChange={(event) => onDestination({ kind: 'new', sheet_name: event.currentTarget.value })} /></label>
-        </ImportDestinationChoice>
-        <ImportDestinationChoice name="table-import-destination" selected={destination.kind === 'existing'} disabled={busy || destinationSheets.length === 0} title="Add to an existing sheet" showInactiveChildren onSelect={() => { const sheet = destinationSheets.find((candidate) => candidate.id === preferredDestinationSheetId) ?? destinationSheets[0]; if (sheet) onDestination({ kind: 'existing', sheet_id: sheet.id }); }}>
-          <label className="import-destination-choice-field form-field"><span className="sr-only">Sheet</span><PanelSelect aria-label="Sheet" value={String(destination.kind === 'existing' ? destination.sheet_id : destinationSheets.find((candidate) => candidate.id === preferredDestinationSheetId)?.id ?? destinationSheets[0]?.id ?? '')} disabled={busy || destination.kind !== 'existing' || destinationSheets.length === 0} onChange={(event) => onDestination({ kind: 'existing', sheet_id: Number(event.currentTarget.value) })}>{destinationSheets.length === 0 && <option value="">No sheets yet</option>}{destinationSheets.map((sheet) => <option value={sheet.id} key={sheet.id}>{sheet.name} · {count(sheet.rowCount, 'row')}</option>)}</PanelSelect></label>
-        </ImportDestinationChoice>
-      </ImportDestinationOptions>
+      <ImportDestinationPicker destination={destination} sheets={destinationSheets}
+        defaultSheetName={draft.source.input_kind === 'paste' ? 'Pasted rows' : draft.source.filename.replace(/\.[^.]+$/, '')}
+        preferredSheetId={preferredDestinationSheetId} busy={busy} onDestination={onDestination} />
       {destination.kind === 'existing' && <ExistingDestination draft={draft} destination={destination} sheet={existingSheet ?? null} busy={busy} onDestination={onDestination} />}
       <div className="table-import-summary">
         <div><span>Rows to add</span><strong>{importRows == null ? 'Counting…' : `${draft.analysis.complete || comparison?.import_rows != null ? '' : 'About '}${importRows.toLocaleString()}`}</strong><small /></div>

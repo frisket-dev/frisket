@@ -376,17 +376,8 @@
   white-space: nowrap;
 }
 .ocr-compare-frontdoor {
-  flex: 1;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  margin: 16px;
-  color: var(--text-mid);
   text-align: center;
-  cursor: pointer;
 }
 .ocr-compare-frontdoor svg {
   color: var(--accent);

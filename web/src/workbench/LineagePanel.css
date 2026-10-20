@@ -7,9 +7,7 @@
   padding: 8px 12px;
   overflow: auto;
 }
-/* Vertical padding comes from the shared .panel-frame-header (C2). Horizontal
-   is zeroed: this header sits inside .bottom-dock-tab-body, which owns the
-   dock gutter (the gutter-owner rule). */
+/* The shared panel frame owns header spacing. */
 .lineage-panel-header {
   justify-content: space-between;
 }

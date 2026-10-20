@@ -352,7 +352,7 @@ export function StatusBar({
             )}
           </>
         ) : !searchPreparationNotice && (
-          <span className="run-label muted">idle</span>
+          <span className="run-label">idle</span>
         )}
         {searchPreparationNotice && (
           <SearchActivityToggle

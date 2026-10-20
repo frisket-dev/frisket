@@ -1374,6 +1374,11 @@ describe('PDF batch import flow', () => {
     await screen.findByText('Broken native text');
     fireEvent.click(screen.getByRole('button', { name: 'Continue →' }));
     const name = screen.getByLabelText('Sheet name');
+    expect(screen.getByRole('group', { name: 'Import into' })).toBeVisible();
+    expect(screen.getByRole('combobox', { name: 'Existing sheet' })).toBeVisible();
+    expect(screen.getByRole('combobox', { name: 'Existing sheet' })).toBeDisabled();
+    expect(screen.getByRole('radio', { name: 'Add to an existing sheet' })).toBeDisabled();
+    expect(screen.queryByRole('heading', { name: 'Review destination' })).not.toBeInTheDocument();
     fireEvent.change(name, { target: { value: 'Quarterly' } });
     fireEvent.change(name, { target: { value: 'Quarterly PDFs' } });
     fireEvent.click(screen.getByRole('button', { name: 'Search setup →' }));

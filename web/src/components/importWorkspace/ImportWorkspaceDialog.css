@@ -99,16 +99,6 @@ dialog.import-workspace-layer::backdrop {
   overflow-y: auto;
   background: var(--bg-panel);
 }
-.import-workspace-mode-list {
-  grid-template-columns: 1fr;
-  gap: 6px;
-}
-.import-workspace-mode-list .import-mode {
-  min-height: 52px;
-  padding: 9px 10px;
-}
-.import-workspace-mode-list .import-mode span { font-size: 13px; }
-.import-workspace-mode-list .import-mode small { font-size: 11px; }
 .import-workspace-content {
   min-width: 0;
   min-height: 0;
@@ -230,9 +220,6 @@ dialog.import-workspace-layer::backdrop {
     border-right: 0;
     border-bottom: 1px solid var(--border);
     overflow: visible;
-  }
-  .import-workspace-mode-list {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
   .import-workspace-panel {
     padding: 16px;

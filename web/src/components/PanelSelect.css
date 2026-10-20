@@ -8,7 +8,9 @@
   border-radius: var(--radius-6);
   padding: 8px 12px;
 }
-.select-trigger:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.select-trigger:focus-visible { outline-offset: 2px; }
+/* Controls composed with FormControls retain its shared field focus ring. */
+.select-trigger:not(.form-input):focus-visible { outline: 2px solid var(--focus); }
 .panel-select-shell {
   position: relative;
   display: grid;

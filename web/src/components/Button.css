@@ -12,7 +12,7 @@
   padding: var(--space-6) var(--space-12);
   cursor: pointer;
 }
-.btn:hover:not(:disabled) { background: var(--bg-hover); }
+.btn:where(:not([data-button-variant='text'])):hover:not(:disabled) { background: var(--bg-hover); }
 .btn[aria-pressed='true'] { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
 .btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }

@@ -1,5 +1,5 @@
 .export-option-stack { display: grid; gap: 8px; margin-top: 12px; }
-.export-option-btn { width: 100%; justify-content: flex-start; text-decoration: none; color: var(--text); }
+.export-option-btn { width: 100%; }
 .export-option-btn.current { border-color: var(--accent); background: var(--accent-bg); }
 .export-dataset-section {
   min-width: 0;

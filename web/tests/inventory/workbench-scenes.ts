@@ -388,7 +388,13 @@ export async function capturePanelCardScenes(page: Page, shot: Shot) {
   await openDiscoverTab(page, 'Sources');
   const sourceCard = page.getByTestId(`source-item-${sourceId}`);
   await expect(sourceCard).toBeVisible();
-  await sourceCard.getByRole('button', { name: 'poll history' }).click();
+  const pollHistory = sourceCard.getByRole('button', { name: 'Poll history', exact: true });
+  await expect(pollHistory).toHaveAttribute('aria-expanded', 'false');
+  await pollHistory.click();
+  await expect(pollHistory).toHaveAttribute('aria-expanded', 'true');
+  await expect(pollHistory).toHaveAttribute('aria-controls', `source-poll-history-${sourceId}`);
+  await expect(pollHistory).toHaveCSS('border-width', '0px');
+  await expect(pollHistory).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
   await expect(page.getByTestId(`source-runs-${sourceId}`)).toContainText(sourceRun.error);
   await shot(page, 'Panel cards', 'source-with-poll-history', 'synthetic read-only API fixture; src/components/sources/SourceList.tsx', `[data-testid="source-item-${sourceId}"]`);
   await page.getByTestId(`source-health-${sourceId}`).click();

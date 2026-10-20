@@ -123,7 +123,7 @@
   background: rgba(255,255,255,0.78); color: var(--text-mid); cursor: pointer;
 }
 .home-card-menu-btn:hover { background: #fff; color: var(--text); }
-.home-card-menu { position: absolute; top: 30px; right: 0; z-index: 40; min-width: 150px; }
+.menu-pop.home-card-menu { z-index: 40; min-width: 150px; }
 
 .home-new-tile {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;

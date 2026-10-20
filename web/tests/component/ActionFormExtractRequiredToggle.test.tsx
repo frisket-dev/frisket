@@ -23,6 +23,7 @@ it('cycles the shared extraction field required control and updates canonical fi
   const toggle = screen.getAllByTestId('output-field-required')[0];
   expect(toggle).toHaveAttribute('aria-pressed', 'false');
   expect(toggle).toHaveTextContent('*');
+  expect(toggle).toHaveAttribute('data-button-variant', 'text');
   const originalField = onChange.mock.lastCall![0][0];
 
   await userEvent.click(toggle);
@@ -32,7 +33,8 @@ it('cycles the shared extraction field required control and updates canonical fi
   );
   expect(onChange.mock.lastCall![0]).toEqual([{ ...originalField, required: true }]);
 
-  await userEvent.click(toggle);
+  toggle.focus();
+  await userEvent.keyboard(' ');
   expect(toggle).toHaveAttribute('aria-pressed', 'false');
   expect(onChange.mock.lastCall![0]).toEqual([originalField]);
 });

@@ -5,7 +5,6 @@
 .ask-research-field small,
 .ask-research-skills small { color: var(--text-muted); font-size: 10.5px; font-weight: 400; line-height: 1.35; }
 .ask-research-fields { display: flex; flex-direction: column; gap: 9px; padding: 7px 8px 5px 30px; }
-.ask-research-field { display: flex; flex-direction: column; gap: 4px; color: var(--text-mid); font-size: 11px; font-weight: 600; }
 .ask-research-skills { display: flex; flex-direction: column; gap: 5px; min-width: 0; border: 0; margin: 0; padding: 0; }
 .ask-research-skills legend { margin-bottom: 4px; color: var(--text-mid); font-size: 11px; font-weight: 600; }
 .ask-research-skills label,
@@ -21,5 +20,4 @@
 .ask-research-approval p { margin: 0; color: var(--text-mid); font-size: 11.5px; line-height: 1.4; }
 .ask-research-approval .ask-research-targets { color: var(--text); font-weight: 600; }
 .ask-research-approval .ask-research-estimate { color: var(--text); }
-.ask-research-approval-field { display: flex; flex-direction: column; gap: 4px; color: var(--text-mid); font-size: 11px; font-weight: 600; }
 .ask-research-approval-actions { display: flex; flex-wrap: wrap; gap: 6px; }

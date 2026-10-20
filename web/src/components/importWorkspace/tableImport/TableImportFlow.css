@@ -128,7 +128,7 @@
 .table-import-mappings b[data-match='type_clash'] { color: #9a5b06; }
 .table-import-mapping-status { display: grid; justify-items: start; gap: 3px; }
 .table-import-mapping-status .text-btn { padding: 0; color: #8a5208; font-size: 11px; font-weight: 700; text-align: left; }
-.table-import-dedup { display: flex; align-items: center; gap: 7px; font-size: 12px; }
+.table-import-dedup { align-items: center; }
 .table-import-dedup select { max-width: 190px; }
 .table-import-dedup > span { color: var(--text-light); }
 .table-import-destination-loading { padding: 16px; color: var(--text-light); }
