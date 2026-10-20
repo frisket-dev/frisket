@@ -1,6 +1,6 @@
 # UI inventory findings
 
-## Responsibility consolidation (2026-10-20; implemented, awaiting visual approval)
+## Responsibility consolidation (2026-10-20; implemented and reviewed)
 
 All fourteen audit items below are implemented, including non-bug duplication.
 Seven parallel implementation lanes shared bounded file ownership; independent
@@ -26,6 +26,8 @@ notification-create risk. These are repaired: same-editor save errors remain
 visible, edited successful creates bind the returned source ID, and notification
 create fields are locked while their INSERT is pending. The final 26 focused
 regressions pass; the source repair also has independent Codex clearance.
+Claude's final review cleared all three repairs at `b3dc6a9c`; no findings
+remain open. Local/Team builds and targeted lint also pass after the repairs.
 Final build checking caught
 one remaining call to the deleted byte-label alias; it now calls the shared
 formatter directly, with no formatting policy change.

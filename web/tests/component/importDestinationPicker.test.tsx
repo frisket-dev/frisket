@@ -80,4 +80,3 @@ describe('ImportDestinationPicker', () => {
     expect(screen.getByRole('combobox', { name: 'Existing sheet' })).toBeDisabled();
   });
 });
-

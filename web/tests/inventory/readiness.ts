@@ -57,4 +57,3 @@ export async function waitForInventoryComparison(page: Page, tab: string): Promi
   await expect(panel.locator('.engine-selector-field-loading')).toHaveCount(0);
   await expect(panel.locator('.engine-selector-field-error')).toHaveCount(0);
 }
-
