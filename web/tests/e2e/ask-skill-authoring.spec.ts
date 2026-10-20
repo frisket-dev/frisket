@@ -44,7 +44,7 @@ test('review a long skill, save twice, and reopen its saved text', async ({ page
       savedBodies.push(body.content);
       revision += 1;
       const attemptId = `attempt-${revision}`;
-      add('skill_save_attempt', { attempt_id: attemptId, proposal_id: 'proposal', content: body.content, expected_revision: body.expected_revision });
+      add('skill_save_attempt', { attempt_id: attemptId, proposal_id: 'proposal', request_id: body.request_id, name: 'check-supplier', description: 'Check the selected supplier and explain the evidence.', content: body.content, expected_revision: body.expected_revision });
       add('skill_saved', { attempt_id: attemptId, proposal_id: 'proposal', skill_id: 'skill', name: 'check-supplier', description: 'Check the selected supplier and explain the evidence.', enabled: true, revision, status: 'saved' });
       return route.fulfill({ json: { status: 'saved', attempt_id: attemptId, proposal_id: 'proposal', skill: { id: 'skill', name: 'check-supplier', description: 'Check the selected supplier and explain the evidence.', content: body.content, enabled: true, revision, createdAt: '', updatedAt: '' } } });
     }
