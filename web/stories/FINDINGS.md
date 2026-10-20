@@ -352,3 +352,33 @@ manually refreshed source-health requests lack stale-response protection.
 The bundled Geo view still receives its stylesheet through the plugin host,
 because the existing plugin loader has no separate CSS-asset interface; this
 does not justify adding an asset framework to this refactor.
+
+### Review corrections and import destination reuse
+
+Secondary review caught a genuine import-rail cascade regression: its obsolete
+five-column layout overrode the dialog's vertical layout. The rail now owns
+desktop/narrow geometry in one stylesheet. Redundant button/menu/field paint
+was removed rather than restoring a fragile global import order. Browser tests
+render representative controls with feature/primitive CSS loaded in both orders.
+
+Missing ribbon tabs in some captures were premature screenshots: recorded
+catalog requests completed successfully after the capture. Inventory now waits
+for the application's actual catalog response and rendered tabs, and for settled
+comparison-engine controls. No production loading behavior was changed.
+
+Excel/table and multiple-file imports now share the actual destination picker,
+not merely its cards: identical new/existing labels, fields and disabled states,
+with destination state and matching logic retained by their flows. The required
+asterisk remains a toggle, now unboxed grey/red; poll history is a plain disclosure.
+Text-button hover no longer introduces a filled box, while selected extraction
+preview rows retain their intentional background.
+
+This follow-up removes another 91 production lines: ownership refactor net +202,
+full normalization campaign net −3,283. Targeted tests cover destination defaults,
+preferred sheets, disabled controls, required-toggle keyboard behavior and sources.
+Production-browser checks cover imports, actions, sources and comparisons; all
+seven checks pass, including both CSS-order regressions. Six further production
+checks pass for documents, dialogs, transcripts and shared-control stories.
+The earlier development capture was terminated after 12 passing scenarios;
+the remaining coverage was completed with the production runs, not waived.
+Final visual approval still precedes PR/merge.
