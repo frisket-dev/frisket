@@ -1113,10 +1113,34 @@ def create_team_app(
         if not access.can_on_project(org_id, project_id, int(actor["id"]), "editor"):
             raise PermissionError("Project editor access is required.")
 
+    def authorize_skill_management(
+        project_id: str, context: BackgroundAskContext
+    ) -> None:
+        try:
+            actor = require_user(context, admin=True)
+        except HTTPException as exc:
+            if exc.status_code not in {401, 403}:
+                raise
+            raise PermissionError(
+                "Organization administrator access is required."
+            ) from exc
+        actor_id = actor.get("id")
+        if actor_id is None or not access.can_on_project(
+            org_id, project_id, int(actor_id), "editor"
+        ):
+            raise PermissionError(
+                "Project editor and organization administrator access are required."
+            )
+
     core.state.project_qa_service.configure_search(core.state.workspace.search_service)
     core.state.project_qa_service.configure_research(
         authorize=authorize_research,
         skills=lambda: team_skill_library,
+    )
+    core.state.project_qa_service.configure_skill_authoring(
+        authorize=authorize_skill_management,
+        skills=lambda: team_skill_library,
+        scope="organization",
     )
 
     def current_owner_emails() -> set[str]:

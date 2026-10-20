@@ -20,6 +20,14 @@ from frisket.server.workspace import (
 )
 
 
+@pytest.fixture(autouse=True)
+def no_background_pricing_refresh(monkeypatch):
+    """Launcher tests must not leave a catalog refresher in the test worker."""
+    monkeypatch.setattr(
+        "frisket.ai.llm.pricing_refresh.start_pricing_refresh", lambda: None
+    )
+
+
 def _attempt_lock(data_dir: str, result) -> None:
     try:
         with StandaloneLifetimeLock(Path(data_dir)):

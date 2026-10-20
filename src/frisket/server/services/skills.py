@@ -167,10 +167,33 @@ class SkillLibrary:
                 if bool(record["enabled"])
             )
 
-    def create(self, content: str, *, enabled: bool = True) -> dict[str, Any]:
+    @staticmethod
+    def validate(content: str) -> dict[str, str]:
+        """Validate one complete SKILL.md through the canonical parser."""
+
+        if not isinstance(content, str) or not content:
+            raise SkillLibraryError("SKILL.md must be non-empty text.")
         if len(content.encode("utf-8")) > MAX_SKILL_BYTES:
             raise SkillLibraryError("SKILL.md must be at most 128 KiB.")
         name, description = _frontmatter(content)
+        return {"name": name, "description": description}
+
+    def get(self, skill_id: str) -> dict[str, Any]:
+        with self._lock:
+            document = self._read()
+            return self._public(self._record(document, skill_id))
+
+    def find_by_name(self, name: str) -> dict[str, Any] | None:
+        with self._lock:
+            record = next(
+                (item for item in self._read()["skills"] if item.get("name") == name),
+                None,
+            )
+            return self._public(record) if isinstance(record, dict) else None
+
+    def create(self, content: str, *, enabled: bool = True) -> dict[str, Any]:
+        parsed = self.validate(content)
+        name, description = parsed["name"], parsed["description"]
         with self._lock:
             document = self._read()
             if any(record.get("name") == name for record in document["skills"]):
@@ -206,9 +229,8 @@ class SkillLibrary:
     def update(
         self, skill_id: str, *, expected_revision: int, content: str
     ) -> dict[str, Any]:
-        if len(content.encode("utf-8")) > MAX_SKILL_BYTES:
-            raise SkillLibraryError("SKILL.md must be at most 128 KiB.")
-        name, description = _frontmatter(content)
+        parsed = self.validate(content)
+        name, description = parsed["name"], parsed["description"]
         with self._lock:
             document = self._read()
             record = self._record(document, skill_id)

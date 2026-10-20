@@ -366,6 +366,7 @@ jobs:
           npm run e2e --
           --project=chromium --no-deps --workers=1
           action-validation-ux.spec.ts
+          ask-skill-authoring.spec.ts
           backfill-cost-gate.spec.ts
           derive-object-list.spec.ts
           explain-cell.spec.ts

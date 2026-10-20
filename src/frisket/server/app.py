@@ -632,6 +632,11 @@ def create_app(
             authorize=lambda _project_id, _context: None,
             skills=lambda: app.state.skill_library,
         )
+        project_qa_service.configure_skill_authoring(
+            authorize=lambda _project_id, _context: None,
+            skills=lambda: app.state.skill_library,
+            scope="workspace",
+        )
     app.state.project_qa_service = project_qa_service
     app.router.add_event_handler("shutdown", project_qa_service.shutdown)
     action_preview_job_registry = ActionPreviewJobRegistry()

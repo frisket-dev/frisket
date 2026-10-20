@@ -21,6 +21,8 @@ from frisket.contracts.http.project_qa import (
     AskTurnRequest,
     AskResearchResume,
     AskResearchConfiguration,
+    AskSkillSaveRequest,
+    AskSkillSaveResult,
 )
 from frisket.engine.store.project_qa import (
     ProjectQAConflictError,
@@ -32,6 +34,8 @@ from frisket.server.route_errors import (
     reject_unknown_query_parameters,
 )
 from frisket.server.services.project_qa import ProjectQAService
+from frisket.server.services.project_qa_skills import ProjectQASkillConflict
+from frisket.server.services.skills import SkillLibraryError
 from frisket.server.services.project_qa_tools import ProjectQAScopeError
 
 
@@ -43,12 +47,18 @@ def _errors():
         raise HTTPException(422, str(exc)) from exc
     except ProjectQANotFoundError as exc:
         raise HTTPException(404, str(exc)) from exc
+    except ProjectQASkillConflict as exc:
+        raise HTTPException(409, exc.detail()) from exc
     except ProjectQAConflictError as exc:
         raise HTTPException(409, str(exc)) from exc
     except ProjectQAResearchConflictError as exc:
         raise HTTPException(409, str(exc)) from exc
     except PermissionError as exc:
         raise HTTPException(403, str(exc)) from exc
+    except SkillLibraryError as exc:
+        raise HTTPException(
+            exc.status_code, {"code": "invalid_content", "message": str(exc)}
+        ) from exc
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
 
@@ -105,7 +115,35 @@ def register_project_qa_routes(app: FastAPI, *, service: ProjectQAService) -> No
     async def qa_thread(request: Request, pid: str, thread_id: str) -> AskThreadDetail:
         reject_unknown_query_parameters(request, EmptyQuery)
         with _errors():
-            return AskThreadDetail.model_validate(await service.detail(pid, thread_id))
+            return AskThreadDetail.model_validate(
+                await service.detail(pid, thread_id, request_context=request)
+            )
+
+    @app.post(
+        path + "/{thread_id}/turns/{turn_id}/skill-proposals/{proposal_id}/save",
+        response_model=AskSkillSaveResult,
+        responses=errors,
+    )
+    async def qa_save_skill_proposal(
+        request: Request,
+        pid: str,
+        thread_id: str,
+        turn_id: str,
+        proposal_id: str,
+        body: AskSkillSaveRequest,
+    ) -> AskSkillSaveResult:
+        reject_unknown_query_parameters(request, EmptyQuery)
+        with _errors():
+            return AskSkillSaveResult.model_validate(
+                await service.save_skill_proposal(
+                    pid,
+                    thread_id,
+                    turn_id,
+                    proposal_id,
+                    body,
+                    request_context=request,
+                )
+            )
 
     @app.patch(path + "/{thread_id}", response_model=AskThread, responses=errors)
     async def qa_update_thread(

@@ -23,6 +23,8 @@ import { AskWorkingActivity } from './project-ask/AskToolActivity';
 import { AskResearchApproval, type AskResearchPendingApproval } from './project-ask/AskResearchApproval';
 import { AskResearchSettings } from './project-ask/AskResearchSettings';
 import { inlineMarkerIndexes } from './project-ask/inlineReferences';
+import { SkillReviewDialog } from './project-ask/SkillReviewDialog';
+import { askSkillProposal, resolveAskSkillProposal, skillProposalTarget, type AskSkillProposal } from './project-ask/skillProposal';
 import './ProjectAskDock.css';
 
 function pendingResearchApproval(value: unknown): AskResearchPendingApproval | null {
@@ -67,6 +69,7 @@ export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposa
   const [threadMenuOpen, setThreadMenuOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [choice, setChoice] = useState<SelectorChoice | null>(null);
+  const [reviewingSkill, setReviewingSkill] = useState<AskSkillProposal | null>(null);
   const historyRef = useRef<HTMLDivElement>(null);
   const threadMenuRef = useRef<HTMLDivElement>(null);
   const threadTriggerRef = useRef<HTMLButtonElement>(null);
@@ -118,6 +121,14 @@ export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposa
     const proposal = askActionProposal(event);
     return proposal ? [proposal] : [];
   }), [visibleEvents]);
+  const latestSkillProposalByTarget = useMemo(() => visibleEvents.reduce((latest, event) => {
+    const proposal = askSkillProposal(event);
+    if (proposal) latest.set(skillProposalTarget(proposal), proposal);
+    return latest;
+  }, new Map<string, AskSkillProposal>()), [visibleEvents]);
+  const reviewingSkillState = useMemo(() => reviewingSkill
+    ? resolveAskSkillProposal(reviewingSkill, visibleEvents)
+    : null, [reviewingSkill, visibleEvents]);
   const toolEventsByTurn = useMemo(() => visibleEvents.reduce((byTurn, event) => {
     if (event.kind === 'tool_started' || event.kind === 'tool_completed') {
       byTurn.set(event.turn_id, [...(byTurn.get(event.turn_id) ?? []), event]);
@@ -187,7 +198,16 @@ export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposa
           return <AskWorkingActivity key={`working:${event.thread_id}:${event.turn_id}`} events={turnEvents} active={state.activeTurn?.id === event.turn_id} />;
         }
         if (event.kind === 'action_proposal' && referencedProposalSeqs.has(event.seq)) return null;
-        return <AskEventContent key={`${event.thread_id}:${event.seq}`} event={event} actionProposals={actionProposals} actionCatalog={availableActions} onOpenAction={onOpenAction} onInspectProposal={onInspectProposal} onOpenSource={onOpenSource} />;
+        const skillProposal = askSkillProposal(event);
+        const latestSkillProposal = skillProposal ? latestSkillProposalByTarget.get(skillProposalTarget(skillProposal)) ?? skillProposal : null;
+        const resolvedSkillProposal = latestSkillProposal ? resolveAskSkillProposal(latestSkillProposal, visibleEvents) : null;
+        return <AskEventContent key={`${event.thread_id}:${event.seq}`} event={event} actionProposals={actionProposals} actionCatalog={availableActions}
+          skillSaved={resolvedSkillProposal?.saved}
+          skillSavePending={!!resolvedSkillProposal?.pendingAttempt}
+          skillDisplayProposal={resolvedSkillProposal?.proposal}
+          skillSuperseded={!!skillProposal && latestSkillProposal?.proposalId !== skillProposal.proposalId}
+          onReviewSkill={skillProposal ? () => setReviewingSkill(resolvedSkillProposal?.proposal ?? null) : undefined}
+          onOpenAction={onOpenAction} onInspectProposal={onInspectProposal} onOpenSource={onOpenSource} />;
       })}
       {state.activeTurn && !toolEventsByTurn.has(state.activeTurn.id) && <AskWorkingActivity events={[]} active />}
     </div>
@@ -237,5 +257,16 @@ export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposa
         </div>
       </div>
     </div>
+    {reviewingSkillState && <SkillReviewDialog
+      key={reviewingSkillState.proposal.proposalId}
+      proposal={reviewingSkillState.proposal}
+      saved={reviewingSkillState.saved}
+      pendingAttempt={reviewingSkillState.pendingAttempt}
+      canManage={state.canManageSkills === true}
+      scope={state.skillScope ?? reviewingSkillState.proposal.scope}
+      researchActive={!!state.activeTurn?.research_state && state.activeTurn.research_state.state !== 'completed'}
+      onClose={() => setReviewingSkill(null)}
+      onSave={(body) => qa.saveSkillProposal(reviewingSkillState.proposal.event.turn_id, reviewingSkillState.proposal.proposalId, body)}
+    />}
   </aside>;
 }

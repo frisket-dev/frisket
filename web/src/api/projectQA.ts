@@ -3,6 +3,8 @@ import type {
   HttpAskCitation, HttpAskEventsPage, HttpAskReport, HttpAskThread, HttpAskThreadCreate,
   HttpAskResearchConfiguration, HttpAskResearchResume, HttpAskThreadDetail, HttpAskThreadUpdate, HttpAskTurn, HttpAskTurnRequest,
 } from '../generated/openHttpContracts';
+import { mapSkillProposalSaveResult, skillProposalSaveRequestError,
+  type SkillProposalSaveRequest, type SkillProposalSaveResult } from './skillProposals';
 
 export type AskCitation = HttpAskCitation;
 export type AskThread = HttpAskThread;
@@ -30,6 +32,7 @@ export interface ProjectQAApi {
   report(threadId: string, signal?: AbortSignal): Promise<HttpAskReport>;
   researchOptions(signal?: AbortSignal): Promise<AskResearchConfiguration>;
   resumeResearch(threadId: string, turnId: string, body: AskResearchResume, signal?: AbortSignal): Promise<AskTurn>;
+  saveSkillProposal(threadId: string, turnId: string, proposalId: string, body: SkillProposalSaveRequest, signal?: AbortSignal): Promise<SkillProposalSaveResult>;
 }
 
 export function createProjectQAApi(projectId: () => string, errorFactory: (status: number, payload: unknown) => Error): ProjectQAApi {
@@ -71,5 +74,9 @@ export function createProjectQAApi(projectId: () => string, errorFactory: (statu
     resumeResearch: (threadId, turn_id, body, signal) => httpContract('tenant.qa_resume_research.post', {
       pathParams: { ...path(threadId), turn_id }, query: {}, body, signal, errorFactory,
     }),
+    saveSkillProposal: (threadId, turn_id, proposal_id, body, signal) => httpContract('tenant.qa_save_skill_proposal.post', {
+      pathParams: { ...path(threadId), turn_id, proposal_id }, query: {}, body, signal,
+      errorFactory: skillProposalSaveRequestError,
+    }, mapSkillProposalSaveResult),
   };
 }

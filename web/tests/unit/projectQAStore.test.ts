@@ -25,6 +25,11 @@ function fixture(): ProjectQAApi {
     report: vi.fn(async () => ({ markdown: '' })),
     researchOptions: vi.fn(async () => ({ available: true, budget_usd: '10', skills: [], web_provider: 'DDGS' })),
     resumeResearch: vi.fn(async () => turn),
+    saveSkillProposal: vi.fn(async (_threadId, _turnId, proposalId, body) => ({
+      status: 'saved' as const, attempt_id: 'attempt', proposal_id: proposalId,
+      skill: { id: 'skill', name: 'document-review', description: 'Review documents', content: body.content,
+        enabled: true, revision: 1, createdAt: '', updatedAt: '' },
+    })),
   };
 }
 
@@ -188,6 +193,28 @@ it('renames and deletes the saved conversation without executing an action', asy
   expect(await handle.deleteThread()).toBe(true);
   expect(handle.store.get().hasMoreThreads).toBe(true);
   expect(handle.store.get().thread).toBeNull();
+  expect(api.submit).not.toHaveBeenCalled();
+});
+
+it('projects current skill-manager authority and adds an enabled save to an explicit research selection', async () => {
+  const api = fixture();
+  const selectedThread = { ...thread, research: { write_mode: 'ask_each' as const, budget_usd: '5', max_turns: 4, skills: ['existing'] } };
+  const updatedThread = { ...selectedThread, revision: 2, research: { ...selectedThread.research, skills: ['existing', 'document-review'] } };
+  vi.mocked(api.detail)
+    .mockResolvedValueOnce({ thread: selectedThread, active_turn: null, history: page,
+      can_manage_skills: true, skill_scope: 'organization' } as never)
+    .mockResolvedValueOnce({ thread: updatedThread, active_turn: null, history: page,
+      can_manage_skills: true, skill_scope: 'organization' } as never);
+  const handle = createProjectQAStore(api);
+  await handle.open(thread.id);
+  expect(handle.store.get()).toMatchObject({ canManageSkills: true, skillScope: 'organization' });
+
+  await handle.saveSkillProposal('turn', 'proposal', { request_id: 'save-request', content: '# Skill', expected_revision: null });
+  expect(api.saveSkillProposal).toHaveBeenCalledWith('thread', 'turn', 'proposal', {
+    request_id: 'save-request', content: '# Skill', expected_revision: null,
+  }, expect.any(AbortSignal));
+  expect(api.update).not.toHaveBeenCalled();
+  expect(handle.store.get().research?.skills).toEqual(['existing', 'document-review']);
   expect(api.submit).not.toHaveBeenCalled();
 });
 

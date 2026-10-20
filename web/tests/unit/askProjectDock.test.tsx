@@ -14,10 +14,12 @@ const state = {
   model: null, scope: { kind: 'project' as const }, suggestActions: false, web: false, thread: null, threads: [],
   research: null as AskResearchOptions | null, researchConfiguration: null as AskResearchConfiguration | null,
   researchConfigurationError: null as string | null, researchConfigurationLoading: false,
+  canManageSkills: false, skillScope: null as 'workspace' | 'organization' | null,
 };
 const qa = {
   store: { kind: 'ask' }, citation: vi.fn(), initialize: vi.fn().mockResolvedValue(undefined), syncContextScope: vi.fn(),
   refresh: vi.fn(), setOptions: vi.fn(), send: vi.fn(), setDraft: vi.fn(), newThread: vi.fn(), open: vi.fn(), loadEarlier: vi.fn(), loadMoreThreads: vi.fn(), stop: vi.fn(), resumeResearch: vi.fn(), loadResearchConfiguration: vi.fn(),
+  saveSkillProposal: vi.fn(),
 };
 
 vi.mock('../../src/bind/useWorkspaceStores', () => ({ useWorkspaceStores: () => ({ qa, chromePreferences: { projectId: 'project' } }) }));
@@ -31,7 +33,7 @@ function event(kind: AskEvent['kind'], seq: number, payload: AskEvent['payload']
   return { thread_id: 'thread', turn_id: 'turn', seq, created_at: '', kind, payload };
 }
 
-afterEach(() => { cleanup(); state.events = []; state.activeTurn = null; state.research = null; state.researchConfiguration = null; state.researchConfigurationError = null; state.researchConfigurationLoading = false; vi.clearAllMocks(); });
+afterEach(() => { cleanup(); state.events = []; state.activeTurn = null; state.research = null; state.researchConfiguration = null; state.researchConfigurationError = null; state.researchConfigurationLoading = false; state.canManageSkills = false; state.skillScope = null; vi.clearAllMocks(); });
 
 describe('ProjectAskDock inline action presentation', () => {
   it('suppresses a separately rendered prepared proposal only when the same turn references it', () => {
@@ -52,6 +54,71 @@ describe('ProjectAskDock inline action presentation', () => {
     render(<ProjectAskDock initialScope={{ kind: 'project' }} sheets={[]} onClose={vi.fn()} onInspectProposal={vi.fn()} onOpenSource={vi.fn()} />);
     expect(screen.getByRole('button', { name: 'Open action' })).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Prepared note' })).not.toBeInTheDocument();
+  });
+});
+
+describe('ProjectAskDock skill drafts', () => {
+  it('reconstructs saved state from persisted events and keeps a viewer read-only', () => {
+    state.events = [
+      event('skill_proposal', 7, { proposal_id: 'proposal', target_skill_id: 'skill', base_revision: 2,
+        name: 'contract-review', description: 'Review contracts', content: '# Original proposal', enabled: true, scope: 'organization' }),
+      event('skill_save_attempt', 8, { attempt_id: 'attempt', proposal_id: 'proposal', request_id: 'request',
+        target_skill_id: 'skill', expected_revision: 2, content: '# Complete edited instructions', name: 'contract-review',
+        description: 'Review contracts', enabled: true }),
+      event('skill_saved', 9, { attempt_id: 'attempt', proposal_id: 'proposal', skill_id: 'skill', name: 'contract-review',
+        description: 'Review contracts', revision: 3, enabled: true, status: 'saved' }),
+    ];
+    render(<ProjectAskDock initialScope={{ kind: 'project' }} sheets={[]} onClose={vi.fn()} onInspectProposal={vi.fn()} onOpenSource={vi.fn()} />);
+    expect(screen.getByText('Saved · revision 3. You can use this skill in your next message.')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Review the text' }));
+    expect(screen.getByTestId('ask-skill-editor')).toHaveValue('# Complete edited instructions');
+    expect(screen.getByTestId('ask-skill-editor')).toHaveAttribute('readonly');
+    expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument();
+  });
+
+  it('retains the last reviewed text and requires an explicit refresh when the installed skill changed', () => {
+    state.canManageSkills = true;
+    state.skillScope = 'workspace';
+    state.events = [
+      event('skill_proposal', 7, { proposal_id: 'proposal', target_skill_id: 'skill', base_revision: 2,
+        name: 'contract-review', description: 'Review contracts', content: '# Original', enabled: true, scope: 'workspace' }),
+      event('skill_save_attempt', 8, { attempt_id: 'attempt', proposal_id: 'proposal', request_id: 'request',
+        target_skill_id: 'skill', expected_revision: 2, content: '# My reviewed text', name: 'contract-review',
+        description: 'Review contracts', enabled: true }),
+      event('skill_saved', 9, { attempt_id: 'attempt', proposal_id: 'proposal', skill_id: 'skill', name: 'contract-review',
+        description: 'Review contracts', revision: 3, current_revision: 6, enabled: true, status: 'changed' }),
+    ];
+    render(<ProjectAskDock initialScope={{ kind: 'project' }} sheets={[]} onClose={vi.fn()} onInspectProposal={vi.fn()} onOpenSource={vi.fn()} />);
+    expect(screen.getByText('The installed skill has changed since this version was saved.')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Review the text' }));
+    expect(screen.getByTestId('ask-skill-editor')).toHaveValue('# My reviewed text');
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Keep this draft' }));
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
+    expect(screen.getByTestId('ask-skill-editor')).toHaveValue('# My reviewed text');
+  });
+
+  it('restores an unmatched durable attempt and retries its exact request id', async () => {
+    state.canManageSkills = true;
+    state.events = [
+      event('skill_proposal', 7, { proposal_id: 'proposal', target_skill_id: null, base_revision: null,
+        name: 'contract-review', description: 'Review contracts', content: '# Original', enabled: true, scope: 'workspace' }),
+      event('skill_save_attempt', 8, { attempt_id: 'attempt', proposal_id: 'proposal', request_id: 'durable-request',
+        target_skill_id: null, expected_revision: null, content: '# Unsure if saved', name: 'supplier-review',
+        description: 'Review suppliers', enabled: true }),
+    ];
+    qa.saveSkillProposal.mockResolvedValueOnce({ status: 'saved', attempt_id: 'attempt', proposal_id: 'proposal',
+      skill: { id: 'skill', name: 'contract-review', description: 'Review contracts', content: '# Unsure if saved',
+        enabled: true, revision: 3, createdAt: '', updatedAt: '' } });
+    render(<ProjectAskDock initialScope={{ kind: 'project' }} sheets={[]} onClose={vi.fn()} onInspectProposal={vi.fn()} onOpenSource={vi.fn()} />);
+    expect(screen.getByText('Save interrupted. Review the text to retry.')).toBeVisible();
+    expect(screen.getByText('supplier-review')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Review the text' }));
+    expect(screen.getByTestId('ask-skill-editor')).toHaveValue('# Unsure if saved');
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await vi.waitFor(() => expect(qa.saveSkillProposal).toHaveBeenCalledWith('turn', 'proposal', {
+      request_id: 'durable-request', content: '# Unsure if saved', expected_revision: null,
+    }));
   });
 });
 
