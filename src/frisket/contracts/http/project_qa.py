@@ -7,6 +7,7 @@ from typing import Annotated, Literal
 from pydantic import Field, JsonValue, field_validator, model_validator
 
 from frisket.contracts.http.models import WireModel
+from frisket.contracts.http.skills import InstructionSkill
 from frisket.contracts.http.project_search import (
     ProjectSearchDocumentNavigation,
     ProjectSearchTextRange,
@@ -241,6 +242,9 @@ class AskEvent(WireModel):
         "answer",
         "result_suggestion",
         "action_proposal",
+        "skill_proposal",
+        "skill_save_attempt",
+        "skill_saved",
         "research_child",
         "usage",
         "status",
@@ -271,6 +275,21 @@ class AskThreadDetail(WireModel):
     thread: AskThread
     active_turn: AskTurn | None
     history: AskEventsPage
+    can_manage_skills: bool = False
+    skill_scope: Literal["workspace", "organization"] = "workspace"
+
+
+class AskSkillSaveRequest(WireModel):
+    request_id: str = Field(min_length=1, max_length=100)
+    content: str = Field(min_length=1, max_length=131_072)
+    expected_revision: int | None = Field(default=None, ge=1)
+
+
+class AskSkillSaveResult(WireModel):
+    status: Literal["saved", "changed", "deleted"]
+    attempt_id: str
+    proposal_id: str
+    skill: InstructionSkill | None
 
 
 class AskReport(WireModel):

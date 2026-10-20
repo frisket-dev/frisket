@@ -11,7 +11,7 @@ import logging
 import re
 from collections.abc import Awaitable, Callable
 from contextlib import nullcontext
-from typing import Any
+from typing import Any, Literal
 from weakref import WeakSet
 
 from frisket.ai.llm import LLMError
@@ -19,6 +19,7 @@ from frisket.ai.llm.types import provider_from_model_id
 from frisket.ai.llm.remediation import classify_llm_error
 from frisket.authoring.project_ask import default_project_ask_model
 from frisket.contracts.http.project_qa import (
+    AskSkillSaveRequest,
     AskThreadCreate,
     AskThreadUpdate,
     AskTurnRequest,
@@ -47,6 +48,8 @@ from frisket.server.workspace import Workspace
 from frisket.server.project_qa_runtime import ProjectQATurnRuntime
 from frisket.cloud_llm_checkpoint import CloudLLMCheckpointCoordinator
 from frisket.server.services.project_qa_authority import BackgroundAskContext
+from frisket.server.services.project_qa_skills import ProjectQASkillAdapter
+from frisket.server.services.skills import SkillLibraryError, SkillNotFound
 from frisket.server.services.project_qa_research import ResearchSession
 from frisket.server.services.project_qa_capabilities import ProjectQACapabilityError
 from frisket.engine.store.project_qa_research import (
@@ -136,6 +139,7 @@ class ProjectQAService:
             None
         )
         self._skill_library: Callable[[], Any] | None = None
+        self._skill_authoring: ProjectQASkillAdapter | None = None
         self._research_sessions: dict[tuple[Project, str], ResearchSession] = {}
         self._search_service_factory: Callable[[], Any] | None = None
         self._sidecar_capabilities: Callable[[], dict[str, Any]] = lambda: {}
@@ -157,6 +161,21 @@ class ProjectQAService:
         """Supply edition-owned live authorization and an isolated skill library."""
         self._research_authorize = authorize
         self._skill_library = skills
+
+    def configure_skill_authoring(
+        self,
+        *,
+        authorize: Callable[[str, BackgroundAskContext], None],
+        skills: Callable[[], Any],
+        scope: Literal["workspace", "organization"],
+    ) -> None:
+        """Configure manager authority separately from research execution."""
+
+        if scope not in {"workspace", "organization"}:
+            raise ValueError("skill scope must be workspace or organization")
+        self._skill_authoring = ProjectQASkillAdapter(
+            library=skills, authorize=authorize, scope=scope
+        )
 
     def _default_research_budget(self, project_id, project, context):
         from frisket.engine.store.execution_routes import (
@@ -391,8 +410,11 @@ class ProjectQAService:
         store = await self.store(project_id)
         await await_thread_worker(store.delete_thread, thread_id)
 
-    async def detail(self, project_id: str, thread_id: str) -> dict:
+    async def detail(
+        self, project_id: str, thread_id: str, *, request_context: Any = None
+    ) -> dict:
         store = await self.store(project_id)
+        context = BackgroundAskContext.capture(request_context, self.workspace)
 
         def read():
             detail = store.detail_with_history(thread_id)
@@ -400,9 +422,41 @@ class ProjectQAService:
                 project_id, {**detail["history"], "active_turn": detail["active_turn"]}
             )
             detail["active_turn"] = detail["history"]["active_turn"]
+            detail["can_manage_skills"] = bool(
+                self._skill_authoring
+                and self._skill_authoring.can_manage(project_id, context)
+            )
+            detail["skill_scope"] = (
+                self._skill_authoring.scope if self._skill_authoring else "workspace"
+            )
             return detail
 
         return await await_thread_worker(read)
+
+    async def save_skill_proposal(
+        self,
+        project_id: str,
+        thread_id: str,
+        turn_id: str,
+        proposal_id: str,
+        body: AskSkillSaveRequest,
+        *,
+        request_context: Any,
+    ) -> dict[str, Any]:
+        if self._skill_authoring is None:
+            raise PermissionError("Skill authoring is not available on this server.")
+        store = await self.store(project_id)
+        return await self._skill_authoring.save(
+            store=store,
+            project_id=project_id,
+            thread_id=thread_id,
+            turn_id=turn_id,
+            context=BackgroundAskContext.capture(request_context, self.workspace),
+            proposal_id=proposal_id,
+            request_id=body.request_id,
+            content=body.content,
+            expected_revision=body.expected_revision,
+        )
 
     async def events(
         self,
@@ -425,8 +479,30 @@ class ProjectQAService:
 
     def _project_page(self, project_id: str, page: dict) -> dict:
         project = self.workspace.get(project_id)
+        skill_library = self._skill_library() if self._skill_library else None
         events = []
         for event in page["events"]:
+            if event["kind"] == "skill_saved" and skill_library is not None:
+                payload = dict(event["payload"])
+                skill_id = payload.get("skill_id")
+                if isinstance(skill_id, str):
+                    try:
+                        current_skill = skill_library.get(skill_id)
+                    except SkillNotFound:
+                        payload.update(status="deleted", current_revision=None)
+                    except SkillLibraryError:
+                        pass
+                    else:
+                        current_revision = int(current_skill["revision"])
+                        payload.update(
+                            status=(
+                                "saved"
+                                if current_revision == payload.get("revision")
+                                else "changed"
+                            ),
+                            current_revision=current_revision,
+                        )
+                    event = {**event, "payload": payload}
             ids = list(event["payload"].get("citation_ids", []))
             if event["kind"] == "result_suggestion" and event["payload"].get(
                 "citation_id"
@@ -571,6 +647,24 @@ class ProjectQAService:
             turn = await await_thread_worker(admit)
             key = (project, turn["id"])
             if turn["status"] == "running" and key not in self._tasks:
+                skill_snapshots = (
+                    await await_thread_worker(self._skill_library().enabled)
+                    if self._skill_library is not None
+                    else ()
+                )
+                skill_authoring = None
+                if self._skill_authoring is not None:
+                    try:
+                        skill_authoring = await await_thread_worker(
+                            self._skill_authoring.bind,
+                            store=store,
+                            project_id=project_id,
+                            thread_id=thread_id,
+                            turn_id=turn["id"],
+                            context=context,
+                        )
+                    except PermissionError:
+                        pass
                 runtime = None
                 port = self.workspace.project_qa_runtime_port
                 try:
@@ -614,6 +708,8 @@ class ProjectQAService:
                         research=research,
                         project_id=project_id,
                         context=context,
+                        skill_snapshots=skill_snapshots,
+                        skill_authoring=skill_authoring,
                     )
                 )
                 self._tasks[key] = task
@@ -632,6 +728,8 @@ class ProjectQAService:
         research: ResearchSession | None = None,
         project_id: str = "",
         context: BackgroundAskContext | None = None,
+        skill_snapshots: tuple[dict[str, Any], ...] = (),
+        skill_authoring: Any = None,
     ) -> None:
         self._started.add((project, turn["id"]))
         status = "interrupted"
@@ -768,6 +866,8 @@ class ProjectQAService:
                             if self._search_service_factory
                             else None
                         ),
+                        skill_snapshots=skill_snapshots,
+                        skill_authoring=skill_authoring,
                     )
             if isinstance(result, dict) and result.get("limited"):
                 error = "This investigation reached its limit. The work above is saved."

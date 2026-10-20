@@ -251,6 +251,114 @@ def test_events_citations_stop_terminalize_and_reconcile_only_unowned_turns(
         project.close()
 
 
+def test_skill_save_events_accept_full_content_after_terminal_turn_and_bind_retry(
+    tmp_path,
+) -> None:
+    project, store = _store(tmp_path)
+    try:
+        thread = store.create_thread(title="Ask")
+        turn = store.submit_turn(thread["id"], request_id="draft", question="Draft it")
+        content = "---\nname: source-check\ndescription: Check sources.\n---\n\n" + (
+            'Quoted \\"café\\" 🗒️\n' * 4_500
+        )
+        assert 65_536 < len(content.encode("utf-8")) <= 128 * 1024
+
+        proposal = store.append_skill_proposal(
+            turn["id"],
+            payload={
+                "proposal_id": "proposal-1",
+                "target_skill_id": None,
+                "base_revision": None,
+                "name": "source-check",
+                "description": "Check sources.",
+                "content": content,
+                "enabled": True,
+                "scope": "workspace",
+            },
+        )
+        assert proposal["kind"] == "skill_proposal"
+        assert proposal["payload"]["content"] == content
+
+        store.finish_turn(turn["id"], status="completed")
+        recorded = store.record_skill_save_attempt(
+            turn["id"],
+            proposal_id="proposal-1",
+            request_id="save-1",
+            payload={
+                "target_skill_id": None,
+                "expected_revision": None,
+                "content": content,
+                "name": "source-check",
+                "description": "Check sources.",
+                "enabled": True,
+            },
+        )
+        assert recorded["created"] is True
+        assert recorded["saved"] is None
+        attempt = recorded["attempt"]
+        assert attempt["kind"] == "skill_save_attempt"
+        assert attempt["payload"]["content"] == content
+
+        replay = store.record_skill_save_attempt(
+            turn["id"],
+            proposal_id="proposal-1",
+            request_id="save-1",
+            payload={
+                "target_skill_id": None,
+                "expected_revision": None,
+                "content": content,
+                "name": "source-check",
+                "description": "Check sources.",
+                "enabled": True,
+            },
+        )
+        assert replay == {"attempt": attempt, "saved": None, "created": False}
+        with pytest.raises(ProjectQAConflictError, match="different content"):
+            store.record_skill_save_attempt(
+                turn["id"],
+                proposal_id="proposal-1",
+                request_id="save-1",
+                payload={
+                    "target_skill_id": None,
+                    "expected_revision": None,
+                    "content": content + "changed",
+                    "name": "source-check",
+                    "description": "Check sources.",
+                    "enabled": True,
+                },
+            )
+
+        saved = store.record_skill_saved(
+            turn["id"],
+            proposal_id="proposal-1",
+            attempt_id=attempt["payload"]["attempt_id"],
+            payload={
+                "skill_id": "skill-1",
+                "name": "source-check",
+                "description": "Check sources.",
+                "revision": 1,
+                "enabled": True,
+                "status": "saved",
+            },
+        )
+        retried = store.record_skill_save_attempt(
+            turn["id"],
+            proposal_id="proposal-1",
+            request_id="save-1",
+            payload={
+                "target_skill_id": None,
+                "expected_revision": None,
+                "content": content,
+                "name": "source-check",
+                "description": "Check sources.",
+                "enabled": True,
+            },
+        )
+        assert retried == {"attempt": attempt, "saved": saved, "created": False}
+    finally:
+        project.close()
+
+
 def test_usage_is_deduped_and_terminalization_derives_it_with_failure_context(
     tmp_path,
 ) -> None:
