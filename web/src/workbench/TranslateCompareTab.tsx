@@ -15,6 +15,7 @@ import { CompareBillableEnginesNote } from './MediaCompareShell';
 import { PanelSelect } from '../components/PanelSelect';
 import { mediaSelectorQuery } from './mediaCompareSelector';
 import { useCompareSelectorReadiness } from './useCompareSelectorReadiness';
+import { useComparisonCatalog } from './useComparisonCatalog';
 import { SelectorField } from '../engine-selector/SelectorField';
 
 // TranslateCompareTab — the TEXT-source sibling of the OCR/Transcribe
@@ -37,6 +38,7 @@ import { SelectorField } from '../engine-selector/SelectorField';
 // event to fire on, so the user edits text + engines freely, then Runs once.
 
 const DEFAULT_TARGET = 'Spanish';
+const NO_ENGINES: EngineOption[] = [];
 
 // Auto + a few common source hints (single-select; '' = auto-detect). Kept
 // short — the target box is free text; the source is only a hint for engines
@@ -58,10 +60,9 @@ interface TranslateCompareTabProps {
 
 export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProps) {
   const { projectApi: api, chromePreferences: { projectId } } = useWorkspaceStores();
-  const [engines, setEngines] = useState<EngineOption[]>([]);
-  const [catalogLoading, setCatalogLoading] = useState(true);
-  const [catalogError, setCatalogError] = useState(false);
-  const [catalogAttempt, setCatalogAttempt] = useState(0);
+  const { engines, status: catalogStatus, retry: retryCatalog } = useComparisonCatalog(translateEnginesFromCatalog, NO_ENGINES);
+  const catalogLoading = catalogStatus === 'idle' || catalogStatus === 'loading';
+  const catalogError = catalogStatus === 'error';
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [selectorEngineId, setSelectorEngineId] = useState<string | null>(null);
   const [text, setText] = useState('');
@@ -71,36 +72,6 @@ export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProp
   const [results, setResults] = useState<TranslateCompareEngineResult[] | null>(null);
   const [runErrors, setRunErrors] = useState<Record<string, string>>({});
   const [runError, setRunError] = useState<string | null>(null);
-
-  // This catalog only supplies compare labels and its existing free/billed
-  // policy. The selector service owns offered choices and readiness.
-  useEffect(() => {
-    let cancelled = false;
-    api
-      .listActionCatalog()
-      .then((catalog) => {
-        // THE filter point: billable engines never enter the picker, so a
-        // compare column cannot hold one and there is no consent gate to
-        // forget. `billableEngines` keeps them for the explanatory note.
-        if (!cancelled) setEngines(translateEnginesFromCatalog(catalog));
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setEngines([]);
-          setCatalogError(true);
-        }
-      })
-      .finally(() => { if (!cancelled) setCatalogLoading(false); });
-    return () => {
-      cancelled = true;
-    };
-  }, [api, catalogAttempt]);
-
-  const retryCatalog = () => {
-    setCatalogError(false);
-    setCatalogLoading(true);
-    setCatalogAttempt((attempt) => attempt + 1);
-  };
 
   const freeEngines = useMemo(
     () => engines.filter((engine) => !engineIsRemote(engine)),
@@ -129,9 +100,11 @@ export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProp
   const selectedColumns = useMemo(() => selectedIds.map((id) => ({
     id, engineId: id, options: { language: sourceLanguage, target_language: targetLanguage },
   })), [selectedIds, sourceLanguage, targetLanguage]);
-  const { isRunnable, reportColumnChoice } = useCompareSelectorReadiness(projectId, 'map.translate', selectedColumns);
-  const selectorColumn = { id: selectorEngineId ?? 'add', engineId: selectorEngineId,
-    options: { language: sourceLanguage, target_language: targetLanguage } };
+  const selectorColumn = useMemo(() => ({ id: selectorEngineId ?? 'add', engineId: selectorEngineId,
+    options: { language: sourceLanguage, target_language: targetLanguage } }), [selectorEngineId, sourceLanguage, targetLanguage]);
+  const projectionColumns = useMemo(() => selectedColumns.some((column) => column.id === selectorColumn.id)
+    ? selectedColumns : [...selectedColumns, selectorColumn], [selectedColumns, selectorColumn]);
+  const { isRunnable, selectorProjection, selectorOwners } = useCompareSelectorReadiness(projectId, 'map.translate', projectionColumns);
 
   const canRun =
     Boolean(text.trim()) && selectedIds.length > 0 && !running
@@ -181,6 +154,7 @@ export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProp
 
   return (
     <section className="ocr-compare-tab" data-testid="translate-compare-tab">
+      {selectorOwners}
       <CompareToolbar testIdPrefix="translate-compare" running={running} label="ENGINES" chipsTestId="translate-compare-engine-chips"
         controls={<>
           <Button
@@ -223,7 +197,7 @@ export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProp
             projectId={projectId}
             label="Add engine"
             query={mediaSelectorQuery('map.translate', selectorColumn)}
-            onCurrentChoiceChange={(choice) => reportColumnChoice(selectorColumn, choice)}
+            projection={selectorProjection(selectorColumn)}
             recentNamespace={`${projectId}:translate-compare`}
             allowChoice={(choice) => {
               const authored = choice.authored_selection;

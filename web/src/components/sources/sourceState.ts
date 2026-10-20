@@ -1,4 +1,4 @@
-import type { SourceDetail, SourceHealth, SourceInfo, SourceRun, SourceRunPage } from '../../api/open';
+import type { SourceDetail, SourceInfo, SourceRun, SourceRunPage } from '../../api/open';
 import { emptyForm, sourceToForm, type SourceFormState } from './sourceConfig';
 
 export type BusySource = number | 'new' | null;
@@ -12,9 +12,6 @@ export interface SourcesState {
   busy: BusySource;
   armedDelete: number | null;
   healthOpenId: number | null;
-  healthLoading: boolean;
-  health: Record<number, SourceHealth>;
-  healthError: string | null;
   error: string | null;
 }
 
@@ -25,15 +22,13 @@ type SourcesAction =
   | { type: 'set-adding'; adding: boolean }
   | { type: 'start-edit'; source: SourceInfo }
   | { type: 'update-form'; patch: Partial<SourceFormState> }
-  | { type: 'reset-form' }
+  | { type: 'saved-form'; form: SourceFormState }
+  | { type: 'form-error'; form: SourceFormState; error: string }
   | { type: 'set-busy'; busy: BusySource }
   | { type: 'set-error'; error: string | null }
   | { type: 'arm-delete'; id: number | null }
   | { type: 'source-deleted'; id: number }
-  | { type: 'set-health-open'; id: number | null }
-  | { type: 'set-health-loading'; loading: boolean }
-  | { type: 'health-loaded'; health: SourceHealth }
-  | { type: 'set-health-error'; error: string | null };
+  | { type: 'set-health-open'; id: number | null };
 
 export const initialSourcesState = (): SourcesState => ({
   items: null,
@@ -44,9 +39,6 @@ export const initialSourcesState = (): SourcesState => ({
   busy: null,
   armedDelete: null,
   healthOpenId: null,
-  healthLoading: false,
-  health: {},
-  healthError: null,
   error: null,
 });
 
@@ -94,8 +86,10 @@ export function sourcesReducer(state: SourcesState, action: SourcesAction): Sour
       };
     case 'update-form':
       return { ...state, form: { ...state.form, ...action.patch } };
-    case 'reset-form':
-      return { ...state, form: emptyForm() };
+    case 'saved-form':
+      return state.form === action.form ? { ...state, form: emptyForm() } : state;
+    case 'form-error':
+      return state.form === action.form ? { ...state, error: action.error } : state;
     case 'set-busy':
       return { ...state, busy: action.busy };
     case 'set-error':
@@ -106,34 +100,20 @@ export function sourcesReducer(state: SourcesState, action: SourcesAction): Sour
       const runs = { ...state.runs };
       const runPages = { ...state.runPages };
       const expanded = { ...state.expanded };
-      const health = { ...state.health };
       delete runs[action.id];
       delete runPages[action.id];
       delete expanded[action.id];
-      delete health[action.id];
       return {
         ...state,
         items: state.items?.filter((source) => source.id !== action.id) ?? state.items,
         runs,
         runPages,
         expanded,
-        health,
         healthOpenId: state.healthOpenId === action.id ? null : state.healthOpenId,
       };
     }
     case 'set-health-open':
-      return { ...state, healthOpenId: action.id, healthError: null };
-    case 'set-health-loading':
-      return { ...state, healthLoading: action.loading };
-    case 'health-loaded':
-      return {
-        ...state,
-        health: { ...state.health, [action.health.source.id]: action.health },
-        healthLoading: false,
-        healthError: null,
-      };
-    case 'set-health-error':
-      return { ...state, healthLoading: false, healthError: action.error };
+      return { ...state, healthOpenId: action.id };
     default:
       return state;
   }

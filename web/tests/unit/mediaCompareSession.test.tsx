@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 
-import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, cleanup, render, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { selectorChoicesApi } from '../../src/api/selectorChoices';
 import { mediaChoices } from '../support/mediaSelectorFixtures';
 import type { EngineOption } from '../../src/api/open';
-import { useMediaCompareSession, type MediaCompareConfig } from '../../src/workbench/mediaCompareSession';
+import { useMediaCompareSession, type MediaCompareConfig, type MediaCompareSession } from '../../src/workbench/mediaCompareSession';
 
 vi.mock('../../src/bind/useWorkspaceStores', () => ({
   useWorkspaceStores: () => ({
@@ -15,6 +15,20 @@ vi.mock('../../src/bind/useWorkspaceStores', () => ({
   }),
 }));
 vi.mock('../../src/components/useResizable', () => ({ useResizable: () => ({}) }));
+vi.mock('../../src/workbench/useComparisonCatalog', () => ({
+  useComparisonCatalog: (project: (catalog: null) => EngineOption[]) => ({ engines: project(null), status: 'ready' }),
+}));
+
+// The session owns headless selector lifecycles just as its production tab does.
+function renderHook(useSession: () => MediaCompareSession<string>) {
+  const result = { current: undefined as unknown as MediaCompareSession<string> };
+  function Session() {
+    result.current = useSession();
+    return <>{result.current.selectorOwners}</>;
+  }
+  return { result, ...render(<Session />) };
+}
+afterEach(cleanup);
 
 const local = { id: 'local', label: 'Local', tier: 'local' } as EngineOption;
 const paid = { id: 'paid', label: 'Paid', tier: 'hosted', billable: true } as EngineOption;
@@ -44,10 +58,8 @@ describe('useMediaCompareSession paid batches', () => {
     await waitFor(() => expect(selectorChoicesApi.getSelectorChoices).toHaveBeenCalled());
     expect(result.current.runnableColumns).toHaveLength(0);
     const column = result.current.columns[0];
-    const fresh = mediaChoices({ schema_version: 'frisket.selector_choices_query.v1',
-      subject: { kind: 'action', action_id: 'media.transcribe', field: 'engine', params: { engine: 'local' } },
-    }, ['local']).groups[0].choices[0];
-    act(() => result.current.reportColumnChoice(column, fresh));
+    vi.mocked(selectorChoicesApi.getSelectorChoices).mockImplementation(async (_pid, query) => mediaChoices(query, ['local']));
+    act(() => { void result.current.selectorProjection(column).refresh(); });
     await waitFor(() => expect(result.current.runnableColumns).toEqual([column]));
   });
 
@@ -64,10 +76,7 @@ describe('useMediaCompareSession paid batches', () => {
     act(() => result.current.updateColumnOptions(old.id, { vad: true, modelSize: 'large-v3' }));
     await waitFor(() => expect(selectorChoicesApi.getSelectorChoices).toHaveBeenLastCalledWith('test',
       expect.objectContaining({ subject: expect.objectContaining({ params: expect.objectContaining({ vad: true, model_size: 'large-v3' }) }) }), expect.anything()));
-    const choice = mediaChoices({ schema_version: 'frisket.selector_choices_query.v1',
-      subject: { kind: 'action', action_id: 'media.transcribe', field: 'engine', params: { engine: 'local' } },
-    }, ['local']).groups[0].choices[0];
-    act(() => { result.current.reportColumnChoice(old, choice); finishOld(); });
+    act(() => { finishOld(); });
     await act(async () => { await Promise.resolve(); });
     expect(result.current.runnableColumns).toHaveLength(0);
   });
@@ -125,11 +134,9 @@ describe('useMediaCompareSession paid batches', () => {
     await waitFor(() => expect(result.current.docs[0].runs[result.current.columns[0].id]?.status).toBe('error'));
     const doc = result.current.docs[0];
     const column = result.current.columns[0];
-    const blocked = mediaChoices({ schema_version: 'frisket.selector_choices_query.v1',
-      subject: { kind: 'action', action_id: 'media.transcribe', field: 'engine', params: { engine: 'local' } },
-    }, ['local'], false).groups[0].choices[0];
-    act(() => result.current.reportColumnChoice(column, blocked));
-    expect(result.current.runnableColumns).toHaveLength(0);
+    vi.mocked(selectorChoicesApi.getSelectorChoices).mockImplementation(async (_pid, query) => mediaChoices(query, ['local'], false));
+    act(() => { void result.current.selectorProjection(column).refresh(); });
+    await waitFor(() => expect(result.current.runnableColumns).toHaveLength(0));
     act(() => result.current.retryColumn(doc, column));
     await act(async () => { await Promise.resolve(); });
     expect(prepareRun).toHaveBeenCalledTimes(1);

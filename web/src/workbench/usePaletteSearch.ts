@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   MAX_LENS_VIEW_ROWS,
-  getModelPull,
   listModelPulls,
-  orgGetModelPull,
   orgListModelPulls,
   searchProject,
   type EmbeddingIndexSummary,
@@ -11,6 +9,7 @@ import {
   type SheetMeta,
 } from '../api/open';
 import { ModelSetupRequestError, startEngineSetup } from '../api/engineSetup';
+import { readModelPull } from '../api/modelPullOperations';
 import type {
   ProjectSearchAnchorWire,
   ProjectSearchGroupWire,
@@ -21,6 +20,7 @@ import type {
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { parseComposedQuery } from '../embeddings/composedQuery';
 import { usePoll } from '../hooks/usePoll';
+import { modelPullActive, useModelPullPolling } from '../hooks/useModelPullPolling';
 
 export interface PaletteSearchSeed {
   anchor?: ProjectSearchAnchorWire;
@@ -414,9 +414,7 @@ export function usePaletteSearch(
         if (generation !== setupGeneration.current) return;
         if (error instanceof ModelSetupRequestError && error.activePullId != null) {
           try {
-            const pull = scope === 'organization'
-              ? await orgGetModelPull(error.activePullId)
-              : await getModelPull(error.activePullId);
+            const pull = await readModelPull(scope, error.activePullId);
             if (generation !== setupGeneration.current) return;
             setSetupOperation({ setupRef, scope, pull });
             return;
@@ -444,31 +442,19 @@ export function usePaletteSearch(
     }
   };
 
-  usePoll(async () => {
-    if (!setupOperation) return 'stop';
-    const operation = setupOperation;
-    const generation = setupGeneration.current;
-    try {
-      const pull = operation.scope === 'organization'
-        ? await orgGetModelPull(operation.pull.id)
-        : await getModelPull(operation.pull.id);
-      if (generation !== setupGeneration.current) return 'stop';
+  useModelPullPolling({
+    id: setupOperation?.pull.id ?? null,
+    scopeKey: `${projectId}:${setupOperation?.scope}:${setupOperation?.setupRef}`,
+    active: !setupBusy && modelPullActive(setupOperation?.pull),
+    fetchPull: (id, signal) => readModelPull(setupOperation!.scope, id, { signal }),
+    onProgress: (pull, terminal) => {
       setSetupOperation((current) => (
-        current?.pull.id === operation.pull.id && current.scope === operation.scope
+        current?.pull.id === pull.id
           ? { ...current, pull }
           : current
       ));
-      if (pull.status === 'done' || pull.status === 'failed' || pull.status === 'cancelled') {
-        finishSetup(pull);
-        return 'stop';
-      }
-    } catch {
-      // Retain the existing operation and retry; activity owns its progress display.
-    }
-  }, {
-    active: setupOperation?.pull.status === 'pending' || setupOperation?.pull.status === 'running',
-    intervalMs: 1_000,
-    guardOverlap: true,
+      if (terminal) finishSetup(pull);
+    },
   });
 
   const sheetsById = useMemo(

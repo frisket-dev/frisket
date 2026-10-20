@@ -2,7 +2,7 @@ import { Button } from './Button';
 import { FormField, TextInput } from './FormControls';
 import { IconButton } from './IconButton';
 import { ListEditorActions } from './ListEditorActions';
-import { useCallback, useEffect, useMemo, useReducer } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import { PanelEmpty, PanelError, StatusChip, type StatusTone } from './PanelPrimitives';
 import { PanelSelect } from './PanelSelect';
 import {
@@ -157,7 +157,9 @@ interface NotifState {
   requests: NotificationDeliveryRequest[];
   channelDraft: ChannelDraft;
   routeDraft: RouteDraft;
-  busy: string | null;
+  pending: ReadonlySet<string>;
+  loading: boolean;
+  channelRevision: number;
   error: string | null;
   notice: string | null;
 }
@@ -165,10 +167,10 @@ type NotifAction =
   | { type: 'load_start' }
   | { type: 'load_success'; channels: NotificationChannel[]; routes: NotificationRoute[]; requests: NotificationDeliveryRequest[] }
   | { type: 'load_error'; error: string }
-  | { type: 'set_busy'; label: string | null }
+  | { type: 'set_pending'; label: string; pending: boolean }
   | { type: 'set_error'; error: string | null }
   | { type: 'set_notice'; notice: string }
-  | { type: 'clear_channel_secret' }
+  | { type: 'channel_saved'; revision: number }
   | { type: 'route_draft_maybe_set_channel'; channelId: string }
   | { type: 'set_channel_draft'; update: Partial<ChannelDraft> }
   | { type: 'set_channel_kind'; kind: ChannelDraftKind }
@@ -177,7 +179,7 @@ type NotifAction =
 function notifReducer(state: NotifState, action: NotifAction): NotifState {
   switch (action.type) {
     case 'load_start':
-      return { ...state, busy: state.busy ?? 'load', error: null };
+      return { ...state, loading: true, error: null };
     case 'load_success': {
       const channels = action.channels;
       const autoChannel = !state.routeDraft.channelId && channels.length > 0
@@ -188,28 +190,35 @@ function notifReducer(state: NotifState, action: NotifAction): NotifState {
         channels,
         routes: action.routes,
         requests: action.requests,
-        busy: null,
+        loading: false,
         routeDraft: autoChannel ? { ...state.routeDraft, channelId: String(autoChannel.id) } : state.routeDraft,
       };
     }
     case 'load_error':
-      return { ...state, error: action.error, busy: null };
-    case 'set_busy':
-      return { ...state, busy: action.label };
+      return { ...state, error: action.error, loading: false };
+    case 'set_pending': {
+      const pending = new Set(state.pending);
+      if (action.pending) pending.add(action.label);
+      else pending.delete(action.label);
+      return { ...state, pending };
+    }
     case 'set_error':
       return { ...state, error: action.error };
     case 'set_notice':
       return { ...state, notice: action.notice };
-    case 'clear_channel_secret':
-      return { ...state, channelDraft: { ...state.channelDraft, secretRef: '' } };
+    case 'channel_saved':
+      return state.channelRevision === action.revision
+        ? { ...state, channelDraft: { ...state.channelDraft, secretRef: '' } } : state;
     case 'route_draft_maybe_set_channel':
       if (state.routeDraft.channelId) return state;
       return { ...state, routeDraft: { ...state.routeDraft, channelId: action.channelId } };
     case 'set_channel_draft':
-      return { ...state, channelDraft: { ...state.channelDraft, ...action.update } };
+      return { ...state, channelRevision: state.channelRevision + 1,
+        channelDraft: { ...state.channelDraft, ...action.update } };
     case 'set_channel_kind':
       return {
         ...state,
+        channelRevision: state.channelRevision + 1,
         channelDraft: {
           ...state.channelDraft,
           kind: action.kind,
@@ -234,13 +243,15 @@ const notifInitial: NotifState = {
   channels: [], routes: [], requests: [],
   channelDraft: initialChannelDraft,
   routeDraft: initialRouteDraft,
-  busy: 'load', error: null, notice: null,
+  pending: new Set(), loading: true, channelRevision: 0, error: null, notice: null,
 };
 
 export function NotificationSettingsPanel() {
   const { descriptor } = useEditionModule();
   const { projectApi: api } = useWorkspaceStores();
   const [state, dispatch] = useReducer(notifReducer, notifInitial);
+  const pending = useRef(new Set<string>());
+  const loadGeneration = useRef(0);
   const capabilities = descriptor.capabilities;
   const identityMode = capabilities.identity;
   const configurableNotificationEmail =
@@ -250,6 +261,7 @@ export function NotificationSettingsPanel() {
     [state.channels],
   );
   const load = useCallback(() => {
+    const generation = ++loadGeneration.current;
     dispatch({ type: 'load_start' });
     void Promise.all([
       api.listNotificationChannels(),
@@ -257,6 +269,7 @@ export function NotificationSettingsPanel() {
       api.listNotificationDeliveryRequests({ offset: 0, limit: 10 }),
     ])
       .then(([channelsPage, routesPage, requestsPage]) => {
+        if (generation !== loadGeneration.current) return;
         const hiddenEmailChannelIds = new Set(
           configurableNotificationEmail
             ? []
@@ -277,18 +290,25 @@ export function NotificationSettingsPanel() {
           ),
         });
       })
-      .catch((e: Error) => dispatch({ type: 'load_error', error: e.message }));
-  }, [configurableNotificationEmail]);
+      .catch((e: Error) => {
+        if (generation === loadGeneration.current) dispatch({ type: 'load_error', error: e.message });
+      });
+  }, [api, configurableNotificationEmail]);
   useEffect(() => {
     const timer = window.setTimeout(load, 0);
-    return () => window.clearTimeout(timer);
+    return () => { window.clearTimeout(timer); loadGeneration.current += 1; };
   }, [load]);
   const mutate = useCallback((label: string, operation: () => Promise<unknown>, clearError = false) => {
-    dispatch({ type: 'set_busy', label });
+    if (pending.current.has(label)) return;
+    pending.current.add(label);
+    dispatch({ type: 'set_pending', label, pending: true });
     if (clearError) dispatch({ type: 'set_error', error: null });
     void operation()
       .catch((e: Error) => dispatch({ type: 'set_error', error: e.message }))
-      .finally(() => dispatch({ type: 'set_busy', label: null }));
+      .finally(() => {
+        pending.current.delete(label);
+        dispatch({ type: 'set_pending', label, pending: false });
+      });
   }, []);
   const createChannel = useCallback((draft: ChannelDraft) => {
     const input = draft.kind === 'email'
@@ -297,25 +317,25 @@ export function NotificationSettingsPanel() {
     mutate('channel', () => api.createNotificationChannel(input)
       .then((channel) => {
         dispatch({ type: 'set_notice', notice: `${channel.name} channel saved` });
-        dispatch({ type: 'clear_channel_secret' });
+        dispatch({ type: 'channel_saved', revision: state.channelRevision });
         dispatch({ type: 'route_draft_maybe_set_channel', channelId: String(channel.id) });
         load();
       }), true);
-  }, [identityMode, load, mutate]);
+  }, [api, identityMode, load, mutate, state.channelRevision]);
   const createRoute = useCallback((draft: RouteDraft) => {
     mutate('route', () => api.createNotificationRoute({ ...routePayload(draft), ownerKind: identityMode ? 'user' : undefined })
       .then((route) => { dispatch({ type: 'set_notice', notice: `${route.name} route saved` }); load(); }), true);
-  }, [identityMode, load, mutate]);
+  }, [api, identityMode, load, mutate]);
   const toggleChannel = useCallback((channel: NotificationChannel) => {
     mutate(`channel:${channel.id}`, () => api.updateNotificationChannel(channel.id, { enabled: !channel.enabled, ownerKind: channel.ownerKind }).then(load));
-  }, [load, mutate]);
+  }, [api, load, mutate]);
   const toggleRoute = useCallback((route: NotificationRoute) => {
     mutate(`route:${route.id}`, () => api.updateNotificationRoute(route.id, { enabled: !route.enabled, ownerKind: route.ownerKind }).then(load));
-  }, [load, mutate]);
+  }, [api, load, mutate]);
   const testRoute = useCallback((route: NotificationRoute) => {
     mutate(`test:${route.id}`, () => api.testNotificationRoute(route.id, route.ownerKind)
       .then((request) => { dispatch({ type: 'set_notice', notice: `Created ${request.deliveryKind} request ${request.id}` }); load(); }), true);
-  }, [load, mutate]);
+  }, [api, load, mutate]);
   return (
     <section className="panel-card" data-testid="notification-settings-panel">
       <div className="control-row">
@@ -323,14 +343,14 @@ export function NotificationSettingsPanel() {
           <Settings size={12} aria-hidden />
           Notification settings
         </div>
-        <button type="button" className="icon-btn" title="Refresh notification settings" aria-label="Refresh notification settings" data-testid="notification-settings-refresh" disabled={state.busy !== null} onClick={load}>
-          <RefreshCw size={12} className={state.busy === 'load' ? 'spin' : undefined} />
+        <button type="button" className="icon-btn" title="Refresh notification settings" aria-label="Refresh notification settings" data-testid="notification-settings-refresh" disabled={state.loading || state.pending.size > 0} onClick={load}>
+          <RefreshCw size={12} className={state.loading ? 'spin' : undefined} />
         </button>
       </div>
       {state.error && <PanelError>{state.error}</PanelError>}
       {state.notice && <div className="panel-notice" data-tone="warning">{state.notice}</div>}
-      <ChannelSection channels={state.channels} draft={state.channelDraft} busy={state.busy} configurableNotificationEmail={configurableNotificationEmail} onToggle={toggleChannel} onCreate={createChannel} onDraftChange={(update) => dispatch({ type: 'set_channel_draft', update })} onKindChange={(kind) => dispatch({ type: 'set_channel_kind', kind })} />
-      <RouteSection routes={state.routes} draft={state.routeDraft} externalChannels={externalChannels} busy={state.busy} onToggle={toggleRoute} onTest={testRoute} onCreate={createRoute} onDraftChange={(update) => dispatch({ type: 'set_route_draft', update })} onModeChange={(mode) => dispatch({ type: 'set_route_mode', mode })} />
+      <ChannelSection channels={state.channels} draft={state.channelDraft} pending={state.pending} configurableNotificationEmail={configurableNotificationEmail} onToggle={toggleChannel} onCreate={createChannel} onDraftChange={(update) => dispatch({ type: 'set_channel_draft', update })} onKindChange={(kind) => dispatch({ type: 'set_channel_kind', kind })} />
+      <RouteSection routes={state.routes} draft={state.routeDraft} externalChannels={externalChannels} pending={state.pending} onToggle={toggleRoute} onTest={testRoute} onCreate={createRoute} onDraftChange={(update) => dispatch({ type: 'set_route_draft', update })} onModeChange={(mode) => dispatch({ type: 'set_route_mode', mode })} />
       <DeliverySection requests={state.requests} routes={state.routes} />
     </section>
   );
@@ -343,11 +363,11 @@ function ChannelIcon({ kind }: { kind: NotificationChannel['kind'] }) {
 }
 
 function ChannelSection({
-  channels, draft, busy, configurableNotificationEmail, onToggle, onCreate, onDraftChange, onKindChange,
+  channels, draft, pending, configurableNotificationEmail, onToggle, onCreate, onDraftChange, onKindChange,
 }: {
   channels: NotificationChannel[];
   draft: ChannelDraft;
-  busy: string | null;
+  pending: ReadonlySet<string>;
   configurableNotificationEmail: boolean;
   onToggle: (channel: NotificationChannel) => void;
   onCreate: (draft: ChannelDraft) => void;
@@ -379,7 +399,7 @@ function ChannelSection({
             {channel.kind === 'in_app' ? (
               <StatusChip tone="neutral" size="sm">built-in</StatusChip>
             ) : (
-              <IconButton icon={channel.enabled ? ToggleRight : ToggleLeft} aria-pressed={channel.enabled} title={channel.enabled ? 'Disable channel' : 'Enable channel'} label={channel.enabled ? 'Disable channel' : 'Enable channel'} data-testid="notification-channel-toggle" disabled={busy === `channel:${channel.id}`} onClick={() => onToggle(channel)} />
+              <IconButton icon={channel.enabled ? ToggleRight : ToggleLeft} aria-pressed={channel.enabled} title={channel.enabled ? 'Disable channel' : 'Enable channel'} label={channel.enabled ? 'Disable channel' : 'Enable channel'} data-testid="notification-channel-toggle" disabled={pending.has(`channel:${channel.id}`)} onClick={() => onToggle(channel)} />
             )}
           </div>
         ))}
@@ -424,7 +444,7 @@ function ChannelSection({
             Enabled
           </label>
           <ListEditorActions icon={CheckCircle2} testId="notification-create-channel" saveLabel="Save channel"
-            busy={busy === 'channel'} onSave={() => onCreate(draft)} />
+            busy={pending.has('channel')} onSave={() => onCreate(draft)} />
         </div>
       </div>
     </section>
@@ -432,12 +452,12 @@ function ChannelSection({
 }
 
 function RouteSection({
-  routes, draft, externalChannels, busy, onToggle, onTest, onCreate, onDraftChange, onModeChange,
+  routes, draft, externalChannels, pending, onToggle, onTest, onCreate, onDraftChange, onModeChange,
 }: {
   routes: NotificationRoute[];
   draft: RouteDraft;
   externalChannels: NotificationChannel[];
-  busy: string | null;
+  pending: ReadonlySet<string>;
   onToggle: (route: NotificationRoute) => void;
   onTest: (route: NotificationRoute) => void;
   onCreate: (draft: RouteDraft) => void;
@@ -465,10 +485,10 @@ function RouteSection({
               )}
             </div>
             <div className="control-row">
-              <Button type="button" title="Create route test request" aria-label="Create route test request" data-testid="notification-route-test" disabled={busy === `test:${route.id}`} onClick={() => onTest(route)}>
+              <Button type="button" title="Create route test request" aria-label="Create route test request" data-testid="notification-route-test" disabled={pending.has(`test:${route.id}`)} onClick={() => onTest(route)}>
                 <Send size={12} /> Test
               </Button>
-              <IconButton icon={route.enabled ? ToggleRight : ToggleLeft} aria-pressed={route.enabled} title={route.enabled ? 'Disable route' : 'Enable route'} label={route.enabled ? 'Disable route' : 'Enable route'} data-testid="notification-route-toggle" disabled={busy === `route:${route.id}`} onClick={() => onToggle(route)} />
+              <IconButton icon={route.enabled ? ToggleRight : ToggleLeft} aria-pressed={route.enabled} title={route.enabled ? 'Disable route' : 'Enable route'} label={route.enabled ? 'Disable route' : 'Enable route'} data-testid="notification-route-toggle" disabled={pending.has(`route:${route.id}`)} onClick={() => onToggle(route)} />
             </div>
           </div>
         ))}
@@ -535,7 +555,7 @@ function RouteSection({
             Enabled
           </label>
           <ListEditorActions icon={CheckCircle2} testId="notification-create-route" saveLabel="Save route"
-            busy={busy === 'route'} saveDisabled={!draft.channelId} onSave={() => onCreate(draft)} />
+            busy={pending.has('route')} saveDisabled={!draft.channelId} onSave={() => onCreate(draft)} />
         </div>
       </div>
     </section>

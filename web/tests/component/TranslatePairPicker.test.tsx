@@ -59,7 +59,7 @@ describe('TranslatePairPicker', () => {
 
   it('discloses automatic first-use preparation and size without a manual step', () => {
     renderPicker({ source: 'en', target: 'es' });
-    expect(screen.getByTestId('translate-pair-badge')).toHaveTextContent('298 MB');
+    expect(screen.getByTestId('translate-pair-badge')).toHaveTextContent('284 MB');
     expect(screen.getByText('Downloads the required language model on first use.')).toBeInTheDocument();
     expect(screen.queryByTestId('translate-pair-download')).not.toBeInTheDocument();
   });

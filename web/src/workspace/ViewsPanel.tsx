@@ -1,6 +1,6 @@
 import '../components/PanelPrimitives.css';
 import '../components/IconButton.css';
-import '../components/Modal.css';
+import { ConfirmDialog } from '../components/Modal';
 import './ViewsPanel.css';
 import { Button } from '../components/Button';
 import { TextInput } from '../components/FormControls';
@@ -272,100 +272,27 @@ export function ViewsPanel({
           ))
         )}
       </div>
-      {confirmation?.kind === 'update-definition' && (
-        <SavedViewConfirmationDialog
-          kind="update-definition"
-          view={confirmation.view}
-          busy={isSaving}
-          error={confirmationError}
+      {confirmation && (
+        <ConfirmDialog
+          key={`${confirmation.kind}:${confirmation.view.id}`}
+          title={confirmation.kind === 'delete' ? `Delete “${confirmation.view.name}”?`
+            : `Save current display to ${confirmation.view.name}?`}
+          busy={isSaving} danger={confirmation.kind === 'delete'}
+          testId={confirmation.kind === 'delete' ? 'delete-saved-view-confirmation' : 'update-saved-view-confirmation'}
+          confirmTestId={confirmation.kind === 'delete' ? 'confirm-delete-saved-view' : 'confirm-update-saved-view'}
+          confirmLabel={isSaving
+            ? confirmation.kind === 'delete' ? 'Deleting…' : 'Saving…'
+            : confirmation.kind === 'delete' ? 'Delete Saved View' : 'Save changes'}
           onCancel={onCancelConfirmation}
-          onConfirm={onConfirmDefinitionUpdate}
-        />
-      )}
-      {confirmation?.kind === 'delete' && (
-        <SavedViewConfirmationDialog
-          kind="delete"
-          view={confirmation.view}
-          busy={isSaving}
-          error={confirmationError}
-          onCancel={onCancelConfirmation}
-          onConfirm={onConfirmDelete}
-        />
+          onConfirm={confirmation.kind === 'delete' ? onConfirmDelete : onConfirmDefinitionUpdate}>
+          <p className="modal-body-text">
+            {confirmation.kind === 'delete'
+              ? 'Deleting this Saved View cannot be undone.'
+              : 'Replace this Saved View’s filters, sorting, displayed columns, and column groups with the current display.'}
+          </p>
+          {confirmationError && <div className="panel-error" role="alert">{confirmationError}</div>}
+        </ConfirmDialog>
       )}
     </section>
-  );
-}
-
-function SavedViewConfirmationDialog({
-  busy,
-  error,
-  kind,
-  view,
-  onCancel,
-  onConfirm,
-}: {
-  busy: boolean;
-  error: string | null;
-  kind: 'update-definition' | 'delete';
-  view: SavedView;
-  onCancel(): void;
-  onConfirm(): void;
-}) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const isDelete = kind === 'delete';
-  const titleId = `saved-view-${kind}-title-${view.id}`;
-  const descriptionId = `${titleId}-description`;
-  const close = () => {
-    const dialog = dialogRef.current;
-    if (dialog?.open) dialog.close();
-    onCancel();
-  };
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (dialog && !dialog.open) dialog.showModal();
-  }, []);
-
-  return (
-    <dialog
-      ref={dialogRef}
-      className="modal-card"
-      data-testid={isDelete ? 'delete-saved-view-confirmation' : 'update-saved-view-confirmation'}
-      aria-labelledby={titleId}
-      aria-describedby={descriptionId}
-      aria-busy={busy}
-      onCancel={(event) => {
-        event.preventDefault();
-        if (!busy) close();
-      }}
-    >
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (!busy) onConfirm();
-        }}
-      >
-        <div className="modal-title" id={titleId}>
-          {isDelete ? `Delete “${view.name}”?` : `Save current display to ${view.name}?`}
-        </div>
-        <p className="modal-body-text" id={descriptionId}>
-          {isDelete
-            ? 'Deleting this Saved View cannot be undone.'
-            : 'Replace this Saved View’s filters, sorting, displayed columns, and column groups with the current display.'}
-        </p>
-        {error && <div className="panel-error" role="alert">{error}</div>}
-        <div className="form-actions">
-          <Button autoFocus type="button" disabled={busy} onClick={close}>Cancel</Button>
-          <Button
-            type="submit"
-            className={`btn ${isDelete ? 'btn-reject' : 'btn-primary'}`}
-            data-testid={isDelete ? 'confirm-delete-saved-view' : 'confirm-update-saved-view'}
-            disabled={busy}
-          >
-            {busy ? (isDelete ? 'Deleting…' : 'Saving…') : (isDelete ? 'Delete Saved View' : 'Save changes')}
-          </Button>
-        </div>
-      </form>
-    </dialog>
   );
 }

@@ -3,22 +3,19 @@ import '../Modal.css';
 import './ImportWorkspaceDialog.css';
 import './ImportModeRail.css';
 import '../SourcesPanel.css';
-import { useReducer, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { Globe2, ListVideo, RefreshCw, Rss, Scale } from 'lucide-react';
-import type { SourceInfo, SourceInput, SourceInterval } from '../../api/open';
+import type { SourceInfo, SourceInterval } from '../../api/open';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
 import { durationBucket, failureCategory, sendProductTelemetry, type SourceKind } from '../../telemetry/productTelemetry';
 import { Button } from '../Button';
-import { FormField, TextInput, TextArea } from '../FormControls';
+import { FormField, TextInput } from '../FormControls';
 import { PanelSelect } from '../PanelSelect';
 import { PanelFrame, PanelBody, PanelFooter } from '../PanelLayout';
 
-type FeedSourceKind =
-  | 'rss'
-  | 'youtube_playlist'
-  | 'youtube_channel'
-  | 'api_list_dicts'
-  | 'courtlistener_docket';
+import { SourceConfigFields } from '../sources/SourceConfigFields';
+import { buildSourceInput, emptySourceDefinition, INTERVALS, SOURCE_KINDS,
+  selectedKind, sourceDefinitionError, sourceKindLabel, type KnownSourceKind as FeedSourceKind } from '../sources/sourceConfig';
 
 function telemetrySourceKind(kind: FeedSourceKind): SourceKind {
   if (kind === 'api_list_dicts') return 'api';
@@ -26,153 +23,8 @@ function telemetrySourceKind(kind: FeedSourceKind): SourceKind {
   return kind;
 }
 
-const FEED_SOURCE_KINDS: Array<{
-  value: FeedSourceKind;
-  label: string;
-  placeholder: string;
-}> = [
-  {
-    value: 'rss',
-    label: 'RSS',
-    placeholder: 'https://example.com/feed.xml',
-  },
-  {
-    value: 'youtube_playlist',
-    label: 'YouTube playlist',
-    placeholder: 'https://www.youtube.com/playlist?list=PL...',
-  },
-  {
-    value: 'youtube_channel',
-    label: 'YouTube channel',
-    placeholder: 'https://www.youtube.com/@example',
-  },
-  {
-    value: 'api_list_dicts',
-    label: 'API list',
-    placeholder: 'https://example.gov/api/items.json',
-  },
-  {
-    value: 'courtlistener_docket',
-    label: 'CourtListener docket',
-    placeholder: 'https://www.courtlistener.com/docket/123456/example/',
-  },
-];
-
-const INTERVALS: { value: SourceInterval; label: string }[] = [
-  { value: '', label: 'Manual' },
-  { value: '@hourly', label: 'Hourly' },
-  { value: '0 */6 * * *', label: 'Every 6 hours' },
-  { value: '@daily', label: 'Daily' },
-];
-
-interface FeedSourceFormState {
-  name: string;
-  url: string;
-  kind: FeedSourceKind;
-  cadence: SourceInterval;
-  apiListPath: string;
-  apiItemIdPath: string;
-  apiUpdatedAtPath: string;
-  apiMaxItems: string;
-  youtubeMaxPages: string;
-  youtubeMaxItems: string;
-  courtKeywords: string;
-  courtIncludeParties: boolean;
-  courtIncludeDocuments: boolean;
-  courtMaxEntries: string;
-  busy: boolean;
-  error: string | null;
-}
-
-type FeedSourceFormAction =
-  | { type: 'setName'; value: string }
-  | { type: 'setUrl'; value: string; detectedKind?: FeedSourceKind }
-  | { type: 'setKind'; value: FeedSourceKind }
-  | { type: 'setCadence'; value: SourceInterval }
-  | { type: 'setApiListPath'; value: string }
-  | { type: 'setApiItemIdPath'; value: string }
-  | { type: 'setApiUpdatedAtPath'; value: string }
-  | { type: 'setApiMaxItems'; value: string }
-  | { type: 'setYoutubeMaxPages'; value: string }
-  | { type: 'setYoutubeMaxItems'; value: string }
-  | { type: 'setCourtKeywords'; value: string }
-  | { type: 'setCourtIncludeParties'; value: boolean }
-  | { type: 'setCourtIncludeDocuments'; value: boolean }
-  | { type: 'setCourtMaxEntries'; value: string }
-  | { type: 'createStart' }
-  | { type: 'createFailure'; message: string }
-  | { type: 'createSettled' };
-
-const initialFeedSourceFormState = (): FeedSourceFormState => ({
-  name: '',
-  url: '',
-  kind: 'rss',
-  cadence: '',
-  apiListPath: '/',
-  apiItemIdPath: '',
-  apiUpdatedAtPath: '',
-  apiMaxItems: '',
-  youtubeMaxPages: '',
-  youtubeMaxItems: '',
-  courtKeywords: '',
-  courtIncludeParties: true,
-  courtIncludeDocuments: true,
-  courtMaxEntries: '',
-  busy: false,
-  error: null,
-});
-
-function feedSourceFormReducer(
-  state: FeedSourceFormState,
-  action: FeedSourceFormAction,
-): FeedSourceFormState {
-  switch (action.type) {
-    case 'setName':
-      return { ...state, name: action.value };
-    case 'setUrl':
-      return {
-        ...state,
-        url: action.value,
-        kind: action.detectedKind ?? state.kind,
-        error: null,
-      };
-    case 'setKind':
-      return { ...state, kind: action.value, error: null };
-    case 'setCadence':
-      return { ...state, cadence: action.value };
-    case 'setApiListPath':
-      return { ...state, apiListPath: action.value, error: null };
-    case 'setApiItemIdPath':
-      return { ...state, apiItemIdPath: action.value };
-    case 'setApiUpdatedAtPath':
-      return { ...state, apiUpdatedAtPath: action.value };
-    case 'setApiMaxItems':
-      return { ...state, apiMaxItems: action.value };
-    case 'setYoutubeMaxPages':
-      return { ...state, youtubeMaxPages: action.value };
-    case 'setYoutubeMaxItems':
-      return { ...state, youtubeMaxItems: action.value };
-    case 'setCourtKeywords':
-      return { ...state, courtKeywords: action.value };
-    case 'setCourtIncludeParties':
-      return { ...state, courtIncludeParties: action.value };
-    case 'setCourtIncludeDocuments':
-      return { ...state, courtIncludeDocuments: action.value };
-    case 'setCourtMaxEntries':
-      return { ...state, courtMaxEntries: action.value };
-    case 'createStart':
-      return { ...state, busy: true, error: null };
-    case 'createFailure':
-      return { ...state, busy: false, error: action.message };
-    case 'createSettled':
-      return { ...state, busy: false };
-    default:
-      return state;
-  }
-}
-
 function feedKindLabel(kind: FeedSourceKind): string {
-  return FEED_SOURCE_KINDS.find((candidate) => candidate.value === kind)?.label ?? kind;
+  return kind === 'rss' ? 'RSS' : sourceKindLabel(kind);
 }
 
 function feedKindIcon(kind: FeedSourceKind) {
@@ -233,44 +85,6 @@ function detectFeedSourceKind(raw: string): FeedSourceKind {
   return 'rss';
 }
 
-function optionalPositiveInt(value: string, field: string): number | undefined {
-  if (!value.trim()) return undefined;
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`${field} must be a positive whole number`);
-  }
-  return parsed;
-}
-
-function splitKeywords(value: string): string[] {
-  return value.split(/[\n,]/).flatMap((item) => {
-    const trimmed = item.trim();
-    return trimmed ? [trimmed] : [];
-  });
-}
-
-function apiUrlIsHttps(value: string): boolean {
-  try {
-    return new URL(value).protocol === 'https:';
-  } catch {
-    return false;
-  }
-}
-
-function jsonPointerError(value: string, field: string): string | null {
-  const text = value.trim() || '/';
-  if (!text.startsWith('/')) return `${field} must start with /`;
-  for (const segment of text.split('/').slice(1)) {
-    for (let index = 0; index < segment.length; index += 1) {
-      if (segment[index] !== '~') continue;
-      const escaped = segment[index + 1];
-      if (escaped !== '0' && escaped !== '1') return `${field} has an invalid ~ escape`;
-      index += 1;
-    }
-  }
-  return null;
-}
-
 function defaultFeedName(kind: FeedSourceKind, reference: string): string {
   const label = feedKindLabel(kind);
   const compact = reference
@@ -279,123 +93,6 @@ function defaultFeedName(kind: FeedSourceKind, reference: string): string {
     .replace(/^www\./i, '')
     .slice(0, 72);
   return compact ? `${label}: ${compact}` : label;
-}
-
-function buildFeedSourceInput({
-  name,
-  kind,
-  url,
-  cadence,
-  apiListPath,
-  apiItemIdPath,
-  apiUpdatedAtPath,
-  apiMaxItems,
-  youtubeMaxPages,
-  youtubeMaxItems,
-  courtKeywords,
-  courtIncludeParties,
-  courtIncludeDocuments,
-  courtMaxEntries,
-}: {
-  name: string;
-  kind: FeedSourceKind;
-  url: string;
-  cadence: SourceInterval;
-  apiListPath: string;
-  apiItemIdPath: string;
-  apiUpdatedAtPath: string;
-  apiMaxItems: string;
-  youtubeMaxPages: string;
-  youtubeMaxItems: string;
-  courtKeywords: string;
-  courtIncludeParties: boolean;
-  courtIncludeDocuments: boolean;
-  courtMaxEntries: string;
-}): SourceInput {
-  const reference = url.trim();
-  if (!reference) throw new Error('Feed URL or reference is required');
-  const base: SourceInput = {
-    name: name.trim() || defaultFeedName(kind, reference),
-    kind,
-    url: reference,
-    schedule: cadence || null,
-    enabled: true,
-    config: {},
-  };
-
-  switch (kind) {
-    case 'rss':
-      // RSS uses the existing SourcesPanel-compatible unversioned config shape.
-      return {
-        ...base,
-        config: { merge_strategy: 'append-new' },
-      };
-    case 'youtube_playlist': {
-      const config: Record<string, unknown> = {
-        schema_version: 'frisket.source.youtube.v1',
-        playlist_url: reference,
-      };
-      const maxPages = optionalPositiveInt(youtubeMaxPages, 'Max pages');
-      const maxItems = optionalPositiveInt(youtubeMaxItems, 'Max items');
-      if (maxPages !== undefined) config.max_pages_per_poll = maxPages;
-      if (maxItems !== undefined) config.max_items_per_poll = maxItems;
-      return { ...base, config };
-    }
-    case 'youtube_channel': {
-      const config: Record<string, unknown> = {
-        schema_version: 'frisket.source.youtube.v1',
-        channel_url: reference,
-      };
-      const maxPages = optionalPositiveInt(youtubeMaxPages, 'Max pages');
-      const maxItems = optionalPositiveInt(youtubeMaxItems, 'Max items');
-      if (maxPages !== undefined) config.max_pages_per_poll = maxPages;
-      if (maxItems !== undefined) config.max_items_per_poll = maxItems;
-      return { ...base, config };
-    }
-    case 'api_list_dicts': {
-      if (!apiUrlIsHttps(reference)) throw new Error('API list sources require HTTPS');
-      const listPathError = jsonPointerError(apiListPath, 'Response list path');
-      if (listPathError) throw new Error(listPathError);
-      const itemIdError = apiItemIdPath.trim()
-        ? jsonPointerError(apiItemIdPath, 'Item ID path')
-        : null;
-      if (itemIdError) throw new Error(itemIdError);
-      const updatedAtError = apiUpdatedAtPath.trim()
-        ? jsonPointerError(apiUpdatedAtPath, 'Updated-at path')
-        : null;
-      if (updatedAtError) throw new Error(updatedAtError);
-      const config: Record<string, unknown> = {
-        schema_version: 'frisket.source.api_list_dicts.v1',
-        method: 'GET',
-        url: reference,
-        list_path: apiListPath.trim() || '/',
-        schema_policy: 'additive',
-      };
-      if (apiItemIdPath.trim()) config.item_id_path = apiItemIdPath.trim();
-      if (apiUpdatedAtPath.trim()) config.updated_at_path = apiUpdatedAtPath.trim();
-      const maxItems = optionalPositiveInt(apiMaxItems, 'Max items');
-      if (maxItems !== undefined) config.max_items = maxItems;
-      return { ...base, config };
-    }
-    case 'courtlistener_docket': {
-      const config: Record<string, unknown> = {
-        schema_version: 'frisket.source.courtlistener_docket.v1',
-        keywords: splitKeywords(courtKeywords),
-        include_parties: courtIncludeParties,
-        include_documents: courtIncludeDocuments,
-        recap_pdf_policy: 'link_only',
-      };
-      if (/^[1-9][0-9]*$/.test(reference)) {
-        config.docket_id = Number(reference);
-        return { ...base, url: null, config };
-      } else {
-        config.docket_url = reference;
-      }
-      const maxEntries = optionalPositiveInt(courtMaxEntries, 'Max entries');
-      if (maxEntries !== undefined) config.max_entries_per_poll = maxEntries;
-      return { ...base, config };
-    }
-  }
 }
 
 interface FeedPopulateState {
@@ -416,11 +113,13 @@ export function FeedSourceForm({
   onCancel(): void;
 }) {
   const { projectApi: api, chromePreferences: { projectId } } = useWorkspaceStores();
-  const [state, dispatch] = useReducer(
-    feedSourceFormReducer,
-    undefined,
-    initialFeedSourceFormState,
-  );
+  const [state, setState] = useState(() => ({
+    ...emptySourceDefinition(''), busy: false, error: null as string | null,
+  }));
+  const updateForm = (patch: Partial<typeof state>) => setState((current) => ({
+    ...current, ...patch,
+    ...(patch.url !== undefined || patch.kind !== undefined || patch.apiListPath !== undefined ? { error: null } : {}),
+  }));
   const kindTouchedRef = useRef(false);
   // A successful
   // create does NOT close the workspace — it swaps to a "Populate feed?"
@@ -437,49 +136,19 @@ export function FeedSourceForm({
     url,
     kind,
     cadence,
-    apiListPath,
-    apiItemIdPath,
-    apiUpdatedAtPath,
-    apiMaxItems,
-    youtubeMaxPages,
-    youtubeMaxItems,
-    courtKeywords,
-    courtIncludeParties,
-    courtIncludeDocuments,
-    courtMaxEntries,
     busy,
     error,
   } = state;
-  const selectedKind = FEED_SOURCE_KINDS.find((candidate) => candidate.value === kind)
-    ?? FEED_SOURCE_KINDS[0];
-  const apiListPathError = kind === 'api_list_dicts'
-    ? jsonPointerError(apiListPath, 'Response list path')
-    : null;
-  const apiUrlError = kind === 'api_list_dicts' && url.trim() && !apiUrlIsHttps(url)
-    ? 'API list sources require HTTPS'
-    : null;
-  const validationError = apiUrlError ?? apiListPathError;
+  const kindDefinition = selectedKind(state);
+  const validationError = sourceDefinitionError(state);
 
   const create = async () => {
     if (!url.trim() || busy || validationError) return;
-    dispatch({ type: 'createStart' });
+    updateForm({ busy: true, error: null });
     const startedAt = performance.now();
     try {
-      const created = await api.createSource(buildFeedSourceInput({
-        name,
-        kind,
-        url,
-        cadence,
-        apiListPath,
-        apiItemIdPath,
-        apiUpdatedAtPath,
-        apiMaxItems,
-        youtubeMaxPages,
-        youtubeMaxItems,
-        courtKeywords,
-        courtIncludeParties,
-        courtIncludeDocuments,
-        courtMaxEntries,
+      const created = await api.createSource(buildSourceInput({
+        ...state, name: name.trim() || defaultFeedName(kind, url),
       }));
       window.dispatchEvent(new CustomEvent('frisket:sources-changed'));
       // Don't close yet -- surface the populate prompt instead (see the
@@ -501,10 +170,10 @@ export function FeedSourceForm({
         },
       }, projectId);
       const message = `Feed source failed: ${e instanceof Error ? e.message : String(e)}`;
-      dispatch({ type: 'createFailure', message });
+      updateForm({ busy: false, error: message });
       onError(message);
     } finally {
-      dispatch({ type: 'createSettled' });
+      updateForm({ busy: false });
     }
   };
 
@@ -583,17 +252,13 @@ export function FeedSourceForm({
         <TextInput
           id="source-url-input"
 
-          placeholder={selectedKind.placeholder}
+          placeholder={kindDefinition.placeholder}
           aria-label="Feed URL or reference"
           data-testid="source-url"
           value={url}
           onChange={(e) => {
             const next = e.target.value;
-            dispatch({
-              type: 'setUrl',
-              value: next,
-              detectedKind: kindTouchedRef.current ? undefined : detectFeedSourceKind(next),
-            });
+            updateForm({ url: next, kind: kindTouchedRef.current ? kind : detectFeedSourceKind(next) });
           }}
         />
       </FormField>
@@ -606,11 +271,11 @@ export function FeedSourceForm({
           value={kind}
           onChange={(e) => {
             kindTouchedRef.current = true;
-            dispatch({ type: 'setKind', value: e.target.value as FeedSourceKind });
+            updateForm({ kind: e.target.value as FeedSourceKind });
           }}
         >
-          {FEED_SOURCE_KINDS.map((option) => (
-            <option key={option.value} value={option.value}>{option.label}</option>
+          {SOURCE_KINDS.map((option) => (
+            <option key={option.value} value={option.value}>{feedKindLabel(option.value)}</option>
           ))}
         </PanelSelect>
       </FormField>
@@ -622,118 +287,11 @@ export function FeedSourceForm({
           aria-label="Source name"
           data-testid="source-name"
           value={name}
-          onChange={(e) => dispatch({ type: 'setName', value: e.target.value })}
+          onChange={(e) => updateForm({ name: e.target.value })}
         />
       </FormField>
 
-      {(kind === 'youtube_playlist' || kind === 'youtube_channel') && (
-        <div className="sources-form-grid">
-          <FormField label="Max pages" >
-
-            <TextInput
-              aria-label="YouTube max pages"
-              data-testid="source-youtube-max-pages"
-              value={youtubeMaxPages}
-              onChange={(e) => dispatch({ type: 'setYoutubeMaxPages', value: e.target.value })}
-            />
-          </FormField>
-          <FormField label="Max items" >
-
-            <TextInput
-              aria-label="YouTube max items"
-              data-testid="source-youtube-max-items"
-              value={youtubeMaxItems}
-              onChange={(e) => dispatch({ type: 'setYoutubeMaxItems', value: e.target.value })}
-            />
-          </FormField>
-        </div>
-      )}
-
-      {kind === 'api_list_dicts' && (
-        <>
-          <div className="sources-form-grid">
-            <FormField label="Response list path" >
-
-              <TextInput
-                aria-label="API response list path"
-                data-testid="source-api-list-path"
-                value={apiListPath}
-                onChange={(e) => dispatch({ type: 'setApiListPath', value: e.target.value })}
-              />
-            </FormField>
-            <FormField label="Item ID path" >
-
-              <TextInput
-                aria-label="API item ID path"
-                data-testid="source-api-item-id-path"
-                value={apiItemIdPath}
-                onChange={(e) => dispatch({ type: 'setApiItemIdPath', value: e.target.value })}
-              />
-            </FormField>
-          </div>
-          <div className="sources-form-grid">
-            <FormField label="Updated path" >
-
-              <TextInput
-                aria-label="API updated-at path"
-                data-testid="source-api-updated-at-path"
-                value={apiUpdatedAtPath}
-                onChange={(e) => dispatch({ type: 'setApiUpdatedAtPath', value: e.target.value })}
-              />
-            </FormField>
-            <FormField label="Max items" >
-
-              <TextInput
-                aria-label="API max items"
-                data-testid="source-api-max-items"
-                value={apiMaxItems}
-                onChange={(e) => dispatch({ type: 'setApiMaxItems', value: e.target.value })}
-              />
-            </FormField>
-          </div>
-        </>
-      )}
-
-      {kind === 'courtlistener_docket' && (
-        <>
-          <TextArea
-            className="source-textarea"
-            aria-label="CourtListener keywords"
-            data-testid="source-court-keywords"
-            value={courtKeywords}
-            onChange={(e) => dispatch({ type: 'setCourtKeywords', value: e.target.value })}
-            placeholder="injunction, settlement"
-          />
-          <div className="control-row">
-            <label className="control-row">
-              <input
-                type="checkbox"
-                data-testid="source-court-include-parties"
-                checked={courtIncludeParties}
-                onChange={(e) => dispatch({ type: 'setCourtIncludeParties', value: e.target.checked })}
-              />
-              Parties
-            </label>
-            <label className="control-row">
-              <input
-                type="checkbox"
-                data-testid="source-court-include-documents"
-                checked={courtIncludeDocuments}
-                onChange={(e) => dispatch({ type: 'setCourtIncludeDocuments', value: e.target.checked })}
-              />
-              Documents
-            </label>
-          </div>
-          <FormField label="Max entries">
-            <TextInput
-              aria-label="CourtListener max entries"
-              data-testid="source-court-max-entries"
-              value={courtMaxEntries}
-              onChange={(e) => dispatch({ type: 'setCourtMaxEntries', value: e.target.value })}
-            />
-          </FormField>
-        </>
-      )}
+      <SourceConfigFields form={state} onChange={updateForm} />
 
       <FormField label="Update frequency" htmlFor="source-interval-input">
         <PanelSelect
@@ -742,7 +300,7 @@ export function FeedSourceForm({
           aria-label="Update frequency"
           data-testid="source-interval"
           value={cadence}
-          onChange={(e) => dispatch({ type: 'setCadence', value: e.target.value as SourceInterval })}
+          onChange={(e) => updateForm({ cadence: e.target.value as SourceInterval })}
         >
           {INTERVALS.map((i) => (
             <option key={i.value} value={i.value}>{i.label}</option>

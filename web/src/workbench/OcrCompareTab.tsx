@@ -296,6 +296,7 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
 
   return (
     <section className="ocr-compare-tab" data-testid="ocr-compare-tab">
+      {session.selectorOwners}
       <CompareToolbar testIdPrefix="ocr-compare" running={runningCount > 0}
         controls={<>
           <Button
@@ -391,7 +392,7 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
                 onRemove={() => onRemoveVariant(column.id)} />
               {configureVariantId === column.id ? (
                 <ConfigureVariantPopover
-                  onCurrentChoiceChange={session.reportColumnChoice}
+                  selectorProjection={session.selectorProjection(column)}
                   testidPrefix="ocr-compare"
                   actionId="media.ocr"
                   popoverRef={configurePopoverRef}

@@ -13,7 +13,8 @@ import { routePath } from '../../../routes';
 import { ActivityProgressCard, ProgressBar } from '../../ActivityProgress';
 import { ImportDestinationPicker } from '../ImportDestinationPicker';
 import type { PdfBatchDestinationSheet } from './PdfBatchImportFlow';
-import { PDF_CATEGORY_LABEL, PDF_CATEGORY_ORDER, PDF_CATEGORY_TONE, PDF_CHECK_CATEGORY_ORDER, bytesLabel, canOpenCheckText, count, destinationIsReady, ocrPolicyCount } from './model';
+import { PDF_CATEGORY_LABEL, PDF_CATEGORY_ORDER, PDF_CATEGORY_TONE, PDF_CHECK_CATEGORY_ORDER, canOpenCheckText, count, destinationIsReady, ocrPolicyCount } from './model';
+import { formatBytes } from '../../../format';
 
 function ocrSelectionOf(choice: SelectorChoice): PdfImportOcrSelection | null {
   const selected = choice.authored_selection;
@@ -59,7 +60,7 @@ export function AddFilesStep({
       <header><h2>Add files</h2><p>Files are copied to a holding area. Nothing is added to the project until Import.</p></header>
       {snapshot.preflight.state === 'insufficient' ? <div className="panel-error" role="alert">
         <AlertTriangle size={18} />
-        <div><strong>Not enough disk space</strong><span>This import needs {bytesLabel(uploadBytesTotal)}. {bytesLabel(snapshot.preflight.free_bytes ?? 0)} is free.</span></div>
+        <div><strong>Not enough disk space</strong><span>This import needs {formatBytes(uploadBytesTotal)}. {formatBytes(snapshot.preflight.free_bytes ?? 0)} is free.</span></div>
         <Button type="button" disabled={retryingPreflight} onClick={onRetryPreflight}>{retryingPreflight ? 'Checking…' : 'Check again'}</Button>
         <Button type="button" onClick={onCancel}>Choose different files</Button>
       </div> : <><div className="pdf-batch-progress-grid">
@@ -69,7 +70,7 @@ export function AddFilesStep({
           total={reading ? null : uploadTotal}
           detail={reading
             ? `${count(snapshot.upload.files_done, 'file')} found so far`
-            : `${bytesLabel(snapshot.upload.bytes_done ?? 0)} of ${bytesLabel(uploadBytesTotal)} copied`}
+            : `${formatBytes(snapshot.upload.bytes_done ?? 0)} of ${formatBytes(uploadBytesTotal)} copied`}
           action={uploadComplete ? <span className="pdf-batch-complete"><CheckCircle2 size={14} /> Complete</span> : <Button type="button" className="btn-quiet" onClick={onPause}>
             {snapshot.paused ? <Play size={14} /> : <Pause size={14} />}{snapshot.paused ? 'Resume' : 'Pause'}
           </Button>}
@@ -85,10 +86,10 @@ export function AddFilesStep({
         ? <LoaderCircle className="spin" size={14} aria-hidden />
         : <CheckCircle2 size={14} aria-hidden />}
         {snapshot.preflight.state === 'waiting'
-          ? `Checking space for ${bytesLabel(uploadBytesTotal)}.`
+          ? `Checking space for ${formatBytes(uploadBytesTotal)}.`
           : snapshot.preflight.state === 'ready'
-            ? `Enough space · needs ${bytesLabel(uploadBytesTotal)} · ${bytesLabel(snapshot.preflight.free_bytes ?? 0)} free`
-            : `More disk space is needed · needs ${bytesLabel(uploadBytesTotal)} · ${bytesLabel(snapshot.preflight.free_bytes ?? 0)} free`}
+            ? `Enough space · needs ${formatBytes(uploadBytesTotal)} · ${formatBytes(snapshot.preflight.free_bytes ?? 0)} free`
+            : `More disk space is needed · needs ${formatBytes(uploadBytesTotal)} · ${formatBytes(snapshot.preflight.free_bytes ?? 0)} free`}
       </p></>}
       {needsReselection && <div className="pdf-batch-reselect" role="status">
         <div><strong>Some files still need to be copied</strong><span>Select the same files or folder again. Only pending files are uploaded.</span></div>
@@ -439,7 +440,7 @@ export function SearchSetupStep({ snapshot, semanticEnabled, consent, busy, impo
       <label className="pdf-batch-semantic-choice"><input type="checkbox" disabled={busy} checked={semanticEnabled} onChange={(event) => onSemantic(event.currentTarget.checked)} /><span><strong>Search by meaning</strong><small>Find related ideas even when the exact words differ.</small></span></label>
       {semanticEnabled && <div className="pdf-batch-model-setup" data-state={setup.ready ? 'ready' : setup.available ? 'setup' : 'unavailable'}>
         <div><strong>{setup.display_name}</strong><span>{setup.ready ? 'Ready on this device' : setup.runtime_ready ? 'Required for search by meaning' : 'Model and runtime setup required'}</span></div>
-        <b>{setup.download_bytes == null ? 'Size not measured' : `About ${bytesLabel(setup.download_bytes)}`}</b>
+        <b>{setup.download_bytes == null ? 'Size not measured' : `About ${formatBytes(setup.download_bytes)}`}</b>
         {setup.needs_confirmation && <label><input type="checkbox" disabled={busy} checked={consent} onChange={(event) => onConsent(event.currentTarget.checked)} /> Download this model when the import starts</label>}
         {!setup.available && <p role="alert">Model setup is unavailable.</p>}
       </div>}

@@ -21,6 +21,7 @@ import {
   type PreviewStatus,
 } from '../api/open';
 import type { ProjectApiPort } from '../api/ports';
+import { pollPreviewJob } from '../api/previewJobTransport';
 
 // Cadence for polling an in-memory action preview job (start -> poll -> done).
 const PREVIEW_POLL_MS = 750;
@@ -103,14 +104,7 @@ export function createPreviewViewStore(api: Pick<
 } {
   const store = createStore<PreviewViewState>(createPreviewViewState());
 
-  // Store-side equivalent of the former hook-local previewJobRef. The timer is
-  // settle-relative: every retry is armed only after the preceding request
-  // settles, preserving the original recursive setTimeout semantics.
-  const previewJob: {
-    previewId: string | null;
-    timer: ReturnType<typeof setTimeout> | null;
-    onVisibility: (() => void) | null;
-  } = { previewId: null, timer: null, onVisibility: null };
+  let previewController: AbortController | null = null;
   // Store-side equivalent of previewGenRef. Every teardown trigger reaches
   // teardownPreviewJob below, so one counter guards every async branch.
   let previewGen = 0;
@@ -144,23 +138,8 @@ export function createPreviewViewStore(api: Pick<
 
   function teardownPreviewJob(): void {
     previewGen += 1;
-    const job = previewJob;
-    if (job.timer != null) {
-      clearTimeout(job.timer);
-      job.timer = null;
-    }
-    if (job.onVisibility != null) {
-      if (typeof document !== 'undefined') {
-        document.removeEventListener('visibilitychange', job.onVisibility);
-      }
-      job.onVisibility = null;
-    }
-    if (job.previewId) {
-      // DELETE is idempotent server-side; a failed cancel (already-gone job) is
-      // a no-op. Fire-and-forget — teardown must not await.
-      void api.cancelPreview(job.previewId).catch(() => {});
-      job.previewId = null;
-    }
+    previewController?.abort();
+    previewController = null;
   }
 
   async function openPreviewView(
@@ -226,7 +205,8 @@ export function createPreviewViewStore(api: Pick<
       return;
     }
     const previewId = started.previewId;
-    previewJob.previewId = previewId;
+    const controller = new AbortController();
+    previewController = controller;
     updatePreviewViewIf('sheetId', sheetId, {
       previewId,
       progress: { done: 0, total: started.total },
@@ -236,47 +216,29 @@ export function createPreviewViewStore(api: Pick<
     // A single transient poll failure (offline blip, server restart) must not
     // flip a still-running job to a terminal error banner — retry a couple of
     // times before giving up. Successful polls reset the budget.
-    let pollFailures = 0;
-    let pollInFlight = false;
-    const poll = async () => {
-      if (previewGen !== gen) return;
-      previewJob.timer = null;
-      if (typeof document !== 'undefined' && document.hidden === true) {
-        return;
-      }
-      if (pollInFlight) return;
-      pollInFlight = true;
-      let res;
+    void (async () => {
+      let res: PreviewSampleResult | null;
       try {
-        try {
-          res = await api.getPreview(previewId);
-        } finally {
-          pollInFlight = false;
-        }
+        res = await pollPreviewJob(api, previewId, {
+          signal: controller.signal, intervalMs: PREVIEW_POLL_MS, initialDelayMs: PREVIEW_POLL_MS,
+          visibility: 'pause', maxFailures: 3, cancelOnFailure: false,
+        }, (preview) => {
+          if (previewGen !== gen) return;
+          updatePreviewViewIf('previewId', previewId, { accounting: preview.accounting ?? null });
+          if (preview.status === 'running') {
+            updatePreviewViewIf('previewId', previewId, { status: 'running', progress: preview.progress });
+          }
+        });
       } catch (e) {
         if (previewGen !== gen) return;
-        pollFailures += 1;
-        if (pollFailures < 3) {
-          previewJob.timer = setTimeout(() => void poll(), PREVIEW_POLL_MS);
-          return;
-        }
-        previewJob.previewId = null;
-        previewJob.timer = null;
+        previewController = null;
         const message = e instanceof Error ? e.message : String(e);
         updatePreviewViewIf('previewId', previewId, { status: 'error', error: message });
         return;
       }
-      pollFailures = 0;
-      if (previewGen !== gen) return;
-      updatePreviewViewIf('previewId', previewId, { accounting: res.accounting ?? null });
-      if (res.status === 'running') {
-        updatePreviewViewIf('previewId', previewId, { status: 'running', progress: res.progress });
-        previewJob.timer = setTimeout(() => void poll(), PREVIEW_POLL_MS);
-        return;
-      }
+      if (previewGen !== gen || !res) return;
       // Terminal states — the server job is gone, so there is nothing to cancel.
-      previewJob.previewId = null;
-      previewJob.timer = null;
+      previewController = null;
       if (res.status === 'done') {
         updatePreviewViewIf('previewId', previewId, {
           status: 'done',
@@ -296,24 +258,7 @@ export function createPreviewViewStore(api: Pick<
         const message = res.error?.message ?? 'Preview failed.';
         updatePreviewViewIf('previewId', previewId, { status: 'error', error: message });
       }
-    };
-    const onVisibility = () => {
-      if (
-        previewJob.previewId !== previewId ||
-        pollInFlight ||
-        (typeof document !== 'undefined' && document.hidden === true)
-      ) return;
-      if (previewJob.timer != null) {
-        clearTimeout(previewJob.timer);
-        previewJob.timer = null;
-      }
-      void poll();
-    };
-    previewJob.onVisibility = onVisibility;
-    if (typeof document !== 'undefined') {
-      document.addEventListener('visibilitychange', onVisibility);
-    }
-    previewJob.timer = setTimeout(() => void poll(), PREVIEW_POLL_MS);
+    })();
   }
 
   return {

@@ -17,6 +17,7 @@ import { ProjectRetrievalSettings } from './ProjectRetrievalSettings';
 import { sendProductTelemetry } from '../telemetry/productTelemetry';
 import { useLoader, errMsg } from './settingsSupport';
 import { InlineStatus } from './SettingsPrimitives';
+import { formatBytes } from '../format';
 
 const FALLBACK_EVIDENCE_RETENTION_VALUES = ['compactable', 'pinned', 'materialized'] as const;
 
@@ -31,10 +32,6 @@ const EVIDENCE_RETENTION_DESCRIPTIONS: Record<string, string> = {
   pinned: 'Keep supporting run evidence when this project is manually compacted.',
   materialized: 'Keep output-linked evidence as part of the stored result.',
 };
-
-function formatBytes(value: unknown): string {
-  return typeof value === 'number' && Number.isFinite(value) ? `${value} bytes` : '0 bytes';
-}
 
 function plural(value: unknown, singular: string): string {
   return value === 1 ? singular : `${singular}s`;

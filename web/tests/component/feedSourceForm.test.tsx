@@ -75,4 +75,39 @@ describe('feed setup independent of the import workspace', () => {
     expect(api.fetchSource).toHaveBeenLastCalledWith(7);
     expect(props.onCreated).toHaveBeenCalledOnce();
   });
+
+  it('keeps numeric-docket limits in the shared fields and serializer', async () => {
+    setup();
+    fireEvent.change(screen.getByTestId('source-url'), { target: { value: '123' } });
+    fireEvent.change(screen.getByTestId('source-court-max-entries'), { target: { value: '7' } });
+    fireEvent.click(screen.getByTestId('source-create'));
+    await screen.findByTestId('feed-populate-prompt');
+    expect(api.createSource).toHaveBeenCalledWith(expect.objectContaining({
+      url: null, name: 'CourtListener docket: 123', schedule: null,
+      config: expect.objectContaining({ docket_id: 123, max_entries_per_poll: 7 }),
+    }));
+  });
+
+  it('rejects invalid numeric-docket limits instead of silently dropping them', async () => {
+    setup();
+    fireEvent.change(screen.getByTestId('source-url'), { target: { value: '123' } });
+    fireEvent.change(screen.getByTestId('source-court-max-entries'), { target: { value: '-2' } });
+    fireEvent.click(screen.getByTestId('source-create'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Max entries must be a positive whole number');
+    expect(api.createSource).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['source-url', 'https://example.test/api/next'],
+    ['source-kind', 'rss'],
+    ['source-api-list-path', '/next'],
+  ])('clears an earlier create error when correcting %s', async (field, value) => {
+    api.createSource.mockRejectedValueOnce(new Error('Create failed'));
+    setup();
+    fireEvent.change(screen.getByTestId('source-url'), { target: { value: 'https://example.test/api/items' } });
+    fireEvent.click(screen.getByTestId('source-create'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Create failed');
+    fireEvent.change(screen.getByTestId(field), { target: { value } });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
 });

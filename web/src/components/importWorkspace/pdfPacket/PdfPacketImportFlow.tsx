@@ -29,7 +29,7 @@ import {
   type PdfPacketSplitSnapshot,
 } from '../../../api/pdfPacketSplits';
 import { SelectorField } from '../../../engine-selector/SelectorField';
-import { countLabel } from '../../../format';
+import { countLabel, formatBytes } from '../../../format';
 import { usePoll } from '../../../hooks/usePoll';
 import { useImportRequest } from '../useImportRequest';
 import { CostGateModal } from '../../CostGateModal';
@@ -98,11 +98,6 @@ function progressText(snapshot: PdfPacketSplitSnapshot): string {
   if (progress.status === 'error') return progress.error ?? 'The packet could not be prepared.';
   const total = progress.total ?? snapshot.packet.page_count;
   return total ? `Preparing pages · ${progress.done} of ${total}` : 'Reading the packet…';
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-  return `${Math.round(bytes / (1024 * 1024))} MB`;
 }
 
 function rememberedOptionsKey(projectId: string): string {

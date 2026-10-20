@@ -30,6 +30,7 @@ import { ResizeSeam } from '../components/ResizeSeam';
 import { SegmentedToggle } from '../components/PanelPrimitives';
 import { CompareBillableEnginesNote, ConfigureVariantPopover } from './MediaCompareShell';
 import { CompareDocList, CompareFrontDoor } from './mediaCompareBodyParts';
+import { useCompareVariantConfigure } from './useCompareVariantConfigure';
 import {
   PEEK_MAX_WIDTH,
   PEEK_MIN_WIDTH,
@@ -162,12 +163,8 @@ export function TopicSegmentationCompareTab({
     runPending,
     runAll,
     retryColumn,
-    removeColumn,
     updateColumnOptions,
-    addBlankColumn,
     addEngineColumn,
-    duplicateColumn,
-    chooseEngine,
     castVote,
     verdict,
     sourceOpen,
@@ -187,55 +184,16 @@ export function TopicSegmentationCompareTab({
     }
   }, [addEngineColumn, catalog]);
 
-  const [configureColumnId, setConfigureColumnId] = useState<string | null>(null);
-  const [addingColumnId, setAddingColumnId] = useState<string | null>(null);
-  const configureAnchorRef = useRef<HTMLDivElement>(null);
-  const configurePopoverRef = useRef<HTMLDivElement>(null);
-  const engineSelectorRef = useRef<HTMLButtonElement>(null);
+  const {
+    configureVariantId: configureColumnId, configureAnchorRef, configurePopoverRef,
+    engineSelectorRef, popoverShift, openConfigure, showConfigure, addVariant,
+    onRemoveVariant: removeVariant, onChooseEngine, onDuplicate,
+  } = useCompareVariantConfigure(session);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const moreInputRef = useRef<HTMLInputElement>(null);
   const sourceUnitsRef = useRef<HTMLDivElement>(null);
   const [navTarget, setNavTarget] = useState<{ docId: string; key: number } | null>(null);
   const [diffIndex, setDiffIndex] = useState(0);
-
-  const removeVariant = useCallback((columnId: string) => {
-    removeColumn(columnId);
-    setConfigureColumnId((current) => (current === columnId ? null : current));
-    setAddingColumnId((current) => (current === columnId ? null : current));
-  }, [removeColumn]);
-
-  useEffect(() => {
-    if (!configureColumnId) return undefined;
-    const dismiss = (event: PointerEvent | KeyboardEvent) => {
-      if (event instanceof KeyboardEvent && event.key !== 'Escape') return;
-      if (event.target instanceof Element && event.target.closest('.engine-selector__dialog')) return;
-      if (
-        event instanceof PointerEvent &&
-        (configurePopoverRef.current?.contains(event.target as Node) ||
-          configureAnchorRef.current?.contains(event.target as Node))
-      ) {
-        return;
-      }
-      const column = columns.find((candidate) => candidate.id === configureColumnId);
-      if (addingColumnId === configureColumnId && !column?.engineId) {
-        removeVariant(configureColumnId);
-      } else {
-        setConfigureColumnId(null);
-      }
-    };
-    window.addEventListener('pointerdown', dismiss);
-    window.addEventListener('keydown', dismiss);
-    return () => {
-      window.removeEventListener('pointerdown', dismiss);
-      window.removeEventListener('keydown', dismiss);
-    };
-  }, [addingColumnId, columns, configureColumnId, removeVariant]);
-
-  const addVariant = useCallback(() => {
-    const columnId = addBlankColumn();
-    setAddingColumnId(columnId);
-    setConfigureColumnId(columnId);
-  }, [addBlankColumn]);
 
   const activeParsed = useMemo(
     () => (activeDoc ? firstDoneResult(activeDoc) : null),
@@ -292,6 +250,7 @@ export function TopicSegmentationCompareTab({
 
   return (
     <section className="ocr-compare-tab topic-compare-tab" data-testid="topic-compare-tab">
+      {session.selectorOwners}
       <CompareToolbar testIdPrefix="topic-compare" running={runningCount > 0}
         controls={<>
           <Button
@@ -375,29 +334,22 @@ export function TopicSegmentationCompareTab({
               <CompareEngineChip testIdPrefix="topic-compare" engine={chipEngine}
                 engineId={column.engineId} label={engineLabel(column.engineId)} variantId={column.id}
                 pip={pip} summary={summary}
-                onBodyClick={() => setConfigureColumnId((current) => (
-                  current === column.id ? null : column.id
-                ))}
-                onConfigure={() => setConfigureColumnId(column.id)}
+                onBodyClick={() => openConfigure(column.id)}
+                onConfigure={() => showConfigure(column.id)}
                 onRemove={() => removeVariant(column.id)} />
               {configureColumnId === column.id ? (
                 <ConfigureVariantPopover
-                  onCurrentChoiceChange={session.reportColumnChoice}
+                  selectorProjection={session.selectorProjection(column)}
                   testidPrefix="topic-compare"
                   actionId="map.find_topic_sections"
                   popoverRef={configurePopoverRef}
+                  style={popoverShift ? { transform: `translateX(${popoverShift}px)` } : undefined}
                   column={column}
                   catalog={catalog}
                   engineSelectorRef={engineSelectorRef}
                   errorMessage={run?.status === 'error' ? run.message : null}
-                  onChooseEngine={(engineId) => {
-                    chooseEngine(column.id, engineId);
-                    setAddingColumnId(null);
-                  }}
-                  onDuplicate={() => {
-                    const copyId = duplicateColumn(column.id);
-                    if (copyId) setConfigureColumnId(copyId);
-                  }}
+                  onChooseEngine={(engineId) => onChooseEngine(column.id, engineId)}
+                  onDuplicate={() => onDuplicate(column.id)}
                   renderOptionFields={() => (
                     <TopicVariantOptions
                       detail={detail}

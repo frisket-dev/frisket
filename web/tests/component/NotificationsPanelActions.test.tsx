@@ -4,7 +4,8 @@ import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/re
 import { afterEach, expect, it, vi } from 'vitest';
 import type { ProjectApiPort } from '../../src/api/ports';
 import type { NotificationItem } from '../../src/api/types';
-import { NOTIFICATIONS_CHANGED_EVENT, NotificationsPanel } from '../../src/components/NotificationsPanel';
+import { NotificationsPanel } from '../../src/components/NotificationsPanel';
+import { NOTIFICATIONS_CHANGED_EVENT } from '../../src/components/notifications/useNotificationSummary';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
 
 function notification(id: number, state: NotificationItem['state'] = 'unseen'): NotificationItem {
@@ -68,6 +69,26 @@ it('releases a failed row action while another notification remains actionable',
   reject(new Error('Could not acknowledge'));
   expect(await screen.findByRole('alert')).toHaveTextContent('Could not acknowledge');
   await waitFor(() => expect(acknowledge).toBeEnabled());
+});
+
+it('keeps the second row pending when the first concurrent action completes', async () => {
+  const { api } = renderNotifications([notification(1), notification(2)]);
+  let resolveFirst!: (value: unknown) => void;
+  let resolveSecond!: (value: unknown) => void;
+  api.ackNotification.mockImplementation((id: number) => new Promise((resolve) => {
+    if (id === 1) resolveFirst = resolve;
+    else resolveSecond = resolve;
+  }));
+  const [first, second] = await screen.findAllByTestId('notification-item');
+  fireEvent.click(within(first).getByTestId('notification-ack'));
+  fireEvent.click(within(second).getByTestId('notification-ack'));
+  resolveFirst({ notificationId: 1, state: 'acknowledged' });
+  await waitFor(() => expect(within(first).getByTestId('notification-open-source')).toBeEnabled());
+  expect(within(second).getByTestId('notification-open-source')).toBeDisabled();
+  fireEvent.click(within(second).getByTestId('notification-ack'));
+  expect(api.ackNotification).toHaveBeenCalledTimes(2);
+  resolveSecond({ notificationId: 2, state: 'acknowledged' });
+  await waitFor(() => expect(within(second).getByTestId('notification-open-source')).toBeEnabled());
 });
 
 it('opens an acknowledged watch source without marking it read again', async () => {

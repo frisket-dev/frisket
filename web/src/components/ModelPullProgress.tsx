@@ -15,11 +15,9 @@ import { Button } from './Button';
 import { useState } from 'react';
 import { cancelModelPull, getModelPull, uninstallArtifact } from '../api/open';
 import type { ModelPullDto } from '../api/types';
-import { usePoll } from '../hooks/usePoll';
+import { modelPullActive, useModelPullPolling } from '../hooks/useModelPullPolling';
 import { formatNumberDisplay } from '../format';
 import { ActivityProgressCard, ProgressBar, type ActivityProgressState } from './ActivityProgress';
-
-const ACTIVE_STATUSES: ModelPullDto['status'][] = ['pending', 'running'];
 
 function humanBytes(n: number | null): string | null {
   if (n == null) return null;
@@ -91,18 +89,13 @@ export function ModelPullProgress({
     setPollError(false);
   }
 
-  const active = ACTIVE_STATUSES.includes(pull.status);
+  const active = modelPullActive(pull);
 
-  usePoll(
-    async () => {
-      let fresh: ModelPullDto;
-      try {
-        fresh = await fetchPull(pull.id);
-      } catch {
-        // Keep the latest projection and optimistic cancellation on a failed GET.
-        setPollError(true);
-        return;
-      }
+  useModelPullPolling({
+    id: pull.id, scopeKey: 'progress-card', active: poll && active,
+    fetchPull: (id) => fetchPull(id),
+    onError: () => setPollError(true),
+    onProgress: (fresh) => {
       setPollError(false);
       setPull(fresh);
       if (fresh.status === 'done') onDone?.(fresh);
@@ -110,8 +103,7 @@ export function ModelPullProgress({
         onFailed?.(fresh);
       }
     },
-    { intervalMs: 1000, active: poll && active, guardOverlap: true },
-  );
+  });
 
   const cancel = async () => {
     setCancelling(true);

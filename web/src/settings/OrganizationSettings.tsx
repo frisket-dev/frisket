@@ -36,13 +36,9 @@ import { ModelPullProgress } from '../components/ModelPullProgress';
 import { PanelError, StatusChip, type StatusTone } from '../components/PanelPrimitives';
 import { formatUsdOrNone } from '../format';
 import { ModelPullHistory } from './ModelPullHistory';
-import {
-  useLoader,
-  type ProviderValidationTone,
-  providerValidationMessage,
-  providerValidationTone,
-  errMsg,
-} from './settingsSupport';
+import { useLoader, errMsg } from './settingsSupport';
+import { useExistingProviderValidation } from './useExistingProviderValidation';
+import { useSecretEntryDraft } from './useSecretEntryDraft';
 import { InlineStatus, SettingsTable } from './SettingsPrimitives';
 
 export function OrganizationAiProvidersSettings() {
@@ -51,23 +47,11 @@ export function OrganizationAiProvidersSettings() {
   const [adding, setAdding] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
-  const [existingTests, setExistingTests] = useState<
-    Record<string, { text: string; tone: ProviderValidationTone | 'pending' }>
-  >({});
+  const { existingTests, testExisting } = useExistingProviderValidation(
+    'organization', (provider, signal) => validateOrgKey(provider, undefined, { signal }),
+  );
 
   const rows = keys.data ?? [];
-  const testExisting = async (provider: string) => {
-    setExistingTests((current) => ({ ...current, [provider]: { text: 'Testing...', tone: 'pending' } }));
-    try {
-      const result = await validateOrgKey(provider);
-      setExistingTests((current) => ({
-        ...current,
-        [provider]: { text: providerValidationMessage(result), tone: providerValidationTone(result) },
-      }));
-    } catch (caught) {
-      setExistingTests((current) => ({ ...current, [provider]: { text: errMsg(caught), tone: 'error' } }));
-    }
-  };
   return (
     <div className="content-stack" data-testid="organization-ai-providers-settings">
       <InlineStatus error={catalog.error ?? keys.error ?? mutationError} loading={catalog.loading || keys.loading} notice={notice} />
@@ -335,22 +319,17 @@ function OrgModelPullDownload({
 
 export function OrganizationSecretsSettings() {
   const secrets = useLoader<OrgEnvInfo[]>(() => listOrgEnvVars());
-  const [name, setName] = useState('');
-  const [value, setValue] = useState('');
-  const [notice, setNotice] = useState<string | null>(null);
-  const [mutationError, setMutationError] = useState<string | null>(null);
+  const entry = useSecretEntryDraft('organization');
+  const { name, value, setName, setValue, notice, error: mutationError, setError: setMutationError, saving } = entry;
   const save = async (event: FormEvent) => {
     event.preventDefault();
-    setMutationError(null);
+    const submitted = entry.begin();
+    if (!submitted) return;
     try {
-      await setOrgEnvVar(name, value);
-      setName('');
-      setValue('');
-      setNotice('Secret saved');
-      await secrets.reload();
+      await setOrgEnvVar(submitted.name, submitted.value);
+      if (entry.complete(submitted)) await secrets.reload();
     } catch (caught) {
-      setNotice(null);
-      setMutationError(errMsg(caught));
+      entry.fail(submitted, caught);
     }
   };
   return (
@@ -372,7 +351,7 @@ export function OrganizationSecretsSettings() {
           value={value}
           onChange={(event) => setValue(event.currentTarget.value)}
         />
-        <Button className="btn-primary" type="submit" disabled={!name.trim() || !value}>
+        <Button className="btn-primary" type="submit" aria-busy={saving} disabled={saving || !name.trim() || !value}>
           <Save size={14} /> Save
         </Button>
       </form>

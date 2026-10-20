@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 
 import type { ProjectApiPort } from '../api/ports';
 import type { PreviewSampleResult, PreviewStartResult, RunEstimate } from '../api/types';
+import { pollPreviewJob } from '../api/previewJobTransport';
 import { quotedUsd } from '../actions/quotedCost';
 import { CostGateModal } from '../components/CostGateModal';
 import { formatUsd } from '../format';
@@ -91,31 +92,21 @@ export function usePaidMediaComparison<R, Input>(calls: ComparisonCalls<R, Input
     if (!quote) return { ok: false, message: 'Estimate this comparison before running it.' };
     if ('error' in quote) return { ok: false, message: quote.error };
     if (signal.aborted) return { ok: false, message: 'Comparison cancelled.' };
-    let previewId: string | null = null;
-    let terminal = false;
     const startedAt = performance.now();
-    try {
-      const started = await calls.start(doc.file, {
-        ...quote.input,
-        ...(quote.estimate.requires_confirmation ? { confirmation: quote.estimate.promise_set_hash } : {}),
-      });
-      previewId = started.previewId;
-      while (!signal.aborted) {
-        const preview = await calls.api.getPreview(previewId);
-        if (preview.status !== 'running') {
-          terminal = true;
-          const rows = preview.kind === 'table' ? preview.rows : Object.values(preview.rows);
-          const error = preview.error?.message ?? rows.flatMap((row) => Object.values(row)).find((cell) => cell.error)?.error;
-          if (error || preview.status !== 'done') return { ok: false, message: error ?? 'Comparison cancelled.' };
-          return { ok: true, results: calls.readResult(preview, column.engineId!), confidence: null,
-            preview, elapsedMs: Math.max(0, performance.now() - startedAt) };
-        }
-        await new Promise<void>((resolve) => window.setTimeout(resolve, 250));
-      }
-      return { ok: false, message: 'Comparison cancelled.' };
-    } finally {
-      if (previewId && !terminal) await calls.api.cancelPreview(previewId).catch(() => undefined);
-    }
+    const started = await calls.start(doc.file, {
+      ...quote.input,
+      ...(quote.estimate.requires_confirmation ? { confirmation: quote.estimate.promise_set_hash } : {}),
+    });
+    const preview = await pollPreviewJob(calls.api, started.previewId, {
+      signal, intervalMs: 250, initialDelayMs: 0, visibility: 'continue',
+      maxFailures: 1, cancelOnFailure: true,
+    });
+    if (!preview) return { ok: false, message: 'Comparison cancelled.' };
+    const rows = preview.kind === 'table' ? preview.rows : Object.values(preview.rows);
+    const error = preview.error?.message ?? rows.flatMap((row) => Object.values(row)).find((cell) => cell.error)?.error;
+    if (error || preview.status !== 'done') return { ok: false, message: error ?? 'Comparison cancelled.' };
+    return { ok: true, results: calls.readResult(preview, column.engineId!), confidence: null,
+      preview, elapsedMs: Math.max(0, performance.now() - startedAt) };
   };
 
   const currentQuoteUsd = quotedUsd(currentQuote);

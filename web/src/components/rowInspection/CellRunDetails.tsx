@@ -2,7 +2,7 @@ import '../PanelPrimitives.css';
 import './CellRunDetails.css';
 import '../RowDrawer.css';
 import { useCallback, useRef, useState, type ReactNode } from 'react';
-import { Check, ChevronDown, ChevronRight, Copy, FileSearch2, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, FileSearch2, X } from 'lucide-react';
 import type { CellProvenance, RunTraceRowEvidence } from '../../api/open';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
 import { confClass, formatUsdOrNone } from '../../format';
@@ -10,6 +10,7 @@ import { formatUsd } from '../../actions/model';
 import { useAnchoredPosition } from '../../hooks/useAnchoredPosition';
 import { useNativePopover } from '../../hooks/useNativePopover';
 import { Button } from '../Button';
+import { CopyButton } from '../CopyButton';
 
 // Run traces stay plain text: recorded prompts and model outputs must never
 // become rich HTML. Provenance disclosure is controlled by the row owner.
@@ -31,26 +32,6 @@ function formatPrompt(p: unknown): string | null {
       .join('\n\n');
   }
   return JSON.stringify(p, null, 2);
-}
-
-function CopyButton({ text, testId }: { text: string; testId: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <Button
-      type="button"
-
-      data-testid={testId}
-      title="Copy to clipboard"
-      onClick={() => {
-        void navigator.clipboard.writeText(text).then(() => {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1200);
-        });
-      }}
-    >
-      {copied ? <Check size={11} /> : <Copy size={11} />} {copied ? 'copied' : 'copy'}
-    </Button>
-  );
 }
 
 type ExplainState =

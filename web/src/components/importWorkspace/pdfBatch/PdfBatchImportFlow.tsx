@@ -23,6 +23,7 @@ import type { HttpSelectorChoicesQuery, HttpSelectorChoicesResponse, SelectorCho
 import type { RunEstimate } from '../../../api/open';
 import { useSelectorChoices } from '../../../engine-selector/useSelectorChoices';
 import { usePoll } from '../../../hooks/usePoll';
+import { formatBytes } from '../../../format';
 import { CostGateModal } from '../../CostGateModal';
 import { DiscardImportConfirm } from './DiscardImportConfirm';
 import {
@@ -35,7 +36,6 @@ import {
 import {
   PDF_BATCH_STAGES,
   PDF_CHECK_CATEGORY_ORDER,
-  bytesLabel,
   canHandlePdfBatch,
   count,
   destinationIsReady,
@@ -101,7 +101,7 @@ function subtitle(snapshot: PdfImportSnapshot | null, files: readonly File[]): s
   const total = snapshot?.upload.files_total ?? selectedFiles.length;
   const totalBytes = snapshot?.upload.bytes_total
     ?? selectedFiles.reduce((sum, file) => sum + file.size, 0);
-  return `${count(total, 'file')} · ${bytesLabel(totalBytes)}`;
+  return `${count(total, 'file')} · ${formatBytes(totalBytes)}`;
 }
 
 function selectedFolderName(files: readonly File[]): string | null {
@@ -234,7 +234,8 @@ export function PdfBatchImportFlow({
     running: previewRunning,
     select: selectPreview,
     selectedFileId,
-    setConsent: setPreviewConsent,
+    cancelConsent: cancelPreviewConsent,
+    confirm: confirmPreview,
     setTextSource,
     start: startPreview,
     textSource,
@@ -815,7 +816,7 @@ export function PdfBatchImportFlow({
       <section className="pdf-batch-cancelling" data-testid="pdf-batch-cancelling">
         {snapshot.state === 'cancelling' && <LoaderCircle className="spin" size={22} aria-hidden />}
         <h2>Cancelling import</h2>
-        <p>Removing copied files · {bytesLabel(done)} of {bytesLabel(total)}</p>
+        <p>Removing copied files · {formatBytes(done)} of {formatBytes(total)}</p>
         <progress max={Math.max(1, total)} value={done} />
         <span>Nothing was added to your project. This closes by itself when done.</span>
         <Button type="button" onClick={onDiscarded}>Close</Button>
@@ -897,7 +898,7 @@ export function PdfBatchImportFlow({
               void loadSamples(selectedCategory, sampleCursor ?? undefined);
             }}
             onTextSource={setTextSource}
-            onPreview={() => chosenFile && void startPreview(chosenFile.occurrence_id, 1, undefined, refreshStatus)}
+            onPreview={() => chosenFile && void startPreview(chosenFile.occurrence_id, 1, refreshStatus)}
             onOcrChoice={(choice) => {
               if (choice) setReportedOcrChoice(choice);
             }}
@@ -990,18 +991,9 @@ export function PdfBatchImportFlow({
       {previewConsent?.estimate.estimate && (
         <CostGateModal
           estimate={previewConsent.estimate.estimate}
-          message={`Apply ${ocrEngine(snapshot.choices.ocr_selection)} OCR to this page?`}
-          onCancel={() => setPreviewConsent(null)}
-          onConfirm={() => {
-            const pending = previewConsent;
-            setPreviewConsent(null);
-            void startPreview(
-              pending.fileId,
-              pending.page,
-              pending.estimate.estimate?.promise_set_hash ?? undefined,
-              refreshStatus,
-            );
-          }}
+          message={`Apply ${ocrEngine(previewConsent.intent.selection)} OCR to this page?`}
+          onCancel={cancelPreviewConsent}
+          onConfirm={() => void confirmPreview(previewConsent, refreshStatus)}
         />
       )}
       {activeBatchOcrConsent && (

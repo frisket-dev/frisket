@@ -1,10 +1,9 @@
 import '../PanelPrimitives.css';
 import '../FormControls.css';
 import './EvidenceDetails.css';
-import { Check, Copy } from 'lucide-react';
-import { useMemo, useState, type KeyboardEvent } from 'react';
+import { useMemo, type KeyboardEvent } from 'react';
 import type { EvidenceArtifact, EvidenceSpan, EvidenceViewerPayload } from '../../api/open';
-import { Button } from '../Button';
+import { CopyButton } from '../CopyButton';
 import { finiteNumber, formatMs, jsonRecord, pageAnchorId, selectorNumber } from './evidenceSourceModel';
 
 const GROUNDING_DEGRADED_COPY: Record<string, string> = {
@@ -54,7 +53,7 @@ export function LinkSummary({ payload }: { payload: EvidenceViewerPayload }) {
     <section className="panel-card">
       <div className="control-row evidence-card-head">
         <strong data-testid="evidence-link-status">{payload.link.status}</strong>
-        <CopyRefButton text={payload.link.export_ref} />
+        <CopyButton text={payload.link.export_ref} testId="evidence-copy-ref" label="copy ref" />
       </div>
       <dl className="evidence-meta-grid">
         <dt>ref</dt>
@@ -208,25 +207,6 @@ function SpanCard({
         </div>
       )}
     </article>
-  );
-}
-
-function CopyRefButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <Button
-      type="button"
-
-      data-testid="evidence-copy-ref"
-      onClick={() => {
-        void navigator.clipboard.writeText(text).then(() => {
-          setCopied(true);
-          window.setTimeout(() => setCopied(false), 1200);
-        });
-      }}
-    >
-      {copied ? <Check size={12} /> : <Copy size={12} />} {copied ? 'copied' : 'copy ref'}
-    </Button>
   );
 }
 

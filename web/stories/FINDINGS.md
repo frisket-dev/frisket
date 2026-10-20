@@ -1,5 +1,176 @@
 # UI inventory findings
 
+## Responsibility consolidation (2026-10-20; implemented, final verification)
+
+All fourteen audit items below are implemented, including non-bug duplication.
+Seven parallel implementation lanes shared bounded file ownership; independent
+cross-reviews covered every lane. Net handwritten production change versus
+`6dc3c869`: **−826 lines**, including all new helpers. This follows the prior
+round's −430; no new public PR/merge before maintainer screenshot approval.
+
+Regression tests reproduced project-crossing evidence cache reuse, old saves
+clearing new secret drafts, and source-definition drift. Shared source fields,
+catalog/selector projections, pull observers, variant editors, evidence caches,
+preview transport, notification summaries, provider validation, confirmations,
+plugin mounts, clipboard controls and byte formatting replace their old copies.
+Feature-specific policies/renderers remain local; no universal manager added.
+Reviews caught and repaired stale source errors and clipboard A→B→A feedback.
+
+The integrated run passed 3,763 tests in 474 files; targeted follow-ups cover
+subsequent review repairs. Final builds, lint and before/after browser capture
+are underway. Claude reviews the frozen candidate after those checks.
+
+### Audit rationale and original implementation map
+
+Audited production baseline `6dc3c869` using three independent read-only lanes,
+caller/state tracing and a normalized clone search across 687 handwritten
+TypeScript files. Clone matches were only leads: repeated composition is not
+automatically duplicated responsibility. The findings below are source-inspected;
+new failure paths were initially source-only; the status above records the
+subsequent implementation and tests. This map does not propose a universal framework.
+
+### Next batch: fix drift while removing its duplicated owner
+
+1. **Source definitions shared by import and editing.**
+   `components/importWorkspace/FeedSourceForm.tsx:284` and
+   `components/sources/sourceConfig.ts:215` separately serialize the same five
+   source kinds, alongside duplicated fields, defaults and validation.
+   Numeric CourtListener IDs return early in the import path (`:390`), dropping
+   max-entries validation/serialization; editing preserves it. JSON-pointer
+   validation also differs. Share source-definition fields and pure config
+   validation/serialization. Keep create/edit naming, cadence defaults, redacted
+   edits and initial population policy local.
+   Verify every source kind, numeric docket limits, bad pointers and redaction
+   round trips in feed/source ownership tests.
+
+2. **Comparison catalog and selector authority.**
+   `workbench/mediaCompareSession.ts:239` and `TranslateCompareTab.tsx:77` load
+   their own catalogs although `state/workspaceResources.ts:691` already owns
+   the session catalog. Reuse that owner first. Separately,
+   `workbench/useCompareSelectorReadiness.ts:37` refetches selector choices and
+   mirrors `canRun`, while `engine-selector/SelectorField.tsx:177` independently
+   loads and interprets them (including default/orphaned choices).
+   Share the existing selector projection between picker and readiness, keyed
+   by project and the complete dependency-aware query. Keep engine eligibility,
+   defaults and authored selection with their callers. Verify invalidation,
+   setup completion, refresh errors and preservation of edited variants.
+
+3. **Evidence resource scope, then duplicated cache machinery.**
+   `workbench/columnEvidenceResource.ts:45` and
+   `workbench/evidenceLinkViewerResource.ts:32` duplicate bounded-cache,
+   subscription and publication logic. Both caches are module-global and omit
+   API/project scope; the column key uses project-local numeric sheet/column/row
+   IDs, while the HTTP endpoint explicitly includes project ID
+   (`api/projectEvidence.ts:128`). A component remount does not clear this cache.
+   First test two projects with identical numeric IDs and fix isolation; then
+   share only the small evidence-resource mechanism if it reduces both owners.
+   Keep endpoint payloads, empty states and retention bounds distinct. Do not
+   introduce an application-wide cache framework. Also test co-mounted consumers
+   sharing one request and old requests completing after scope retirement.
+
+4. **Draft-owned save completion, not a universal editor.**
+   `components/sources/useSourcesPanelState.ts:57` resets the current form after
+   an earlier save, even if it was cancelled and another source opened.
+   Similar unconditional clearing exists in project/org secret forms and
+   notification channel setup. Use an identity/revision on the existing draft:
+   completion may clear only the draft it submitted. Saved Views already has
+   this pattern (`state/savedViewsStore.ts:105`).
+   Test save A → cancel/edit B → A completes, typing during save, failures and
+   overlapping mutations. Retain each domain's validation and permission rules.
+
+5. **Notification summary has one project owner.**
+   `components/NotificationsPanel.tsx:94,101,143` refreshes summary directly and
+   through its own change listener; `WatchesPanel.tsx:158` independently reads it.
+   Share the project summary and make the existing event invalidate it once.
+   Keep list pagination and delivery settings separate. Local keyed pending
+   state should replace the scalar busy ID that another row's completion clears.
+   Test co-mounted consumers, out-of-order summary reads and concurrent row
+   mutations. No global mutation manager.
+
+6. **OCR preview quote and execution use the same captured intent.**
+   `components/importWorkspace/pdfBatch/usePdfBatchPreview.ts:123` stores an
+   estimate/file/page, but confirmation at `pdfBatch/PdfBatchImportFlow.tsx:990`
+   rereads current model selection. Selection can change during estimation,
+   yielding an old quote with a new engine label/request. Server token validation
+   may reject it; unauthorized spending is not established.
+   Capture immutable preview inputs with the quote and discard obsolete results,
+   using existing import request ownership. Packet OCR already demonstrates
+   captured scope/engine/token. Test deferred estimates and engine/draft changes;
+   do not invent another general consent framework.
+
+### Following batch: complete, bounded responsibility extractions
+
+7. **Comparison variant editor lifecycle.** OCR/Transcribe configure hooks and
+   inline Topic configuration duplicate provisional-add state, focus, dismissal,
+   nested Escape and viewport clamping. Share that lifecycle using existing
+   popover infrastructure. Keep PDF/player rendering and engine-specific option
+   resets outside it. First reconcile the inconsistent blank-variant dismissal
+   policy, then test abandoned adds, duplicate/remove, focus and nested dialogs.
+
+8. **Model-pull operation projection.** `ModelPullProgress.tsx:96`,
+   `engine-selector/useSelectorChoices.ts:357` and
+   `workbench/usePaletteSearch.ts:365` separately track durable pull transitions.
+   Share model-pull-specific transport/status handling; reuse `usePoll`, retain
+   consumer refresh policies, permissions, cancellation and intentional backoff.
+   Do not add another scheduler or a universal job framework.
+
+9. **Source health and post-mutation refresh.**
+   `components/sources/useSourcesPanelState.ts:45,106,117` and
+   `components/sources/SourceHealthMainView.tsx:77` repeat health loading/publication.
+   Drawer data is keyed, but loading/error are shared: late source-A completion
+   can alter source-B status. Key status with its request/source and share the
+   health resource; locally centralize patch → list/open-health refresh.
+   Preserve failed-poll history, pagination and navigation. Test deferred A/B
+   responses and successful/failed patches.
+
+10. **Existing-provider validation.** Project/workspace portions of
+    `settings/AiProviderSettings.tsx` and `settings/OrganizationSettings.tsx:59`
+    duplicate per-provider pending/result/error state. One small scoped hook can
+    own it; endpoints and permissions stay separate. Do not combine ordinary
+    validation status with `ProviderKeyForm`'s tested-key save receipts.
+
+11. **Remaining native confirmations.** Watch and Saved View deletion still
+    duplicate dialog open/Escape/busy handling despite existing `ConfirmDialog`.
+    Reuse that component, preserving feature-owned return/next-row focus and
+    consequences. Verify forced closure, busy state and cancellation focus.
+
+### Lower priority / only if the extraction stays smaller
+
+12. **Preview-job transport.** Paid media comparison and `previewViewStore`
+    duplicate polling/terminal/cancellation handling. Share transport only if
+    it cleanly accommodates their existing cadence/retry policies. Preserve
+    concurrent quoted comparison jobs versus a single ordinary preview; do not
+    merge stores, confirmation or result composition.
+
+13. **Plugin runtime contribution mounting.** Five plugin host files repeat the
+    contribution frame + trusted runtime component assembly. A small renderer
+    could share this; `pluginHostShell.tsx` already owns admission. Keep typed
+    contexts, native fallbacks and per-slot unavailable/hide policies local.
+    Avoid a new plugin framework or boolean-heavy host configuration.
+
+14. **Small exact duplicates.** History and CellRunDetails contain identical
+    clipboard buttons (including timer/error omissions). Several import/settings
+    files redefine byte formatting. Use one clipboard component and existing
+    formatting helpers after deciding unit/precision policy. Useful easy deletion,
+    but not a substitute for the ownership work above.
+
+### Boundaries and acceptance
+
+- Do not unify media renderers, Watch claims with Saved View tickets, receipt
+  authorization with validation status, or source config with name-only forms.
+- Claude's possible import busy-on-project-switch issue is not a reproduced app
+  bug: `App.tsx:135` remounts the project subtree. Test/document that contract
+  rather than build another lifecycle manager around a hypothetical path.
+- Start each implementation with the demonstrated mismatch or duplicated
+  behavior, migrate all relevant callers, then delete the old owner. Prefer an
+  existing owner over a new abstraction. No bridge left merely to ease migration.
+- Use focused behavioral tests (deferred requests for ownership problems) and
+  changed-surface screenshots; broader verification after integration. Count new
+  files in net handwritten production LOC; no speculative savings estimate.
+- The audit itself was read-only; implementation status is recorded above.
+  The preceding round is independently reviewed and Claude-cleared; maintainer
+  visual approval still precedes public PR/merge.
+
 ## Comparison, import, list and field consolidation (implemented; visual review)
 
 Baseline: `bc61d79e`. Four bounded lanes: shared comparison markup; repeated
@@ -31,7 +202,8 @@ pass, including populated forms/results and narrow comparison toolbar ordering.
 Baseline captures used the frozen pre-change source; their numeric interaction
 failed on the real duplicate-key bug. The same strict interaction passes after
 the fix. Busy icon animation belongs to the shared icon button, not notifications.
-Claude and maintainer visual review remain before PR/merge.
+Claude cleared candidate `6dc3c869`; maintainer visual approval remains before
+PR/merge.
 
 ## Card, dialog and compound-editor round (implemented)
 

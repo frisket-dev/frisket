@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import type { ActionCatalogPayload, EngineOption } from '../api/open';
 import type { PreviewSampleResult } from '../api/types';
@@ -8,9 +8,10 @@ import type { ResolvedMediaValue } from '../media/resolveMediaValue';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { useResizable } from '../components/useResizable';
 import { diffWords, type DiffToken } from './ocrDiff';
-import type { SelectorChoice } from '../api/selectorChoices';
+import type { SelectorChoicesState } from '../engine-selector/useSelectorChoices';
 import type { MediaSelectorAction } from './mediaCompareSelector';
 import { useCompareSelectorReadiness } from './useCompareSelectorReadiness';
+import { useComparisonCatalog } from './useComparisonCatalog';
 
 export type MediaKind = 'pdf' | 'image' | 'audio' | 'video' | 'text';
 export type Vote = 'neutral' | 'keep' | 'reject';
@@ -112,7 +113,8 @@ export interface DiffModel {
 }
 
 export interface MediaCompareSession<R> {
-  reportColumnChoice(column: CompareColumn, choice: SelectorChoice | null): void;
+  selectorProjection(column: CompareColumn): SelectorChoicesState;
+  selectorOwners: ReactNode;
   catalog: EngineOption[];
   engineLabel(id: string | null): string;
   columns: CompareColumn[];
@@ -171,8 +173,8 @@ export function useMediaCompareSession<R>(
   config: MediaCompareConfig<R>,
   onSessionChange: (state: { hasData: boolean; verdict: string }) => void,
 ): MediaCompareSession<R> {
-  const { projectApi: api, chromePreferences: { projectId } } = useWorkspaceStores();
-  const [rawCatalog, setRawCatalog] = useState<EngineOption[]>(config.fallbackCatalog);
+  const { chromePreferences: { projectId } } = useWorkspaceStores();
+  const { engines: rawCatalog, status: catalogStatus } = useComparisonCatalog(config.enginesFromCatalog, config.fallbackCatalog);
 
   const catalog = useMemo(
     () =>
@@ -188,7 +190,7 @@ export function useMediaCompareSession<R>(
   const [columns, setColumns] = useState<CompareColumn[]>(() =>
     config.defaultEngineIds.map((id) => makeCompareColumn(id, config.defaultColumnOptions)),
   );
-  const { isRunnable, reportColumnChoice } = useCompareSelectorReadiness(projectId, config.selectorActionId, columns);
+  const { isRunnable, selectorProjection, selectorOwners } = useCompareSelectorReadiness(projectId, config.selectorActionId, columns);
   const [docs, setDocs] = useState<ScratchDoc<R>[]>([]);
   const [activeDocId, setActiveDocId] = useState<string | null>(null);
   const [mode, setMode] = useState<'diff' | 'survey'>('diff');
@@ -218,8 +220,6 @@ export function useMediaCompareSession<R>(
 
   const applyCatalog = useCallback(
     (engines: EngineOption[]) => {
-      setRawCatalog(engines);
-
       setColumns((prev) => {
         if (ingested.current || !isUntouchedDefaultSeed(prev, config.defaultEngineIds)) {
           return prev;
@@ -237,21 +237,8 @@ export function useMediaCompareSession<R>(
   );
 
   useEffect(() => {
-    let cancelled = false;
-
-    api
-      .listActionCatalog()
-      .then((response) => {
-        if (cancelled) return;
-        applyCatalog(config.enginesFromCatalog(response));
-      })
-      .catch(() => setRawCatalog(config.fallbackCatalog));
-    return () => {
-      cancelled = true;
-    };
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (catalogStatus === 'ready') applyCatalog(rawCatalog);
+  }, [catalogStatus, rawCatalog, applyCatalog]);
 
   useEffect(
     () => () => {
@@ -766,7 +753,8 @@ export function useMediaCompareSession<R>(
   );
 
   return {
-    reportColumnChoice,
+    selectorProjection,
+    selectorOwners,
     catalog,
     engineLabel,
     columns,

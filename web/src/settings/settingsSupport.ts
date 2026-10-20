@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useReducer, useRef } from 'react';
-import type { ProviderValidateResult } from '../api/open';
 
 export function errMsg(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -53,20 +52,4 @@ export function useLoader<T>(
     return () => { alive = false; };
   }, [reloadKey]);
   return { data: ls.data, error: ls.error, loading: ls.loading, reload, setData: (value: T) => dispatch({ type: 'put', value }) };
-}
-
-export function providerValidationMessage(result: ProviderValidateResult): string {
-  if (result.ok) return 'Valid — key accepted';
-  if (result.reachable) return result.detail || `Reachable but rejected (HTTP ${result.status ?? '?'})`;
-  return `Unreachable${result.detail ? `: ${result.detail}` : ''}`;
-}
-
-export type ProviderValidationTone = 'success' | 'error' | 'warning';
-
-// A reachable-but-rejected key (e.g. HTTP 401) is a real error the user must
-// fix; an unreachable provider is more likely transient/network, so it reads
-// as a warning rather than a hard failure.
-export function providerValidationTone(result: ProviderValidateResult): ProviderValidationTone {
-  if (result.ok) return 'success';
-  return result.reachable ? 'error' : 'warning';
 }

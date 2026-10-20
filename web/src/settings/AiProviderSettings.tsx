@@ -33,13 +33,8 @@ import { formatUsdOrNone } from '../format';
 import { projectProviderKeySource } from './projectProviderKeySource';
 import { ProjectCloudRoutingSettings, type ProjectCloudRoutingView } from '../cloud/ProjectCloudRoutingSettings';
 import { cloudConnectionApi, projectCloudRoutingApi } from '../api/cloudConnection';
-import {
-  useLoader,
-  type ProviderValidationTone,
-  providerValidationMessage,
-  providerValidationTone,
-  errMsg,
-} from './settingsSupport';
+import { useLoader, errMsg } from './settingsSupport';
+import { useExistingProviderValidation } from './useExistingProviderValidation';
 import { InlineStatus, SettingsTable } from './SettingsPrimitives';
 
 /**
@@ -86,23 +81,10 @@ export function ProjectAiProvidersSettings({
   const [cloudRouting, setCloudRouting] = useState<ProjectCloudRoutingView | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
-  const [existingTests, setExistingTests] = useState<
-    Record<string, { text: string; tone: ProviderValidationTone | 'pending' }>
-  >({});
   const canMutate = canOwnProject(project);
-  const testExisting = async (provider: string, label: string) => {
-    if (!canMutate) return;
-    setExistingTests((current) => ({ ...current, [provider]: { text: 'Testing...', tone: 'pending' } }));
-    try {
-      const result = await api.validateProjectProviderKey(provider);
-      setExistingTests((current) => ({
-        ...current,
-        [provider]: { text: providerValidationMessage(result), tone: providerValidationTone(result) },
-      }));
-    } catch (caught) {
-      setExistingTests((current) => ({ ...current, [provider]: { text: errMsg(caught) || `Could not test ${label}`, tone: 'error' } }));
-    }
-  };
+  const { existingTests, testExisting } = useExistingProviderValidation(
+    api, (provider, signal) => api.validateProjectProviderKey(provider, undefined, { signal }), canMutate,
+  );
   return (
     <div className="content-stack" data-testid="project-ai-providers-settings">
       {cloudConnectionAvailable && project?.id && <ProjectCloudRoutingSettings
@@ -190,9 +172,9 @@ export function WorkspaceAiProvidersSettings() {
   const [adding, setAdding] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
-  const [existingTests, setExistingTests] = useState<
-    Record<string, { text: string; tone: ProviderValidationTone | 'pending' }>
-  >({});
+  const { existingTests, testExisting } = useExistingProviderValidation(
+    'workspace', (provider, signal) => validateProviderKey(provider, undefined, { signal }),
+  );
   const providers = catalog.data?.providers ?? [];
   const keyProviders = providers.filter((provider) => provider.kind === 'platform_api');
   const localServers = providers.filter(
@@ -213,18 +195,6 @@ export function WorkspaceAiProvidersSettings() {
     });
   };
 
-  const testExisting = async (provider: string, label: string) => {
-    setExistingTests((current) => ({ ...current, [provider]: { text: 'Testing...', tone: 'pending' } }));
-    try {
-      const result = await validateProviderKey(provider);
-      setExistingTests((current) => ({
-        ...current,
-        [provider]: { text: providerValidationMessage(result), tone: providerValidationTone(result) },
-      }));
-    } catch (caught) {
-      setExistingTests((current) => ({ ...current, [provider]: { text: errMsg(caught) || `Could not test ${label}`, tone: 'error' } }));
-    }
-  };
   const sourceLabel = (row: Extract<LocalProviderEntry, { kind: 'platform_api' }>): string =>
     row.source === 'env' ? 'Environment' : row.source === 'local_file' ? 'Workspace file' : '—';
   return (

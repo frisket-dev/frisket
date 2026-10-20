@@ -25,6 +25,7 @@ import {
 } from './model';
 
 import './TableImportFlow.css';
+import { formatBytes } from '../../../format';
 
 export interface TableImportDestinationSheet {
   columns: Array<{ id: number; name: string }>;
@@ -35,12 +36,6 @@ export interface TableImportDestinationSheet {
 
 function count(value: number, singular: string, plural = `${singular}s`): string {
   return `${value.toLocaleString()} ${value === 1 ? singular : plural}`;
-}
-
-function formatBytes(value: number): string {
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 ** 2) return `${Math.ceil(value / 1024).toLocaleString()} KB`;
-  return `${(value / 1024 ** 2).toFixed(value < 10 * 1024 ** 2 ? 1 : 0)} MB`;
 }
 
 function displayPasteSummary(value: string): string {

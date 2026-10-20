@@ -18,6 +18,7 @@ import { PanelNotice } from '../components/PanelPrimitives';
 import { PluginManager } from '../workbench/PluginManager';
 import { useLoader, errMsg } from './settingsSupport';
 import { InlineStatus, SettingsTable } from './SettingsPrimitives';
+import { useSecretEntryDraft } from './useSecretEntryDraft';
 
 export function ProjectSecretsSettings({ project }: { project?: ProjectInfo | null }) {
   const { projectApi: api } = useWorkspaceStores();
@@ -38,8 +39,8 @@ export function ProjectSecretsSettings({ project }: { project?: ProjectInfo | nu
       return '';
     }
   });
-  const [name, setName] = useState(prefill);
-  const [value, setValue] = useState('');
+  const entry = useSecretEntryDraft(api, prefill);
+  const { name, value, setName, setValue, notice, error: mutationError, setError: setMutationError, saving } = entry;
   // Visible while typing (seeing what you paste beats blind entry —
   // the stored table only ever shows the last-4 hint anyway); the toggle
   // flips to password-masking for shoulder-surfing situations.
@@ -48,8 +49,6 @@ export function ProjectSecretsSettings({ project }: { project?: ProjectInfo | nu
   useEffect(() => {
     if (prefill) valueRef.current?.focus();
   }, [prefill]);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [mutationError, setMutationError] = useState<string | null>(null);
   const canMutate = canOwnProject(project);
   const requiredSecrets = useMemo(() => {
     const out = new Set<string>();
@@ -62,15 +61,13 @@ export function ProjectSecretsSettings({ project }: { project?: ProjectInfo | nu
   const save = async (event: FormEvent) => {
     event.preventDefault();
     if (!canMutate) return;
-    setMutationError(null);
+    const submitted = entry.begin();
+    if (!submitted) return;
     try {
-      secrets.setData(await api.setProjectSecret(name, value));
-      setName('');
-      setValue('');
-      setNotice('Secret saved');
+      const updated = await api.setProjectSecret(submitted.name, submitted.value);
+      if (entry.complete(submitted)) secrets.setData(updated);
     } catch (caught) {
-      setNotice(null);
-      setMutationError(errMsg(caught));
+      entry.fail(submitted, caught);
     }
   };
   return (
@@ -110,7 +107,7 @@ export function ProjectSecretsSettings({ project }: { project?: ProjectInfo | nu
         >
           {valueVisible ? <EyeOff size={14} /> : <Eye size={14} />}
         </Button>
-        <Button className="btn-primary" type="submit" disabled={!canMutate || !name.trim() || !value}><Save size={14} /> Save</Button>
+        <Button className="btn-primary" type="submit" aria-busy={saving} disabled={saving || !canMutate || !name.trim() || !value}><Save size={14} /> Save</Button>
       </form>
       <SettingsTable
         headers={['Secret', 'Value', 'Consumers', 'Updated', '']}

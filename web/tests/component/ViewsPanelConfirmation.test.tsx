@@ -3,7 +3,7 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SavedView } from '../../src/api/open';
 import type { SavedViewsConfirmation } from '../../src/state/savedViewsStore';
 import { ViewsPanel } from '../../src/workspace/ViewsPanel';
@@ -37,7 +37,7 @@ afterEach(() => {
   }
 });
 
-function FailureHarness() {
+function FailureHarness({ saving = false }: { saving?: boolean }) {
   const [confirmation, setConfirmation] = useState<SavedViewsConfirmation | null>(null);
   const [confirmationError, setConfirmationError] = useState<string | null>(null);
   return (
@@ -46,6 +46,7 @@ function FailureHarness() {
       viewName=""
       editor={null}
       canEdit
+      isSaving={saving}
       confirmation={confirmation}
       confirmationError={confirmationError}
       onNameChange={() => {}}
@@ -71,6 +72,28 @@ function FailureHarness() {
 }
 
 describe('ViewsPanel confirmation focus', () => {
+  it('recovers forced closure while busy and returns focus after later cancellation', async () => {
+    const mounted = render(<FailureHarness />);
+    const trigger = screen.getByTestId('delete-saved-view');
+    fireEvent.click(trigger);
+    mounted.rerender(<FailureHarness saving />);
+    const dialog = screen.getByTestId('delete-saved-view-confirmation') as HTMLDialogElement;
+    dialog.showModal = vi.fn(() => { dialog.setAttribute('open', ''); });
+    dialog.close = () => { dialog.removeAttribute('open'); fireEvent(dialog, new Event('close')); };
+    expect(dialog).toHaveAttribute('aria-busy', 'true');
+    fireEvent(dialog, new Event('close'));
+    expect(dialog.showModal).toHaveBeenCalledTimes(1);
+    fireEvent(dialog, new Event('cancel', { bubbles: true, cancelable: true }));
+    expect(dialog).toHaveAttribute('open');
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+    fireEvent.click(screen.getByTestId('confirm-delete-saved-view'));
+    expect(screen.queryByText('Delete failed')).not.toBeInTheDocument();
+    mounted.rerender(<FailureHarness />);
+    fireEvent(dialog, new Event('cancel', { bubbles: true, cancelable: true }));
+    await waitFor(() => expect(screen.queryByTestId('delete-saved-view-confirmation')).not.toBeInTheDocument());
+    expect(trigger).toHaveFocus();
+  });
+
   it('returns focus to Delete after a failed request followed by Cancel', async () => {
     render(<FailureHarness />);
     const trigger = screen.getByTestId('delete-saved-view');

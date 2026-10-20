@@ -59,9 +59,7 @@ const SUPPORTED_KIND_VALUES = new Set<KnownSourceKind>(
   SOURCE_KINDS.map((kind) => kind.value),
 );
 
-export interface SourceFormState {
-  adding: boolean;
-  editingId: number | null;
+export interface SourceDefinitionDraft {
   name: string;
   kind: KnownSourceKind;
   url: string;
@@ -78,13 +76,16 @@ export interface SourceFormState {
   courtMaxEntries: string;
 }
 
-export const emptyForm = (): SourceFormState => ({
-  adding: false,
-  editingId: null,
+export interface SourceFormState extends SourceDefinitionDraft {
+  adding: boolean;
+  editingId: number | null;
+}
+
+export const emptySourceDefinition = (cadence: SourceInterval): SourceDefinitionDraft => ({
   name: '',
   kind: 'rss',
   url: '',
-  cadence: '@hourly',
+  cadence,
   apiListPath: '/',
   apiItemIdPath: '',
   apiUpdatedAtPath: '',
@@ -95,6 +96,10 @@ export const emptyForm = (): SourceFormState => ({
   courtIncludeParties: true,
   courtIncludeDocuments: true,
   courtMaxEntries: '',
+});
+
+export const emptyForm = (): SourceFormState => ({
+  ...emptySourceDefinition('@hourly'), adding: false, editingId: null,
 });
 
 function normalizeKind(kind: SourceKind): KnownSourceKind {
@@ -212,11 +217,28 @@ function apiUrlIsHttps(value: string): boolean {
   }
 }
 
-export function buildSourceInput(form: SourceFormState): SourceInput {
+function jsonPointerError(value: string, field: string): string | null {
+  const text = value.trim() || '/';
+  if (!text.startsWith('/')) return `${field} must start with /`;
+  if (/~(?![01])/.test(text)) return `${field} has an invalid ~ escape`;
+  return null;
+}
+
+export function sourceDefinitionError(form: SourceDefinitionDraft): string | null {
+  if (form.kind !== 'api_list_dicts') return null;
+  if (form.url.trim() && !apiUrlIsHttps(form.url.trim())) return 'API list sources require HTTPS';
+  return jsonPointerError(form.apiListPath, 'Response list path')
+    ?? (form.apiItemIdPath.trim() ? jsonPointerError(form.apiItemIdPath, 'Item ID path') : null)
+    ?? (form.apiUpdatedAtPath.trim() ? jsonPointerError(form.apiUpdatedAtPath, 'Updated-at path') : null);
+}
+
+export function buildSourceInput(form: SourceDefinitionDraft): SourceInput {
   const name = form.name.trim();
   const url = form.url.trim();
   if (!name) throw new Error('Source name is required');
   if (!url) throw new Error(`${sourceKindLabel(form.kind)} requires a source reference`);
+  const validationError = sourceDefinitionError(form);
+  if (validationError) throw new Error(validationError);
 
   const base: SourceInput = {
     name,
@@ -256,7 +278,6 @@ export function buildSourceInput(form: SourceFormState): SourceInput {
       return { ...base, config };
     }
     case 'api_list_dicts': {
-      if (!apiUrlIsHttps(url)) throw new Error('API list sources require an HTTPS URL');
       const config: Record<string, unknown> = {
         schema_version: 'frisket.source.api_list_dicts.v1',
         method: 'GET',
@@ -292,20 +313,8 @@ export function buildSourceInput(form: SourceFormState): SourceInput {
 }
 
 export function sourceKindLabel(kind: SourceKind): string {
-  switch (kind) {
-    case 'rss':
-      return 'RSS feed';
-    case 'youtube_playlist':
-      return 'YouTube playlist';
-    case 'youtube_channel':
-      return 'YouTube channel';
-    case 'api_list_dicts':
-      return 'API list';
-    case 'courtlistener_docket':
-      return 'CourtListener docket';
-    default:
-      return String(kind).replaceAll('_', ' ');
-  }
+  return SOURCE_KINDS.find((candidate) => candidate.value === kind)?.label
+    ?? String(kind).replaceAll('_', ' ');
 }
 
 export function sourceConfigSummary(source: SourceInfo): string {
@@ -329,6 +338,6 @@ export function sourceConfigSummary(source: SourceInfo): string {
   }
 }
 
-export function selectedKind(form: SourceFormState) {
+export function selectedKind(form: Pick<SourceDefinitionDraft, 'kind'>) {
   return SOURCE_KINDS.find((kind) => kind.value === form.kind) ?? SOURCE_KINDS[0];
 }

@@ -22,10 +22,14 @@ import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
 beforeAll(installDialogPolyfill);
 
 const api = createProjectApi('test-project');
-const { render } = createWorkspaceTestHarness({
+const harness = createWorkspaceTestHarness({
   projectId: 'test-project',
   api: { projectApi: api },
 });
+const render: typeof harness.render = (...args) => {
+  void harness.stores.actionCatalog.start();
+  return harness.render(...args);
+};
 
 const engines = [
   {

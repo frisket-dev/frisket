@@ -8,7 +8,7 @@ import type { WorkbenchHostContext } from './hostContext';
 import { buildPluginDockTabContext } from './pluginDockTabContext';
 import { PluginHostShell } from './pluginHostShell';
 import { resolvePluginPanelAvailability } from './pluginPanelContext';
-import { TrustedLocalPluginComponent } from './TrustedLocalPluginComponent';
+import { PluginRuntimeContribution } from './PluginRuntimeContribution';
 
 export interface PluginDockTabHostProps {
   descriptor: WorkbenchPanelDescriptor;
@@ -89,7 +89,7 @@ function MountedPluginDockTabHost({
 
   if (descriptor.runtimeComponent) {
     return (
-      <WorkbenchContributionFrame
+      <PluginRuntimeContribution
         descriptor={descriptor}
         host="bottomDock"
         className="bottom-dock-tab-body plugin-dock-tab-contribution-host"
@@ -97,18 +97,10 @@ function MountedPluginDockTabHost({
           'data-plugin-dock-tab-status': 'mounted',
           'data-plugin-dock-tab-context-schema-version': ctx.schemaVersion,
           'data-plugin-dock-tab-active': String(ctx.dock.isActiveTab),
-          'data-plugin-runtime-module-url': descriptor.runtimeComponent.moduleUrl,
-          'data-plugin-runtime-package-sha256': descriptor.runtimeComponent.packageSha256,
         }}
-      >
-        <TrustedLocalPluginComponent
-          moduleUrl={descriptor.runtimeComponent.moduleUrl}
-          componentKey={descriptor.runtimeComponent.componentKey}
-          contributionId={descriptor.runtimeComponent.contributionId}
-          pluginId={descriptor.runtimeComponent.pluginId}
-          ctx={ctx}
-        />
-      </WorkbenchContributionFrame>
+        runtime={descriptor.runtimeComponent}
+        ctx={ctx}
+      />
     );
   }
 

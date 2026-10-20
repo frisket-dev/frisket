@@ -13,7 +13,8 @@ import type {
 } from '../../src/api/pdfImports';
 import { PdfImportResponseError } from '../../src/api/pdfImports';
 import { PdfBatchImportFlow } from '../../src/components/importWorkspace/pdfBatch/PdfBatchImportFlow';
-import { bytesLabel, canHandlePdfBatch } from '../../src/components/importWorkspace/pdfBatch/model';
+import { canHandlePdfBatch } from '../../src/components/importWorkspace/pdfBatch/model';
+import { formatBytes } from '../../src/format';
 import { subscribeImportSessions } from '../../src/components/importProgressSession';
 
 const selectorState = vi.hoisted(() => ({
@@ -336,7 +337,7 @@ describe('PDF batch import flow', () => {
       new File(['txt'], 'notes.txt', { type: 'text/plain' }),
     ])).toBe(false);
     expect(canHandlePdfBatch(mixedFiles().slice(2))).toBe(false);
-    expect(bytesLabel(0)).toBe('0 B');
+    expect(formatBytes(0)).toBe('0 B');
   });
 
   it('declares every mixed-file occurrence and seals the manifest before uploading', async () => {
@@ -678,10 +679,10 @@ describe('PDF batch import flow', () => {
     ))).toBe(true));
     fireEvent.click(screen.getByRole('button', { name: 'OCR preview' }));
     await waitFor(() => expect(api.estimateOcrPreview).toHaveBeenCalledWith(
-      'project-1', 'draft-1', 'image-1', 1, expect.anything(),
+      'project-1', 'draft-1', 'image-1', 1, expect.anything(), { signal: expect.any(AbortSignal) },
     ));
     await waitFor(() => expect(api.startOcrPreview).toHaveBeenCalledWith(
-      'project-1', 'draft-1', 'image-1', 1, expect.anything(), undefined,
+      'project-1', 'draft-1', 'image-1', 1, expect.anything(), undefined, { signal: expect.any(AbortSignal) },
     ));
 
     fireEvent.click(screen.getByRole('button', { name: /Other files1/ }));
@@ -1327,7 +1328,9 @@ describe('PDF batch import flow', () => {
       return new Promise((resolve) => { resolveCompletedPage = resolve; });
     });
     vi.mocked(api.estimateOcrPreview).mockResolvedValue({
-      ocr_action_params: { engine: 'remote-ocr', model: 'vision-ocr-v2' }, cached: false, estimate: null,
+      ocr_action_params: { engine: 'remote-ocr', model: 'vision-ocr-v2' }, cached: false,
+      estimate: { cost: 0.1, billed_cost: 100_000, rows: 1,
+        requires_confirmation: true, promise_set_hash: 'preview-model-quote' },
     });
     vi.mocked(api.startOcrPreview).mockImplementation(async () => {
       started = true;
@@ -1347,6 +1350,10 @@ describe('PDF batch import flow', () => {
     await screen.findByText('Broken native text');
     fireEvent.click(screen.getByRole('button', { name: 'OCR preview' }));
 
+    expect(await screen.findByTestId('cost-gate-modal')).toHaveTextContent('Apply remote-ocr OCR to this page?');
+    expect(api.startOcrPreview).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('cost-gate-confirm'));
+
     await waitFor(() => expect(api.getPage).toHaveBeenCalledTimes(2));
     resolveCompletedPage?.({
       schema_version: 'frisket.pdf_import.v1', draft_id: 'draft-1', occurrence_id: 'suspicious-1', page: 1,
@@ -1355,10 +1362,10 @@ describe('PDF batch import flow', () => {
     });
     expect(await screen.findByText('Model OCR output')).toBeInTheDocument();
     expect(api.estimateOcrPreview).toHaveBeenCalledWith(
-      'project-1', 'draft-1', 'suspicious-1', 1, selection,
+      'project-1', 'draft-1', 'suspicious-1', 1, selection, { signal: expect.any(AbortSignal) },
     );
     expect(api.startOcrPreview).toHaveBeenCalledWith(
-      'project-1', 'draft-1', 'suspicious-1', 1, selection, undefined,
+      'project-1', 'draft-1', 'suspicious-1', 1, selection, 'preview-model-quote', { signal: expect.any(AbortSignal) },
     );
   });
 

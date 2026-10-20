@@ -7,6 +7,7 @@ import { createProjectProviderKeysApi } from '../api/projectProviderKeys';
 import { createLocalProvidersApi } from '../api/localProviders';
 import { createTeamLocalModelsApi } from '../api/teamLocalModels';
 import { ModelSetupRequestError, modelSetupErrorFactory, startEngineSetup } from '../api/engineSetup';
+import { cancelScopedModelPull, readModelPull } from '../api/modelPullOperations';
 import type { ModelPullDto } from '../api/types';
 import { ModelPullProgress } from '../components/ModelPullProgress';
 import { ProviderKeySetupCard } from './ProviderKeySetupCard';
@@ -32,7 +33,6 @@ type CloudSetup = Extract<Setup, { kind: 'cloud' }>;
 type ConfigurationAction = SelectorChoice['configuration_actions'][number];
 type EditingReporter = (owner: string, editing: boolean) => void;
 const requestError = () => new Error('Setup request failed');
-const workspace = createLocalProvidersApi(requestError);
 const projectKeys = createProjectProviderKeysApi(requestError);
 const downloads = createLocalProvidersApi(modelSetupErrorFactory);
 const teamModels = createTeamLocalModelsApi(modelSetupErrorFactory);
@@ -88,15 +88,13 @@ function DownloadSetupPanel({ setup, activeOperation, onChanged, sharedProgress 
   const fetchPull = async (id: number): Promise<ModelPullDto> => {
     const controller = new AbortController(); pollRequests.current.add(controller);
     try {
-      return org ? await teamModels.orgGetModelPull(id, { signal: controller.signal })
-        : await workspace.getModelPull(id, { signal: controller.signal });
+      return await readModelPull(setup.scope, id, { signal: controller.signal });
     } finally { pollRequests.current.delete(controller); }
   };
   const cancelPull = async (id: number) => {
     const controller = new AbortController(); pollRequests.current.add(controller);
     try {
-      return org ? await teamModels.orgCancelModelPull(id, { signal: controller.signal })
-        : await workspace.cancelModelPull(id, { signal: controller.signal });
+      return await cancelScopedModelPull(setup.scope, id, { signal: controller.signal });
     } finally { pollRequests.current.delete(controller); }
   };
   const start = async () => {
@@ -114,8 +112,7 @@ function DownloadSetupPanel({ setup, activeOperation, onChanged, sharedProgress 
       const busy = caught instanceof ModelSetupRequestError && caught.status === 409;
       if (busy && caught.activePullId !== null) {
         try {
-          const operation = org ? await teamModels.orgGetModelPull(caught.activePullId, { signal: request.signal })
-            : await downloads.getModelPull(caught.activePullId, { signal: request.signal });
+          const operation = await readModelPull(setup.scope, caught.activePullId, { signal: request.signal });
           if (!request.isCurrent()) return;
           setPull(operation); onChanged(); return;
         } catch { if (!request.isCurrent()) return; }

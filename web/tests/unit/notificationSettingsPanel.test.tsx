@@ -101,6 +101,45 @@ afterEach(() => {
 });
 
 describe('NotificationSettingsPanel configurable email', () => {
+  it('clears only the channel draft revision that finished saving', async () => {
+    let resolve!: (value: unknown) => void;
+    projectApi.createNotificationChannel.mockReturnValue(new Promise((accept) => { resolve = accept; }));
+    renderPanel(LOCAL_EDITION_MODULE);
+    await screen.findByText('Slack route');
+    fireEvent.change(screen.getByTestId('notification-channel-secret-ref'), { target: { value: 'env:FIRST' } });
+    fireEvent.click(screen.getByTestId('notification-create-channel'));
+    fireEvent.change(screen.getByTestId('notification-channel-name'), { target: { value: 'Next channel' } });
+    fireEvent.change(screen.getByTestId('notification-channel-secret-ref'), { target: { value: 'env:NEXT' } });
+    resolve(slackChannel);
+    await waitFor(() => expect(screen.getByTestId('notification-create-channel')).toBeEnabled());
+    expect(screen.getByTestId('notification-channel-name')).toHaveValue('Next channel');
+    expect(screen.getByTestId('notification-channel-secret-ref')).toHaveValue('env:NEXT');
+    projectApi.createNotificationChannel.mockResolvedValue(slackChannel);
+    fireEvent.click(screen.getByTestId('notification-create-channel'));
+    await waitFor(() => expect(screen.getByTestId('notification-channel-secret-ref')).toHaveValue(''));
+  });
+
+  it('does not let a completed channel save or refresh release a pending route save', async () => {
+    let finishChannel!: (value: unknown) => void;
+    let failRoute!: (error: Error) => void;
+    projectApi.createNotificationChannel.mockReturnValue(new Promise((accept) => { finishChannel = accept; }));
+    projectApi.createNotificationRoute.mockReturnValue(new Promise((_, reject) => { failRoute = reject; }));
+    renderPanel(LOCAL_EDITION_MODULE);
+    await screen.findByText('Slack route');
+    fireEvent.click(screen.getByTestId('notification-create-channel'));
+    fireEvent.click(screen.getByTestId('notification-create-route'));
+    expect(screen.getByTestId('notification-create-channel')).toBeDisabled();
+    expect(screen.getByTestId('notification-create-route')).toBeDisabled();
+    finishChannel(slackChannel);
+    await waitFor(() => expect(screen.getByTestId('notification-create-channel')).toBeEnabled());
+    expect(screen.getByTestId('notification-create-route')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('notification-create-route'));
+    expect(projectApi.createNotificationRoute).toHaveBeenCalledTimes(1);
+    failRoute(new Error('Route unavailable'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Route unavailable');
+    await waitFor(() => expect(screen.getByTestId('notification-create-route')).toBeEnabled());
+  });
+
   it('retains a failed channel draft and keeps route controls independent', async () => {
     let reject!: (error: Error) => void;
     projectApi.createNotificationChannel.mockReturnValue(new Promise((_, rejectRequest) => { reject = rejectRequest; }));

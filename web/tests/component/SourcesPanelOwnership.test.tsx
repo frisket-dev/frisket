@@ -86,6 +86,27 @@ it('requires two clicks to delete and removes the confirmed source', async () =>
   expect(api.deleteSource).toHaveBeenCalledExactlyOnceWith(7);
 });
 
+it.each(['source-api-list-path', 'source-api-item-id-path', 'source-api-updated-at-path'])('rejects invalid pointers from editor field %s', async (field) => {
+  const { api } = setup(source({ kind: 'api_list_dicts' }));
+  fireEvent.click(await screen.findByTestId('source-edit-7'));
+  fireEvent.change(screen.getByTestId(field), { target: { value: '/bad~2escape' } });
+  fireEvent.submit(screen.getByTestId('source-form'));
+  expect(screen.getByTestId('sources-error')).toHaveTextContent('invalid ~ escape');
+  expect(api.updateSource).not.toHaveBeenCalled();
+});
+
+it('preserves the max-entry config when editing a numeric docket', async () => {
+  const { api } = setup(source({ kind: 'courtlistener_docket', url: null,
+    config: { docket_id: 123, max_entries_per_poll: 4 } }));
+  fireEvent.click(await screen.findByTestId('source-edit-7'));
+  expect(screen.getByTestId('source-court-max-entries')).toHaveValue('4');
+  fireEvent.change(screen.getByTestId('source-court-max-entries'), { target: { value: '6' } });
+  fireEvent.click(screen.getByTestId('source-create'));
+  await waitFor(() => expect(api.updateSource).toHaveBeenCalledWith(7, expect.objectContaining({
+    url: null, config: expect.objectContaining({ docket_id: 123, max_entries_per_poll: 6 }),
+  })));
+});
+
 it('refreshes run history after a failed poll and retains the unloaded-page notice', async () => {
   const { api, onPolled } = setup();
   api.fetchSource.mockRejectedValueOnce(new Error('Connection refused'));

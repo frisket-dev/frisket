@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useReducer } from 'react';
+import { useCallback, useEffect, useReducer, useRef } from 'react';
 import type { FormEvent } from 'react';
-import type { SourceInfo, SourceInput } from '../../api/open';
+import type { SourceHealth, SourceInfo, SourceInput } from '../../api/open';
 import type { SourceApiPort } from '../../api/ports';
 import { buildSourceInput, type SourceFormState } from './sourceConfig';
-import { initialSourcesState, sourcesReducer } from './sourceState';
+import { initialSourcesState, sourcesReducer, type BusySource } from './sourceState';
+import { useSourceHealth } from './useSourceHealth';
 
 const msg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
@@ -12,6 +13,20 @@ export function useSourcesPanelState(
   onPolled?: (sheetId: number | null) => void,
 ) {
   const [state, dispatch] = useReducer(sourcesReducer, undefined, initialSourcesState);
+  const { entries, load: loadHealth, poll, forget } = useSourceHealth(sourceApi);
+  const currentState = useRef(state);
+  useEffect(() => { currentState.current = state; }, [state]);
+  const busyRequests = useRef(new Map<symbol, BusySource>());
+  const beginBusy = useCallback((busy: BusySource) => {
+    const request = Symbol();
+    busyRequests.current.set(request, busy);
+    dispatch({ type: 'set-busy', busy });
+    return request;
+  }, []);
+  const endBusy = useCallback((request: symbol) => {
+    busyRequests.current.delete(request);
+    dispatch({ type: 'set-busy', busy: [...busyRequests.current.values()].at(-1) ?? null });
+  }, []);
 
   const refresh = useCallback(async () => {
     try {
@@ -43,16 +58,10 @@ export function useSourcesPanelState(
     }
   }, [sourceApi]);
 
-  const loadHealth = useCallback(async (id: number, reportError = true) => {
-    dispatch({ type: 'set-health-loading', loading: true });
-    try {
-      const health = await sourceApi.getSourceHealth(id, 0, 20);
-      dispatch({ type: 'health-loaded', health });
-    } catch (e) {
-      if (reportError) dispatch({ type: 'set-health-error', error: msg(e) });
-      else dispatch({ type: 'set-health-loading', loading: false });
-    }
-  }, [sourceApi]);
+  const refreshAfterMutation = useCallback(async (id: number | null) => {
+    await refresh();
+    if (id != null && currentState.current.healthOpenId === id) await loadHealth(id, false);
+  }, [loadHealth, refresh]);
 
   const submit = useCallback(async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -64,8 +73,9 @@ export function useSourcesPanelState(
       return;
     }
 
-    const editingId = state.form.editingId;
-    dispatch({ type: 'set-busy', busy: editingId ?? 'new' });
+    const form = state.form;
+    const editingId = form.editingId;
+    const request = beginBusy(editingId ?? 'new');
     dispatch({ type: 'set-error', error: null });
     try {
       if (editingId == null) {
@@ -73,57 +83,42 @@ export function useSourcesPanelState(
       } else {
         await sourceApi.updateSource(editingId, input);
       }
-      dispatch({ type: 'reset-form' });
-      await refresh();
-      if (editingId != null && state.healthOpenId === editingId) {
-        await loadHealth(editingId, false);
-      }
+      dispatch({ type: 'saved-form', form });
+      await refreshAfterMutation(editingId);
     } catch (error) {
-      dispatch({ type: 'set-error', error: msg(error) });
+      dispatch({ type: 'form-error', form, error: msg(error) });
     } finally {
-      dispatch({ type: 'set-busy', busy: null });
+      endBusy(request);
     }
-  }, [loadHealth, refresh, sourceApi, state.form, state.healthOpenId]);
+  }, [beginBusy, endBusy, refreshAfterMutation, sourceApi, state.form]);
 
   const fetchNow = useCallback(async (id: number) => {
-    dispatch({ type: 'set-busy', busy: id });
+    const request = beginBusy(id);
     dispatch({ type: 'set-error', error: null });
     try {
-      const res = await sourceApi.fetchSource(id);
-      onPolled?.(res.sheetId);
-    } catch (e) {
-      // A failed poll is recorded server-side; surface it inline and let the
-      // run history / health drawer show the detail from the redacted routes.
-      dispatch({ type: 'set-error', error: `Poll failed: ${msg(e)}` });
+      const error = await poll(id, {
+        onPolled,
+        afterPoll: async () => {
+          dispatch({ type: 'set-expanded', id, open: true });
+          await loadRuns(id, false);
+        },
+        refreshHealth: () => currentState.current.healthOpenId === id,
+      });
+      if (error) dispatch({ type: 'set-error', error });
     } finally {
-      dispatch({ type: 'set-busy', busy: null });
-      dispatch({ type: 'set-expanded', id, open: true });
-      await loadRuns(id, false);
-      if (state.healthOpenId === id) await loadHealth(id, false);
+      endBusy(request);
     }
-  }, [loadHealth, loadRuns, onPolled, sourceApi, state.healthOpenId]);
+  }, [beginBusy, endBusy, loadRuns, onPolled, poll]);
 
-  const changeSchedule = useCallback(async (id: number, value: string) => {
+  const patchSource = useCallback(async (id: number, patch: Partial<SourceInput>) => {
     dispatch({ type: 'set-error', error: null });
     try {
-      await sourceApi.updateSource(id, { schedule: value || null });
-      await refresh();
-      if (state.healthOpenId === id) await loadHealth(id, false);
+      await sourceApi.updateSource(id, patch);
+      await refreshAfterMutation(id);
     } catch (e) {
       dispatch({ type: 'set-error', error: msg(e) });
     }
-  }, [loadHealth, refresh, sourceApi, state.healthOpenId]);
-
-  const toggleEnabled = useCallback(async (id: number, enabled: boolean) => {
-    dispatch({ type: 'set-error', error: null });
-    try {
-      await sourceApi.updateSource(id, { enabled });
-      await refresh();
-      if (state.healthOpenId === id) await loadHealth(id, false);
-    } catch (e) {
-      dispatch({ type: 'set-error', error: msg(e) });
-    }
-  }, [loadHealth, refresh, sourceApi, state.healthOpenId]);
+  }, [refreshAfterMutation, sourceApi]);
 
   const remove = useCallback(async (id: number) => {
     if (state.armedDelete !== id) {
@@ -133,11 +128,12 @@ export function useSourcesPanelState(
     dispatch({ type: 'arm-delete', id: null });
     try {
       await sourceApi.deleteSource(id);
+      forget(id);
       dispatch({ type: 'source-deleted', id });
     } catch (e) {
       dispatch({ type: 'set-error', error: msg(e) });
     }
-  }, [sourceApi, state.armedDelete]);
+  }, [forget, sourceApi, state.armedDelete]);
 
   const toggleRuns = useCallback(async (id: number) => {
     const open = !state.expanded[id];
@@ -152,15 +148,20 @@ export function useSourcesPanelState(
   }, [loadHealth, state.healthOpenId]);
 
   return {
-    state,
+    state: {
+      ...state,
+      health: Object.fromEntries<SourceHealth>(Object.entries(entries).flatMap(([id, entry]) => entry.health ? [[id, entry.health] as const] : [])),
+      healthLoading: state.healthOpenId != null && Boolean(entries[state.healthOpenId]?.loading),
+      healthError: state.healthOpenId == null ? null : entries[state.healthOpenId]?.error ?? null,
+    },
     actions: {
       setAdding: (adding: boolean) => dispatch({ type: 'set-adding', adding }),
       startEdit: (source: SourceInfo) => dispatch({ type: 'start-edit', source }),
       updateForm: (patch: Partial<SourceFormState>) => dispatch({ type: 'update-form', patch }),
       submit,
       fetchNow,
-      changeSchedule,
-      toggleEnabled,
+      changeSchedule: (id: number, value: string) => patchSource(id, { schedule: value || null }),
+      toggleEnabled: (id: number, enabled: boolean) => patchSource(id, { enabled }),
       remove,
       toggleRuns,
       openHealth,

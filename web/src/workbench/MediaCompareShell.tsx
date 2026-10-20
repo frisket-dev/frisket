@@ -14,7 +14,7 @@ import { ChevronLeft, ChevronRight, Copy, Loader2, RotateCw, X } from 'lucide-re
 import type { EngineOption } from '../api/open';
 import type { PreviewSampleResult } from '../api/types';
 import { SelectorField } from '../engine-selector/SelectorField';
-import type { SelectorChoice } from '../api/selectorChoices';
+import type { SelectorChoicesState } from '../engine-selector/useSelectorChoices';
 import { mediaSelectorQuery } from './mediaCompareSelector';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { formatDuration, formatUsd } from '../format';
@@ -60,7 +60,7 @@ export interface ConfigureVariantPopoverProps {
   engineSelectorRef: React.Ref<HTMLButtonElement>;
   errorMessage: string | null;
   onChooseEngine(engineId: string): void;
-  onCurrentChoiceChange?(column: CompareColumn, choice: SelectorChoice | null): void;
+  selectorProjection: SelectorChoicesState;
   onDuplicate(): void;
   /** The domain option fields once an engine is chosen (OCR: DPI + language;
    *  transcribe: language/model-size/VAD, per-engine declared). */
@@ -82,7 +82,7 @@ export function ConfigureVariantPopover({
   catalog,
   errorMessage,
   onChooseEngine,
-  onCurrentChoiceChange,
+  selectorProjection,
   onDuplicate,
   renderOptionFields,
   laterHint,
@@ -120,7 +120,7 @@ export function ConfigureVariantPopover({
           projectId={projectId}
           label="Engine"
           query={mediaSelectorQuery(actionId, column)}
-          onCurrentChoiceChange={(choice) => onCurrentChoiceChange?.(column, choice)}
+          projection={selectorProjection}
           recentNamespace={`${projectId}:compare:${actionId}`}
           allowChoice={(choice) => {
             const authored = choice.authored_selection;

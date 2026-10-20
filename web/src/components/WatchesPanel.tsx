@@ -7,14 +7,14 @@ import { PanelEmpty, PanelError, StatusChip } from './PanelPrimitives';
 import { ChevronDown, ChevronRight, Play, RefreshCw, Watch } from 'lucide-react';
 import {
   ApiError,
-  type NotificationSummary,
   type WatchInfo,
   type WatchRun,
   type WatchRunEvent,
   type WatchRunsPage,
 } from '../api/open';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
-import { NOTIFICATIONS_CHANGED_EVENT } from './NotificationsPanel';
+import { dispatchNotificationsChanged, useNotificationSummary } from './notifications/useNotificationSummary';
+import { ConfirmDialog } from './Modal';
 import { useWatchRunLinkHandle } from '../bind/useWatchRunLinkHandle';
 import { useSelector } from '../bind/useSelector';
 import type {
@@ -34,7 +34,6 @@ interface WatchesPanelState {
   runsByWatch: RunsByWatch;
   eventsByRun: EventsByRun;
   highlightedEventsByRun: Record<number, number[]>;
-  watchNotificationCounts: WatchNotificationCounts;
   expanded: Record<number, boolean>;
   listLoading: boolean;
   creating: boolean;
@@ -56,7 +55,6 @@ const initialWatchesPanelState: WatchesPanelState = {
   runsByWatch: {},
   eventsByRun: {},
   highlightedEventsByRun: {},
-  watchNotificationCounts: {},
   expanded: {},
   listLoading: false,
   creating: false,
@@ -126,7 +124,8 @@ function failedWatchActionOutcome(error: Error): WatchActionOutcome {
  * notification channels; it only lists promoted queries and records run history.
  */
 function useWatchesPanelController(canEdit: boolean) {
-  const { projectApi } = useWorkspaceStores();
+  const { projectApi, chromePreferences: { projectId } } = useWorkspaceStores();
+  const notificationSummary = useNotificationSummary();
   const watchRunLinkHandle = useWatchRunLinkHandle();
   const [panelState, setPanelState] = useReducer(
     reduceWatchesPanelState,
@@ -137,7 +136,6 @@ function useWatchesPanelController(canEdit: boolean) {
     runsByWatch,
     eventsByRun,
     highlightedEventsByRun,
-    watchNotificationCounts,
     expanded,
     listLoading,
     creating,
@@ -155,23 +153,12 @@ function useWatchesPanelController(canEdit: boolean) {
     setPanelState({ listLoading: false });
   }, []);
 
-  const applyNotificationSummary = useCallback((summary: NotificationSummary) => {
-    const counts: WatchNotificationCounts = {};
-    for (const item of summary.bySourceRef) {
-      if (item.sourceKind !== 'watch') continue;
-      const watchId = Number(item.sourceRef.watch_id);
-      if (!Number.isInteger(watchId) || watchId <= 0) continue;
-      counts[watchId] = item.unseen;
-    }
-    setPanelState({ watchNotificationCounts: counts });
-  }, []);
-
-  const loadNotificationSummary = useCallback(() => {
-    void projectApi
-      .getNotificationsSummary()
-      .then(applyNotificationSummary)
-      .catch(() => undefined);
-  }, [applyNotificationSummary, projectApi]);
+  const watchNotificationCounts: WatchNotificationCounts = {};
+  for (const item of notificationSummary?.bySourceRef ?? []) {
+    if (item.sourceKind !== 'watch') continue;
+    const watchId = Number(item.sourceRef.watch_id);
+    if (Number.isInteger(watchId) && watchId > 0) watchNotificationCounts[watchId] = item.unseen;
+  }
 
   const load = useCallback(() => {
     const generation = ++watchListGeneration.current;
@@ -231,20 +218,10 @@ function useWatchesPanelController(canEdit: boolean) {
   }, [load]);
 
   useEffect(() => {
-    loadNotificationSummary();
-  }, [loadNotificationSummary]);
-
-  useEffect(() => {
     const onChanged = () => load();
     window.addEventListener('frisket:watches-changed', onChanged);
     return () => window.removeEventListener('frisket:watches-changed', onChanged);
   }, [load]);
-
-  useEffect(() => {
-    const onNotificationsChanged = () => loadNotificationSummary();
-    window.addEventListener(NOTIFICATIONS_CHANGED_EVENT, onNotificationsChanged);
-    return () => window.removeEventListener(NOTIFICATIONS_CHANGED_EVENT, onNotificationsChanged);
-  }, [loadNotificationSummary]);
 
   const applyWatchRunLink = useCallback((link: WatchRunLink) => {
     const watchId = Number(link.watchId);
@@ -354,8 +331,7 @@ function useWatchesPanelController(canEdit: boolean) {
           watch: result.watch,
           focusWatchId: watchId,
         };
-        loadNotificationSummary();
-        window.dispatchEvent(new CustomEvent(NOTIFICATIONS_CHANGED_EVENT));
+        dispatchNotificationsChanged(projectId);
         if (expanded[watchId]) {
           void loadRuns(watchId).catch((e: Error) => setPanelState({ error: e.message }));
         }
@@ -368,7 +344,7 @@ function useWatchesPanelController(canEdit: boolean) {
         watchRunLinkHandle.settleWatchAction(claim, outcome);
         window.dispatchEvent(new Event('frisket:watches-changed'));
       });
-  }, [canEdit, expanded, invalidateWatchList, loadNotificationSummary, loadRuns, projectApi, watchRunLinkHandle]);
+  }, [canEdit, expanded, invalidateWatchList, projectId, loadRuns, projectApi, watchRunLinkHandle]);
 
   const updateWatch = useCallback((
     watchId: number,
@@ -435,7 +411,7 @@ function useWatchesPanelController(canEdit: boolean) {
           watch: null,
           focusWatchId: focusAfterDeleteId,
         };
-        loadNotificationSummary();
+        dispatchNotificationsChanged(projectId);
         return true;
       })
       .catch((e: Error) => {
@@ -447,7 +423,7 @@ function useWatchesPanelController(canEdit: boolean) {
         watchRunLinkHandle.settleWatchAction(claim, outcome);
         window.dispatchEvent(new Event('frisket:watches-changed'));
       });
-  }, [canEdit, invalidateWatchList, loadNotificationSummary, projectApi, watchRunLinkHandle]);
+  }, [canEdit, invalidateWatchList, projectId, projectApi, watchRunLinkHandle]);
 
   // Refresh a blocked embedding watch's index, then re-run the watch.
   const refreshWatchIndex = useCallback((watchId: number, indexId: string) => {
@@ -468,8 +444,7 @@ function useWatchesPanelController(canEdit: boolean) {
           watch: result.watch,
           focusWatchId: watchId,
         };
-        loadNotificationSummary();
-        window.dispatchEvent(new CustomEvent(NOTIFICATIONS_CHANGED_EVENT));
+        dispatchNotificationsChanged(projectId);
         if (expanded[watchId]) {
           void loadRuns(watchId).catch((e: Error) => setPanelState({ error: e.message }));
         }
@@ -480,7 +455,7 @@ function useWatchesPanelController(canEdit: boolean) {
         watchRunLinkHandle.settleWatchAction(claim, outcome);
         window.dispatchEvent(new Event('frisket:watches-changed'));
       });
-  }, [canEdit, expanded, invalidateWatchList, loadNotificationSummary, loadRuns, projectApi, watchRunLinkHandle]);
+  }, [canEdit, expanded, invalidateWatchList, projectId, loadRuns, projectApi, watchRunLinkHandle]);
 
   const toggleRuns = useCallback((watchId: number) => {
     const nextOpen = !expanded[watchId];
@@ -697,65 +672,6 @@ function WatchRunHistory({
   );
 }
 
-function ConfirmDeleteWatchDialog({
-  busy,
-  error,
-  id,
-  name,
-  onCancel,
-  onConfirm,
-}: {
-  busy: boolean;
-  error: string | undefined;
-  id: number;
-  name: string;
-  onCancel(): void;
-  onConfirm(): void;
-}) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const titleId = `delete-watch-title-${id}`;
-  const descriptionId = `${titleId}-description`;
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (dialog && !dialog.open) dialog.showModal();
-  }, []);
-
-  return (
-    <dialog
-      ref={dialogRef}
-      className="modal-card"
-      data-testid="delete-watch-confirmation"
-      aria-labelledby={titleId}
-      aria-describedby={descriptionId}
-      aria-busy={busy}
-      onCancel={(event) => {
-        event.preventDefault();
-        if (!busy) onCancel();
-      }}
-    >
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (!busy) onConfirm();
-        }}
-      >
-        <div className="modal-title" id={titleId}>Delete {name}?</div>
-        <p className="modal-body-text" id={descriptionId}>
-          Deleting this Watch means its run history and in-app notifications will be deleted; already-sent email or external notifications cannot be recalled.
-        </p>
-        {error && <PanelError testId="watch-mutation-error">{error}</PanelError>}
-        <div className="form-actions">
-          <Button autoFocus type="button" disabled={busy} onClick={onCancel}>Cancel</Button>
-          <Button type="submit" className="btn-reject" data-testid="confirm-delete-watch" disabled={busy}>
-            {busy ? 'Deleting…' : 'Delete Watch'}
-          </Button>
-        </div>
-      </form>
-    </dialog>
-  );
-}
-
 function WatchItem({
   pendingAction,
   canEdit,
@@ -915,14 +831,15 @@ function WatchItem({
       )}
       {mutationError && !confirmingDelete && <PanelError testId="watch-mutation-error">{mutationError}</PanelError>}
       {confirmingDelete && (
-        <ConfirmDeleteWatchDialog
-          busy={isDeleting}
-          error={mutationError}
-          id={watch.id}
-          name={watch.name}
-          onCancel={closeDeleteDialog}
-          onConfirm={confirmDelete}
-        />
+        <ConfirmDialog title={`Delete ${watch.name}?`} busy={isDeleting} danger
+          testId="delete-watch-confirmation" confirmTestId="confirm-delete-watch"
+          confirmLabel={isDeleting ? 'Deleting…' : 'Delete Watch'}
+          onCancel={closeDeleteDialog} onConfirm={confirmDelete}>
+          <p className="modal-body-text">
+            Deleting this Watch means its run history and in-app notifications will be deleted; already-sent email or external notifications cannot be recalled.
+          </p>
+          {mutationError && <PanelError testId="watch-mutation-error">{mutationError}</PanelError>}
+        </ConfirmDialog>
       )}
       {canEdit && WatchControlSlot && (
         <WatchControlSlot

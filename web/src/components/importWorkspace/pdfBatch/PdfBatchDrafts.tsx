@@ -4,7 +4,8 @@ import { FileText, LoaderCircle, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import { pdfImportsApi, type PdfImportSnapshot, type PdfImportsApi } from '../../../api/pdfImports';
-import { bytesLabel, count } from './model';
+import { count } from './model';
+import { formatBytes } from '../../../format';
 import './PdfBatchImportFlow.css';
 
 export interface PdfBatchDraftsProps {
@@ -65,7 +66,7 @@ export function PdfBatchDrafts({ projectId, onResume, api = pdfImportsApi }: Pdf
       return <article key={draft.draft_id}>
         <FileText size={17} aria-hidden />
         <div><strong>{draft.source_label || count(total, 'file')}</strong><span>{draft.state === 'cancelling'
-          ? `Removing ${bytesLabel(draft.cleanup.bytes_done)} of ${bytesLabel(draft.cleanup.bytes_total ?? 0)}`
+          ? `Removing ${formatBytes(draft.cleanup.bytes_done)} of ${formatBytes(draft.cleanup.bytes_total ?? 0)}`
           : `${copied.toLocaleString()} of ${total.toLocaleString()} copied${draft.paused ? ' · Paused' : ''}`}</span></div>
         {draft.state === 'cancelling' ? <LoaderCircle className="spin" size={15} aria-label="Removing import" /> : confirming ? <div className="pdf-batch-draft-confirm">
           <span>Discard this import?</span>

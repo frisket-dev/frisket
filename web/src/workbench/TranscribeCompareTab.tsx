@@ -159,7 +159,6 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
     runningCount,
     sourceOpen,
     setSourceOpen,
-    removeColumn,
     updateColumnOptions,
   } = session;
   const quoteInputKey = useMemo(() => JSON.stringify({
@@ -176,7 +175,7 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
   const moreInputRef = useRef<HTMLInputElement>(null);
   const {
     configureVariantId,
-    setConfigureVariantId,
+    onRemoveVariant,
     popoverShift,
     configureAnchorRef,
     engineSelectorRef,
@@ -210,6 +209,7 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
 
   return (
     <section className="ocr-compare-tab" data-testid="transcribe-compare-tab">
+      {session.selectorOwners}
       <CompareToolbar testIdPrefix="transcribe-compare" running={runningCount > 0} label="ENGINES" chipsTestId="transcribe-compare-engine-chips" disabled={busy} tag="temporary files · usage is recorded"
         controls={<>
           <label className="form-label form-field">First seconds
@@ -251,15 +251,12 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
                 engineId={column.engineId} label={engineLabel(column.engineId)} variantId={column.id}
                 pip={pip} summary={summary}
                 onConfigure={() => openConfigure(column.id)}
-                onRemove={() => {
-                  setConfigureVariantId((prev) => (prev === column.id ? null : prev));
-                  removeColumn(column.id);
-                }}
+                onRemove={() => onRemoveVariant(column.id)}
                 chipTestId="transcribe-compare-engine-chip"
                 removeTestId={`transcribe-compare-engine-chip-remove-${column.engineId ?? ''}`} />
               {configureVariantId === column.id ? (
                 <ConfigureVariantPopover
-                  onCurrentChoiceChange={session.reportColumnChoice}
+                  selectorProjection={session.selectorProjection(column)}
                   testidPrefix="transcribe-compare"
                   actionId="media.transcribe"
                   popoverRef={configurePopoverRef}
