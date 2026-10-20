@@ -1,6 +1,6 @@
 # UI inventory findings
 
-## Responsibility consolidation (2026-10-20; implemented, final verification)
+## Responsibility consolidation (2026-10-20; implemented, awaiting visual approval)
 
 All fourteen audit items below are implemented, including non-bug duplication.
 Seven parallel implementation lanes shared bounded file ownership; independent
@@ -19,10 +19,17 @@ Reviews caught and repaired stale source errors and clipboard A→B→A feedback
 The integrated run passed 3,763 tests in 474 files; 73 targeted follow-up tests
 cover subsequent review repairs and the final formatter cleanup. Types,
 Local/Team builds, lint (zero errors, 32 existing warnings) and dependency
-boundaries pass. Baseline browser capture passed seven scenarios; after captures
-and Claude's frozen-candidate review are underway. Final build checking caught
+boundaries pass. Baseline browser capture passed seven scenarios; final browser
+capture passed eight. Independent Codex reviews are clear; Claude's review of
+`591b3165` is requested and pending. Final build checking caught
 one remaining call to the deleted byte-label alias; it now calls the shared
 formatter directly, with no formatting policy change.
+
+The focused review artifact `frisket-ui-responsibility-review-2026-10-20.zip`
+combines 33 scenes from this and the previous round, all with current after
+captures. Each before image records its actual baseline; no dark-mode inventory
+duplication. All 258 local references and archive integrity were checked.
+No PR/merge before maintainer screenshot approval.
 
 ### Audit rationale and original implementation map
 
