@@ -125,6 +125,25 @@ export async function captureAskAndComparisonScenes(page: Page, shot: Shot) {
     await button.click();
     await expect(page.getByTestId(`${tab}-tab`)).toBeVisible();
     await waitForInventoryComparison(page, tab);
+    if (command === 'translate-compare') {
+      const source = page.getByTestId('translate-compare-source');
+      const text = source.getByRole('textbox', { name: 'Sample text', exact: true });
+      const from = source.getByTestId('translate-compare-source-language');
+      const target = source.getByRole('textbox', { name: 'Target language', exact: true });
+      const textBounds = (await text.boundingBox())!;
+      const fromBounds = (await from.boundingBox())!;
+      const targetBounds = (await target.boundingBox())!;
+      expect(textBounds.width, 'Text source has a usable editing width').toBeGreaterThan(250);
+      expect(textBounds.height).toBeLessThan(220);
+      expect(fromBounds.y).toBeGreaterThan(textBounds.y + textBounds.height);
+      expect(fromBounds.y - textBounds.y - textBounds.height).toBeLessThan(60);
+      expect(targetBounds.y).toBeGreaterThan(fromBounds.y + fromBounds.height);
+      expect(Math.abs(textBounds.x - fromBounds.x)).toBeLessThan(2);
+      const toolbar = (await page.getByTestId('translate-compare-toolbar').boundingBox())!;
+      const run = (await page.getByTestId('translate-compare-run').boundingBox())!;
+      expect(run.y).toBeGreaterThanOrEqual(toolbar.y);
+      expect(run.y + run.height).toBeLessThanOrEqual(toolbar.y + toolbar.height);
+    }
     if (command === 'ocr-compare') {
       const source = page.getByTestId('ocr-compare-source-toggle');
       await expect(source).toBeVisible();
@@ -135,5 +154,18 @@ export async function captureAskAndComparisonScenes(page: Page, shot: Shot) {
       await source.click();
     }
     await shot(page, 'Comparison', `${tab}-empty`, 'src/workbench/MediaCompareShell.tsx; *CompareTab.tsx');
+    if (command === 'translate-compare') {
+      const viewport = page.viewportSize()!;
+      try {
+        await page.setViewportSize({ width: 720, height: 900 });
+        const source = page.getByTestId('translate-compare-source');
+        const panel = page.getByTestId('translate-compare-tab');
+        await expect.poll(() => panel.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+        await expect.poll(() => source.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+        await shot(page, 'Comparison', 'translate-compare-narrow', 'src/workbench/TranslateCompareTab.tsx');
+      } finally {
+        await page.setViewportSize(viewport);
+      }
+    }
   }
 }

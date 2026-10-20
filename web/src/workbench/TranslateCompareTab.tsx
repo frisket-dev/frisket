@@ -1,5 +1,8 @@
 import { Button } from '../components/Button';
-import { TextArea, TextInput } from '../components/FormControls';
+import { FormField, TextArea, TextInput } from '../components/FormControls';
+import { PanelBody } from '../components/PanelLayout';
+import { PanelEmpty, PanelError } from '../components/PanelPrimitives';
+import styles from './TranslateCompareTab.module.css';
 import { useEffect, useMemo, useState } from 'react';
 import { Loader2, Play, X } from 'lucide-react';
 
@@ -247,49 +250,6 @@ export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProp
             </div>
           </div>
         </div>
-      </div>
-
-      <div className="ocr-compare-body" data-testid="translate-compare-body">
-        <label className="ocr-compare-configure-field form-field">
-          <span className="ocr-compare-configure-label">Sample text</span>
-          <TextArea
-            data-testid="translate-compare-text"
-            rows={5}
-            value={text}
-            placeholder="Paste a sentence or two to translate with every selected engine…"
-            onChange={(event) => setText(event.target.value)}
-          />
-        </label>
-
-        <div className="ocr-compare-controls-row">
-          <label className="ocr-compare-configure-field form-field">
-            <span className="ocr-compare-configure-label">Translate from</span>
-            <PanelSelect
-              className="row-height-select"
-              testId="translate-compare-source-language"
-              ariaLabel="Translate from"
-              value={sourceLanguage}
-              onValueChange={setSourceLanguage}
-              options={SOURCE_LANGUAGE_OPTIONS}
-            />
-          </label>
-          <label className="ocr-compare-configure-field form-field">
-            <span className="ocr-compare-configure-label">Target language</span>
-            <TextInput
-              data-testid="translate-compare-target-language"
-              value={targetLanguage}
-              placeholder="e.g. Japanese, Spanish, French"
-              onChange={(event) => setTargetLanguage(event.target.value)}
-            />
-          </label>
-        </div>
-
-        <CompareBillableEnginesNote
-          testidPrefix="translate-compare"
-          engines={billableEngines}
-          actionLabel="the Translate action"
-        />
-
         <div className="ocr-compare-controls-row">
           <Button
             type="button"
@@ -309,26 +269,60 @@ export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProp
             {running ? 'Translating…' : 'Translate'}
           </Button>
         </div>
+        <CompareBillableEnginesNote
+          testidPrefix="translate-compare"
+          engines={billableEngines}
+          actionLabel="the Translate action"
+        />
+      </div>
 
-        {runError ? (
-          <p className="form-hint" data-testid="translate-compare-run-error">
-            {runError}
-          </p>
-        ) : null}
+      <div className={`ocr-compare-body ${styles.workspace}`} data-testid="translate-compare-body">
+        <PanelBody padding="compact" className={styles.source} data-testid="translate-compare-source">
+          <div className="content-stack">
+            <FormField label="Sample text">
+              <TextArea
+                data-testid="translate-compare-text"
+                rows={8}
+                value={text}
+                placeholder="Paste a sentence or two to translate with every selected engine…"
+                onChange={(event) => setText(event.target.value)}
+              />
+            </FormField>
+            <FormField label="Translate from">
+              <PanelSelect
+                className="row-height-select"
+                testId="translate-compare-source-language"
+                ariaLabel="Translate from"
+                value={sourceLanguage}
+                onValueChange={setSourceLanguage}
+                options={SOURCE_LANGUAGE_OPTIONS}
+              />
+            </FormField>
+            <FormField label="Target language">
+              <TextInput
+                data-testid="translate-compare-target-language"
+                value={targetLanguage}
+                placeholder="e.g. Japanese, Spanish, French"
+                onChange={(event) => setTargetLanguage(event.target.value)}
+              />
+            </FormField>
+            {runError && <PanelError testId="translate-compare-run-error">{runError}</PanelError>}
+          </div>
+        </PanelBody>
 
         {results !== null ? (
-          <div className="ocr-compare-results" data-testid="translate-compare-results">
+          <div className={`ocr-compare-columns ${styles.results}`} data-testid="translate-compare-results">
             {selectedEngines.map((engine) => {
               const result = resultByEngine.get(engine.id);
               const error = runErrors[engine.id] ?? (result?.errors ?? [])[0];
               return (
                 <div
                   key={engine.id}
-                  className="ocr-compare-result-card"
+                  className="ocr-compare-engine-column"
                   data-testid="translate-compare-result-card"
                   data-engine-id={engine.id}
                 >
-                  <div className="ocr-compare-result-head">
+                  <div className="ocr-compare-engine-head">
                     <span className="ocr-compare-variant-name">{engine.label}</span>
                     {result?.detected_language ? (
                       <span
@@ -339,26 +333,29 @@ export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProp
                       </span>
                     ) : null}
                   </div>
-                  {error ? (
-                    <p
-                      className="form-hint ocr-compare-result-error"
-                      data-testid={`translate-compare-result-error-${engine.id}`}
-                    >
-                      {error}
-                    </p>
-                  ) : (
-                    <p
-                      className="ocr-compare-result-text"
-                      data-testid={`translate-compare-result-text-${engine.id}`}
-                    >
-                      {result?.translation || '—'}
-                    </p>
-                  )}
+                  <div className="ocr-compare-engine-text">
+                    {error ? (
+                      <PanelError testId={`translate-compare-result-error-${engine.id}`}>
+                        {error}
+                      </PanelError>
+                    ) : (
+                      <p
+                        className="ocr-compare-plain-text"
+                        data-testid={`translate-compare-result-text-${engine.id}`}
+                      >
+                        {result?.translation || '—'}
+                      </p>
+                    )}
+                  </div>
                 </div>
               );
             })}
           </div>
-        ) : null}
+        ) : (
+          <PanelBody padding="compact">
+            <PanelEmpty>Enter sample text and choose engines to compare translations.</PanelEmpty>
+          </PanelBody>
+        )}
       </div>
     </section>
   );

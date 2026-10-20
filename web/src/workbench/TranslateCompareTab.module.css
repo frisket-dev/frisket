@@ -1,0 +1,22 @@
+/* Text input replaces the file list/source peek; controls and result columns
+   retain the shared form and comparison styling. */
+.workspace > .source {
+  flex: 0 0 clamp(280px, 35%, 420px);
+  border-right: 1px solid var(--border);
+}
+.workspace > .results {
+  grid-auto-columns: minmax(240px, 1fr);
+  overflow: auto;
+}
+@media (max-width: 760px) {
+  .workspace {
+    flex-direction: column;
+    overflow: auto;
+  }
+  .workspace > .source {
+    flex: 0 0 auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .workspace > .results { flex: 1 0 240px; }
+}
