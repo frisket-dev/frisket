@@ -5,10 +5,12 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from frisket.ai.llm import ModelRouter
 from frisket.ai.llm.types import LLMRequest, LLMResponse
 from frisket.engine.store import Project
-from frisket.engine.store.project_qa import ProjectQAStore
+from frisket.engine.store.project_qa import ProjectQAConflictError, ProjectQAStore
 from frisket.server.services.project_qa_runner import run_turn
 
 
@@ -140,8 +142,10 @@ def test_ordinary_turn_loads_admitted_skill_without_authoring_or_action_power(
         project.close()
 
 
+@pytest.mark.parametrize("stale_proposal", [False, True])
 def test_manager_bound_adapter_exposes_review_only_authoring_tools(
     tmp_path: Path,
+    stale_proposal: bool,
 ) -> None:
     content = (
         "---\n"
@@ -168,6 +172,8 @@ def test_manager_bound_adapter_exposes_review_only_authoring_tools(
             expected_revision: int | None = None,
         ) -> dict[str, Any]:
             self.proposals.append((proposed, target_skill_id, expected_revision))
+            if stale_proposal and len(self.proposals) == 1:
+                raise ProjectQAConflictError("This skill changed. Read it again.")
             return {
                 "proposal_id": "proposal-1",
                 "name": "scoped-review",
@@ -182,16 +188,18 @@ def test_manager_bound_adapter_exposes_review_only_authoring_tools(
             del client
             self.requests.append(request)
             observations = [
-                json.loads(message["content"])
+                message["content"]
                 for message in request.messages
                 if message["role"] == "tool"
             ]
-            if not observations:
+            if observations and "This skill changed" in observations[-1]:
+                name, args = "propose_skill", {"content": content}
+            elif not observations:
                 names = {tool["name"] for tool in request.tools or []}
                 assert {"list_skills", "read_skill", "propose_skill"} <= names
                 name, args = "propose_skill", {"content": content}
             else:
-                assert observations[-1]["proposal_id"] == "proposal-1"
+                assert json.loads(observations[-1])["proposal_id"] == "proposal-1"
                 name, args = (
                     _output_tool(request),
                     {
@@ -226,7 +234,9 @@ def test_manager_bound_adapter_exposes_review_only_authoring_tools(
             )
         )
         assert answer["text"] == "I prepared scoped-review for you to review."
-        assert authoring.proposals == [(content, None, None)]
+        assert authoring.proposals == [(content, None, None)] * (
+            2 if stale_proposal else 1
+        )
         instructions = _system_text(provider.requests[0])
         assert "creates a reviewable proposal; it does not save" in instructions
         assert (

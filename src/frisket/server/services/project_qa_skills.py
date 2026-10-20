@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Mapping
 from typing import Any, Literal
 from uuid import uuid4
@@ -20,6 +21,8 @@ from frisket.server.services.skills import (
 )
 from frisket.server.thread_worker import await_thread_worker
 
+
+logger = logging.getLogger(__name__)
 
 SkillScope = Literal["workspace", "organization"]
 SkillManagerAuthorizer = Callable[[str, BackgroundAskContext], None]
@@ -356,7 +359,6 @@ class ProjectQASkillAdapter:
                     raise ProjectQASkillConflict(code, str(exc)) from exc
                 raise
 
-        self._include_explicit_research_skill(store, thread_id, skill)
         saved = store.record_skill_saved(
             turn_id,
             proposal_id=proposal_id,
@@ -370,6 +372,14 @@ class ProjectQASkillAdapter:
                 "status": "saved",
             },
         )
+        try:
+            self._include_explicit_research_skill(store, thread_id, skill)
+        except ProjectQAConflictError:
+            # The library write and its receipt are already committed. A
+            # concurrent options edit must not turn a successful Save into an error.
+            logger.warning(
+                "Skill saved; concurrent chat settings change prevented selection"
+            )
         return self._saved_result(library, attempt=attempt, saved=saved)
 
     async def save(self, **kwargs: Any) -> dict[str, Any]:

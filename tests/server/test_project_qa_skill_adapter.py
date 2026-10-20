@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from frisket.engine.store import Project
-from frisket.engine.store.project_qa import ProjectQAStore
+from frisket.engine.store.project_qa import ProjectQAConflictError, ProjectQAStore
 from frisket.contracts.http.project_qa import AskThreadCreate, AskTurnRequest
 from frisket.server.services.project_qa import ProjectQAService
 from frisket.server.services.project_qa_skills import (
@@ -225,7 +225,10 @@ def test_solo_http_save_projects_current_authority_and_typed_conflict(tmp_path) 
         )
 
 
-def test_save_conflict_rebase_retry_and_explicit_selection(tmp_path) -> None:
+@pytest.mark.parametrize("settings_conflict", [False, True])
+def test_save_conflict_rebase_retry_and_explicit_selection(
+    tmp_path, monkeypatch, settings_conflict
+) -> None:
     async def scenario() -> None:
         project = Project.create(tmp_path / "ask.frisket", name="Ask")
         library = SkillLibrary(tmp_path / "library")
@@ -256,6 +259,15 @@ def test_save_conflict_rebase_retry_and_explicit_selection(tmp_path) -> None:
         proposal = await bound.propose_skill(content)
         store.finish_turn(turn["id"], status="completed")
 
+        if settings_conflict:
+            original_update = store.update_thread
+
+            def concurrent_settings_change(*args, **kwargs):
+                monkeypatch.setattr(store, "update_thread", original_update)
+                raise ProjectQAConflictError("Thread changed")
+
+            monkeypatch.setattr(store, "update_thread", concurrent_settings_change)
+
         saved = await adapter.save(
             store=store,
             project_id="project-1",
@@ -268,10 +280,10 @@ def test_save_conflict_rebase_retry_and_explicit_selection(tmp_path) -> None:
             expected_revision=None,
         )
         assert saved["skill"]["revision"] == 1
-        assert store.get_thread(thread["id"])["research"]["skills"] == [
-            "existing",
-            "source-check",
-        ]
+        assert store.latest_skill_saved(turn["id"], proposal["proposal_id"]) is not None
+        assert store.get_thread(thread["id"])["research"]["skills"] == (
+            ["existing"] if settings_conflict else ["existing", "source-check"]
+        )
         assert (
             await adapter.save(
                 store=store,

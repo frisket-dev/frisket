@@ -700,7 +700,7 @@ async def run_turn(
                 target_skill_id=target_skill_id,
                 expected_revision=expected_revision,
             )
-        except (PermissionError, ValueError) as error:
+        except (PermissionError, ValueError, ProjectQAConflictError) as error:
             raise ModelRetry(str(error)) from error
 
     research_record = (
