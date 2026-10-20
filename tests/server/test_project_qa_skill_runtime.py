@@ -229,6 +229,13 @@ def test_manager_bound_adapter_exposes_review_only_authoring_tools(
         assert authoring.proposals == [(content, None, None)]
         instructions = _system_text(provider.requests[0])
         assert "creates a reviewable proposal; it does not save" in instructions
+        assert (
+            "---\nname: lowercase-hyphen-name\n"
+            "description: short description\n---\n..." in instructions
+        )
+        assert "Frontmatter permits only name and description" in instructions
+        assert "name is at most 64 characters" in instructions
+        assert "description is 1 to 200 characters" in instructions
         assert "preserve the selected row/view scope" in instructions
         assert "chosen action's returned scope contract" in instructions
         assert "without promising a preview operation" in instructions
