@@ -145,7 +145,7 @@ export function SkillsSettings() {
       <div className="skills-settings-head">
         <div>
           <h2><FileText size={16} aria-hidden /> Skills</h2>
-          <p>Text-only instructions for Ask. Skills cannot run code or add tools.</p>
+          <p>Text-only instructions for Ask. Skills cannot run code or add tools. Do not include credentials or secrets.</p>
         </div>
         <div className="settings-actions">
           <button type="button" className="icon-btn" aria-label="Refresh skills" onClick={() => void load()} disabled={busy}><RefreshCw size={14} /></button>

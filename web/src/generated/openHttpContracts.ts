@@ -1687,6 +1687,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
+      "id": "tenant.qa_save_skill_proposal.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/qa/threads/{thread_id}/turns/{turn_id}/skill-proposals/{proposal_id}/save",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
       "id": "tenant.qa_stop_turn.post",
       "method": "POST",
       "path": "/api/projects/{pid}/qa/threads/{thread_id}/turns/{turn_id}/stop",
@@ -3590,7 +3599,7 @@ type HttpAskEventsPage_AskCitation = ({
 type HttpAskEventsPage_AskEvent = ({
   "citations"?: (Array<(HttpAskEventsPage_AskCitation)>);
   "created_at": (string);
-  "kind": ("question" | "assistant" | "tool_started" | "tool_completed" | "answer" | "result_suggestion" | "action_proposal" | "research_child" | "usage" | "status") & (string);
+  "kind": ("question" | "assistant" | "tool_started" | "tool_completed" | "answer" | "result_suggestion" | "action_proposal" | "skill_proposal" | "skill_save_attempt" | "skill_saved" | "research_child" | "usage" | "status") & (string);
   "payload": ({
   [key: string]: (HttpAskEventsPage_JsonValue);
 });
@@ -3750,6 +3759,30 @@ export type HttpAskResearchResume = ({
   "write_mode"?: ((("ask_each" | "ask_overwrite" | "full_access") & (string)) | ((null)));
 });
 
+export type HttpAskSkillSaveRequest = ({
+  "content": (string);
+  "expected_revision"?: (((number)) | ((null)));
+  "request_id": (string);
+});
+
+type HttpAskSkillSaveResult_InstructionSkill = ({
+  "content": (string);
+  "createdAt": (string);
+  "description": (string);
+  "enabled": (boolean);
+  "id": (string);
+  "name": (string);
+  "revision": (number);
+  "updatedAt": (string);
+});
+
+export type HttpAskSkillSaveResult = ({
+  "attempt_id": (string);
+  "proposal_id": (string);
+  "skill": (((HttpAskSkillSaveResult_InstructionSkill)) | ((null)));
+  "status": ("saved" | "changed" | "deleted") & (string);
+});
+
 type HttpAskThread_AskFileSource = ({
   "column_id": (number);
   "kind": ("file") & (string);
@@ -3855,7 +3888,7 @@ type HttpAskThreadDetail_AskCitation = ({
 type HttpAskThreadDetail_AskEvent = ({
   "citations"?: (Array<(HttpAskThreadDetail_AskCitation)>);
   "created_at": (string);
-  "kind": ("question" | "assistant" | "tool_started" | "tool_completed" | "answer" | "result_suggestion" | "action_proposal" | "research_child" | "usage" | "status") & (string);
+  "kind": ("question" | "assistant" | "tool_started" | "tool_completed" | "answer" | "result_suggestion" | "action_proposal" | "skill_proposal" | "skill_save_attempt" | "skill_saved" | "research_child" | "usage" | "status") & (string);
   "payload": ({
   [key: string]: (HttpAskThreadDetail_JsonValue);
 });
@@ -4005,7 +4038,9 @@ type HttpAskThreadDetail_ProjectSearchTextRange = ({
 
 export type HttpAskThreadDetail = ({
   "active_turn": (((HttpAskThreadDetail_AskTurn)) | ((null)));
+  "can_manage_skills"?: (boolean);
   "history": (HttpAskThreadDetail_AskEventsPage);
+  "skill_scope"?: ("workspace" | "organization") & (string);
   "thread": (HttpAskThreadDetail_AskThread);
 });
 
@@ -7969,6 +8004,13 @@ export type HttpInline_ca8048e52b1f7635 = ({
 export type HttpInline_cd5e2492515e7874 = ({
   "index_id": (string);
   "pid": (string);
+});
+
+export type HttpInline_d1eb6092d690cae5 = ({
+  "pid": (string);
+  "proposal_id": (string);
+  "thread_id": (string);
+  "turn_id": (string);
 });
 
 export type HttpInline_d746974fa9afd5e9 = (Record<string, never>);
@@ -16888,6 +16930,20 @@ export type HttpContractOperationMap = {
     readonly request: HttpAskResearchResume;
     readonly responses: {
       readonly "200": HttpAskTurn;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.qa_save_skill_proposal.post": {
+    readonly pathParams: HttpInline_d1eb6092d690cae5;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpAskSkillSaveRequest;
+    readonly responses: {
+      readonly "200": HttpAskSkillSaveResult;
       readonly "401": HttpError;
       readonly "403": HttpError;
       readonly "404": HttpError;

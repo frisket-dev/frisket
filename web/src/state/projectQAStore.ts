@@ -3,6 +3,7 @@ import type {
   AskEvent, AskResearchConfiguration, AskResearchOptions, AskResearchResume, AskScope, AskThread, AskTurn,
   AskTurnRequest, ProjectQAApi,
 } from '../api/projectQA';
+import type { SkillProposalSaveRequest, SkillProposalSaveResult } from '../api/skillProposals';
 
 interface AskState {
   threads: AskThread[];
@@ -21,6 +22,8 @@ interface AskState {
   researchConfiguration: AskResearchConfiguration | null;
   researchConfigurationError: string | null;
   researchConfigurationLoading: boolean;
+  canManageSkills: boolean;
+  skillScope: 'workspace' | 'organization' | null;
   busy: boolean;
   loaded: boolean;
   error: string | null;
@@ -30,6 +33,7 @@ const initial = (): AskState => ({
   threads: [], hasMoreThreads: false, thread: null, events: [], hasEarlier: false, activeTurn: null, draft: '', scope: null,
   scopeFollowsContext: true, model: null, web: false, suggestActions: true, research: null, researchConfiguration: null,
   researchConfigurationError: null, researchConfigurationLoading: false,
+  canManageSkills: false, skillScope: null,
   busy: false, loaded: false, error: null,
 });
 
@@ -54,6 +58,13 @@ export function createProjectQAStore(api: ProjectQAApi) {
   const mergeEvents = (events: AskEvent[]) => store.set((s) => ({
     ...s, events: [...new Map([...s.events, ...events].map((event) => [event.seq, event])).values()].sort((a, b) => a.seq - b.seq),
   }));
+  const skillAuthority = (detail: unknown): Pick<AskState, 'canManageSkills' | 'skillScope'> => {
+    const value = detail as { can_manage_skills?: unknown; skill_scope?: unknown };
+    return {
+      canManageSkills: value.can_manage_skills === true,
+      skillScope: value.skill_scope === 'organization' || value.skill_scope === 'workspace' ? value.skill_scope : null,
+    };
+  };
 
   async function loadResearchConfiguration() {
     if (store.get().researchConfigurationLoading) return;
@@ -81,7 +92,7 @@ export function createProjectQAStore(api: ProjectQAApi) {
         hasEarlier: detail.history.has_more,
         activeTurn: detail.active_turn, scope: detail.thread.scope, scopeFollowsContext: false, model: detail.thread.model ?? null,
         web: detail.thread.web ?? false, suggestActions: detail.thread.suggest_actions ?? true,
-        research: researchOptions(detail.thread.research), busy: false,
+        research: researchOptions(detail.thread.research), busy: false, ...skillAuthority(detail),
       }));
       await refresh();
     } catch (exc) {
@@ -149,7 +160,8 @@ export function createProjectQAStore(api: ProjectQAApi) {
           threads: s.threads.filter((item) => item.id !== thread.id), scope: contextScope ?? s.scope,
           model: s.model, researchConfiguration: s.researchConfiguration,
           researchConfigurationError: s.researchConfigurationError,
-          researchConfigurationLoading: s.researchConfigurationLoading }));
+          researchConfigurationLoading: s.researchConfigurationLoading,
+          canManageSkills: false, skillScope: null }));
         return true;
       } catch (exc) {
         if (current === generation) store.set((s) => ({ ...s, error: error(exc) }));
@@ -204,7 +216,8 @@ export function createProjectQAStore(api: ProjectQAApi) {
       controller = new AbortController();
       pending = null;
       store.set((s) => ({ ...s, thread: null, events: [], hasEarlier: false, activeTurn: null, draft: '', scope,
-        scopeFollowsContext: true, web: false, suggestActions: true, research: null, error: null, busy: false }));
+        scopeFollowsContext: true, web: false, suggestActions: true, research: null, error: null, busy: false,
+        canManageSkills: false, skillScope: null }));
     },
     async send() {
       const snapshot = store.get();
@@ -222,6 +235,9 @@ export function createProjectQAStore(api: ProjectQAApi) {
           if (current !== generation) return;
           thread = created;
           store.set((s) => ({ ...s, thread: created, scopeFollowsContext: false, threads: [created, ...s.threads] }));
+          const detail = await api.detail(created.id, controller.signal);
+          if (current !== generation) return;
+          store.set((s) => ({ ...s, ...skillAuthority(detail) }));
         }
         const question = snapshot.draft.trim();
         if (!pending || pending.threadId !== thread.id || pending.body.question !== question
@@ -266,6 +282,21 @@ export function createProjectQAStore(api: ProjectQAApi) {
       } catch (exc) {
         if (current === generation) store.set((s) => ({ ...s, busy: false, error: error(exc) }));
       }
+    },
+    async saveSkillProposal(turnId: string, proposalId: string, body: SkillProposalSaveRequest): Promise<SkillProposalSaveResult> {
+      const snapshot = store.get();
+      if (!snapshot.thread) throw new Error('Open the conversation before saving this skill.');
+      const current = generation;
+      const saved = await api.saveSkillProposal(snapshot.thread.id, turnId, proposalId, body, controller.signal);
+      if (current !== generation) return saved;
+      try {
+        const detail = await api.detail(snapshot.thread.id, controller.signal);
+        if (current === generation) store.set((s) => ({ ...s, thread: detail.thread, research: researchOptions(detail.thread.research),
+          ...skillAuthority(detail), threads: s.threads.map((item) => item.id === detail.thread.id ? detail.thread : item) }));
+      } catch { /* Save is durable; event refresh/reopen can reconcile display metadata. */ }
+      await refresh();
+      await loadResearchConfiguration();
+      return saved;
     },
     dispose() {
       generation += 1;
