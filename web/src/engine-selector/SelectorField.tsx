@@ -27,7 +27,7 @@ export interface SelectorFieldProps {
   triggerRef?: Ref<HTMLButtonElement>;
   /** Host-specific policy may further narrow offered choices, never broaden them. */
   allowChoice?(choice: SelectorChoice): boolean;
-  onCurrentChoiceChange?(choice: SelectorChoice | null): void;
+  onCurrentChoiceChange?(choice: SelectorChoice | null, state: SelectorChoicesState): void;
   renderDetailExtra?(context: {
     choice: SelectorChoice;
     onEditingChange(editing: boolean): void;
@@ -189,8 +189,8 @@ function SelectorFieldContent({
   const currentChoiceId = state.response?.current_choice_id ?? state.response?.default_choice_id ?? null;
   const currentChoice = currentSelectorChoice(state);
   useEffect(() => {
-    onCurrentChoiceChange?.(currentChoice);
-  }, [currentChoice, onCurrentChoiceChange]);
+    onCurrentChoiceChange?.(currentChoice, state);
+  }, [currentChoice, onCurrentChoiceChange, state]);
   if (state.error && !state.response) {
     return <div data-testid={testId} className="engine-selector-field-error" role="alert">
       <p>Could not load choices. {state.error.message}</p>

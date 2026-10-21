@@ -19,6 +19,7 @@ import { syntheticActionCatalogEntry } from '../support/actionCatalogFixtures';
 import { aiMeta, columnDef } from '../support/domainFixtures';
 import { resolveWalkthroughTarget } from '../../src/walkthrough/targets';
 import { LAWSUIT_DOCUMENT_WALKTHROUGH } from '../../src/walkthrough/walkthroughs';
+import type { SelectorChoicesState } from '../../src/engine-selector/useSelectorChoices';
 
 type SelectorFixtureChoice = {
   authored_selection:
@@ -29,19 +30,33 @@ type SelectorFixtureChoice = {
   is_default?: boolean;
   label: string;
   blocker: null;
+  status?: 'ready' | 'needs_setup';
 };
 
 const selectorHarness = vi.hoisted(() => ({
   emitCurrent: null as ((choice: SelectorFixtureChoice | null) => void) | null,
+  emitState: null as ((state: SelectorChoicesState) => void) | null,
 }));
+
+function selectorFixtureState(choice: SelectorFixtureChoice | null): SelectorChoicesState {
+  return {
+    loading: false, stale: false, refreshing: false, error: null, operationError: null,
+    refresh: async () => true,
+    response: {
+      current_choice_id: choice ? 'fixture' : null,
+      groups: [{ choices: choice ? [{ ...choice, choice_id: 'fixture' }] : [] }],
+    },
+  } as unknown as SelectorChoicesState;
+}
 
 vi.mock('../../src/engine-selector/SelectorField', () => ({
   SelectorField: ({ testId, onSelect, onCurrentChoiceChange }: {
     testId?: string;
     onSelect(choice: SelectorFixtureChoice): void;
-    onCurrentChoiceChange?(choice: SelectorFixtureChoice | null): void;
+    onCurrentChoiceChange?(choice: SelectorFixtureChoice | null, state: SelectorChoicesState): void;
   }) => {
-    selectorHarness.emitCurrent = onCurrentChoiceChange ?? null;
+    selectorHarness.emitCurrent = choice => onCurrentChoiceChange?.(choice, selectorFixtureState(choice));
+    selectorHarness.emitState = state => onCurrentChoiceChange?.(null, state);
     return <button
       type="button"
       data-testid={testId}
@@ -53,7 +68,7 @@ vi.mock('../../src/engine-selector/SelectorField', () => ({
           blocker: null,
         };
         onSelect(choice);
-        onCurrentChoiceChange?.(choice);
+        onCurrentChoiceChange?.(choice, selectorFixtureState(choice));
       }}
     >
       Select ready model
@@ -372,6 +387,21 @@ describe('GeneratedActionForm', () => {
       />,
     );
 
+    expect(screen.getByTestId('generated-action-run')).toBeDisabled();
+    expect(screen.getByText('Loading models…')).toBeVisible();
+    act(() => selectorHarness.emitState?.(selectorFixtureState(null)));
+    expect(screen.getByText('No models available')).toBeVisible();
+    expect(screen.queryByText('Loading models…')).not.toBeInTheDocument();
+    act(() => selectorHarness.emitState?.({
+      ...selectorFixtureState(null), error: new Error('offline'),
+    }));
+    expect(screen.getByText('Couldn’t load models')).toBeVisible();
+    expect(screen.getByTestId('generated-action-run')).toBeDisabled();
+    act(() => selectorHarness.emitCurrent?.({
+      authored_selection: { kind: 'model', model: 'needs-key' },
+      can_run: false, status: 'needs_setup', label: 'Needs key', blocker: null,
+    }));
+    expect(screen.getByText('Setup needed')).toBeVisible();
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
     const filingModelStep = LAWSUIT_DOCUMENT_WALKTHROUGH.steps.find(
       (step) => step.id === 'choose-filing-model',
