@@ -403,6 +403,7 @@ describe('SelectorField', () => {
 
     await waitFor(() => expect(onCurrentChoiceChange).toHaveBeenLastCalledWith(
       expect.objectContaining({ choice_id: 'ready-model', can_run: true }),
+      expect.objectContaining({ loading: false, error: null }),
     ));
     expect(load).toHaveBeenCalledWith('project-a', expect.any(Object), expect.any(Object));
     expect(screen.getByRole('button', { name: /ready model/i })).toBeDisabled();
@@ -583,6 +584,7 @@ describe('SelectorField', () => {
     expect(trigger).not.toHaveTextContent('Ready model');
     await waitFor(() => expect(current).toHaveBeenLastCalledWith(
       expect.objectContaining({ choice_id: 'saved:removed-model', can_run: false }),
+      expect.objectContaining({ loading: false, error: null }),
     ));
     await userEvent.click(trigger);
     expect(within(screen.getByTestId('engine-selector-dialog')).getAllByText('Saved selection')).toHaveLength(2);
@@ -610,7 +612,7 @@ describe('SelectorField', () => {
         subject: { kind: 'action', action_id: 'map.classify', field: 'model', params: {} } }}
       recentNamespace="same-scope-refresh" load={load} onSelect={select}
       onCurrentChoiceChange={current} />);
-    await waitFor(() => expect(current).toHaveBeenLastCalledWith(expect.objectContaining({ can_run: true })));
+    await waitFor(() => expect(current).toHaveBeenLastCalledWith(expect.objectContaining({ can_run: true }), expect.any(Object)));
     await userEvent.click(screen.getByRole('button', { name: /Ready model/ }));
     const dialog = screen.getByTestId('engine-selector-dialog');
     await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -622,13 +624,13 @@ describe('SelectorField', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(within(dialog).getByRole('alert')).toHaveTextContent('Could not refresh choices. offline'));
     expect(load).toHaveBeenCalledTimes(2);
-    expect(current).toHaveBeenLastCalledWith(null);
+    expect(current).toHaveBeenLastCalledWith(null, expect.objectContaining({ error: expect.any(Error) }));
     await userEvent.click(within(dialog).getByRole('button', { name: 'Retry' }));
     await waitFor(() => expect(load).toHaveBeenCalledTimes(3));
-    expect(current).toHaveBeenLastCalledWith(null);
+    expect(current).toHaveBeenLastCalledWith(null, expect.objectContaining({ stale: true }));
     expect(dialog).toBeVisible();
     await act(async () => { recover(response()); });
-    await waitFor(() => expect(current).toHaveBeenLastCalledWith(expect.objectContaining({ can_run: true })));
+    await waitFor(() => expect(current).toHaveBeenLastCalledWith(expect.objectContaining({ can_run: true }), expect.any(Object)));
     expect(dialog).toBeVisible();
     expect(select).not.toHaveBeenCalled();
   });
@@ -664,11 +666,12 @@ describe('SelectorField', () => {
     const dialog = screen.getByTestId('engine-selector-dialog');
     await waitFor(() => expect(within(dialog).getByRole('alert')).toHaveTextContent('Could not refresh choices. offline'));
     expect(dialog).toBeVisible();
-    expect(onCurrentChoiceChange).toHaveBeenLastCalledWith(null);
+    expect(onCurrentChoiceChange).toHaveBeenLastCalledWith(null, expect.objectContaining({ error: expect.any(Error) }));
 
     await userEvent.click(within(dialog).getByRole('button', { name: 'Retry' }));
     await waitFor(() => expect(onCurrentChoiceChange).toHaveBeenLastCalledWith(
       expect.objectContaining({ choice_id: 'ready-model', can_run: true }),
+      expect.objectContaining({ loading: false, error: null }),
     ));
     expect(dialog).toBeVisible();
   });

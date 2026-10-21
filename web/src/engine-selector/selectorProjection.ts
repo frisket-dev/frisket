@@ -11,6 +11,19 @@ export function currentSelectorChoice(state: Pick<SelectorChoicesState, 'respons
     : response.groups.flatMap((group) => group.choices).find((choice) => choice.choice_id === id) ?? null;
 }
 
+/** Form-level guidance; detailed setup instructions stay in the picker. */
+export function selectorReadinessMessage(state: SelectorChoicesState): string | null {
+  if (state.error) return 'Couldn’t load models';
+  if (state.loading || state.stale || !state.response) return 'Loading models…';
+  const choice = currentSelectorChoice(state);
+  if (!choice) return state.response.groups.some((group) => group.choices.length > 0)
+    ? 'Choose a model' : 'No models available';
+  if (choice.can_run) return null;
+  if (choice.status === 'needs_setup') return 'Setup needed';
+  if (choice.status === 'working') return 'Model setup in progress…';
+  return choice.blocker?.message ?? `${choice.label} is unavailable.`;
+}
+
 export function selectorQueryKey(query: HttpSelectorChoicesQuery, response: HttpSelectorChoicesResponse | null): string {
   const subject = query.subject;
   if (subject.kind === 'action') {

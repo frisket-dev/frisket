@@ -45,7 +45,7 @@ function groupForChoice(groups: readonly EngineSelectorGroup[], choiceId: string
 function statusLabel(status: EngineSelectorStatus): string {
   return {
     ready: 'Ready',
-    needs_setup: 'Needs setup',
+    needs_setup: 'Setup needed',
     working: 'Working',
     unavailable: 'Unavailable',
   }[status];
@@ -404,7 +404,7 @@ export function EngineSelector({
       >
         <span className={`engine-selector__status engine-selector__status--${triggerCopy?.status ?? 'unavailable'}`} aria-hidden />
         <span className="engine-selector__trigger-copy">
-          <strong>{triggerCopy?.label ?? 'Choose an engine'}</strong>
+          <strong>{triggerCopy?.label ?? `Choose ${label.toLowerCase()}`}</strong>
           <small>{triggerSecondaryCopy}</small>
           {triggerActivity && <progress
             className="engine-selector__trigger-progress"

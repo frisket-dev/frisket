@@ -39,6 +39,7 @@ import { dedupeDefaultColumnName, existingColumnByName,
   handleAutoResizeTextareaInput, resizeTextareaToContent } from './formControlHelpers';
 import { generatedActionCustomizationFor } from './generatedActionCustomizations';
 import { SelectorField } from '../../engine-selector/SelectorField';
+import { selectorReadinessMessage } from '../../engine-selector/selectorProjection';
 import type { SelectorChoice } from '../../api/selectorChoices';
 import type { HttpSelectorChoicesQuery } from '../../api/selectorChoices';
 import { JoinOutputNames } from './JoinOutputNames';
@@ -504,7 +505,7 @@ function GeneratedActionFormContents({
   const markFieldTouched = useCallback((name: string) => {
     setTouchedFields((current) => current.has(name) ? current : new Set([...current, name]));
   }, []);
-  const [selectorCurrentChoice, setSelectorCurrentChoice] = useState<SelectorChoice | null>(null);
+  const [selectorProblem, setSelectorProblem] = useState<string | null>('Loading models…');
   const [richSourceEditors, setRichSourceEditors] = useState<
   Record<string, RichSourceEditorState>>(() => (
     Object.fromEntries(Object.entries(catalogEntry.ui_hints.semantic_controls)
@@ -746,7 +747,6 @@ function GeneratedActionFormContents({
     writeFields(updates);
   };
   const publishSelectorChoice = (field: string, choice: SelectorChoice | null) => {
-    setSelectorCurrentChoice(choice);
     // A server default makes an otherwise blank required selector executable.
     // A combined choice may already have a compatible schema-default leaf;
     // never overwrite an explicit conflicting or orphaned authored selection.
@@ -792,7 +792,10 @@ function GeneratedActionFormContents({
         <SelectorField projectId={projectId} label={field.label} query={query}
           recentNamespace={`${projectId ?? 'none'}:action:${catalogEntry.kind}:${field.name}`}
           testId={field.testid} disabled={running || !projectId}
-          onCurrentChoiceChange={(choice) => publishSelectorChoice(field.name, choice)}
+          onCurrentChoiceChange={(choice, state) => {
+            setSelectorProblem(selectorReadinessMessage(state));
+            publishSelectorChoice(field.name, choice);
+          }}
           onSelect={(choice) => updateSelectorSelection(field.name, choice)} />
       </div>;
     }
@@ -898,11 +901,7 @@ function GeneratedActionFormContents({
   const selectedEngine = engineParam && typeof displayDraft[engineParam] === 'string'
     ? displayDraft[engineParam] : undefined;
   const selectedEngineInfo = actionTemplate.engines?.find((engine) => engine.id === selectedEngine);
-  const engineProblem = hasSelectorField && !selectorCurrentChoice
-    ? 'Checking engine availability…'
-    : selectorCurrentChoice && !selectorCurrentChoice.can_run
-      ? selectorCurrentChoice.blocker?.message ?? `${selectorCurrentChoice.label} is unavailable.`
-      : null;
+  const engineProblem = hasSelectorField ? selectorProblem : null;
   const validParams = (actionTemplate.params ?? []).every((param) => {
     const value = draft[param.name];
     if (value === undefined) return !required.has(param.name);

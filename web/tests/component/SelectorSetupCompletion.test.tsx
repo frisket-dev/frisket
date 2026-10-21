@@ -156,12 +156,12 @@ it('refreshes authoritative readiness after setup finishes with the dialog close
   const dialog = screen.getByTestId('engine-selector-dialog');
   await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: /Parakeet/ })); });
   await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Download and set up' })); });
-  expect(current).toHaveBeenLastCalledWith(expect.objectContaining({ can_run: false, status: 'working' }));
+  expect(current).toHaveBeenLastCalledWith(expect.objectContaining({ can_run: false, status: 'working' }), expect.any(Object));
   await act(async () => { fireEvent(dialog, new Event('cancel', { cancelable: true })); });
   expect(screen.queryByTestId('engine-selector-dialog')).not.toBeInTheDocument();
   finished = true;
   await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
-  expect(current).toHaveBeenLastCalledWith(expect.objectContaining({ can_run: true, status: 'ready' }));
+  expect(current).toHaveBeenLastCalledWith(expect.objectContaining({ can_run: true, status: 'ready' }), expect.any(Object));
   expect(screen.queryByTestId('engine-selector-dialog')).not.toBeInTheDocument();
   expect(select).toHaveBeenCalledOnce();
 });
