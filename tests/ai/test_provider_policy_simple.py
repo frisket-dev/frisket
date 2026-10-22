@@ -254,15 +254,23 @@ def test_ner_optional_advisory_fields_keep_native_output_and_accept_nulls(model)
 
 @pytest.mark.parametrize(
     "model",
-    ["openrouter/anthropic/claude-sonnet-5-5", "openrouter/anthropic/claude-opus-5-5"],
+    [
+        "openrouter/anthropic/claude-sonnet-5-5",
+        "openrouter/anthropic/claude-opus-5-5",
+        "openrouter/anthropic/claude-haiku-5-5",
+        "anthropic/claude-haiku-5-5",
+    ],
 )
-def test_openrouter_claude_reuses_direct_sampling_traits(model):
+def test_claude_routes_share_sampling_traits(model):
     schema = {
         "type": "object",
         "properties": {"answer": {"type": "integer"}},
         "required": ["answer"],
     }
     _, body = complete(model, schema, {"answer": 3}, params={"top_p": 0.7})
+    if model == "anthropic/claude-haiku-5-5":
+        assert body["tool_choice"] == {"type": "tool", "name": "emit"}
+        assert "output_config" not in body
     assert "temperature" not in body
     assert "top_p" not in body
 
