@@ -247,6 +247,7 @@ def is_empty_failed_output(project: Project, column_id: int) -> bool:
 
     Only an output explicitly hidden by zero-success finalization qualifies.
     Any value or intentional null ever published on the identity protects it.
+    Manual edits also protect it, including nulls and undone edits with redo.
     """
     owner = project.db.execute(
         "SELECT ops.id,ops.undo_info FROM columns "
@@ -262,6 +263,13 @@ def is_empty_failed_output(project: Project, column_id: int) -> bool:
     info = json.loads(owner["undo_info"] or "{}")
     if column_id not in info.get("zero_success_columns", ()) or column_id not in (
         info.get("created_columns", ())
+    ):
+        return False
+    if (
+        project.db.execute(
+            "SELECT 1 FROM edits WHERE column_id=? LIMIT 1", (column_id,)
+        ).fetchone()
+        is not None
     ):
         return False
     populated = project.db.execute(

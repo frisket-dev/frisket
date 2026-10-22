@@ -746,6 +746,93 @@ def test_typed_model_retry_changes_only_empty_failed_output_type(
         project.close()
 
 
+@pytest.mark.parametrize("edited_value", [True, None])
+@pytest.mark.parametrize("undo_edit", [False, True])
+def test_typed_ask_retry_preserves_manual_edit_history_on_failed_output(
+    tmp_path: Path, edited_value: Any, undo_edit: bool
+) -> None:
+    project = Project.create(tmp_path / "edited-failed-answer.frisket")
+    requests: list[LLMRequest] = []
+    try:
+        sheet_id, row_ids = _seed(project)
+        body = _request(sheet_id, row_ids=[row_ids[0]])
+        body["params"].update(source=["body"], response_type="boolean")
+        action = ACTION_REGISTRY.get("map.ask")
+        request = ActionRequest.model_validate(body)
+        router = _data_router(requests, {"answer": "not sure"})
+        gated = _run_third_party(project, request, router, action)
+        confirmed = request.model_copy(
+            update={
+                "confirmation": gated.errors[0].details["promise_set_hash"],
+            }
+        )
+        failed = _run_third_party(project, confirmed, router, action)
+        assert failed.status == "failed"
+        column = next(
+            c
+            for c in project.columns(sheet_id, include_hidden=True)
+            if c["name"] == "person"
+        )
+        column_id = int(column["id"])
+        project.db.execute("UPDATE columns SET hidden=0 WHERE id=?", (column_id,))
+        project.db.commit()
+        edit_op = project.apply_edits(
+            [
+                {
+                    "row_id": row_ids[0],
+                    "column_id": column_id,
+                    "value": edited_value,
+                }
+            ]
+        )
+        if undo_edit:
+            assert project.undo() == edit_op
+        project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (column_id,))
+        project.db.commit()
+        edits_before = [
+            tuple(row)
+            for row in project.db.execute(
+                "SELECT * FROM edits WHERE column_id=?",
+                (column_id,),
+            ).fetchall()
+        ]
+        heads_before = ResultGenerationStore(project).read_cell_heads(
+            column_id, [row_ids[0]]
+        )
+        calls_before = len(requests)
+        retry = request.model_copy(
+            update={
+                "params": {**request.params, "response_type": "text"},
+                "idempotency_key": "edited-failed-retry@text",
+            }
+        )
+        result = _run_third_party(
+            project, retry, _data_router(requests, {"answer": "Ada"}), action
+        )
+        assert result.status == "failed", result.errors
+        assert result.errors[0].code == "output_column_exists"
+        assert len(requests) == calls_before
+        assert project.get_column(column_id)["active"] == 1
+        assert [
+            tuple(row)
+            for row in project.db.execute(
+                "SELECT * FROM edits WHERE column_id=?",
+                (column_id,),
+            ).fetchall()
+        ] == edits_before
+        assert (
+            ResultGenerationStore(project).read_cell_heads(column_id, [row_ids[0]])
+            == heads_before
+        )
+        if undo_edit:
+            assert project.redo() == edit_op
+        assert project.get_values(sheet_id, column_id, row_ids=[row_ids[0]]) == {
+            row_ids[0]: edited_value
+        }
+    finally:
+        project.close()
+
+
 def test_ask_default_options_preserve_legacy_receipt_hash_and_replay(
     tmp_path: Path,
 ) -> None:
