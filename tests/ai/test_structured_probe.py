@@ -432,6 +432,20 @@ def test_resolve_with_recorded_promotions_opts_in_the_openai_vendor_glob():
     assert row.structured_mode == NATIVE_STRICT
 
 
+@pytest.mark.parametrize(
+    "model", ["anthropic/claude-sonnet-5-5", "anthropic/claude-opus-5-5"]
+)
+def test_exact_claude_probe_overrides_exact_static_seed(model):
+    store = ProbeStore(":memory:")
+    try:
+        probe = store.record(model, PROSE_JSON, True, "recorded capability override")
+        assert capabilities.resolve(model).structured_mode == NATIVE_STRICT
+        row = capabilities.resolve(model, promotions=(probe.as_capability_row(),))
+        assert row.structured_mode == PROSE_JSON
+    finally:
+        store.close()
+
+
 def test_recorded_promotion_does_not_leak_to_other_openrouter_vendors():
     row = capabilities.resolve(
         "openrouter/anthropic/claude-x", promotions=capabilities.RECORDED_PROMOTIONS

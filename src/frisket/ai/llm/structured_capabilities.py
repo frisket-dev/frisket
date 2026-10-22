@@ -248,12 +248,12 @@ def resolve(
     run in (a literal ``"openrouter/openai/gpt-5"`` probe row or the
     ``"openrouter/openai/*"`` recorded-promotion glob both out-specify the
     bare ``"openrouter/*"`` SEED row automatically, no algorithm change
-    needed) because the capability table's resolution order already reserves
-    the slot.
+    needed). On equal specificity, opted-in promotions take precedence over
+    the static table: a recorded exact-model probe can override an exact seed.
     """
     candidates = [
         row
-        for row in (*table, *promotions)
+        for row in (*promotions, *table)
         if fnmatch.fnmatchcase(model, row.model_pattern)
     ]
     if not candidates:

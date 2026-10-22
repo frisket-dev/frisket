@@ -115,6 +115,15 @@ def test_no_match_falls_back():
     assert resolve("anthropic/claude-x", table=table) is capabilities.FALLBACK
 
 
+def test_opted_in_promotion_wins_equal_specificity_but_not_more_specific_seed():
+    seed = _row("custom/model", NATIVE_STRICT)
+    override = _row("custom/model", PROSE_JSON)
+    broad = _row("custom/*", JSON_LOOSE)
+    assert resolve("custom/model", table=(seed,), promotions=(override,)) is override
+    assert resolve("custom/model", table=(seed,), promotions=(broad,)) is seed
+    assert resolve("custom/model", table=(broad,), promotions=(override,)) is override
+
+
 # ---------------------------------------------------------------------------
 # strict_schema retirement -- the table is the single source now.
 # ---------------------------------------------------------------------------
