@@ -109,13 +109,15 @@ def render_extract_messages(
     for name in segment_columns:
         rendered_row_values[name] = _numbered_segments_text(row_values[name])
     user_parts = render_input_block(rendered_row_values)
-    user_parts.append({"type": "text", "text": f"\n{instruction}"})
+    user_parts.append(
+        {"type": "text", "text": f"\nExtraction instructions:\n{instruction}"}
+    )
     if grounding_enabled:
         source_labels = json.dumps(
             list(rendered_row_values), ensure_ascii=False, separators=(",", ":")
         )
         evidence_copy = (
-            "\nFor each extracted field, return an object with `value`, "
+            "\nOutput and citation requirements:\nFor each extracted field, return an object with `value`, "
             "optional `evidence`, and optional `warnings`. Evidence items "
             "may cite an input `source` label, page, bbox in normalized page coordinates, quote, "
             "snippet, and grounding_method. Do not invent evidence."

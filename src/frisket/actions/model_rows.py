@@ -2,19 +2,24 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+from datetime import date
 from typing import Annotated, Any, ClassVar, Literal, TypeAlias
 
 from pydantic import BaseModel, Field, StrictStr, field_validator, model_validator
 
 from frisket.actions.core import (
     ActionCategory,
+    OutputField,
     _validate_model_rows_source,
     action,
     model_rows,
 )
+from frisket.actions.extraction_types import ExtractField, extraction_output_fields
 from frisket.actions.types import (
     ActionParams,
     ColumnRef,
+    DynamicOutput,
     ModelPrompt,
     ModelRef,
     Row,
@@ -77,6 +82,14 @@ class AskParams(_ModelRowsParams):
         description="The question to answer for each row.",
         json_schema_extra={"x-frisket-input": "textarea"},
     )
+    response_type: Literal[
+        "text", "integer", "number", "boolean", "date", "list", "json"
+    ] = Field(
+        default="text",
+        title="Response type",
+        description="Choose the answer column's data type. Non-text answers are left empty when the content does not answer the question.",
+    )
+    include_confidence: bool = Field(default=False, title="Include confidence")
 
     @field_validator("question")
     @classmethod
@@ -87,16 +100,48 @@ class AskParams(_ModelRowsParams):
         return stripped
 
 
-class AskOutput(BaseModel):
-    answer: str
+def ask_outputs(params: AskParams) -> dict[str, OutputField]:
+    field = ExtractField(name="answer", type=params.response_type)
+    outputs = extraction_output_fields(
+        [field], include_confidence=params.include_confidence
+    )
+    output = outputs["answer"]
+    if params.include_confidence:
+        outputs["answer_confidence"] = replace(
+            outputs["answer_confidence"], annotation=float
+        )
+    if params.response_type == "text":
+        outputs["answer"] = replace(output, annotation=str)
+        return outputs
+    schema = dict(output.schema)
+    value_type = field.value_type
+    if params.response_type == "date":
+        schema["format"] = "date"
+        value_type = date
+    outputs["answer"] = replace(
+        output,
+        schema={"anyOf": [schema, {"type": "null"}]},
+        annotation=value_type | None,
+    )
+    return outputs
 
 
-def ask(params: AskParams, row: Row) -> ModelPrompt[AskOutput]:
+def ask(params: AskParams, row: Row) -> ModelPrompt[DynamicOutput]:
     system = (
         "You answer questions about documents precisely for a journalist. "
         "Answer only from the provided content; if the content does not "
-        "answer the question, say so. Preserve names, numbers, dates exactly."
+        "answer the question, "
+        + (
+            "say so. "
+            if params.response_type == "text"
+            else "return null, not a guess or a placeholder. "
+        )
+        + "Preserve names, numbers, dates exactly."
     )
+    if params.response_type == "date":
+        system += " Return dates in YYYY-MM-DD format."
+    if params.include_confidence:
+        system += " Include your confidence in the answer as a number from 0 to 1."
     if params.context:
         system += f"\n\nDataset context: {params.context}"
     user_parts = render_input_block(dict(row.values))
@@ -121,10 +166,10 @@ ASK = action(
     title="Ask a question of each row",
     description=(
         "Answer a free-form question about each row's selected content and write "
-        "one text answer column."
+        "one answer column with the selected data type."
     ),
     category=ActionCategory.TEXT,
-    run=model_rows(ask),
+    run=model_rows(ask, dynamic_outputs=ask_outputs),
 )
 
 

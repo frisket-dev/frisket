@@ -46,7 +46,16 @@ def test_model_backed_catalog_is_derived_from_model_rows_contract() -> None:
             "anyOf"
         ]
         assert declaration.run.model_param == "model"
-        assert [field.key for field in declaration.run.output_fields] == [output]
+        params = declaration.run.params_model.model_validate(
+            {
+                "source": ["body"],
+                "model": "anthropic/claude-haiku-4-5",
+                **({"question": "What?"} if declaration is ASK else {}),
+            }
+        )
+        assert [
+            field.key for field in declaration.run.resolve_output_fields(params)
+        ] == [output]
 
 
 def test_model_params_require_one_unambiguous_unique_source() -> None:

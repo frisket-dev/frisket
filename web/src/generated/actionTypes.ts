@@ -766,6 +766,8 @@ export type AskParams = ({
   "model": (AskParams_ModelRef);
   "context"?: (string);
   "question": (string);
+  "response_type"?: ("text" | "integer" | "number" | "boolean" | "date" | "list" | "json") & (string);
+  "include_confidence"?: (boolean);
 });
 
 type ClassifyParams_ClassifyField = ({
