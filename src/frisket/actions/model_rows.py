@@ -87,9 +87,10 @@ class AskParams(_ModelRowsParams):
     ] = Field(
         default="text",
         title="Response type",
-        description="Choose the answer column's data type. Non-text answers are left empty when the content does not answer the question.",
+        description="Choose the answer column's data type. Non-text answers are left empty when there is not enough information to decide.",
     )
     include_confidence: bool = Field(default=False, title="Include confidence")
+    include_reasoning: bool = Field(default=False, title="Include reasoning")
 
     @field_validator("question")
     @classmethod
@@ -106,6 +107,13 @@ def ask_outputs(params: AskParams) -> dict[str, OutputField]:
         [field], include_confidence=params.include_confidence
     )
     output = outputs["answer"]
+    if params.include_reasoning:
+        outputs["answer_reasoning"] = OutputField(
+            key="answer_reasoning",
+            column_type="text",
+            annotation=str,
+            schema={"type": "string", "description": "Brief explanation of the answer"},
+        )
     if params.include_confidence:
         outputs["answer_confidence"] = replace(
             outputs["answer_confidence"], annotation=float
@@ -129,19 +137,35 @@ def ask_outputs(params: AskParams) -> dict[str, OutputField]:
 def ask(params: AskParams, row: Row) -> ModelPrompt[DynamicOutput]:
     system = (
         "You answer questions about documents precisely for a journalist. "
-        "Answer only from the provided content; if the content does not "
-        "answer the question, "
+        "Use the provided content and relevant background knowledge unless the "
+        "question restricts you to the supplied content. Follow the question's "
+        "criteria and logical conditions, including AND and OR. Do not assume "
+        "a claim is correct merely because it appears in the input. "
+        "Respect the requested response type. If there is not enough information "
+        "to answer reliably, "
         + (
-            "say so. "
+            "say so."
             if params.response_type == "text"
-            else "return null, not a guess or a placeholder. "
+            else "return null, not a guess or a placeholder."
         )
-        + "Preserve names, numbers, dates exactly."
     )
+    if params.response_type == "boolean":
+        system += (
+            " Return true when the stated condition is satisfied and false when "
+            "it is not, including when a requested requirement fails. "
+            "Return null only when you cannot determine whether the condition "
+            "is satisfied; an incorrect value is not an unknown value."
+        )
     if params.response_type == "date":
         system += " Return dates in YYYY-MM-DD format."
     if params.include_confidence:
         system += " Include your confidence in the answer as a number from 0 to 1."
+    if params.include_reasoning:
+        system += (
+            " In answer_reasoning, give a brief explanation of the basis for your "
+            "answer, not a step-by-step internal reasoning trace. If the answer is "
+            "unknown, briefly explain what information is missing."
+        )
     if params.context:
         system += f"\n\nDataset context: {params.context}"
     user_parts = render_input_block(dict(row.values))

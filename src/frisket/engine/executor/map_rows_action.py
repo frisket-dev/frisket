@@ -2599,7 +2599,11 @@ def typed_request_hash(bound: BoundTypedActionRequest) -> str:
     if bound.action.action_id == "map.ask":
         # These optional controls were added after Ask receipts already existed.
         # Their defaults preserve request meaning and existing receipt replay.
-        for name, default in (("response_type", "text"), ("include_confidence", False)):
+        for name, default in (
+            ("response_type", "text"),
+            ("include_confidence", False),
+            ("include_reasoning", False),
+        ):
             if identity["params"].get(name) == default:
                 identity["params"].pop(name, None)
     options = resolved_engine_options(bound.action.definition.run, bound.params)

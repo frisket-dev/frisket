@@ -34,6 +34,11 @@ test('Ask offers response types through the generated form', async ({ page, cont
   const confidence = form.getByLabel('Include confidence', { exact: true });
   await expect(confidence).not.toBeChecked();
   await confidence.check();
+  const reasoning = form.getByRole('checkbox', { name: /^Include reasoning\b/ });
+  await expect(reasoning).not.toBeChecked();
+  await reasoning.check();
+  await expect(reasoning).toBeChecked();
+  await expect(form.getByRole('combobox', { name: 'Reasoning', exact: true })).toHaveValue('answer_reasoning');
   await expect(form.getByTestId('generated-action-run')).toBeEnabled();
   const dir = path.resolve('screenshots/ask-response-type');
   mkdirSync(dir, { recursive: true });

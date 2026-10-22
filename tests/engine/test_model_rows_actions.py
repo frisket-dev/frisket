@@ -546,6 +546,7 @@ def test_model_rows_direct_confirmation_multimodal_receipt_and_replay(
         ("integer", 0, "integer"),
         ("number", 1.25, "number"),
         ("boolean", False, "boolean"),
+        ("boolean", True, "boolean"),
         ("date", "2026-10-22", "date"),
         ("list", ["Ada", "Grace"], "json"),
         ("json", {"name": "Ada"}, "json"),
@@ -554,12 +555,14 @@ def test_model_rows_direct_confirmation_multimodal_receipt_and_replay(
     ],
 )
 @pytest.mark.parametrize("include_confidence", [False, True])
+@pytest.mark.parametrize("include_reasoning", [False, True])
 def test_ask_response_type_drives_schema_and_persisted_values(
     tmp_path: Path,
     response_type: str,
     value: Any,
     column_type: str,
     include_confidence: bool,
+    include_reasoning: bool,
 ) -> None:
     from jsonschema import Draft202012Validator
 
@@ -572,8 +575,12 @@ def test_ask_response_type_drives_schema_and_persisted_values(
             source=["body"],
             response_type=response_type,
             include_confidence=include_confidence,
+            include_reasoning=include_reasoning,
         )
         data = {"answer": value}
+        if include_reasoning:
+            body["output_names"]["answer_reasoning"] = "explanation"
+            data["answer_reasoning"] = "The supplied content supports this answer."
         if include_confidence:
             body["output_names"]["answer_confidence"] = "confidence"
             data["answer_confidence"] = 0.9
@@ -596,6 +603,20 @@ def test_ask_response_type_drives_schema_and_persisted_values(
         assert len(requests) == 1
         Draft202012Validator(requests[0].schema).validate(data)
         assert set(requests[0].schema["properties"]) == set(data)
+        if include_reasoning:
+            reasoning = next(
+                c for c in project.columns(sheet_id) if c["name"] == "explanation"
+            )
+            assert reasoning["type"] == "text"
+            assert (
+                project.get_values(sheet_id, reasoning["id"], row_ids=[row_ids[0]])[
+                    row_ids[0]
+                ]
+                == data["answer_reasoning"]
+            )
+            assert "In answer_reasoning" in requests[0].messages[0]["content"]
+        else:
+            assert "In answer_reasoning" not in requests[0].messages[0]["content"]
         if include_confidence:
             confidence = next(
                 c for c in project.columns(sheet_id) if c["name"] == "confidence"
@@ -855,6 +876,7 @@ def test_ask_default_options_preserve_legacy_receipt_hash_and_replay(
         legacy_identity["params"] = bound.params.model_dump(mode="json", by_alias=True)
         legacy_identity["params"].pop("response_type")
         legacy_identity["params"].pop("include_confidence")
+        legacy_identity["params"].pop("include_reasoning")
         legacy_hash = (
             "sha256:"
             + hashlib.sha256(
@@ -886,6 +908,7 @@ def test_ask_default_options_preserve_legacy_receipt_hash_and_replay(
                     **confirmed.params,
                     "response_type": "text",
                     "include_confidence": False,
+                    "include_reasoning": False,
                 }
             }
         )
@@ -893,7 +916,11 @@ def test_ask_default_options_preserve_legacy_receipt_hash_and_replay(
         assert replay.receipt_id == first.receipt_id
         assert replay.status == "completed", replay.errors
         assert len(requests) == 1
-        for params in ({"response_type": "boolean"}, {"include_confidence": True}):
+        for params in (
+            {"response_type": "boolean"},
+            {"include_confidence": True},
+            {"include_reasoning": True},
+        ):
             changed = request.model_copy(
                 update={"params": {**request.params, **params}}
             )

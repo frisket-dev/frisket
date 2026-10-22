@@ -287,9 +287,9 @@ const EXACT_CUSTOMIZATIONS = {
     body: ListTableParamsBody satisfies GeneratedActionParamsBody<'derive.table_from_list'>,
   },
   'map.ask': {
-    fieldOrder: ['source', 'question', 'response_type', 'include_confidence', 'model', 'context'],
+    fieldOrder: ['source', 'question', 'response_type', 'include_confidence', 'include_reasoning', 'model', 'context'],
     fields: { question: PromptField },
-    outputLabel: (key) => key === 'answer' ? 'Answer' : key === 'answer_confidence' ? 'Confidence' : undefined,
+    outputLabel: (key) => key === 'answer' ? 'Answer' : key === 'answer_confidence' ? 'Confidence' : key === 'answer_reasoning' ? 'Reasoning' : undefined,
   },
   'map.ner': {
     body: NerParamsBody,
