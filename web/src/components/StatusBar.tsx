@@ -1,7 +1,7 @@
 import './PanelPrimitives.css';
 import './StatusBar.css';
 import { Button } from './Button';
-import { useEffect, useReducer, useRef, useState, type RefObject } from 'react';
+import { useEffect, useReducer, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { Activity, AlertTriangle, ChevronUp, Inbox, Redo2, Square, Undo2, X } from 'lucide-react';
 import { type HistoryState, type RunProgress, type RunRowsPage } from '../api/open';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
@@ -135,6 +135,7 @@ const IDLE_IMPORT_PROGRESS: ImportProgressController = {
 };
 
 export interface StatusBarProps {
+  actions?: ReactNode;
   run: RunProgress | null;
   history: HistoryState | null;
   reviewCount: number;
@@ -153,6 +154,7 @@ export interface StatusBarProps {
 }
 
 export function StatusBar({
+  actions,
   run, history, reviewCount, projectionStatus,
   importProgress = IDLE_IMPORT_PROGRESS, importPriority = null,
   onUndo, onRedo, onOpenReview, onCancelRun,
@@ -365,6 +367,7 @@ export function StatusBar({
       </div>
 
       <div className="status-right">
+        {actions}
         <button
           type="button"
           className="status-btn"

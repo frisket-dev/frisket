@@ -106,7 +106,11 @@ export default function App() {
     <div className="app-shell">
       <ReplayModeBanner />
       <div className="app-shell-body">{node}</div>
-      {identityMode && <DiagnosticReportButton />}
+      {identityMode && route.kind !== 'project' && (
+        <footer className="status-bar" style={{ justifyContent: 'flex-end' }}>
+          <DiagnosticReportButton />
+        </footer>
+      )}
     </div>
   );
   const content = (() => {
@@ -235,6 +239,7 @@ export function ProjectRoute({
   review?: boolean;
   panel?: RoutePanel;
 }) {
+  const { identityMode } = useShellIdentity();
   const [state, setState] = useState<ProjectRouteState>({ projectId: null, project: null, error: null });
 
   useEffect(() => {
@@ -272,6 +277,7 @@ export function ProjectRoute({
       <div className="picker-screen">
         <div className="picker-card">
           <div className="picker-error" data-testid="project-route-error">{state.error}</div>
+          {identityMode && <DiagnosticReportButton />}
           <Button
             type="button"
 

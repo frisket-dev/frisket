@@ -80,7 +80,7 @@ test('report issue posts a redacted diagnostic bundle request', async ({ page })
   const viewport = page.viewportSize();
   expect(reportButtonBox).not.toBeNull();
   expect(viewport).not.toBeNull();
-  expect(reportButtonBox!.y + reportButtonBox!.height).toBeLessThan(viewport!.height - 34);
+  expect(reportButtonBox!.y).toBeGreaterThanOrEqual(viewport!.height - 34);
   await reportButton.click();
   await expect(page.getByTestId('diagnostic-popover')).toBeVisible();
   await expect(page.getByTestId('diagnostic-include-raw')).toHaveCount(0);
@@ -213,7 +213,7 @@ test('report issue survives malformed encoded route segments', async ({ page }) 
   expect(pageErrors.some((message) => message.includes('URI malformed'))).toBe(false);
 });
 
-test('report issue button does not overlap footer undo redo or review controls', async ({ page }) => {
+test('report issue button does not overlap footer undo redo or review controls', async ({ page }, testInfo) => {
   const pid = await createProject(page.request, uniqueName('e2e-report-issue-position'));
   await importCsv(page.request, pid, 'rows.csv', 'name\nAlbany\n');
   await page.route(`**/api/projects/${pid}/review/count`, (route) => route.fulfill({
@@ -231,6 +231,21 @@ test('report issue button does not overlap footer undo redo or review controls',
 
   await page.goto(`/p/${pid}`);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('.status-bar').getByTestId('report-issue-button')).toBeVisible();
+  const dockToggle = page.getByTestId('bottom-dock-collapse');
+  for (const width of [1600, 720]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const expanded = await dockToggle.getAttribute('aria-expanded');
+      await dockToggle.click();
+      await expect(dockToggle).toHaveAttribute('aria-expanded', expanded === 'true' ? 'false' : 'true');
+      await page.screenshot({ path: testInfo.outputPath(`report-issue-${width}-${expanded === 'true' ? 'collapsed' : 'expanded'}.png`) });
+      await page.getByTestId('report-issue-button').focus();
+      await page.keyboard.press('Enter');
+      await expect(page.getByTestId('diagnostic-popover')).toBeVisible();
+      await page.getByRole('button', { name: 'Close report issue' }).click();
+    }
+  }
   const report = await page.getByTestId('report-issue-button').boundingBox();
   const undo = await page.getByTestId('undo-button').boundingBox();
   const redo = await page.getByTestId('redo-button').boundingBox();

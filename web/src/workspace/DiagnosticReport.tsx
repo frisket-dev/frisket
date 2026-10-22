@@ -77,9 +77,10 @@ export function DiagnosticReportButton() {
     <div className="diagnostic-report">
       <button
         type="button"
-        className="diagnostic-report-btn"
+        className="status-btn"
         data-testid="report-issue-button"
         title="Report issue"
+        aria-expanded={report.open}
         onClick={() => {
           setReport((state) => ({
             ...state,
