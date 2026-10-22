@@ -104,6 +104,36 @@ def test_ask_and_summarize_have_exact_prompt_semantics() -> None:
     assert "newsworthy" not in str(content)
 
 
+@pytest.mark.parametrize("response_type", ["text", "boolean", "integer"])
+def test_ask_prompt_allows_knowledge_and_distinguishes_false_from_unknown(
+    response_type: str,
+) -> None:
+    question = "Is the capital correct AND written in English?"
+    prompt = ask(
+        AskParams(
+            source=["Country", "Capital"],
+            model="gemini/gemini-3.5-flash-lite",
+            question=question,
+            response_type=response_type,
+            include_reasoning=True,
+        ),
+        Row({"Country": "Japan", "Capital": "東京"}),
+    )
+    system = prompt.messages[0]["content"]
+    assert "relevant background knowledge" in system
+    assert "unless the question restricts you to the supplied content" in system
+    assert "including AND and OR" in system
+    assert "Answer only from the provided content" not in system
+    assert "Preserve names, numbers, dates exactly" not in system
+    assert "not enough information" in system
+    assert "brief explanation of the basis" in system
+    assert ("Return true" in system) == (response_type == "boolean")
+    if response_type == "boolean":
+        assert "false when it is not" in system
+        assert "an incorrect value is not an unknown value" in system
+    assert prompt.messages[1]["content"][-1]["text"] == f"\n{question}"
+
+
 class _StructuredOutput(BaseModel):
     point: GeoPoint
     tags: list[str]

@@ -768,6 +768,7 @@ export type AskParams = ({
   "question": (string);
   "response_type"?: ("text" | "integer" | "number" | "boolean" | "date" | "list" | "json") & (string);
   "include_confidence"?: (boolean);
+  "include_reasoning"?: (boolean);
 });
 
 type ClassifyParams_ClassifyField = ({
