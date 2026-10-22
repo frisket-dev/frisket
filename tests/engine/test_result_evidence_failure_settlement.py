@@ -149,17 +149,25 @@ def test_evidence_failure_cannot_close_an_ambiguous_sibling_effect(
     project.db.commit()
     sibling_started = asyncio.Event()
     calls = []
+    sibling_timeouts = []
 
     class ConcurrentProvider:
         async def complete(self, req, client):
             calls.append(req)
+            assert len(calls) <= 2, "unexpected repair call in evidence settlement test"
             if len(calls) == 1:
                 await asyncio.wait_for(sibling_started.wait(), timeout=5)
                 return await adapter.complete(req, client)
             sibling_started.set()
             # Cancellation while egress is pending cannot prove whether the
             # remote provider charged. The reserved checkpoint must survive.
-            await asyncio.Future()
+            # A broken reply or cancellation path must fail this test rather
+            # than leave a worker blocked for the entire suite's timeout.
+            try:
+                await asyncio.wait_for(asyncio.Future(), timeout=5)
+            except TimeoutError:
+                sibling_timeouts.append(True)
+                raise
 
     router._adapters["anthropic"] = ConcurrentProvider()
 
@@ -175,6 +183,7 @@ def test_evidence_failure_cannot_close_an_ambiguous_sibling_effect(
                 project, request, project_id=PROJECT_ID, router=router, deps=deps
             )
         assert len(calls) == 2
+        assert not sibling_timeouts, "runner must cancel the pending sibling"
         assert {
             row[0] for row in project.db.execute("SELECT state FROM effect_checkpoints")
         } == {"returned", "reserved"}

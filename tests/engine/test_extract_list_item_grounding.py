@@ -83,8 +83,11 @@ def test_list_field_evidence_schema_is_index_aligned_list_of_lists() -> None:
         if isinstance(alt, dict) and "properties" in alt
     )
     evidence_schema = grounded["properties"]["evidence"]
-    assert evidence_schema["type"] == "array"
-    assert evidence_schema["items"]["type"] == "array"
+    assert {"type": "null"} in evidence_schema["anyOf"]
+    evidence_array = next(
+        alt for alt in evidence_schema["anyOf"] if alt.get("type") == "array"
+    )
+    assert evidence_array["items"]["type"] == "array"
 
 
 def test_transcript_segments_column_renders_numbered_units_in_prompt() -> None:
