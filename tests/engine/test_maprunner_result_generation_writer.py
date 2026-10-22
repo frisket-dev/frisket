@@ -24,6 +24,7 @@ from frisket.engine.executor.map_rows_action import (
 )
 from frisket.engine.executor.queued_actions import queued_v1_terminal_failure_result
 from frisket.engine.runner import MapRunner
+from frisket.engine.runner.column_retirement import retire_empty_failed_output
 from frisket.engine.runner.preparation import _validate_managed_recipe_identity
 from frisket.engine.runner.publication import PreparedRowPublication
 from frisket.engine.runner.result_generations import _compatibility_key
@@ -63,6 +64,133 @@ def test_compatibility_key_allows_cross_producer_readable_shape() -> None:
     assert _compatibility_key(field=regex_output) != _compatibility_key(
         field={**ocr_output, "semantic_type": "free_text"}
     )
+
+
+@pytest.mark.parametrize("new_type", ["text", "boolean"])
+def test_changed_contract_retries_empty_failed_reservation_with_fresh_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, new_type: str
+) -> None:
+    class RetryRecipe(_CancellationBatchRecipe):
+        def output_fields(self, spec):
+            column_type = spec.get("output_type", "text")
+            return [
+                {
+                    "name": "cleaned",
+                    "column_type": column_type,
+                    "schema": {
+                        "type": "string" if column_type == "text" else "boolean",
+                        "description": spec.get("description", "original prompt"),
+                    },
+                }
+            ]
+
+        async def execute_batch(self, values_by_row, spec, ctx):
+            if spec["phase"] == "missing":
+                raise RuntimeError("simulated provider rejection")
+            value = True if spec["output_type"] == "boolean" else "recovered"
+            return {row_id: {"cleaned": value} for row_id in values_by_row}
+
+    recipe = RetryRecipe()
+    monkeypatch.setattr(validation_module, "get_recipe", lambda _: recipe)
+    project = Project.create(tmp_path / "changed-empty-reservation.frisket")
+    try:
+        sheet_id = project.add_sheet("Rows")
+        source_id = project.add_column(sheet_id, "seed", type="text")
+        (row_id,) = project.add_rows(
+            sheet_id, [{"seed": "source"}], {"seed": source_id}
+        )
+        runner = MapRunner(
+            project, ModelRouter(keys={}), authority=UnroutedOnlyAuthority(project)
+        )
+        spec = {
+            "action_kind": "map.regex_extract",
+            "sheet_id": sheet_id,
+            "input_columns": ["seed"],
+            "phase": "missing",
+        }
+        failed = asyncio.run(run_with_output_claim(runner, spec))
+        old_column = project.db.execute(
+            "SELECT id FROM columns WHERE name='cleaned' AND active=1"
+        ).fetchone()["id"]
+        generations = ResultGenerationStore(project)
+        old_heads = generations.read_cell_heads(old_column, [row_id])
+        assert old_heads[row_id].publication_effect == "publish_error"
+        old_binding = generations.get_binding(failed.run_id, old_column)
+        repeated = asyncio.run(run_with_output_claim(runner, spec))
+        repeated_heads = generations.read_cell_heads(old_column, [row_id])
+        recovered = asyncio.run(
+            run_with_output_claim(
+                runner,
+                {
+                    **spec,
+                    "phase": "initial",
+                    "output_type": new_type,
+                    "description": "revised prompt",
+                },
+            )
+        )
+        new_column = project.db.execute(
+            "SELECT id FROM columns WHERE name='cleaned' AND active=1"
+        ).fetchone()["id"]
+        assert new_column != old_column
+        assert project.get_column(old_column)["active"] == 0
+        assert generations.get_binding(failed.run_id, old_column) == old_binding
+        assert generations.read_cell_heads(old_column, [row_id]) == repeated_heads
+        assert (
+            generations.read_cell_heads(new_column, [row_id])[row_id].run_id
+            == recovered.run_id
+        )
+        assert project.get_values(sheet_id, source_id, row_ids=[row_id]) == {
+            row_id: "source"
+        }
+        recovered_op = RunResultStore(project).get_run(recovered.run_id)["op_id"]
+        failed_op = RunResultStore(project).get_run(failed.run_id)["op_id"]
+        repeated_op = RunResultStore(project).get_run(repeated.run_id)["op_id"]
+        assert project.undo() == recovered_op
+        assert project.undo() == repeated_op
+        assert project.undo() == failed_op
+        assert project.redo() == failed_op
+        assert project.get_column(old_column)["active"] == 0
+        assert project.redo() == repeated_op
+        assert project.get_column(old_column)["active"] == 0
+        assert project.redo() == recovered_op
+        assert project.get_column(new_column)["active"] == 1
+        assert generations.read_cell_heads(old_column, [row_id]) == repeated_heads
+    finally:
+        project.close()
+
+
+@pytest.mark.parametrize("effect", ["publish_value", "publish_null"])
+def test_empty_failed_retirement_preserves_any_prior_value_or_null(
+    tmp_path: Path, effect: str
+) -> None:
+    project = Project.create(tmp_path / "protected-reservation.frisket")
+    try:
+        sheet_id, row_ids, column_id, run_id = _seed_managed_regex_output(
+            project, notes=["no match", "other"] if effect == "publish_null" else None
+        )
+        run = RunResultStore(project).get_run(run_id)
+        op = project.db.execute(
+            "SELECT undo_info FROM ops WHERE id=?", (run["op_id"],)
+        ).fetchone()
+        info = json.loads(op["undo_info"])
+        # Even a stale zero-success marker may not retire populated history.
+        info["zero_success_columns"] = [column_id]
+        project.db.execute(
+            "UPDATE ops SET undo_info=? WHERE id=?", (json.dumps(info), run["op_id"])
+        )
+        project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (column_id,))
+        project.db.commit()
+        before = ResultGenerationStore(project).read_cell_heads(column_id, row_ids)
+        assert {head.publication_effect for head in before.values()} == {effect}
+        assert not retire_empty_failed_output(project, column_id)
+        assert project.get_column(column_id)["active"] == 1
+        assert (
+            ResultGenerationStore(project).read_cell_heads(column_id, row_ids) == before
+        )
+        assert project.get_column(column_id)["sheet_id"] == sheet_id
+    finally:
+        project.close()
 
 
 def test_managed_recovery_refuses_claim_without_frozen_descriptors(
@@ -719,12 +847,14 @@ def _typed_regex_plan(
 
 def _seed_managed_regex_output(
     project: Project,
+    *,
+    notes: list[str] | None = None,
 ) -> tuple[int, list[int], int, int]:
     sheet_id = project.add_sheet("Rows")
     note_column = project.add_column(sheet_id, "note", type="text")
     row_ids = project.add_rows(
         sheet_id,
-        [{"note": "one 101"}, {"note": "two 202"}],
+        [{"note": note} for note in (notes or ["one 101", "two 202"])],
         {"note": note_column},
     )
     result = run_typed_map_request(
