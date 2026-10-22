@@ -274,7 +274,7 @@ class ModelRouter:
                 oai,
                 "https://api.openai.com/v1",
                 max_tokens_param="max_completion_tokens",
-                no_temperature_prefixes=("gpt-5", "o3", "o4"),
+                no_temperature_prefixes=("gpt-5", "gpt-6", "o3", "o4"),
             )
         gem = keys.get("gemini") or env.get("GEMINI_API_KEY")
         if gem:
