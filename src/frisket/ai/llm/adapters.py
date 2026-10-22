@@ -30,6 +30,14 @@ def _resolve_mechanism(req: LLMRequest) -> str:
     table is the single source now that the per-adapter ``strict_schema``
     constructor booleans are retired."""
     if req.mechanism is not None:
+        if (
+            req.mechanism == NATIVE_STRICT
+            and req.schema is not None
+            and capabilities.native_open_map(req.schema)
+        ):
+            raise SchemaViolation(
+                "native_strict cannot represent open JSON dictionaries"
+            )
         return req.mechanism
     mode = capabilities.resolve(req.model).structured_mode
     return capabilities.schema_mechanism(req.model, req.schema or {}, mode)
@@ -67,7 +75,7 @@ def _anthropic_schema(schema: dict) -> dict:
     constraints are described to the model and enforced locally on every try.
     https://platform.claude.com/docs/en/build-with-claude/structured-outputs
     """
-    if capabilities.anthropic_open_map(schema):
+    if capabilities.native_open_map(schema):
         raise SchemaViolation("native_strict cannot represent open JSON dictionaries")
     lowered = json.loads(json.dumps(schema))
     unsupported = {
@@ -630,14 +638,9 @@ def _strictify(schema: dict) -> dict:
 
     ``additionalProperties`` is ASSIGNED, not defaulted. OpenAI's structured
     outputs API requires the key "to be supplied and to be false" on EVERY
-    object node in the tree, so a schema that deliberately declares an OPEN
-    object (``map.extract``'s grounded per-field wrapper and its evidence
-    items both set ``additionalProperties: True``, to let page/bbox/snippet
-    ride along) is rejected outright with an ``Invalid schema for
-    response_format 'result'`` 400 on every GPT model. ``setdefault``
-    preserved that ``True`` and shipped it to the wire. Closing it here costs
-    nothing the caller relies on: this is a wire-shaping helper, and Section
-    5 validation still runs against the ORIGINAL, open schema."""
+    object node in the tree. Open dictionaries are routed to prose JSON
+    before reaching this helper, since closing them would lose dynamic keys.
+    Validation still runs against the original schema."""
     s = json.loads(json.dumps(schema))
 
     def is_object_node(node: dict) -> bool:

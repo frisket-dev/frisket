@@ -19,17 +19,16 @@ resolution algorithm below supports it) — promoting any vendor glob to
 assumption.
 
 **Cache-key / cassette parity.**
-The resolved mechanism is deliberately kept OFF the wire request when a
-caller leaves ``method="auto"``/``mechanism=None`` (``llm/structured.py``
-still passes ``mechanism=None`` through to ``LLMRequest`` for that case).
+Routine auto resolution keeps ``LLMRequest.mechanism=None``. An opted-in
+recorded capability that changes the default mode is pinned on the request,
+since the wire adapter cannot see the completer's probe store.
 ``cache.py:request_key`` hashes ``req.mechanism``
 verbatim, so stamping a resolved string onto every auto-resolved request
 would flip every existing cassette's key from ``None`` to e.g.
 ``"native_strict"`` and invalidate the committed golden cache
 (``tests/cache/llm_cache.db``) for no behavior change. Table consultation
-therefore happens at the READ side (adapters resolving a wire shape,
-completer resolving an audit tag / a ``ModelProfile``), never by writing the
-resolved value back onto the cache-keyed request.
+therefore normally happens at the READ side (adapters resolving a wire shape,
+completer resolving an audit tag / a ``ModelProfile``).
 """
 
 from __future__ import annotations
@@ -286,8 +285,8 @@ def schema_nodes(schema: dict) -> Iterator[dict]:
                 yield from schema_nodes(child)
 
 
-def anthropic_open_map(schema: dict) -> bool:
-    """Native Claude JSON requires closed objects; dictionaries need prose JSON."""
+def native_open_map(schema: dict) -> bool:
+    """Strict wire schemas require closed objects; dictionaries need prose JSON."""
     return any(
         isinstance(node.get("additionalProperties"), dict)
         or node.get("additionalProperties") is True
@@ -307,11 +306,7 @@ def anthropic_open_map(schema: dict) -> bool:
 
 def schema_mechanism(model: str, schema: dict, mechanism: str) -> str:
     """Schema-aware auto selection, shared by the completer and wire adapter."""
-    if (
-        model.startswith("anthropic/")
-        and mechanism == NATIVE_STRICT
-        and anthropic_open_map(schema)
-    ):
+    if mechanism == NATIVE_STRICT and native_open_map(schema):
         return PROSE_JSON
     return mechanism
 
