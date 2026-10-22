@@ -107,6 +107,7 @@ class ClaudeTraits:
 # https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools
 # https://platform.claude.com/docs/en/build-with-claude/thinking
 _CLAUDE_TRAITS = {
+    "haiku-5-5": ClaudeTraits(no_temperature=True),
     "opus-4-7": ClaudeTraits(no_temperature=True),
     "opus-4-8": ClaudeTraits(no_temperature=True),
     "opus-5": ClaudeTraits(no_temperature=True),
