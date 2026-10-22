@@ -1520,17 +1520,8 @@ class _TypedModelRowsProgram(_TypedMapRowsProgram):
             runtime_binding,
         )
         self._response_model = self._terminal.response_model
-        self._response_schema = (
-            {
-                "type": "object",
-                "properties": {
-                    field.key: dict(field.schema) for field in resolved_output_fields
-                },
-                "required": [field.key for field in resolved_output_fields],
-                "additionalProperties": False,
-            }
-            if self._response_model is DynamicOutput
-            else compile_output_schema(self._response_model)
+        self._response_schema = compile_output_schema(
+            self._response_model, output_fields=resolved_output_fields
         )
         self._logical_output_by_final = {
             final: logical for logical, final in output_names.items()
