@@ -836,8 +836,14 @@ class StructuredCompleter:
             )
         method_used = schema_mode
         profile = cap_row.as_profile_dict()
-        if explicit is None and method_used != cap_row.structured_mode:
+        if method_used != cap_row.structured_mode:
             profile["default_mechanism"] = method_used
+            # A validated explicit override must also choose the matching
+            # in-process output shape, including legacy Claude tool output.
+            if method_used == NATIVE_TOOL:
+                profile["supports_native_tool"] = True
+            elif method_used == NATIVE_STRICT:
+                profile["supports_native_strict"] = True
 
         model = FrisketRouterModel(
             self.router,
