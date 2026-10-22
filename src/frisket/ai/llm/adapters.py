@@ -1,5 +1,5 @@
 """Provider adapters. Two wire shapes cover the supported model families:
-- AnthropicAdapter: native Messages API; structured output via forced tool use.
+- AnthropicAdapter: native Messages API; JSON schema output or legacy forced tools.
 - OpenAICompatAdapter: OpenAI chat completions dialect — covers OpenAI, Gemini
   (their /openai/ compatibility endpoint), OpenRouter, and Ollama/LM Studio.
 """
@@ -16,7 +16,7 @@ from frisket.redaction import canonical_error_code, redact_text
 from . import structured_capabilities as capabilities
 from .pricing import cost_of_with_source
 from .structured import _extract_prose_json
-from .structured_capabilities import NATIVE_STRICT, PROSE_JSON
+from .structured_capabilities import NATIVE_STRICT, NATIVE_TOOL, PROSE_JSON
 from .types import LLMError, LLMRequest, LLMResponse, SchemaViolation
 
 TIMEOUT = httpx.Timeout(120.0, connect=10.0)
@@ -29,7 +29,10 @@ def _resolve_mechanism(req: LLMRequest) -> str:
     ``req.model`` for every mechanism-less request -- the
     table is the single source now that the per-adapter ``strict_schema``
     constructor booleans are retired."""
-    return req.mechanism or capabilities.resolve(req.model).structured_mode
+    if req.mechanism is not None:
+        return req.mechanism
+    mode = capabilities.resolve(req.model).structured_mode
+    return capabilities.schema_mechanism(req.model, req.schema or {}, mode)
 
 
 def _parse_structured(text: str, schema: dict | None) -> dict | None:
@@ -57,6 +60,67 @@ def _tool_result_content(content: Any) -> str:
     return content if isinstance(content, str) else json.dumps(content)
 
 
+def _anthropic_schema(schema: dict) -> dict:
+    """Lower Claude's documented subset; the completer validates the original.
+
+    Unlike OpenAI strictification, optional fields stay optional. Unsupported
+    constraints are described to the model and enforced locally on every try.
+    https://platform.claude.com/docs/en/build-with-claude/structured-outputs
+    """
+    if capabilities.anthropic_open_map(schema):
+        raise SchemaViolation("native_strict cannot represent open JSON dictionaries")
+    lowered = json.loads(json.dumps(schema))
+    unsupported = {
+        "minimum",
+        "maximum",
+        "exclusiveMinimum",
+        "exclusiveMaximum",
+        "multipleOf",
+        "minLength",
+        "maxLength",
+        "pattern",
+        "maxItems",
+        "uniqueItems",
+        "minContains",
+        "maxContains",
+        "minProperties",
+        "maxProperties",
+    }
+    formats = {
+        "date-time",
+        "time",
+        "date",
+        "duration",
+        "email",
+        "hostname",
+        "uri",
+        "ipv4",
+        "ipv6",
+        "uuid",
+    }
+    for node in capabilities.schema_nodes(lowered):
+        constraints = {}
+        for key in list(node):
+            if (
+                key in unsupported
+                or (key == "minItems" and node[key] not in (0, 1))
+                or (key == "format" and node[key] not in formats)
+            ):
+                constraints[key] = node.pop(key)
+        if constraints:
+            node["description"] = (
+                node.get("description", "") + " Constraints: " + json.dumps(constraints)
+            ).strip()
+        kind = node.get("type")
+        if (
+            kind == "object"
+            or (isinstance(kind, list) and "object" in kind)
+            or "properties" in node
+        ):
+            node["additionalProperties"] = False
+    return lowered
+
+
 class AnthropicAdapter:
     def __init__(
         self,
@@ -77,32 +141,34 @@ class AnthropicAdapter:
             "max_tokens": req.max_tokens,
             "messages": messages,
         }
-        if not model.startswith(self.no_temperature_prefixes or ("\x00",)):
+        if capabilities.anthropic_sampling_supported(
+            req.model
+        ) and not model.startswith(self.no_temperature_prefixes or ("\x00",)):
             body["temperature"] = req.temperature
         if system_parts:
             body["system"] = "\n".join(
                 p if isinstance(p, str) else json.dumps(p) for p in system_parts
             )
-        # Mechanism resolution mirrors OpenAICompatAdapter's (`_resolve_mechanism`,
-        # module-level above) so an explicit `req.mechanism=PROSE_JSON` override
-        # actually changes this wire body instead of being silently ignored. "auto"
-        # (no explicit mechanism) still resolves to NATIVE_TOOL for anthropic/*
-        # models (capabilities.SEED), so the default forced-tool body below is
-        # unchanged for every caller that doesn't pin PROSE_JSON explicitly.
         mechanism = _resolve_mechanism(req) if req.schema is not None else None
-        if req.schema is not None and mechanism == PROSE_JSON:
-            # The Messages API has no `response_format` concept at all (no
-            # json_schema strict mode, no json_object mode) -- PROSE_JSON's
-            # wire shape here is "no tools, ask in the system prompt", the
-            # only mechanism this dialect can express besides NATIVE_TOOL
-            # (capabilities.py's `dialect_mechanisms`).
+        if mechanism is not None and mechanism not in capabilities.dialect_mechanisms(
+            req.model
+        ):
+            raise SchemaViolation(f"{req.model!r} does not support {mechanism!r}")
+        if req.schema is not None and mechanism == NATIVE_STRICT:
+            body["output_config"] = {
+                "format": {
+                    "type": "json_schema",
+                    "schema": _anthropic_schema(req.schema),
+                }
+            }
+        elif req.schema is not None and mechanism == PROSE_JSON:
             instruction = "Respond ONLY with JSON matching this schema:\n" + json.dumps(
                 req.schema
             )
             body["system"] = (
                 f"{body['system']}\n\n{instruction}" if system_parts else instruction
             )
-        elif req.schema is not None:
+        elif req.schema is not None and mechanism == NATIVE_TOOL:
             body["tools"] = [
                 {
                     "name": "emit",
@@ -181,6 +247,8 @@ class AnthropicAdapter:
             data = _parse_structured(
                 _extract_prose_json(content) if content is not None else "", req.schema
             )
+        elif req.schema is not None and mechanism == NATIVE_STRICT:
+            data = _parse_structured(content or "", req.schema)
         if tool_calls is not None and not tool_calls:
             tool_calls = None  # "no calls this turn" stays None, not []
         stop_reason = out.get("stop_reason")

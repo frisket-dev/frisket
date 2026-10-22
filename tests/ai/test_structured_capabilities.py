@@ -39,7 +39,10 @@ SCHEMA = {
     [
         ("openai/gpt-5-mini", NATIVE_STRICT),
         ("gemini/gemini-2.5-flash", NATIVE_STRICT),
-        ("anthropic/claude-haiku-4-5", NATIVE_TOOL),
+        ("anthropic/claude-haiku-4-5", NATIVE_STRICT),
+        ("anthropic/claude-sonnet-5-5", NATIVE_STRICT),
+        ("anthropic/claude-opus-4-5-20251101", NATIVE_STRICT),
+        ("anthropic/claude-sonnet-4-0", NATIVE_TOOL),
         ("openrouter/anthropic/claude-x", JSON_LOOSE),
         (
             "openrouter/openai/gpt-5",
@@ -299,13 +302,10 @@ def test_ollama_wire_body_is_json_loose():
     assert body["response_format"] == {"type": "json_object"}
 
 
-def test_anthropic_wire_body_always_forces_emit_tool_regardless_of_table():
-    """``AnthropicAdapter`` has one mechanism, ``NATIVE_TOOL``. The dialect
-    split does not add response-format branching there; its body is
-    unconditional, unaffected by mechanism resolution."""
+def test_older_anthropic_wire_body_forces_emit_tool():
     adapter = AnthropicAdapter("k")
     req = LLMRequest(
-        model="anthropic/claude-haiku-4-5",
+        model="anthropic/claude-sonnet-4-0",
         messages=[{"role": "user", "content": "hi"}],
         schema=SCHEMA,
     )
