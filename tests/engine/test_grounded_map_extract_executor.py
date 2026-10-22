@@ -4,9 +4,11 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 from executor_harness import run_action_with_confirmation
+from frisket.actions.grounding_types import EvidenceClaim
 from frisket.engine.store.evidence import list_cell_evidence, resolve_evidence_viewer
 from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
 from frisket.engine.store.media_blobs import (
@@ -218,8 +220,6 @@ def _grounded_reply() -> dict[str, Any]:
             "evidence": [
                 {
                     "source": "document_text",
-                    "kind": "source_span",
-                    "span_kind": "region",
                     "page": 3,
                     "bbox": {
                         "space": "page_normalized",
@@ -248,8 +248,6 @@ def _grounded_bbox_spaces_reply() -> dict[str, Any]:
             "evidence": [
                 {
                     "source": "document_text",
-                    "kind": "source_span",
-                    "span_kind": "region",
                     "page": 3,
                     "bbox": {
                         "space": "pixel",
@@ -271,8 +269,6 @@ def _grounded_bbox_spaces_reply() -> dict[str, Any]:
             "evidence": [
                 {
                     "source": "document_text",
-                    "kind": "source_span",
-                    "span_kind": "region",
                     "page": 3,
                     "bbox": {
                         "space": "page_1000",
@@ -288,6 +284,15 @@ def _grounded_bbox_spaces_reply() -> dict[str, Any]:
             ],
         },
     }
+
+
+@pytest.mark.parametrize(
+    "reply_factory", [_grounded_reply, _grounded_bbox_spaces_reply]
+)
+def test_grounded_replies_use_canonical_model_evidence_claims(reply_factory) -> None:
+    for output in reply_factory().values():
+        for claim in output.get("evidence", []):
+            EvidenceClaim.model_validate(claim)
 
 
 def _cell_edit_action(

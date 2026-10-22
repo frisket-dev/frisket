@@ -153,13 +153,16 @@ def test_evidence_failure_cannot_close_an_ambiguous_sibling_effect(
     class ConcurrentProvider:
         async def complete(self, req, client):
             calls.append(req)
+            assert len(calls) <= 2, "unexpected repair call in evidence settlement test"
             if len(calls) == 1:
                 await asyncio.wait_for(sibling_started.wait(), timeout=5)
                 return await adapter.complete(req, client)
             sibling_started.set()
             # Cancellation while egress is pending cannot prove whether the
             # remote provider charged. The reserved checkpoint must survive.
-            await asyncio.Future()
+            # A broken reply or cancellation path must fail this test rather
+            # than leave a worker blocked for the entire suite's timeout.
+            await asyncio.wait_for(asyncio.Future(), timeout=5)
 
     router._adapters["anthropic"] = ConcurrentProvider()
 
