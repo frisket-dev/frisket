@@ -107,7 +107,7 @@ export default function App() {
       <ReplayModeBanner />
       <div className="app-shell-body">{node}</div>
       {identityMode && route.kind !== 'project' && (
-        <footer className="status-bar" style={{ justifyContent: 'flex-end' }}>
+        <footer className="status-bar diagnostic-footer">
           <DiagnosticReportButton />
         </footer>
       )}
@@ -291,7 +291,10 @@ export function ProjectRoute({
     );
   }
   if (!state.project) {
-    return <PanelLoading className="panel-loading-page" label="Loading project…" />;
+    return <>
+      <PanelLoading className="panel-loading-page" label="Loading project…" />
+      {identityMode && <footer className="status-bar diagnostic-footer"><DiagnosticReportButton /></footer>}
+    </>;
   }
   return (
     <WorkspaceStoresProvider projectId={state.project.id}>

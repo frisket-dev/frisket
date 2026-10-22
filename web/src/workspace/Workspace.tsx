@@ -10,11 +10,17 @@ import { WorkspaceDiscoverRegion } from './WorkspaceDiscovery';
 import { WorkspaceBottomDockRegion } from './WorkspaceBottomDock';
 import { WorkspaceActionDrawerRegion } from './WorkspaceActionDrawer';
 import { WorkspaceOverlayRegion } from './WorkspaceOverlays';
+import { useShellIdentity } from '../shellIdentity';
+import { DiagnosticReportButton } from './DiagnosticReport';
 
 export function Workspace(props: WorkspaceProps) {
+  const { identityMode } = useShellIdentity();
   const model = useWorkspaceModel(props);
   if (!model.sheetsLoaded) {
-    return <PanelLoading className="panel-loading-page" label="Loading project…" />;
+    return <>
+      <PanelLoading className="panel-loading-page" label="Loading project…" />
+      {identityMode && <footer className="status-bar diagnostic-footer"><DiagnosticReportButton /></footer>}
+    </>;
   }
   return <WorkspaceView model={model} />;
 }

@@ -258,3 +258,51 @@ test('report issue button does not overlap footer undo redo or review controls',
   expect(boxesOverlap(report!, redo!)).toBe(false);
   expect(boxesOverlap(report!, review!)).toBe(false);
 });
+
+test('report issue stays above an open action drawer on a real project route', async ({ page }, testInfo) => {
+  await page.route('**/api/me', route => route.fulfill({ json: { email: 'admin@example.com', cost_preapproval_usd: '0' } }));
+  const pid = await createProject(page.request, uniqueName('report-drawer'));
+  const sid = await importCsv(page.request, pid, 'rows.csv', 'name\nAda\n');
+  await page.goto(`/p/${pid}/s/${sid}/action/map.ask`);
+  await expect(page.getByTestId('generated-action-form')).toBeVisible();
+  await page.getByTestId('report-issue-button').click();
+  const popover = page.getByTestId('diagnostic-popover');
+  await expect(popover).toBeVisible();
+  expect(await popover.evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    return element.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+  })).toBe(true);
+  await page.getByTestId('diagnostic-description').fill('The action drawer stopped responding.');
+  await page.screenshot({ path: testInfo.outputPath('report-above-action-drawer.png') });
+  await page.getByRole('button', { name: 'Close report issue' }).click();
+  await expect(page.getByTestId('generated-action-form')).toBeVisible();
+});
+
+for (const stage of ['project', 'sheets', 'sheets-error'] as const) {
+  test(`report issue remains available while ${stage} loading is stalled`, async ({ page }, testInfo) => {
+    const pid = await createProject(page.request, uniqueName(`report-${stage}-loading`));
+    await page.route('**/api/me', route => route.fulfill({ json: { email: 'admin@example.com', cost_preapproval_usd: '0' } }));
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    await page.route(stage === 'project' ? '**/api/projects' : `**/api/projects/${pid}/sheets`, async route => {
+      if (stage === 'sheets-error') return route.fulfill({ status: 503, json: { error: 'Sheets temporarily unavailable' } });
+      await gate;
+      await route.continue();
+    });
+    try {
+      const pending = page.waitForRequest(request => new URL(request.url()).pathname === (
+        stage === 'project' ? '/api/projects' : `/api/projects/${pid}/sheets`
+      ));
+      await page.goto(`/p/${pid}`);
+      await pending;
+      await expect(page.getByText('Loading project…', { exact: true })).toBeVisible();
+      await page.getByTestId('report-issue-button').click();
+      await expect(page.getByTestId('diagnostic-popover')).toBeVisible();
+      expect((await page.getByTestId('diagnostic-popover').boundingBox())!.x).toBeGreaterThanOrEqual(0);
+      await page.getByTestId('diagnostic-description').fill(`The ${stage} never loaded.`);
+      await page.screenshot({ path: testInfo.outputPath(`report-${stage}-loading.png`) });
+    } finally {
+      release();
+    }
+  });
+}

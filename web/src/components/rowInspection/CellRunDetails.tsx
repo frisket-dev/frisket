@@ -137,6 +137,7 @@ export function ExplainBlock({
                   width: panelPos.width,
                   maxWidth: `calc(100vw - ${panelPos.left + 8}px)`,
                   maxHeight: panelPos.maxHeight,
+                  resize: panelPos.bottom === undefined ? 'both' : 'horizontal',
                 }
               : { visibility: 'hidden' }
           }
