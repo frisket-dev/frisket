@@ -591,7 +591,9 @@ def operation_affected_refs(undo_info: Mapping[str, Any]) -> list[dict[str, Any]
     refs: list[dict[str, Any]] = []
     for sheet_id in undo_info.get("created_sheets", []):
         refs.append({"kind": "sheet", "sheet_id": int(sheet_id)})
-    for column_id in undo_info.get("created_columns", []):
+    for column_id in dict.fromkeys(
+        [*undo_info.get("created_columns", []), *undo_info.get("released_columns", [])]
+    ):
         refs.append({"kind": "column", "column_id": int(column_id)})
     row_ids = [int(row_id) for row_id in undo_info.get("created_rows", [])]
     if row_ids:

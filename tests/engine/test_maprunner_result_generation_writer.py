@@ -134,6 +134,17 @@ def test_changed_contract_retries_empty_failed_reservation_with_fresh_identity(
         ).fetchone()["id"]
         assert new_column != old_column
         assert project.get_column(old_column)["active"] == 0
+        from frisket.engine.store.op_log import operation_affected_refs
+
+        failed_info = json.loads(
+            project.db.execute(
+                "SELECT undo_info FROM ops WHERE id=(SELECT op_id FROM runs WHERE id=?)",
+                (failed.run_id,),
+            ).fetchone()["undo_info"]
+        )
+        assert {"kind": "column", "column_id": old_column} in operation_affected_refs(
+            failed_info
+        )
         assert generations.get_binding(failed.run_id, old_column) == old_binding
         assert generations.read_cell_heads(old_column, [row_id]) == repeated_heads
         assert (

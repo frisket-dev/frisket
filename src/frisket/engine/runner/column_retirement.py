@@ -242,8 +242,8 @@ def retire_unbound_created_columns(
         )
 
 
-def retire_empty_failed_output(project: Project, column_id: int) -> bool:
-    """Release an empty failed reservation without changing its error history.
+def is_empty_failed_output(project: Project, column_id: int) -> bool:
+    """Read whether an empty reservation may release its output name.
 
     Only an output explicitly hidden by zero-success finalization qualifies.
     Any value or intentional null ever published on the identity protects it.
@@ -269,7 +269,12 @@ def retire_empty_failed_output(project: Project, column_id: int) -> bool:
         "AND publication_effect IN ('publish_value','publish_null') LIMIT 1",
         (column_id,),
     ).fetchone()
-    if populated is not None:
+    return populated is None
+
+
+def retire_empty_failed_output(project: Project, column_id: int) -> bool:
+    """Release an eligible reservation without changing its error history."""
+    if not is_empty_failed_output(project, column_id):
         return False
     project.db.execute("UPDATE columns SET active=0 WHERE id=?", (column_id,))
     # The name claim was acquired before preparation found this empty draft.
@@ -294,6 +299,9 @@ def retire_empty_failed_output(project: Project, column_id: int) -> bool:
         creator_info["created_columns"] = [
             value for value in creator_info["created_columns"] if value != column_id
         ]
+        creator_info["released_columns"] = sorted(
+            set(creator_info.get("released_columns", ())) | {column_id}
+        )
         project.db.execute(
             "UPDATE ops SET undo_info=? WHERE id=?",
             (json.dumps(creator_info), creator["id"]),
