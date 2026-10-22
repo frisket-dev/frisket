@@ -150,9 +150,9 @@ class AnthropicAdapter:
             "max_tokens": req.max_tokens,
             "messages": messages,
         }
-        if capabilities.anthropic_sampling_supported(
-            req.model
-        ) and not model.startswith(self.no_temperature_prefixes or ("\x00",)):
+        if capabilities.sampling_supported(req.model) and not model.startswith(
+            self.no_temperature_prefixes or ("\x00",)
+        ):
             body["temperature"] = req.temperature
         if system_parts:
             body["system"] = "\n".join(
@@ -394,10 +394,8 @@ class OpenAICompatAdapter:
             body["reasoning"] = {"enabled": False}
         elif req.reasoning_policy == "low_exclude":
             body["reasoning"] = {"effort": "low", "exclude": True}
-        openai_reasoning = req.model.startswith(
-            ("openai/", "openrouter/openai/")
-        ) and model.removeprefix("openai/").startswith(("gpt-5", "gpt-6", "o3", "o4"))
-        if not openai_reasoning and not model.startswith(
+        sampling_supported = capabilities.sampling_supported(req.model)
+        if sampling_supported and not model.startswith(
             self.no_temperature_prefixes or ("\x00",)
         ):
             body["temperature"] = req.temperature
@@ -409,7 +407,7 @@ class OpenAICompatAdapter:
                 or not 0.0 <= float(top_p) <= 1.0
             ):
                 raise LLMError("top_p must be a number between 0 and 1")
-            if not openai_reasoning:
+            if sampling_supported:
                 body["top_p"] = float(top_p)
         mechanism = _resolve_mechanism(req) if req.schema is not None else None
         if req.schema is not None:

@@ -10,6 +10,7 @@ from frisket.ai.llm import ModelRouter
 from frisket.ai.llm.adapters import _strictify
 from frisket.ai.llm.structured import StructuredCompleter, StructuredRequest
 from frisket.ops.extraction import extract_response_schema
+from frisket.actions.ner import NerModelOutput, normalize_ner_output
 
 
 def complete(model, schema, data, *, params=None):
@@ -189,3 +190,62 @@ def test_reasoning_sampling_omitted_on_direct_and_openrouter_routes(model):
     _, body = complete(model, schema, {"answer": 3}, params={"top_p": 0.7})
     assert "temperature" not in body
     assert "top_p" not in body
+
+
+@pytest.mark.parametrize("model", ["openai/gpt-4o", "gemini/gemini-3.5-flash"])
+def test_ner_optional_advisory_fields_keep_native_output_and_accept_nulls(model):
+    data = {
+        "entities": [
+            {
+                "text": "Ada",
+                "type": "PERSON",
+                "label": None,
+                "start": 0,
+                "end": 3,
+                "score": None,
+            },
+            {
+                "text": None,
+                "type": None,
+                "label": None,
+                "start": None,
+                "end": None,
+                "score": None,
+            },
+        ]
+    }
+    result, body = complete(model, NerModelOutput.model_json_schema(), data)
+    assert result.method_used == "native_strict"
+    assert body["response_format"]["type"] == "json_schema"
+    normalized = normalize_ner_output(result.data["entities"]).entities
+    assert len(normalized) == 1
+    assert normalized[0]["text"] == "Ada"
+
+
+@pytest.mark.parametrize(
+    "model",
+    ["openrouter/anthropic/claude-sonnet-5-5", "openrouter/anthropic/claude-opus-5-5"],
+)
+def test_openrouter_claude_reuses_direct_sampling_traits(model):
+    schema = {
+        "type": "object",
+        "properties": {"answer": {"type": "integer"}},
+        "required": ["answer"],
+    }
+    _, body = complete(model, schema, {"answer": 3}, params={"top_p": 0.7})
+    assert "temperature" not in body
+    assert "top_p" not in body
+
+
+@pytest.mark.parametrize(
+    "model", ["openrouter/openai/gpt-5-chat", "openrouter/openai/gpt-5.4"]
+)
+def test_openrouter_gpt5_preserves_established_sampling_behavior(model):
+    schema = {
+        "type": "object",
+        "properties": {"answer": {"type": "integer"}},
+        "required": ["answer"],
+    }
+    _, body = complete(model, schema, {"answer": 3}, params={"top_p": 0.7})
+    assert body["temperature"] == 0.0
+    assert body["top_p"] == 0.7

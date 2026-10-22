@@ -128,11 +128,13 @@ class NerOutput(BaseModel):
 
 
 class EntityModelValue(TypedDict, total=False):
-    text: str
-    type: str
-    label: str
-    start: int
-    end: int
+    # Strict providers require every key; null carries optional absence.
+    # The existing normalizer discards incomplete spans and missing hints.
+    text: str | None
+    type: str | None
+    label: str | None
+    start: int | None
+    end: int | None
     score: float | None
 
 

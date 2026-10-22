@@ -126,8 +126,24 @@ def _claude_family(model: str) -> str:
     return head if len(tail) == 8 and tail.isdigit() else name
 
 
-def anthropic_sampling_supported(model: str) -> bool:
-    return not _CLAUDE_TRAITS.get(_claude_family(model), ClaudeTraits()).no_temperature
+def sampling_supported(model: str) -> bool:
+    """Shared sampling policy for direct and OpenRouter provider routes."""
+    routed = model.removeprefix("openrouter/")
+    if routed.startswith("anthropic/"):
+        return not _CLAUDE_TRAITS.get(
+            _claude_family(routed), ClaudeTraits()
+        ).no_temperature
+    if routed.startswith("openai/"):
+        family = routed.split("/", 1)[1]
+        # Preserve the established direct OpenAI omission policy. OpenRouter
+        # retains its previous GPT-5 sampling behavior; only GPT-6 is new here.
+        prefixes = (
+            ("gpt-6",)
+            if model.startswith("openrouter/")
+            else ("gpt-5", "gpt-6", "o3", "o4")
+        )
+        return not family.startswith(prefixes)
+    return True
 
 
 SEED: tuple[CapabilityRow, ...] = tuple(
