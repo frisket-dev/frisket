@@ -135,7 +135,14 @@ def _try_op(name: str, input_arg: str) -> int:
                     "exact request instead of spending money"
                 ),
                 "messages": prompt.messages,
-                "schema": compile_output_schema(terminal.output_model),
+                "schema": (
+                    dict(prompt.response_schema)
+                    if prompt.response_schema is not None
+                    else compile_output_schema(
+                        terminal.response_model,
+                        output_fields=terminal.resolve_output_fields(params),
+                    )
+                ),
             },
             indent=2,
             default=str,

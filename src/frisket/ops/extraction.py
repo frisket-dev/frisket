@@ -6,6 +6,7 @@ import json
 import logging
 from typing import Any
 
+from frisket.actions.grounding_types import EvidenceClaim
 from frisket.ai.message_content import render_input_block
 
 
@@ -22,7 +23,24 @@ def extract_response_schema(
 
     if not grounding_enabled:
         props = {field["name"]: value_schema(field) for field in fields}
-        return {"type": "object", "properties": props, "required": list(props)}
+        return {
+            "type": "object",
+            "properties": props,
+            "required": list(props),
+            "additionalProperties": False,
+        }
+    # Reuse the host's citation vocabulary. A model may omit optional hints or
+    # return null (strict providers require every key); the host resolves them.
+    evidence_item_schema = EvidenceClaim.model_json_schema()
+    definitions = evidence_item_schema.pop("$defs", {})
+    evidence_item_schema["properties"].pop("item_index")  # Assigned by the host.
+    for record, key in (
+        (evidence_item_schema, "segment_indices"),
+        (definitions["EvidenceBox"], "space"),
+    ):
+        record["properties"][key] = {
+            "anyOf": [record["properties"][key], {"type": "null"}]
+        }
     props: dict[str, Any] = {}
     for field in fields:
         name = field["name"]
@@ -33,28 +51,6 @@ def extract_response_schema(
         ):
             props[name] = value_schema(field)
             continue
-        # Declare the two anchors the resolution chain actually consumes so
-        # the structured-output stack steers the model toward them:
-        # `segment_indices` (the reliable transcript lookup) and
-        # a verbatim `quote` (the align fallback). `additionalProperties`
-        # stays open so page/bbox/snippet/grounding_method still ride along
-        # for the OCR/PDF path.
-        evidence_item_schema = {
-            "type": "object",
-            "properties": {
-                "source": {"type": "string"},
-                "segment_indices": {
-                    "type": "array",
-                    "items": {"type": "integer"},
-                },
-                "quote": {"type": "string"},
-            },
-            # Both anchors are optional per evidence item (a citation may
-            # carry either or both); explicit so jsonschema's nothing-
-            # required default is a decision, not an accident.
-            "required": [],
-            "additionalProperties": True,
-        }
         # A LIST-typed field's evidence is a
         # list of the SAME length as `value`, index-aligned -- evidence[i]
         # supports value[i] (one evidence set per list item, mirroring
@@ -73,19 +69,23 @@ def extract_response_schema(
             "type": "object",
             "properties": {
                 "value": value_schema(field),
-                "evidence": evidence_schema,
+                "evidence": {"anyOf": [evidence_schema, {"type": "null"}]},
                 "warnings": {
-                    "type": "array",
-                    "items": {"type": "string"},
+                    "anyOf": [
+                        {"type": "array", "items": {"type": "string"}},
+                        {"type": "null"},
+                    ],
                 },
             },
             "required": ["value"],
-            "additionalProperties": True,
+            "additionalProperties": False,
         }
     return {
         "type": "object",
         "properties": props,
         "required": list(props.keys()),
+        "additionalProperties": False,
+        "$defs": definitions,
     }
 
 

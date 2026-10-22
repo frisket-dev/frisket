@@ -99,7 +99,10 @@ def test_typed_prompt_and_completion_share_fields_but_unwrap_grounding():
         "amount": {"value": None},
         "events_confidence": 0.9,
     }
-    assert Draft202012Validator(prompt.response_schema).is_valid(reply)
+    validator = Draft202012Validator(prompt.response_schema)
+    assert not validator.is_valid(reply)  # The model cannot select stored source IDs.
+    reply["events"]["evidence"][0][0].pop("source_id")
+    assert validator.is_valid(reply)
     result = complete_extract(params, row, DynamicOutput(root=reply)).output.root
     assert result["events"].value == ["launch", "landing"]
     assert result["events"].evidence[0].item_index == 0
@@ -135,6 +138,45 @@ def test_claims_keep_supported_coordinate_spaces_and_tolerate_bad_independent_hi
     assert claim.bbox.page_width == 100
     assert claim.bbox.space == "pixel"
     assert _evidence_claim({"quote": "hello", "bbox": {"bad": "data"}}).quote == "hello"
+
+
+def test_grounded_schema_preserves_citations_and_nullable_absence():
+    from frisket.actions.extract import _evidence_claim
+    from frisket.actions.grounding_types import EvidenceClaim
+
+    schema = extract_response_schema(
+        [{"name": "person", "schema": {"type": "string"}}], grounding_enabled=True
+    )
+    evidence_schema = schema["properties"]["person"]["properties"]["evidence"]["anyOf"][
+        0
+    ]["items"]
+    assert set(evidence_schema["properties"]) == set(EvidenceClaim.model_fields) - {
+        "item_index"
+    }
+    assert evidence_schema["additionalProperties"] is False
+    claim = {
+        "source": "document",
+        "page": 3,
+        "page_start": 3,
+        "page_end": 3,
+        "quote": "Ada",
+        "snippet": "Ada filed",
+        "grounding_method": "model_bbox",
+        "segment_indices": None,
+        "bbox": {"x0": 0.1, "y0": 0.2, "x1": 0.5, "y1": 0.6, "space": None},
+    }
+    validator = Draft202012Validator(schema)
+    validator.validate(
+        {"person": {"value": "Ada", "evidence": [claim], "warnings": None}}
+    )
+    resolved = _evidence_claim(claim)
+    assert resolved.page == 3 and resolved.snippet == "Ada filed"
+    assert resolved.bbox.x0 == 0.1 and resolved.bbox.space == "page_normalized"
+    assert resolved.segment_indices == ()
+    empty = dict.fromkeys(evidence_schema["properties"])
+    validator.validate({"person": {"value": "Ada", "evidence": [empty]}})
+    assert _evidence_claim(empty) == EvidenceClaim()
+    validator.validate({"person": {"value": "Ada", "evidence": None}})
 
 
 def test_field_authority_preserves_nested_schema_and_visible_list_reference():

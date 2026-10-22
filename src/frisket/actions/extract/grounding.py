@@ -56,6 +56,8 @@ def _evidence_claim(raw, *, item_index=None):
                 pass
         for axis in ("width", "height"):
             box.setdefault(f"page_{axis}", bbox.get(axis, bbox.get(f"image_{axis}")))
+    if box.get("space") is None:
+        box.pop("space", None)  # An absent coordinate space uses EvidenceBox's default.
     try:
         data["bbox"] = EvidenceBox.model_validate(box)
     except ValidationError:
