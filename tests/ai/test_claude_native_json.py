@@ -92,8 +92,18 @@ def test_native_json_wire_and_original_constraint_repair(family):
         assert "minimum" in lowered["properties"]["score"]["description"]
 
 
-def test_open_dictionary_uses_prose_and_preserves_dynamic_keys():
-    schema = {"type": "object", "additionalProperties": {"type": "integer"}}
+@pytest.mark.parametrize(
+    "schema",
+    [
+        {"type": "object", "additionalProperties": {"type": "integer"}},
+        {
+            "type": "object",
+            "properties": {"cats": {"type": "integer"}},
+            "additionalProperties": True,
+        },
+    ],
+)
+def test_open_dictionary_uses_prose_and_preserves_dynamic_keys(schema):
     result, bodies = run_complete(schema, [wire('{"cats":2,"dogs":3}')])
     assert result.data == {"cats": 2, "dogs": 3}
     assert result.method_used == "prose_json"
@@ -136,7 +146,18 @@ def test_lowering_visits_schema_positions_without_rewriting_literal_data():
 
 @pytest.mark.parametrize(
     "schema,method",
-    [(SCHEMA, "native_tool"), ({"type": "object"}, "native_strict")],
+    [
+        (SCHEMA, "native_tool"),
+        ({"type": "object"}, "native_strict"),
+        (
+            {
+                "type": "object",
+                "properties": {"name": {"type": "string"}},
+                "additionalProperties": True,
+            },
+            "native_strict",
+        ),
+    ],
 )
 def test_incompatible_explicit_mechanisms_refuse_before_wire(schema, method):
     with pytest.raises(UnsupportedMechanismError):

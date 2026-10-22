@@ -290,6 +290,7 @@ def anthropic_open_map(schema: dict) -> bool:
     """Native Claude JSON requires closed objects; dictionaries need prose JSON."""
     return any(
         isinstance(node.get("additionalProperties"), dict)
+        or node.get("additionalProperties") is True
         or bool(node.get("patternProperties"))
         or (
             (
