@@ -20,11 +20,19 @@ def complete(model, schema, data, *, params=None):
     def handler(request):
         body = json.loads(request.content)
         bodies.append(body)
+        response_data = data(len(bodies)) if callable(data) else data
         if provider == "anthropic":
             content = (
-                [{"type": "tool_use", "name": "emit", "input": data, "id": "emit-1"}]
+                [
+                    {
+                        "type": "tool_use",
+                        "name": "emit",
+                        "input": response_data,
+                        "id": "emit-1",
+                    }
+                ]
                 if "tools" in body
-                else [{"type": "text", "text": json.dumps(data)}]
+                else [{"type": "text", "text": json.dumps(response_data)}]
             )
             payload = {
                 "id": "msg-1",
@@ -36,7 +44,10 @@ def complete(model, schema, data, *, params=None):
             payload = {
                 "id": "chat-1",
                 "choices": [
-                    {"message": {"content": json.dumps(data)}, "finish_reason": "stop"}
+                    {
+                        "message": {"content": json.dumps(response_data)},
+                        "finish_reason": "stop",
+                    }
                 ],
                 "usage": {"prompt_tokens": 1, "completion_tokens": 1},
             }
@@ -178,6 +189,25 @@ def test_strictify_never_rewrites_enum_default_or_example_objects():
     assert sent["properties"]["value"]["default"] == literal
     assert sent["examples"] == [literal]
     assert "additionalProperties" not in literal
+
+
+@pytest.mark.parametrize("bad_hint", [{"page": "2"}, {"confidence": 0.9}])
+def test_malformed_citation_hints_use_existing_bounded_repair(bad_hint):
+    schema = extract_response_schema(
+        [{"name": "person", "schema": {"type": "string"}}], grounding_enabled=True
+    )
+    attempts = []
+
+    def response(attempt):
+        attempts.append(attempt)
+        hint = bad_hint if attempt == 1 else {"page": 2}
+        return {"person": {"value": "Ada", "evidence": [{"quote": "Ada", **hint}]}}
+
+    result, _ = complete("anthropic/claude-sonnet-4-5", schema, response)
+    assert attempts == [1, 2]
+    assert result.data == {
+        "person": {"value": "Ada", "evidence": [{"quote": "Ada", "page": 2}]}
+    }
 
 
 @pytest.mark.parametrize("model", ["openai/gpt-6-luna", "openrouter/openai/gpt-6-luna"])
