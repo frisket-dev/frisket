@@ -16,6 +16,8 @@ vi.mock('../../src/media/pdfjsSetup', () => ({
 }));
 
 import { ProjectRoute } from '../../src/App';
+import { EditionModuleProvider } from '../../src/editions/module';
+import { LOCAL_EDITION_MODULE } from '../../src/editions/openModules';
 
 
 
@@ -40,7 +42,9 @@ describe('ProjectRoute disjoint project-switch boundary', () => {
       .mockImplementationOnce(() => projectA.promise)
       .mockImplementationOnce(() => projectB.promise);
 
-    const view = render(<ProjectRoute projectId="A" />);
+    const view = render(<ProjectRoute projectId="A" />, {
+      wrapper: ({ children }) => <EditionModuleProvider edition={LOCAL_EDITION_MODULE}>{children}</EditionModuleProvider>,
+    });
     view.rerender(<ProjectRoute projectId="B" />);
 
     await act(async () => {

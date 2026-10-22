@@ -46,7 +46,8 @@ def test_try_renders_model_calls_instead_of_spending(
     assert out["schema"]["properties"]["summary"]["type"] == "string"
 
 
-def test_try_renders_typed_ask_by_slug(capsys: pytest.CaptureFixture) -> None:
+@pytest.mark.parametrize("typed", [False, True])
+def test_try_renders_typed_ask_by_slug(capsys: pytest.CaptureFixture, typed) -> None:
     code = op(
         [
             "try",
@@ -59,6 +60,11 @@ def test_try_renders_typed_ask_by_slug(capsys: pytest.CaptureFixture) -> None:
                         "source": {"text": "Vote: {{story}}"},
                         "model": "anthropic/claude-haiku-4-5",
                         "question": "What was the vote?",
+                        **(
+                            {"response_type": "integer", "include_confidence": True}
+                            if typed
+                            else {}
+                        ),
                     },
                 }
             ),
@@ -71,7 +77,11 @@ def test_try_renders_typed_ask_by_slug(capsys: pytest.CaptureFixture) -> None:
         out["messages"][1]["content"][0]["text"]
         == "input: Vote: The council voted 5-2."
     )
-    assert out["schema"]["properties"]["answer"]["type"] == "string"
+    if typed:
+        assert out["schema"]["properties"]["answer"]["anyOf"][0]["type"] == "integer"
+        assert out["schema"]["properties"]["answer_confidence"]["maximum"] == 1
+    else:
+        assert out["schema"]["properties"]["answer"]["type"] == "string"
 
 
 def test_try_judge_template_keeps_source_and_input_named_answer(capsys) -> None:

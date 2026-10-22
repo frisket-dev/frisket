@@ -14,6 +14,7 @@ from typing import Any
 from frisket.ops.base import Recipe
 from frisket.ops.builtin import prompt_hash_of
 from frisket.engine.runner.column_retirement import (
+    retire_empty_failed_output,
     retire_dropped_output_columns,
 )
 from frisket.engine.runner.validation import _ValidatedSpec
@@ -239,6 +240,7 @@ def _require_compatible_hidden_managed_revival(
     *,
     sheet_id: int,
     field: dict[str, Any],
+    allow_empty_retirement: bool = True,
 ) -> None:
     """Refuse a hidden managed name before ``add_column`` can mutate it."""
 
@@ -271,6 +273,10 @@ def _require_compatible_hidden_managed_revival(
         or row["semantic_type"] != field.get("semantic_type")
         or any(binding["compatibility_key"] != expected_key for binding in history)
     ):
+        if allow_empty_retirement and retire_empty_failed_output(
+            project, int(row["id"])
+        ):
+            return
         raise GenerationDeclarationConflict(
             f"hidden generation-managed output {field['name']!r} is incompatible "
             "with the declared output contract"
@@ -528,6 +534,7 @@ def prepare_validated(
                     project,
                     sheet_id=sheet_id,
                     field=f,
+                    allow_empty_retirement=False,
                 )
                 revived_column_id = project.add_column(
                     sheet_id,

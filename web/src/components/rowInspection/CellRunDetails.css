@@ -23,6 +23,9 @@
   inset: auto;
   margin: 0;
   overflow-y: auto;
+  resize: both;
+  min-width: min(280px, calc(100vw - 16px));
+  min-height: min(160px, calc(100vh - 16px));
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: var(--radius-7);

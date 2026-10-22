@@ -10,8 +10,8 @@ completer-issued-auto — that leaves the field unset, and
 ``llm/structured.py``'s completer consults it to build the ``method_used``
 audit tag and the pydantic-ai ``ModelProfile``.
 
-**PARITY-ONLY seed.** Every row below byte-matches the CURRENT
-behavior it replaces — no capability promotions. In particular
+Claude's documented native JSON models use strict JSON output; older Claude
+models retain forced tools. In particular
 ``openrouter/*`` and ``ollama/*`` stay ``JSON_LOOSE`` even though a
 ``openrouter/<vendor>/*`` glob *could* resolve more specifically (the
 resolution algorithm below supports it) — promoting any vendor glob to
@@ -19,31 +19,30 @@ resolution algorithm below supports it) — promoting any vendor glob to
 assumption.
 
 **Cache-key / cassette parity.**
-The table's seed intentionally reproduces the SAME resolution every current
-model already gets, so byte-identical wire bodies are the natural result —
-but the resolved mechanism is deliberately kept OFF the wire request when a
-caller leaves ``method="auto"``/``mechanism=None`` (``llm/structured.py``
-still passes ``mechanism=None`` through to ``LLMRequest`` for that case).
+Auto resolution keeps ``LLMRequest.mechanism=None``; this change does not
+expand the dormant opt-in probe subsystem's wire behavior.
 ``cache.py:request_key`` hashes ``req.mechanism``
 verbatim, so stamping a resolved string onto every auto-resolved request
 would flip every existing cassette's key from ``None`` to e.g.
 ``"native_strict"`` and invalidate the committed golden cache
 (``tests/cache/llm_cache.db``) for no behavior change. Table consultation
-therefore happens at the READ side (adapters resolving a wire shape,
-completer resolving an audit tag / a ``ModelProfile``), never by writing the
-resolved value back onto the cache-keyed request.
+therefore normally happens at the READ side (adapters resolving a wire shape,
+completer resolving an audit tag / a ``ModelProfile``).
 """
 
 from __future__ import annotations
 
 import fnmatch
+from collections.abc import Iterator
 from dataclasses import dataclass
+
+from jsonschema import Draft202012Validator
 
 # Mechanism ids -- the same closed vocabulary llm/structured.py's completer
 # uses. Defined HERE now (the table is the single source of truth for
 # mechanism identity); llm/structured.py imports these rather than keeping
 # its own copy, so the two can't drift.
-NATIVE_STRICT = "native_strict"  # OpenAI/Gemini json_schema strict mode
+NATIVE_STRICT = "native_strict"  # Provider-native JSON schema output
 NATIVE_TOOL = "native_tool"  # Anthropic forced tool_use ("emit")
 JSON_LOOSE = "json_loose"  # json_object + schema-in-prompt
 PROSE_JSON = "prose_json"  # no response_format; JSON asked for in prose
@@ -54,15 +53,10 @@ MECHANISMS = (NATIVE_STRICT, NATIVE_TOOL, JSON_LOOSE, PROSE_JSON)
 class CapabilityRow:
     """One capability table row.
 
-    ``additional_properties_false``/``nullable_optional_convention`` name the
-    two Section 5 mechanics that only apply to the strict-mode wire path
-    (``_strictify``, ``adapters.py:290-306``, demoted to a helper invoked only
-    for ``NATIVE_STRICT``): the request body forces
-    ``additionalProperties:false`` + all-required, and callers must therefore
-    use the ``{"type": [T, "null"]}`` nullable-optional convention (Section 5)
-    for any field that's optional in spirit but must survive strict mode's
-    forced ``required``. Both are ``False`` for every non-``NATIVE_STRICT``
-    mechanism today (parity-only: nothing else forces this).
+    ``additional_properties_false`` describes closed objects on the wire.
+    ``nullable_optional_convention`` describes OpenAI-compatible strict mode's
+    all-required convention. Claude native JSON keeps optional fields optional,
+    so only its first flag is true. Local validation uses the original schema.
     """
 
     provider: str  # e.g. "openai", "anthropic", "*" (conservative fallback)
@@ -77,27 +71,94 @@ class CapabilityRow:
         ``_profile_from_capability`` already consumes:
         ``default_mechanism``/``supports_native_strict``/
         ``supports_native_tool``/``supports_json_object``. Derived, not
-        stored twice: in this parity-only seed every provider supports
-        exactly the ONE mechanism it defaults to, except that every
-        OpenAI-compat dialect (anything not ``NATIVE_TOOL``) also always
-        speaks plain ``json_object`` -- matching the original capability table
+        stored twice. OpenAI-compatible dialects also speak ``json_object``;
+        Anthropic's native JSON output does not use that mode. These are
+        default profile hints, not explicit-override validation (see
+        ``dialect_mechanisms`` below), matching the original capability table
         (``openai``/``gemini`` rows carry ``json_obj=True`` even though their
         default is ``NATIVE_STRICT``)."""
         return {
             "default_mechanism": self.structured_mode,
             "supports_native_strict": self.structured_mode == NATIVE_STRICT,
             "supports_native_tool": self.structured_mode == NATIVE_TOOL,
-            "supports_json_object": self.structured_mode != NATIVE_TOOL,
+            "supports_json_object": self.provider != "anthropic"
+            and self.structured_mode != NATIVE_TOOL,
         }
 
 
 # ---------------------------------------------------------------------------
-# PARITY-ONLY seed. Each row's `source` field cites the exact adapter
-# behavior it reproduces -- verified byte-match, not promotion. No
+# Each row's `source` field cites the documented capability or legacy
+# adapter behavior it reproduces. No
 # vendor-glob strict promotion for openrouter here; that stays a deliberate,
 # separate opt-in (see RECORDED_PROMOTIONS below).
 # ---------------------------------------------------------------------------
-SEED: tuple[CapabilityRow, ...] = (
+# Claude API compatibility, verified against the official structured-output
+# and tool-definition docs (2026-10-22). Match aliases and dated snapshots
+# separately: a trailing wildcard must not accidentally promote future models.
+# https://platform.claude.com/docs/en/build-with-claude/structured-outputs
+@dataclass(frozen=True)
+class ClaudeTraits:
+    json_output: bool = False
+    no_temperature: bool = False
+
+
+# Only families requiring a change from the legacy forced-tool/sampling
+# behavior. json_output also identifies models that reject forced tool use.
+# https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools
+# https://platform.claude.com/docs/en/build-with-claude/thinking
+_CLAUDE_TRAITS = {
+    "opus-4-7": ClaudeTraits(no_temperature=True),
+    "opus-4-8": ClaudeTraits(no_temperature=True),
+    "opus-5": ClaudeTraits(no_temperature=True),
+    "opus-5-5": ClaudeTraits(json_output=True, no_temperature=True),
+    "sonnet-5": ClaudeTraits(no_temperature=True),
+    "sonnet-5-5": ClaudeTraits(json_output=True, no_temperature=True),
+    "fable-5": ClaudeTraits(no_temperature=True),
+    "fable-5-1": ClaudeTraits(json_output=True, no_temperature=True),
+    "mythos-5": ClaudeTraits(no_temperature=True),
+    "mythos-5-1": ClaudeTraits(json_output=True, no_temperature=True),
+}
+
+
+def _claude_family(model: str) -> str:
+    name = model.removeprefix("anthropic/claude-")
+    head, _, tail = name.rpartition("-")
+    return head if len(tail) == 8 and tail.isdigit() else name
+
+
+def sampling_supported(model: str) -> bool:
+    """Shared sampling policy for direct and OpenRouter provider routes."""
+    routed = model.removeprefix("openrouter/")
+    if routed.startswith("anthropic/"):
+        return not _CLAUDE_TRAITS.get(
+            _claude_family(routed), ClaudeTraits()
+        ).no_temperature
+    if routed.startswith("openai/"):
+        family = routed.split("/", 1)[1]
+        # Preserve the established direct OpenAI omission policy. OpenRouter
+        # retains its previous GPT-5 sampling behavior; only GPT-6 is new here.
+        prefixes = (
+            ("gpt-6",)
+            if model.startswith("openrouter/")
+            else ("gpt-5", "gpt-6", "o3", "o4")
+        )
+        return not family.startswith(prefixes)
+    return True
+
+
+SEED: tuple[CapabilityRow, ...] = tuple(
+    CapabilityRow(
+        provider="anthropic",
+        model_pattern=f"anthropic/claude-{family}{suffix}",
+        structured_mode=NATIVE_STRICT,
+        additional_properties_false=True,
+        nullable_optional_convention=False,
+        source="https://platform.claude.com/docs/en/build-with-claude/structured-outputs",
+    )
+    for family, traits in _CLAUDE_TRAITS.items()
+    if traits.json_output
+    for suffix in ("", "-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]")
+) + (
     CapabilityRow(
         provider="openai",
         model_pattern="openai/*",
@@ -203,6 +264,70 @@ def resolve(
     return max(candidates, key=lambda row: _specificity(row.model_pattern))
 
 
+def schema_nodes(schema: dict) -> Iterator[dict]:
+    """Visit schema positions, never property names or literal enum/default data."""
+    yield schema
+    for key in ("properties", "$defs", "definitions", "patternProperties"):
+        for child in schema.get(key, {}).values():
+            if isinstance(child, dict):
+                yield from schema_nodes(child)
+    for key in (
+        "items",
+        "additionalProperties",
+        "contains",
+        "not",
+        "if",
+        "then",
+        "else",
+    ):
+        child = schema.get(key)
+        if isinstance(child, dict):
+            yield from schema_nodes(child)
+    for key in ("anyOf", "allOf", "oneOf", "prefixItems"):
+        for child in schema.get(key, []):
+            if isinstance(child, dict):
+                yield from schema_nodes(child)
+
+
+def native_open_map(schema: dict) -> bool:
+    """Strict wire schemas require closed objects; dictionaries need prose JSON."""
+    return any(
+        isinstance(node.get("additionalProperties"), dict)
+        or bool(node.get("patternProperties"))
+        or (
+            (
+                node.get("type") == "object"
+                or (isinstance(node.get("type"), list) and "object" in node["type"])
+                or "properties" in node
+            )
+            and not node.get("properties")
+            and node.get("additionalProperties") is not False
+        )
+        for node in schema_nodes(schema)
+    )
+
+
+def schema_mechanism(model: str, schema: dict, mechanism: str) -> str:
+    """Schema-aware auto selection, shared by the completer and wire adapter."""
+    if mechanism == NATIVE_STRICT and native_open_map(schema):
+        return PROSE_JSON
+    if (
+        mechanism == NATIVE_STRICT
+        and model.split("/", 1)[0] in _KNOWN_OPENAI_COMPAT_PROVIDERS
+    ):
+        # OpenAI-compatible strict output requires every property. Optional
+        # nullable fields have a lossless wire representation (null); an
+        # optional nonnullable field does not. Keep its original semantics.
+        validator = Draft202012Validator(schema)
+        for node in schema_nodes(schema):
+            for name, prop in node.get("properties", {}).items():
+                if name not in node.get("required", []) and not validator.evolve(
+                    schema=prop
+                ).is_valid(None):
+                    return PROSE_JSON
+    return mechanism
+
+
 # ---------------------------------------------------------------------------
 # Which mechanisms each wire DIALECT can structurally speak at all -- a hard
 # fact about llm/adapters.py's two adapter classes, NOT a per-model
@@ -212,13 +337,9 @@ def resolve(
 # not: an override is checked against this map regardless of what "auto"
 # would have resolved to.
 #
-# AnthropicAdapter: the Messages API has no `response_format` concept at all
-# -- no json_schema strict mode, no json_object mode -- so NATIVE_STRICT/
-# JSON_LOOSE are genuinely, structurally absent, not a policy choice. It
-# speaks exactly its native forced tool_use dialect (NATIVE_TOOL) plus
-# PROSE_JSON (its schema branch skips `tools` entirely and asks in the
-# `system` prompt instead, mirroring OpenAICompatAdapter's PROSE_JSON
-# branch).
+# AnthropicAdapter speaks output_config.format (NATIVE_STRICT), legacy forced
+# tools (NATIVE_TOOL), and prompt-based JSON. Known model restrictions refine
+# these choices below; Messages never speaks JSON_LOOSE/json_object.
 #
 # OpenAICompatAdapter (covers openai/gemini/openrouter/ollama): speaks
 # NATIVE_STRICT (`response_format: json_schema`), JSON_LOOSE
@@ -227,7 +348,7 @@ def resolve(
 # wired a forced-single-tool "emit" dialect for structured output
 # (NATIVE_TOOL is Anthropic-only) -- pinning NATIVE_TOOL there is a real,
 # currently-true gap, not a guess.
-_ANTHROPIC_DIALECT_MECHANISMS = frozenset({NATIVE_TOOL, PROSE_JSON})
+_ANTHROPIC_DIALECT_MECHANISMS = frozenset({NATIVE_STRICT, NATIVE_TOOL, PROSE_JSON})
 _OPENAI_COMPAT_DIALECT_MECHANISMS = frozenset({NATIVE_STRICT, JSON_LOOSE, PROSE_JSON})
 # The 5 real provider prefixes the router actually constructs an adapter for
 # -- the ONLY prefixes whose dialect is a hard, knowable fact. Anything else
@@ -256,7 +377,13 @@ def dialect_mechanisms(model: str) -> frozenset[str]:
     """
     provider = model.split("/", 1)[0]
     if provider == "anthropic":
-        return _ANTHROPIC_DIALECT_MECHANISMS
+        modes = _ANTHROPIC_DIALECT_MECHANISMS
+        traits = _CLAUDE_TRAITS.get(_claude_family(model), ClaudeTraits())
+        if not traits.json_output:
+            modes = modes - {NATIVE_STRICT}
+        if traits.json_output:
+            modes = modes - {NATIVE_TOOL}
+        return modes
     if provider in _KNOWN_OPENAI_COMPAT_PROVIDERS:
         return _OPENAI_COMPAT_DIALECT_MECHANISMS
     return frozenset(MECHANISMS)

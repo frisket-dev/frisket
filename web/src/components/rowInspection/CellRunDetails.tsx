@@ -107,7 +107,7 @@ export function ExplainBlock({
 
   return (
     <div className={compact ? 'explain explain-compact' : 'explain'}>
-      <Button
+      <button
         type="button"
         ref={triggerRef}
         className={compact ? 'row-field-icon explain-toggle' : 'btn explain-toggle'}
@@ -120,7 +120,7 @@ export function ExplainBlock({
         style={{ visibility: visible || open || detailsOpen ? undefined : 'hidden' }}
       >
         <FileSearch2 size={12} /> {compact ? null : 'Explain this cell'}
-      </Button>
+      </button>
       {open && (
         <div
           ref={panelRef}
@@ -135,7 +135,9 @@ export function ExplainBlock({
                   bottom: panelPos.bottom,
                   left: panelPos.left,
                   width: panelPos.width,
+                  maxWidth: `calc(100vw - ${panelPos.left + 8}px)`,
                   maxHeight: panelPos.maxHeight,
+                  resize: panelPos.bottom === undefined ? 'both' : 'horizontal',
                 }
               : { visibility: 'hidden' }
           }

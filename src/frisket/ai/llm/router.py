@@ -260,10 +260,7 @@ class ModelRouter:
             self._credential_sources["anthropic"] = key_sources.get(
                 "anthropic", default_source
             )
-            self._adapters["anthropic"] = AnthropicAdapter(
-                anth,
-                no_temperature_prefixes=("claude-sonnet-5", "claude-fable-5"),
-            )
+            self._adapters["anthropic"] = AnthropicAdapter(anth)
         oai = keys.get("openai") or env.get("OPENAI_API_KEY")
         if oai:
             self._configured_keys["openai"] = oai
@@ -274,7 +271,6 @@ class ModelRouter:
                 oai,
                 "https://api.openai.com/v1",
                 max_tokens_param="max_completion_tokens",
-                no_temperature_prefixes=("gpt-5", "o3", "o4"),
             )
         gem = keys.get("gemini") or env.get("GEMINI_API_KEY")
         if gem:

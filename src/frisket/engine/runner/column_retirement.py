@@ -242,6 +242,81 @@ def retire_unbound_created_columns(
         )
 
 
+def is_empty_failed_output(project: Project, column_id: int) -> bool:
+    """Read whether an empty reservation may release its output name.
+
+    Only an output explicitly hidden by zero-success finalization qualifies.
+    Any value or intentional null ever published on the identity protects it.
+    Manual edits also protect it, including nulls and undone edits with redo.
+    """
+    owner = project.db.execute(
+        "SELECT ops.id,ops.undo_info FROM columns "
+        "JOIN runs ON runs.id=columns.current_run_id "
+        "JOIN ops ON ops.id=runs.op_id "
+        "WHERE columns.id=? AND columns.active=1 AND columns.hidden=1 "
+        "AND columns.ai_generated=1 "
+        "AND runs.status IN ('completed','partial','failed') AND ops.status='applied'",
+        (column_id,),
+    ).fetchone()
+    if owner is None:
+        return False
+    info = json.loads(owner["undo_info"] or "{}")
+    if column_id not in info.get("zero_success_columns", ()) or column_id not in (
+        info.get("created_columns", ())
+    ):
+        return False
+    if (
+        project.db.execute(
+            "SELECT 1 FROM edits WHERE column_id=? LIMIT 1", (column_id,)
+        ).fetchone()
+        is not None
+    ):
+        return False
+    populated = project.db.execute(
+        "SELECT 1 FROM results WHERE column_id=? "
+        "AND publication_effect IN ('publish_value','publish_null') LIMIT 1",
+        (column_id,),
+    ).fetchone()
+    return populated is None
+
+
+def retire_empty_failed_output(project: Project, column_id: int) -> bool:
+    """Release an eligible reservation without changing its error history."""
+    if not is_empty_failed_output(project, column_id):
+        return False
+    project.db.execute("UPDATE columns SET active=0 WHERE id=?", (column_id,))
+    # The name claim was acquired before preparation found this empty draft.
+    # Its replacement will be a fresh identity with no publication base.
+    project.db.execute(
+        "UPDATE output_column_claims SET column_id=NULL,expected_current_run_id=NULL "
+        "WHERE column_id=? AND status='active'",
+        (column_id,),
+    )
+    # Undo/redo of the failed producer must never reclaim the released name.
+    # Its run, generation, results, and receipt still retain this column ID.
+    creators = project.db.execute(
+        "SELECT DISTINCT ops.id,ops.undo_info FROM run_output_generations generation "
+        "JOIN runs ON runs.id=generation.run_id JOIN ops ON ops.id=runs.op_id "
+        "WHERE generation.column_id=?",
+        (column_id,),
+    ).fetchall()
+    for creator in creators:
+        creator_info = json.loads(creator["undo_info"] or "{}")
+        if column_id not in creator_info.get("created_columns", ()):
+            continue
+        creator_info["created_columns"] = [
+            value for value in creator_info["created_columns"] if value != column_id
+        ]
+        creator_info["released_columns"] = sorted(
+            set(creator_info.get("released_columns", ())) | {column_id}
+        )
+        project.db.execute(
+            "UPDATE ops SET undo_info=? WHERE id=?",
+            (json.dumps(creator_info), creator["id"]),
+        )
+    return True
+
+
 def hide_zero_success_created_columns(
     project: Project,
     op_id: int,

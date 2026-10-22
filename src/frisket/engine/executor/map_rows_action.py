@@ -1520,17 +1520,8 @@ class _TypedModelRowsProgram(_TypedMapRowsProgram):
             runtime_binding,
         )
         self._response_model = self._terminal.response_model
-        self._response_schema = (
-            {
-                "type": "object",
-                "properties": {
-                    field.key: dict(field.schema) for field in resolved_output_fields
-                },
-                "required": [field.key for field in resolved_output_fields],
-                "additionalProperties": False,
-            }
-            if self._response_model is DynamicOutput
-            else compile_output_schema(self._response_model)
+        self._response_schema = compile_output_schema(
+            self._response_model, output_fields=resolved_output_fields
         )
         self._logical_output_by_final = {
             final: logical for logical, final in output_names.items()
@@ -1788,10 +1779,18 @@ def resolve_row_output_targets(
                 details={"columns": [name]},
             )
         if not request.replace_existing:
+            from frisket.engine.runner.column_retirement import is_empty_failed_output
+
             if allow_idempotent_outputs or (
                 bool(column["hidden"])
                 and bool(column["ai_generated"])
-                and str(column["type"]) == field.column_type
+                and (
+                    str(column["type"]) == field.column_type
+                    or (
+                        generation_managed
+                        and is_empty_failed_output(project, column_id)
+                    )
+                )
             ):
                 preconditions[name] = None
                 continue
@@ -2597,6 +2596,12 @@ def typed_request_hash(bound: BoundTypedActionRequest) -> str:
     # additionally captures omission-sensitive meanings (e.g. default diarization)
     # without adding metadata to the executable request or its receipt.
     identity["params"] = bound.params.model_dump(mode="json", by_alias=True)
+    if bound.action.action_id == "map.ask":
+        # These optional controls were added after Ask receipts already existed.
+        # Their defaults preserve request meaning and existing receipt replay.
+        for name, default in (("response_type", "text"), ("include_confidence", False)):
+            if identity["params"].get(name) == default:
+                identity["params"].pop(name, None)
     options = resolved_engine_options(bound.action.definition.run, bound.params)
     if options is not None:
         identity["engine_options"] = options

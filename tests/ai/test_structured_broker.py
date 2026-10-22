@@ -127,58 +127,39 @@ def _object_nodes_missing_closed_marker(node: Any, path: tuple = ()) -> list[tup
     return bad
 
 
-def test_native_strict_closes_every_object_node_in_the_tree():
-    """The live 400 this reproduces, verbatim from an `openai/gpt-5-mini`
-    `map.extract` run against the real API:
-
-        Invalid schema for response_format 'result': In
-        context=('properties','person'), 'additionalProperties' is required
-        to be supplied and to be false.
-
-    `map.extract`'s grounded schema (the typed ``extract`` prompt's
-    ``response_schema``) OPENS each per-field wrapper and each evidence item
-    with an explicit `additionalProperties: True`, so that page/bbox/snippet
-    can ride along on the OCR/PDF path. `_strictify` used `setdefault`, which
-    preserved that `True` all the way to the wire and 400'd EVERY OpenAI GPT
-    model. The wire body must close every object node; validation still runs
-    against the original, open schema (asserted above).
-
-    Recorded fixture, not a live call: the real action's schema driven
-    through the real adapter over a MockTransport.
-    """
-    from frisket.actions.extract import ExtractParams, extract
-    from frisket.actions.types import Row
-
-    params = ExtractParams.model_validate(
-        {
-            "source": ["document"],
-            "model": "openai/gpt-5-mini",
-            "fields": [
-                {"name": "person", "type": "text"},
-                {"name": "moments", "type": "list", "items": {"type": "string"}},
-            ],
-            "grounding": {"enabled": True},
-        }
-    )
-    schema = extract(params, Row({"document": "Ada met Babbage."})).response_schema
-    # Precondition: the ORIGINAL schema really is open at the node OpenAI
-    # named, so this test would go red again if _strictify stopped closing it.
-    assert schema["properties"]["person"]["additionalProperties"] is True
-
+def test_native_strict_keeps_declared_nullable_evidence_fields():
+    """Closed extraction records keep page/snippet and native wire enforcement."""
+    schema = {
+        "type": "object",
+        "properties": {
+            "person": {
+                "type": "object",
+                "properties": {
+                    "value": {"type": ["string", "null"]},
+                    "page": {"type": ["integer", "null"]},
+                    "snippet": {"type": ["string", "null"]},
+                },
+                "required": ["value"],
+                "additionalProperties": False,
+            }
+        },
+        "required": ["person"],
+        "additionalProperties": False,
+    }
     body = _run_openai_adapter_capture_body(
         {"mechanism": "native_strict"}, schema=schema
     )
     sent = body["response_format"]["json_schema"]["schema"]
     assert _object_nodes_missing_closed_marker(sent) == []
-    # ...and the caller's schema was not mutated on the way through: the
-    # loose/prose bodies and Section 5 validation still read the open one.
-    assert schema["properties"]["person"]["additionalProperties"] is True
+    assert set(sent["properties"]["person"]["required"]) == {"value", "page", "snippet"}
+    assert sent["properties"]["person"]["properties"]["page"]["type"] == [
+        "integer",
+        "null",
+    ]
+    assert schema["properties"]["person"]["required"] == ["value"]
 
 
-def test_native_strict_closes_object_nodes_without_properties():
-    """A bare `{"type": "object"}` and a NULLABLE object (`["object","null"]`)
-    are object nodes too; strict mode demands the marker on both, and the old
-    `type == "object" and "properties" in node` guard skipped both."""
+def test_native_strict_refuses_propertyless_objects_instead_of_deleting_keys():
     schema = {
         "type": "object",
         "properties": {
@@ -190,11 +171,12 @@ def test_native_strict_closes_object_nodes_without_properties():
         },
         "required": ["freeform", "maybe"],
     }
-    body = _run_openai_adapter_capture_body(
-        {"mechanism": "native_strict"}, schema=schema
-    )
-    sent = body["response_format"]["json_schema"]["schema"]
-    assert _object_nodes_missing_closed_marker(sent) == []
+    with pytest.raises(SchemaViolation, match="open JSON dictionaries"):
+        _run_openai_adapter_capture_body({"mechanism": "native_strict"}, schema=schema)
+    body = _run_openai_adapter_capture_body({"mechanism": "prose_json"}, schema=schema)
+    assert "response_format" not in body
+    sent = json.loads(body["messages"][0]["content"].split("schema:\n", 1)[1])
+    assert sent == schema
 
 
 # ---------------------------------------------------------------------------

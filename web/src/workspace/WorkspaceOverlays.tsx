@@ -1,6 +1,8 @@
 import './WorkspaceOverlays.css';
 import { lazy, memo, Suspense, useCallback, useMemo } from 'react';
 import { StatusBar } from '../components/StatusBar';
+import { useShellIdentity } from '../shellIdentity';
+import { DiagnosticReportButton } from './DiagnosticReport';
 import { NowPlayingWidget } from '../components/NowPlayingWidget';
 import { PanelLoading } from '../components/PanelPrimitives';
 import { ColumnDrawer } from '../components/ColumnDrawer';
@@ -29,6 +31,7 @@ export const LazyEvidenceViewer = lazy(() => (
 ));
 
 export const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
+  const { identityMode } = useShellIdentity();
   useRenderCount('overlay');
   const overlayChrome = useChromeHandle();
   const projectionStatus = useSelector(overlayChrome.store, (s) => s.projectionStatus);
@@ -145,6 +148,7 @@ export const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
   return (
 <>
       <StatusBar
+        actions={identityMode ? <DiagnosticReportButton /> : undefined}
         run={run}
         history={history}
         reviewCount={reviewCount}

@@ -2063,9 +2063,18 @@ def has_dynamic_outputs(terminal: Any) -> bool:
     )
 
 
-def compile_output_schema(output_model: Any) -> dict[str, Any]:
+def compile_output_schema(
+    output_model: Any, *, output_fields: tuple[OutputField, ...] | None = None
+) -> dict[str, Any]:
     """Compile the model-owned response schema using logical output keys."""
 
+    if output_model is DynamicOutput and output_fields is not None:
+        return {
+            "type": "object",
+            "properties": {field.key: dict(field.schema) for field in output_fields},
+            "required": [field.key for field in output_fields],
+            "additionalProperties": False,
+        }
     return TypeAdapter(output_model).json_schema()
 
 

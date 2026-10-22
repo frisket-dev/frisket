@@ -125,9 +125,7 @@ def test_typed_extract_list_citations_and_confidence_policy(source, members):
         {
             "events": {
                 "value": members,
-                "evidence": [[{"quote": "Ada launched a rocket.", "source_id": 999}]]
-                if members
-                else [],
+                "evidence": [[{"quote": "Ada launched a rocket."}]] if members else [],
             },
             "events_confidence": 0.8,
         },

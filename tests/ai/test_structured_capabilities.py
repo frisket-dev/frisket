@@ -40,6 +40,9 @@ SCHEMA = {
         ("openai/gpt-5-mini", NATIVE_STRICT),
         ("gemini/gemini-2.5-flash", NATIVE_STRICT),
         ("anthropic/claude-haiku-4-5", NATIVE_TOOL),
+        ("anthropic/claude-sonnet-5-5", NATIVE_STRICT),
+        ("anthropic/claude-opus-4-5-20251101", NATIVE_TOOL),
+        ("anthropic/claude-sonnet-4-0", NATIVE_TOOL),
         ("openrouter/anthropic/claude-x", JSON_LOOSE),
         (
             "openrouter/openai/gpt-5",
@@ -110,6 +113,15 @@ def test_tie_break_on_literal_prefix_length():
 def test_no_match_falls_back():
     table = (_row("openai/*"),)
     assert resolve("anthropic/claude-x", table=table) is capabilities.FALLBACK
+
+
+def test_static_seed_wins_equal_specificity_and_more_specific_promotion_still_wins():
+    seed = _row("custom/model", NATIVE_STRICT)
+    override = _row("custom/model", PROSE_JSON)
+    broad = _row("custom/*", JSON_LOOSE)
+    assert resolve("custom/model", table=(seed,), promotions=(override,)) is seed
+    assert resolve("custom/model", table=(seed,), promotions=(broad,)) is seed
+    assert resolve("custom/model", table=(broad,), promotions=(override,)) is override
 
 
 # ---------------------------------------------------------------------------
@@ -299,13 +311,10 @@ def test_ollama_wire_body_is_json_loose():
     assert body["response_format"] == {"type": "json_object"}
 
 
-def test_anthropic_wire_body_always_forces_emit_tool_regardless_of_table():
-    """``AnthropicAdapter`` has one mechanism, ``NATIVE_TOOL``. The dialect
-    split does not add response-format branching there; its body is
-    unconditional, unaffected by mechanism resolution."""
+def test_older_anthropic_wire_body_forces_emit_tool():
     adapter = AnthropicAdapter("k")
     req = LLMRequest(
-        model="anthropic/claude-haiku-4-5",
+        model="anthropic/claude-sonnet-4-0",
         messages=[{"role": "user", "content": "hi"}],
         schema=SCHEMA,
     )

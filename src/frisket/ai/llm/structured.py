@@ -719,9 +719,8 @@ class UnsupportedMechanismError(ValueError):
 
     1. Hard dialect facts (always checked, every completer instance,
        ``capabilities.dialect_mechanisms`` -- e.g. Anthropic's Messages API
-       has no ``response_format`` concept, so pinning ``NATIVE_STRICT`` or
-       ``JSON_LOOSE`` there is unsupported regardless of which specific
-       model).
+       has no ``json_object`` mode, and Claude 5.5 Sonnet/Opus reject forced
+       tools). Schema-specific native-output restrictions also apply.
     2. A recorded probe (``llm/structured_probe.py::ProbeStore``, opt-in via
        the ``probe_store`` constructor arg) that already ran this exact
        (model, mechanism) pair and recorded ``supported=False``.
@@ -828,6 +827,24 @@ class StructuredCompleter:
         else:
             cap_row = capabilities.resolve(req.model)
         method_used = explicit or cap_row.structured_mode
+        schema_mode = capabilities.schema_mechanism(
+            req.model, wrapped_schema, method_used
+        )
+        if explicit is not None and schema_mode != method_used:
+            raise UnsupportedMechanismError(
+                f"{explicit!r} cannot represent open JSON dictionaries or optional "
+                f"nonnull fields for {req.model!r}"
+            )
+        method_used = schema_mode
+        profile = cap_row.as_profile_dict()
+        if method_used != cap_row.structured_mode:
+            profile["default_mechanism"] = method_used
+            # A validated explicit override must also choose the matching
+            # in-process output shape, including legacy Claude tool output.
+            if method_used == NATIVE_TOOL:
+                profile["supports_native_tool"] = True
+            elif method_used == NATIVE_STRICT:
+                profile["supports_native_strict"] = True
 
         model = FrisketRouterModel(
             self.router,
@@ -838,7 +855,7 @@ class StructuredCompleter:
             temperature=req.temperature,
             params=req.params,
             reasoning_policy=req.reasoning_policy,
-            capability=cap_row.as_profile_dict(),
+            capability=profile,
             trace=trace,
         )
 

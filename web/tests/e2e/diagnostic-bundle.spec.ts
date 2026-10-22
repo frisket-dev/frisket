@@ -80,7 +80,7 @@ test('report issue posts a redacted diagnostic bundle request', async ({ page })
   const viewport = page.viewportSize();
   expect(reportButtonBox).not.toBeNull();
   expect(viewport).not.toBeNull();
-  expect(reportButtonBox!.y + reportButtonBox!.height).toBeLessThan(viewport!.height - 34);
+  expect(reportButtonBox!.y).toBeGreaterThanOrEqual(viewport!.height - 34);
   await reportButton.click();
   await expect(page.getByTestId('diagnostic-popover')).toBeVisible();
   await expect(page.getByTestId('diagnostic-include-raw')).toHaveCount(0);
@@ -213,7 +213,7 @@ test('report issue survives malformed encoded route segments', async ({ page }) 
   expect(pageErrors.some((message) => message.includes('URI malformed'))).toBe(false);
 });
 
-test('report issue button does not overlap footer undo redo or review controls', async ({ page }) => {
+test('report issue button does not overlap footer undo redo or review controls', async ({ page }, testInfo) => {
   const pid = await createProject(page.request, uniqueName('e2e-report-issue-position'));
   await importCsv(page.request, pid, 'rows.csv', 'name\nAlbany\n');
   await page.route(`**/api/projects/${pid}/review/count`, (route) => route.fulfill({
@@ -231,6 +231,21 @@ test('report issue button does not overlap footer undo redo or review controls',
 
   await page.goto(`/p/${pid}`);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('.status-bar').getByTestId('report-issue-button')).toBeVisible();
+  const dockToggle = page.getByTestId('bottom-dock-collapse');
+  for (const width of [1600, 720]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const expanded = await dockToggle.getAttribute('aria-expanded');
+      await dockToggle.click();
+      await expect(dockToggle).toHaveAttribute('aria-expanded', expanded === 'true' ? 'false' : 'true');
+      await page.screenshot({ path: testInfo.outputPath(`report-issue-${width}-${expanded === 'true' ? 'collapsed' : 'expanded'}.png`) });
+      await page.getByTestId('report-issue-button').focus();
+      await page.keyboard.press('Enter');
+      await expect(page.getByTestId('diagnostic-popover')).toBeVisible();
+      await page.getByRole('button', { name: 'Close report issue' }).click();
+    }
+  }
   const report = await page.getByTestId('report-issue-button').boundingBox();
   const undo = await page.getByTestId('undo-button').boundingBox();
   const redo = await page.getByTestId('redo-button').boundingBox();
@@ -243,3 +258,51 @@ test('report issue button does not overlap footer undo redo or review controls',
   expect(boxesOverlap(report!, redo!)).toBe(false);
   expect(boxesOverlap(report!, review!)).toBe(false);
 });
+
+test('report issue stays above an open action drawer on a real project route', async ({ page }, testInfo) => {
+  await page.route('**/api/me', route => route.fulfill({ json: { email: 'admin@example.com', cost_preapproval_usd: '0' } }));
+  const pid = await createProject(page.request, uniqueName('report-drawer'));
+  const sid = await importCsv(page.request, pid, 'rows.csv', 'name\nAda\n');
+  await page.goto(`/p/${pid}/s/${sid}/action/map.ask`);
+  await expect(page.getByTestId('generated-action-form')).toBeVisible();
+  await page.getByTestId('report-issue-button').click();
+  const popover = page.getByTestId('diagnostic-popover');
+  await expect(popover).toBeVisible();
+  expect(await popover.evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    return element.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+  })).toBe(true);
+  await page.getByTestId('diagnostic-description').fill('The action drawer stopped responding.');
+  await page.screenshot({ path: testInfo.outputPath('report-above-action-drawer.png') });
+  await page.getByRole('button', { name: 'Close report issue' }).click();
+  await expect(page.getByTestId('generated-action-form')).toBeVisible();
+});
+
+for (const stage of ['project', 'sheets', 'sheets-error'] as const) {
+  test(`report issue remains available while ${stage} loading is stalled`, async ({ page }, testInfo) => {
+    const pid = await createProject(page.request, uniqueName(`report-${stage}-loading`));
+    await page.route('**/api/me', route => route.fulfill({ json: { email: 'admin@example.com', cost_preapproval_usd: '0' } }));
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    await page.route(stage === 'project' ? '**/api/projects' : `**/api/projects/${pid}/sheets`, async route => {
+      if (stage === 'sheets-error') return route.fulfill({ status: 503, json: { error: 'Sheets temporarily unavailable' } });
+      await gate;
+      await route.continue();
+    });
+    try {
+      const pending = page.waitForRequest(request => new URL(request.url()).pathname === (
+        stage === 'project' ? '/api/projects' : `/api/projects/${pid}/sheets`
+      ));
+      await page.goto(`/p/${pid}`);
+      await pending;
+      await expect(page.getByText('Loading project…', { exact: true })).toBeVisible();
+      await page.getByTestId('report-issue-button').click();
+      await expect(page.getByTestId('diagnostic-popover')).toBeVisible();
+      expect((await page.getByTestId('diagnostic-popover').boundingBox())!.x).toBeGreaterThanOrEqual(0);
+      await page.getByTestId('diagnostic-description').fill(`The ${stage} never loaded.`);
+      await page.screenshot({ path: testInfo.outputPath(`report-${stage}-loading.png`) });
+    } finally {
+      release();
+    }
+  });
+}

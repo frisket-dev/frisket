@@ -178,7 +178,7 @@ async def _run_schema_repair(
     router._client = client  # noqa: SLF001
     try:
         model_id = (
-            "openai/gpt-5" if provider == "openai" else "anthropic/claude-sonnet-4-5"
+            "openai/gpt-5" if provider == "openai" else "anthropic/claude-sonnet-4-0"
         )
         agent = Agent(
             FrisketRouterModel(router, model_id),

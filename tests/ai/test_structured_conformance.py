@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import httpx
@@ -538,6 +538,8 @@ def _run_openai_adapter(adapter: OpenAICompatAdapter, req: LLMRequest, wire: dic
 
 
 def _run_anthropic_adapter(adapter: AnthropicAdapter, req: LLMRequest, wire: dict):
+    req = replace(req, model="anthropic/claude-sonnet-4-0")
+
     async def _go():
         def handler(_request: httpx.Request) -> httpx.Response:
             return httpx.Response(200, json=wire)

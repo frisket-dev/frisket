@@ -409,6 +409,23 @@ CASES = [
 ]
 
 
+def test_extract_prompt_labels_instruction_separately_from_source_and_context() -> None:
+    from frisket.ops.extraction import render_extract_messages
+
+    messages = render_extract_messages(
+        {"Country": "France", "Capital": "Paris"},
+        [{"name": "capital", "schema": {"type": "string"}}],
+        instruction="Use the English name.",
+        context="National capitals.",
+        grounding_enabled=True,
+    )
+    assert "Dataset context: National capitals." in messages[0]["content"]
+    parts = messages[1]["content"]
+    assert "Country: France" in parts[0]["text"]
+    assert parts[-2]["text"] == "\nExtraction instructions:\nUse the English name."
+    assert parts[-1]["text"].startswith("\nOutput and citation requirements:\n")
+
+
 def test_map_extract_blank_instruction_is_valid(tmp_path: Path) -> None:
     """ "Additional prompt instructions" is genuinely optional — fields alone
     are a valid extraction spec (was previously rejected as

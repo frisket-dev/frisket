@@ -117,10 +117,10 @@ def test_override_succeeds_on_a_capable_model(provider, model, mechanism):
 @pytest.mark.parametrize(
     "provider,model,mechanism",
     [
-        # Anthropic's Messages API has no `response_format` concept at all --
-        # neither strict json_schema mode nor json_object mode exists on that
-        # wire dialect (adapters.py::AnthropicAdapter).
-        ("anthropic", "anthropic/claude-haiku-4-5", NATIVE_STRICT),
+        # Older Claude models lack native JSON output; new 5.5 models reject
+        # forced tool use. Messages has no json_object mode.
+        ("anthropic", "anthropic/claude-sonnet-4-0", NATIVE_STRICT),
+        ("anthropic", "anthropic/claude-sonnet-5-5", NATIVE_TOOL),
         ("anthropic", "anthropic/claude-haiku-4-5", JSON_LOOSE),
         # OpenAICompatAdapter has never wired a forced-single-tool "emit"
         # dialect for structured output -- NATIVE_TOOL is Anthropic-only.
@@ -266,16 +266,12 @@ def test_anthropic_prose_json_unparseable_raises_schema_violation():
         _run_capturing_request(adapter, req, wire)
 
 
-def test_anthropic_auto_still_forces_emit_tool_unaffected_by_prose_json_branch():
-    """Regression guard for tests/test_structured_capabilities.py::
-    test_anthropic_wire_body_always_forces_emit_tool_regardless_of_table --
-    adding the PROSE_JSON branch must not change the default (no explicit
-    mechanism) behavior."""
+def test_older_anthropic_auto_still_forces_emit_tool():
     from frisket.ai.llm.types import LLMRequest
 
     adapter = AnthropicAdapter("k")
     req = LLMRequest(
-        model="anthropic/claude-haiku-4-5",
+        model="anthropic/claude-sonnet-4-0",
         messages=[{"role": "user", "content": "hi"}],
         schema=OK_SCHEMA,
     )
@@ -434,6 +430,20 @@ def test_resolve_with_recorded_promotions_opts_in_the_openai_vendor_glob():
         "openrouter/openai/gpt-5", promotions=capabilities.RECORDED_PROMOTIONS
     )
     assert row.structured_mode == NATIVE_STRICT
+
+
+@pytest.mark.parametrize(
+    "model", ["anthropic/claude-sonnet-5-5", "anthropic/claude-opus-5-5"]
+)
+def test_exact_claude_probe_does_not_override_static_seed(model):
+    store = ProbeStore(":memory:")
+    try:
+        probe = store.record(model, PROSE_JSON, True, "recorded capability override")
+        assert capabilities.resolve(model).structured_mode == NATIVE_STRICT
+        row = capabilities.resolve(model, promotions=(probe.as_capability_row(),))
+        assert row.structured_mode == NATIVE_STRICT
+    finally:
+        store.close()
 
 
 def test_recorded_promotion_does_not_leak_to_other_openrouter_vendors():

@@ -106,6 +106,7 @@ finally:
 function primeDeriveObjectCache(pid: string, sheetId: number): void {
   const workspace = process.env.FRISKET_E2E_WS ?? path.join(os.homedir(), '.frisket/e2e-ws');
   const script = `
+import asyncio
 import sys
 from pathlib import Path
 from frisket.actions.system import typed_action_for_request
@@ -200,6 +201,23 @@ try:
         },
     ]
     cache = ResponseCache(project.path / "project.cache.db")
+    router = ModelRouter(cache=cache, cache_mode="replay_strict", use_env_keys=False)
+
+    async def prime_transport(req, *, recipe_version="1", trace=None):
+        # Key the fixture after the real structured completer resolves schema
+        # references, just as the backend's transport cache will see it.
+        response = LLMResponse(
+            content=None,
+            data=payload,
+            tokens_in=180,
+            tokens_out=90,
+            cost=0.0004,
+            model=req.model,
+        )
+        cache.put(request_key(req, recipe_version), response)
+        return response
+
+    router.complete_transport = prime_transport
     try:
         for row_id, payload in zip(project.visible_row_ids(sheet_id), payloads, strict=True):
             row_values = {name: values[name].get(row_id) for name in input_columns}
@@ -210,17 +228,7 @@ try:
                 schema=call.schema,
                 max_tokens=call.max_tokens,
             )
-            cache.put(
-                request_key(req, plan.program.version),
-                LLMResponse(
-                    content=None,
-                    data=payload,
-                    tokens_in=180,
-                    tokens_out=90,
-                    cost=0.0004,
-                    model=spec["model"],
-                ),
-            )
+            asyncio.run(router.complete(req, recipe_version=plan.program.version))
     finally:
         cache.close()
 finally:
