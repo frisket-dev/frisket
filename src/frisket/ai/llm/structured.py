@@ -832,7 +832,8 @@ class StructuredCompleter:
         )
         if explicit is not None and schema_mode != method_used:
             raise UnsupportedMechanismError(
-                f"{explicit!r} cannot represent open JSON dictionaries for {req.model!r}"
+                f"{explicit!r} cannot represent open JSON dictionaries or optional "
+                f"nonnull fields for {req.model!r}"
             )
         method_used = schema_mode
         profile = cap_row.as_profile_dict()
@@ -845,23 +846,10 @@ class StructuredCompleter:
             elif method_used == NATIVE_STRICT:
                 profile["supports_native_strict"] = True
 
-        wire_mechanism = explicit
-        if explicit is None and self.probe_store is not None:
-            default_mode = capabilities.schema_mechanism(
-                req.model,
-                wrapped_schema,
-                capabilities.resolve(req.model).structured_mode,
-            )
-            if method_used != default_mode:
-                # Adapters cannot see this opt-in probe store. Pin only an
-                # actual change to the default wire mode; routine auto calls
-                # retain mechanism=None and their existing cache keys.
-                wire_mechanism = method_used
-
         model = FrisketRouterModel(
             self.router,
             req.model,
-            mechanism=wire_mechanism,
+            mechanism=explicit,
             recipe_version=recipe_version,
             max_tokens=req.max_tokens,
             temperature=req.temperature,

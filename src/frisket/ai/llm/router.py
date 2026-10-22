@@ -260,10 +260,7 @@ class ModelRouter:
             self._credential_sources["anthropic"] = key_sources.get(
                 "anthropic", default_source
             )
-            self._adapters["anthropic"] = AnthropicAdapter(
-                anth,
-                no_temperature_prefixes=("claude-sonnet-5", "claude-fable-5"),
-            )
+            self._adapters["anthropic"] = AnthropicAdapter(anth)
         oai = keys.get("openai") or env.get("OPENAI_API_KEY")
         if oai:
             self._configured_keys["openai"] = oai

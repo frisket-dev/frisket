@@ -19,9 +19,8 @@ resolution algorithm below supports it) — promoting any vendor glob to
 assumption.
 
 **Cache-key / cassette parity.**
-Routine auto resolution keeps ``LLMRequest.mechanism=None``. An opted-in
-recorded capability that changes the default mode is pinned on the request,
-since the wire adapter cannot see the completer's probe store.
+Auto resolution keeps ``LLMRequest.mechanism=None``; this change does not
+expand the dormant opt-in probe subsystem's wire behavior.
 ``cache.py:request_key`` hashes ``req.mechanism``
 verbatim, so stamping a resolved string onto every auto-resolved request
 would flip every existing cassette's key from ``None`` to e.g.
@@ -36,6 +35,8 @@ from __future__ import annotations
 import fnmatch
 from collections.abc import Iterator
 from dataclasses import dataclass
+
+from jsonschema import Draft202012Validator
 
 # Mechanism ids -- the same closed vocabulary llm/structured.py's completer
 # uses. Defined HERE now (the table is the single source of truth for
@@ -95,28 +96,28 @@ class CapabilityRow:
 # and tool-definition docs (2026-10-22). Match aliases and dated snapshots
 # separately: a trailing wildcard must not accidentally promote future models.
 # https://platform.claude.com/docs/en/build-with-claude/structured-outputs
-_CLAUDE_JSON_MODELS = (
-    "opus-4-5",
-    "opus-4-6",
-    "opus-4-7",
-    "opus-4-8",
-    "opus-5",
-    "opus-5-5",
-    "sonnet-4-5",
-    "sonnet-4-6",
-    "sonnet-5",
-    "sonnet-5-5",
-    "haiku-4-5",
-    "haiku-5-5",
-    "fable-5",
-    "fable-5-1",
-    "mythos-5",
-    "mythos-5-1",
-    "mythos-preview",
-)
-_CLAUDE_NO_FORCED_TOOLS = frozenset(
-    {"opus-5-5", "sonnet-5-5", "fable-5-1", "mythos-5-1"}
-)
+@dataclass(frozen=True)
+class ClaudeTraits:
+    json_output: bool = False
+    no_temperature: bool = False
+
+
+# Only families requiring a change from the legacy forced-tool/sampling
+# behavior. json_output also identifies models that reject forced tool use.
+# https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools
+# https://platform.claude.com/docs/en/build-with-claude/thinking
+_CLAUDE_TRAITS = {
+    "opus-4-7": ClaudeTraits(no_temperature=True),
+    "opus-4-8": ClaudeTraits(no_temperature=True),
+    "opus-5": ClaudeTraits(no_temperature=True),
+    "opus-5-5": ClaudeTraits(json_output=True, no_temperature=True),
+    "sonnet-5": ClaudeTraits(no_temperature=True),
+    "sonnet-5-5": ClaudeTraits(json_output=True, no_temperature=True),
+    "fable-5": ClaudeTraits(no_temperature=True),
+    "fable-5-1": ClaudeTraits(json_output=True, no_temperature=True),
+    "mythos-5": ClaudeTraits(no_temperature=True),
+    "mythos-5-1": ClaudeTraits(json_output=True, no_temperature=True),
+}
 
 
 def _claude_family(model: str) -> str:
@@ -126,21 +127,7 @@ def _claude_family(model: str) -> str:
 
 
 def anthropic_sampling_supported(model: str) -> bool:
-    # https://platform.claude.com/docs/en/build-with-claude/thinking
-    return _claude_family(model) not in {
-        "opus-4-7",
-        "opus-4-8",
-        "opus-5",
-        "opus-5-5",
-        "sonnet-5",
-        "sonnet-5-5",
-        "haiku-5-5",
-        "fable-5",
-        "fable-5-1",
-        "mythos-5",
-        "mythos-5-1",
-        "mythos-preview",
-    }
+    return not _CLAUDE_TRAITS.get(_claude_family(model), ClaudeTraits()).no_temperature
 
 
 SEED: tuple[CapabilityRow, ...] = tuple(
@@ -152,7 +139,8 @@ SEED: tuple[CapabilityRow, ...] = tuple(
         nullable_optional_convention=False,
         source="https://platform.claude.com/docs/en/build-with-claude/structured-outputs",
     )
-    for family in _CLAUDE_JSON_MODELS
+    for family, traits in _CLAUDE_TRAITS.items()
+    if traits.json_output
     for suffix in ("", "-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]")
 ) + (
     CapabilityRow(
@@ -247,12 +235,12 @@ def resolve(
     run in (a literal ``"openrouter/openai/gpt-5"`` probe row or the
     ``"openrouter/openai/*"`` recorded-promotion glob both out-specify the
     bare ``"openrouter/*"`` SEED row automatically, no algorithm change
-    needed). On equal specificity, opted-in promotions take precedence over
-    the static table: a recorded exact-model probe can override an exact seed.
+    needed) because the capability table's resolution order already reserves
+    the slot.
     """
     candidates = [
         row
-        for row in (*promotions, *table)
+        for row in (*table, *promotions)
         if fnmatch.fnmatchcase(model, row.model_pattern)
     ]
     if not candidates:
@@ -289,7 +277,6 @@ def native_open_map(schema: dict) -> bool:
     """Strict wire schemas require closed objects; dictionaries need prose JSON."""
     return any(
         isinstance(node.get("additionalProperties"), dict)
-        or node.get("additionalProperties") is True
         or bool(node.get("patternProperties"))
         or (
             (
@@ -308,6 +295,20 @@ def schema_mechanism(model: str, schema: dict, mechanism: str) -> str:
     """Schema-aware auto selection, shared by the completer and wire adapter."""
     if mechanism == NATIVE_STRICT and native_open_map(schema):
         return PROSE_JSON
+    if (
+        mechanism == NATIVE_STRICT
+        and model.split("/", 1)[0] in _KNOWN_OPENAI_COMPAT_PROVIDERS
+    ):
+        # OpenAI-compatible strict output requires every property. Optional
+        # nullable fields have a lossless wire representation (null); an
+        # optional nonnullable field does not. Keep its original semantics.
+        validator = Draft202012Validator(schema)
+        for node in schema_nodes(schema):
+            for name, prop in node.get("properties", {}).items():
+                if name not in node.get("required", []) and not validator.evolve(
+                    schema=prop
+                ).is_valid(None):
+                    return PROSE_JSON
     return mechanism
 
 
@@ -361,9 +362,10 @@ def dialect_mechanisms(model: str) -> frozenset[str]:
     provider = model.split("/", 1)[0]
     if provider == "anthropic":
         modes = _ANTHROPIC_DIALECT_MECHANISMS
-        if _claude_family(model) not in _CLAUDE_JSON_MODELS:
+        traits = _CLAUDE_TRAITS.get(_claude_family(model), ClaudeTraits())
+        if not traits.json_output:
             modes = modes - {NATIVE_STRICT}
-        if _claude_family(model) in _CLAUDE_NO_FORCED_TOOLS:
+        if traits.json_output:
             modes = modes - {NATIVE_TOOL}
         return modes
     if provider in _KNOWN_OPENAI_COMPAT_PROVIDERS:

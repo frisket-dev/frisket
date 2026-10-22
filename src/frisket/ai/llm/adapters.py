@@ -33,10 +33,11 @@ def _resolve_mechanism(req: LLMRequest) -> str:
         if (
             req.mechanism == NATIVE_STRICT
             and req.schema is not None
-            and capabilities.native_open_map(req.schema)
+            and capabilities.schema_mechanism(req.model, req.schema, NATIVE_STRICT)
+            != NATIVE_STRICT
         ):
             raise SchemaViolation(
-                "native_strict cannot represent open JSON dictionaries"
+                "native_strict cannot represent open JSON dictionaries or optional nonnullable fields"
             )
         return req.mechanism
     mode = capabilities.resolve(req.model).structured_mode
@@ -393,7 +394,12 @@ class OpenAICompatAdapter:
             body["reasoning"] = {"enabled": False}
         elif req.reasoning_policy == "low_exclude":
             body["reasoning"] = {"effort": "low", "exclude": True}
-        if not model.startswith(self.no_temperature_prefixes or ("\x00",)):
+        openai_reasoning = req.model.startswith(
+            ("openai/", "openrouter/openai/")
+        ) and model.removeprefix("openai/").startswith(("gpt-5", "gpt-6", "o3", "o4"))
+        if not openai_reasoning and not model.startswith(
+            self.no_temperature_prefixes or ("\x00",)
+        ):
             body["temperature"] = req.temperature
         top_p = req.params.get("top_p")
         if top_p is not None:
@@ -403,7 +409,8 @@ class OpenAICompatAdapter:
                 or not 0.0 <= float(top_p) <= 1.0
             ):
                 raise LLMError("top_p must be a number between 0 and 1")
-            body["top_p"] = float(top_p)
+            if not openai_reasoning:
+                body["top_p"] = float(top_p)
         mechanism = _resolve_mechanism(req) if req.schema is not None else None
         if req.schema is not None:
             if mechanism == NATIVE_STRICT:
@@ -649,20 +656,12 @@ def _strictify(schema: dict) -> dict:
         kind = node.get("type")
         return kind == "object" or (isinstance(kind, list) and "object" in kind)
 
-    def walk(node: Any) -> None:
-        if isinstance(node, dict):
-            if is_object_node(node):
-                node["additionalProperties"] = False
-                props = node.get("properties")
-                if isinstance(props, dict):
-                    node["required"] = list(props.keys())
-            for v in node.values():
-                walk(v)
-        elif isinstance(node, list):
-            for v in node:
-                walk(v)
-
-    walk(s)
+    for node in capabilities.schema_nodes(s):
+        if is_object_node(node):
+            node["additionalProperties"] = False
+            props = node.get("properties")
+            if isinstance(props, dict):
+                node["required"] = list(props)
     return s
 
 

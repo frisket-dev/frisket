@@ -14,7 +14,6 @@ from frisket.ai.llm.structured import (
     StructuredRequest,
     UnsupportedMechanismError,
 )
-from frisket.ai.llm.structured_probe import ProbeStore
 from frisket.ai.llm.types import LLMRequest, SchemaViolation
 
 
@@ -44,7 +43,6 @@ def run_complete(
     *,
     model="anthropic/claude-sonnet-5-5",
     method="auto",
-    probe_store=None,
 ):
     bodies = []
 
@@ -57,7 +55,7 @@ def run_complete(
             router = ModelRouter(keys={}, max_retries=0)
             router._client = client
             router._adapters["anthropic"] = AnthropicAdapter("test")
-            return await StructuredCompleter(router, probe_store=probe_store).complete(
+            return await StructuredCompleter(router).complete(
                 StructuredRequest(
                     model=model,
                     schema=schema,
@@ -70,7 +68,7 @@ def run_complete(
     return asyncio.run(go()), bodies
 
 
-@pytest.mark.parametrize("family", ["sonnet-5-5", "opus-5-5", "haiku-4-5-20251001"])
+@pytest.mark.parametrize("family", ["sonnet-5-5", "opus-5-5"])
 def test_native_json_wire_and_original_constraint_repair(family):
     original = copy.deepcopy(SCHEMA)
     result, bodies = run_complete(
@@ -102,11 +100,6 @@ def test_native_json_wire_and_original_constraint_repair(family):
     "schema",
     [
         {"type": "object", "additionalProperties": {"type": "integer"}},
-        {
-            "type": "object",
-            "properties": {"cats": {"type": "integer"}},
-            "additionalProperties": True,
-        },
     ],
 )
 def test_open_dictionary_uses_prose_and_preserves_dynamic_keys(schema):
@@ -122,26 +115,6 @@ def test_explicit_native_strict_uses_native_output():
     result, bodies = run_complete(SCHEMA, [wire('{"score":3}')], method="native_strict")
     assert result.method_used == "native_strict"
     assert "output_config" in bodies[0]
-
-
-def test_recorded_prose_override_reaches_actual_claude_wire():
-    model = "anthropic/claude-sonnet-5-5"
-    store = ProbeStore(":memory:")
-    try:
-        baseline, native_bodies = run_complete(SCHEMA, [wire('{"score":3}')])
-        store.record(model, "prose_json", True, "recorded override")
-        result, prose_bodies = run_complete(
-            SCHEMA, [wire('```json\n{"score":3}\n```')], probe_store=store
-        )
-        assert baseline.method_used == "native_strict"
-        assert "output_config" in native_bodies[0]
-        assert result.method_used == "prose_json"
-        assert result.data == {"score": 3}
-        assert "output_config" not in prose_bodies[0]
-        assert "tools" not in prose_bodies[0]
-        assert "Respond ONLY with JSON" in prose_bodies[0]["system"]
-    finally:
-        store.close()
 
 
 def test_lowering_visits_schema_positions_without_rewriting_literal_data():
@@ -175,14 +148,6 @@ def test_lowering_visits_schema_positions_without_rewriting_literal_data():
     [
         (SCHEMA, "native_tool"),
         ({"type": "object"}, "native_strict"),
-        (
-            {
-                "type": "object",
-                "properties": {"name": {"type": "string"}},
-                "additionalProperties": True,
-            },
-            "native_strict",
-        ),
     ],
 )
 def test_incompatible_explicit_mechanisms_refuse_before_wire(schema, method):

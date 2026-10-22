@@ -39,9 +39,9 @@ SCHEMA = {
     [
         ("openai/gpt-5-mini", NATIVE_STRICT),
         ("gemini/gemini-2.5-flash", NATIVE_STRICT),
-        ("anthropic/claude-haiku-4-5", NATIVE_STRICT),
+        ("anthropic/claude-haiku-4-5", NATIVE_TOOL),
         ("anthropic/claude-sonnet-5-5", NATIVE_STRICT),
-        ("anthropic/claude-opus-4-5-20251101", NATIVE_STRICT),
+        ("anthropic/claude-opus-4-5-20251101", NATIVE_TOOL),
         ("anthropic/claude-sonnet-4-0", NATIVE_TOOL),
         ("openrouter/anthropic/claude-x", JSON_LOOSE),
         (
@@ -115,11 +115,11 @@ def test_no_match_falls_back():
     assert resolve("anthropic/claude-x", table=table) is capabilities.FALLBACK
 
 
-def test_opted_in_promotion_wins_equal_specificity_but_not_more_specific_seed():
+def test_static_seed_wins_equal_specificity_and_more_specific_promotion_still_wins():
     seed = _row("custom/model", NATIVE_STRICT)
     override = _row("custom/model", PROSE_JSON)
     broad = _row("custom/*", JSON_LOOSE)
-    assert resolve("custom/model", table=(seed,), promotions=(override,)) is override
+    assert resolve("custom/model", table=(seed,), promotions=(override,)) is seed
     assert resolve("custom/model", table=(seed,), promotions=(broad,)) is seed
     assert resolve("custom/model", table=(broad,), promotions=(override,)) is override
 

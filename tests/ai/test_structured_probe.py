@@ -173,7 +173,7 @@ def test_auto_never_validates_mechanism_support():
             )
         )
     )
-    assert result.method_used == NATIVE_STRICT
+    assert result.method_used == NATIVE_TOOL
     assert len(adapter.seen) == 1
 
 
@@ -435,13 +435,13 @@ def test_resolve_with_recorded_promotions_opts_in_the_openai_vendor_glob():
 @pytest.mark.parametrize(
     "model", ["anthropic/claude-sonnet-5-5", "anthropic/claude-opus-5-5"]
 )
-def test_exact_claude_probe_overrides_exact_static_seed(model):
+def test_exact_claude_probe_does_not_override_static_seed(model):
     store = ProbeStore(":memory:")
     try:
         probe = store.record(model, PROSE_JSON, True, "recorded capability override")
         assert capabilities.resolve(model).structured_mode == NATIVE_STRICT
         row = capabilities.resolve(model, promotions=(probe.as_capability_row(),))
-        assert row.structured_mode == PROSE_JSON
+        assert row.structured_mode == NATIVE_STRICT
     finally:
         store.close()
 
