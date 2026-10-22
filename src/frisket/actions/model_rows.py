@@ -90,11 +90,7 @@ class AskParams(_ModelRowsParams):
         description="Choose the answer column's data type. Non-text answers are left empty when there is not enough information to decide.",
     )
     include_confidence: bool = Field(default=False, title="Include confidence")
-    include_reasoning: bool = Field(
-        default=False,
-        title="Include reasoning",
-        description="Add a brief explanation of the answer in a separate text column.",
-    )
+    include_reasoning: bool = Field(default=False, title="Include reasoning")
 
     @field_validator("question")
     @classmethod
