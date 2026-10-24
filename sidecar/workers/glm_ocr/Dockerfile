@@ -4,6 +4,10 @@ FROM vllm/vllm-openai:v0.20.0@sha256:04563c302537a91aa49ebdfbceda96111c571227599
 
 RUN ln -sf /usr/bin/python3.12 /usr/local/bin/python
 
+# The upstream Ubuntu image includes PyGObject without its Cairo dependency.
+RUN apt-get update && apt-get install -y --no-install-recommends python3-cairo \
+    && rm -rf /var/lib/apt/lists/*
+
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     HF_HOME=/root/.cache/huggingface \
