@@ -404,19 +404,20 @@ def index_batch(
                         if blob is not None:
                             sources.append(blob)
                     resolved_sources[row_id] = tuple(sources)
-                for row_id, _size in admitted:
-                    _raise_if_cancelled(cancel_event)
-                    _replace_cell(
-                        column,
-                        row_id,
-                        resolved_sources.get(row_id, ()),
-                        descriptor,
-                        old_by_row.get(row_id),
-                        retrieval,
-                        policy,
-                    )
-                    processed += 1
-                    row = row_id
+                with retrieval.publication_batch():
+                    for row_id, _size in admitted:
+                        _raise_if_cancelled(cancel_event)
+                        _replace_cell(
+                            column,
+                            row_id,
+                            resolved_sources.get(row_id, ()),
+                            descriptor,
+                            old_by_row.get(row_id),
+                            retrieval,
+                            policy,
+                        )
+                        processed += 1
+                        row = row_id
                 del resolved_sources, text_sources
                 if processed_bytes >= max_bytes:
                     byte_limit_reached = True

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+
 import pytest
 
 from frisket.engine.jobs.search_index import process_index_batches
@@ -100,16 +102,60 @@ def test_dirty_edit_is_not_reported_as_fresh_until_maintenance_finishes(document
 
 def test_crash_before_dirty_ack_replays_committed_publication(documents, monkeypatch):
     project, *_ = documents
+    maintenance.bind_retrieval_sidecar(project)
+    before = maintenance.read_dirty_scopes(project.db, limit=100)
     original = maintenance.advance_dirty_scope
 
     def crash(*args, **kwargs):
+        # A separate connection sees the complete page before source acknowledgement.
+        with RetrievalStore(project).open() as store:
+            assert (
+                store.db.execute("SELECT count(*) FROM lexical_sources").fetchone()[0]
+                == 2
+            )
         raise RuntimeError("crash before checkpoint")
 
     monkeypatch.setattr(maintenance, "advance_dirty_scope", crash)
     with pytest.raises(RuntimeError, match="crash before checkpoint"):
         index_batch(project, batch_size=2)
+    assert maintenance.read_dirty_scopes(project.db, limit=100) == before
     monkeypatch.setattr(maintenance, "advance_dirty_scope", original)
 
+    assert drain_index(project, batch_size=2) == 7
+    assert len(search_project(project, "needle", rerank="off")) == 7
+
+
+@pytest.mark.parametrize("cancel", [False, True])
+def test_failed_page_rolls_back_publications_without_advancing_cursor(
+    documents, monkeypatch, cancel
+):
+    project, *_ = documents
+    maintenance.bind_retrieval_sidecar(project)
+    before = maintenance.read_dirty_scopes(project.db, limit=100)
+    replace = maintenance._replace_cell
+    cancel_event = threading.Event()
+    calls = 0
+
+    def stop_after_first(*args):
+        nonlocal calls
+        replace(*args)
+        calls += 1
+        if calls == 1:
+            if cancel:
+                cancel_event.set()
+            else:
+                raise RuntimeError("page publication failed")
+
+    monkeypatch.setattr(maintenance, "_replace_cell", stop_after_first)
+    error = InterruptedError if cancel else RuntimeError
+    with pytest.raises(error):
+        index_batch(project, batch_size=2, cancel_event=cancel_event)
+    assert maintenance.read_dirty_scopes(project.db, limit=100) == before
+    with RetrievalStore(project).open() as store:
+        for table in ("sources", "bindings", "parts", "preparation", "lexical_fts"):
+            assert store.db.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
+
+    monkeypatch.setattr(maintenance, "_replace_cell", replace)
     assert drain_index(project, batch_size=2) == 7
     assert len(search_project(project, "needle", rerank="off")) == 7
 

@@ -178,11 +178,20 @@ class RetrievalStore:
         path = Path(project_path)
         self.path = path if path.name == RETRIEVAL_DB_NAME else path / RETRIEVAL_DB_NAME
         self._connection: sqlite3.Connection | None = None
+        self._publication_batch_active = False
+        self._publication_batch_failed = False
 
     @property
     def db(self) -> sqlite3.Connection:
         if self._connection is None:
             raise RuntimeError("retrieval store is not open")
+        if self._publication_batch_active and (
+            self._publication_batch_failed or not self._connection.in_transaction
+        ):
+            # SQLite can roll back a transaction on its own after an error.
+            # Never let a caught error turn subsequent batch writes into autocommit.
+            self._publication_batch_failed = True
+            raise RuntimeError("retrieval publication batch failed")
         return self._connection
 
     def open(self, *, busy_timeout_ms: int = 10_000) -> RetrievalStore:
@@ -330,12 +339,17 @@ class RetrievalStore:
         except (TypeError, ValueError, AttributeError):
             return True
 
-        required_indexes = {"preparation_space_counts", "preparation_attention"}
+        required_indexes = {
+            "preparation_space_counts",
+            "preparation_attention",
+            "bindings_column_row",
+        }
         present_indexes = {
             str(index[0])
             for index in self.db.execute(
                 "SELECT name FROM sqlite_master WHERE type='index' "
-                "AND name IN ('preparation_space_counts','preparation_attention')"
+                "AND name IN ('preparation_space_counts','preparation_attention',"
+                "'bindings_column_row')"
             )
         }
         return present_indexes != required_indexes
@@ -1063,17 +1077,44 @@ class RetrievalStore:
         )
 
     @contextmanager
+    def publication_batch(self) -> Iterator[None]:
+        """Commit one already-resolved, bounded page of publications atomically.
+
+        Source reads and representation production belong outside this context.
+        A failed mutation aborts the page even if its exception is caught inside
+        the context; callers must replay the page before acknowledging its cursor.
+        """
+        if self._publication_batch_active:
+            raise RuntimeError("retrieval publication batches cannot be nested")
+        with self._write_transaction():
+            self._publication_batch_active = True
+            self._publication_batch_failed = False
+            try:
+                yield
+                if self._publication_batch_failed or not self.db.in_transaction:
+                    raise RuntimeError("retrieval publication batch failed")
+            finally:
+                self._publication_batch_active = False
+                self._publication_batch_failed = False
+
+    @contextmanager
     def _write_transaction(self) -> Iterator[None]:
+        if self._publication_batch_active:
+            try:
+                yield
+            except BaseException:
+                self._publication_batch_failed = True
+                raise
+            return
         if self.db.in_transaction:
             raise RuntimeError("retrieval publication owns its write transaction")
         self.db.execute("BEGIN IMMEDIATE")
         try:
             yield
+            self.db.commit()
         except BaseException:
             self.db.rollback()
             raise
-        else:
-            self.db.commit()
 
     def _source_key(self, identity: tuple[str, str, str, str]) -> int:
         row = self.db.execute(
@@ -1519,6 +1560,8 @@ CREATE INDEX IF NOT EXISTS bindings_scope
   ON bindings(sheet_id,row_id,column_id,source_key,binding_key);
 CREATE INDEX IF NOT EXISTS bindings_source
   ON bindings(source_key,binding_key);
+CREATE INDEX IF NOT EXISTS bindings_column_row
+  ON bindings(column_id,row_id,sheet_id);
 
 CREATE TABLE IF NOT EXISTS binding_dependencies (
   binding_key INTEGER NOT NULL REFERENCES bindings(binding_key) ON DELETE CASCADE,

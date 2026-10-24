@@ -119,6 +119,188 @@ def test_store_uses_one_16k_contentless_sidecar_without_text_copy(tmp_path):
     assert (tmp_path / "project.retrieval.db").is_file()
 
 
+@pytest.mark.parametrize("existing_without_index", [False, True])
+def test_binding_page_index_preserves_existing_retrieval_data(
+    tmp_path, existing_without_index
+):
+    revision = SourceRevision("cell:2:3", "text", "cell_revision", 11)
+    tables = (
+        "retrieval_meta",
+        "sources",
+        "parts",
+        "bindings",
+        "binding_dependencies",
+        "representations",
+        "part_representations",
+        "lexical_sources",
+        "preparation",
+        "named_dataset_membership",
+    )
+
+    def stored_rows(store):
+        return {
+            table: [
+                tuple(row)
+                for row in store.db.execute(f"SELECT * FROM {table} ORDER BY 1")
+            ]
+            for table in tables
+        }
+
+    with RetrievalStore(tmp_path).open() as store:
+        store.begin_preparation(revision, recipe_id="passages:v1", channel="text")
+        assert store.publish_source(_publication(revision, token="rare needle"))
+        before = stored_rows(store)
+        if existing_without_index:
+            # A current sidecar created before this additive index migration.
+            store.db.execute("DROP INDEX bindings_column_row")
+
+    with RetrievalStore(tmp_path).open() as store:
+        assert stored_rows(store) == before
+        assert (
+            store.db.execute(
+                "SELECT count(*) FROM lexical_fts WHERE lexical_fts MATCH 'needle'"
+            ).fetchone()[0]
+            == 1
+        )
+        page_sql = (
+            "SELECT row_id,min(sheet_id) AS sheet_id FROM bindings "
+            "WHERE column_id=? AND row_id>? AND row_id<=? "
+            "GROUP BY row_id ORDER BY row_id LIMIT ?"
+        )
+        params = (3, 1, 100, 500)
+        assert [tuple(row) for row in store.db.execute(page_sql, params)] == [(2, 1)]
+        page_plan = store.db.execute("EXPLAIN QUERY PLAN " + page_sql, params)
+        column_plan = store.db.execute(
+            "EXPLAIN QUERY PLAN SELECT column_id FROM bindings "
+            "WHERE column_id>? ORDER BY column_id LIMIT 1",
+            (0,),
+        )
+        for plan in (page_plan.fetchall(), column_plan.fetchall()):
+            details = [str(row[3]) for row in plan]
+            assert any(
+                "SEARCH bindings USING COVERING INDEX bindings_column_row" in detail
+                for detail in details
+            )
+            assert all("TEMP B-TREE" not in detail for detail in details)
+
+
+def test_publication_batch_commits_once_and_is_visible_only_after_commit(tmp_path):
+    revision = SourceRevision("cell:2:3", "text", "cell_revision", 11)
+    with (
+        RetrievalStore(tmp_path).open() as store,
+        RetrievalStore(tmp_path).open() as reader,
+    ):
+        statements = []
+        store.db.set_trace_callback(statements.append)
+        with store.publication_batch():
+            store.begin_preparation(revision, recipe_id="passages:v1", channel="text")
+            assert store.publish_source(_publication(revision, token="needle"))
+            store.remove_cell_bindings_except(
+                sheet_id=1, row_id=2, column_id=3, keep_binding_ids=("binding:1",)
+            )
+            assert reader.db.execute("SELECT count(*) FROM sources").fetchone()[0] == 0
+        assert reader.db.execute("SELECT count(*) FROM sources").fetchone()[0] == 1
+        assert statements.count("BEGIN IMMEDIATE") == 1
+        assert statements.count("COMMIT") == 1
+
+
+def test_failed_publication_aborts_batch_even_when_caught(tmp_path, monkeypatch):
+    revision = SourceRevision("cell:2:3", "text", "cell_revision", 11)
+    with RetrievalStore(tmp_path).open() as store:
+        replace_lexical = store._replace_lexical
+
+        def fail(*args, **kwargs):
+            raise sqlite3.OperationalError("publication failed")
+
+        monkeypatch.setattr(store, "_replace_lexical", fail)
+        with pytest.raises(RuntimeError, match="publication batch failed"):
+            with store.publication_batch():
+                store.begin_preparation(
+                    revision, recipe_id="passages:v1", channel="text"
+                )
+                with pytest.raises(
+                    sqlite3.OperationalError, match="publication failed"
+                ):
+                    store.publish_source(_publication(revision, token="needle"))
+                with pytest.raises(RuntimeError, match="publication batch failed"):
+                    store.queue_preparation(
+                        revision, recipe_id="retry:v1", channel="text"
+                    )
+        assert not store.db.in_transaction
+        for table in ("sources", "parts", "bindings", "preparation", "lexical_fts"):
+            assert store.db.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
+
+        monkeypatch.setattr(store, "_replace_lexical", replace_lexical)
+        with store.publication_batch():
+            store.begin_preparation(revision, recipe_id="passages:v1", channel="text")
+            assert store.publish_source(_publication(revision, token="needle"))
+        assert store.db.execute("SELECT count(*) FROM sources").fetchone()[0] == 1
+
+
+@pytest.mark.parametrize("first_mutation", ["begin", "queue", "register", "publish"])
+def test_sqlite_rollback_refuses_every_subsequent_batch_mutation(
+    tmp_path, first_mutation
+):
+    revision = SourceRevision("cell:2:3", "text", "cell_revision", 11)
+    publication = _publication(revision, token="needle")
+    with RetrievalStore(tmp_path).open() as store:
+        # Trigger the same transaction loss possible after SQLITE_FULL/interrupt.
+        store.db.execute(
+            "CREATE TEMP TRIGGER rollback_preparation BEFORE INSERT ON preparation "
+            "BEGIN SELECT RAISE(ROLLBACK, 'forced rollback'); END"
+        )
+        mutations = {
+            "begin": lambda: store.begin_preparation(
+                revision, recipe_id="passages:v1", channel="text"
+            ),
+            "queue": lambda: store.queue_preparation(
+                revision, recipe_id="passages:v1", channel="text"
+            ),
+            "register": lambda: store.register_preparation(
+                revision, publication.bindings, recipe_id="passages:v1", channel="text"
+            ),
+            "publish": lambda: store.publish_source(publication),
+        }
+        # Public direct-SQL preparation methods must detect transaction loss too.
+        with pytest.raises(RuntimeError, match="publication batch failed"):
+            with store.publication_batch():
+                with pytest.raises(sqlite3.IntegrityError, match="forced rollback"):
+                    store.begin_preparation(
+                        revision, recipe_id="passages:v1", channel="text"
+                    )
+                with pytest.raises(RuntimeError, match="publication batch failed"):
+                    mutations[first_mutation]()
+                for mutation in mutations.values():
+                    with pytest.raises(RuntimeError, match="publication batch failed"):
+                        mutation()
+        assert not store.db.in_transaction
+        for table in ("sources", "parts", "bindings", "preparation", "lexical_fts"):
+            assert store.db.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
+        store.db.execute("DROP TRIGGER rollback_preparation")
+        with store.publication_batch():
+            mutations["begin"]()
+            assert mutations["publish"]()
+        assert store.db.execute("SELECT count(*) FROM sources").fetchone()[0] == 1
+
+
+def test_publication_batch_rejects_external_and_nested_transactions(tmp_path):
+    revision = SourceRevision("cell:2:3", "text", "cell_revision", 11)
+    with RetrievalStore(tmp_path).open() as store:
+        store.db.execute("BEGIN IMMEDIATE")
+        with pytest.raises(RuntimeError, match="owns its write transaction"):
+            with store.publication_batch():
+                pytest.fail("entered a batch inside an external transaction")
+        with pytest.raises(RuntimeError, match="owns its write transaction"):
+            store.publish_source(_publication(revision, token="needle"))
+        assert store.db.in_transaction
+        store.db.rollback()
+        with store.publication_batch():
+            with pytest.raises(RuntimeError, match="cannot be nested"):
+                with store.publication_batch():
+                    pytest.fail("entered a nested batch")
+        assert not store.db.in_transaction
+
+
 @pytest.mark.parametrize(
     "error_code",
     [
