@@ -1,6 +1,6 @@
 # Isolated GLM-OCR worker on the publisher-supported vLLM release. The image
 # and model revision are immutable so production never follows mutable tags.
-FROM vllm/vllm-openai:v0.19.0-ubuntu2404@sha256:527873ce286de09ebc8cf3029b7304d153e00ca934117326b14e1866d5833291
+FROM vllm/vllm-openai:v0.20.0@sha256:04563c302537a91aa49ebdfbceda96111c5712275999b7e8804fa598f0b5641d
 
 RUN ln -sf /usr/bin/python3.12 /usr/local/bin/python
 
@@ -11,7 +11,9 @@ ENV PYTHONUNBUFFERED=1 \
 
 COPY src/frisket_models/__init__.py src/frisket_models/glm_ocr_identity.py src/frisket_models/server_startup.py /app/sidecar/src/frisket_models/
 
-RUN python3 -m pip install --no-cache-dir "transformers==5.3.0" \
+# GLM-OCR requires Transformers 5; vLLM 0.19 declared <5. Version 0.20
+# supports 5.5.1 without overriding either package's dependency requirements.
+RUN python3 -m pip install --no-cache-dir "transformers==5.5.1" \
     && python3 -m pip check \
     && python3 -c 'import transformers; import vllm.entrypoints.openai.api_server; import frisket_models.server_startup' \
     && MODEL_ID="$(python3 -c 'from frisket_models.glm_ocr_identity import MODEL_ID; print(MODEL_ID)')" \

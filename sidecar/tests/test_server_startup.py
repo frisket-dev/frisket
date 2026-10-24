@@ -10,9 +10,10 @@ import pytest
 
 from frisket_models.server_startup import _stop_group, container_address, start_server
 
-pytestmark = pytest.mark.skipif(
-    sys.platform != "linux", reason="Linux model containers"
-)
+pytestmark = [
+    pytest.mark.skipif(sys.platform != "linux", reason="Linux model containers"),
+    pytest.mark.realtime,  # Real child processes: assert bounded failure/cleanup.
+]
 
 
 def free_port():
@@ -25,6 +26,7 @@ def test_exited_child_fails_without_waiting_for_startup_deadline():
     before = time.monotonic()
     with pytest.raises(RuntimeError, match="broken exited.*23"):
         start_server(
+            # subprocess-boundary: observe a real child's exit status.
             [sys.executable, "-c", "raise SystemExit(23)"],
             name="broken",
             host="127.0.0.1",
@@ -37,6 +39,7 @@ def test_exited_child_fails_without_waiting_for_startup_deadline():
 def test_ready_child_keeps_serving_after_launcher_returns():
     port = free_port()
     process = start_server(
+        # subprocess-boundary: readiness must leave the child serving.
         [sys.executable, "-m", "http.server", str(port), "--bind", "0.0.0.0"],
         name="ready",
         host="127.0.0.1",
@@ -57,12 +60,14 @@ def test_timeout_kills_children_even_when_parent_exits_on_term(tmp_path):
     child = "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)"
     parent = (
         "import subprocess,sys,time,pathlib; "
+        # subprocess-boundary: descendant ignores TERM after its parent exits.
         f"p=subprocess.Popen([sys.executable,'-c',{child!r}]); "
         f"pathlib.Path({str(pid_file)!r}).write_text(str(p.pid)); time.sleep(60)"
     )
     before = time.monotonic()
     with pytest.raises(TimeoutError, match="did not listen"):
         start_server(
+            # subprocess-boundary: verify process-group timeout cleanup.
             [sys.executable, "-c", parent],
             name="timeout",
             host="127.0.0.1",
@@ -90,6 +95,7 @@ def test_loopback_only_server_does_not_satisfy_container_readiness():
     port = free_port()
     with pytest.raises(TimeoutError):
         start_server(
+            # subprocess-boundary: a real listener binds the wrong interface.
             [sys.executable, "-m", "http.server", str(port), "--bind", "127.0.0.1"],
             name="loopback-only",
             host="127.0.0.2",

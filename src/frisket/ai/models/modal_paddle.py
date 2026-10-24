@@ -96,7 +96,7 @@ if modal is not None:
             "python -c 'import paddleocr; import vllm.entrypoints.openai.api_server'",
             "PYTHONPATH=/opt/frisket-models/src "
             "/opt/frisket-paddle-pipeline/bin/python -c "
-            "'import paddleocr; import paddle; import frisket_models.app'",
+            "'import frisket_models.app'",
         )
         .env({**model_cache_environment(), "PYTHONPATH": "/opt/frisket-models/src"})
     )
@@ -130,7 +130,7 @@ if modal is not None:
             *paddle_gpu_install_commands(),
             "uv pip install --system --no-deps /opt/frisket-models",
             "uv pip check --system",
-            "python -c 'import paddleocr; import paddle; import frisket_models.app'",
+            "python -c 'import frisket_models.app'",
         )
         .env(model_cache_environment())
     )
@@ -154,6 +154,10 @@ def pp_ocrv6_worker():
     """Serve PP-OCRv6 without sharing PaddleOCR-VL's persistent vLLM process."""
 
     os.environ.update(model_cache_environment())
+    # Paddle loads libcuda on import: validate it on the GPU, not the builder.
+    import paddle  # noqa: F401
+    import paddleocr  # noqa: F401
+
     from frisket_models.app import create_app
     from frisket_models.engines import Registry, default_registry
 
