@@ -1179,6 +1179,84 @@ def test_fresh_results_stream_then_staged_subset_seals_exact_heads(
     assert generations.column_ids_for_op(second.op_id) == frozenset({output_column_id})
 
 
+def test_progressive_head_work_does_not_scan_accumulated_results(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project, sheet_id, column_id, row_ids = _seed_project(tmp_path, row_count=2_000)
+    try:
+        # Match an analyzed imported project whose first output has no result
+        # statistics yet. New runs must not require ANALYZE after each batch.
+        project.db.execute("ANALYZE")
+        generations = ResultGenerationStore(project)
+        claimed = _start_claimed_run(
+            project,
+            sheet_id=sheet_id,
+            output_column_id=column_id,
+            row_ids=row_ids,
+            label="bounded progressive head work",
+        )
+        _declare(generations, claimed, column_id, write_mode="create")
+        original = ResultGenerationStore._upsert_heads_uncommitted
+        measured_steps: list[int] = []
+
+        def measured_upsert(self, **kwargs):
+            steps = 0
+
+            def progress() -> int:
+                nonlocal steps
+                steps += 100
+                return 0
+
+            project.db.set_progress_handler(progress, 100)
+            try:
+                return original(self, **kwargs)
+            finally:
+                project.db.set_progress_handler(None, 0)
+                measured_steps.append(steps)
+
+        monkeypatch.setattr(
+            ResultGenerationStore, "_upsert_heads_uncommitted", measured_upsert
+        )
+
+        def write_rows(ids: list[int]) -> None:
+            _write(
+                project,
+                claimed,
+                [
+                    {
+                        "row_id": row_id,
+                        "column_id": column_id,
+                        "value": f"value:{row_id}",
+                        "publication_effect": "publish_value",
+                    }
+                    for row_id in ids
+                ],
+            )
+
+        write_rows(row_ids[:100])
+        first_steps = measured_steps[-1]
+        assert set(generations.read_cell_heads(column_id)) == set(row_ids[:100])
+        assert generations.get_binding(claimed.run_id, column_id).state == "active"
+        write_rows(row_ids[100:-100])
+        write_rows(row_ids[-100:])
+        last_steps = measured_steps[-1]
+
+        # Equal-size progressive batches should have comparable work even
+        # after twenty times as many results exist. Allow index-depth overhead;
+        # the unfenced run scan grows with all accumulated results instead.
+        assert first_steps > 0
+        assert last_steps < first_steps * 2
+        assert project.get_values(sheet_id, column_id) == {
+            row_id: f"value:{row_id}" for row_id in row_ids
+        }
+        _seal(generations, claimed, column_id)
+        assert generations.get_binding(claimed.run_id, column_id).state == "sealed"
+        _release(project, claimed)
+    finally:
+        project.close()
+
+
 def test_progressive_publication_batches_generation_and_head_queries(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

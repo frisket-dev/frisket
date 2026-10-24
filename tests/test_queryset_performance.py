@@ -6,6 +6,8 @@ from datetime import date
 import json
 from pathlib import Path
 
+import pytest
+
 from frisket.engine.store import Project
 from frisket.querysets import (
     resolve_sheet_filter_rows,
@@ -305,5 +307,91 @@ def test_correlated_scope_query_binds_date_filter_parameters(tmp_path: Path) -> 
         ).fetchall()
 
         assert [int(row["id"]) for row in matched] == [row_ids[1]]
+    finally:
+        project.close()
+
+
+@pytest.mark.parametrize(
+    "condition", [{"eq": "x"}, {"in": ["x", "y"]}, {"contains": "x"}]
+)
+def test_sparse_comparison_filters_scan_populated_coordinates(
+    tmp_path: Path, condition: dict
+) -> None:
+    project = Project.create(tmp_path / "query-sparse-comparison.frisket")
+    try:
+        sheet_id = project.add_sheet("Tags")
+        column_id = project.add_column(sheet_id, "tag", type="category")
+        row_ids = project.add_rows(
+            sheet_id,
+            [{"tag": "x"} if i % 100 == 0 else {} for i in range(3_000)],
+            {"tag": column_id},
+        )
+        filter_json = json.dumps({"tag": condition})
+        _, where_sql, params, _, _ = sheet_row_scope_query(
+            project, sheet_id, filter_=filter_json
+        )
+        old_count, old_steps = _vm_steps(
+            project,
+            lambda: project.db.execute(
+                f"SELECT COUNT(*) FROM rows r WHERE {where_sql}", params
+            ).fetchone()[0],
+        )
+        result, steps = _vm_steps(
+            project,
+            lambda: resolve_sheet_filter_rows(
+                project, sheet_id, filter_=filter_json, limit=10
+            ),
+        )
+        assert result.total == old_count == 30
+        assert result.row_ids == row_ids[::100][:10]
+        # Count plus page must not probe all the absent coordinates just to
+        # find the sparse matching cells. VM work avoids wall-clock thresholds.
+        assert steps < old_steps * 0.5
+    finally:
+        project.close()
+
+
+@pytest.mark.parametrize(
+    "condition", [{"eq": "x"}, {"in": ["x", "y"]}, {"contains": ""}, {"neq": "x"}]
+)
+def test_comparison_filter_preserves_missing_clear_invalid_and_sort(
+    tmp_path: Path, condition: dict
+) -> None:
+    project = Project.create(tmp_path / "query-comparison-values.frisket")
+    try:
+        sheet_id = project.add_sheet("Tags")
+        tag = project.add_column(sheet_id, "tag", type="category")
+        other = project.add_column(sheet_id, "other", type="number")
+        row_ids = project.add_rows(
+            sheet_id,
+            [
+                {},
+                {"tag": None},
+                {"tag": 5},
+                {"tag": ""},
+                {"tag": "x"},
+                {"tag": "y", "other": 2},
+                {"tag": "x", "other": 1},
+            ],
+            {"tag": tag, "other": other},
+        )
+        project.apply_edits([{"row_id": row_ids[-1], "column_id": tag, "value": None}])
+        filter_json = json.dumps({"tag": condition})
+        sort_json = json.dumps([{"column": "other", "dir": "desc"}])
+        _, where, params, order, order_params = sheet_row_scope_query(
+            project, sheet_id, filter_=filter_json, sort=sort_json
+        )
+        expected = [
+            int(row[0])
+            for row in project.db.execute(
+                f"SELECT r.id FROM rows r WHERE {where} ORDER BY {', '.join(order)}",
+                [*params, *order_params],
+            )
+        ]
+        result = resolve_sheet_filter_rows(
+            project, sheet_id, filter_=filter_json, sort=sort_json, limit=100
+        )
+        assert result.row_ids == expected
+        assert result.total == len(expected)
     finally:
         project.close()

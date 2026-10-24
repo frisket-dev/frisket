@@ -742,14 +742,18 @@ class ResultGenerationStore:
             params: list[int] = []
             for row_id, column_id in chunk:
                 params.extend((row_id, column_id))
+            # Keep the bounded coordinates outermost. With no statistics for
+            # a newly populated results table, SQLite can otherwise scan the
+            # entire growing run for every target, making progressive batches
+            # quadratic. These fences retain exact indexed result lookups.
             self.db.execute(
                 f"WITH target(row_id,column_id) AS (VALUES {target_values}) "
                 "INSERT INTO cell_result_heads (column_id,row_id,run_id) "
                 "SELECT result.column_id,result.row_id,result.run_id "
-                "FROM target JOIN results result "
+                "FROM target CROSS JOIN results result "
                 "ON result.row_id=target.row_id "
                 "AND result.column_id=target.column_id "
-                "JOIN run_output_generations generation "
+                "CROSS JOIN run_output_generations generation "
                 "ON generation.run_id=result.run_id "
                 "AND generation.column_id=result.column_id "
                 "WHERE result.run_id=? AND result.publication_effect IS NOT NULL AND "
