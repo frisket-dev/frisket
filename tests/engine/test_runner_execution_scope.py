@@ -249,6 +249,214 @@ def _spec(recipe: Recipe, sheet_id: int, **extra: Any) -> dict[str, Any]:
     }
 
 
+@pytest.mark.parametrize("mode", ["immediate", "local", "checkpoint"])
+def test_local_publication_batches_keep_row_errors_and_committed_progress(
+    tmp_path, scope_recipe, monkeypatch, mode
+):
+    project, sheet_id, row_ids = _seed_project(tmp_path, rows=7)
+    scope_recipe.batch_local_results = mode != "immediate"
+    if mode == "checkpoint":
+        monkeypatch.setattr(
+            scope_recipe, "requires_row_effect_checkpoint", lambda _spec: True
+        )
+    scope_recipe.error_on_call = (2, ValueError("bad source row"))
+    monkeypatch.setattr(map_runner_module, "LOCAL_RESULT_BATCH_ROWS", 3)
+    monkeypatch.setattr(map_runner_module, "LOCAL_RESULT_BATCH_SECONDS", 1000)
+    batches = []
+    publish = RunResultStore.publish_result_batch
+
+    def record(store, run_id, batch, **kwargs):
+        publish(store, run_id, batch, **kwargs)
+        batches.append(len({item["row_id"] for item in batch}))
+
+    monkeypatch.setattr(RunResultStore, "publish_result_batch", record)
+    reader = sqlite3.connect(project.path / "project.db")
+
+    def progress_committed(progress):
+        count = reader.execute(
+            "SELECT count(DISTINCT row_id) FROM results WHERE run_id=?",
+            (progress.run_id,),
+        ).fetchone()[0]
+        assert count == progress.completed
+
+    try:
+        runner = MapRunner(
+            project,
+            ModelRouter(keys={}),
+            concurrency=1,
+            authority=UnroutedOnlyAuthority(project),
+            on_progress=progress_committed,
+        )
+        progress = asyncio.run(
+            run_with_output_claim(runner, _spec(scope_recipe, sheet_id))
+        )
+        assert progress.completed == 7
+        assert progress.failed == 1
+        assert batches == ([3, 3, 1] if mode == "local" else [1] * 7)
+        failed = project.db.execute(
+            "SELECT row_id, error FROM results WHERE run_id=? AND error IS NOT NULL",
+            (progress.run_id,),
+        ).fetchall()
+        assert len(failed) == 1 and failed[0]["row_id"] == row_ids[1]
+        assert "bad source row" in failed[0]["error"]
+    finally:
+        reader.close()
+        project.close()
+
+
+def test_local_publication_flushes_on_time_and_reads_each_dispatch_page(
+    tmp_path, scope_recipe, monkeypatch
+):
+    project, sheet_id, row_ids = _seed_project(tmp_path, rows=4)
+    scope_recipe.batch_local_results = True
+    monkeypatch.setattr(map_runner_module, "LOCAL_RESULT_BATCH_ROWS", 3)
+    clock = [0.0]
+    monkeypatch.setattr(
+        map_runner_module, "time", SimpleNamespace(monotonic=lambda: clock[0])
+    )
+    execute = scope_recipe.execute
+    column = next(c["id"] for c in project.columns(sheet_id) if c["name"] == "text")
+
+    async def advance(values, spec, ctx):
+        result = await execute(values, spec, ctx)
+        clock[0] += 0.06
+        if len(scope_recipe.calls) == 1:
+            project.apply_edits(
+                [
+                    {"row_id": row_id, "column_id": column, "value": "changed"}
+                    for row_id in (row_ids[1], row_ids[3])
+                ]
+            )
+        return result
+
+    monkeypatch.setattr(scope_recipe, "execute", advance)
+    committed = []
+    try:
+        runner = MapRunner(
+            project,
+            ModelRouter(keys={}),
+            concurrency=1,
+            authority=UnroutedOnlyAuthority(project),
+            on_progress=lambda progress: committed.append(progress.completed),
+        )
+        progress = asyncio.run(
+            run_with_output_claim(runner, _spec(scope_recipe, sheet_id))
+        )
+        assert committed == [0, 2, 4, 4]
+        values = project.db.execute(
+            "SELECT value FROM results WHERE run_id=? ORDER BY row_id",
+            (progress.run_id,),
+        ).fetchall()
+        # Row 2 was dispatched with the first page; row 4's page was read
+        # after the edit. Neither row substitutes a newer source ref later.
+        assert [row[0] for row in values] == ["ROW 0", "ROW 1", "ROW 2", "CHANGED"]
+    finally:
+        project.close()
+
+
+@pytest.mark.parametrize("stop", ["cancel", "halt"])
+def test_local_pending_rows_drain_before_cancel_or_halt_finalization(
+    tmp_path, scope_recipe, monkeypatch, stop
+):
+    project, sheet_id, row_ids = _seed_project(tmp_path)
+    scope_recipe.batch_local_results = True
+    monkeypatch.setattr(map_runner_module, "LOCAL_RESULT_BATCH_SECONDS", 1000)
+    if stop == "halt":
+        scope_recipe.halt_on_call = 3
+    try:
+        runner = MapRunner(
+            project,
+            ModelRouter(keys={}),
+            concurrency=1,
+            authority=UnroutedOnlyAuthority(project),
+            should_cancel=(lambda _run_id: len(scope_recipe.calls) >= 3)
+            if stop == "cancel"
+            else None,
+        )
+        progress = asyncio.run(
+            run_with_output_claim(runner, _spec(scope_recipe, sheet_id))
+        )
+        assert progress.cancelled and progress.completed == 2
+        actual = project.db.execute(
+            "SELECT row_id FROM results WHERE run_id=? ORDER BY row_id",
+            (progress.run_id,),
+        ).fetchall()
+        assert [row[0] for row in actual] == row_ids[:2]
+        run = project.db.execute(
+            "SELECT * FROM runs WHERE id=?", (progress.run_id,)
+        ).fetchone()
+        assert run["status"] == "cancelled" and run["completed_rows"] == 2
+        assert scope_recipe.exits == 1
+    finally:
+        project.close()
+
+
+def test_local_batch_publication_refusal_keeps_pending_rows_atomic(
+    tmp_path, scope_recipe, monkeypatch
+):
+    project, sheet_id, row_ids = _seed_project(tmp_path)
+    scope_recipe.batch_local_results = True
+    monkeypatch.setattr(map_runner_module, "LOCAL_RESULT_BATCH_ROWS", 3)
+    monkeypatch.setattr(map_runner_module, "LOCAL_RESULT_BATCH_SECONDS", 1000)
+    # Refuse the second member after the store has started writing the first.
+    project.db.execute(
+        f"CREATE TEMP TRIGGER refuse_result BEFORE INSERT ON results "
+        f"WHEN NEW.row_id={row_ids[1]} "
+        "BEGIN SELECT RAISE(ABORT, 'publication refused'); END"
+    )
+    try:
+        runner = MapRunner(
+            project,
+            ModelRouter(keys={}),
+            concurrency=1,
+            authority=UnroutedOnlyAuthority(project),
+        )
+        with pytest.raises(sqlite3.IntegrityError, match="publication refused"):
+            asyncio.run(run_with_output_claim(runner, _spec(scope_recipe, sheet_id)))
+        assert project.db.execute("SELECT count(*) FROM results").fetchone()[0] == 0
+        assert scope_recipe.exits == 1
+    finally:
+        project.close()
+
+
+def test_local_rows_yield_to_external_cancellation_and_drain_pending_results(
+    tmp_path, scope_recipe, monkeypatch
+):
+    project, sheet_id, _row_ids = _seed_project(tmp_path, rows=96)
+    scope_recipe.batch_local_results = True
+    monkeypatch.setattr(map_runner_module, "LOCAL_RESULT_BATCH_SECONDS", 1000)
+    progress_seen = []
+    runner = MapRunner(
+        project,
+        ModelRouter(keys={}),
+        concurrency=1,
+        authority=UnroutedOnlyAuthority(project),
+        on_progress=progress_seen.append,
+    )
+
+    async def exercise():
+        task = asyncio.create_task(
+            run_with_output_claim(runner, _spec(scope_recipe, sheet_id))
+        )
+        await scope_recipe.started.wait()
+        assert 0 < len(scope_recipe.calls) < 96
+        progress_seen[0].cancel()
+        return await asyncio.wait_for(task, timeout=2)
+
+    try:
+        progress = asyncio.run(exercise())
+        assert progress.cancelled and 0 < progress.completed < 96
+        assert (
+            project.db.execute(
+                "SELECT count(*) FROM results WHERE run_id=?", (progress.run_id,)
+            ).fetchone()[0]
+            == progress.completed
+        )
+        assert scope_recipe.exits == 1
+    finally:
+        project.close()
+
+
 @pytest.mark.parametrize("concurrency", [1, 2])
 def test_preferred_admitted_row_takes_the_next_free_worker_without_restart(
     tmp_path, scope_recipe, monkeypatch, concurrency

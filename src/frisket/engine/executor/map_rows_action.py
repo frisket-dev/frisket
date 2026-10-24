@@ -290,6 +290,11 @@ class _TypedMapRowsProgram(Recipe):
         self.name = action.action_id
         self.description = action.definition.description
         self._terminal = action.definition.run
+        self.batch_local_results = (
+            isinstance(self._terminal, MapRows)
+            and not self._terminal.capabilities
+            and not self._terminal.injections
+        )
         from frisket.actions.ner import NerParams
         from frisket.actions.extract import ExtractParams
 

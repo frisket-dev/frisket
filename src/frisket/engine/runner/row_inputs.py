@@ -6,6 +6,8 @@ the spec declares one."""
 from __future__ import annotations
 
 from collections.abc import Mapping
+from copy import deepcopy
+from dataclasses import dataclass
 from typing import Any
 
 from frisket.ops.base import Recipe
@@ -108,6 +110,37 @@ def row_source_values_empty(values: Mapping[str, Any]) -> bool:
     return bool(values) and all(is_empty_cell_value(value) for value in values.values())
 
 
+@dataclass(frozen=True)
+class RowSourcePage:
+    """One bounded local dispatch snapshot, including the exact source refs."""
+
+    sheet_id: int
+    row_ids: frozenset[int]
+    columns: Mapping[int, tuple[dict[int, Any], dict[int, dict[str, Any]]]]
+
+    def cell(
+        self, sheet_id: int, column_id: int, row_id: int
+    ) -> tuple[Any, dict[str, Any] | None]:
+        if sheet_id != self.sheet_id or row_id not in self.row_ids:
+            raise ValueError("row is outside the local source page")
+        values, refs = self.columns[column_id]
+        return values.get(row_id), refs.get(row_id)
+
+
+def read_source_page(
+    project: Project, sheet_id: int, column_ids: list[int], row_ids: list[int]
+) -> RowSourcePage:
+    # Close the coherent read transaction before queueing or executing a row.
+    with project.read_snapshot() as snapshot:
+        columns = {
+            column_id: snapshot.get_values_with_refs(
+                sheet_id, column_id, row_ids=row_ids
+            )
+            for column_id in column_ids
+        }
+    return RowSourcePage(sheet_id, frozenset(row_ids), columns)
+
+
 def _refuse_changed_admitted_input(name: str, row_id: int) -> None:
     from frisket.ops.base import RecipeInvocationHalt
 
@@ -171,8 +204,13 @@ def row_values(
     column_types: dict[str, str] | None = None,
     capture: dict[str, dict[str, Any]] | None = None,
     admitted_work_scope: Mapping[str, Any] | None = None,
+    source_page: RowSourcePage | None = None,
 ) -> dict[str, Any]:
-    if capture is None and getattr(recipe, "capture_source_cells", False):
+    if source_page is not None and (for_model or admitted_work_scope is not None):
+        raise ValueError("admitted/model rows require live source reads")
+    if capture is None and (
+        source_page is not None or getattr(recipe, "capture_source_cells", False)
+    ):
         capture = {}
     col_types = column_types
     if col_types is None:
@@ -197,39 +235,48 @@ def row_values(
             expected = None
         if cid is None:
             continue
-        if capture is None and expected is None:
+        if source_page is not None:
+            val, ref = source_page.cell(spec["sheet_id"], cid, row_id)
+        elif capture is None and expected is None:
             val = project.get_values(spec["sheet_id"], cid, row_ids=[row_id]).get(
                 row_id
             )
+            ref = None
         else:
             got, refs = project.get_values_with_refs(
                 spec["sheet_id"], cid, row_ids=[row_id]
             )
             val = got.get(row_id)
             ref = refs.get(row_id)
-            if expected is not None:
-                from frisket.engine.store.cells import replay_generated_value_hash
+        if expected is not None:
+            from frisket.engine.store.cells import replay_generated_value_hash
 
-                canonical_ref = dict(ref) if isinstance(ref, Mapping) else None
-                if (
-                    expected.get("value_hash") != replay_generated_value_hash(val)
-                    or expected.get("value_ref") != canonical_ref
-                ):
-                    _refuse_changed_admitted_input(name, row_id)
-            if capture is not None:
-                capture[name] = {
-                    "column_id": cid,
-                    "column_type": col_types.get(name),
-                    "value": val,
-                    "value_ref": ref,
-                }
+            canonical_ref = dict(ref) if isinstance(ref, Mapping) else None
+            if (
+                expected.get("value_hash") != replay_generated_value_hash(val)
+                or expected.get("value_ref") != canonical_ref
+            ):
+                _refuse_changed_admitted_input(name, row_id)
+        if capture is not None:
+            capture[name] = {
+                "column_id": cid,
+                "column_type": col_types.get(name),
+                "value": val,
+                "value_ref": ref,
+            }
         if name not in prompt_source_names:
             continue
         # LLM recipes get image pixels; non-LLM recipes (faces, ffmpeg)
         # need the raw blob reference/path untouched
         if for_model and col_types.get(name) == "image" and val is not None:
             val = image_part(project, val, max_image_bytes=MAX_IMAGE_BYTES) or val
-        values[name] = val
+        # Handlers may transform mutable JSON inputs in place. Keep the page
+        # and captured source value unchanged for other rows and evidence.
+        values[name] = (
+            deepcopy(val)
+            if source_page is not None and isinstance(val, (dict, list))
+            else val
+        )
     source_cells_empty = bool(prompt_source_names) and all(
         is_empty_cell_value(value) for value in values.values()
     )
