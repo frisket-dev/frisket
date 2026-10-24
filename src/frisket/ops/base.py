@@ -308,6 +308,9 @@ class Recipe:
     # Mechanical/deterministic ops (clean_column) whose rows are auto-verified
     # by MapRunner so they never flood the review queue.
     auto_verify: bool = False
+    # Internal host declaration: rerunning an unpublished local row has no
+    # effects beyond its returned values. Not a public authoring option.
+    batch_local_results: bool = False
     # Deterministic parsers may define a meaningful result for blank inputs.
     allow_all_empty_input: bool = False
     # Row-local data errors should not trip the provider-failure breaker.

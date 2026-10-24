@@ -67,7 +67,7 @@ from frisket.engine.runner.row_execution import (
     GROUNDING_SIDECAR_PREFIX as GROUNDING_SIDECAR_PREFIX,
 )
 from frisket.engine.runner.row_execution import _await_owned_tasks, execute_row
-from frisket.engine.runner.row_inputs import row_values
+from frisket.engine.runner.row_inputs import RowSourcePage, read_source_page, row_values
 from frisket.engine.runner.validation import COST_GATE_USD as COST_GATE_USD
 from frisket.engine.runner.validation import (
     BatchRowLimitExceeded as BatchRowLimitExceeded,
@@ -128,6 +128,9 @@ DEFAULT_CONCURRENCY = 8
 # the streak).
 DEFAULT_FAILURE_HALT_STREAK = 10
 BATCH_SIZE = 25
+LOCAL_RESULT_BATCH_ROWS = 256
+# Checked after each completed row, not by a timer during a running handler.
+LOCAL_RESULT_BATCH_SECONDS = 0.1
 RUN_SCOPE_PAGE_SIZE = 500
 
 
@@ -830,6 +833,13 @@ class MapRunner:
             for c in self.project.columns(prepared.sheet_id)
             if c["name"] in set(recipe.source_columns(spec))
         }
+        # Source identity was resolved during preparation. Live names/types may
+        # have changed since then; they must not retarget or omit these reads.
+        source_column_ids = [
+            col_map[name]
+            for name in map(str, recipe.source_columns(spec))
+            if name in col_map
+        ]
 
         def persist_result_batch(
             batch: list[dict[str, Any]],
@@ -1042,6 +1052,13 @@ class MapRunner:
             run_extras[ATTEMPT_EXTRA] = attempt
             progress.writer_attempt_id = attempt.attempt_id
 
+        batch_local_results = bool(
+            recipe.batch_local_results
+            and attempt is not None
+            and attempt.routed is None
+            and not recipe.is_llm(spec)
+            and not row_effect_spends_or_meters(recipe, spec, self.router)
+        )
         claimed = [False]
 
         def claim_the_attempt() -> None:
@@ -1425,23 +1442,40 @@ class MapRunner:
                 exc.run_id = run_id
                 raise
 
-        async def flush() -> None:
-            # Persist each completed row so queued progress remains observable.
+        pending_row_count = 0
+        last_flush = time.monotonic()
+
+        async def flush(*, force: bool = True) -> None:
+            nonlocal pending_row_count, last_flush
+            # Pure local rows share a bounded publication. All other rows keep
+            # their original durability boundary, including provider effects.
             batch: list[dict] | None = None
             async with lock:
+                if (
+                    not force
+                    and batch_local_results
+                    and pending_row_count < LOCAL_RESULT_BATCH_ROWS
+                    and time.monotonic() - last_flush < LOCAL_RESULT_BATCH_SECONDS
+                ):
+                    return
                 if pending:
                     batch = list(pending)
                     pending.clear()
+                    pending_row_count = 0
             if batch is None:
                 return
             persist_result_batch(batch)
+            last_flush = time.monotonic()
             if self.on_progress:
                 self.on_progress(progress)
 
         streak_outcomes: dict[int, bool] = {}
         streak_next = [0]
 
-        async def one_row(row_id: int, seq: int) -> None:
+        async def one_row(
+            row_id: int, seq: int, source_page: RowSourcePage | None = None
+        ) -> None:
+            nonlocal pending_row_count
             if cancelled():
                 return
             await self._throttle.wait()
@@ -1464,6 +1498,7 @@ class MapRunner:
                     if attempt is not None and attempt.routed is not None
                     else None
                 ),
+                source_page=source_page,
             )
             checkpoint_id: str | None = None
             checkpoint_identity: str | None = None
@@ -1879,6 +1914,7 @@ class MapRunner:
                     return
                 if checkpoint_id is None:
                     pending.extend(returned_batch)
+                    pending_row_count += 1
                 else:
                     assert checkpoint_identity is not None
                     persist_result_batch(
@@ -1922,7 +1958,7 @@ class MapRunner:
                 progress.completed += 1
                 progress.cost += sum(p.get("cost") or 0 for p in results.values())
             if checkpoint_id is None:
-                await flush()
+                await flush(force=progress.cancelled)
             elif self.on_progress:
                 self.on_progress(progress)
 
@@ -1948,17 +1984,42 @@ class MapRunner:
         worker_count = self._row_worker_count(recipe, spec)
         # Small prefetch buffer: enough to keep workers fed without letting the
         # event loop accumulate row tasks proportional to the run size.
-        queue: asyncio.Queue[tuple[int, int] | None] = asyncio.Queue(
-            maxsize=worker_count * 2
+        queue: asyncio.Queue[tuple[int, int, RowSourcePage | None] | None] = (
+            asyncio.Queue(maxsize=worker_count * 2)
         )
 
         async def producer() -> None:
             seq = 0
+            page: list[int] = []
+            page_size = LOCAL_RESULT_BATCH_ROWS if batch_local_results else 1
+
+            async def enqueue_page() -> None:
+                nonlocal seq
+                source_page = (
+                    read_source_page(
+                        self.project,
+                        prepared.sheet_id,
+                        source_column_ids,
+                        page,
+                    )
+                    if batch_local_results
+                    else None
+                )
+                for row_id in page:
+                    if cancelled():
+                        break
+                    await queue.put((row_id, seq, source_page))
+                    seq += 1
+
             async for row_id in source_rows():
                 if cancelled():
                     break
-                await queue.put((row_id, seq))
-                seq += 1
+                page.append(row_id)
+                if len(page) == page_size:
+                    await enqueue_page()
+                    page.clear()
+            if page and not cancelled():
+                await enqueue_page()
             # Sentinels belong only to normal exhaustion/cooperative stop.  On
             # an exception or task cancellation the owner cancels and joins all
             # consumers; attempting to fill a full queue from ``finally`` can
@@ -2081,9 +2142,8 @@ class MapRunner:
                             else:
                                 await run_preferred_row_workers()
                         finally:
-                            # Normal rows flush individually; this final drain
-                            # keeps any accepted concurrent sibling result
-                            # durable while scope cleanup remains guaranteed.
+                            # Drain accepted local rows and concurrent siblings
+                            # before scope cleanup and terminal run/receipt state.
                             await flush()
 
                 scope_task = asyncio.create_task(execute_in_scope())

@@ -39,6 +39,7 @@ class Output(BaseModel):
 
 def test_cancelled_typed_receipt_owns_only_produced_rows_and_replays_exact_heads(
     tmp_path,
+    monkeypatch,
 ):
     calls = []
 
@@ -120,10 +121,16 @@ def test_cancelled_typed_receipt_owns_only_produced_rows_and_replays_exact_heads
             column for column in project.columns(sheet) if column["name"] == "Rendered"
         )
         bound = bind(rows[:2], key="cancelled", replace=True)
-        cancelled = run(
-            bound,
-            lambda store, router: factory(store, router, cancel_after_result=True),
-        )
+        # This receipt/replay fixture cancels after observing one durable row.
+        # Force that boundary independently of the normal local batch size.
+        with monkeypatch.context() as publication:
+            publication.setattr(
+                "frisket.engine.runner.map_runner.LOCAL_RESULT_BATCH_ROWS", 1
+            )
+            cancelled = run(
+                bound,
+                lambda store, router: factory(store, router, cancel_after_result=True),
+            )
         assert cancelled.status == "cancelled", cancelled.errors
         assert calls[3:] == [("cancelled", "one")]
         produced = project.db.execute(

@@ -930,6 +930,52 @@ def test_head_that_moved_between_admission_and_the_claim_refuses(
     assert row["current_attempt_id"] is None
 
 
+def test_routed_dispatch_uses_the_attempt_owned_source_index(
+    workspace, gateway_env, adapter_stub, monkeypatch
+):
+    """Exercise actual routed admission, not an unrouted template run."""
+    import asyncio
+
+    from frisket.execution.scope_identity import AdmittedWorkScopeSnapshot
+
+    _root, project, sheet_id = workspace
+    source_column = next(c for c in project.columns(sheet_id) if c["name"] == "media")
+    first_row = project.visible_row_ids(sheet_id)[0]
+    source = project.get_values(sheet_id, source_column["id"], [first_row])[first_row]
+    project.add_rows(sheet_id, [{"media": source}] * 4, {"media": source_column["id"]})
+    row_ids = project.visible_row_ids(sheet_id)
+    run_id, spec = _prepare_consented_gateway_run(project, sheet_id)
+    claim_token, _output_column_ids = _claimed_output_authority(project, run_id)
+    looked_up = []
+    source_cell = AdmittedWorkScopeSnapshot.source_cell
+
+    def record_lookup(snapshot, source_index, cells, row_id):
+        looked_up.append((id(snapshot), row_id))
+        return source_cell(snapshot, source_index, cells, row_id)
+
+    monkeypatch.setattr(AdmittedWorkScopeSnapshot, "source_cell", record_lookup)
+    runner = MapRunner(
+        project,
+        ModelRouter(),
+        allow_action_lifecycle_only_recipes=True,
+        authority=open_attempt_authority(project),
+    )
+    progress = asyncio.run(
+        runner.run(
+            spec,
+            program=_program(spec),
+            confirmed=True,
+            resume_run_id=run_id,
+            reopen_operator_cancelled=False,
+            claim_token=claim_token,
+        )
+    )
+    assert progress.completed == len(row_ids)
+    assert len(adapter_stub) == len(row_ids)
+    assert sorted(row_id for _snapshot, row_id in looked_up) == row_ids
+    assert len({snapshot for snapshot, _row_id in looked_up}) == 1
+
+
 def test_pending_row_edit_after_admission_refuses_before_egress(
     workspace, gateway_env, adapter_stub
 ):
