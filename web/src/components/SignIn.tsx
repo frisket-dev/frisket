@@ -14,7 +14,7 @@ import { useInstanceIdentity } from '../instanceIdentity';
 import { useEditionModule } from '../editions/module';
 import { AuthForm, AuthScreen } from './AuthScreen';
 import styles from './SignIn.module.css';
-import { authReturnTo, rememberPendingDeviceApproval } from './authReturnTo';
+import { authReturnTo, rememberPendingSignIn } from './authReturnTo';
 
 export function SignIn() {
   const { routes } = useEditionModule();
@@ -45,7 +45,7 @@ export function SignIn() {
   );
 
   useEffect(() => {
-    rememberPendingDeviceApproval(returnTo);
+    rememberPendingSignIn(returnTo);
   }, [returnTo]);
 
   useEffect(() => {

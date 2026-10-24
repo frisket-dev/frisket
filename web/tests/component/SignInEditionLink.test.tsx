@@ -27,7 +27,7 @@ vi.mock('../../src/instanceIdentity', () => ({
   useInstanceIdentity: () => ({ display_name: 'Example operator', support_contact: null }),
 }));
 import { SignIn } from '../../src/components/SignIn';
-import { resumePendingDeviceApproval } from '../../src/components/authReturnTo';
+import { resumePendingSignIn } from '../../src/components/authReturnTo';
 import {
   defineEditionModule,
   EditionModuleProvider,
@@ -107,8 +107,8 @@ describe('SignIn edition links', () => {
     );
   });
 
-  it('returns a password sign-in to the device approval URL', async () => {
-    window.history.replaceState({}, '', '/device?user_code=KQ4F-7M2D');
+  it.each(['/device?user_code=KQ4F-7M2D', '/admin/signup-requests#pending'])('returns a password sign-in to %s', async (destination) => {
+    window.history.replaceState({}, '', destination);
     mocks.getRuntimeConfig.mockResolvedValue(runtimeConfig);
     mocks.signInWithPassword.mockResolvedValue(undefined);
     renderSignIn();
@@ -124,13 +124,13 @@ describe('SignIn edition links', () => {
     await waitFor(() => {
       expect(mocks.signInWithPassword).toHaveBeenCalledWith('person@example.test', 'password');
       expect(mocks.continueAfterBrowserSignIn).toHaveBeenCalledWith(
-        '/device?user_code=KQ4F-7M2D',
+        destination,
       );
     });
   });
 
-  it('carries the device approval URL into an OIDC start', async () => {
-    window.history.replaceState({}, '', '/device?user_code=KQ4F-7M2D');
+  it.each(['/device?user_code=KQ4F-7M2D', '/admin/signup-requests'])('preserves %s through an OIDC callback', async (destination) => {
+    window.history.replaceState({}, '', destination);
     mocks.getRuntimeConfig.mockResolvedValue({
       ...runtimeConfig,
       auth_methods: {
@@ -141,8 +141,21 @@ describe('SignIn edition links', () => {
     renderSignIn();
 
     expect(await screen.findByTestId('sign-in-oidc-google')).toHaveAttribute(
-      'href', '/auth/oidc/google?returnTo=%2Fdevice%3Fuser_code%3DKQ4F-7M2D',
+      'href', `/auth/oidc/google?${new URLSearchParams({ returnTo: destination })}`,
     );
+    expect(resumePendingSignIn({ pathname: '/', search: '', hash: '' })).toBe(destination);
+  });
+
+  it('still renders sign-in when localStorage access is denied', async () => {
+    window.history.replaceState({}, '', '/admin/signup-requests');
+    mocks.getRuntimeConfig.mockResolvedValue(runtimeConfig);
+    const denied = vi.spyOn(window, 'localStorage', 'get').mockImplementation(() => { throw new DOMException('blocked', 'SecurityError'); });
+    try {
+      renderSignIn();
+      expect(await screen.findByTestId('sign-in-email')).toBeVisible();
+    } finally {
+      denied.mockRestore();
+    }
   });
 
   it('moves focus to the revealed magic-link address field', async () => {
@@ -170,8 +183,8 @@ describe('SignIn edition links', () => {
     expect(await screen.findByTestId('sign-in-sent')).toBeVisible();
   });
 
-  it('resumes a device approval after a magic-link callback returns to root', async () => {
-    window.history.replaceState({}, '', '/device?user_code=KQ4F-7M2D');
+  it.each(['/device?user_code=KQ4F-7M2D', '/admin/signup-requests'])('resumes %s after a magic-link callback returns to root', async (destination) => {
+    window.history.replaceState({}, '', destination);
     mocks.getRuntimeConfig.mockResolvedValue(runtimeConfig);
     mocks.requestMagicLink.mockResolvedValue(undefined);
     renderSignIn();
@@ -183,9 +196,9 @@ describe('SignIn edition links', () => {
     fireEvent.click(screen.getByTestId('sign-in-submit'));
     expect(await screen.findByTestId('sign-in-sent')).toBeVisible();
 
-    expect(resumePendingDeviceApproval(
-      { pathname: '/', search: '' },
+    expect(resumePendingSignIn(
+      { pathname: '/', search: '', hash: '' },
       window.localStorage,
-    )).toBe('/device?user_code=KQ4F-7M2D');
+    )).toBe(destination);
   });
 });

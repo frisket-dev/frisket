@@ -1,7 +1,7 @@
 import './App.css';
 import { Button } from './components/Button';
 import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
-import { resumePendingDeviceApproval } from './components/authReturnTo';
+import { resumePendingSignIn } from './components/authReturnTo';
 import { listProjects, type ProjectInfo } from './api/open';
 import { PanelEmpty, PanelLoading } from './components/PanelPrimitives';
 import { HomeScreen } from './components/HomeScreen';
@@ -75,7 +75,7 @@ export default function App() {
 
   useEffect(() => {
     if (!identityMode || !identityResolved || !me) return;
-    const target = resumePendingDeviceApproval(window.location);
+    const target = resumePendingSignIn(window.location);
     if (target) window.location.replace(target);
   }, [identityMode, identityResolved, me]);
 
