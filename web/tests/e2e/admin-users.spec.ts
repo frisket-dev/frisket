@@ -231,3 +231,40 @@ test('admin page distinguishes member removal from invite revocation and retains
   await pendingRow.getByRole('button', { name: 'Revoke' }).click();
   await expect(panel.getByTestId('admin-invites-table')).not.toContainText('pending@news.org');
 });
+
+test('password sign-in refreshes identity at an unchanged admin URL with a fragment', async ({ page }) => {
+  let authenticated = false;
+  let authenticatedProbes = 0;
+  await page.route('**/api/me', async (route) => {
+    if (authenticated) authenticatedProbes += 1;
+    await route.fulfill({
+      status: authenticated ? 200 : 401,
+      json: authenticated ? { email: 'owner@example.test', display_name: 'Owner' } : { detail: 'Sign in' },
+    });
+  });
+  await page.route('**/api/config', (route) => route.fulfill({ json: {
+    cache_mode: 'off', live_calls_possible: true, cache_mode_editable: false,
+    email_from_address: null, email_from_name: null,
+    auth_methods: { password: true, magic_link: true, oidc: [] },
+  } }));
+  await page.route('**/auth/password-login', async (route) => {
+    expect(route.request().postDataJSON()).toEqual({ email: 'owner@example.test', password: 'fixture-password' });
+    authenticated = true;
+    await route.fulfill({ json: { ok: true } });
+  });
+  await page.route('**/api/admin/browser/users', (route) => route.fulfill({ json: {
+    schema_version: 'frisket.admin_users.v1',
+    capabilities: { assignable_roles: ['owner', 'admin', 'member'], invite_ttl_days: 14, magic_link_ttl_minutes: 15 },
+    orgs: [],
+  } }));
+  await page.goto('/admin/users?section=current#review');
+  await page.getByTestId('sign-in-email').fill('owner@example.test');
+  await page.getByTestId('sign-in-password').fill('fixture-password');
+  await page.getByRole('button', { name: /^Sign in$/ }).click();
+
+  // URL equality alone passes before login: prove a fresh identity probe and actual admin rendering.
+  await expect.poll(() => authenticatedProbes).toBeGreaterThan(0);
+  await expect(page.getByTestId('admin-page')).toBeVisible();
+  await expect(page.getByTestId('sign-in')).toHaveCount(0);
+  await expect(page).toHaveURL(/\/admin\/users\?section=current#review$/);
+});

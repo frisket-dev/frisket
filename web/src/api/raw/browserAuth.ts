@@ -12,7 +12,9 @@ export function oidcSignInUrl(provider: string, returnTo?: string): string {
 }
 
 export function continueAfterBrowserSignIn(returnTo: string): void {
-  window.location.assign(returnTo);
+  // A same-document URL (especially a fragment) would not refresh identity.
+  window.history.replaceState(null, '', returnTo);
+  window.location.reload();
 }
 
 /** Start the organization's Google OAuth browser flow. */
