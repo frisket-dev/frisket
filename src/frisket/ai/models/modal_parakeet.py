@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +29,8 @@ if modal is not None:
 def parakeet_worker() -> None:
     """Start the authenticated fixed-model Parakeet worker server."""
 
+    from frisket_models.server_startup import container_address, start_server
+
     worker_env = os.environ.copy()
     link_token = worker_env.get("FRISKET_MOSS_WORKER_TOKEN")
     if not link_token:
@@ -38,7 +39,7 @@ def parakeet_worker() -> None:
     worker_env["FRISKET_TRANSCRIPTION_WORKER_IMAGE_ID"] = modal_runtime_image_id(
         worker_env.get("MODAL_IMAGE_ID")
     )
-    subprocess.Popen(
+    start_server(
         [
             "uvicorn",
             "--factory",
@@ -49,6 +50,9 @@ def parakeet_worker() -> None:
             WORKER_PORT,
         ],
         env=worker_env,
+        name="Parakeet",
+        host=container_address(),
+        timeout=1800,
     )
 
 
@@ -71,7 +75,7 @@ def register_parakeet_worker(app: Any):
         secrets=[modal.Secret.from_name(MOSS_LINK_SECRET_NAME)],
     )(
         modal.concurrent(max_inputs=1)(
-            modal.web_server(9000, startup_timeout=1800)(parakeet_worker)
+            modal.web_server(9000, startup_timeout=5)(parakeet_worker)
         )
     )
 

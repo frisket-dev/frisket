@@ -45,7 +45,7 @@ def test_modal_registers_parakeet_as_an_isolated_worker() -> None:
     assert _named_secrets(worker) == {"frisket-moss-link"}
     assert (worker.gpus, worker.cpu, worker.memory) == ("T4", 2.0, 16384)
     assert webhook.web_server_port == 9000
-    assert webhook.web_server_startup_timeout == 1800
+    assert webhook.web_server_startup_timeout == 5
 
 
 def test_modal_provides_parakeet_worker_url_and_private_token_to_gateway(
@@ -88,13 +88,16 @@ def test_parakeet_worker_maps_private_token_and_runtime_image(
 ) -> None:
     captured: dict[str, Any] = {}
 
-    def popen(command: list[str], *, env: dict[str, str]) -> None:
+    def launch(command: list[str], *, env: dict[str, str], **kwargs) -> None:
         captured["command"] = command
         captured["env"] = env
 
     monkeypatch.setenv("FRISKET_MOSS_WORKER_TOKEN", "private-worker-token")
     monkeypatch.setenv("MODAL_IMAGE_ID", "im-Abc123")
-    monkeypatch.setattr(modal_parakeet.subprocess, "Popen", popen)
+    from frisket_models import server_startup
+
+    monkeypatch.setattr(server_startup, "start_server", launch)
+    monkeypatch.setattr(server_startup, "container_address", lambda: "10.0.0.1")
 
     modal_parakeet.parakeet_worker()
 

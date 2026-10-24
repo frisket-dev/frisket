@@ -189,6 +189,9 @@ if modal is not None:
             "--extra transcribe --output-file /tmp/requirements.txt",
             "uv pip install --system --requirements /tmp/requirements.txt",
             "uv pip install --system --no-deps /opt/frisket-models",
+            "uv pip check --system",
+            "python -c 'import frisket_models.modal_service; import faster_whisper; "
+            "import gliner; from docling.document_converter import DocumentConverter'",
         )
         .env(model_runtime_environment())
     )

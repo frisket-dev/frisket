@@ -86,10 +86,13 @@ def test_paddle_worker_starts_the_two_process_entrypoint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[list[str]] = []
+    from frisket_models import server_startup
+
+    monkeypatch.setattr(server_startup, "container_address", lambda: "10.0.0.1")
     monkeypatch.setattr(
-        modal_paddle.subprocess,
-        "Popen",
-        lambda command: calls.append(command),
+        server_startup,
+        "start_server",
+        lambda command, **kwargs: calls.append(command),
     )
 
     modal_paddle.paddleocr_vl_worker()

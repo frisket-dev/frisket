@@ -55,7 +55,7 @@ COPY --from=ghcr.io/astral-sh/uv@sha256:538e0b39736e7feae937a65983e49d2ab75e1559
 # --torch-backend is pinned to cu129 (NOT auto): during a driverless Docker build
 # `auto` detects no CUDA and silently installs CPU Torch, which then fails CUDA
 # init at runtime even on a GPU host.
-RUN uv pip install --system -U "vllm[audio]" \
+RUN uv pip install --system "vllm[audio]==0.23.1rc1.dev949+g68b4a1d58.cu129" \
     --torch-backend=cu129 \
     --extra-index-url https://wheels.vllm.ai/68b4a1d582818e67adc903bf1b8fc5a5447da2fa/cu129 \
     # PyPI's TorchCodec wheel targets CUDA 13, unlike this pinned cu129 stack.
@@ -63,8 +63,7 @@ RUN uv pip install --system -U "vllm[audio]" \
     # allowing that index to replace the cu129 Torch packages.
     && uv pip install --system --reinstall --no-deps "torchcodec==0.16.0+cpu" \
         --index-url https://download.pytorch.org/whl/cpu \
-    && python3 -c 'from torchcodec.decoders import AudioDecoder' \
-    && uv pip install --system "huggingface_hub==1.24.0"
+    && python3 -c 'from torchcodec.decoders import AudioDecoder'
 
 # The pinned source correctly detects both metadata and decoded-sample duration
 # overruns, but its PyAV fallback erases those errors as generic invalid audio.
@@ -86,7 +85,9 @@ WORKDIR /app
 # GPU layer above is pinned by the vLLM wheel commit + base image.
 COPY . /app/sidecar
 RUN uv pip install --system /app/sidecar \
-    && uv pip install --system /app/sidecar/workers/moss
+    && uv pip install --system /app/sidecar/workers/moss \
+    && uv pip check --system \
+    && python3 -c 'import transformers; from torchcodec.decoders import AudioDecoder; import frisket_worker_moss.app'
 
 # Serve as a non-root user. Create it before baking weights so the model cache
 # is owned by the runtime user: vLLM then finds the pinned weights via HF_HOME

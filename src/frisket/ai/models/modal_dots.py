@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import subprocess
 from pathlib import Path
 
 try:
@@ -28,7 +27,14 @@ if modal is not None:
 def dots_mocr_worker() -> None:
     """Start the authenticated dots.mocr proxy and loopback vLLM server."""
 
-    subprocess.Popen(["/app/sidecar/workers/dots_mocr/entrypoint.sh"])
+    from frisket_models.server_startup import container_address, start_server
+
+    start_server(
+        ["/app/sidecar/workers/dots_mocr/entrypoint.sh"],
+        name="dots.mocr",
+        host=container_address(),
+        timeout=1800,
+    )
 
 
 def register_dots_mocr_worker(app):
@@ -49,7 +55,7 @@ def register_dots_mocr_worker(app):
         secrets=[modal.Secret.from_name(DOTS_LINK_SECRET_NAME)],
     )(
         modal.concurrent(max_inputs=1)(
-            modal.web_server(9000, startup_timeout=1800)(dots_mocr_worker)
+            modal.web_server(9000, startup_timeout=5)(dots_mocr_worker)
         )
     )
 

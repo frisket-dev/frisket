@@ -17,6 +17,8 @@ COPY workers/parakeet_tdt/pyproject.toml \
      workers/parakeet_tdt/README.md ./
 COPY workers/parakeet_tdt/src/ src/
 RUN uv sync --locked --no-dev --default-index https://pypi.org/simple
+RUN uv pip check --python .venv/bin/python \
+    && .venv/bin/python -c 'import frisket_parakeet_tdt.app; import nemo.collections.asr; import frisket_models.server_startup'
 RUN .venv/bin/python -m frisket_parakeet_tdt.provision
 
 ENV PATH="/app/sidecar/workers/parakeet_tdt/.venv/bin:$PATH" \

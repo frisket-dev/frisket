@@ -9,6 +9,9 @@ readonly STARTUP_TIMEOUT=1700
 readonly PIPELINE_PYTHON=/opt/frisket-paddle-pipeline/bin/python
 readonly MODEL_NAME=PaddleOCR-VL-1.6-0.9B
 
+# Paddle imports require the GPU driver's libcuda, absent on image builders.
+"${PIPELINE_PYTHON}" -c 'import paddle; import paddleocr'
+
 VLLM_PID=""
 WORKER_PID=""
 

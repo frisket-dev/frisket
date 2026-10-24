@@ -65,7 +65,7 @@ def test_moss_modal_graph_uses_native_image_and_isolated_link_secret() -> None:
     assert _named_secrets(spec) == {"frisket-moss-link"}
     assert (spec.gpus, spec.cpu, spec.memory) == ("A10", 2.0, 16384)
     assert webhook.web_server_port == 9000
-    assert webhook.web_server_startup_timeout == 1800
+    assert webhook.web_server_startup_timeout == 5
 
 
 def test_models_sidecar_separates_edge_config_and_moss_link_secrets() -> None:

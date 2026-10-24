@@ -6,13 +6,20 @@ FROM vllm/vllm-openai:v0.17.1@sha256:0dc46f74eb0e630675d83101dc66c6441c4475cceed
 # existing interpreter so the worker sees the packages already installed in it.
 RUN ln -s /usr/bin/python3.12 /usr/local/bin/python
 
+# The upstream Ubuntu image includes PyGObject without its Cairo dependency.
+RUN apt-get update && apt-get install -y --no-install-recommends python3-cairo \
+    && rm -rf /var/lib/apt/lists/*
+
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     HF_HOME=/root/.cache/huggingface \
     PYTHONPATH=/app/sidecar/src
 
 COPY workers/dots_mocr /app/sidecar/workers/dots_mocr
-COPY src/frisket_models/__init__.py src/frisket_models/dots_mocr_identity.py /app/sidecar/src/frisket_models/
+COPY src/frisket_models/__init__.py src/frisket_models/dots_mocr_identity.py src/frisket_models/server_startup.py /app/sidecar/src/frisket_models/
+
+RUN python3 -m pip check \
+    && python3 -c 'import transformers; import vllm.entrypoints.openai.api_server; import frisket_models.server_startup'
 
 # Bake the exact weights into the image so a running worker never follows a
 # mutable Hugging Face branch.
