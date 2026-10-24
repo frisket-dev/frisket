@@ -835,6 +835,38 @@ def _prepare_claimed_run(
     return prepared, claim_token
 
 
+def test_local_dispatch_uses_prepared_source_ids_after_column_rename(
+    tmp_path, scope_recipe
+):
+    project, sheet_id, row_ids = _seed_project(tmp_path, rows=2)
+    scope_recipe.batch_local_results = True
+    runner = MapRunner(
+        project,
+        ModelRouter(keys={}),
+        concurrency=1,
+        authority=UnroutedOnlyAuthority(project),
+    )
+    spec = _spec(scope_recipe, sheet_id)
+    try:
+        prepared, claim_token = _prepare_claimed_run(runner, spec)
+        project.db.execute(
+            "UPDATE columns SET name='renamed' WHERE id=?", (prepared.col_map["text"],)
+        )
+        project.db.commit()
+        progress = asyncio.run(
+            runner.run(
+                spec,
+                prepared_run=prepared,
+                claim_token=claim_token,
+            )
+        )
+        assert progress.completed == len(row_ids) and progress.failed == 0
+        output = project.get_values(sheet_id, prepared.out_cols["derived"])
+        assert output == dict(zip(row_ids, ["ROW 0", "ROW 1"]))
+    finally:
+        project.close()
+
+
 async def _wait_for_started_or_task_exit(
     task: asyncio.Task[Any],
     started: asyncio.Event,

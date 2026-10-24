@@ -129,6 +129,7 @@ DEFAULT_CONCURRENCY = 8
 DEFAULT_FAILURE_HALT_STREAK = 10
 BATCH_SIZE = 25
 LOCAL_RESULT_BATCH_ROWS = 256
+# Checked after each completed row, not by a timer during a running handler.
 LOCAL_RESULT_BATCH_SECONDS = 0.1
 RUN_SCOPE_PAGE_SIZE = 500
 
@@ -832,6 +833,13 @@ class MapRunner:
             for c in self.project.columns(prepared.sheet_id)
             if c["name"] in set(recipe.source_columns(spec))
         }
+        # Source identity was resolved during preparation. Live names/types may
+        # have changed since then; they must not retarget or omit these reads.
+        source_column_ids = [
+            col_map[name]
+            for name in map(str, recipe.source_columns(spec))
+            if name in col_map
+        ]
 
         def persist_result_batch(
             batch: list[dict[str, Any]],
@@ -1991,7 +1999,7 @@ class MapRunner:
                     read_source_page(
                         self.project,
                         prepared.sheet_id,
-                        [col_map[name] for name in source_column_types],
+                        source_column_ids,
                         page,
                     )
                     if batch_local_results

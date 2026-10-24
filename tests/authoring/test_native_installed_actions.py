@@ -303,7 +303,14 @@ def test_native_row_validation_estimate_and_preview(installed):
 
 def test_native_row_runner_reconstruction_and_backfill_use_installed_definition(
     installed,
+    monkeypatch,
 ):
+    def forbid_source_page(*_args, **_kwargs):
+        raise AssertionError("installed handlers must retain per-row dispatch")
+
+    monkeypatch.setattr(
+        "frisket.engine.runner.map_runner.read_source_page", forbid_source_page
+    )
     _, project, project_id, sheet, _ = installed
     request = {
         "action_id": "example.native.upper",

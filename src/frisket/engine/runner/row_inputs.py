@@ -112,7 +112,11 @@ def row_source_values_empty(values: Mapping[str, Any]) -> bool:
 
 @dataclass(frozen=True)
 class RowSourcePage:
-    """One bounded local dispatch snapshot, including the exact source refs."""
+    """One bounded local dispatch snapshot, including the exact source refs.
+
+    Later edits are visible to later-dispatched pages, not to rows already
+    queued from this page. No read transaction remains open during execution.
+    """
 
     sheet_id: int
     row_ids: frozenset[int]

@@ -290,8 +290,11 @@ class _TypedMapRowsProgram(Recipe):
         self.name = action.action_id
         self.description = action.definition.description
         self._terminal = action.definition.run
+        # Installed native handlers retain per-row durability even when they
+        # declare no injected capabilities.
         self.batch_local_results = (
             isinstance(self._terminal, MapRows)
+            and runtime_binding is None
             and not self._terminal.capabilities
             and not self._terminal.injections
         )
