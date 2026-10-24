@@ -1099,6 +1099,8 @@ def admit_routed(
             "current terms and work scope before resuming",
         )
 
+    from frisket.execution.scope_identity import AdmittedWorkScopeSnapshot
+
     return RoutedAdmission(
         head_route_id=route.id,
         head_promise_set_id=promise_set_row.id,
@@ -1107,5 +1109,9 @@ def admit_routed(
         binding=binding,
         evaluation=evaluation,
         admitted_by_consent_id=admitting_consent_id,
-        work_scope_snapshot=work_scope_snapshot,
+        work_scope_snapshot=(
+            AdmittedWorkScopeSnapshot(work_scope_snapshot)
+            if work_scope_snapshot is not None
+            else None
+        ),
     )

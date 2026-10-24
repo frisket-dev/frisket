@@ -16,6 +16,51 @@ from typing import Any, Mapping, Sequence
 WORK_SCOPE_SCHEMA_VERSION = "frisket.work-scope-binding.v1"
 
 
+class AdmittedWorkScopeSnapshot(dict[str, Any]):
+    """An attempt-owned snapshot with a derived, nonserialized cell index.
+
+    Admission owns this payload; after admission it is read-only. The index
+    borrows its existing cell mappings instead of copying the input roster or
+    retaining snapshots beyond the lifetime of their attempt.
+    """
+
+    def __init__(self, snapshot: Mapping[str, Any]):
+        super().__init__(snapshot)
+        self._source_cells: list[
+            tuple[list[Any] | None, dict[Any, Mapping[str, Any]]]
+        ] = []
+        sources = self.get("sources")
+        if not isinstance(sources, list):
+            return
+        for source in sources:
+            cells = source.get("cells") if isinstance(source, Mapping) else None
+            cells = cells if isinstance(cells, list) else None
+            by_row: dict[Any, Mapping[str, Any]] = {}
+            if isinstance(cells, list):
+                for cell in cells:
+                    if isinstance(cell, Mapping):
+                        try:
+                            # Preserve the linear lookup's first-match behavior.
+                            by_row.setdefault(cell.get("row_id"), cell)
+                        except TypeError:
+                            # An unhashable malformed ID cannot match a row ID.
+                            continue
+            self._source_cells.append((cells, by_row))
+
+    def source_cell(
+        self, source_index: int, cells: list[Any], row_id: int
+    ) -> Mapping[str, Any] | None:
+        if not 0 <= source_index < len(self._source_cells):
+            return None
+        original_cells, by_row = self._source_cells[source_index]
+        if cells is not original_cells:
+            return None
+        cell = by_row.get(row_id)
+        # Never use another row's expected facts if a malformed caller mutates
+        # a cell after the derived index was built.
+        return cell if cell is not None and cell.get("row_id") == row_id else None
+
+
 def canonical_work_scope_binding(
     project: Any,
     recipe: Any,
@@ -156,6 +201,7 @@ def canonical_work_scope_binding_for_columns(
 
 
 __all__ = [
+    "AdmittedWorkScopeSnapshot",
     "WORK_SCOPE_SCHEMA_VERSION",
     "canonical_work_scope_binding",
     "canonical_work_scope_binding_for_columns",

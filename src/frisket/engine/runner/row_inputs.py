@@ -128,6 +128,8 @@ def _expected_source_cell(
     column_id: int | None,
     row_id: int,
 ) -> Mapping[str, Any]:
+    from frisket.execution.scope_identity import AdmittedWorkScopeSnapshot
+
     sources = snapshot.get("sources")
     if not isinstance(sources, list) or source_index >= len(sources):
         _refuse_changed_admitted_input(name, row_id)
@@ -141,13 +143,17 @@ def _expected_source_cell(
     cells = source.get("cells")
     if not isinstance(cells, list):
         _refuse_changed_admitted_input(name, row_id)
-    expected = next(
-        (
-            cell
-            for cell in cells
-            if isinstance(cell, Mapping) and cell.get("row_id") == row_id
-        ),
-        None,
+    expected = (
+        snapshot.source_cell(source_index, cells, row_id)
+        if isinstance(snapshot, AdmittedWorkScopeSnapshot)
+        else next(
+            (
+                cell
+                for cell in cells
+                if isinstance(cell, Mapping) and cell.get("row_id") == row_id
+            ),
+            None,
+        )
     )
     if expected is None:
         _refuse_changed_admitted_input(name, row_id)
