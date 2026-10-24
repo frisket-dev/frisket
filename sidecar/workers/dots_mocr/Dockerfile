@@ -12,7 +12,10 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app/sidecar/src
 
 COPY workers/dots_mocr /app/sidecar/workers/dots_mocr
-COPY src/frisket_models/__init__.py src/frisket_models/dots_mocr_identity.py /app/sidecar/src/frisket_models/
+COPY src/frisket_models/__init__.py src/frisket_models/dots_mocr_identity.py src/frisket_models/server_startup.py /app/sidecar/src/frisket_models/
+
+RUN python3 -m pip check \
+    && python3 -c 'import transformers; import vllm.entrypoints.openai.api_server; import frisket_models.server_startup'
 
 # Bake the exact weights into the image so a running worker never follows a
 # mutable Hugging Face branch.

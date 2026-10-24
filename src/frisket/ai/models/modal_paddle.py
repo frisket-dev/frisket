@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -92,8 +91,14 @@ if modal is not None:
             "uv export --frozen --no-dev --no-emit-project "
             "--extra ocr-paddle --output-file /tmp/requirements.txt",
             *paddle_pipeline_install_commands(),
+            "uv pip check --system",
+            "uv pip check --python /opt/frisket-paddle-pipeline",
+            "python -c 'import paddleocr; import vllm.entrypoints.openai.api_server'",
+            "PYTHONPATH=/opt/frisket-models/src "
+            "/opt/frisket-paddle-pipeline/bin/python -c "
+            "'import paddleocr; import paddle; import frisket_models.app'",
         )
-        .env(model_cache_environment())
+        .env({**model_cache_environment(), "PYTHONPATH": "/opt/frisket-models/src"})
     )
     pp_ocrv6_image = (
         modal.Image.from_registry(
@@ -124,6 +129,8 @@ if modal is not None:
             "uv pip install --system --requirements /tmp/requirements.txt",
             *paddle_gpu_install_commands(),
             "uv pip install --system --no-deps /opt/frisket-models",
+            "uv pip check --system",
+            "python -c 'import paddleocr; import paddle; import frisket_models.app'",
         )
         .env(model_cache_environment())
     )
@@ -132,9 +139,14 @@ if modal is not None:
 def paddleocr_vl_worker():
     """Start Paddle's vLLM server and Frisket's authenticated OCR contract."""
 
+    from frisket_models.server_startup import container_address, start_server
+
     os.environ.update(model_cache_environment())
-    subprocess.Popen(
-        ["/bin/bash", "/opt/frisket-models/workers/paddle_vllm/entrypoint.sh"]
+    start_server(
+        ["/bin/bash", "/opt/frisket-models/workers/paddle_vllm/entrypoint.sh"],
+        name="PaddleOCR-VL",
+        host=container_address(),
+        timeout=1800,
     )
 
 
@@ -171,7 +183,7 @@ def register_paddleocr_vl_worker(app: Any, *, edge_secret_name: str, model_cache
         secrets=[modal.Secret.from_name(edge_secret_name)],
     )(
         modal.concurrent(max_inputs=1)(
-            modal.web_server(9000, startup_timeout=1800)(paddleocr_vl_worker)
+            modal.web_server(9000, startup_timeout=5)(paddleocr_vl_worker)
         )
     )
 

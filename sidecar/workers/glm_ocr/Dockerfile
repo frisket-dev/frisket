@@ -9,9 +9,11 @@ ENV PYTHONUNBUFFERED=1 \
     HF_HOME=/root/.cache/huggingface \
     PYTHONPATH=/app/sidecar/src
 
-COPY src/frisket_models/__init__.py src/frisket_models/glm_ocr_identity.py /app/sidecar/src/frisket_models/
+COPY src/frisket_models/__init__.py src/frisket_models/glm_ocr_identity.py src/frisket_models/server_startup.py /app/sidecar/src/frisket_models/
 
 RUN python3 -m pip install --no-cache-dir "transformers==5.3.0" \
+    && python3 -m pip check \
+    && python3 -c 'import transformers; import vllm.entrypoints.openai.api_server; import frisket_models.server_startup' \
     && MODEL_ID="$(python3 -c 'from frisket_models.glm_ocr_identity import MODEL_ID; print(MODEL_ID)')" \
     && MODEL_REVISION="$(python3 -c 'from frisket_models.glm_ocr_identity import MODEL_REVISION; print(MODEL_REVISION)')" \
     && hf download "${MODEL_ID}" --revision "${MODEL_REVISION}"

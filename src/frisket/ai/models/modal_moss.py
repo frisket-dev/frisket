@@ -39,15 +39,18 @@ if modal is not None:
 def moss_worker():
     """Start the authenticated MOSS worker server."""
 
-    import subprocess
+    from frisket_models.server_startup import container_address, start_server
 
     worker_env = os.environ.copy()
     worker_env["FRISKET_TRANSCRIPTION_WORKER_IMAGE_ID"] = modal_runtime_image_id(
         os.environ.get("MODAL_IMAGE_ID")
     )
-    subprocess.Popen(
+    start_server(
         ["/app/sidecar/workers/moss/entrypoint.sh"],
         env=worker_env,
+        name="MOSS",
+        host=container_address(),
+        timeout=1800,
     )
 
 
@@ -73,7 +76,7 @@ def register_moss_worker(app):
         secrets=[modal.Secret.from_name(MOSS_LINK_SECRET_NAME)],
     )(
         modal.concurrent(max_inputs=1)(
-            modal.web_server(9000, startup_timeout=1800)(moss_worker)
+            modal.web_server(9000, startup_timeout=5)(moss_worker)
         )
     )
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +26,14 @@ if modal is not None:
 def glm_ocr_worker() -> None:
     """Start the authenticated GLM-OCR proxy and loopback vLLM server."""
 
-    subprocess.Popen(["/app/sidecar/workers/glm_ocr/entrypoint.sh"])
+    from frisket_models.server_startup import container_address, start_server
+
+    start_server(
+        ["/app/sidecar/workers/glm_ocr/entrypoint.sh"],
+        name="GLM-OCR",
+        host=container_address(),
+        timeout=1500,
+    )
 
 
 def register_glm_ocr_worker(app: Any, *, edge_secret_name: str):
@@ -48,7 +54,7 @@ def register_glm_ocr_worker(app: Any, *, edge_secret_name: str):
         secrets=[modal.Secret.from_name(edge_secret_name)],
     )(
         modal.concurrent(max_inputs=1)(
-            modal.web_server(9000, startup_timeout=1500)(glm_ocr_worker)
+            modal.web_server(9000, startup_timeout=5)(glm_ocr_worker)
         )
     )
 
