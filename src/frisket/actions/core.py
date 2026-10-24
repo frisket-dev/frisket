@@ -3393,6 +3393,76 @@ class RegisteredAction:
     definition: Action[Any, Any]
     _example_requests: tuple[str, ...] = field(init=False, repr=False)
 
+    @property
+    def required_capabilities(self) -> tuple[str, ...]:
+        """Declared execution requirements, without building presentation schemas."""
+        terminal = self.definition.run
+        if isinstance(terminal, (_ProjectAction, GoogleSheetsExport)):
+            specs = (
+                terminal.specs
+                if isinstance(terminal, _ProjectAction)
+                else (terminal.spec,)
+            )
+            if isinstance(terminal, _ProjectAction) and not specs:
+                return ("project:read",)
+            return tuple(
+                dict.fromkeys(
+                    cap for spec in specs for cap in spec.required_capabilities
+                )
+            )
+        capabilities = getattr(terminal, "capabilities", ())
+        routed = routed_capability(terminal)
+        agent_backed = any(cap in capabilities for cap in (Researcher, McpExtractor))
+        return (
+            "project:write",
+            *(["external:media_download"] if UrlImporter in capabilities else []),
+            *(
+                ["project:read"]
+                if isinstance(terminal, MapRows) and MediaMetadataReader in capabilities
+                else []
+            ),
+            *(
+                ["unsafe:local_code"]
+                if PythonEvaluator in capabilities or McpExtractor in capabilities
+                else []
+            ),
+            *(
+                ["model:complete"]
+                if isinstance(terminal, ModelRows) or agent_backed
+                else []
+            ),
+            *(
+                ["external:web_search", "external:http_fetch"]
+                if Researcher in capabilities
+                else []
+            ),
+            *(["model:embed"] if isinstance(terminal, SemanticJoin) else []),
+            *(["external:web_search"] if WebSearcher in capabilities else []),
+            *(["external:api_call"] if HttpRequester in capabilities else []),
+            *(["external:opencorporates"] if OpenCorporates in capabilities else []),
+            *(
+                ["external:media_download"]
+                if any(cap in capabilities for cap in (FileFetcher, MediaDownloader))
+                else []
+            ),
+            *(["external:browser_render"] if Screenshotter in capabilities else []),
+            *(
+                [
+                    "external:us_census_acs"
+                    if routed is CensusDemographics
+                    else "model:complete"
+                    if routed in (DocumentConverter, OcrReader)
+                    else "model:transcribe"
+                    if routed is Transcriber
+                    else "model:complete"
+                    if routed is Translator
+                    else "external:geocode"
+                ]
+                if routed is not None
+                else []
+            ),
+        )
+
     def for_execution(self, params: BaseModel) -> RegisteredAction:
         terminal = self.definition.run
         if not isinstance(terminal, ModelRows) or terminal.uses_model(params):
@@ -3633,7 +3703,6 @@ class RegisteredAction:
             cap in getattr(definition.run, "capabilities", ())
             for cap in (FileFetcher, MediaDownloader)
         )
-        screenshot = Screenshotter in getattr(definition.run, "capabilities", ())
         routed = routed_capability(definition.run)
         reads_media_metadata = (
             isinstance(definition.run, MapRows)
@@ -3656,18 +3725,12 @@ class RegisteredAction:
                 effect for spec in project_specs for effect in spec.side_effects
             )
         )
-        project_requirements = tuple(
-            dict.fromkeys(
-                cap for spec in project_specs for cap in spec.required_capabilities
-            )
-        )
         if isinstance(definition.run, _ProjectAction) and not project_specs:
             project_errors = _project_errors(
                 *_CALLABLE_ERRORS,
                 write_failure="The callable receipt could not be written.",
             )
             project_effects = ("write_receipt",)
-            project_requirements = ("project:read",)
         project_costs = {spec.cost_kind for spec in project_specs} - {"none"}
         project_cost = (
             next(iter(project_costs))
@@ -4035,53 +4098,7 @@ class RegisteredAction:
                     "write_receipt",
                 ]
             ),
-            "required_capabilities": (
-                list(project_requirements)
-                if isinstance(definition.run, (_ProjectAction, GoogleSheetsExport))
-                else [
-                    "project:write",
-                    *(
-                        ["external:media_download"]
-                        if UrlImporter in getattr(definition.run, "capabilities", ())
-                        else []
-                    ),
-                    *(["project:read"] if reads_media_metadata else []),
-                    *(
-                        ["unsafe:local_code"]
-                        if PythonEvaluator
-                        in getattr(definition.run, "capabilities", ())
-                        or McpExtractor in getattr(definition.run, "capabilities", ())
-                        else []
-                    ),
-                    *(["model:complete"] if model_backed or agent_backed else []),
-                    *(
-                        ["external:web_search", "external:http_fetch"]
-                        if Researcher in getattr(definition.run, "capabilities", ())
-                        else []
-                    ),
-                    *(["model:embed"] if semantic else []),
-                    *(["external:web_search"] if external else []),
-                    *(["external:api_call"] if http else []),
-                    *(["external:opencorporates"] if opencorporates else []),
-                    *(["external:media_download"] if fetch else []),
-                    *(["external:browser_render"] if screenshot else []),
-                    *(
-                        [
-                            "external:us_census_acs"
-                            if routed is CensusDemographics
-                            else "model:complete"
-                            if routed in (DocumentConverter, OcrReader)
-                            else "model:transcribe"
-                            if routed is Transcriber
-                            else "model:complete"
-                            if routed is Translator
-                            else "external:geocode"
-                        ]
-                        if routed is not None
-                        else []
-                    ),
-                ]
-            ),
+            "required_capabilities": list(self.required_capabilities),
             "cost_policy": {
                 "kind": (
                     project_cost

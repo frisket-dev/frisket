@@ -90,10 +90,11 @@ def declared_action_capabilities(action_kind: object) -> frozenset[str]:
     from frisket.actions.registry import ACTION_REGISTRY
 
     kind = canonical_action_kind(action_kind)
-    if kind in ACTION_REGISTRY.action_ids:
-        entry = ACTION_REGISTRY.get(kind).catalog_entry()
-        return frozenset(entry["required_capabilities"])
-    return frozenset()
+    try:
+        registered = ACTION_REGISTRY.get(kind)
+    except KeyError:
+        return frozenset()
+    return frozenset(registered.required_capabilities)
 
 
 def gated_capability_phrase(action_kind: object) -> str | None:
