@@ -31,6 +31,9 @@ export const WorkspaceActionDrawerRegion = memo(function WorkspaceActionDrawerRe
     runWithPreview,
     executeRegisteredAction,
     openOcrCompareTab,
+    openActionCompare,
+    openActionCompareHistory,
+    returnToActionCompare,
 
     project,
   } = useWorkspaceShell();
@@ -372,6 +375,9 @@ export const WorkspaceActionDrawerRegion = memo(function WorkspaceActionDrawerRe
           onRun={runWithPreview}
           onExecuteRegisteredAction={executeRegisteredAction}
           onOpenOcrCompare={openOcrCompareTab}
+          onCompareAction={openActionCompare}
+          onOpenActionHistory={openActionCompareHistory}
+          onReturnToActionCompare={returnToActionCompare}
         />
       </Suspense>
     </ActionDrawer>

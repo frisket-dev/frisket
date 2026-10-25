@@ -1,6 +1,7 @@
 import '../workbench/contributions.css';
 import './WorkspaceMainView.css';
 import '../grid/SheetGrid.css';
+import { WorkspaceActionCompareView, WorkspaceActionCompareHistory } from './WorkspaceActionCompareView';
 import { CompareDiscardDialog } from '../workbench/CompareDiscardDialog';
 import { memo } from 'react';
 import { ImportDropzone } from '../components/importWorkspace/ImportDropzone';
@@ -88,6 +89,8 @@ function WorkspaceMainViewBody() {
     translateCompareActive,
     topicCompareOpen,
     topicCompareActive,
+    actionCompareOpen,
+    actionCompareActive,
   } = useMainViewModel();
 
   // Compare sessions are scratch state and must never be persisted.
@@ -102,6 +105,10 @@ function WorkspaceMainViewBody() {
     );
   return (
     <>
+      <WorkspaceActionCompareHistory />
+      {actionCompareOpen && <div className="workbench-ocr-compare-keepalive" hidden={!actionCompareActive}>
+        <WorkspaceActionCompareView />
+      </div>}
       {ocrCompareOpen && (
         <div className="workbench-ocr-compare-keepalive" hidden={!ocrCompareActive}>
           <WorkspaceOcrCompareView />
@@ -126,6 +133,7 @@ function WorkspaceMainViewBody() {
         !transcribeCompareActive &&
         !translateCompareActive &&
         !topicCompareActive &&
+        !actionCompareActive &&
         body}
     </>
   );

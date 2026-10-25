@@ -1,11 +1,12 @@
 import './gridMenus.css';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { PdfTablesPicker } from '../components/PdfTablesPicker';
 import { resolveTitleColumn } from '../workbench/rowTitle';
 import { actionsForColumn, orderColumnActionsForNextStep } from '../actions/model';
 import { pdfTablesMaterializeRequest } from '../actions/pdfTablesMaterialize';
 import { columnTablesExportRequest } from '../actions/columnTablesExport';
 import { isRunActionBlockedStatus } from '../runStatusModel';
+import type { ActionColumnMenuEntry } from '../grid/actionRunEntry';
 import { GridColumnHeaderMenu } from './gridMenus';
 import { useGridViewHandle } from '../bind/useGridViewHandle';
 import { useActionCatalogHandle } from '../bind/useActionCatalogHandle';
@@ -40,6 +41,10 @@ export function WorkspaceHeaderMenuSlot() {
     startRun,
     visibleHeaderMenu,
     visibleOrderedColumns,
+    loadActionRunEntry,
+    compareActionRun,
+    editActionRun,
+    setActionCompareHistoryAnchor,
   } = useMainViewModel();
   const { openDiscover } = useWorkspaceShell();
   const run = useRun();
@@ -65,6 +70,24 @@ export function WorkspaceHeaderMenuSlot() {
         visibleHeaderMenu.column,
       )
     : [];
+
+  const [loadedActionRunEntry, setActionRunEntry] = useState<ActionColumnMenuEntry | null>(null);
+  const actionRunEntry = loadedActionRunEntry?.anchor.sheetId === sheet?.id
+    && loadedActionRunEntry?.anchor.columnId === visibleHeaderMenu?.column.id
+    && loadedActionRunEntry?.anchor.runId === visibleHeaderMenu?.column.latestRunId
+    ? loadedActionRunEntry : null;
+  useEffect(() => {
+    let active = true;
+    const runId = visibleHeaderMenu?.column.latestRunId;
+    if (sheet && visibleHeaderMenu && runId) {
+      const anchor = { sheetId: sheet.id, columnId: visibleHeaderMenu.column.id, runId };
+      void loadActionRunEntry(anchor).then(details => {
+        if (active && details?.comparisonKind) setActionRunEntry({ anchor, actionId: details.actionId,
+          actionTitle: details.actionTitle, outputCount: details.outputLabels.length, comparisonKind: details.comparisonKind });
+      }).catch(() => undefined);
+    }
+    return () => { active = false; };
+  }, [visibleHeaderMenu, sheet, loadActionRunEntry]);
 
   const [columnTablesPicker, setColumnTablesPicker] = useState<{ id: string; name: string } | null>(null);
 
@@ -102,6 +125,10 @@ export function WorkspaceHeaderMenuSlot() {
               {visibleHeaderMenu && (
                 <GridColumnHeaderMenu
                   state={visibleHeaderMenu}
+                  actionRunEntry={actionRunEntry}
+                  onCompareActionRun={anchor => { closeHeaderMenu(); compareActionRun(anchor); }}
+                  onEditActionRun={anchor => { closeHeaderMenu(); void editActionRun(anchor); }}
+                  onEarlierActionRuns={anchor => { closeHeaderMenu(); setActionCompareHistoryAnchor(anchor); }}
                   activeSort={headerMenuActiveSort}
                   activeFilter={headerMenuActiveFilter}
                   onSort={(direction) => {

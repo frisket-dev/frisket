@@ -1,13 +1,14 @@
 // Per-project, in-memory compare-tab owner. The closed kind set is deliberate:
-// these are the four first-party compare surfaces, not an extensible tab
+// these are first-party compare surfaces, not an extensible tab
 // registry. Nothing here is persisted or routed.
 
 import { createStore } from '../core/store/createStore';
 import type { Store } from '../core/store/types';
 
-export type CompareKind = 'ocr' | 'transcribe' | 'translate' | 'topic';
+export type CompareKind = 'ocr' | 'transcribe' | 'translate' | 'topic' | 'action';
 
 export interface CompareTabSession {
+  label?: string;
   hasData: boolean;
   verdict: string;
 }
@@ -26,6 +27,7 @@ const COMPARE_KINDS = [
   'transcribe',
   'translate',
   'topic',
+  'action',
 ] as const satisfies readonly CompareKind[];
 
 function createCompareTabState(): CompareTabState {
@@ -43,6 +45,7 @@ export function createCompareViewState(): CompareViewState {
     transcribe: createCompareTabState(),
     translate: createCompareTabState(),
     topic: createCompareTabState(),
+    action: createCompareTabState(),
   };
 }
 

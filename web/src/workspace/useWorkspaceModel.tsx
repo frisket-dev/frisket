@@ -48,6 +48,7 @@ import { useAskNavigation } from './useAskNavigation';
 import { useWorkbenchContributionVisibility } from './useWorkbenchContributionVisibility';
 import { useWorkspaceChromeState } from './useWorkspaceChromeState';
 import { useReplayReviewController } from './useReplayReviewController';
+import { useWorkspaceActionCompareController } from './useWorkspaceActionCompareController';
 import { useWorkspaceActionController } from './useWorkspaceActionController';
 import { useWorkspaceGridController } from './useWorkspaceGridController';
 import { useWorkspaceSavedViewsController } from './useWorkspaceSavedViewsController';
@@ -846,6 +847,16 @@ export function useWorkspaceModel({
   const { replayColumnAnnotations, replayReviewPopover } = useReplayReviewController({
     sheet, refreshHistory, refreshSheets, showError,
   });
+  const comparisonSampleOptions = useMemo(() => ({
+    filter: activeGridFilter, sort: activeGridSort, scopeRowIds,
+    ...(activeGridLensRowIds ? { rowIds: activeGridLensRowIds } : {}),
+    ...(activeChildFilter ? { parentRowId: activeChildFilter.parentRowId } : {}),
+  }), [activeGridFilter, activeGridSort, scopeRowIds, activeGridLensRowIds, activeChildFilter]);
+  const actionCompare = useWorkspaceActionCompareController({
+    projectId: project.id, sheetId: sheet?.id, selectedRowIds: selectedRowIdsForSheet,
+    sampleOptions: comparisonSampleOptions, runActionFromSurface, closeActionRoute, setOpenSplit, showError,
+  });
+
   const gridContribution = useMemo(() => activePreviewView?.result?.kind === 'table'
     ? <PreviewTable result={activePreviewView.result} /> : sheet ? (
     <GridWorkbenchViewFrame>
@@ -894,6 +905,10 @@ export function useWorkspaceModel({
           onRowOpen={(row, col, preview) => {
             openRowPanel(row, col, preview);
           }}
+          loadActionRunEntry={actionCompare.loadActionRunEntry}
+          onCompareActionRun={actionCompare.compareActionRun}
+          onEditActionRun={actionCompare.editActionRun}
+          onEarlierActionRuns={actionCompare.setActionCompareHistoryAnchor}
           onColumnOpen={openColumnPanel}
           onHeaderSort={sortHeaderColumn}
           onColumnHeaderMenu={openGridHeaderMenu}
@@ -923,6 +938,7 @@ export function useWorkspaceModel({
       {replayReviewPopover}
     </GridWorkbenchViewFrame>
   ) : null, [
+    actionCompare,
     scopeRowIds,
     sheet,
     dataVersion,
@@ -979,6 +995,7 @@ export function useWorkspaceModel({
   const mainViewModel = useMemo(
     () => ({
       ...grid,
+      ...actionCompare,
       ...savedViewController,
       ...view,
       ...actions,
@@ -1026,6 +1043,7 @@ export function useWorkspaceModel({
     [
       grid,
       savedViewController,
+      actionCompare,
       view,
       actions,
       navigation.mainView,
@@ -1180,6 +1198,9 @@ export function useWorkspaceModel({
     runWithPreview,
     executeRegisteredAction,
     openOcrCompareTab,
+    openActionCompare: actionCompare.openActionCompare,
+    openActionCompareHistory: actionCompare.openActionCompareHistory,
+    returnToActionCompare: actionCompare.returnToActionCompare,
     doStepTo,
     loadHistoryPage,
     pluginManagerOperations,

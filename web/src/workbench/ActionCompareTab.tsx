@@ -141,7 +141,7 @@ export function ActionCompareTab({ session, onUseSettings, renderVariantEditor,
     {!context.available && <div className="action-compare-stale" role="alert">
       <span>{context.reason?.message ?? 'This action cannot be compared.'}</span>
     </div>}
-    <CompareToolbar testIdPrefix="action-compare" running={running} controls={controls}
+    <CompareToolbar testIdPrefix="action-compare" running={running} controls={controls} label="Variants"
       tag={sampleLabel(context.sample_row_ids.length, state.capturedSelection?.totalCount ?? null)}>
       {state.variants.map((variant) => {
         const use = session.useVariant(variant.id);
