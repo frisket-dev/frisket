@@ -539,6 +539,49 @@ describe('useWorkspaceActionCompareController', () => {
     expect(harness!.stores.compareView.store.get().action.open).toBe(false);
   });
 
+  it('closes the obsolete comparison when Edit supersedes a pending retarget', async () => {
+    const initial = comparisonContext();
+    const nextDraft = {
+      ...ALL_ROWS_DRAFT,
+      params: { ...ALL_ROWS_DRAFT.params, instruction: 'Retarget settings' },
+    };
+    let resolveRetarget!: (context: ActionComparisonContext) => void;
+    let resolveEdit!: (context: ActionComparisonContext) => void;
+    vi.mocked(harness!.api.getContext)
+      .mockResolvedValueOnce(initial)
+      .mockImplementationOnce(() => new Promise(resolve => { resolveRetarget = resolve; }))
+      .mockImplementationOnce(() => new Promise(resolve => { resolveEdit = resolve; }));
+    const view = renderController();
+
+    act(() => view.result.current.openActionCompare(ALL_ROWS_DRAFT));
+    await waitFor(() => expect(view.result.current.actionCompareSession).not.toBeNull());
+    const oldSession = view.result.current.actionCompareSession!;
+    act(() => { oldSession.addVariant(); });
+    act(() => view.result.current.openActionCompare(nextDraft));
+    act(() => view.result.current.confirmActionCompareRetarget());
+    await waitFor(() => expect(harness!.api.getContext).toHaveBeenCalledTimes(2));
+    expect(oldSession.getSnapshot().disposed).toBe(true);
+    expect(view.result.current.actionCompareSession).toBeNull();
+
+    let edit!: Promise<void>;
+    act(() => {
+      edit = view.result.current.editActionRun({
+        sheetId: '7', columnId: '101', runId: '42',
+      });
+    });
+    await waitFor(() => expect(harness!.api.getContext).toHaveBeenCalledTimes(3));
+    expect(harness!.stores.compareView.store.get().action.open).toBe(false);
+    await act(async () => {
+      resolveRetarget(comparisonContext({ draft: nextDraft }));
+      resolveEdit(comparisonContext({ runId: 42 }));
+      await edit;
+    });
+
+    expect(harness!.runActionFromSurface).toHaveBeenCalledTimes(1);
+    expect(view.result.current.actionCompareSession).toBeNull();
+    expect(harness!.stores.compareView.store.get().action.open).toBe(false);
+  });
+
   it('does not reopen comparison when a pending context read finishes after close', async () => {
     let resolveContext!: (context: ActionComparisonContext) => void;
     vi.mocked(harness!.api.getContext).mockImplementation(() => new Promise(resolve => {

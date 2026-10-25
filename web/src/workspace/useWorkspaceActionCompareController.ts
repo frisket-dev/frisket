@@ -217,8 +217,10 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
     } });
   }, [runActionFromSurface]);
   const editActionRun = useCallback(async (anchor: ActionRunAnchor) => {
+    const supersedesRetarget = operation.current.targetPending;
     const revision = operation.current.revision + 1;
     operation.current = { revision, targetPending: false };
+    if (supersedesRetarget) compareView.close('action');
     try {
       const target = targetForRun(anchor);
       const context = await readContext(target);
@@ -229,7 +231,7 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
         showError(error instanceof Error ? error.message : 'Could not load these settings.');
       }
     }
-  }, [launchSettings, readContext, showError, targetForRun]);
+  }, [compareView, launchSettings, readContext, showError, targetForRun]);
   const checkFreshness = useCallback(async () => {
     if (operation.current.targetPending) return null;
     const active = sessionRef.current;
