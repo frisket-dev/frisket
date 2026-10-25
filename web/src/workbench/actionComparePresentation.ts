@@ -128,7 +128,9 @@ function descriptionChanges(
         after: bounded(right.description),
       });
     }
-    if (JSON.stringify(left.labelDescriptions) !== JSON.stringify(right.labelDescriptions)) {
+    const leftLabelDescriptions = left.label_descriptions ?? left.labelDescriptions;
+    const rightLabelDescriptions = right.label_descriptions ?? right.labelDescriptions;
+    if (JSON.stringify(leftLabelDescriptions) !== JSON.stringify(rightLabelDescriptions)) {
       changes.push({
         label: `${titleize(left.name)} · Label descriptions`,
         before: 'Previous descriptions',

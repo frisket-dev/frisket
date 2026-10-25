@@ -120,20 +120,27 @@ describe('action comparison presentation', () => {
     const longDescription = `Include procedural posture and disposition. ${'More context. '.repeat(20)}`;
     const before = draft({ fields: [
       { name: 'defendant', type: 'text', description: 'Named defendant.' },
-      { name: 'relief', type: 'text', description: 'Requested relief.' },
+      { name: 'relief', type: 'category', description: 'Requested relief.',
+        label_descriptions: { damages: 'Money damages.' } },
     ] });
     const after = draft({ fields: [
       { name: 'defendant', type: 'text', description: longDescription },
-      { name: 'relief', type: 'text', description: 'Requested relief.' },
+      { name: 'relief', type: 'category', description: 'Requested relief.',
+        label_descriptions: { damages: 'Compensatory or punitive damages.' } },
     ] });
 
     const changes = presentation.describeVariantChanges(before, after);
-    expect(changes).toHaveLength(1);
+    expect(changes).toHaveLength(2);
     expect(changes[0]?.label).toBe('Defendant · Description');
     expect(changes[0]?.before).toBe('Named defendant.');
     expect(changes[0]?.after.endsWith('…')).toBe(true);
     expect(changes[0]?.after.length).toBeLessThanOrEqual(96);
     expect(changes[0]?.after).not.toContain('{');
+    expect(changes[1]).toEqual({
+      label: 'Relief · Label descriptions',
+      before: 'Previous descriptions',
+      after: 'Updated descriptions',
+    });
   });
 
   it('bounds the number of settings shown and falls back without exposing a selector id', () => {
