@@ -79,8 +79,6 @@ fieldset.ocr-compare-chips-row {
   .ocr-compare-toolbar > .ocr-compare-chips-row {
     grid-column: 1;
     grid-row: 1;
-    flex-wrap: nowrap;
-    overflow-x: auto;
   }
   .ocr-compare-toolbar > .ocr-compare-configure-later {
     grid-column: 1;
