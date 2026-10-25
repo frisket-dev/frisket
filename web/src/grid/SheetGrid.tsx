@@ -24,6 +24,7 @@ import {
   type CellClickedEventArgs,
   type GridColumn,
   type GridSelection,
+  type GridMouseEventArgs,
   type GridMouseGroupHeaderEventArgs,
   type GroupHeaderClickedEventArgs,
   type Item,
@@ -85,6 +86,12 @@ import {
   getPendingGridCellReveal,
   subscribeGridCellReveal,
 } from './gridCellReveal';
+import {
+  ActionRunEntryCard,
+  type ActionRunAnchor,
+  type ActionRunEntryCallbacks,
+  type ActionRunEntryDetails,
+} from './actionRunEntry';
 
 // Include projectId because sheet ids repeat across projects.
 const widthsKey = (storageScope: string, sheetId: string) =>
@@ -122,6 +129,7 @@ interface NativeColumnGroupsState {
 }
 
 interface GroupMenuState {
+  sheetId: string;
   runId: string;
   bounds: Rectangle;
 }
@@ -343,6 +351,12 @@ export interface SheetGridProps {
    *  reachable via the header menu's Column settings). */
   onHeaderSort?(col: ColumnDef): void;
   onColumnHeaderMenu?(request: { column: ColumnDef; columnIndex: number; bounds: Rectangle }): void;
+  /** Resolve display-safe run facts when a group entry is actually opened.
+   * Never called per row, per cell, or during ordinary grid rendering. */
+  loadActionRunEntry?(anchor: ActionRunAnchor): Promise<ActionRunEntryDetails | null>;
+  onCompareActionRun?(anchor: ActionRunAnchor): void;
+  onEditActionRun?(anchor: ActionRunAnchor): void;
+  onEarlierActionRuns?(anchor: ActionRunAnchor): void;
   onColumnGroupsChange?(groups: ColumnGroupViewSpec[]): void;
   onSelectedRowsChange?(selection: { sheetId: string; rowIds: string[]; rowIndexes: number[] }): void;
   onColumnOrderChange?(columns: string[]): void;
@@ -980,6 +994,7 @@ function isTypingTarget(target: EventTarget | null): boolean {
 }
 
 function useGridHeaderHandlers(
+  sheetId: string,
   columns: GridColumn[],
   gridColumns: ColumnDef[],
   columnGroups: NativeColumnGroupsState,
@@ -987,8 +1002,60 @@ function useGridHeaderHandlers(
   onColumnHeaderMenu: ((request: { column: ColumnDef; columnIndex: number; bounds: Rectangle }) => void) | undefined,
   onHeaderSort: ((col: ColumnDef) => void) | undefined,
   aiColumnTheme: Partial<Theme>,
+  loadActionRunEntry: SheetGridProps['loadActionRunEntry'],
+  entryCallbacks: ActionRunEntryCallbacks,
 ) {
   const [groupMenu, setGroupMenu] = useState<GroupMenuState | null>(null);
+  const [hoveredGroupMenu, setHoveredGroupMenu] = useState<GroupMenuState | null>(null);
+  const [entryCache, setEntryCache] = useState<Record<string, {
+    anchor: ActionRunAnchor;
+    status: 'loading' | 'ready' | 'error';
+    details: ActionRunEntryDetails | null;
+  }>>({});
+  const entryLoads = useRef(new Set<string>());
+  const hoverCloseTimer = useRef<number | null>(null);
+
+  const anchorForGroup = useCallback((group: ColumnGroupModel): ActionRunAnchor | null => {
+    const column = gridColumns.find(
+      (candidate) => String(candidate.latestRunId ?? '') === group.runId,
+    );
+    return column
+      ? { sheetId, runId: group.runId, columnId: column.id }
+      : null;
+  }, [gridColumns, sheetId]);
+
+  const loadGroupEntry = useCallback((group: ColumnGroupModel) => {
+    if (!loadActionRunEntry) return;
+    const anchor = anchorForGroup(group);
+    if (!anchor) return;
+    const key = `${anchor.sheetId}:${anchor.runId}:${anchor.columnId}`;
+    if (entryCache[key] || entryLoads.current.has(key)) return;
+    entryLoads.current.add(key);
+    setEntryCache((entries) => ({
+      ...entries,
+      [key]: { anchor, status: 'loading', details: null },
+    }));
+    void loadActionRunEntry(anchor).then(
+      (details) => {
+        entryLoads.current.delete(key);
+        setEntryCache((entries) => ({
+          ...entries,
+          [key]: { anchor, status: 'ready', details },
+        }));
+      },
+      () => {
+        entryLoads.current.delete(key);
+        setEntryCache((entries) => ({
+          ...entries,
+          [key]: { anchor, status: 'error', details: null },
+        }));
+      },
+    );
+  }, [anchorForGroup, entryCache, loadActionRunEntry]);
+
+  useEffect(() => () => {
+    if (hoverCloseTimer.current != null) window.clearTimeout(hoverCloseTimer.current);
+  }, []);
 
   const closeGroupMenu = useCallback(() => setGroupMenu(null), []);
 
@@ -1015,12 +1082,42 @@ function useGridHeaderHandlers(
   const openGroupMenu = useCallback(
     (group: ColumnGroupModel, event: { bounds: Rectangle; preventDefault?: () => void }) => {
       event.preventDefault?.();
+      loadGroupEntry(group);
       setGroupMenu((current) => (
-        current?.runId === group.runId ? null : { runId: group.runId, bounds: event.bounds }
+        current?.sheetId === sheetId && current.runId === group.runId
+          ? null
+          : { sheetId, runId: group.runId, bounds: event.bounds }
       ));
     },
-    [],
+    [loadGroupEntry, sheetId],
   );
+
+  const keepGroupHoverOpen = useCallback(() => {
+    if (hoverCloseTimer.current != null) {
+      window.clearTimeout(hoverCloseTimer.current);
+      hoverCloseTimer.current = null;
+    }
+  }, []);
+
+  const closeGroupHover = useCallback(() => {
+    keepGroupHoverOpen();
+    hoverCloseTimer.current = window.setTimeout(() => setHoveredGroupMenu(null), 140);
+  }, [keepGroupHoverOpen]);
+
+  const onItemHovered = useCallback((event: GridMouseEventArgs) => {
+    if (!loadActionRunEntry || event.kind !== 'group-header') {
+      closeGroupHover();
+      return;
+    }
+    const group = columnGroups.groupByKey.get(event.group);
+    if (!group) {
+      closeGroupHover();
+      return;
+    }
+    keepGroupHoverOpen();
+    loadGroupEntry(group);
+    setHoveredGroupMenu({ sheetId, runId: group.runId, bounds: event.bounds });
+  }, [closeGroupHover, columnGroups.groupByKey, keepGroupHoverOpen, loadActionRunEntry, loadGroupEntry, sheetId]);
 
   const onGroupHeaderClicked = useCallback(
     (colIdx: number, event: GroupHeaderClickedEventArgs) => {
@@ -1077,22 +1174,39 @@ function useGridHeaderHandlers(
     [columnGroups.groupByKey, columnGroups.layouts, openGroupMenu, aiColumnTheme],
   );
 
-  const activeGroupMenu = groupMenu ? columnGroups.groupByRunId.get(groupMenu.runId) : undefined;
+  const candidateMenuState = groupMenu ?? hoveredGroupMenu;
+  const activeMenuState = candidateMenuState?.sheetId === sheetId ? candidateMenuState : null;
+  const activeGroupMenuPinned = groupMenu?.sheetId === sheetId && groupMenu === activeMenuState;
+  const activeGroupMenu = activeMenuState
+    ? columnGroups.groupByRunId.get(activeMenuState.runId)
+    : undefined;
   const activeGroupLayout = activeGroupMenu
     ? resolveColumnGroupLayout(activeGroupMenu, columnGroups.layouts)
     : null;
-  const activeGroupMenuBounds = activeGroupMenu && activeGroupLayout ? groupMenu?.bounds : null;
+  const activeGroupMenuBounds = activeGroupMenu && activeGroupLayout ? activeMenuState?.bounds : null;
+  const activeGroupAnchor = activeGroupMenu ? anchorForGroup(activeGroupMenu) : null;
+  const activeEntryKey = activeGroupAnchor
+    ? `${activeGroupAnchor.sheetId}:${activeGroupAnchor.runId}:${activeGroupAnchor.columnId}`
+    : null;
+  const activeEntry = activeEntryKey ? entryCache[activeEntryKey] : undefined;
 
   return {
+    activeEntry,
+    activeGroupAnchor,
     activeGroupLayout,
     activeGroupMenu,
     activeGroupMenuBounds,
+    activeGroupMenuPinned,
     getGroupDetails,
     onGroupHeaderClicked,
     onGroupHeaderContextMenu,
     onGroupHeaderRenamed,
+    onItemHovered,
     onHeaderClicked,
     onHeaderMenuClick,
+    keepGroupHoverOpen,
+    closeGroupHover,
+    ...entryCallbacks,
   };
 }
 
@@ -1101,25 +1215,32 @@ function NativeColumnGroupMenu({
   layout,
   bounds,
   onLayoutChange,
+  anchor,
+  entry,
+  selectedRowCount,
+  showLayoutControls,
+  onCompareActionRun,
+  onEditActionRun,
+  onEarlierActionRuns,
+  onPointerEnter,
+  onPointerLeave,
 }: {
   group: ColumnGroupModel;
   layout: Required<ColumnGroupLayoutState>;
   bounds: Rectangle;
   onLayoutChange: NativeColumnGroupsState['setGroupLayout'];
-}) {
-  return (
-    <div
-      className="grid-header-menu"
-      data-testid="native-column-group-menu"
-      style={{
-        left: Math.min(bounds.x, window.innerWidth - 266),
-        top: Math.min(bounds.y + bounds.height + 4, window.innerHeight - 190),
-      }}
-    >
-      <div className="grid-header-menu-title">
-        <span>{layout.label}</span>
-        <span>AI group</span>
-      </div>
+  anchor: ActionRunAnchor | null;
+  entry: {
+    status: 'loading' | 'ready' | 'error';
+    details: ActionRunEntryDetails | null;
+  } | undefined;
+  selectedRowCount: number;
+  showLayoutControls: boolean;
+  onPointerEnter(): void;
+  onPointerLeave(): void;
+} & ActionRunEntryCallbacks) {
+  const layoutControls = (
+    <div className="action-run-entry-layout">
       <label className="grid-header-menu-item">
         <input
           type="checkbox"
@@ -1146,6 +1267,48 @@ function NativeColumnGroupMenu({
         />
         Justification columns
       </label>
+    </div>
+  );
+  if (anchor && entry) {
+    return (
+      <div data-testid="native-column-group-menu">
+        <ActionRunEntryCard
+          anchor={anchor}
+          fallbackTitle={layout.label}
+          details={entry.details}
+          status={entry.status}
+          selectedRowCount={selectedRowCount}
+          layoutControls={showLayoutControls ? layoutControls : undefined}
+          onCompareActionRun={onCompareActionRun}
+          onEditActionRun={onEditActionRun}
+          onEarlierActionRuns={onEarlierActionRuns}
+          onPointerEnter={onPointerEnter}
+          onPointerLeave={onPointerLeave}
+          style={{
+            left: Math.max(8, Math.min(bounds.x, window.innerWidth - 378)),
+            top: Math.max(
+              8,
+              Math.min(bounds.y + bounds.height + 4, window.innerHeight - 420),
+            ),
+          }}
+        />
+      </div>
+    );
+  }
+  return (
+    <div
+      className="grid-header-menu"
+      data-testid="native-column-group-menu"
+      style={{
+        left: Math.min(bounds.x, window.innerWidth - 266),
+        top: Math.min(bounds.y + bounds.height + 4, window.innerHeight - 190),
+      }}
+    >
+      <div className="grid-header-menu-title">
+        <span>{layout.label}</span>
+        <span>AI group</span>
+      </div>
+      {layoutControls}
     </div>
   );
 }
@@ -1194,7 +1357,9 @@ function useSheetGridController({
   hiddenColumnNames = EMPTY_COLUMN_NAMES, userHiddenColumnNames = EMPTY_COLUMN_NAMES,
   onRevealColumns, onAddColumnAtEnd,
   onRowOpen, onColumnOpen, onHeaderSort, onSelectedRowsChange,
-  onColumnHeaderMenu, onColumnGroupsChange, onColumnOrderChange, onCellEdit,
+  onColumnHeaderMenu, loadActionRunEntry,
+  onCompareActionRun, onEditActionRun, onEarlierActionRuns,
+  onColumnGroupsChange, onColumnOrderChange, onCellEdit,
   onFacetValueFilter, rowCacheStore,
   columnAnnotations: externalColumnAnnotations = EMPTY_COLUMN_ANNOTATIONS,
 }: SheetGridProps): SheetGridController {
@@ -1325,6 +1490,7 @@ function useSheetGridController({
   const hasNativeColumnGroups = columnGroups.groups.length > 0;
   const gridReady = realRowCount === 0 || cache.getRow(0) !== undefined;
   const headerHandlers = useGridHeaderHandlers(
+    sheet.id,
     columns,
     gridColumns,
     columnGroups,
@@ -1332,6 +1498,8 @@ function useSheetGridController({
     onColumnHeaderMenu,
     onHeaderSort,
     aiColumnTheme,
+    loadActionRunEntry,
+    { onCompareActionRun, onEditActionRun, onEarlierActionRuns },
   );
 
   const previewColumnAt = useCallback((col: number) => {
@@ -2261,6 +2429,7 @@ function SheetGridSurface({ controller }: { controller: SheetGridController }) {
         onCellEdited={onCellEdited}
         onHeaderClicked={headerHandlers.onHeaderClicked}
         onHeaderMenuClick={headerHandlers.onHeaderMenuClick}
+        onItemHovered={headerHandlers.onItemHovered}
         getGroupDetails={headerHandlers.getGroupDetails}
         onGroupHeaderClicked={headerHandlers.onGroupHeaderClicked}
         onGroupHeaderContextMenu={headerHandlers.onGroupHeaderContextMenu}
@@ -2315,6 +2484,15 @@ function SheetGridSurface({ controller }: { controller: SheetGridController }) {
             layout={headerHandlers.activeGroupLayout}
             bounds={headerHandlers.activeGroupMenuBounds}
             onLayoutChange={columnGroups.setGroupLayout}
+            anchor={headerHandlers.activeGroupAnchor}
+            entry={headerHandlers.activeEntry}
+            selectedRowCount={gridSelection.rows.toArray().length}
+            showLayoutControls={headerHandlers.activeGroupMenuPinned}
+            onCompareActionRun={headerHandlers.onCompareActionRun}
+            onEditActionRun={headerHandlers.onEditActionRun}
+            onEarlierActionRuns={headerHandlers.onEarlierActionRuns}
+            onPointerEnter={headerHandlers.keepGroupHoverOpen}
+            onPointerLeave={headerHandlers.closeGroupHover}
           />
       )}
       {/* Glide draws headers on canvas, so interactive header controls need a DOM overlay. */}
