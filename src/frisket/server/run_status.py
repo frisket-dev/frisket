@@ -810,6 +810,7 @@ def action_run_status_payload(
     public_status = project_run_status_payload(
         status, run_id=run_id, now=now, project=project
     )
+    payload["run"]["status"] = public_status["status"]
     payload["run"]["public_status"] = public_status
     return payload
 

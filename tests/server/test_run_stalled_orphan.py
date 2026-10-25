@@ -70,7 +70,9 @@ def _expire_queue_job(client: TestClient, job_id: int) -> None:
 def _action_run_public_status(client: TestClient, pid: str, run_id: int) -> dict:
     response = client.get(f"/api/projects/{pid}/actions/runs/{run_id}/status")
     assert response.status_code == 200, response.text
-    return response.json()["run"]["public_status"]
+    run = response.json()["run"]
+    assert run["status"] == run["public_status"]["status"]
+    return run["public_status"]
 
 
 def test_run_status_distinguishes_queued_and_running_queue_jobs(tmp_path):

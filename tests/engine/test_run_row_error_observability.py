@@ -455,7 +455,7 @@ class TestSurfacedViaStatusAndHistoryEndpoints:
         body = status.json()
 
         # Surface A: actions.run_status's "run" dict (run-detail region).
-        assert body["run"]["status"] == "completed"
+        assert body["run"]["status"] == "failed"
         run_row_errors = body["run"]["row_errors"]
         assert run_row_errors["total_failed_rows"] == 5
         assert run_row_errors["groups"][0]["count"] == 5
