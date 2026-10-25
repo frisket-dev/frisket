@@ -172,6 +172,7 @@ async function configureVariant(page: Page, key: 'B' | 'C', settings: ExtractSet
   const editor = page.getByRole('complementary', { name: `Configure variant ${key}` });
   await expect(editor).toBeVisible();
   await expect(editor.getByTestId('engine-selector')).toContainText('Gemini 3.5 Flash-Lite');
+  if (key === 'B') await shoot(page, '02a-extract-editor-model.png');
   await expect(editor.getByTestId('output-structure-lock-hint')).toContainText(
     'Names, types, labels, and field structure stay the same; descriptions can be edited.',
   );
