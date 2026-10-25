@@ -34,6 +34,7 @@ export interface ActionCompareTabProps {
   session: ActionCompareSession;
   onUseSettings(selection: ActionCompareUseSettings): void;
   renderVariantEditor?(props: ActionCompareVariantEditorRenderProps): ReactNode;
+  labelForDraft?(draft: GeneratedActionDraft, displayKey: string): string;
   describeVariantChanges?(baseline: GeneratedActionDraft, variant: GeneratedActionDraft): readonly ActionCompareSettingChange[];
   onOpenBoundedValue?(args: {
     value: ActionComparisonBoundedValue; previewId: string | null; rowId: number; columnKey: string;
@@ -125,7 +126,7 @@ function displayedCell(
 }
 
 export function ActionCompareTab({ session, onUseSettings, renderVariantEditor,
-  describeVariantChanges, onOpenBoundedValue, onRefresh, className }: ActionCompareTabProps) {
+  labelForDraft, describeVariantChanges, onOpenBoundedValue, onRefresh, className }: ActionCompareTabProps) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
@@ -135,6 +136,7 @@ export function ActionCompareTab({ session, onUseSettings, renderVariantEditor,
   const sources = context.source_columns.filter((column) => !hidden.has(`source:${column.name}`));
   const outputs = context.output_columns.filter((column) => !hidden.has(`output:${column.logical_key}`));
   const editing = state.variants.find((variant) => variant.id === editingId) ?? null;
+  const editingLabel = editing ? labelForDraft?.(editing.draft, editing.displayKey) ?? editing.label : null;
   const running = state.sequenceStatus === 'running';
   const pending = state.variants.some((variant) => variant.status === 'pending');
   const visibilityFields = [
@@ -161,6 +163,7 @@ export function ActionCompareTab({ session, onUseSettings, renderVariantEditor,
         tag={sampleLabel(context.sample_row_ids.length, state.capturedSelection?.totalCount ?? null)}>
         {state.variants.map((variant) => {
           const use = session.useVariant(variant.id);
+          const displayLabel = labelForDraft?.(variant.draft, variant.displayKey) ?? variant.label;
           const changes = editingId === null && hoveredId === variant.id && !variant.baseline && describeVariantChanges
             ? describeVariantChanges(baseline.draft, variant.draft) : [];
           return <div key={variant.id} className="action-compare-variant" data-status={variant.status}
@@ -168,11 +171,11 @@ export function ActionCompareTab({ session, onUseSettings, renderVariantEditor,
             data-testid={`action-compare-variant-${variant.displayKey}`}
             onMouseEnter={() => setHoveredId(variant.id)} onMouseLeave={() => setHoveredId(null)}>
             {variant.baseline ? <div className="action-compare-variant-body" aria-label={`Variant ${variant.displayKey}`}>
-              <i className="action-compare-variant-pip" aria-hidden /><strong>{variant.displayKey}</strong><span>{variant.label}</span>
+              <i className="action-compare-variant-pip" aria-hidden /><strong>{variant.displayKey}</strong><span>{displayLabel}</span>
               <StatusChip tone={statusTone(variant.status)} size="sm">{statusLabel(variant)}</StatusChip>
             </div> : <button type="button" className="action-compare-variant-body"
               aria-label={`Configure variant ${variant.displayKey}`} onClick={() => setEditingId(variant.id)}>
-              <i className="action-compare-variant-pip" aria-hidden /><strong>{variant.displayKey}</strong><span>{variant.label}</span>
+              <i className="action-compare-variant-pip" aria-hidden /><strong>{variant.displayKey}</strong><span>{displayLabel}</span>
               <StatusChip tone={statusTone(variant.status)} size="sm">{statusLabel(variant)}</StatusChip>
             </button>}
             {use && <IconButton icon={Check} size="inline" className="action-compare-use"
@@ -185,7 +188,7 @@ export function ActionCompareTab({ session, onUseSettings, renderVariantEditor,
             {['failed', 'cancelled', 'expired'].includes(variant.status) && <IconButton icon={RotateCcw} size="inline"
               label={`Retry variant ${variant.displayKey}`} onClick={() => session.retryVariant(variant.id)} />}
             {changes.length > 0 && <div className="action-compare-settings" role="tooltip">
-              <strong>{variant.displayKey} · {variant.label}</strong>
+              <strong>{variant.displayKey} · {displayLabel}</strong>
               {changes.map((change) => <div key={change.label}><span>{change.label}</span>
                 <span className="action-compare-setting-values"><del>{change.before}</del><span aria-hidden>→</span><ins>{change.after}</ins></span>
               </div>)}
@@ -198,7 +201,7 @@ export function ActionCompareTab({ session, onUseSettings, renderVariantEditor,
       </CompareToolbar>
 
       {editing && renderVariantEditor && <aside className="action-compare-editor" aria-label={`Configure variant ${editing.displayKey}`}>
-        <header><strong>{editing.displayKey} · {editing.label}</strong>
+        <header><strong>{editing.displayKey} · {editingLabel}</strong>
           <IconButton icon={X} size="inline" label="Close variant editor" onClick={() => setEditingId(null)} /></header>
         {renderVariantEditor({
           variantId: editing.id, label: editing.displayKey, draft: editing.draft,
@@ -244,7 +247,7 @@ export function ActionCompareTab({ session, onUseSettings, renderVariantEditor,
         <span aria-hidden>⚡</span> {column.current_name}{column.hidden && <small>hidden output</small>}
       </th>)}
     </tr><tr>{outputs.flatMap((output) => state.variants.map((variant) => <th key={`${output.logical_key}:${variant.id}`} scope="col">
-      {variant.displayKey} · {variant.label}
+      {variant.displayKey} · {labelForDraft?.(variant.draft, variant.displayKey) ?? variant.label}
     </th>))}</tr></thead><tbody>
       {context.sample_row_ids.map((rowId, index) => <tr key={rowId}><th scope="row">{index + 1}</th>
         {sources.map((source, sourceIndex) => { const cell = context.source_rows[String(rowId)]?.[source.name]; return <td key={source.column_id}

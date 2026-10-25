@@ -1,6 +1,7 @@
-import { useCallback, useState, useSyncExternalStore } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { isGeneratedActionCatalogEntry } from '../api/types';
 import type { ActionComparisonBoundedValue } from '../api/actionComparison';
+import type { HttpSelectorChoicesQuery, SelectorChoice } from '../api/selectorChoices';
 import { readDocumentTextResource, readDocumentTextWindow } from '../api/raw/blobText';
 import { useActionCatalogHandle } from '../bind/useActionCatalogHandle';
 import { useProjectDataResource } from '../bind/useRouteHandle';
@@ -10,10 +11,37 @@ import { BoundedTextReader } from '../components/BoundedTextReader';
 import { LargeCellValue } from '../components/LargeCellValue';
 import { Modal } from '../components/Modal';
 import { GeneratedActionParamsEditor } from '../components/action-panel/GeneratedActionForm';
+import { currentSelectorChoice, selectorQueryKey } from '../engine-selector/selectorProjection';
+import { useSelectorChoices, type SelectorChoicesLoader } from '../engine-selector/useSelectorChoices';
 import { ActionCompareTab, type ActionCompareVariantEditorRenderProps } from '../workbench/ActionCompareTab';
+import {
+  actionCompareSelectorField,
+  actionCompareSelectorQuery,
+  createActionComparePresentation,
+} from '../workbench/actionComparePresentation';
 import { CompareDiscardDialog } from '../workbench/CompareDiscardDialog';
 import { ActionCompareHistoryDialog } from './ActionCompareHistoryDialog';
 import { useMainViewModel } from './WorkspaceContext';
+
+export const ActionCompareVariantChoiceOwner = memo(function ActionCompareVariantChoiceOwner({
+  projectId, variantId, query, publish, load,
+}: {
+  projectId: string | null | undefined;
+  variantId: string;
+  query: HttpSelectorChoicesQuery;
+  publish(variantId: string, choice: SelectorChoice | null): void;
+  load?: SelectorChoicesLoader;
+}) {
+  const state = useSelectorChoices({
+    projectId,
+    query,
+    queryKey: selectorQueryKey,
+    ...(load ? { load } : {}),
+  });
+  const choice = currentSelectorChoice(state);
+  useEffect(() => publish(variantId, choice), [choice, publish, variantId]);
+  return null;
+});
 
 function VariantEditor({ editor, sheetId }: { editor: ActionCompareVariantEditorRenderProps; sheetId: number }) {
   const { projectApi, chromePreferences } = useWorkspaceStores();
@@ -52,9 +80,35 @@ function ActionCompareContents() {
   const model = useMainViewModel();
   const session = model.actionCompareSession!;
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot);
+  const { chromePreferences } = useWorkspaceStores();
+  const catalog = useActionCatalogHandle();
+  const catalogSnapshot = useSelector(catalog.store, current => current);
   const [value, setValue] = useState<ActionComparisonBoundedValue | null>(null);
+  const [variantChoices, setVariantChoices] = useState<Record<string, SelectorChoice | null>>({});
+  const entry = catalogSnapshot.catalog?.actions.find(candidate => candidate.kind === state.context.draft.action_id);
+  const selectorField = entry ? actionCompareSelectorField(entry) : null;
+  const publishChoice = useCallback((variantId: string, choice: SelectorChoice | null) => {
+    setVariantChoices(current => current[variantId] === choice ? current : { ...current, [variantId]: choice });
+  }, []);
+  const selectorChoices = useMemo(() => {
+    if (!selectorField) return undefined;
+    const choices = state.variants.flatMap(variant => variantChoices[variant.id] ? [variantChoices[variant.id]!] : []);
+    return choices.length ? { [selectorField]: choices } : undefined;
+  }, [selectorField, state.variants, variantChoices]);
+  const presentation = useMemo(() => entry ? createActionComparePresentation(entry, {
+    baselineMode: state.context.baseline_mode,
+    lockedParams: state.context.locked_params,
+    selectorChoices,
+  }) : null, [entry, selectorChoices, state.context.baseline_mode, state.context.locked_params]);
   return <>
+    {entry && selectorField && state.variants.map((variant) => {
+      const query = actionCompareSelectorQuery(entry, variant.draft);
+      return query && <ActionCompareVariantChoiceOwner key={variant.id}
+        projectId={chromePreferences.projectId} variantId={variant.id} query={query} publish={publishChoice} />;
+    })}
     <ActionCompareTab session={session} onUseSettings={model.useActionCompareSettings}
+      labelForDraft={presentation?.labelForDraft}
+      describeVariantChanges={presentation?.describeVariantChanges}
       renderVariantEditor={editor => <VariantEditor editor={editor} sheetId={state.context.sheet.id} />}
       onOpenBoundedValue={({ value }) => setValue(value)} onRefresh={model.refreshActionCompare} />
     {model.actionCompareCloseWarn && <CompareDiscardDialog title="Discard this comparison?"

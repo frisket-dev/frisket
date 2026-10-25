@@ -69,10 +69,13 @@ describe('ActionCompareTab', () => {
     await session.runPending();
     const onUseSettings = vi.fn();
 
-    render(<ActionCompareTab session={session} onUseSettings={onUseSettings} />);
+    render(<ActionCompareTab session={session} onUseSettings={onUseSettings}
+      labelForDraft={(_draft, displayKey) => displayKey === 'B' ? 'Claude Sonnet 4.5' : 'Current values'} />);
 
     expect(screen.getByText('Comparing 2 of 237 selected rows')).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'party' })).toBeInTheDocument();
+    expect(within(screen.getByTestId('action-compare-variant-B')).getByText('Claude Sonnet 4.5')).toBeInTheDocument();
+    expect(screen.getAllByRole('columnheader').some((header) => header.textContent === 'B · Claude Sonnet 4.5')).toBe(true);
     expect(screen.queryByRole('columnheader', { name: 'note' })).not.toBeInTheDocument();
     expect(screen.getByText('Edited')).toBeInTheDocument();
     expect(screen.getByText('Empty')).toBeInTheDocument();

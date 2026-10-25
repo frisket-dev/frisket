@@ -1,4 +1,5 @@
 import type { ActionCatalogEntry, GeneratedActionDraft, JsonSchemaLike, JsonValue } from '../api/types';
+import type { HttpSelectorChoicesQuery } from '../api/selectorChoices';
 import type { ActionCompareSettingChange } from './ActionCompareTab';
 
 const MAX_VALUE_LENGTH = 96;
@@ -52,6 +53,21 @@ function bounded(value: string): string {
 function semanticField(entry: ActionCatalogEntry, kind: 'engine' | 'model'): string | undefined {
   const controls = entry.ui_hints.semantic_controls as Record<string, unknown> | undefined;
   return Object.keys(controls ?? {}).find((name) => controls?.[name] === kind);
+}
+
+export function actionCompareSelectorField(entry: ActionCatalogEntry): string | null {
+  return semanticField(entry, 'engine') ?? semanticField(entry, 'model') ?? null;
+}
+
+export function actionCompareSelectorQuery(
+  entry: ActionCatalogEntry,
+  draft: GeneratedActionDraft,
+): HttpSelectorChoicesQuery | null {
+  const field = actionCompareSelectorField(entry);
+  return field ? {
+    schema_version: 'frisket.selector_choices_query.v1',
+    subject: { kind: 'action', action_id: entry.kind, field, params: draft.params },
+  } as HttpSelectorChoicesQuery : null;
 }
 
 function choiceMatches(
