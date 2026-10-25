@@ -1372,24 +1372,38 @@ class ResultGenerationStore:
                 "GROUP BY column_id"
             )
         }
-        column_counts: list[sqlite3.Row] = []
+        columns: list[sqlite3.Row] = []
         for column_batch in _chunks(ordered_column_ids):
             placeholders = ",".join("?" for _ in column_batch)
-            column_counts.extend(
+            columns.extend(
                 self.db.execute(
-                    "SELECT column_meta.id,COUNT(sheet_row.id) AS row_count "
-                    "FROM columns column_meta LEFT JOIN rows sheet_row "
-                    "ON sheet_row.sheet_id=column_meta.sheet_id "
-                    f"WHERE column_meta.id IN ({placeholders}) "
-                    "GROUP BY column_meta.id",
+                    f"SELECT id,sheet_id FROM columns WHERE id IN ({placeholders})",
                     column_batch,
                 ).fetchall()
             )
-        return len(column_counts) == len(ordered_column_ids) and all(
-            (affected_count := affected_counts.get(int(row["id"]), 0)) > 0
-            and affected_count == int(row["row_count"])
-            for row in column_counts
-        )
+        if len(columns) != len(ordered_column_ids):
+            return False
+        sheet_counts: dict[tuple[int, int], int] = {}
+        for column in columns:
+            affected_count = affected_counts.get(int(column["id"]), 0)
+            if affected_count == 0:
+                return False
+            count_key = (int(column["sheet_id"]), affected_count + 1)
+            if count_key not in sheet_counts:
+                # One extra row proves incomplete coverage. Counting the whole
+                # sheet here made even one-cell publication and undo scale with
+                # unrelated rows before reaching their exact-key projectors.
+                # Hidden rows still count, just as they do in the bulk rebuild.
+                sheet_counts[count_key] = int(
+                    self.db.execute(
+                        "SELECT COUNT(*) FROM ("
+                        "SELECT 1 FROM rows WHERE sheet_id=? LIMIT ?)",
+                        count_key,
+                    ).fetchone()[0]
+                )
+            if sheet_counts[count_key] != affected_count:
+                return False
+        return True
 
     def rebuild_heads_from_key_table(
         self, key_table: str, *, commit: bool = True
