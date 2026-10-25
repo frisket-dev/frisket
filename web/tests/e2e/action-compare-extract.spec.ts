@@ -242,7 +242,7 @@ test('Extract compares two typed fields across A/B/C and opens Use settings', as
   await page.getByRole('button', { name: 'Use settings from variant C' }).click();
   const useForm = page.getByTestId('generated-action-form');
   await expect(useForm).toBeVisible();
-  await expect(useForm.getByTestId('replacement-overlay-notice')).toBeVisible();
+  await expect(useForm.getByRole('button', { name: 'Replace all rows', exact: true })).toBeVisible();
   await useForm.locator('details.action-advanced > summary').click();
   await expect(useForm.getByTestId('field-context')).toHaveValue(C.context);
   await expect(useForm.getByTestId('output-field-description').first())

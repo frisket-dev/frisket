@@ -2579,6 +2579,7 @@ type HttpActionCompareContextResponse_ActionCompareOutputColumn = ({
   "schema": ({
   [key: string]: (HttpActionCompareContextResponse_JsonValue);
 });
+  "semantic_type"?: (((string)) | ((null)));
 });
 
 type HttpActionCompareContextResponse_ActionCompareReason = ({

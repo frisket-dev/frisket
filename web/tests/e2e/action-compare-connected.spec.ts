@@ -222,16 +222,18 @@ test.describe('connected action comparison', () => {
     await expect(page.getByTestId('header-menu-action-run-section')).toContainText('Classify');
     await expect(page.getByTestId('header-menu-compare-action-run')).toBeVisible();
     await expect(page.getByTestId('header-menu-edit-action-run')).toBeVisible();
-    await expect(page.getByTestId('header-menu-earlier-action-runs')).toBeVisible();
+    await expect(page.getByTestId('header-menu-earlier-action-runs')).toHaveCount(0);
     await shoot(page, '01-column-menu.png');
 
-    await page.getByTestId('header-menu-earlier-action-runs').click();
+    await page.getByTestId('header-menu-edit-action-run').click();
+    await page.getByTestId('action-history-button').click();
     const history = page.getByTestId('action-compare-history-dialog');
     await expect(history).toBeVisible();
     await expect(history).toContainText('1 stored run');
     await expect(history.getByTestId(`action-compare-history-choose-${baselineRunId}`)).toBeVisible();
     await shoot(page, '02-earlier-runs.png');
     await page.getByLabel('Close earlier runs').click();
+    await page.getByTestId('action-drawer-close').click();
 
     await chooseCompareFromColumnMenu(page, columns, 'topic');
     await expect(page.getByTestId('action-compare-scratch-tag')).toHaveText('Comparing 3 sample rows');
@@ -255,7 +257,7 @@ test.describe('connected action comparison', () => {
     await page.getByRole('button', { name: 'Use settings from variant B' }).click();
     const replacementForm = page.getByTestId('generated-action-form');
     await expect(replacementForm).toBeVisible();
-    await expect(replacementForm.getByTestId('replacement-overlay-notice')).toBeVisible();
+    await expect(replacementForm.getByRole('button', { name: 'Replace all rows', exact: true })).toBeVisible();
     await expect(replacementForm.getByTestId('field-context')).toHaveValue(PROMPT_B);
     await shoot(page, '06-replace-settings.png');
 
