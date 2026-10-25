@@ -180,6 +180,8 @@ interface GeneratedActionLaunchModeBase {
   contextLabel: string;
   /** Exact comparison selection retained separately from the live grid. */
   capturedSelectedRowIds: readonly string[];
+  /** Settings came from a comparison whose sampled data subsequently changed. */
+  comparisonStale?: boolean;
   onReturnToCompare?(): void;
 }
 
@@ -1243,6 +1245,11 @@ function GeneratedActionFormContents({
         || launchMode?.kind === 'use-new-comparison-variant') && (
         <p className="form-hint" data-testid="comparison-rerun-notice">
           Runs these settings again; sample results are not saved.
+        </p>
+      )}
+      {!paramsOnly && launchMode?.comparisonStale && (
+        <p className="form-hint" role="status" data-testid="comparison-stale-run-notice">
+          Data changed since this comparison. This run will use current data.
         </p>
       )}
       {!paramsOnly && replacementLaunch && (

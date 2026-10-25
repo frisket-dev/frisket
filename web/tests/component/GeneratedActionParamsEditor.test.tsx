@@ -189,6 +189,7 @@ function mountFinalForm(kind: 'edit-existing' | 'use-comparison-variant' | 'use-
             ? 'on Court filings · settings from run 42'
             : 'on Court filings · from variant B',
           capturedSelectedRowIds: ['11', '12', '13'],
+          comparisonStale: kind === 'use-comparison-variant',
           onReturnToCompare,
         }}
         running={false}
@@ -299,6 +300,9 @@ describe('GeneratedActionParamsEditor', () => {
   it('defaults a chosen variant to all-row replacement and keeps selection explicit', async () => {
     const { onExecute, onReturnToCompare } = mountFinalForm('use-comparison-variant');
     expect(screen.getByText('on Court filings · from variant B')).toBeInTheDocument();
+    expect(screen.getByTestId('comparison-stale-run-notice')).toHaveTextContent(
+      'This run will use current data',
+    );
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
     expect(screen.getByTestId('generated-action-run')).toHaveTextContent('Replace all rows');
     fireEvent.click(screen.getByTestId('generated-action-run'));
