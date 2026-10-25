@@ -100,7 +100,7 @@ describe('ActionCompareTab', () => {
       labelForDraft={(_draft, displayKey) => displayKey === 'B' ? 'Claude Sonnet 4.5' : 'Current values'}
       describeVariantChanges={() => [{ label: 'Context', before: 'Old instructions', after: 'New instructions' }]} />);
 
-    expect(screen.getByText('Comparing 2 of 237 selected rows')).toBeInTheDocument();
+    expect(screen.getByText('2 of 237 selected rows')).toBeInTheDocument();
     expect(within(screen.getByTestId('action-compare-variant-B')).getByText('Claude Sonnet 4.5')).toBeInTheDocument();
     expect(screen.getByTestId('action-compare-grid')).toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();

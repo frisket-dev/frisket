@@ -23,13 +23,13 @@ export function CompareToolbar({
   note?: ReactNode;
   /** A supplied value preserves Transcribe's native disabled fieldset. */
   disabled?: boolean;
-  label?: string;
-  tag?: string;
+  label?: string | null;
+  tag?: string | null;
   chipsTestId?: string;
 }) {
   const engines = <>
-    <span className="ocr-compare-scratch-tag" data-testid={`${testIdPrefix}-scratch-tag`}>{tag}</span>
-    <span className="ocr-compare-variants-label">{label}</span>
+    {tag && <span className="ocr-compare-scratch-tag" data-testid={`${testIdPrefix}-scratch-tag`}>{tag}</span>}
+    {label && <span className="ocr-compare-variants-label">{label}</span>}
     <div className="ocr-compare-variant-chips" data-testid={chipsTestId}>{children}</div>
   </>;
   const row = { className: 'ocr-compare-chips-row', 'data-testid': `${testIdPrefix}-chips-row` };

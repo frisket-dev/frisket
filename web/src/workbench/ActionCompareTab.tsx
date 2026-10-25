@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
-import { Check, Copy, Eye, EyeOff, LockKeyhole, Plus, RefreshCw, RotateCcw, Square, X } from 'lucide-react';
+import { Check, Copy, Eye, EyeOff, LockKeyhole, Play, Plus, RotateCcw, Square, X } from 'lucide-react';
 import type { ActionComparisonBoundedValue } from '../api/actionComparison';
 import type { GeneratedActionDraft } from '../api/types';
 import { Button } from '../components/Button';
@@ -48,8 +48,8 @@ function actionCompareEditorMaxHeight(toolbarBottom: number, contentBottom: numb
 }
 
 const sampleLabel = (sampled: number, selected: number | null) => selected !== null && selected > sampled
-  ? `Comparing ${sampled} of ${selected} selected rows`
-  : `Comparing ${sampled} sample ${sampled === 1 ? 'row' : 'rows'}`;
+  ? `${sampled} of ${selected} selected rows`
+  : `${sampled} sample ${sampled === 1 ? 'row' : 'rows'}`;
 
 function statusTone(status: ActionCompareVariant['status']): StatusTone {
   if (status === 'ready' || status === 'current') return 'success';
@@ -107,7 +107,7 @@ export function ActionCompareTab({ session, onUseSettings, renderVariantEditor,
 
   const controls = <>
     {running ? <Button type="button" onClick={session.stop}><Square size={13} /> Stop</Button>
-      : <Button type="button" disabled={!pending} onClick={() => void session.runPending()}><RefreshCw size={13} /> Re-run</Button>}
+      : <Button type="button" disabled={!pending} onClick={() => void session.runPending()}><Play size={13} /> Run comparison</Button>}
     <Button type="button" aria-pressed={state.highlightDifferences}
       aria-label={state.highlightDifferences ? 'Hide difference highlighting' : 'Highlight differences'}
       onClick={() => session.setHighlightDifferences(!state.highlightDifferences)}>
@@ -120,11 +120,7 @@ export function ActionCompareTab({ session, onUseSettings, renderVariantEditor,
       <span>{context.reason?.message ?? 'This action cannot be compared.'}</span>
     </div>}
     <div ref={toolbarRef} className="action-compare-toolbar-shell">
-      <CompareToolbar testIdPrefix="action-compare" running={running} controls={controls} label="Variants"
-        tag={sampleLabel(
-          Math.min(20, context.limits.max_sample_rows, context.sample_row_ids.length),
-          state.capturedSelection?.totalCount ?? null,
-        )}>
+      <CompareToolbar testIdPrefix="action-compare" running={running} controls={controls} label={null} tag={null}>
         {state.variants.map((variant) => {
           const use = session.useVariant(variant.id);
           const displayLabel = labelForDraft?.(variant.draft, variant.displayKey) ?? variant.label;
@@ -195,6 +191,10 @@ export function ActionCompareTab({ session, onUseSettings, renderVariantEditor,
           role="menuitemcheckbox" aria-checked={visible} className="menu-item" onClick={() => {
             session.setColumnVisible(key, !visible); closeMenu();
           }}><span aria-hidden>{visible ? '✓' : '+'}</span><span className="menu-item-name">{name}</span></button>; }} />
+      <span className="action-compare-sample-count" data-testid="action-compare-sample-count">{sampleLabel(
+        Math.min(20, context.limits.max_sample_rows, context.sample_row_ids.length),
+        state.capturedSelection?.totalCount ?? null,
+      )}</span>
     </div>
 
     {state.stale && <div className="action-compare-stale" role="alert"><span>Data changed since this comparison.</span>

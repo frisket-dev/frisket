@@ -225,22 +225,12 @@ test.describe('connected action comparison', () => {
     await clickHeaderMenu(page, columns, 'topic');
     await expect(page.getByTestId('header-menu-action-run-section')).toContainText('Classify');
     await expect(page.getByTestId('header-menu-compare-action-run')).toBeVisible();
-    await expect(page.getByTestId('header-menu-edit-action-run')).toBeVisible();
+    await expect(page.getByTestId('header-menu-edit-action-run')).toHaveCount(0);
     await expect(page.getByTestId('header-menu-earlier-action-runs')).toHaveCount(0);
     await shoot(page, '01-column-menu.png');
 
-    await page.getByTestId('header-menu-edit-action-run').click();
-    await page.getByTestId('action-history-button').click();
-    const history = page.getByTestId('action-compare-history-dialog');
-    await expect(history).toBeVisible();
-    await expect(history).toContainText('1 stored run');
-    await expect(history.getByTestId(`action-compare-history-choose-${baselineRunId}`)).toBeVisible();
-    await shoot(page, '02-earlier-runs.png');
-    await page.getByLabel('Close earlier runs').click();
-    await page.getByTestId('action-drawer-close').click();
-
-    await chooseCompareFromColumnMenu(page, columns, 'topic');
-    await expect(page.getByTestId('action-compare-scratch-tag')).toHaveText('Comparing 3 sample rows');
+    await page.getByTestId('header-menu-compare-action-run').click();
+    await expect(page.getByTestId('action-compare-sample-count')).toHaveText('3 sample rows');
     await expect(page.getByTestId('action-compare-variant-A')).toContainText('in table');
     await shoot(page, '03-current-values.png');
 
@@ -251,7 +241,7 @@ test.describe('connected action comparison', () => {
     await shoot(page, '04-variant-editor.png');
     await editor.getByRole('button', { name: 'Close variant editor' }).click();
 
-    await page.getByRole('button', { name: 'Re-run', exact: true }).click();
+    await page.getByRole('button', { name: 'Run comparison', exact: true }).click();
     await approveCostGateIfShown(page);
     const variantB = page.getByTestId('action-compare-variant-B');
     await expect(variantB).toContainText('ready', { timeout: 60_000 });
@@ -267,6 +257,13 @@ test.describe('connected action comparison', () => {
     const historyButton = await page.getByTestId('action-history-button').boundingBox();
     const closeButton = await page.getByTestId('action-drawer-close').boundingBox();
     expect(Math.abs(historyButton!.y - closeButton!.y)).toBeLessThan(3);
+    await page.getByTestId('action-history-button').click();
+    const history = page.getByTestId('action-compare-history-menu');
+    await expect(history).toBeVisible();
+    await expect(history.getByTestId(`action-compare-history-choose-${baselineRunId}`)).toBeVisible();
+    await shoot(page, '02-earlier-runs.png');
+    await page.keyboard.press('Escape');
+    await expect(history).toHaveCount(0);
     await expect(replacementForm.getByRole('button', { name: 'Replace all rows', exact: true })).toBeEnabled();
     await shoot(page, '06-replace-settings.png');
 
@@ -306,7 +303,7 @@ test.describe('connected action comparison', () => {
     const columns = await sheetColumns(page.request, pid, sheetId);
 
     await chooseCompareFromColumnMenu(page, columns, 'topic');
-    await expect(page.getByTestId('action-compare-scratch-tag')).toHaveText('Comparing 20 sample rows');
+    await expect(page.getByTestId('action-compare-sample-count')).toHaveText('20 sample rows');
     await shoot(page, '10-default-sample.png');
     await page.getByTestId('action-compare-maintab-close').click();
     await expect(page.getByTestId('action-compare-toolbar')).toHaveCount(0);
@@ -316,8 +313,8 @@ test.describe('connected action comparison', () => {
       window as typeof window & { __frisketGridSelection?: { rows: number[] } }
     ).__frisketGridSelection?.rows.length ?? 0)).toBe(25);
     await chooseCompareFromColumnMenu(page, columns, 'topic');
-    await expect(page.getByTestId('action-compare-scratch-tag'))
-      .toHaveText('Comparing 20 of 25 selected rows');
+    await expect(page.getByTestId('action-compare-sample-count'))
+      .toHaveText('20 of 25 selected rows');
     await shoot(page, '11-captured-selection.png');
   });
 });

@@ -27,6 +27,7 @@ button.action-compare-variant-body:focus-visible { outline: 2px solid var(--focu
 .action-compare-visibility { display: flex; min-height: 38px; flex: 0 0 auto; align-items: center; gap: var(--space-6); padding: var(--space-6) var(--space-12); border-bottom: 1px solid var(--border); white-space: nowrap; }
 .action-compare-visibility > span { color: var(--text-light); font-size: var(--font-size-meta); }
 .action-compare-visibility-row { gap: var(--space-6); }
+.action-compare-sample-count { flex: 0 0 auto; margin-left: var(--space-8); }
 .action-compare-visibility .btn { padding: 3px 9px; border-radius: var(--radius-999); font-weight: 500; }
 .action-compare-visibility-overflow { min-width: 28px; border: 1px solid var(--border); border-radius: var(--radius-999); background: var(--bg); }
 .action-compare-stale { display: flex; flex: 0 0 auto; align-items: center; gap: var(--space-8); padding: var(--space-6) var(--space-12); border-bottom: 1px solid var(--border); color: var(--text-mid); background: var(--amber-bg); font-size: var(--font-size-small); }

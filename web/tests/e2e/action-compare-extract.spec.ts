@@ -223,9 +223,12 @@ test('Extract compares two typed fields across A/B/C and opens Use settings', as
   await editorC.getByRole('button', { name: 'Close variant editor' }).click();
   await expect(page.getByTestId('action-compare-variant-chips').locator('.action-compare-variant'))
     .toHaveCount(3);
+  const variantsBox = await page.getByTestId('action-compare-variant-A').boundingBox();
+  const runBox = await page.getByRole('button', { name: 'Run comparison', exact: true }).boundingBox();
+  expect(Math.abs((variantsBox!.y + variantsBox!.height / 2) - (runBox!.y + runBox!.height / 2))).toBeLessThan(3);
   await shoot(page, '04-extract-abc-pending.png');
 
-  await page.getByRole('button', { name: 'Re-run', exact: true }).click();
+  await page.getByRole('button', { name: 'Run comparison', exact: true }).click();
   await approveCostGateIfShown(page);
   await expect(page.getByTestId('action-compare-variant-B')).toContainText('ready', { timeout: 60_000 });
   await expect(page.getByTestId('action-compare-variant-C')).toContainText('ready', { timeout: 60_000 });
@@ -282,7 +285,7 @@ test('fresh Ask can enter Compare before any action executes', async ({ page }) 
 
   await expect(page.getByTestId('action-compare-toolbar')).toBeVisible({ timeout: 20_000 });
   await expect(page.getByTestId('action-compare-variant-A')).toContainText('pending');
-  await expect(page.getByTestId('action-compare-scratch-tag')).toHaveText('Comparing 3 sample rows');
+  await expect(page.getByTestId('action-compare-sample-count')).toHaveText('3 sample rows');
   expect((await sheetColumns(page.request, pid, sheetId)).map((column) => column.name))
     .toEqual(['case_text']);
   expect(await historyTotal(page.request, pid)).toBe(beforeHistory);
