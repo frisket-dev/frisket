@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import json
 from pathlib import Path
 from typing import Any
@@ -422,6 +423,74 @@ def test_media_to_markdown_trafilatura_html_engine_converts_html_blob(
         assert "<html" not in markdown.lower()
     finally:
         project.close()
+
+
+def test_url_import_failure_becomes_truthful_missing_document_without_provider_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from frisket.engine.executor import run_action_spec
+
+    class NoCallClient:
+        async def post(self, *args: Any, **kwargs: Any) -> None:
+            pytest.fail("a missing imported document must not call the sidecar")
+
+    class NoCallRouter:
+        client = NoCallClient()
+
+        @staticmethod
+        def local_endpoint_url_for_model(model: str) -> None:
+            del model
+            return None
+
+    monkeypatch.setenv("FRISKET_MODELS_URL", "http://models.invalid:9000")
+    monkeypatch.setenv("FRISKET_MODELS_TOKEN", "test-token")
+    with closing(Project.create(tmp_path / "failed-url.frisket")) as project:
+        imported = run_action_spec(
+            project,
+            {
+                "action_id": "import.urls",
+                "scope": {"kind": "project"},
+                "sheet_name": "Failed URL",
+                "params": {"urls": ["not-a-url"]},
+                "idempotency_key": "failed-url-import",
+            },
+            project_id=PROJECT_ID,
+        )
+        assert imported.status == "completed", imported.errors
+        sheet_id = next(
+            output.sheet_id for output in imported.outputs if output.kind == "sheet"
+        )
+        row_id = int(
+            project.db.execute(
+                "SELECT id FROM rows WHERE sheet_id=?", (sheet_id,)
+            ).fetchone()[0]
+        )
+        action = {
+            "action_id": "media.to_markdown",
+            "scope": {
+                "kind": "sheet_rows",
+                "sheet_id": sheet_id,
+                "row_ids": [row_id],
+            },
+            "params": {"source": "media", "engine": "docling"},
+            "output_names": {
+                "markdown": "markdown",
+                "ocr_used": "markdown_ocr_used",
+            },
+            "idempotency_key": "markdown-after-failed-url",
+        }
+
+        result = run_action_spec(
+            project, action, project_id=PROJECT_ID, router=NoCallRouter()
+        )
+        assert result.status == "failed", result.errors
+        run_id = int(result.run_id)
+        failures = project.db.execute(
+            "SELECT DISTINCT error_code,error FROM results WHERE run_id=?",
+            (run_id,),
+        ).fetchall()
+        assert [row["error_code"] for row in failures] == ["missing_input"]
+        assert "download or upload" in failures[0]["error"].lower()
 
 
 def test_media_to_markdown_params_reject_non_integer_sheet_id() -> None:
