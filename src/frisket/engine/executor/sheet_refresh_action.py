@@ -474,7 +474,10 @@ def _refresh_sheet(
         )
 
     derive_request = refresh_plan.request
-    from frisket.engine.executor.table_action import prepare_table_producer
+    from frisket.engine.executor.table_action import (
+        _list_output_ai_generated,
+        prepare_table_producer,
+    )
 
     bound = BoundTypedActionRequest.bind(
         ACTION_REGISTRY.get(derive_request.action_id), derive_request
@@ -502,12 +505,41 @@ def _refresh_sheet(
         )
         if isinstance(checked_rows, ActionError):
             raise TableReadRefused(checked_rows)
+        copied_by_output = {
+            prepared.resolved_output_names.get(column.name, column.name): column
+            for column in reader.copied_columns
+        }
+        if copied_by_output:
+            current = {
+                str(column["name"]): column
+                for column in cur.execute(
+                    "SELECT name, type, ai_generated, hidden FROM columns "
+                    "WHERE sheet_id=? AND active=1",
+                    (sheet_id,),
+                ).fetchall()
+            }
+            drifted = [
+                name
+                for name, copied in copied_by_output.items()
+                if (existing := current.get(name)) is None
+                or existing["type"] != canonical_column_type(copied.type)
+                or bool(existing["ai_generated"]) != copied.ai_generated
+                or bool(existing["hidden"])
+            ]
+            if drifted:
+                raise TableError(
+                    "invalid_input_ref",
+                    "Selected source or copied column metadata changed; create a new derived sheet",
+                    details={"columns": drifted},
+                )
         resolved = {
             "columns": [
                 MaterializedColumnSpec(
                     name=column.name,
                     type=column.type,
-                    ai_generated=reader.source_ai_generated,
+                    ai_generated=_list_output_ai_generated(
+                        reader, column.name, prepared.resolved_output_names
+                    ),
                     hidden=column.hidden,
                     format=column.format,
                 )
@@ -546,6 +578,7 @@ def _refresh_sheet(
         name=sheet["name"],
         op_id=op_id,
         row_count=refreshed_rows,
+        reads=tuple(deepcopy(reader.facts)),
     )
 
 

@@ -19,6 +19,7 @@ import type { WorkbenchResolvedLayoutContribution } from '../workbench/layout';
 import type { RowTextTarget } from '../state/detailStore';
 import { ClampedField, FieldValue } from './rowInspection/FieldValue';
 import { CellEvidenceBlock } from './rowInspection/CellEvidence';
+import { RowSourceDocuments } from './rowInspection/RowSourceDocuments';
 import { ExplainBlock, ProvenanceBlock } from './rowInspection/CellRunDetails';
 
 const EMPTY_CONTRIBUTIONS: WorkbenchResolvedLayoutContribution[] = [];
@@ -53,6 +54,8 @@ export interface RowDrawerBodyProps {
    *  point that jumps to
    *  the Document reader focused on this row + column. */
   onOpenInDocumentView?(columnId: string): void;
+  onOpenRowRef?(sheetId: string, rowId: string): void;
+  onOpenSourceDocument?(sheetId: string, rowId: string, columnId: string, page?: number): void;
   /** Deliberate per-row retry of a terminal empty_output cell (the
    *  empty-output terminal-row contract): run.backfill with this row's exact
    *  id. The promise settles when the retry run finishes. */
@@ -75,6 +78,8 @@ export function RowDrawerBody({
   renderDetailContribution,
   bodyRef,
   onOpenInDocumentView,
+  onOpenRowRef,
+  onOpenSourceDocument,
   onRetryCell,
   expandedRunResultFields,
   onToggleRunResultField,
@@ -107,6 +112,9 @@ export function RowDrawerBody({
           ⤢ Open in Document view
         </button>
       )}
+      {onOpenSourceDocument && (
+        <RowSourceDocuments key={row.id} rowId={String(row.id)} onOpenDocument={onOpenSourceDocument} />
+      )}
       {(row.childCount ?? 0) > 0 && (
         <button
           type="button"
@@ -129,18 +137,12 @@ export function RowDrawerBody({
           ↳ {row.childCount} derived {row.childCount === 1 ? 'row' : 'rows'} →
         </button>
       )}
-      {row.parentRowId && sheet.parent && (
+      {row.parentRowId && sheet.parent && onOpenRowRef && (
         <button
           type="button"
           className="row-lineage"
           data-testid="row-lineage"
-          onClick={() =>
-            window.dispatchEvent(
-              new CustomEvent('frisket:reveal-row', {
-                detail: { sheetId: sheet.parent!.sheetId, rowId: row.parentRowId },
-              }),
-            )
-          }
+          onClick={() => onOpenRowRef(sheet.parent!.sheetId, row.parentRowId!)}
           title={`Open the source row in ${sheet.parent.sheetName}`}
         >
           ↰ derived from <strong>{sheet.parent.sheetName}</strong> via {sheet.parent.viaAction}

@@ -1796,6 +1796,13 @@ class RealApi implements FrisketApi {
     return this.projectEvidenceApi.getCellEvidence(rowId, columnId, opts?.includeStale);
   }
 
+  getRowSourceDocuments(
+    rowId: string,
+    opts?: { signal?: AbortSignal },
+  ): Promise<import('./types').RowSourceDocumentsPayload> {
+    return this.projectEvidenceApi.getRowSourceDocuments(rowId, { signal: opts?.signal });
+  }
+
   getColumnEvidence(
     sheetId: string,
     columnId: string,

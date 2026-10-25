@@ -173,6 +173,7 @@ export interface ProjectApiPort extends
   listAttemptReceipts: FrisketApi['listAttemptReceipts'];
   getProvenanceManifest: FrisketApi['getProvenanceManifest'];
   getCellEvidence: FrisketApi['getCellEvidence'];
+  getRowSourceDocuments: FrisketApi['getRowSourceDocuments'];
   getRunTraceRow: FrisketApi['getRunTraceRow'];
   getRunRows: FrisketApi['getRunRows'];
   columnValuesPreview: FrisketApi['columnValuesPreview'];
