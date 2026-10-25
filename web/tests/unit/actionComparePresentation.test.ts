@@ -136,7 +136,7 @@ describe('action comparison presentation', () => {
     expect(changes[0]?.after).not.toContain('{');
   });
 
-  it('bounds the number of settings shown and never exposes an opaque selector id verbatim', () => {
+  it('bounds the number of settings shown and falls back without exposing a selector id', () => {
     const catalog = entry();
     catalog.input_schema.properties = {
       ...catalog.input_schema.properties,
@@ -149,7 +149,7 @@ describe('action comparison presentation', () => {
     });
     const opaque = 'provider/internal/4c9f8ee0d3c24f27841457a285a0288b';
 
-    expect(presentation.labelForDraft(draft({ model: opaque }), 'B')).not.toContain(opaque);
+    expect(presentation.labelForDraft(draft({ model: opaque }), 'B')).toBe('Variant B');
     expect(presentation.describeVariantChanges(
       draft({ alpha: 'one', beta: 'two', gamma: 'three' }),
       draft({ alpha: 'changed', beta: 'changed', gamma: 'changed' }),
