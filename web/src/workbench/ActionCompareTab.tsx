@@ -1,5 +1,5 @@
 import { useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
-import { Check, Copy, Eye, EyeOff, LockKeyhole, Play, Plus, RotateCw, Square, X } from 'lucide-react';
+import { Check, Copy, Eye, EyeOff, LockKeyhole, Plus, RotateCw, X } from 'lucide-react';
 import type { ActionComparisonBoundedValue } from '../api/actionComparison';
 import type { GeneratedActionDraft } from '../api/types';
 import { Button } from '../components/Button';
@@ -9,6 +9,7 @@ import { useEscapeDismiss } from '../hooks/useEscapeDismiss';
 import { OverflowRow } from '../components/OverflowRow';
 import { StatusChip, type StatusTone } from '../components/PanelPrimitives';
 import { CompareToolbar } from './CompareLayout';
+import { CompareRunControl } from './CompareRunControl';
 import {
   type ActionCompareSession,
   type ActionCompareUseSettings,
@@ -118,8 +119,8 @@ export function ActionCompareTab({ projectId, session, rowHeight, wrapText, froz
   }, [editing]);
 
   const controls = <>
-    {running ? <Button type="button" onClick={session.stop}><Square size={13} /> Cancel</Button>
-      : <Button type="button" disabled={!pending} onClick={() => void session.runPending()}><Play size={13} /> Run comparison</Button>}
+    <CompareRunControl testIdPrefix="action-compare" busy={running} disabled={!pending}
+      onRun={() => void session.runPending()} onCancel={session.stop} />
     <Button type="button" aria-pressed={state.highlightDifferences}
       aria-label="Highlight differences"
       onClick={() => session.setHighlightDifferences(!state.highlightDifferences)}>

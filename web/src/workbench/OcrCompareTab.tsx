@@ -1,8 +1,9 @@
 import { CompareToolbar, CompareEngineChip } from './CompareLayout';
+import { CompareRunControl } from './CompareRunControl';
 import { Button } from '../components/Button';
 import { TextInput } from '../components/FormControls';
 import { useEffect, useMemo, useRef } from 'react';
-import { Loader2, Play, Plus } from 'lucide-react';
+import { Plus } from 'lucide-react';
 
 import type {
   OcrComparePreviewBlock,
@@ -290,41 +291,16 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
       {session.selectorOwners}
       <CompareToolbar testIdPrefix="ocr-compare" running={runningCount > 0}
         controls={<>
-          <Button
-            type="button"
-            className={`btn ocr-compare-run${runState === 'pending' ? ' btn-primary' : ''}`}
-            data-testid="ocr-compare-run"
-            data-run-state={runState}
-            data-pending-count={pendingPairs.length}
-            disabled={!active || (!busy && (runState === 'disabled' || runState === 'probing'))}
-            title={
-              runState === 'disabled'
-                ? 'Add an engine to stage work'
-                : runState === 'probing'
-                  ? 'Reading page count — Run available once the sample is ready'
-                  : undefined
-            }
-            onClick={() => {
-              if (busy) cancelRuns();
-              else if (runState === 'pending') runPending();
-              else if (runState === 'fresh') runAll();
-            }}
-          >
-            {busy ? (
-              <Loader2 size={13} className="ocr-compare-spin" aria-hidden />
-            ) : (
-              <Play size={13} aria-hidden />
-            )}
-            <span className="ocr-compare-run-label">
-              {busy ? 'Cancel' : 'Run comparison'}
-            </span>
-            {runState === 'pending' ? (
-              <span className="ocr-compare-run-count mono"> · {pendingPairs.length} pending</span>
-            ) : null}
-            {runState === 'running' ? (
-              <span className="ocr-compare-run-progress" data-testid="ocr-compare-run-progress" />
-            ) : null}
-          </Button>
+          <CompareRunControl testIdPrefix="ocr-compare" busy={busy}
+            disabled={!active || !docs.length || runState === 'disabled' || runState === 'probing'}
+            workingLabel={preparing ? 'Preparing…' : 'Running…'}
+            progress={runProgress ? `${runProgress.done} / ${runProgress.total}`
+              : runState === 'probing' ? 'Reading pages…'
+                : !preparing && pendingPairs.length ? `${pendingPairs.length} pending` : undefined}
+            statusDetail={runState === 'disabled' ? 'Add an available engine and a sample'
+              : runState === 'probing' ? 'Reading the page count' : undefined}
+            onRun={() => pendingPairs.length ? runPending() : runAll()}
+            onCancel={cancelRuns} />
           <SegmentedToggle
             testId="ocr-compare-mode-switch"
             className="ocr-compare-mode-switch"

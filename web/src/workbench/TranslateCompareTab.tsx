@@ -1,11 +1,11 @@
 import { CompareToolbar, CompareEngineChip, CompareResultColumn } from './CompareLayout';
+import { CompareRunControl } from './CompareRunControl';
 import { Button } from '../components/Button';
 import { FormField, TextArea, TextInput } from '../components/FormControls';
 import { PanelBody } from '../components/PanelLayout';
 import { PanelEmpty, PanelError } from '../components/PanelPrimitives';
 import styles from './TranslateCompareTab.module.css';
 import { useEffect, useMemo, useState } from 'react';
-import { Loader2, Play } from 'lucide-react';
 
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import type { EngineOption, TranslateCompareEngineResult } from '../api/open';
@@ -155,25 +155,12 @@ export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProp
   return (
     <section className="ocr-compare-tab" data-testid="translate-compare-tab">
       {selectorOwners}
-      <CompareToolbar testIdPrefix="translate-compare" running={running} label="ENGINES" chipsTestId="translate-compare-engine-chips"
+      <CompareToolbar testIdPrefix="translate-compare" running={running} label="Engines" chipsTestId="translate-compare-engine-chips"
         controls={<>
-          <Button
-            type="button"
-            className="btn-primary"
-            data-testid="translate-compare-run"
-            disabled={!canRun}
-            title={
-              !text.trim()
-                ? 'Paste some text first'
-                : selectedIds.length === 0
-                  ? 'Add at least one engine'
-                  : undefined
-            }
-            onClick={run}
-          >
-            {running ? <Loader2 size={13} className="ocr-compare-spin" /> : <Play size={13} />}{' '}
-            {running ? 'Translating…' : 'Translate'}
-          </Button>
+          <CompareRunControl testIdPrefix="translate-compare" busy={running} disabled={!canRun}
+            workingLabel="Translating…" onRun={() => void run()}
+            statusDetail={!text.trim() ? 'Paste some text first'
+              : selectedIds.length === 0 ? 'Add at least one engine' : undefined} />
         </>}
         note={<CompareBillableEnginesNote
           testidPrefix="translate-compare"

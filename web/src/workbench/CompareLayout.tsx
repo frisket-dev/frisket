@@ -67,7 +67,7 @@ export function CompareEngineChip({
   removeTestId?: string;
 }) {
   const name = <>
-    <span className="ocr-compare-variant-name">{label}</span>
+    <span className="ocr-compare-variant-name" title={label}>{label}</span>
     {engine && <EngineTierBadge tier={tierForEngine(engine)} testId={`${testIdPrefix}-${onConfigure ? 'variant-tier' : 'engine-chip-tier'}`} />}
     {summary && <span className="ocr-compare-variant-summary muted"> · {summary}</span>}
   </>;
@@ -81,7 +81,7 @@ export function CompareEngineChip({
     </span>}
     {onConfigure ? <>
       <button type="button" className="ocr-compare-variant-body" data-testid={`${testIdPrefix}-variant-body`}
-        disabled={disabled} onClick={onBodyClick} title="Configure variant">{name}</button>
+        disabled={disabled} onClick={onBodyClick} title={`Configure ${label}`}>{name}</button>
       <IconButton icon={Settings2} size="inline" className="ocr-compare-variant-gear"
         data-testid={`${testIdPrefix}-variant-gear`} label={`Configure ${label}`}
         disabled={disabled} onClick={onConfigure} />

@@ -1,8 +1,9 @@
 import { CompareToolbar, CompareEngineChip } from './CompareLayout';
+import { CompareRunControl } from './CompareRunControl';
 import { Button } from '../components/Button';
 import { TextInput } from '../components/FormControls';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Play, Plus } from 'lucide-react';
+import { Plus } from 'lucide-react';
 
 import type { PreviewSampleResult, TranscribeCompareScratchInput } from '../api/types';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
@@ -220,12 +221,12 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
                 for (const column of session.columns) session.invalidateColumn(column.id);
               }} />
           </label>
-          <Button type="button" className="btn-primary" data-testid="transcribe-compare-run"
-            disabled={!active || busy || !session.docs.length || !runnableColumns.length || !Number.isFinite(Number(timeLimit)) || Number(timeLimit) <= 0}
-            onClick={() => session.pendingPairs.length ? session.runPending() : session.runAll()}>
-            <Play size={13} /> {session.preparing ? 'Estimating…' : 'Run comparison'}
-          </Button>
-          {busy && <Button type="button" data-testid="transcribe-compare-cancel" onClick={session.cancelRuns}>Cancel</Button>}
+          <CompareRunControl testIdPrefix="transcribe-compare" busy={busy}
+            disabled={!active || !session.docs.length || !runnableColumns.length || session.runState === 'probing' || !Number.isFinite(Number(timeLimit)) || Number(timeLimit) <= 0}
+            workingLabel={session.preparing ? 'Preparing…' : 'Running…'}
+            progress={session.runProgress ? `${session.runProgress.done} / ${session.runProgress.total}` : undefined}
+            onRun={() => session.pendingPairs.length ? session.runPending() : session.runAll()}
+            onCancel={session.cancelRuns} />
           <Button
             type="button"
             className="ocr-compare-source-toggle"

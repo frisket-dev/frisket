@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Loader2, Play, Square } from 'lucide-react';
 
 import { Button } from '../components/Button';
+import './MediaCompareShell.css';
 
 export interface CompareRunControlProps {
   testIdPrefix: string;
