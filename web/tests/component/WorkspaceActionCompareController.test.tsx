@@ -14,7 +14,10 @@ import type { ActionCatalogEntry, ColumnRun, GeneratedActionDraft } from '../../
 import { WorkspaceStoresContext } from '../../src/bind/workspaceStoresContext';
 import { createWorkspaceStores, type WorkspaceStores } from '../../src/state/createWorkspaceStores';
 import type { ActionCompareUseSettings } from '../../src/workbench/actionCompareSession';
-import { useWorkspaceActionCompareController } from '../../src/workspace/useWorkspaceActionCompareController';
+import {
+  createActionCompareCostConfirmation,
+  useWorkspaceActionCompareController,
+} from '../../src/workspace/useWorkspaceActionCompareController';
 import { catalogPayload } from '../support/actionFormFixtures';
 import { row } from '../support/domainFixtures';
 
@@ -188,6 +191,32 @@ function renderController(selectedRowIds: readonly string[] = ['11', '12', '13']
 }
 
 describe('useWorkspaceActionCompareController', () => {
+  it('cancels only its own pending cost gate when the comparison signal aborts', async () => {
+    const jobs = harness!.stores.job;
+    const confirm = createActionCompareCostConfirmation(jobs);
+    const controller = new AbortController();
+    const comparison = confirm({ cost: 1, rows: 3 }, 'Compare these rows?', controller.signal);
+
+    expect(jobs.store.get().costGate?.message).toBe('Compare these rows?');
+    controller.abort();
+    await expect(comparison).resolves.toBe(false);
+    expect(jobs.store.get().costGate).toBeNull();
+
+    const displacedController = new AbortController();
+    const displaced = confirm(
+      { cost: 1, rows: 3 },
+      'Displaced comparison?',
+      displacedController.signal,
+    );
+    const successor = jobs.requestCostConfirmation({ cost: 2, rows: 5 }, 'Successor request?');
+    displacedController.abort();
+
+    await expect(displaced).resolves.toBe(false);
+    expect(jobs.store.get().costGate?.message).toBe('Successor request?');
+    jobs.confirmCostGate();
+    await expect(successor).resolves.toBe(true);
+  });
+
   it('keeps the comparison selection separate from an all-row chosen draft and permits a labeled stale handoff', async () => {
     const initial = comparisonContext();
     const changed = comparisonContext({ fingerprint: 'sample-v2' });
@@ -292,7 +321,7 @@ describe('useWorkspaceActionCompareController', () => {
     await waitFor(() => expect(view.result.current.actionCompareSession).not.toBe(session));
   });
 
-  it('refuses Use while a retarget context read is pending, then restores it after retarget failure', async () => {
+  it('refuses Use while a retarget context read is pending and stays closed after retarget failure', async () => {
     const initial = comparisonContext();
     let rejectRetarget!: (error: Error) => void;
     vi.mocked(harness!.api.getContext)
@@ -302,8 +331,7 @@ describe('useWorkspaceActionCompareController', () => {
 
     act(() => view.result.current.openActionCompare(ALL_ROWS_DRAFT));
     await waitFor(() => expect(view.result.current.actionCompareSession).not.toBeNull());
-    const originalSession = view.result.current.actionCompareSession!;
-    act(() => { originalSession.addVariant(); });
+    act(() => { view.result.current.actionCompareSession!.addVariant(); });
 
     const nextDraft = { ...ALL_ROWS_DRAFT, params: { ...ALL_ROWS_DRAFT.params, instruction: 'Next target' } };
     act(() => view.result.current.openActionCompare(nextDraft));
@@ -316,12 +344,9 @@ describe('useWorkspaceActionCompareController', () => {
 
     await act(async () => { rejectRetarget(new Error('Retarget context failed.')); });
     await waitFor(() => expect(harness!.showError).toHaveBeenCalledWith('Retarget context failed.'));
-    expect(view.result.current.actionCompareSession).toBe(originalSession);
-    act(() => view.result.current.cancelActionCompareRetarget());
-
-    vi.mocked(harness!.api.getContext).mockResolvedValueOnce(initial);
-    await act(async () => view.result.current.useActionCompareSettings(chosenSettings(initial)));
-    expect(harness!.runActionFromSurface).toHaveBeenCalledTimes(1);
+    expect(view.result.current.actionCompareSession).toBeNull();
+    expect(harness!.stores.compareView.store.get().action.open).toBe(false);
+    expect(harness!.runActionFromSurface).not.toHaveBeenCalled();
   });
 
   it('loads actual run settings and anchors the launch to that run and source sheet', async () => {
@@ -354,6 +379,45 @@ describe('useWorkspaceActionCompareController', () => {
     expect(view.result.current.actionCompareHistoryAnchor).toEqual({
       sheetId: '7', columnId: '101', runId: '42',
     });
+  });
+
+  it('captures the current grid selection for Edit even when an open comparison has an older selection', async () => {
+    vi.mocked(harness!.api.getContext).mockResolvedValue(comparisonContext({ runId: 42 }));
+    let liveSelection: readonly string[] = ['11', '12'];
+    const current = harness!;
+    const view = renderHook(() => useWorkspaceActionCompareController({
+      projectId: 'action-compare-controller',
+      sheetId: '7',
+      selectedRowIds: liveSelection,
+      selectedRowCount: liveSelection.length,
+      sampleOptions: {},
+      runActionFromSurface: current.runActionFromSurface,
+      closeActionRoute: current.closeActionRoute,
+      setOpenSplit: current.stores.chrome.setOpenSplit,
+      showError: current.showError,
+    }), { wrapper: current.wrapper });
+
+    act(() => view.result.current.openActionCompare(ALL_ROWS_DRAFT));
+    await waitFor(() => expect(view.result.current.actionCompareSession).not.toBeNull());
+    expect(view.result.current.actionCompareSession!.getSnapshot().capturedSelection?.rowIds)
+      .toEqual([11, 12]);
+
+    liveSelection = ['31', '32'];
+    view.rerender();
+    await act(async () => view.result.current.editActionRun({
+      sheetId: '7', columnId: '101', runId: '42',
+    }));
+
+    expect(current.runActionFromSurface).toHaveBeenCalledWith(
+      'map.extract',
+      undefined,
+      expect.objectContaining({
+        actionCompare: expect.objectContaining({
+          kind: 'edit-existing',
+          capturedSelection: { rowIds: [31, 32], totalCount: 2 },
+        }),
+      }),
+    );
   });
 
   it('does not advertise comparison when canonical context loading refuses the run', async () => {
@@ -393,13 +457,46 @@ describe('useWorkspaceActionCompareController', () => {
     });
 
     expect(details).toEqual(expect.objectContaining({
-      actionId: 'map.extract',
+      actionTitle: 'Extract structured fields',
       comparisonKind: null,
       outputLabels: ['pdf_party'],
     }));
   });
 
-  it('warns only for scratch retargets, then disposes the old session before installing the new one', async () => {
+  it('surfaces a transient comparison-context failure so the grid can retry it', async () => {
+    const comparisonEntry = {
+      kind: 'map.extract',
+      ui_hints: { comparison: { kind: 'row_overlay' } },
+    } as ActionCatalogEntry;
+    act(() => harness!.stores.actionCatalog.store.set(current => ({
+      ...current,
+      status: 'ready',
+      catalog: catalogPayload({ actions: [comparisonEntry] }),
+      version: current.version + 1,
+    })));
+    vi.spyOn(harness!.stores.projectApi, 'getColumnRuns').mockResolvedValue({
+      columnName: 'pdf_party',
+      offset: 0,
+      limit: 20,
+      totalRuns: 1,
+      hasMore: false,
+      nextOffset: null,
+      currentRun: RUN,
+      currentRunLoaded: true,
+      latestRun: RUN,
+      latestRunLoaded: true,
+      mixedOrigins: false,
+      runs: [RUN],
+    });
+    vi.mocked(harness!.api.getContext).mockRejectedValue(new Error('temporary network failure'));
+    const view = renderController();
+
+    await expect(view.result.current.loadActionRunEntry({
+      sheetId: '7', columnId: '101', runId: '42',
+    })).rejects.toThrow('temporary network failure');
+  });
+
+  it('warns only for scratch retargets, then detaches and disposes the old session before loading the new context', async () => {
     const first = comparisonContext();
     const secondDraft = { ...ALL_ROWS_DRAFT, params: { ...ALL_ROWS_DRAFT.params, instruction: 'Second' } };
     const second = comparisonContext({ fingerprint: 'sample-second', draft: secondDraft });
@@ -409,6 +506,13 @@ describe('useWorkspaceActionCompareController', () => {
     act(() => view.result.current.openActionCompare(ALL_ROWS_DRAFT));
     await waitFor(() => expect(view.result.current.actionCompareSession).not.toBeNull());
     const oldSession = view.result.current.actionCompareSession!;
+    const dispose = oldSession.dispose.bind(oldSession);
+    let finishDispose!: () => void;
+    const disposalBlocked = new Promise<void>(resolve => { finishDispose = resolve; });
+    vi.spyOn(oldSession, 'dispose').mockImplementation(async () => {
+      await disposalBlocked;
+      await dispose();
+    });
     act(() => { oldSession.addVariant(); });
 
     act(() => view.result.current.openActionCompare(secondDraft));
@@ -420,6 +524,10 @@ describe('useWorkspaceActionCompareController', () => {
 
     act(() => view.result.current.openActionCompare(secondDraft));
     act(() => view.result.current.confirmActionCompareRetarget());
+    expect(view.result.current.actionCompareSession).toBeNull();
+    expect(harness!.api.getContext).toHaveBeenCalledTimes(1);
+    await act(async () => { finishDispose(); await disposalBlocked; });
+    await waitFor(() => expect(harness!.api.getContext).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(view.result.current.actionCompareSession).not.toBe(oldSession));
     expect(oldSession.getSnapshot().disposed).toBe(true);
     expect(view.result.current.actionCompareSession!.getSnapshot().context.draft).toEqual(secondDraft);
@@ -445,5 +553,20 @@ describe('useWorkspaceActionCompareController', () => {
 
     expect(view.result.current.actionCompareSession).toBeNull();
     expect(harness!.stores.compareView.store.get().action.open).toBe(false);
+  });
+
+  it('does not focus a closed comparison when returning from Edit settings', async () => {
+    vi.mocked(harness!.api.getContext).mockResolvedValue(comparisonContext());
+    const view = renderController();
+    const focus = vi.spyOn(harness!.stores.compareView, 'focus');
+
+    act(() => view.result.current.openActionCompare(ALL_ROWS_DRAFT));
+    await waitFor(() => expect(view.result.current.actionCompareSession).not.toBeNull());
+    act(() => view.result.current.closeActionCompare());
+    act(() => view.result.current.returnToActionCompare());
+
+    expect(harness!.closeActionRoute).toHaveBeenCalledTimes(1);
+    expect(focus).not.toHaveBeenCalled();
+    expect(harness!.stores.compareView.store.get().action.active).toBe(false);
   });
 });

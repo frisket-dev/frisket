@@ -1,5 +1,5 @@
 import './actionRunEntry.css';
-import { Clock3, GitCompareArrows, Pencil, Sparkles } from 'lucide-react';
+import { GitCompareArrows, Pencil, Sparkles } from 'lucide-react';
 import type { CSSProperties, ReactNode } from 'react';
 import { Button } from '../components/Button';
 import { countLabel, formatRelativeTime } from '../format';
@@ -16,7 +16,6 @@ export interface ActionRunAnchor {
 /** Display-safe facts returned by the workspace's lazy comparison-context
  * reader. Values are labels, never raw params, runtime envelopes, or secrets. */
 export interface ActionRunEntryDetails {
-  actionId: string;
   actionTitle: string;
   comparisonKind: ActionComparisonKind | null;
   sourceLabels: string[];
@@ -27,23 +26,17 @@ export interface ActionRunEntryDetails {
   ranAt?: string | null;
   errorCount?: number | null;
   outcomeLabel?: string | null;
-  /** Current cells may include later runs/manual edits; the selected run is
-   * still truthful as the settings seed, not as sole current-value producer. */
-  currentValuesMixed?: boolean;
 }
 
 export interface ActionColumnMenuEntry {
   anchor: ActionRunAnchor;
-  actionId: string;
   actionTitle: string;
-  outputCount: number;
   comparisonKind: ActionComparisonKind;
 }
 
 export interface ActionRunEntryCallbacks {
   onCompareActionRun?(anchor: ActionRunAnchor): void;
   onEditActionRun?(anchor: ActionRunAnchor): void;
-  onEarlierActionRuns?(anchor: ActionRunAnchor): void;
 }
 
 function safeLabels(labels: readonly string[]): string[] {
@@ -80,7 +73,6 @@ export function ActionRunEntryCard({
   layoutControls,
   onCompareActionRun,
   onEditActionRun,
-  onEarlierActionRuns,
   onPointerEnter,
   onPointerLeave,
   style,
@@ -114,7 +106,6 @@ export function ActionRunEntryCard({
       <header className="action-run-entry-header">
         <Sparkles size={15} aria-hidden />
         <strong>{title}</strong>
-        {details?.actionId && <code>{details.actionId}</code>}
       </header>
 
       {status === 'loading' && (
@@ -134,11 +125,6 @@ export function ActionRunEntryCard({
             {outputs.length > 0 && <MetadataRow label="Creates">{outputs.join(', ')}</MetadataRow>}
             {ran && <MetadataRow label="Ran">{ran}</MetadataRow>}
           </dl>
-          {details.currentValuesMixed && (
-            <p className="action-run-entry-note">
-              Current values include later runs or edits. Settings come from this run.
-            </p>
-          )}
           <div className="action-run-entry-actions">
             {eligible && onCompareActionRun && (
               <Button
@@ -161,16 +147,6 @@ export function ActionRunEntryCard({
                 onClick={() => onEditActionRun(anchor)}
               >
                 <Pencil size={13} aria-hidden /> Edit settings…
-              </Button>
-            )}
-            {onEarlierActionRuns && (
-              <Button
-                type="button"
-                className="action-run-entry-secondary"
-                data-testid="action-run-entry-history"
-                onClick={() => onEarlierActionRuns(anchor)}
-              >
-                <Clock3 size={13} aria-hidden /> Earlier runs
               </Button>
             )}
           </div>

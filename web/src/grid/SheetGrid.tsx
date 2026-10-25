@@ -356,7 +356,6 @@ export interface SheetGridProps {
   loadActionRunEntry?(anchor: ActionRunAnchor): Promise<ActionRunEntryDetails | null>;
   onCompareActionRun?(anchor: ActionRunAnchor): void;
   onEditActionRun?(anchor: ActionRunAnchor): void;
-  onEarlierActionRuns?(anchor: ActionRunAnchor): void;
   onColumnGroupsChange?(groups: ColumnGroupViewSpec[]): void;
   onSelectedRowsChange?(selection: { sheetId: string; rowIds: string[]; rowIndexes: number[] }): void;
   onColumnOrderChange?(columns: string[]): void;
@@ -1029,7 +1028,8 @@ function useGridHeaderHandlers(
     const anchor = anchorForGroup(group);
     if (!anchor) return;
     const key = `${anchor.sheetId}:${anchor.runId}:${anchor.columnId}`;
-    if (entryCache[key] || entryLoads.current.has(key)) return;
+    const cached = entryCache[key];
+    if (cached?.status === 'loading' || cached?.status === 'ready' || entryLoads.current.has(key)) return;
     entryLoads.current.add(key);
     setEntryCache((entries) => ({
       ...entries,
@@ -1115,9 +1115,8 @@ function useGridHeaderHandlers(
       return;
     }
     keepGroupHoverOpen();
-    loadGroupEntry(group);
     setHoveredGroupMenu({ sheetId, runId: group.runId, bounds: event.bounds });
-  }, [closeGroupHover, columnGroups.groupByKey, keepGroupHoverOpen, loadActionRunEntry, loadGroupEntry, sheetId]);
+  }, [closeGroupHover, columnGroups.groupByKey, keepGroupHoverOpen, loadActionRunEntry, sheetId]);
 
   const onGroupHeaderClicked = useCallback(
     (colIdx: number, event: GroupHeaderClickedEventArgs) => {
@@ -1221,7 +1220,6 @@ function NativeColumnGroupMenu({
   showLayoutControls,
   onCompareActionRun,
   onEditActionRun,
-  onEarlierActionRuns,
   onPointerEnter,
   onPointerLeave,
 }: {
@@ -1281,7 +1279,6 @@ function NativeColumnGroupMenu({
           layoutControls={showLayoutControls ? layoutControls : undefined}
           onCompareActionRun={onCompareActionRun}
           onEditActionRun={onEditActionRun}
-          onEarlierActionRuns={onEarlierActionRuns}
           onPointerEnter={onPointerEnter}
           onPointerLeave={onPointerLeave}
           style={{
@@ -1358,7 +1355,7 @@ function useSheetGridController({
   onRevealColumns, onAddColumnAtEnd,
   onRowOpen, onColumnOpen, onHeaderSort, onSelectedRowsChange,
   onColumnHeaderMenu, loadActionRunEntry,
-  onCompareActionRun, onEditActionRun, onEarlierActionRuns,
+  onCompareActionRun, onEditActionRun,
   onColumnGroupsChange, onColumnOrderChange, onCellEdit,
   onFacetValueFilter, rowCacheStore,
   columnAnnotations: externalColumnAnnotations = EMPTY_COLUMN_ANNOTATIONS,
@@ -1499,7 +1496,7 @@ function useSheetGridController({
     onHeaderSort,
     aiColumnTheme,
     loadActionRunEntry,
-    { onCompareActionRun, onEditActionRun, onEarlierActionRuns },
+    { onCompareActionRun, onEditActionRun },
   );
 
   const previewColumnAt = useCallback((col: number) => {
@@ -2490,7 +2487,6 @@ function SheetGridSurface({ controller }: { controller: SheetGridController }) {
             showLayoutControls={headerHandlers.activeGroupMenuPinned}
             onCompareActionRun={headerHandlers.onCompareActionRun}
             onEditActionRun={headerHandlers.onEditActionRun}
-            onEarlierActionRuns={headerHandlers.onEarlierActionRuns}
             onPointerEnter={headerHandlers.keepGroupHoverOpen}
             onPointerLeave={headerHandlers.closeGroupHover}
           />

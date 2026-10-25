@@ -910,7 +910,6 @@ export function useWorkspaceModel({
           loadActionRunEntry={actionCompare.loadActionRunEntry}
           onCompareActionRun={actionCompare.compareActionRun}
           onEditActionRun={actionCompare.editActionRun}
-          onEarlierActionRuns={actionCompare.setActionCompareHistoryAnchor}
           onColumnOpen={openColumnPanel}
           onHeaderSort={sortHeaderColumn}
           onColumnHeaderMenu={openGridHeaderMenu}

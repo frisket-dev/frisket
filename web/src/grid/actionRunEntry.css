@@ -13,7 +13,7 @@
 
 .action-run-entry-header {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 7px;
   padding: 10px 12px;
@@ -26,26 +26,12 @@
   overflow-wrap: anywhere;
   font-size: 13px;
 }
-.action-run-entry-header code {
-  max-width: 140px;
-  overflow: hidden;
-  color: var(--text-light);
-  font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.action-run-entry-message,
-.action-run-entry-note {
+.action-run-entry-message {
   margin: 0;
   padding: 10px 12px;
   color: var(--text-mid);
   font-size: 12px;
   line-height: 1.4;
-}
-.action-run-entry-note {
-  padding-top: 0;
-  color: var(--text-light);
 }
 
 .action-run-entry-metadata {

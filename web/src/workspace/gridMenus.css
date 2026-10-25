@@ -119,9 +119,6 @@
   padding: 4px 8px 2px;
 }
 .grid-header-menu-action-origin {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 2px 8px;
   padding: 5px 8px 4px;
   color: var(--text);
 }
@@ -130,20 +127,6 @@
   overflow-wrap: anywhere;
   font-size: 11px;
   font-weight: 700;
-}
-.grid-header-menu-action-origin code {
-  align-self: start;
-  max-width: 92px;
-  overflow: hidden;
-  color: var(--text-light);
-  font-size: 9.5px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.grid-header-menu-action-origin small {
-  grid-column: 1 / -1;
-  color: var(--text-light);
-  font-size: 10px;
 }
 /* Filtered-state chip near the caret (replaces inc 6's funnel sprite). */
 .grid-header-menu-filtered {

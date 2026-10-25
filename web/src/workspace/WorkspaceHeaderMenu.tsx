@@ -44,7 +44,6 @@ export function WorkspaceHeaderMenuSlot() {
     loadActionRunEntry,
     compareActionRun,
     editActionRun,
-    setActionCompareHistoryAnchor,
   } = useMainViewModel();
   const { openDiscover } = useWorkspaceShell();
   const run = useRun();
@@ -82,8 +81,11 @@ export function WorkspaceHeaderMenuSlot() {
     if (sheet && visibleHeaderMenu && runId) {
       const anchor = { sheetId: sheet.id, columnId: visibleHeaderMenu.column.id, runId };
       void loadActionRunEntry(anchor).then(details => {
-        if (active && details?.comparisonKind) setActionRunEntry({ anchor, actionId: details.actionId,
-          actionTitle: details.actionTitle, outputCount: details.outputLabels.length, comparisonKind: details.comparisonKind });
+        if (active && details?.comparisonKind) setActionRunEntry({
+          anchor,
+          actionTitle: details.actionTitle,
+          comparisonKind: details.comparisonKind,
+        });
       }).catch(() => undefined);
     }
     return () => { active = false; };
@@ -128,7 +130,6 @@ export function WorkspaceHeaderMenuSlot() {
                   actionRunEntry={actionRunEntry}
                   onCompareActionRun={anchor => { closeHeaderMenu(); compareActionRun(anchor); }}
                   onEditActionRun={anchor => { closeHeaderMenu(); void editActionRun(anchor); }}
-                  onEarlierActionRuns={anchor => { closeHeaderMenu(); setActionCompareHistoryAnchor(anchor); }}
                   activeSort={headerMenuActiveSort}
                   activeFilter={headerMenuActiveFilter}
                   onSort={(direction) => {

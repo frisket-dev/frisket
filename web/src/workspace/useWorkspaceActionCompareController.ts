@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ActionLaunchPrefill } from '../actions/actionFormInitial';
 import { createActionComparisonApi, type ActionComparisonContext, type ActionComparisonSource } from '../api/actionComparison';
 import { actionPreviewRunErrorFromContract } from '../api/contractErrors';
-import type { GeneratedActionDraft, SheetDataOptions } from '../api/types';
+import type { GeneratedActionDraft, RunEstimate, SheetDataOptions } from '../api/types';
 import { useActionCatalogHandle } from '../bind/useActionCatalogHandle';
 import { useCompareViewHandle } from '../bind/useCompareViewHandle';
 import { useJobsHandle } from '../bind/useJobsHandle';
@@ -11,6 +11,7 @@ import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { useWorkViewHandle } from '../bind/useWorkViewHandle';
 import { actionComparisonKind } from '../grid/actionComparisonCatalog';
 import type { ActionRunAnchor, ActionRunEntryDetails } from '../grid/actionRunEntry';
+import type { JobStoreHandle } from '../state/jobStore';
 import { openCompareTabTransition } from '../state/workspaceTransitions';
 import { createActionCompareRunner, createActionCompareSession, type ActionCompareCapturedSelection,
   type ActionCompareSession, type ActionCompareSessionSnapshot, type ActionCompareUseSettings } from '../workbench/actionCompareSession';
@@ -24,6 +25,30 @@ interface ComparisonTarget {
   sheetId: string;
   selection: ActionCompareCapturedSelection | null;
   sampleRowIds?: number[];
+}
+
+class ActionComparisonUnavailableError extends Error {}
+
+/** Bridges comparison-session cancellation to the shared cost gate without
+ * letting a late abort cancel a newer request that displaced this one. */
+export function createActionCompareCostConfirmation(
+  jobs: Pick<JobStoreHandle, 'cancelCostGate' | 'requestCostConfirmation' | 'store'>,
+) {
+  return async (estimate: RunEstimate, message: string, signal?: AbortSignal) => {
+    if (signal?.aborted) return false;
+    const confirmation = jobs.requestCostConfirmation(estimate, message);
+    const ownedGate = jobs.store.get().costGate;
+    if (!signal || !ownedGate) return confirmation;
+    const cancelOwnedGate = () => {
+      if (jobs.store.get().costGate === ownedGate) jobs.cancelCostGate();
+    };
+    signal.addEventListener('abort', cancelOwnedGate, { once: true });
+    try {
+      return await confirmation;
+    } finally {
+      signal.removeEventListener('abort', cancelOwnedGate);
+    }
+  };
 }
 
 /** Workspace lifetime, navigation and entry points. Preview execution and draft
@@ -56,8 +81,7 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
   const [historyAnchor, setHistoryAnchor] = useState<ActionRunAnchor | null>(null);
   const latestTarget = useRef<ComparisonTarget | null>(null);
   const editAnchor = useRef<ActionRunAnchor | null>(null);
-  const generation = useRef(0);
-  const pendingTargetGeneration = useRef<number | null>(null);
+  const operation = useRef({ revision: 0, targetPending: false });
   const captureSelection = useCallback((targetSheet: string) => {
     if (targetSheet !== sheetId) return null;
     const totalCount = selectedRowCount ?? selectedRowIds.length;
@@ -68,7 +92,12 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
     return { rowIds: selectedRowIds.map(Number), totalCount };
   }, [selectedRowCount, sheetId, selectedRowIds]);
 
-  useEffect(() => () => { generation.current += 1; sessionRef.current?.dispose(); }, []);
+  useEffect(() => () => {
+    operation.current = { revision: operation.current.revision + 1, targetPending: false };
+    const current = sessionRef.current;
+    sessionRef.current = null;
+    void current?.dispose();
+  }, []);
   useEffect(() => {
     if (!session) return;
     const publish = () => {
@@ -79,9 +108,12 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
     return session.subscribe(publish);
   }, [session, compareView]);
   useEffect(() => {
-    if (!tab.open && sessionRef.current) {
-      generation.current += 1;
-      void sessionRef.current.dispose(); sessionRef.current = null; setSession(null);
+    if (!tab.open && (sessionRef.current || operation.current.targetPending)) {
+      operation.current = { revision: operation.current.revision + 1, targetPending: false };
+      const current = sessionRef.current;
+      sessionRef.current = null;
+      setSession(null);
+      void current?.dispose();
     }
   }, [tab.open]);
 
@@ -92,20 +124,34 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
       })).rows.map(row => Number(row.id));
     if (!sample.length) throw new Error('Choose a sheet with rows to compare.');
     const context = await api.getContext({ source: target.source, sample_row_ids: sample });
-    if (!context.available) throw new Error(context.reason?.message ?? 'This action cannot be compared.');
+    if (!context.available) {
+      throw new ActionComparisonUnavailableError(
+        context.reason?.message ?? 'This action cannot be compared.',
+      );
+    }
     return context;
   }, [api, projectApi, sampleOptions, sheetId]);
 
+  const requestCostConfirmation = useMemo(
+    () => createActionCompareCostConfirmation(jobs),
+    [jobs],
+  );
+
   const openTarget = useCallback(async (target: ComparisonTarget) => {
-    const current = ++generation.current;
-    pendingTargetGeneration.current = current;
+    const revision = operation.current.revision + 1;
+    operation.current = { revision, targetPending: true };
+    const previous = sessionRef.current;
+    sessionRef.current = null;
+    latestTarget.current = null;
+    setSession(null);
+    setPendingTarget(null);
     try {
+      await previous?.dispose();
+      if (operation.current.revision !== revision) return null;
       const context = await readContext(target);
-      if (current !== generation.current) return null;
-      await sessionRef.current?.dispose();
-      if (current !== generation.current) return null;
+      if (operation.current.revision !== revision) return null;
       const next = createActionCompareSession({ context, capturedSelection: target.selection }, {
-        runVariant: createActionCompareRunner(api, jobs.requestCostConfirmation),
+        runVariant: createActionCompareRunner(api, requestCostConfirmation),
         cancelPreview: id => api.cancelPreview(id), discardPreview: id => api.discardPreview(id),
       });
       sessionRef.current = next; latestTarget.current = { ...target, sampleRowIds: context.sample_row_ids };
@@ -113,12 +159,17 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
       openCompareTabTransition({ setOpenSplit }, workView, compareView, 'action');
       return next;
     } catch (error) {
-      if (current === generation.current) showError(error instanceof Error ? error.message : 'Could not open comparison.');
+      if (operation.current.revision === revision) {
+        compareView.close('action');
+        showError(error instanceof Error ? error.message : 'Could not open comparison.');
+      }
       return null;
     } finally {
-      if (pendingTargetGeneration.current === current) pendingTargetGeneration.current = null;
+      if (operation.current.revision === revision) {
+        operation.current = { revision, targetPending: false };
+      }
     }
-  }, [api, compareView, jobs.requestCostConfirmation, readContext, setOpenSplit, showError, workView]);
+  }, [api, compareView, readContext, requestCostConfirmation, setOpenSplit, showError, workView]);
 
   const requestTarget = useCallback((target: ComparisonTarget) => {
     const existing = sessionRef.current?.getSnapshot();
@@ -166,27 +217,30 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
     } });
   }, [runActionFromSurface]);
   const editActionRun = useCallback(async (anchor: ActionRunAnchor) => {
-    const current = ++generation.current;
+    const revision = operation.current.revision + 1;
+    operation.current = { revision, targetPending: false };
     try {
       const target = targetForRun(anchor);
-      const existing = sessionRef.current?.getSnapshot();
-      if (existing?.context.sheet.id === Number(anchor.sheetId)) target.selection = existing.capturedSelection;
       const context = await readContext(target);
-      if (generation.current !== current) return;
+      if (operation.current.revision !== revision) return;
       launchSettings(context, context.draft, target.selection);
-    } catch (error) { showError(error instanceof Error ? error.message : 'Could not load these settings.'); }
+    } catch (error) {
+      if (operation.current.revision === revision) {
+        showError(error instanceof Error ? error.message : 'Could not load these settings.');
+      }
+    }
   }, [launchSettings, readContext, showError, targetForRun]);
   const checkFreshness = useCallback(async () => {
-    if (pendingTargetGeneration.current !== null) return null;
+    if (operation.current.targetPending) return null;
     const active = sessionRef.current;
     if (!active) return null;
-    const activeGeneration = generation.current;
+    const activeRevision = operation.current.revision;
     const previous = active.getSnapshot().context;
     const current = await api.getContext({ source: previous.comparison_basis, sample_row_ids: previous.sample_row_ids });
     const stale = !current.available || current.sample_fingerprint !== previous.sample_fingerprint
       || current.expected_output_signature !== previous.expected_output_signature;
-    if (pendingTargetGeneration.current !== null
-      || generation.current !== activeGeneration || sessionRef.current !== active) return null;
+    if (operation.current.targetPending
+      || operation.current.revision !== activeRevision || sessionRef.current !== active) return null;
     active.setStale(stale);
     return stale;
   }, [api]);
@@ -208,16 +262,17 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
     if (comparisonKind) {
       try {
         context = await readContext(targetForRun(anchor));
-      } catch {
+      } catch (error) {
+        if (!(error instanceof ActionComparisonUnavailableError)) throw error;
         // Keep the run metadata/Edit entry usable, but do not advertise a
         // comparison that canonical context resolution refused.
       }
     }
-    return { actionId: run.actionKind, actionTitle: run.actionName, comparisonKind: context ? comparisonKind : null,
+    return { actionTitle: run.actionName, comparisonKind: context ? comparisonKind : null,
       sourceLabels: context?.source_columns.map(column => column.name) ?? [],
       outputLabels: context?.output_columns.map(column => column.current_name) ?? [history.columnName], modelLabel: run.model,
       rowCount: run.totalRows, ranAt: run.startedAt, errorCount: run.failedRows,
-      outcomeLabel: run.status, currentValuesMixed: history.mixedOrigins };
+      outcomeLabel: run.status };
   }, [entries, projectApi, readContext, targetForRun]);
 
   const openActionCompareHistory = useCallback(() => {
@@ -229,7 +284,7 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
   }, []);
 
   const closeActionCompare = useCallback(() => {
-    generation.current += 1;
+    operation.current = { revision: operation.current.revision + 1, targetPending: false };
     const current = sessionRef.current;
     sessionRef.current = null; setSession(null); setPendingTarget(null);
     compareView.close('action');
@@ -237,9 +292,10 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
   }, [compareView]);
   const returnToActionCompare = useCallback(() => {
     closeActionRoute();
+    if (!tab.open || !sessionRef.current) return;
     compareView.focus('action');
     void checkFreshness().catch(error => showError(error instanceof Error ? error.message : 'Could not recheck comparison data.'));
-  }, [checkFreshness, closeActionRoute, compareView, showError]);
+  }, [checkFreshness, closeActionRoute, compareView, showError, tab.open]);
   const refreshActionCompare = useCallback(async () => {
     const target = latestTarget.current;
     const before = sessionRef.current?.getSnapshot();
