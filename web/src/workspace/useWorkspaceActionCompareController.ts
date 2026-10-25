@@ -13,6 +13,7 @@ import { actionComparisonKind } from '../grid/actionComparisonCatalog';
 import type { ActionRunAnchor, ActionRunEntryDetails } from '../grid/actionRunEntry';
 import type { JobStoreHandle } from '../state/jobStore';
 import { openCompareTabTransition } from '../state/workspaceTransitions';
+import { isActiveRunStatus } from '../runStatusModel';
 import { createActionCompareRunner, createActionCompareSession, type ActionCompareCapturedSelection,
   type ActionCompareSession, type ActionCompareSessionSnapshot, type ActionCompareUseSettings } from '../workbench/actionCompareSession';
 
@@ -76,6 +77,7 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
   const compareView = useCompareViewHandle();
   const workView = useWorkViewHandle();
   const jobs = useJobsHandle();
+  const jobRun = useSelector(jobs.store, state => state.run);
   const catalog = useActionCatalogHandle();
   const entries = useSelector(catalog.store, state => state.catalog?.actions);
   const tab = useSelector(compareView.store, state => state.action);
@@ -86,6 +88,7 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
   const [historyMenuTarget, setHistoryMenuTarget] = useState<ActionCompareHistoryMenuTarget | null>(null);
   const latestTarget = useRef<ComparisonTarget | null>(null);
   const historySeedAnchor = useRef<ActionRunAnchor | null>(null);
+  const observedJobRun = useRef<{ runId: string; status: string } | null>(null);
   const operation = useRef({ revision: 0, targetPending: false });
   const captureSelection = useCallback((targetSheet: string) => {
     if (targetSheet !== sheetId) return null;
@@ -251,6 +254,18 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
     active.setStale(stale);
     return stale;
   }, [api]);
+  useEffect(() => {
+    const previous = observedJobRun.current;
+    observedJobRun.current = jobRun
+      ? { runId: jobRun.runId, status: jobRun.status }
+      : null;
+    if (!previous || !jobRun || previous.runId !== jobRun.runId
+      || !isActiveRunStatus(previous.status) || isActiveRunStatus(jobRun.status)
+      || !tab.open || !sessionRef.current) return;
+    void checkFreshness().catch(error => showError(
+      error instanceof Error ? error.message : 'Could not recheck comparison data.',
+    ));
+  }, [checkFreshness, jobRun, showError, tab.open]);
   const useActionCompareSettings = useCallback(async (chosen: ActionCompareUseSettings) => {
     try {
       const comparisonStale = await checkFreshness();

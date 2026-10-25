@@ -153,7 +153,6 @@ function WorkspaceOcrCompareView() {
     <div className="workbench-ocr-compare-view" data-testid="workbench-ocr-compare-view">
       <OcrCompareTab active={ocrCompareActive} target={ocrCompareTarget} onSessionChange={setOcrCompareSession} />
       {ocrCompareCloseWarn && <CompareDiscardDialog
-        title="Discard this OCR comparison?"
         description="Leaving discards the preview text and your votes — nothing is saved to the project."
         verdict={ocrCompareSession.verdict} testId="ocr-compare"
         onCancel={() => setOcrCompareCloseWarn(false)} onDiscard={closeOcrCompareTab} />}

@@ -256,6 +256,46 @@ describe('useWorkspaceActionCompareController', () => {
     expect(harness!.showError).not.toHaveBeenCalled();
   });
 
+  it('rechecks freshness when a Use-launched replacement run completes', async () => {
+    const initial = comparisonContext({ runId: 41 });
+    const changed = comparisonContext({ runId: 41, fingerprint: 'sample-v2' });
+    vi.mocked(harness!.api.getContext)
+      .mockResolvedValueOnce(initial)
+      .mockResolvedValueOnce(initial)
+      .mockResolvedValueOnce(changed);
+    const view = renderController();
+
+    act(() => view.result.current.compareActionRun({
+      sheetId: '7', columnId: '101', runId: '41',
+    }));
+    await waitFor(() => expect(view.result.current.actionCompareSession).not.toBeNull());
+    await act(async () => view.result.current.useActionCompareSettings(
+      chosenSettings(initial),
+    ));
+
+    const running = {
+      runId: 'replacement-run',
+      actionName: 'Extract structured fields',
+      actionKind: 'map.extract',
+      sheetId: '7',
+      targetColumnId: '101',
+      targetRowIds: ['11', '12', '13'],
+      status: 'running' as const,
+      completedRows: 0,
+      totalRows: 3,
+      failedRows: 0,
+      costSoFar: 0,
+    };
+    act(() => harness!.stores.job.store.set(state => ({ ...state, run: running })));
+    act(() => harness!.stores.job.store.set(state => ({
+      ...state,
+      run: { ...running, status: 'complete', completedRows: 3 },
+    })));
+
+    await waitFor(() => expect(harness!.api.getContext).toHaveBeenCalledTimes(3));
+    expect(view.result.current.actionCompareSession!.getSnapshot().stale).toBe(true);
+  });
+
   it('honors an explicit null comparison selection instead of recapturing the live grid selection', async () => {
     vi.mocked(harness!.api.getContext).mockResolvedValue(comparisonContext());
     const view = renderController(['91', '92']);

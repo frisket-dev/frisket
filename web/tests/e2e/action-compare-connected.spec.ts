@@ -368,6 +368,8 @@ test.describe('connected action comparison', () => {
       () => topicValues(page, pid, sheetId, topic.id, 25),
       { timeout: 20_000 },
     ).toEqual(selectedReplacement);
+    await expect(page.getByText('Data changed since this comparison.', { exact: true }))
+      .toBeVisible();
     await shoot(page, '12-selected-replacement.png');
 
     await expect(page.getByTestId('undo-button')).toBeEnabled();
