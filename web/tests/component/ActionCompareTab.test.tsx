@@ -184,8 +184,9 @@ describe('ActionCompareTab', () => {
     render(<ActionCompareTab session={session} onUseSettings={vi.fn()} renderVariantEditor={renderVariantEditor} />);
 
     expect(editor.props!.getCellContent([2, 0])).toMatchObject({
-      kind: GridCellKind.Custom,
-      data: expect.objectContaining({ kind: 'frisket-pending' }),
+      kind: GridCellKind.Text,
+      displayData: 'Pending',
+      style: 'faded',
     });
 
     expect(screen.queryByRole('button', { name: 'Use settings from variant A' })).not.toBeInTheDocument();
@@ -245,5 +246,74 @@ describe('ActionCompareTab', () => {
           party: { name: 'Acme', roles: ['buyer', 'seller'] },
         }),
       }));
+  });
+
+  it('renders comparison statuses as text without turning successful nulls into statuses', async () => {
+    const context = fixture();
+    context.draft.output_names = {
+      amount: 'amount', approved: 'approved', category: 'category',
+    };
+    context.output_columns = [
+      { logical_key: 'amount', column_id: 30, current_name: 'amount',
+        column_type: 'number', format: null, hidden: false, schema: null },
+      { logical_key: 'approved', column_id: 31, current_name: 'approved',
+        column_type: 'boolean', format: null, hidden: false, schema: null },
+      { logical_key: 'category', column_id: 32, current_name: 'category',
+        column_type: 'category', format: null, hidden: false, schema: null },
+    ];
+    context.replacement_targets = context.output_columns.map((output) => ({
+      logical_key: output.logical_key,
+      current_name: output.current_name,
+      column_id: output.column_id!,
+    }));
+    const missing: ActionComparisonCell = { state: 'missing', origin };
+    context.baseline_rows = {
+      10: { amount: cell(null), approved: cell(null), category: cell(null) },
+      11: { amount: missing, approved: missing, category: missing },
+    };
+    const session = createActionCompareSession(
+      { context },
+      { runVariant: async () => ({ status: 'cancelled' }) },
+    );
+    session.addVariant();
+    await session.runPending();
+    session.addVariant();
+
+    render(<ActionCompareTab session={session} onUseSettings={vi.fn()} />);
+    const grid = editor.props!;
+
+    for (const columnIndex of [2, 5, 8]) {
+      expect(grid.getCellContent([columnIndex, 0])).toMatchObject({
+        kind: GridCellKind.Text,
+        displayData: 'Cancelled',
+        style: 'faded',
+      });
+    }
+    for (const columnIndex of [3, 6, 9]) {
+      expect(grid.getCellContent([columnIndex, 0])).toMatchObject({
+        kind: GridCellKind.Text,
+        displayData: 'Pending',
+        style: 'faded',
+      });
+    }
+    for (const columnIndex of [1, 4, 7]) {
+      expect(grid.getCellContent([columnIndex, 1])).toMatchObject({
+        kind: GridCellKind.Text,
+        displayData: 'No result',
+        style: 'faded',
+      });
+    }
+    expect(grid.getCellContent([1, 0])).toMatchObject({
+      kind: GridCellKind.Text,
+      displayData: '—',
+    });
+    expect(grid.getCellContent([4, 0])).toMatchObject({
+      kind: GridCellKind.Boolean,
+      data: undefined,
+    });
+    expect(grid.getCellContent([7, 0])).toMatchObject({
+      kind: GridCellKind.Bubble,
+      data: [],
+    });
   });
 });

@@ -151,6 +151,7 @@ function rowForCell(
 }
 
 function statusText(cell: ActionCompareResultCell): string | null {
+  if (cell.state === 'pending') return 'Pending';
   if (cell.state === 'cancelled') return 'Cancelled';
   if (cell.state === 'missing') return 'No result';
   return null;
@@ -272,12 +273,13 @@ export function ActionCompareGrid({ state, labelForDraft, onOpenBoundedValue,
       : rawCell ?? { state: 'missing' as const };
     const status = statusText(cell);
     const row = rowForCell(rowId, rowIndex, projected.id, status ? { state: 'value', value: status } : cell);
-    const pending = cell.state === 'pending';
-    let rendered = buildCell(projected.column, row, {
-      pending,
+    let rendered = buildCell(status
+      ? { ...projected.column, type: 'text', format: null }
+      : projected.column, row, {
       gridCellPalette: canvasTheme.cells,
       wrap: false,
     });
+    if (status) rendered = { ...rendered, style: 'faded' };
     let comparison: ReturnType<typeof actionCompareCellEquality> | undefined;
     if (projected.kind === 'output' && !projected.variant.baseline
       && projected.variant.status === 'ready' && projected.variant.result) {
