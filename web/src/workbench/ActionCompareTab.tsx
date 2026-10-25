@@ -145,7 +145,7 @@ export function ActionCompareTab({ session, onUseSettings, renderVariantEditor,
       tag={sampleLabel(context.sample_row_ids.length, state.capturedSelection?.totalCount ?? null)}>
       {state.variants.map((variant) => {
         const use = session.useVariant(variant.id);
-        const changes = hoveredId === variant.id && !variant.baseline && describeVariantChanges
+        const changes = editingId === null && hoveredId === variant.id && !variant.baseline && describeVariantChanges
           ? describeVariantChanges(baseline.draft, variant.draft) : [];
         return <div key={variant.id} className="action-compare-variant" data-status={variant.status}
           data-testid={`action-compare-variant-${variant.displayKey}`}
@@ -212,26 +212,31 @@ export function ActionCompareTab({ session, onUseSettings, renderVariantEditor,
       {onRefresh && <Button type="button" onClick={onRefresh}>Refresh comparison</Button>}</div>}
 
     <div className="action-compare-table-scroll"><table className="action-compare-table"><thead><tr>
-      <th rowSpan={2} scope="col">Row</th>
-      {sources.map((column) => <th key={column.column_id} rowSpan={2} scope="col">{column.name}<small>{column.param}</small></th>)}
+      <th rowSpan={2} scope="col" aria-label="Row">#</th>
+      {sources.map((column, sourceIndex) => <th key={column.column_id} rowSpan={2} scope="col" className="action-compare-source-sticky"
+        style={{ left: 48 + sourceIndex * 150 }}>{column.name}<small>{column.param}</small></th>)}
       {outputs.map((column) => <th key={column.logical_key} colSpan={state.variants.length} scope="colgroup" aria-label={column.current_name}>
-        <span aria-hidden>◆</span> {column.current_name}{column.hidden && <small>hidden output</small>}
+        <span aria-hidden>⚡</span> {column.current_name}{column.hidden && <small>hidden output</small>}
       </th>)}
     </tr><tr>{outputs.flatMap((output) => state.variants.map((variant) => <th key={`${output.logical_key}:${variant.id}`} scope="col">
       {variant.displayKey} · {variant.label}
     </th>))}</tr></thead><tbody>
       {context.sample_row_ids.map((rowId, index) => <tr key={rowId}><th scope="row">{index + 1}</th>
-        {sources.map((source) => { const cell = context.source_rows[String(rowId)]?.[source.name]; return <td key={source.column_id}>
+        {sources.map((source, sourceIndex) => { const cell = context.source_rows[String(rowId)]?.[source.name]; return <td key={source.column_id}
+          className="action-compare-source-sticky" style={{ left: 48 + sourceIndex * 150 }}>
           <CellValue cell={cell} previewId={null} rowId={rowId} columnKey={source.name} onOpen={onOpenBoundedValue} />
         </td>; })}
         {outputs.flatMap((output) => state.variants.map((variant) => {
           const displayed = variant.result ?? variant.previousResult;
           const cell = displayed?.rows[String(rowId)]?.[output.logical_key];
           const original = baseline.result?.rows[String(rowId)]?.[output.logical_key];
-          const comparison = variant.baseline ? undefined : actionCompareCellEquality(original, cell);
+          const explicitValueState = cell && ['value', 'null'].includes(cell.state)
+            && original && ['value', 'null'].includes(original.state);
+          const comparison = variant.baseline || !explicitValueState ? undefined : actionCompareCellEquality(original, cell);
           return <td key={`${output.logical_key}:${variant.id}`}
             data-testid={`action-compare-cell-${rowId}-${output.logical_key}-${variant.displayKey}`}
             data-comparison={state.highlightDifferences ? comparison : undefined}
+            data-cell-state={cell?.state ?? variant.status}
             data-previous={!variant.result && variant.previousResult ? 'true' : undefined}>
             {!variant.result && variant.previousResult && <small>Previous settings</small>}
             <Origin cell={cell} />

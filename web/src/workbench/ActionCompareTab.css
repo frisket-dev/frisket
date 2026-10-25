@@ -27,7 +27,10 @@ button.action-compare-variant-body:focus-visible { outline: 2px solid var(--focu
 .action-compare-table thead th { position: sticky; z-index: 2; top: 0; background: var(--bg-panel); font-weight: 600; }
 .action-compare-table thead tr:nth-child(2) th { top: 36px; color: var(--text-mid); font: 500 var(--font-size-meta)/1.4 var(--mono); }
 .action-compare-table th small { display: block; color: var(--text-light); font-size: var(--font-size-caption); font-weight: 400; }
-.action-compare-table tbody th { min-width: 48px; width: 48px; color: var(--text-light); text-align: right; }
+.action-compare-table tbody th { position: sticky; z-index: 1; left: 0; min-width: 48px; width: 48px; color: var(--text-light); background: var(--bg); text-align: right; }
+.action-compare-table thead > tr:first-child > th:first-child { left: 0; z-index: 4; min-width: 48px; width: 48px; }
+.action-compare-source-sticky { position: sticky; z-index: 1; min-width: 150px; width: 150px; background: var(--bg) !important; }
+.action-compare-table thead .action-compare-source-sticky { z-index: 4; background: var(--bg-panel) !important; }
 .action-compare-table td { background: color-mix(in srgb, var(--ai-bg) 42%, var(--bg)); }
 .action-compare-table td[data-comparison='same'] { color: var(--text-light); background: var(--bg); }
 .action-compare-table td[data-comparison='different'] { background: var(--amber-bg); }
@@ -40,7 +43,7 @@ button.action-compare-variant-body:focus-visible { outline: 2px solid var(--focu
 .action-compare-number { font-family: var(--mono); }
 .action-compare-list { margin: 0; padding-left: 18px; }
 .action-compare-object { display: grid; gap: 3px; margin: 0; }
-.action-compare-object > div { display: grid; grid-template-columns: minmax(52px, auto) 1fr; gap: 7px; }
+.action-compare-object > div { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; }
 .action-compare-object dt { color: var(--text-light); font-family: var(--mono); }
 .action-compare-object dd { margin: 0; }
 .action-compare-bounded { display: grid; gap: 4px; }

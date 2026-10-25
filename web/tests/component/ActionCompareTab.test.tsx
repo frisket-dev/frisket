@@ -79,7 +79,8 @@ describe('ActionCompareTab', () => {
     expect(screen.getByText('Provider refused this row')).toBeInTheDocument();
 
     const different = screen.getByTestId('action-compare-cell-11-party-B');
-    expect(different).toHaveAttribute('data-comparison', 'not_comparable');
+    expect(different).toHaveAttribute('data-cell-state', 'error');
+    expect(different).not.toHaveAttribute('data-comparison');
     fireEvent.click(screen.getByRole('button', { name: 'Hide difference highlighting' }));
     expect(different).not.toHaveAttribute('data-comparison');
 
