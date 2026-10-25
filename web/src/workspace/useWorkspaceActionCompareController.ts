@@ -144,28 +144,31 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
     } });
   }, [runActionFromSurface]);
   const editActionRun = useCallback(async (anchor: ActionRunAnchor) => {
+    const current = ++generation.current;
     try {
       const target = targetForRun(anchor);
       const existing = sessionRef.current?.getSnapshot();
       if (existing?.context.sheet.id === Number(anchor.sheetId)) target.selection = existing.capturedSelection;
       const context = await readContext(target);
+      if (generation.current !== current) return;
       launchSettings(context, context.draft, target.selection);
     } catch (error) { showError(error instanceof Error ? error.message : 'Could not load these settings.'); }
   }, [launchSettings, readContext, showError, targetForRun]);
   const checkFreshness = useCallback(async () => {
     const active = sessionRef.current;
-    if (!active) return false;
+    if (!active) return null;
     const previous = active.getSnapshot().context;
     const current = await api.getContext({ source: previous.comparison_basis, sample_row_ids: previous.sample_row_ids });
     const stale = !current.available || current.sample_fingerprint !== previous.sample_fingerprint
       || current.expected_output_signature !== previous.expected_output_signature;
-    if (sessionRef.current === active) active.setStale(stale);
+    if (sessionRef.current !== active) return null;
+    active.setStale(stale);
     return stale;
   }, [api]);
   const useActionCompareSettings = useCallback(async (chosen: ActionCompareUseSettings) => {
     try {
       const comparisonStale = await checkFreshness();
-      if (!sessionRef.current) return;
+      if (comparisonStale === null) return;
       launchSettings(chosen.context, chosen.draft, chosen.capturedSelection, { ...chosen, comparisonStale });
     } catch (error) { showError(error instanceof Error ? error.message : 'Could not recheck comparison data.'); }
   }, [checkFreshness, launchSettings, showError]);

@@ -20,7 +20,8 @@ import {
 } from './helpers';
 import { prepareOwnModelReplay, REPLAY_MODEL as MODEL } from './replayModelScenario';
 
-const ARTIFACT_DIR = '/home/dev/actor-artifacts/action-compare-20261025/connected';
+const ARTIFACT_DIR = process.env.FRISKET_COMPARE_SCREENSHOTS
+  ?? path.resolve('screenshots/action-compare-connected');
 const PROMPT_A = 'Classify each local news item by its primary subject.';
 const PROMPT_B = 'Classify each local news item conservatively; use other unless the subject is explicit.';
 const LABELS = ['transit', 'money', 'other'];

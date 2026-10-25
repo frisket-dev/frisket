@@ -2287,6 +2287,24 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
+      "id": "tenant.v1_action_compare_context.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/actions/v1/compare-context",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
+      "id": "tenant.v1_action_compare_preview_start.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/actions/v1/compare-preview",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
       "id": "tenant.v1_action_preview_cancel.delete",
       "method": "DELETE",
       "path": "/api/projects/{pid}/actions/v1/preview/{preview_id}",
@@ -2470,6 +2488,220 @@ export type HttpActionCatalog = ({
   "validation_result_schema": ({
   [key: string]: JsonValue;
 });
+});
+
+type HttpActionCompareContextRequest_ActionCompareDraftSource = ({
+  "draft": (HttpActionCompareContextRequest_ActionDraft);
+  "kind": ("draft") & (string);
+});
+
+type HttpActionCompareContextRequest_ActionCompareRunSource = ({
+  "column_id": (number);
+  "kind": ("run") & (string);
+  "run_id": (number);
+});
+
+type HttpActionCompareContextRequest_ActionDraft = ({
+  "action_id": (string);
+  "output_names": ({
+  [key: string]: (string);
+});
+  "params": ({
+  [key: string]: (HttpActionCompareContextRequest_JsonValue);
+});
+  "scope": (HttpActionCompareContextRequest_ActionDraftScope);
+  "sheet_name"?: (((string)) | ((null)));
+});
+
+type HttpActionCompareContextRequest_ActionDraftScope = ({
+  "kind": ("sheet_rows") & (string);
+  "row_ids"?: (((Array<(number)>)) | ((null)));
+  "sheet_id": (number);
+});
+
+type HttpActionCompareContextRequest_JsonValue = JsonValue;
+
+export type HttpActionCompareContextRequest = ({
+  "sample_row_ids": (Array<(number)>);
+  "source": (((HttpActionCompareContextRequest_ActionCompareDraftSource)) | ((HttpActionCompareContextRequest_ActionCompareRunSource)));
+});
+
+type HttpActionCompareContextResponse_ActionCompareCell = ({
+  "bounded_value"?: (((HttpActionCompareContextResponse_ActionCompareCurrentBoundedValue)) | ((null)));
+  "error"?: (((string)) | ((null)));
+  "origin": (HttpActionCompareContextResponse_ActionCompareCellOrigin);
+  "state": ("value" | "null" | "missing" | "error") & (string);
+  "value"?: (((HttpActionCompareContextResponse_JsonValue)) | ((null)));
+});
+
+type HttpActionCompareContextResponse_ActionCompareCellOrigin = ({
+  "kind": ("source_cell" | "run_result" | "manual_edit" | "missing") & (string);
+  "op_id"?: (((number)) | ((null)));
+  "review_decision"?: ((("reject_clear" | "edit") & (string)) | ((null)));
+  "run_id"?: (((number)) | ((null)));
+});
+
+type HttpActionCompareContextResponse_ActionCompareCurrentBoundedValue = ({
+  "column_id": (number);
+  "kind": ("current_cell") & (string);
+  "preview": (string);
+  "retrieval_revision": (number);
+  "row_id": (number);
+  "total_bytes": (number);
+  "total_characters": (number);
+  "truncated": (true) & (boolean);
+  "value_kind": ("text" | "json" | "bigint" | "legacy_invalid") & (string);
+});
+
+type HttpActionCompareContextResponse_ActionCompareDraftSource = ({
+  "draft": (HttpActionCompareContextResponse_ActionDraft);
+  "kind": ("draft") & (string);
+});
+
+type HttpActionCompareContextResponse_ActionCompareLimits = ({
+  "max_challengers": (3) & (number);
+  "max_sample_rows": (20) & (number);
+});
+
+type HttpActionCompareContextResponse_ActionCompareOriginSummary = ({
+  "includes_manual_edits": (boolean);
+  "includes_reject_clear": (boolean);
+  "mixed_runs": (boolean);
+});
+
+type HttpActionCompareContextResponse_ActionCompareOutputColumn = ({
+  "column_id"?: (((number)) | ((null)));
+  "column_type": (string);
+  "current_name": (string);
+  "format": (((string)) | ((null)));
+  "hidden": (boolean);
+  "logical_key": (string);
+  "schema": ({
+  [key: string]: (HttpActionCompareContextResponse_JsonValue);
+});
+});
+
+type HttpActionCompareContextResponse_ActionCompareReason = ({
+  "code": (string);
+  "message": (string);
+});
+
+type HttpActionCompareContextResponse_ActionCompareReplacementTarget = ({
+  "column_id": (number);
+  "current_name": (string);
+  "logical_key": (string);
+});
+
+type HttpActionCompareContextResponse_ActionCompareRunSource = ({
+  "column_id": (number);
+  "kind": ("run") & (string);
+  "run_id": (number);
+});
+
+type HttpActionCompareContextResponse_ActionCompareSheet = ({
+  "id": (number);
+  "name": (string);
+});
+
+type HttpActionCompareContextResponse_ActionCompareSourceColumn = ({
+  "column_id": (number);
+  "column_type": (string);
+  "format": (((string)) | ((null)));
+  "name": (string);
+  "param": (string);
+});
+
+type HttpActionCompareContextResponse_ActionDraft = ({
+  "action_id": (string);
+  "output_names": ({
+  [key: string]: (string);
+});
+  "params": ({
+  [key: string]: (HttpActionCompareContextResponse_JsonValue);
+});
+  "scope": (HttpActionCompareContextResponse_ActionDraftScope);
+  "sheet_name"?: (((string)) | ((null)));
+});
+
+type HttpActionCompareContextResponse_ActionDraftScope = ({
+  "kind": ("sheet_rows") & (string);
+  "row_ids"?: (((Array<(number)>)) | ((null)));
+  "sheet_id": (number);
+});
+
+type HttpActionCompareContextResponse_JsonValue = JsonValue;
+
+export type HttpActionCompareContextResponse = ({
+  "available": (boolean);
+  "baseline_mode": ("preview" | "current_values") & (string);
+  "baseline_rows": ((({
+  [key: string]: ({
+  [key: string]: (HttpActionCompareContextResponse_ActionCompareCell);
+});
+})) | ((null)));
+  "comparison_basis": (((HttpActionCompareContextResponse_ActionCompareDraftSource)) | ((HttpActionCompareContextResponse_ActionCompareRunSource)));
+  "draft": (HttpActionCompareContextResponse_ActionDraft);
+  "expected_output_signature": (string);
+  "limits": (HttpActionCompareContextResponse_ActionCompareLimits);
+  "locked_params": (Array<(string)>);
+  "origin_summary": (HttpActionCompareContextResponse_ActionCompareOriginSummary);
+  "output_columns": (Array<(HttpActionCompareContextResponse_ActionCompareOutputColumn)>);
+  "reason": (((HttpActionCompareContextResponse_ActionCompareReason)) | ((null)));
+  "replacement_targets": (Array<(HttpActionCompareContextResponse_ActionCompareReplacementTarget)>);
+  "sample_fingerprint": (string);
+  "sample_row_ids": (Array<(number)>);
+  "schema_version": ("frisket.action_compare_context.v1") & (string);
+  "sheet": (HttpActionCompareContextResponse_ActionCompareSheet);
+  "source_columns": (Array<(HttpActionCompareContextResponse_ActionCompareSourceColumn)>);
+  "source_rows": ({
+  [key: string]: ({
+  [key: string]: (HttpActionCompareContextResponse_ActionCompareCell);
+});
+});
+});
+
+type HttpActionComparePreviewRequest_ActionCompareDraftSource = ({
+  "draft": (HttpActionComparePreviewRequest_ActionDraft);
+  "kind": ("draft") & (string);
+});
+
+type HttpActionComparePreviewRequest_ActionComparePreviewAdmission = ({
+  "basis": (((HttpActionComparePreviewRequest_ActionCompareDraftSource)) | ((HttpActionComparePreviewRequest_ActionCompareRunSource)));
+  "expected_output_signature": (string);
+  "expected_sample_fingerprint": (string);
+});
+
+type HttpActionComparePreviewRequest_ActionCompareRunSource = ({
+  "column_id": (number);
+  "kind": ("run") & (string);
+  "run_id": (number);
+});
+
+type HttpActionComparePreviewRequest_ActionDraft = ({
+  "action_id": (string);
+  "output_names": ({
+  [key: string]: (string);
+});
+  "params": ({
+  [key: string]: (HttpActionComparePreviewRequest_JsonValue);
+});
+  "scope": (HttpActionComparePreviewRequest_ActionDraftScope);
+  "sheet_name"?: (((string)) | ((null)));
+});
+
+type HttpActionComparePreviewRequest_ActionDraftScope = ({
+  "kind": ("sheet_rows") & (string);
+  "row_ids"?: (((Array<(number)>)) | ((null)));
+  "sheet_id": (number);
+});
+
+type HttpActionComparePreviewRequest_JsonValue = JsonValue;
+
+export type HttpActionComparePreviewRequest = ({
+  "action": ({
+  [key: string]: (HttpActionComparePreviewRequest_JsonValue);
+});
+  "comparison": (HttpActionComparePreviewRequest_ActionComparePreviewAdmission);
 });
 
 export type HttpActionError = ({
@@ -6883,6 +7115,10 @@ type HttpInline_524de52122d1c461_HttpError = ({
 type HttpInline_524de52122d1c461_JsonValue = JsonValue;
 
 export type HttpInline_524de52122d1c461 = (((HttpInline_524de52122d1c461_HttpError)) | ((HttpInline_524de52122d1c461_ActionResult)));
+
+export type HttpInline_5455d086bedf8a53 = ({
+  "discard"?: (boolean);
+});
 
 export type HttpInline_54bdb2fee442259f = ({
   "pid": (string);
@@ -16677,6 +16913,7 @@ export type HttpContractOperationMap = {
       readonly "402": HttpActionPreviewErrorResponse;
       readonly "403": HttpError;
       readonly "404": HttpError;
+      readonly "409": HttpActionPreviewErrorResponse;
       readonly "422": HttpError;
       readonly "500": HttpError;
     };
@@ -17812,6 +18049,7 @@ export type HttpContractOperationMap = {
       readonly "402": HttpActionPreviewErrorResponse;
       readonly "403": HttpError;
       readonly "404": HttpError;
+      readonly "409": HttpActionPreviewErrorResponse;
       readonly "422": HttpError;
       readonly "500": HttpError;
     };
@@ -18174,9 +18412,40 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
+  readonly "tenant.v1_action_compare_context.post": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpActionCompareContextRequest;
+    readonly responses: {
+      readonly "200": HttpActionCompareContextResponse;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.v1_action_compare_preview_start.post": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpActionComparePreviewRequest;
+    readonly responses: {
+      readonly "202": HttpActionPreviewStartResponse;
+      readonly "400": HttpActionPreviewErrorResponse;
+      readonly "401": HttpError;
+      readonly "402": HttpActionPreviewErrorResponse;
+      readonly "403": HttpError;
+      readonly "404": HttpActionPreviewErrorResponse;
+      readonly "409": HttpActionPreviewErrorResponse;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
   readonly "tenant.v1_action_preview_cancel.delete": {
     readonly pathParams: HttpInline_d93b70b1c3a171c5;
-    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly query: HttpInline_5455d086bedf8a53;
     readonly request: undefined;
     readonly responses: {
       readonly "204": undefined;
@@ -18198,6 +18467,7 @@ export type HttpContractOperationMap = {
       readonly "402": HttpActionPreviewErrorResponse;
       readonly "403": HttpError;
       readonly "404": HttpActionPreviewErrorResponse;
+      readonly "409": HttpActionPreviewErrorResponse;
       readonly "422": HttpError;
       readonly "500": HttpError;
     };
@@ -18213,6 +18483,7 @@ export type HttpContractOperationMap = {
       readonly "402": HttpActionPreviewErrorResponse;
       readonly "403": HttpError;
       readonly "404": HttpActionPreviewErrorResponse;
+      readonly "409": HttpActionPreviewErrorResponse;
       readonly "422": HttpError;
       readonly "500": HttpError;
     };

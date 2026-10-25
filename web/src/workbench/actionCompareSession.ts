@@ -16,7 +16,7 @@ export type ActionCompareVariantStatus =
 export interface ActionCompareResultCell {
   state: 'value' | 'null' | 'missing' | 'error' | 'pending' | 'cancelled';
   value?: JsonValue;
-  bounded_value?: ActionComparisonBoundedValue;
+  bounded_value?: ActionComparisonBoundedValue | null;
   origin?: ActionComparisonCellOrigin;
   error?: string | null;
 }
