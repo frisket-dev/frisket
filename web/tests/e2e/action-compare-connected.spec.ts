@@ -13,6 +13,7 @@ import {
   importCsv,
   openProject,
   runAndWait,
+  selectRow,
   sheetColumns,
   sheetData,
   uniqueName,
@@ -184,15 +185,6 @@ async function chooseCompareFromColumnMenu(
   await expect(page.getByTestId('action-compare-toolbar')).toBeVisible({ timeout: 20_000 });
 }
 
-async function selectEveryRow(page: Page): Promise<void> {
-  const grid = page.getByTestId('grid');
-  const box = await grid.boundingBox();
-  if (!box) throw new Error('grid is not visible');
-  const groupHeight = Number(await grid.getAttribute('data-group-header-height') ?? 0);
-  // Glide's top-left row-marker checkbox selects the full current row set.
-  await page.mouse.click(box.x + 20, box.y + groupHeight + 17);
-}
-
 test.describe('connected action comparison', () => {
   test('compares a real run, applies replacement settings, and undoes them', async ({ page }) => {
     test.setTimeout(120_000);
@@ -293,16 +285,18 @@ test.describe('connected action comparison', () => {
     await shoot(page, '08-undone-grid.png');
   });
 
-  test('samples 20 default rows but preserves a larger captured selection', async ({ page }) => {
+  test('samples defaults and replaces only an explicit captured selection with Undo', async ({ page }) => {
     test.setTimeout(120_000);
     const pid = await createProject(page.request, uniqueName('e2e-action-compare-selection'));
     await prepareOwnModelReplay(page.request, pid);
+    await exposeReplayModel(page, pid);
     const csv = `snippet\n${Array.from(
       { length: 25 },
       (_, index) => `"selection row ${index + 1}"`,
     ).join('\n')}\n`;
     const sheetId = await importCsv(page.request, pid, 'selection.csv', csv);
     primeClassifyCache(pid, sheetId, PROMPT_A, Array(25).fill('other'));
+    primeClassifyCache(pid, sheetId, PROMPT_B, Array(25).fill('transit'));
     await runAndWait(
       page.request,
       pid,
@@ -317,13 +311,49 @@ test.describe('connected action comparison', () => {
     await page.getByTestId('action-compare-maintab-close').click();
     await expect(page.getByTestId('action-compare-toolbar')).toHaveCount(0);
 
-    await selectEveryRow(page);
+    await selectRow(page, 0);
+    await selectRow(page, 2);
     await expect.poll(async () => page.evaluate(() => (
       window as typeof window & { __frisketGridSelection?: { rows: number[] } }
-    ).__frisketGridSelection?.rows.length ?? 0)).toBe(25);
+    ).__frisketGridSelection?.rows.length ?? 0)).toBe(2);
     await chooseCompareFromColumnMenu(page, columns, 'topic');
     await expect(page.getByTestId('action-compare-sample-count'))
-      .toHaveText('20 of 25 selected rows');
+      .toHaveText('2 sample rows');
     await shoot(page, '11-captured-selection.png');
+
+    await page.getByRole('button', { name: 'Variant', exact: true }).click();
+    const editor = page.getByRole('complementary', { name: 'Configure variant B' });
+    await editor.getByTestId('field-context').fill(PROMPT_B);
+    await editor.getByRole('button', { name: 'Close variant editor' }).click();
+    await page.getByRole('button', { name: 'Run comparison', exact: true }).click();
+    await approveCostGateIfShown(page);
+    await expect(page.getByTestId('action-compare-variant-B')).toContainText('ready', { timeout: 60_000 });
+
+    await page.getByRole('button', { name: 'Use settings from variant B' }).click();
+    const replacementForm = page.getByTestId('generated-action-form');
+    await replacementForm.getByRole('button', { name: 'Choose run scope' }).click();
+    const selected = page.getByTestId('generated-action-row-scope-selected');
+    await expect(selected).toContainText('Replace selected rows');
+    await expect(selected).toContainText('2 selected');
+    await selected.click();
+    await approveCostGateIfShown(page);
+    await expect(page.getByTestId('run-progress')).toContainText('complete', { timeout: 60_000 });
+    const topic = columns.find(column => column.name === 'topic')!;
+    const selectedReplacement = Array(25).fill('other');
+    selectedReplacement[0] = 'transit';
+    selectedReplacement[2] = 'transit';
+    await expect.poll(
+      () => topicValues(page, pid, sheetId, topic.id, 25),
+      { timeout: 20_000 },
+    ).toEqual(selectedReplacement);
+    await shoot(page, '12-selected-replacement.png');
+
+    await expect(page.getByTestId('undo-button')).toBeEnabled();
+    await page.getByTestId('undo-button').click();
+    await expect.poll(
+      () => topicValues(page, pid, sheetId, topic.id, 25),
+      { timeout: 20_000 },
+    ).toEqual(Array(25).fill('other'));
+    await shoot(page, '13-selected-replacement-undone.png');
   });
 });
