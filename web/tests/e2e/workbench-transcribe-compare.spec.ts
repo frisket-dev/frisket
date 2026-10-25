@@ -243,9 +243,9 @@ async function approveCostGate(page: Page) {
 /** Nothing runs on drop any more; the operator asks for it. The two default
  * variants are seeded from the catalog asynchronously, so a Run that lands
  * before the second one exists would quote only the first. */
-async function runComparison(page: Page, expectedColumns = 2) {
-  await expect(page.getByTestId('transcribe-compare-engine-column')).toHaveCount(
-    expectedColumns,
+async function runComparison(page: Page, expectedVariants = 2) {
+  await expect(page.getByTestId('transcribe-compare-engine-chip')).toHaveCount(
+    expectedVariants,
   );
   await page.getByTestId('transcribe-compare-run').click();
 }
@@ -547,7 +547,7 @@ test('a billable engine is offered, and spends only through the cost gate', asyn
   await page
     .getByTestId(`transcribe-compare-add-engine-option-${REMOTE_ENGINE}`)
     .click();
-  await expect(page.getByTestId('transcribe-compare-engine-column')).toHaveCount(3);
+  await expect(page.getByTestId('transcribe-compare-engine-chip')).toHaveCount(3);
 
   // Still nothing spent: adding the engine only configures a candidate.
   expect(starts).toEqual([]);

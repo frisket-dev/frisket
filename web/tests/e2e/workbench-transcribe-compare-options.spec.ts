@@ -256,7 +256,7 @@ async function openTranscribeCompareWithAudio(page: Page) {
   // Both default variants are seeded from the catalog asynchronously. Run
   // before the second one lands and only one candidate is ever quoted, which
   // is what made the first two tests in this file see a single column.
-  await expect(page.getByTestId('transcribe-compare-engine-column')).toHaveCount(2);
+  await expect(page.getByTestId('transcribe-compare-engine-chip')).toHaveCount(2);
   await runComparison(page);
   // Wait for the transcript itself, not the chip: a later starts-count
   // assertion must not race the run this helper just asked for. The mocked
