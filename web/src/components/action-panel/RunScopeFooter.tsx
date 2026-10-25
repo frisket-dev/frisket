@@ -112,7 +112,7 @@ export function RunScopeFooter({
     : selectedAllowed && (selectedCount > 0 || allowEmptySelection);
   const hasScopeChoice = allAllowed && selectedAllowed;
   const hasVisibleScopeChoice = hasScopeChoice
-    && (showAllScopeOption || showSelectedScopeOption);
+    && (showAllScopeOption || (showSelectedScopeOption && selectedCount > 0));
   const hasScopeMenu = hasVisibleScopeChoice || Boolean(onBackfill) || menuItems.length > 0;
   const canBackfill = Boolean(onBackfill && backfillTargetName && backfillHasGaps);
   const backfillTitle = !backfillTargetName
@@ -194,6 +194,7 @@ export function RunScopeFooter({
               anchorRef={toggleRef}
               onClose={() => setMenuOpen(false)}
               align="right"
+              width={280}
               id={scopePopupId}
               role="group"
               aria-label="Run scope options"
@@ -209,17 +210,16 @@ export function RunScopeFooter({
                 <span className="menu-item-name">{allScopeLabel}</span>
                 <span className="muted">{rowCount.toLocaleString()} rows</span>
               </button>}
-              {hasScopeChoice && showSelectedScopeOption && <button
+              {hasScopeChoice && showSelectedScopeOption && selectedCount > 0 && <button
                 type="button"
                 className="menu-item"
                 data-active={effectiveScope === 'selected'}
                 data-testid={`${testIdPrefix}-row-scope-selected`}
-                disabled={selectedCount === 0}
                 onClick={() => runScope('selected')}
               >
                 <span className="menu-item-name">{selectedScopeLabel}</span>
                 <span className="muted">
-                  {selectedCount > 0 ? `${selectedCount.toLocaleString()} selected` : 'No rows selected'}
+                  {selectedCount.toLocaleString()} selected
                 </span>
               </button>}
               {menuItems.map((item) => <button

@@ -95,7 +95,8 @@ export function ActionFormHeader({
 
   return (
     <PanelHeader
-      className={`panel-header form-header${variant === 'drawer' ? ' action-drawer-header' : ''}`}
+      className={`panel-header form-header${variant === 'drawer' ? ' action-drawer-header' : ''}${
+        variant === 'drawer' && onOpenHistory ? ' action-drawer-header-with-history' : ''}`}
       kicker={variant === 'drawer' ? (
         <span className="action-drawer-header-icon" aria-hidden>
           <HeaderIcon size={16} />
@@ -155,7 +156,7 @@ export function ActionFormHeader({
       ) : undefined}
       actions={variant === 'drawer' ? <>
         {onOpenHistory && <IconButton icon={CalendarClock} onClick={onOpenHistory}
-          label="Earlier runs" data-testid="action-history-button" />}
+          className="action-history-trigger" label="Earlier runs" data-testid="action-history-button" />}
         <ActionHelpPopover action={actionTemplate} />
       </> : undefined}
       onClose={variant === 'drawer' ? onClose : undefined}

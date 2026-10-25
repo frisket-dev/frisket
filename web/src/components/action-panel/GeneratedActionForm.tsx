@@ -288,17 +288,53 @@ function withoutEditableDescriptions(value: CanonicalFieldValue | undefined): un
   return value;
 }
 
+function sameJson(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left) && Array.isArray(right)
+      && left.length === right.length
+      && left.every((item, index) => sameJson(item, right[index]));
+  }
+  if (left === null || right === null || typeof left !== 'object' || typeof right !== 'object') return false;
+  const leftRecord = left as Record<string, unknown>;
+  const rightRecord = right as Record<string, unknown>;
+  const leftKeys = Object.keys(leftRecord).sort();
+  const rightKeys = Object.keys(rightRecord).sort();
+  return leftKeys.length === rightKeys.length
+    && leftKeys.every((key, index) => key === rightKeys[index]
+      && sameJson(leftRecord[key], rightRecord[key]));
+}
+
+function normalizedLockedValue(
+  actionId: string,
+  name: string,
+  value: CanonicalFieldValue | undefined,
+  structureLocked: boolean,
+): unknown {
+  const stripped = structureLocked && name === 'fields'
+    ? withoutEditableDescriptions(value) : value;
+  if (actionId !== 'map.classify' || name !== 'fields' || !Array.isArray(stripped)) return stripped;
+  return stripped.map((field) => {
+    if (!field || typeof field !== 'object' || Array.isArray(field)) return field;
+    const normalized = { ...field } as Record<string, unknown>;
+    const type = typeof normalized.type === 'string' ? normalized.type : 'category';
+    normalized.type = type;
+    if (type === 'category' && normalized.labels === undefined) normalized.labels = [];
+    return normalized;
+  });
+}
+
 function lockedParamChanged(
+  actionId: string,
   name: string,
   previous: CanonicalFieldValue | undefined,
   next: CanonicalFieldValue | undefined,
   structureLocked: boolean,
 ): boolean {
-  const left = structureLocked && name === 'fields'
-    ? withoutEditableDescriptions(previous) : previous;
-  const right = structureLocked && name === 'fields'
-    ? withoutEditableDescriptions(next) : next;
-  return JSON.stringify(left) !== JSON.stringify(right);
+  return !sameJson(
+    normalizedLockedValue(actionId, name, previous, structureLocked),
+    normalizedLockedValue(actionId, name, next, structureLocked),
+  );
 }
 function defaultColumn(entry: GeneratedActionCatalogEntry, param: string, columns: SheetMeta['columns'],
   sourceColumn: string | undefined, used: ReadonlySet<string>): string {
@@ -592,6 +628,8 @@ function GeneratedActionFormContents({
     && allowedScopes.includes('exact_membership')
     && (scopeSelectedRowIds.length > 0 || hasExactRowScopeInitializer)
     ? 'selected' : allowedScopes.includes('all_rows') ? 'all' : 'selected';
+  const selectedScopeSummary = `${scopeSelectedRowIds.length.toLocaleString()} selected ${
+    scopeSelectedRowIds.length === 1 ? 'row' : 'rows'}`;
   const scopeFor = useCallback((scope: 'all' | 'selected'): GeneratedActionRequest['scope'] => {
     if (savedTableScope) return savedTableScope;
     if (projectScoped) return { kind: 'project' };
@@ -837,7 +875,7 @@ function GeneratedActionFormContents({
     );
     const refused = Object.keys({ ...previous, ...next }).find((name) => (
       lockedParams.has(name)
-      && lockedParamChanged(name, previous[name], next[name], structureLocked)
+      && lockedParamChanged(catalogEntry.kind, name, previous[name], next[name], structureLocked)
     ));
     if (refused) {
       setLockedUpdateProblem(`${lockReason} “${refused}” cannot be changed here.`);
@@ -907,7 +945,7 @@ function GeneratedActionFormContents({
       JSON.stringify(previous[name]) !== JSON.stringify(params[name])
     ));
     const refused = changed.find((name) => lockedParams.has(name)
-      && lockedParamChanged(name, previous[name], params[name], structureLocked));
+      && lockedParamChanged(catalogEntry.kind, name, previous[name], params[name], structureLocked));
     if (refused) {
       setLockedUpdateProblem(`${lockReason} “${refused}” cannot be changed here.`);
       return;
@@ -918,7 +956,7 @@ function GeneratedActionFormContents({
     setParamsEdited(true);
     invalidateParams();
     setDraft(params);
-  }, [invalidateParams, lockReason, lockedParams, markFieldTouched, structureLocked]);
+  }, [catalogEntry.kind, invalidateParams, lockReason, lockedParams, markFieldTouched, structureLocked]);
   const renderField = (field: ActionParamFieldPresentationProps): ReactNode | undefined => {
     const CustomField = customization?.fields?.[field.name];
     if (CustomField) {
@@ -1363,9 +1401,6 @@ function GeneratedActionFormContents({
               setOutputNames((current) => ({ ...current, [key]: value }));
             }} />
           </fieldset>
-          {structureLocked && <p className="form-hint" data-testid={`field-output-${key}-lock-reason`}>
-            {lockReason}
-          </p>}
           {defaultNameCollision && outputNames[key] === defaultNameCollision.renamed && (
             <p className="form-hint" data-testid={`default-output-name-collision-${key}`}>
               A "{defaultNameCollision.original}" column already exists — saving to "
@@ -1430,15 +1465,20 @@ function GeneratedActionFormContents({
         primaryLabel={editComparePrimary
           ? 'Compare…'
           : replacementLaunch
-            ? 'Replace all rows'
+            ? effectiveRunScope === 'selected' ? 'Replace selected rows' : 'Replace all rows'
             : customization?.primaryLabel ?? 'Run'} rowCount={sheet?.rowCount ?? 0}
         selectedCount={scopeSelectedRowIds.length} canRun={canRun}
         scopeSummary={editComparePrimary
-          ? `Compare uses a sample · Replace defaults to all ${(sheet?.rowCount ?? 0).toLocaleString()} rows`
+          ? `Compare uses a sample · Replace ${effectiveRunScope === 'selected'
+            ? selectedScopeSummary : `all ${(sheet?.rowCount ?? 0).toLocaleString()} rows`}`
           : replacementLaunch
-            ? `Replace defaults to all ${(sheet?.rowCount ?? 0).toLocaleString()} rows`
+            ? effectiveRunScope === 'selected'
+              ? `${selectedScopeSummary} will be replaced`
+              : `All ${(sheet?.rowCount ?? 0).toLocaleString()} rows will be replaced`
             : launchMode?.kind === 'use-new-comparison-variant'
-              ? `Run defaults to all ${(sheet?.rowCount ?? 0).toLocaleString()} rows`
+              ? effectiveRunScope === 'selected'
+                ? `${selectedScopeSummary} will run`
+                : `Run defaults to all ${(sheet?.rowCount ?? 0).toLocaleString()} rows`
             : undefined}
         scope={runScope} onScopeChange={setRunScope}
         runOnScopeSelect={Boolean(launchMode)
@@ -1451,7 +1491,7 @@ function GeneratedActionFormContents({
           ? () => onCompare(estimateDraft) : undefined}
         allScopeLabel={replacementLaunch ? 'Replace all rows' : 'Run all'}
         selectedScopeLabel={replacementLaunch ? 'Replace selected rows' : 'Run on selected'}
-        showAllScopeOption={!launchMode || editComparePrimary}
+        showAllScopeOption={!launchMode || editComparePrimary || effectiveRunScope === 'selected'}
         menuItems={[
           ...(!launchMode && onCompare ? [{ id: 'compare', label: 'Compare…',
             detail: 'Try settings on a sample', onSelect: () => onCompare(estimateDraft) }] : []),

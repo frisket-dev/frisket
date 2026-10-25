@@ -168,10 +168,7 @@ export function ActionParams({
     );
     const rendered = disabledParams?.has(param.name) ? (
       <div key={param.name} className="locked-param">
-        <fieldset className="locked-param-fields" disabled>{input}</fieldset>
-        <p className="form-hint" data-testid={`field-${param.name}-lock-reason`}>
-          {disabledReason}
-        </p>
+        <fieldset className="locked-param-fields" disabled title={disabledReason}>{input}</fieldset>
       </div>
     ) : input;
     if (param.layout === 'grid' && !param.advanced && !param.advancedGroup) {

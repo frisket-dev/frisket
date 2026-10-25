@@ -124,8 +124,10 @@ afterEach(() => {
 function mountEditor(
   onDraftChange = vi.fn(),
   lockedParams: readonly string[] = ['source', 'fields'],
+  options: { entry?: GeneratedActionCatalogEntry; draft?: GeneratedActionDraft } = {},
 ) {
-  const entry = structuredClone(ENTRY);
+  const entry = structuredClone(options.entry ?? ENTRY);
+  const draft = structuredClone(options.draft ?? DRAFT);
   installActionSelectorFixture(entry);
   const actionTemplate = generatedActionTemplateFromCatalogEntry(entry);
   if (!actionTemplate) throw new Error('map.extract has no generated form');
@@ -138,7 +140,7 @@ function mountEditor(
         catalogEntry={entry}
         actionTemplate={actionTemplate}
         sheet={SHEET}
-        draft={DRAFT}
+        draft={draft}
         lockedParams={lockedParams}
         structureLocked
         lockReason="Fixed for this comparison."
@@ -158,7 +160,10 @@ function mountEditor(
   return onDraftChange;
 }
 
-function mountFinalForm(kind: 'edit-existing' | 'use-comparison-variant' | 'use-new-comparison-variant') {
+function mountFinalForm(
+  kind: 'edit-existing' | 'use-comparison-variant' | 'use-new-comparison-variant',
+  capturedSelectedRowIds: readonly string[] = ['11', '12', '13'],
+) {
   const entry = structuredClone(ENTRY);
   installActionSelectorFixture(entry);
   const actionTemplate = generatedActionTemplateFromCatalogEntry(entry);
@@ -188,7 +193,7 @@ function mountFinalForm(kind: 'edit-existing' | 'use-comparison-variant' | 'use-
           contextLabel: kind === 'edit-existing'
             ? 'on Court filings · settings from run 42'
             : 'on Court filings · from variant B',
-          capturedSelectedRowIds: ['11', '12', '13'],
+          capturedSelectedRowIds,
           comparisonStale: kind === 'use-comparison-variant',
           onReturnToCompare,
         }}
@@ -222,9 +227,7 @@ describe('GeneratedActionParamsEditor', () => {
     expect(screen.queryByTestId('field-output-party')).not.toBeInTheDocument();
     expect(screen.getByTestId('field-engine')).toBeInTheDocument();
 
-    expect(screen.getByTestId('field-source-lock-reason')).toHaveTextContent(
-      'Fixed for this comparison.',
-    );
+    expect(screen.queryByTestId('field-source-lock-reason')).not.toBeInTheDocument();
     expect(screen.getByTestId('text-source-mode-columns')).toBeDisabled();
     expect(screen.getByTestId('text-source-mode-template')).toBeDisabled();
 
@@ -233,9 +236,7 @@ describe('GeneratedActionParamsEditor', () => {
     expect(screen.getByTestId('output-field-name')).toBeDisabled();
     expect(screen.getByTestId('output-field-type')).toBeDisabled();
     expect(screen.getByTestId('output-field-description')).toBeEnabled();
-    expect(screen.getByTestId('output-structure-lock-hint')).toHaveTextContent(
-      'descriptions can be edited',
-    );
+    expect(screen.queryByTestId('output-structure-lock-hint')).not.toBeInTheDocument();
 
     await waitFor(() => expect(onDraftChange).toHaveBeenCalled());
     onDraftChange.mockClear();
@@ -254,6 +255,87 @@ describe('GeneratedActionParamsEditor', () => {
       },
       output_names: { party: 'pdf_party' },
     });
+  });
+
+  it('accepts a Classify description edit from a sorted server draft with omitted defaults', async () => {
+    const entry = structuredClone(ENTRY);
+    entry.kind = 'map.classify';
+    entry.title = 'Classify';
+    entry.input_schema.properties = {
+      source: { type: 'array', title: 'Source', items: { type: 'string' } },
+      engine: { type: 'string', title: 'Model', default: 'llm' },
+      model: { type: ['string', 'null'], title: 'Model', default: null },
+      fields: { type: 'array', title: 'Fields', items: { type: 'object' } },
+      context: { type: 'string', title: 'Context', default: '' },
+      include_confidence: { type: 'boolean', title: 'Include confidence', default: false },
+      include_justification: { type: 'boolean', title: 'Include justification', default: false },
+    };
+    entry.ui_hints.engines = [{
+      id: 'llm', label: 'Language model', available: true,
+      classification_options: {
+        field_types: ['category'], max_fields: 1,
+        include_confidence: true, include_justification: true,
+      },
+    }];
+    const draft: GeneratedActionDraft = {
+      action_id: 'map.classify',
+      scope: { kind: 'sheet_rows', sheet_id: 7 },
+      params: {
+        source: ['story'],
+        engine: 'llm',
+        model: 'test/model',
+        fields: [{
+          description: 'Existing topic description',
+          label_descriptions: { Housing: 'Housing policy' },
+          labels: ['Housing', 'Transit'],
+          name: 'topic',
+        }],
+      },
+      output_names: { topic: 'topic' },
+    };
+    const onDraftChange = mountEditor(vi.fn(), ['source', 'fields'], { entry, draft });
+    await waitFor(() => expect(onDraftChange).toHaveBeenCalled());
+    onDraftChange.mockClear();
+
+    expect(screen.getByTestId('classify-labels')).toBeDisabled();
+    expect(screen.getByLabelText('Housing semantic description')).toBeEnabled();
+    fireEvent.change(screen.getByTestId('output-field-description'), {
+      target: { value: 'Updated topic description' },
+    });
+
+    await waitFor(() => expect(onDraftChange).toHaveBeenCalled());
+    expect(screen.queryByTestId('generated-locked-param-problem')).not.toBeInTheDocument();
+    expect(onDraftChange.mock.lastCall?.[0]).toMatchObject({
+      params: { fields: [{
+        name: 'topic', type: 'category', description: 'Updated topic description',
+        labels: ['Housing', 'Transit'], label_descriptions: { Housing: 'Housing policy' },
+      }] },
+    });
+  });
+
+  it('keeps Ask response type locked when the comparison context names it', () => {
+    const entry = structuredClone(ENTRY);
+    entry.kind = 'map.ask';
+    entry.title = 'Ask';
+    entry.input_schema.required = ['source', 'question', 'response_type'];
+    entry.input_schema.properties = {
+      source: { type: 'array', title: 'Source', items: { type: 'string' } },
+      question: { type: 'string', title: 'Question' },
+      response_type: { type: 'string', title: 'Response type', enum: ['text', 'integer'], default: 'text' },
+      include_confidence: { type: 'boolean', title: 'Include confidence', default: false },
+      include_reasoning: { type: 'boolean', title: 'Include reasoning', default: false },
+    };
+    entry.ui_hints.semantic_controls = { source: 'rich_source' };
+    entry.ui_hints.engines = [];
+    const draft: GeneratedActionDraft = {
+      action_id: 'map.ask', scope: { kind: 'sheet_rows', sheet_id: 7 },
+      params: { source: ['story'], question: 'How many?', response_type: 'text' },
+      output_names: { answer: 'answer' },
+    };
+
+    mountEditor(vi.fn(), ['source', 'response_type'], { entry, draft });
+
+    expect(screen.getByTestId('field-response_type')).toBeDisabled();
   });
 
   it('refuses an entire custom-body update when it changes a locked top-level param', async () => {
@@ -297,7 +379,7 @@ describe('GeneratedActionParamsEditor', () => {
     }), 'run');
   });
 
-  it('defaults a chosen variant to all-row replacement and keeps selection explicit', async () => {
+  it('keeps replacement scope truthful and reversible when a selected-row launch is cancelled', async () => {
     const { onExecute, onReturnToCompare } = mountFinalForm('use-comparison-variant');
     expect(screen.getByText('on Court filings · from variant B')).toBeInTheDocument();
     expect(screen.getByTestId('comparison-stale-run-notice')).toHaveTextContent(
@@ -313,9 +395,35 @@ describe('GeneratedActionParamsEditor', () => {
     }), 'run');
 
     fireEvent.click(screen.getByTestId('generated-action-run-scope-menu-button'));
-    expect(screen.queryByTestId('generated-action-row-scope-all')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('generated-action-row-scope-selected'));
+    expect(onExecute.mock.lastCall?.[0]).toMatchObject({
+      scope: { kind: 'sheet_rows', sheet_id: 7, row_ids: [11, 12, 13] },
+    });
+
+    // A cost-gate cancellation leaves this form mounted. Its next action and
+    // summary must describe the retained selected scope, and all rows must
+    // remain reachable without reopening the comparison.
+    expect(screen.getByTestId('generated-action-run')).toHaveTextContent('Replace selected rows');
+    expect(screen.getByText('3 selected rows will be replaced')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('generated-action-run-scope-menu-button'));
+    fireEvent.click(screen.getByTestId('generated-action-row-scope-all'));
+    expect(onExecute.mock.lastCall?.[0]).toMatchObject({
+      scope: { kind: 'sheet_rows', sheet_id: 7 },
+    });
+    expect(screen.getByTestId('generated-action-run')).toHaveTextContent('Replace all rows');
+
+    fireEvent.click(screen.getByTestId('generated-action-run-scope-menu-button'));
     fireEvent.click(screen.getByTestId('generated-action-menu-return-to-compare'));
     expect(onReturnToCompare).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides selected-row execution when the captured comparison has no selection', async () => {
+    mountFinalForm('use-comparison-variant', []);
+    await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
+
+    fireEvent.click(screen.getByTestId('generated-action-run-scope-menu-button'));
+
+    expect(screen.queryByTestId('generated-action-row-scope-selected')).not.toBeInTheDocument();
   });
 
   it('keeps a chosen fresh-draft variant as a normal all-row Run', async () => {

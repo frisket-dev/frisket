@@ -64,6 +64,13 @@
   flex: 1 1 auto; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.action-drawer .action-form > .form-header.action-drawer-header-with-history {
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  grid-template-areas:
+    'icon title history help close'
+    '.    context history help close';
+}
+.action-drawer-header .action-history-trigger { grid-area: history; align-self: start; }
 .action-list { display: flex; flex-direction: column; padding: 0 8px 12px; gap: 2px; }
 .action-item {
   display: flex; gap: 10px; align-items: flex-start;
@@ -80,20 +87,19 @@
 .action-form { display: flex; flex-direction: column; padding: 0 14px 16px; }
 .action-advanced {
   margin-top: 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-7);
-  background: var(--bg);
+  border: 0;
+  background: transparent;
 }
 .action-advanced summary {
   cursor: pointer;
-  padding: 7px 9px;
+  padding: 7px 0;
   color: var(--text-mid);
   font-size: 11px;
   font-weight: 650;
 }
 .action-advanced-body {
-  border-top: 1px solid var(--border);
-  padding: 0 9px 9px;
+  border-top: 0;
+  padding: 0;
 }
 
 /* Action panel layout. Shared controls own their appearance. */
@@ -106,7 +112,11 @@
   padding: 0;
   border: 0;
 }
-.locked-param > .form-hint { margin-top: 4px; }
+.locked-param-fields:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+}
+.locked-param-fields:disabled * { cursor: not-allowed; }
 /* Compact single-
    line fields (text/select/number/checkbox/column pickers) render label-left,
    input-right instead of stacked — too many stacked options read as a huge
@@ -204,7 +214,6 @@
 .action-panel .action-advanced {
   margin-top: 20px;
   border: 0;
-  border-top: 1px solid var(--border);
   border-radius: 0;
   background: transparent;
 }

@@ -324,11 +324,6 @@ export function OutputFieldsEditor({
           This action defines its own output columns.
         </p>
       )}
-      {!outputFieldsReadOnly && structureLocked && (
-        <p className="form-hint" data-testid="output-structure-lock-hint">
-          {lockReason} Names, types, labels, and field structure stay the same; descriptions can be edited.
-        </p>
-      )}
       <div className="editor-list" data-testid="output-fields-editor">
         {fields.map((f, i) => (
           <div className="editor-row" key={f.uiId}>
