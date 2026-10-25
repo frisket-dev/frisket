@@ -185,6 +185,15 @@ async function chooseCompareFromColumnMenu(
   await expect(page.getByTestId('action-compare-toolbar')).toBeVisible({ timeout: 20_000 });
 }
 
+async function selectEveryRow(page: Page): Promise<void> {
+  const grid = page.getByTestId('grid');
+  const box = await grid.boundingBox();
+  if (!box) throw new Error('grid is not visible');
+  const groupHeight = Number(await grid.getAttribute('data-group-header-height') ?? 0);
+  // Glide's top-left row-marker checkbox toggles the full current row set.
+  await page.mouse.click(box.x + 20, box.y + groupHeight + 17);
+}
+
 test.describe('connected action comparison', () => {
   test('compares a real run, applies replacement settings, and undoes them', async ({ page }) => {
     test.setTimeout(120_000);
@@ -311,6 +320,21 @@ test.describe('connected action comparison', () => {
     await page.getByTestId('action-compare-maintab-close').click();
     await expect(page.getByTestId('action-compare-toolbar')).toHaveCount(0);
 
+    await selectEveryRow(page);
+    await expect.poll(async () => page.evaluate(() => (
+      window as typeof window & { __frisketGridSelection?: { rows: number[] } }
+    ).__frisketGridSelection?.rows.length ?? 0)).toBe(25);
+    await chooseCompareFromColumnMenu(page, columns, 'topic');
+    await expect(page.getByTestId('action-compare-sample-count'))
+      .toHaveText('20 of 25 selected rows');
+    await shoot(page, '11-captured-selection.png');
+    await page.getByTestId('action-compare-maintab-close').click();
+    await expect(page.getByTestId('action-compare-toolbar')).toHaveCount(0);
+
+    await selectEveryRow(page);
+    await expect.poll(async () => page.evaluate(() => (
+      window as typeof window & { __frisketGridSelection?: { rows: number[] } }
+    ).__frisketGridSelection?.rows.length ?? 0)).toBe(0);
     await selectRow(page, 0);
     await selectRow(page, 2);
     await expect.poll(async () => page.evaluate(() => (
@@ -319,7 +343,6 @@ test.describe('connected action comparison', () => {
     await chooseCompareFromColumnMenu(page, columns, 'topic');
     await expect(page.getByTestId('action-compare-sample-count'))
       .toHaveText('2 sample rows');
-    await shoot(page, '11-captured-selection.png');
 
     await page.getByRole('button', { name: 'Variant', exact: true }).click();
     const editor = page.getByRole('complementary', { name: 'Configure variant B' });
