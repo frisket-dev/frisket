@@ -35,7 +35,7 @@ export interface InspectDetailColumnProps {
   renderDetailContribution?(contribution: WorkbenchResolvedLayoutContribution): ReactNode;
   onOpenInDocumentView?(columnId: string): void;
   onOpenRowRef?(sheetId: string, rowId: string): void;
-  onOpenSourceDocument?(sheetId: string, rowId: string, columnId: string): void;
+  onOpenSourceDocument?(sheetId: string, rowId: string, columnId: string, page?: number): void;
   /** Deliberate per-row retry of a terminal empty_output cell — threaded to
    *  RowDrawerBody's "Retry anyway" affordance. */
   onRetryCell?(columnName: string): Promise<void>;

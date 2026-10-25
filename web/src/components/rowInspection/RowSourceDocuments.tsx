@@ -16,7 +16,7 @@ export function RowSourceDocuments({
   onOpenDocument,
 }: {
   rowId: string;
-  onOpenDocument(sheetId: string, rowId: string, columnId: string): void;
+  onOpenDocument(sheetId: string, rowId: string, columnId: string, page?: number): void;
 }) {
   const { projectApi } = useWorkspaceStores();
   const [state, setState] = useState<SourceState>({ phase: 'loading' });
@@ -24,15 +24,15 @@ export function RowSourceDocuments({
   const triggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    let alive = true;
-    projectApi.getRowSourceDocuments(rowId)
+    const controller = new AbortController();
+    projectApi.getRowSourceDocuments(rowId, { signal: controller.signal })
       .then((payload) => {
-        if (alive) setState({ phase: 'ready', rowId, payload });
+        if (!controller.signal.aborted) setState({ phase: 'ready', rowId, payload });
       })
       .catch(() => {
-        if (alive) setState({ phase: 'error', rowId });
+        if (!controller.signal.aborted) setState({ phase: 'error', rowId });
       });
-    return () => { alive = false; };
+    return () => controller.abort();
   }, [projectApi, rowId]);
 
   if (state.phase === 'loading' || state.rowId !== rowId) return null;
@@ -48,6 +48,7 @@ export function RowSourceDocuments({
       String(document.sheet_id),
       String(document.row_id),
       String(document.column_id),
+      document.page ?? undefined,
     );
   };
   const documentLabel = (document: RowSourceDocumentsPayload['documents'][number]) => (

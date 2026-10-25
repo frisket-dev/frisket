@@ -55,7 +55,7 @@ export interface RowDrawerBodyProps {
    *  the Document reader focused on this row + column. */
   onOpenInDocumentView?(columnId: string): void;
   onOpenRowRef?(sheetId: string, rowId: string): void;
-  onOpenSourceDocument?(sheetId: string, rowId: string, columnId: string): void;
+  onOpenSourceDocument?(sheetId: string, rowId: string, columnId: string, page?: number): void;
   /** Deliberate per-row retry of a terminal empty_output cell (the
    *  empty-output terminal-row contract): run.backfill with this row's exact
    *  id. The promise settles when the retry run finishes. */

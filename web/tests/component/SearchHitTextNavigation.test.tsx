@@ -96,9 +96,10 @@ describe('located text search navigation', () => {
   it('opens an exact cross-sheet source document in the normal Document view', async () => {
     columnType = 'file';
     await ready();
-    act(() => latest.openDocumentRef('2', '20', '7'));
+    act(() => latest.openDocumentRef('2', '20', '7', 4));
     expect(stores.chrome.store.get().documentView).toMatchObject({
       sheetId: '2', sourceColumnId: '7', activeRowId: '20', sync: false,
+      readerPage: { rowId: '20', page: 4 },
     });
     await waitFor(() => expect(stores.route.store.get()).toMatchObject({ sheetId: '2' }));
     await waitFor(() => expect(latest.mainViewModel.activeWorkView).toBe('document'));

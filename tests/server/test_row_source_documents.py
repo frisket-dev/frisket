@@ -5,6 +5,7 @@ import json
 
 import pytest
 
+from frisket.engine.store import staleness
 from frisket.engine.executor.actions import run_action_spec
 from frisket.engine.store import Project
 from frisket.engine.store.evidence import (
@@ -27,6 +28,26 @@ class _Workspace:
     def get(self, project_id: str) -> Project:
         assert project_id == "project"
         return self.project
+
+
+def test_root_source_lookup_skips_project_wide_sync_state_scan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = Project.create(tmp_path / "project.frisket")
+    try:
+        sheet_id = project.add_sheet("Root")
+        column_id = project.add_column(sheet_id, "value")
+        project.add_rows(sheet_id, [{"value": "root"}], {"value": column_id})
+        monkeypatch.setattr(
+            staleness,
+            "compute_sync_states",
+            lambda _project: pytest.fail(
+                "root sheets must not scan project sync state"
+            ),
+        )
+        assert staleness.sheet_is_stale(project, sheet_id) is False
+    finally:
+        project.close()
 
 
 def _document_row(project: Project, name: str, filename: str) -> tuple[int, int, int]:

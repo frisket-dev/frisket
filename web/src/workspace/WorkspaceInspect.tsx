@@ -92,7 +92,7 @@ export const WorkspaceInspectDetailRegion = memo(function WorkspaceInspectDetail
         renderDetailContribution={renderRowDetailContribution}
         onOpenInDocumentView={(columnId) => openRowInDocumentView(String(rowDrawer.id), columnId)}
         onOpenRowRef={(sheetId, rowId) => openRowRef(sheetId, rowId)}
-        onOpenSourceDocument={(sheetId, rowId, columnId) => openDocumentRef(sheetId, rowId, columnId)}
+        onOpenSourceDocument={(sheetId, rowId, columnId, page) => openDocumentRef(sheetId, rowId, columnId, page)}
         onRetryCell={onRetryCell}
         titleColumnOrder={titleColumnOrder}
         expandedRunResultFields={expandedRunResultFields}

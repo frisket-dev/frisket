@@ -24,7 +24,13 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-const document = (sheetId: number, rowId: number, columnId: number, name: string) => ({
+const document = (
+  sheetId: number,
+  rowId: number,
+  columnId: number,
+  name: string,
+  page: number | null = null,
+) => ({
   sheet_id: sheetId,
   sheet_name: name,
   row_id: rowId,
@@ -33,7 +39,7 @@ const document = (sheetId: number, rowId: number, columnId: number, name: string
   column_name: 'document',
   column_type: 'file' as const,
   filename: `${name.toLowerCase().replace(' documents', '')}.pdf`,
-  page: null,
+  page,
 });
 
 describe('row source documents', () => {
@@ -47,7 +53,7 @@ describe('row source documents', () => {
       unavailable_source_count: 0,
       truncated: false,
       evidence_links: [],
-      documents: [document(1, 11, 101, 'Left documents'), document(2, 22, 202, 'Right documents')],
+      documents: [document(1, 11, 101, 'Left documents'), document(2, 22, 202, 'Right documents', 3)],
     });
     const onOpenDocument = vi.fn();
     render(<RowSourceDocuments rowId="90" onOpenDocument={onOpenDocument} />);
@@ -55,9 +61,9 @@ describe('row source documents', () => {
     const trigger = await screen.findByTestId('row-open-source-documents');
     expect(trigger).toHaveTextContent('Open source documents (2)');
     fireEvent.click(trigger);
-    const choice = await screen.findByRole('menuitem', { name: 'right.pdf · Right documents · Row 22' });
+    const choice = await screen.findByRole('menuitem', { name: 'right.pdf · Page 3 · Right documents · Row 22' });
     fireEvent.click(choice);
-    expect(onOpenDocument).toHaveBeenCalledWith('2', '22', '202');
+    expect(onOpenDocument).toHaveBeenCalledWith('2', '22', '202', 3);
   });
 
   it('keeps explicit evidence and document fallback visible together', async () => {
@@ -121,6 +127,25 @@ describe('row source documents', () => {
       'some source links may be missing',
     );
     expect(screen.getByTestId('row-open-source-document')).toBeInTheDocument();
+  });
+
+  it('aborts a superseded row request', async () => {
+    let firstSignal: AbortSignal | undefined;
+    mocks.getRowSourceDocuments
+      .mockImplementationOnce((_rowId, options) => {
+        firstSignal = options?.signal;
+        return new Promise(() => {});
+      })
+      .mockResolvedValueOnce({
+        schema_version: 'frisket.row_source_documents.v1', sheet_id: 2, row_id: 2,
+        ancestry_found: false, lineage_stale: false, unavailable_source_count: 0, truncated: false,
+        evidence_links: [], documents: [],
+      });
+    const view = render(<RowSourceDocuments rowId="1" onOpenDocument={() => {}} />);
+    expect(firstSignal?.aborted).toBe(false);
+    view.rerender(<RowSourceDocuments rowId="2" onOpenDocument={() => {}} />);
+    expect(firstSignal?.aborted).toBe(true);
+    await waitFor(() => expect(mocks.getRowSourceDocuments).toHaveBeenCalledTimes(2));
   });
 
 });

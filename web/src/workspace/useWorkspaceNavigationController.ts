@@ -666,7 +666,7 @@ export function useWorkspaceNavigationController({
     [sheet, prioritizeDocumentRow, documentView, selection, setDocumentView, setOpenSplit],
   );
   const openDocumentRef = useCallback(
-    (sheetId: string, rowId: string, columnId: string) => {
+    (sheetId: string, rowId: string, columnId: string, page?: number) => {
       setOpenSplit(null);
       setDocumentView({
         sheetId,
@@ -679,6 +679,7 @@ export function useWorkspaceNavigationController({
         sync: false,
         activeRowId: rowId,
         readerLocationKey: crypto.randomUUID(),
+        ...(page ? { readerPage: { rowId, page } } : {}),
       });
       selection.clearRowSelection(sheetId);
       selectSheet(sheetId);

@@ -4954,7 +4954,10 @@ export interface FrisketApi {
   ): Promise<CellEvidencePayload>;
   /** Existing citations and readable original documents reachable through a
    * bounded, cycle-safe row-ancestry walk. Fetched only for the open row. */
-  getRowSourceDocuments(rowId: string): Promise<RowSourceDocumentsPayload>;
+  getRowSourceDocuments(
+    rowId: string,
+    opts?: { signal?: AbortSignal },
+  ): Promise<RowSourceDocumentsPayload>;
   /** The Grounded Answers view's middle-pane batch — one call per (sheet,
    *  column) instead of one getCellEvidence call per visible row. `rowIds`
    *  scopes the batch to the list's virtualization window; omitted = every
