@@ -854,6 +854,8 @@ export function useWorkspaceModel({
   }), [activeGridFilter, activeGridSort, scopeRowIds, activeGridLensRowIds, activeChildFilter]);
   const actionCompare = useWorkspaceActionCompareController({
     projectId: project.id, sheetId: sheet?.id, selectedRowIds: selectedRowIdsForSheet,
+    selectedRowCount: selectedRows.sheetId === sheet?.id
+      ? selectedRows.rowIndexes.length || selectedRowIdsForSheet.length : 0,
     sampleOptions: comparisonSampleOptions, runActionFromSurface, closeActionRoute, setOpenSplit, showError,
   });
 
