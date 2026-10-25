@@ -383,7 +383,6 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
                       disabled={busy}
                     />
                   )}
-                  laterHint="More per-engine options (model tier, page range, deskew, table mode) stack here as engines declare them."
                 />
               ) : null}
             </div>
@@ -410,7 +409,7 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
         columnSummary={variantSummary}
         frontDoorTitle="Drop a small sample of PDFs or images"
         frontDoorHint="Nothing uploads to your project — this session is disposable. Configure variants, then Run."
-        pendingLabel="not run yet — press Run"
+        pendingLabel="not run yet — select Run comparison"
       />
       {paid.quote}
       {paid.gate}
@@ -440,7 +439,7 @@ function OcrOptionFields({
   const options = optionsOf(column);
   const pagesProblem = parsePageList(options.pagesText).error;
   return (
-    <fieldset disabled={disabled}>
+    <fieldset className="ocr-compare-configure-fields" disabled={disabled}>
       <div className="ocr-compare-configure-field">
         <span className="ocr-compare-configure-label">Rendering DPI</span>
         <SegmentedToggle
