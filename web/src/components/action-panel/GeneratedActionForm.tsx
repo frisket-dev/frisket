@@ -1049,7 +1049,8 @@ function GeneratedActionFormContents({
               template: value,
             })}
           />
-          {typeof sourceHint === 'string' && <p className="form-hint">{sourceHint}</p>}
+          {!lockedParams.has(field.name) && typeof sourceHint === 'string'
+            && <p className="form-hint">{sourceHint}</p>}
         </>
       );
     }

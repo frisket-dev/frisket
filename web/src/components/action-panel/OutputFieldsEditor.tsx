@@ -483,12 +483,12 @@ export function OutputFieldsEditor({
           </div>
         ))}
       </div>
-      {actionKind === 'map.extract' && (
+      {!structureLocked && actionKind === 'map.extract' && (
         <p className="form-hint" data-testid="action-output-summary">
           Multiple columns are filled from one structured call per row.
         </p>
       )}
-      {actionKind !== 'map.extract' && !usesFieldNameDestination && !outputFieldsReadOnly && fields.length > 1 && (
+      {!structureLocked && actionKind !== 'map.extract' && !usesFieldNameDestination && !outputFieldsReadOnly && fields.length > 1 && (
         <p className="form-hint">Multiple fields = one structured call per row, never N calls.</p>
       )}
     </>

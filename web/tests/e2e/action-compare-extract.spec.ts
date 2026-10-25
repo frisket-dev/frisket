@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { expectComparisonCell } from './actionCompareHelpers';
 
 import {
   clickGroupHeader,
@@ -173,9 +174,6 @@ async function configureVariant(page: Page, key: 'B' | 'C', settings: ExtractSet
   await expect(editor).toBeVisible();
   await expect(editor.getByTestId('engine-selector')).toContainText('Gemini 3.5 Flash-Lite');
   if (key === 'B') await shoot(page, '02a-extract-editor-model.png');
-  await expect(editor.getByTestId('output-structure-lock-hint')).toContainText(
-    'Names, types, labels, and field structure stay the same; descriptions can be edited.',
-  );
   const rows = editor.getByTestId('output-field-row');
   await expect(rows).toHaveCount(2);
   await expect(rows.nth(0).getByTestId('output-field-name')).toBeDisabled();
@@ -231,9 +229,8 @@ test('Extract compares two typed fields across A/B/C and opens Use settings', as
   await approveCostGateIfShown(page);
   await expect(page.getByTestId('action-compare-variant-B')).toContainText('ready', { timeout: 60_000 });
   await expect(page.getByTestId('action-compare-variant-C')).toContainText('ready', { timeout: 60_000 });
-  await expect(page.getByRole('columnheader', { name: 'case_number' })).toBeVisible();
-  await expect(page.getByRole('columnheader', { name: 'hearing_date' })).toBeVisible();
-  expect(await page.locator("td[data-comparison='different']").count()).toBeGreaterThan(0);
+  await expectComparisonCell(page, 0, 0, '24-CV-0187');
+  await expectComparisonCell(page, 2, 0, 'CV 24-CV-0187');
   await shoot(page, '05-extract-abc-results.png');
   await page.getByTestId('action-compare-variant-C').hover();
   await expect(page.getByRole('tooltip')).toContainText('Description');

@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { expect, test, type Page } from '@playwright/test';
+import { expectComparisonCell } from './actionCompareHelpers';
 
 import {
   clickHeaderMenu,
@@ -251,7 +252,8 @@ test.describe('connected action comparison', () => {
     await approveCostGateIfShown(page);
     const variantB = page.getByTestId('action-compare-variant-B');
     await expect(variantB).toContainText('ready', { timeout: 60_000 });
-    await expect(page.locator("td[data-comparison='different']")).toHaveCount(2);
+    await expectComparisonCell(page, 0, 0, 'transit');
+    await expectComparisonCell(page, 1, 0, 'other');
     await shoot(page, '05-preview-results.png');
 
     await page.getByRole('button', { name: 'Use settings from variant B' }).click();
@@ -259,6 +261,9 @@ test.describe('connected action comparison', () => {
     await expect(replacementForm).toBeVisible();
     await expect(replacementForm.getByRole('button', { name: 'Replace all rows', exact: true })).toBeVisible();
     await expect(replacementForm.getByTestId('field-context')).toHaveValue(PROMPT_B);
+    const historyButton = await page.getByTestId('action-history-button').boundingBox();
+    const closeButton = await page.getByTestId('action-drawer-close').boundingBox();
+    expect(Math.abs(historyButton!.y - closeButton!.y)).toBeLessThan(3);
     await shoot(page, '06-replace-settings.png');
 
     await clickRunButton(page);

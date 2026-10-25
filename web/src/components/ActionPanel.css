@@ -64,13 +64,6 @@
   flex: 1 1 auto; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.action-drawer .action-form > .form-header.action-drawer-header-with-history {
-  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
-  grid-template-areas:
-    'icon title history help close'
-    '.    context history help close';
-}
-.action-drawer-header .action-history-trigger { grid-area: history; align-self: start; }
 .action-list { display: flex; flex-direction: column; padding: 0 8px 12px; gap: 2px; }
 .action-item {
   display: flex; gap: 10px; align-items: flex-start;

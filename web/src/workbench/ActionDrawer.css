@@ -86,6 +86,13 @@
   row-gap: 1px;
   align-items: center;
 }
+.action-drawer .action-form > .form-header.action-drawer-header-with-history {
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  grid-template-areas:
+    'icon title history help close'
+    '.    context history help close';
+}
+.action-drawer-header .action-history-trigger { grid-area: history; align-self: start; }
 .action-drawer-header .action-drawer-header-icon { grid-area: icon; }
 .action-drawer-header .action-title-menu,
 .action-drawer-header > span[data-testid='action-form-title'] {
