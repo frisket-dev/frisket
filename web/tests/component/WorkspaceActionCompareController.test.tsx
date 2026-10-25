@@ -292,6 +292,38 @@ describe('useWorkspaceActionCompareController', () => {
     await waitFor(() => expect(view.result.current.actionCompareSession).not.toBe(session));
   });
 
+  it('refuses Use while a retarget context read is pending, then restores it after retarget failure', async () => {
+    const initial = comparisonContext();
+    let rejectRetarget!: (error: Error) => void;
+    vi.mocked(harness!.api.getContext)
+      .mockResolvedValueOnce(initial)
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectRetarget = reject; }));
+    const view = renderController();
+
+    act(() => view.result.current.openActionCompare(ALL_ROWS_DRAFT));
+    await waitFor(() => expect(view.result.current.actionCompareSession).not.toBeNull());
+    const originalSession = view.result.current.actionCompareSession!;
+    act(() => { originalSession.addVariant(); });
+
+    const nextDraft = { ...ALL_ROWS_DRAFT, params: { ...ALL_ROWS_DRAFT.params, instruction: 'Next target' } };
+    act(() => view.result.current.openActionCompare(nextDraft));
+    act(() => view.result.current.confirmActionCompareRetarget());
+    await waitFor(() => expect(harness!.api.getContext).toHaveBeenCalledTimes(2));
+
+    await act(async () => view.result.current.useActionCompareSettings(chosenSettings(initial)));
+    expect(harness!.api.getContext).toHaveBeenCalledTimes(2);
+    expect(harness!.runActionFromSurface).not.toHaveBeenCalled();
+
+    await act(async () => { rejectRetarget(new Error('Retarget context failed.')); });
+    await waitFor(() => expect(harness!.showError).toHaveBeenCalledWith('Retarget context failed.'));
+    expect(view.result.current.actionCompareSession).toBe(originalSession);
+    act(() => view.result.current.cancelActionCompareRetarget());
+
+    vi.mocked(harness!.api.getContext).mockResolvedValueOnce(initial);
+    await act(async () => view.result.current.useActionCompareSettings(chosenSettings(initial)));
+    expect(harness!.runActionFromSurface).toHaveBeenCalledTimes(1);
+  });
+
   it('loads actual run settings and anchors the launch to that run and source sheet', async () => {
     const olderDraft: GeneratedActionDraft = {
       ...ALL_ROWS_DRAFT,

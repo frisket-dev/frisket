@@ -57,6 +57,7 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
   const latestTarget = useRef<ComparisonTarget | null>(null);
   const editAnchor = useRef<ActionRunAnchor | null>(null);
   const generation = useRef(0);
+  const pendingTargetGeneration = useRef<number | null>(null);
   const captureSelection = useCallback((targetSheet: string) => {
     if (targetSheet !== sheetId) return null;
     const totalCount = selectedRowCount ?? selectedRowIds.length;
@@ -97,6 +98,7 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
 
   const openTarget = useCallback(async (target: ComparisonTarget) => {
     const current = ++generation.current;
+    pendingTargetGeneration.current = current;
     try {
       const context = await readContext(target);
       if (current !== generation.current) return null;
@@ -113,6 +115,8 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
     } catch (error) {
       if (current === generation.current) showError(error instanceof Error ? error.message : 'Could not open comparison.');
       return null;
+    } finally {
+      if (pendingTargetGeneration.current === current) pendingTargetGeneration.current = null;
     }
   }, [api, compareView, jobs.requestCostConfirmation, readContext, setOpenSplit, showError, workView]);
 
@@ -173,6 +177,7 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
     } catch (error) { showError(error instanceof Error ? error.message : 'Could not load these settings.'); }
   }, [launchSettings, readContext, showError, targetForRun]);
   const checkFreshness = useCallback(async () => {
+    if (pendingTargetGeneration.current !== null) return null;
     const active = sessionRef.current;
     if (!active) return null;
     const activeGeneration = generation.current;
@@ -180,7 +185,8 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
     const current = await api.getContext({ source: previous.comparison_basis, sample_row_ids: previous.sample_row_ids });
     const stale = !current.available || current.sample_fingerprint !== previous.sample_fingerprint
       || current.expected_output_signature !== previous.expected_output_signature;
-    if (generation.current !== activeGeneration || sessionRef.current !== active) return null;
+    if (pendingTargetGeneration.current !== null
+      || generation.current !== activeGeneration || sessionRef.current !== active) return null;
     active.setStale(stale);
     return stale;
   }, [api]);
