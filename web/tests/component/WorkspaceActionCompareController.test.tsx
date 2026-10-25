@@ -10,11 +10,12 @@ import type {
   ActionComparisonContext,
 } from '../../src/api/actionComparison';
 import { createProjectApi } from '../../src/api/real';
-import type { GeneratedActionDraft } from '../../src/api/types';
+import type { ActionCatalogEntry, ColumnRun, GeneratedActionDraft } from '../../src/api/types';
 import { WorkspaceStoresContext } from '../../src/bind/workspaceStoresContext';
 import { createWorkspaceStores, type WorkspaceStores } from '../../src/state/createWorkspaceStores';
 import type { ActionCompareUseSettings } from '../../src/workbench/actionCompareSession';
 import { useWorkspaceActionCompareController } from '../../src/workspace/useWorkspaceActionCompareController';
+import { catalogPayload } from '../support/actionFormFixtures';
 import { row } from '../support/domainFixtures';
 
 const ALL_ROWS_DRAFT: GeneratedActionDraft = {
@@ -34,10 +35,12 @@ function comparisonContext({
   fingerprint = 'sample-v1',
   runId,
   draft = ALL_ROWS_DRAFT,
+  sampleRowIds = [11, 12, 13],
 }: {
   fingerprint?: string;
   runId?: number;
   draft?: GeneratedActionDraft;
+  sampleRowIds?: number[];
 } = {}): ActionComparisonContext {
   const runBasis = runId === undefined ? null : {
     kind: 'run' as const,
@@ -53,7 +56,7 @@ function comparisonContext({
     comparison_basis: runBasis ?? { kind: 'draft', draft },
     draft,
     sheet: { id: 7, name: 'Court filings' },
-    sample_row_ids: [11, 12, 13],
+    sample_row_ids: sampleRowIds,
     sample_fingerprint: fingerprint,
     locked_params: ['source', 'fields'],
     source_columns: [{
@@ -82,6 +85,42 @@ function comparisonContext({
     origin_summary: {
       mixed_runs: false, includes_manual_edits: false, includes_reject_clear: false,
     },
+  };
+}
+
+const RUN: ColumnRun = {
+  runId: '42',
+  actionKind: 'map.extract',
+  actionName: 'Extract structured fields',
+  model: 'test/model-a',
+  status: 'completed',
+  spec: {},
+  totalRows: 240,
+  completedRows: 240,
+  failedRows: 0,
+  cost: 0,
+  startedAt: '2026-10-25T10:12:00Z',
+  finishedAt: '2026-10-25T10:13:00Z',
+  durationMs: 60_000,
+  tokensIn: 10,
+  tokensOut: 20,
+  current: true,
+  humanScore: { passed: 0, graded: 0 },
+  judgeScores: [],
+};
+
+function chosenSettings(context: ActionComparisonContext): ActionCompareUseSettings {
+  return {
+    variantId: 'variant-b',
+    variantLabel: 'B',
+    draft: {
+      ...ALL_ROWS_DRAFT,
+      params: { ...ALL_ROWS_DRAFT.params, model: 'test/model-b' },
+    },
+    context,
+    capturedSelection: { rowIds: [11, 12, 13], totalCount: 3 },
+    sampleRowIds: [...context.sample_row_ids],
+    comparisonStale: false,
   };
 }
 
@@ -131,13 +170,15 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function renderController(selectedRowIds: readonly string[] = ['11', '12', '13']) {
+function renderController(selectedRowIds: readonly string[] = ['11', '12', '13'],
+  selectedRowCount = selectedRowIds.length) {
   if (!harness) throw new Error('Controller harness is not initialized.');
   const current = harness;
   return renderHook(() => useWorkspaceActionCompareController({
     projectId: 'action-compare-controller',
     sheetId: '7',
     selectedRowIds,
+    selectedRowCount,
     sampleOptions: {},
     runActionFromSurface: current.runActionFromSurface,
     closeActionRoute: current.closeActionRoute,
@@ -166,23 +207,11 @@ describe('useWorkspaceActionCompareController', () => {
     expect(snapshot.capturedSelection).toEqual({ rowIds: [11, 12, 13], totalCount: 3 });
     expect(snapshot.context.draft.scope).toEqual({ kind: 'sheet_rows', sheet_id: 7 });
 
-    const chosenDraft: GeneratedActionDraft = {
-      ...ALL_ROWS_DRAFT,
-      params: { ...ALL_ROWS_DRAFT.params, model: 'test/model-b' },
-    };
-    const chosen: ActionCompareUseSettings = {
-      variantId: 'variant-b',
-      variantLabel: 'B',
-      draft: chosenDraft,
-      context: snapshot.context,
-      capturedSelection: snapshot.capturedSelection,
-      sampleRowIds: [...snapshot.context.sample_row_ids],
-      comparisonStale: false,
-    };
+    const chosen = { ...chosenSettings(snapshot.context), capturedSelection: snapshot.capturedSelection };
     await act(async () => view.result.current.useActionCompareSettings(chosen));
 
     expect(harness!.runActionFromSurface).toHaveBeenCalledWith('map.extract', undefined, {
-      actionDraft: chosenDraft,
+      actionDraft: chosen.draft,
       actionCompare: expect.objectContaining({
         kind: 'use-comparison-variant',
         variantId: 'variant-b',
@@ -194,8 +223,73 @@ describe('useWorkspaceActionCompareController', () => {
         returnToCompare: true,
       }),
     });
-    expect(chosenDraft.scope).toEqual({ kind: 'sheet_rows', sheet_id: 7 });
+    expect(chosen.draft.scope).toEqual({ kind: 'sheet_rows', sheet_id: 7 });
     expect(harness!.showError).not.toHaveBeenCalled();
+  });
+
+  it('honors an explicit null comparison selection instead of recapturing the live grid selection', async () => {
+    vi.mocked(harness!.api.getContext).mockResolvedValue(comparisonContext());
+    const view = renderController(['91', '92']);
+
+    act(() => view.result.current.openActionCompare(ALL_ROWS_DRAFT, null));
+    await waitFor(() => expect(view.result.current.actionCompareSession).not.toBeNull());
+
+    expect(harness!.api.getContext).toHaveBeenCalledWith({
+      source: { kind: 'draft', draft: ALL_ROWS_DRAFT },
+      sample_row_ids: [11, 12, 13],
+    });
+    expect(harness!.stores.projectApi.getSheetData).toHaveBeenCalledWith(
+      '7', 0, 20, expect.objectContaining({ columnIds: [], valueMode: 'bounded' }),
+    );
+    expect(view.result.current.actionCompareSession!.getSnapshot().capturedSelection).toBeNull();
+  });
+
+  it('refuses an incompletely loaded live selection without claiming a partial comparison scope', () => {
+    const view = renderController(['91', '92'], 5);
+    const partialDraft: GeneratedActionDraft = {
+      ...ALL_ROWS_DRAFT,
+      scope: { kind: 'sheet_rows', sheet_id: 7, row_ids: [91, 92] },
+    };
+
+    act(() => view.result.current.openActionCompare(partialDraft));
+
+    expect(harness!.showError).toHaveBeenCalledWith(
+      'Some selected rows are not loaded; choose a smaller selection.',
+    );
+    expect(harness!.api.getContext).not.toHaveBeenCalled();
+    expect(view.result.current.actionCompareSession).toBeNull();
+  });
+
+  it('fences a delayed Use freshness result as soon as a retarget generation starts', async () => {
+    const initial = comparisonContext();
+    let resolveFreshness!: (context: ActionComparisonContext) => void;
+    let resolveRetarget!: (context: ActionComparisonContext) => void;
+    vi.mocked(harness!.api.getContext)
+      .mockResolvedValueOnce(initial)
+      .mockImplementationOnce(() => new Promise(resolve => { resolveFreshness = resolve; }))
+      .mockImplementationOnce(() => new Promise(resolve => { resolveRetarget = resolve; }));
+    const view = renderController();
+
+    act(() => view.result.current.openActionCompare(ALL_ROWS_DRAFT));
+    await waitFor(() => expect(view.result.current.actionCompareSession).not.toBeNull());
+    const session = view.result.current.actionCompareSession!;
+    act(() => { session.addVariant(); });
+
+    let usePromise!: Promise<void>;
+    act(() => { usePromise = view.result.current.useActionCompareSettings(chosenSettings(initial)); });
+    await waitFor(() => expect(harness!.api.getContext).toHaveBeenCalledTimes(2));
+
+    const nextDraft = { ...ALL_ROWS_DRAFT, params: { ...ALL_ROWS_DRAFT.params, instruction: 'Next target' } };
+    act(() => view.result.current.openActionCompare(nextDraft));
+    expect(view.result.current.actionComparePendingTarget).not.toBeNull();
+    act(() => view.result.current.confirmActionCompareRetarget());
+    await waitFor(() => expect(harness!.api.getContext).toHaveBeenCalledTimes(3));
+
+    await act(async () => { resolveFreshness(initial); await usePromise; });
+    expect(harness!.runActionFromSurface).not.toHaveBeenCalled();
+
+    await act(async () => { resolveRetarget(comparisonContext({ draft: nextDraft })); });
+    await waitFor(() => expect(view.result.current.actionCompareSession).not.toBe(session));
   });
 
   it('loads actual run settings and anchors the launch to that run and source sheet', async () => {
@@ -228,6 +322,49 @@ describe('useWorkspaceActionCompareController', () => {
     expect(view.result.current.actionCompareHistoryAnchor).toEqual({
       sheetId: '7', columnId: '101', runId: '42',
     });
+  });
+
+  it('does not advertise comparison when canonical context loading refuses the run', async () => {
+    const comparisonEntry = {
+      kind: 'map.extract',
+      ui_hints: { comparison: { kind: 'row_overlay' } },
+    } as ActionCatalogEntry;
+    act(() => harness!.stores.actionCatalog.store.set(current => ({
+      ...current,
+      status: 'ready',
+      catalog: catalogPayload({ actions: [comparisonEntry] }),
+      version: current.version + 1,
+    })));
+    vi.spyOn(harness!.stores.projectApi, 'getColumnRuns').mockResolvedValue({
+      columnName: 'pdf_party',
+      offset: 0,
+      limit: 20,
+      totalRuns: 1,
+      hasMore: false,
+      nextOffset: null,
+      currentRun: RUN,
+      currentRunLoaded: true,
+      latestRun: RUN,
+      latestRunLoaded: true,
+      mixedOrigins: false,
+      runs: [RUN],
+    });
+    vi.mocked(harness!.api.getContext).mockResolvedValue({
+      ...comparisonContext({ runId: 42 }),
+      available: false,
+      reason: { code: 'source_deleted', message: 'A source column was deleted.' },
+    });
+    const view = renderController();
+
+    const details = await view.result.current.loadActionRunEntry({
+      sheetId: '7', columnId: '101', runId: '42',
+    });
+
+    expect(details).toEqual(expect.objectContaining({
+      actionId: 'map.extract',
+      comparisonKind: null,
+      outputLabels: ['pdf_party'],
+    }));
   });
 
   it('warns only for scratch retargets, then disposes the old session before installing the new one', async () => {

@@ -26,7 +26,7 @@ import {
   decodeSavedActionSpec,
   SavedActionSpecError,
 } from '../actions/savedActionSpec';
-import type { ActionLaunchPrefill } from '../actions/actionFormInitial';
+import type { ActionCompareCapturedSelection, ActionLaunchPrefill } from '../actions/actionFormInitial';
 import {
   generatedActionTemplateFromCatalogEntry,
   isProjectScopedAction,
@@ -125,9 +125,11 @@ export interface ActionPanelProps {
     initial?: ActionLaunchPrefill,
   ) => void;
   onOpenOcrCompare?(target: OcrCompareTarget): void;
-  /** Fresh draft entry. The workspace controller captures the visible row
-   * selection and opens the transient comparison session. */
-  onCompareAction?(draft: GeneratedActionDraft): void;
+  /** Fresh entry omits `capturedSelection` so the controller captures the
+   * visible grid selection. Edit/Use forwards its original capture, including
+   * explicit null, so later grid changes cannot silently retarget Compare. */
+  onCompareAction?(draft: GeneratedActionDraft,
+    capturedSelection?: ActionCompareCapturedSelection | null): void;
   onOpenActionHistory?(actionId: string): void;
   onReturnToActionCompare?(): void;
 }
@@ -618,8 +620,10 @@ export function ActionPanel({
             onSwitchAction={(nextTemplate) => onNavigateToAction?.(nextTemplate.kind)}
             onNavigateToAction={onNavigateToAction}
             onOpenOcrCompare={onOpenOcrCompare}
-            onCompare={supportsRowOverlayComparison(generatedCatalogEntry)
-              ? onCompareAction : undefined}
+            onCompare={supportsRowOverlayComparison(generatedCatalogEntry) && onCompareAction
+              ? (draft) => onCompareAction(draft,
+                actionCompareLaunch ? actionCompareLaunch.capturedSelection : undefined)
+              : undefined}
             onOpenHistory={actionCompareLaunch?.context.comparison_basis.kind === 'run'
               && onOpenActionHistory
               ? () => onOpenActionHistory(generatedCatalogEntry.kind) : undefined}

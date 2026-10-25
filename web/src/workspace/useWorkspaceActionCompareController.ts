@@ -28,12 +28,14 @@ interface ComparisonTarget {
 
 /** Workspace lifetime, navigation and entry points. Preview execution and draft
  * revision fencing live in the comparison session, not in the React host. */
-export function useWorkspaceActionCompareController({ projectId, sheetId, selectedRowIds,
+export function useWorkspaceActionCompareController({ projectId, sheetId, selectedRowIds, selectedRowCount,
   sampleOptions, runActionFromSurface, closeActionRoute, setOpenSplit, showError,
 }: {
   projectId: string;
   sheetId?: string;
   selectedRowIds: readonly string[];
+  /** Total selected membership when it may exceed the currently loaded IDs. */
+  selectedRowCount?: number;
   sampleOptions: SheetDataOptions;
   runActionFromSurface(action: string, source?: string, initial?: ActionLaunchPrefill): void;
   closeActionRoute(): void;
@@ -55,11 +57,15 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
   const latestTarget = useRef<ComparisonTarget | null>(null);
   const editAnchor = useRef<ActionRunAnchor | null>(null);
   const generation = useRef(0);
-  const captureSelection = useCallback((targetSheet: string) => (
-    targetSheet === sheetId && selectedRowIds.length
-      ? { rowIds: selectedRowIds.map(Number), totalCount: selectedRowIds.length }
-      : null
-  ), [sheetId, selectedRowIds]);
+  const captureSelection = useCallback((targetSheet: string) => {
+    if (targetSheet !== sheetId) return null;
+    const totalCount = selectedRowCount ?? selectedRowIds.length;
+    if (totalCount === 0) return null;
+    if (totalCount !== selectedRowIds.length) {
+      throw new Error('Some selected rows are not loaded; choose a smaller selection.');
+    }
+    return { rowIds: selectedRowIds.map(Number), totalCount };
+  }, [selectedRowCount, sheetId, selectedRowIds]);
 
   useEffect(() => () => { generation.current += 1; sessionRef.current?.dispose(); }, []);
   useEffect(() => {
@@ -116,19 +122,31 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
     else void openTarget(target);
   }, [openTarget]);
 
-  const openActionCompare = useCallback((draft: GeneratedActionDraft) => {
+  const openActionCompare = useCallback((draft: GeneratedActionDraft,
+    capturedSelection?: ActionCompareCapturedSelection | null) => {
     if (draft.scope.kind !== 'sheet_rows') { showError('This action needs a sheet to compare.'); return; }
-    const targetSheet = String(draft.scope.sheet_id);
-    const rows = draft.scope.row_ids;
-    const selection = rows?.length ? { rowIds: rows, totalCount: rows.length } : captureSelection(targetSheet);
-    requestTarget({ source: { kind: 'draft', draft }, sheetId: targetSheet, selection });
+    try {
+      const targetSheet = String(draft.scope.sheet_id);
+      const selection = capturedSelection !== undefined
+        ? capturedSelection
+        : captureSelection(targetSheet);
+      requestTarget({ source: { kind: 'draft', draft }, sheetId: targetSheet, selection });
+    } catch (error) {
+      showError(error instanceof Error ? error.message : 'Could not capture the comparison selection.');
+    }
   }, [captureSelection, requestTarget, showError]);
 
   const targetForRun = useCallback((anchor: ActionRunAnchor): ComparisonTarget => ({
     source: { kind: 'run', run_id: Number(anchor.runId), column_id: Number(anchor.columnId) },
     sheetId: anchor.sheetId, selection: captureSelection(anchor.sheetId),
   }), [captureSelection]);
-  const compareActionRun = useCallback((anchor: ActionRunAnchor) => requestTarget(targetForRun(anchor)), [requestTarget, targetForRun]);
+  const compareActionRun = useCallback((anchor: ActionRunAnchor) => {
+    try {
+      requestTarget(targetForRun(anchor));
+    } catch (error) {
+      showError(error instanceof Error ? error.message : 'Could not capture the comparison selection.');
+    }
+  }, [requestTarget, showError, targetForRun]);
 
   const launchSettings = useCallback((context: ActionComparisonContext, draft: GeneratedActionDraft,
     selection: ActionCompareCapturedSelection | null, chosen?: ActionCompareUseSettings) => {
@@ -157,11 +175,12 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
   const checkFreshness = useCallback(async () => {
     const active = sessionRef.current;
     if (!active) return null;
+    const activeGeneration = generation.current;
     const previous = active.getSnapshot().context;
     const current = await api.getContext({ source: previous.comparison_basis, sample_row_ids: previous.sample_row_ids });
     const stale = !current.available || current.sample_fingerprint !== previous.sample_fingerprint
       || current.expected_output_signature !== previous.expected_output_signature;
-    if (sessionRef.current !== active) return null;
+    if (generation.current !== activeGeneration || sessionRef.current !== active) return null;
     active.setStale(stale);
     return stale;
   }, [api]);
@@ -179,8 +198,16 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
     if (!run) return null;
     const entry = entries?.find(item => item.kind === run.actionKind);
     const comparisonKind = actionComparisonKind(entry);
-    const context = comparisonKind ? await readContext(targetForRun(anchor)).catch(() => null) : null;
-    return { actionId: run.actionKind, actionTitle: run.actionName, comparisonKind: actionComparisonKind(entry),
+    let context: ActionComparisonContext | null = null;
+    if (comparisonKind) {
+      try {
+        context = await readContext(targetForRun(anchor));
+      } catch {
+        // Keep the run metadata/Edit entry usable, but do not advertise a
+        // comparison that canonical context resolution refused.
+      }
+    }
+    return { actionId: run.actionKind, actionTitle: run.actionName, comparisonKind: context ? comparisonKind : null,
       sourceLabels: context?.source_columns.map(column => column.name) ?? [],
       outputLabels: context?.output_columns.map(column => column.current_name) ?? [history.columnName], modelLabel: run.model,
       rowCount: run.totalRows, ranAt: run.startedAt, errorCount: run.failedRows,
