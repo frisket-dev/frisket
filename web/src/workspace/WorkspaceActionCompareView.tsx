@@ -23,6 +23,7 @@ import {
 } from '../workbench/actionComparePresentation';
 import { CompareDiscardDialog } from '../workbench/CompareDiscardDialog';
 import { ActionCompareHistoryMenu } from './ActionCompareHistoryMenu';
+import { loadFrozenColumnCount } from './gridColumnState';
 import { useMainViewModel } from './WorkspaceContext';
 
 export const ActionCompareVariantChoiceOwner = memo(function ActionCompareVariantChoiceOwner({
@@ -103,6 +104,14 @@ function ActionCompareContents() {
     selectorChoices,
   }) : null, [entry, selectorChoices, state.context.baseline_mode, state.context.locked_params]);
   const [structuredValue, setStructuredValue] = useState<ActionCompareStructuredValue | null>(null);
+  const visibleSourceCount = state.context.source_columns.filter(
+    column => !state.hiddenColumnKeys.includes(`source:${column.name}`),
+  ).length;
+  const frozenColumnCount = loadFrozenColumnCount(
+    model.project.id,
+    String(state.context.sheet.id),
+    visibleSourceCount,
+  );
   return <>
     {entry && selectorField && state.variants.map((variant) => {
       const query = actionCompareSelectorQuery(entry, variant.draft);
@@ -110,6 +119,7 @@ function ActionCompareContents() {
         projectId={chromePreferences.projectId} variantId={variant.id} query={query} publish={publishChoice} />;
     })}
     <ActionCompareTab projectId={model.project.id} session={session}
+      rowHeight={model.rowHeight} wrapText={model.wrapText} frozenColumnCount={frozenColumnCount}
       onUseSettings={model.useActionCompareSettings}
       labelForDraft={presentation?.labelForDraft}
       describeVariantChanges={presentation?.describeVariantChanges}

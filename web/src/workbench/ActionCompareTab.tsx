@@ -32,6 +32,9 @@ export interface ActionCompareSettingChange { label: string; before: string; aft
 export interface ActionCompareTabProps {
   projectId: string;
   session: ActionCompareSession;
+  rowHeight: number;
+  wrapText: boolean;
+  frozenColumnCount: number;
   onUseSettings(selection: ActionCompareUseSettings): void;
   renderVariantEditor?(props: ActionCompareVariantEditorRenderProps): ReactNode;
   labelForDraft?(draft: GeneratedActionDraft, displayKey: string): string;
@@ -62,7 +65,8 @@ function statusLabel(variant: ActionCompareVariant): string {
   return variant.status === 'current' ? 'in table' : variant.status;
 }
 
-export function ActionCompareTab({ projectId, session, onUseSettings, renderVariantEditor,
+export function ActionCompareTab({ projectId, session, rowHeight, wrapText, frozenColumnCount,
+  onUseSettings, renderVariantEditor,
   labelForDraft, describeVariantChanges, onOpenBoundedValue, onOpenStructuredValue,
   onRefresh, className }: ActionCompareTabProps) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot);
@@ -201,7 +205,8 @@ export function ActionCompareTab({ projectId, session, onUseSettings, renderVari
     {state.stale && <div className="action-compare-stale" role="alert"><span>Data changed since this comparison.</span>
       {onRefresh && <Button type="button" onClick={onRefresh}>Refresh comparison</Button>}</div>}
 
-    <ActionCompareGrid projectId={projectId} state={state} labelForDraft={labelForDraft}
+    <ActionCompareGrid projectId={projectId} state={state} rowHeight={rowHeight}
+      wrapText={wrapText} frozenColumnCount={frozenColumnCount} labelForDraft={labelForDraft}
       onOpenBoundedValue={onOpenBoundedValue} onOpenStructuredValue={onOpenStructuredValue} />
   </section>;
 }

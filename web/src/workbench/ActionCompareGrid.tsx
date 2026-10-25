@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   GridCellKind,
   type GridCell,
@@ -9,9 +9,9 @@ import {
 
 import type { ActionComparisonBoundedValue } from '../api/actionComparison';
 import type { BoundedCellValue, CellValue, ColumnDef, Row } from '../api/types';
-import { buildCell, typeHeaderIcon } from '../grid/cells';
+import { buildCell, typeHeaderIcon, withWrapSafeDisplayData } from '../grid/cells';
 import { GridViewport, type GridViewportProps } from '../grid/GridViewport';
-import { readAiColumnTheme, readGridCellPalette, readGridTheme } from '../grid/gridTheme';
+import { useGridTheme } from '../grid/useGridTheme';
 import {
   actionCompareCellEquality,
   type ActionCompareResultCell,
@@ -21,7 +21,7 @@ import {
 
 const SOURCE_GROUP = 'action-compare:sources';
 const OUTPUT_GROUP_PREFIX = 'action-compare:output:';
-const DEFAULT_SOURCE_WIDTH = 220;
+const DEFAULT_SOURCE_WIDTH = 140;
 const DEFAULT_OUTPUT_WIDTH = 170;
 
 interface SourceGridColumn {
@@ -49,6 +49,9 @@ export interface ActionCompareStructuredValue {
 export interface ActionCompareGridProps {
   projectId: string;
   state: ActionCompareSessionSnapshot;
+  rowHeight: number;
+  wrapText: boolean;
+  frozenColumnCount: number;
   labelForDraft?(draft: ActionCompareVariant['draft'], displayKey: string): string;
   onOpenBoundedValue?(args: {
     value: ActionComparisonBoundedValue;
@@ -57,44 +60,6 @@ export interface ActionCompareGridProps {
     columnKey: string;
   }): void;
   onOpenStructuredValue?(value: ActionCompareStructuredValue): void;
-}
-
-function cssToken(name: string, fallback: string): string {
-  if (typeof document === 'undefined' || typeof getComputedStyle !== 'function') return fallback;
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
-}
-
-function differenceTheme(): Partial<Theme> {
-  return {
-    bgCell: cssToken('--amber-bg', '#f7ecd8'),
-    bgCellMedium: cssToken('--amber-bg', '#f7ecd8'),
-    textDark: cssToken('--text', '#211f1b'),
-  };
-}
-
-function useCanvasTheme() {
-  const [theme, setTheme] = useState(() => ({
-    grid: readGridTheme(),
-    ai: readAiColumnTheme(),
-    cells: readGridCellPalette(),
-    difference: differenceTheme(),
-  }));
-  useEffect(() => {
-    const sync = () => setTheme({
-      grid: readGridTheme(),
-      ai: readAiColumnTheme(),
-      cells: readGridCellPalette(),
-      difference: differenceTheme(),
-    });
-    sync();
-    const observer = new MutationObserver(sync);
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['data-frisket-theme'],
-    });
-    return () => observer.disconnect();
-  }, []);
-  return theme;
 }
 
 function displayedCell(
@@ -218,9 +183,9 @@ function compareColumns(
   return [...sourceColumns, ...outputColumns];
 }
 
-export function ActionCompareGrid({ projectId, state, labelForDraft, onOpenBoundedValue,
-  onOpenStructuredValue }: ActionCompareGridProps) {
-  const canvasTheme = useCanvasTheme();
+export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, frozenColumnCount,
+  labelForDraft, onOpenBoundedValue, onOpenStructuredValue }: ActionCompareGridProps) {
+  const { gridTheme, aiColumnTheme, gridCellPalette, differenceTheme } = useGridTheme();
   const sampleRowIds = useMemo(() => state.context.sample_row_ids.slice(
     0,
     Math.min(20, state.context.limits.max_sample_rows),
@@ -248,9 +213,9 @@ export function ActionCompareGrid({ projectId, state, labelForDraft, onOpenBound
       group: output ? `${OUTPUT_GROUP_PREFIX}${projected.logicalKey}` : SOURCE_GROUP,
       width: widths[projected.id] ?? (output ? DEFAULT_OUTPUT_WIDTH : DEFAULT_SOURCE_WIDTH),
       ...(icon ? { icon } : {}),
-      ...(output ? { themeOverride: canvasTheme.ai } : {}),
+      ...(output ? { themeOverride: aiColumnTheme } : {}),
     };
-  }), [canvasTheme.ai, labelForDraft, projectedColumns, widths]);
+  }), [aiColumnTheme, labelForDraft, projectedColumns, widths]);
 
   const cellAt = useCallback((projected: CompareGridColumn, rowId: number) => {
     if (projected.kind === 'source') {
@@ -271,19 +236,27 @@ export function ActionCompareGrid({ projectId, state, labelForDraft, onOpenBound
     const rawCell = cellAt(projected, rowId);
     const cell = projected.kind === 'output'
       ? displayedCell(projected.variant, rawCell)
-      : rawCell ?? { state: 'missing' as const };
-    const status = statusText(cell);
-    const row = rowForCell(rowId, rowIndex, projected.id, status ? { state: 'value', value: status } : cell);
-    let rendered = buildCell(status
+      : rawCell ?? { state: 'null' as const };
+    const status = projected.kind === 'output' ? statusText(cell) : null;
+    const row = rowForCell(rowId, rowIndex, projected.id, status ? { state: 'null' } : cell);
+    let rendered = withWrapSafeDisplayData(buildCell(status
       ? { ...projected.column, type: 'text', format: null }
       : projected.column, row, {
       projectId,
       decodeEscapes: projected.kind === 'output',
-      gridCellPalette: canvasTheme.cells,
+      gridCellPalette,
       pending: cell.state === 'pending',
-      wrap: false,
-    });
-    if (status) rendered = { ...rendered, style: 'faded' };
+      wrap: wrapText,
+    }));
+    if (status && rendered.kind === GridCellKind.Text) {
+      rendered = {
+        ...rendered,
+        data: '',
+        displayData: status,
+        copyData: '',
+        themeOverride: gridCellPalette.empty,
+      };
+    }
     let comparison: ReturnType<typeof actionCompareCellEquality> | undefined;
     if (projected.kind === 'output' && !projected.variant.baseline
       && projected.variant.status === 'ready' && projected.variant.result) {
@@ -305,11 +278,11 @@ export function ActionCompareGrid({ projectId, state, labelForDraft, onOpenBound
       rendered,
       facts,
       comparison,
-      state.highlightDifferences && comparison === 'different' ? canvasTheme.difference : undefined,
+      state.highlightDifferences && comparison === 'different' ? differenceTheme : undefined,
     );
     return rendered;
-  }, [canvasTheme.cells, canvasTheme.difference, cellAt, projectId, projectedColumns, sampleRowIds,
-    state.highlightDifferences, state.variants]);
+  }, [cellAt, differenceTheme, gridCellPalette, projectId, projectedColumns, sampleRowIds,
+    state.highlightDifferences, state.variants, wrapText]);
 
   const onCellActivated = useCallback((item: Item) => {
     const [columnIndex, rowIndex] = item;
@@ -352,22 +325,21 @@ export function ActionCompareGrid({ projectId, state, labelForDraft, onOpenBound
     return {
       name: outputName,
       icon: 'aiBolt',
-      overrideTheme: canvasTheme.ai,
+      overrideTheme: aiColumnTheme,
     };
-  }, [canvasTheme.ai, outputNames]);
+  }, [aiColumnTheme, outputNames]);
 
-  return <div className="action-compare-grid" data-testid="action-compare-grid"
-    data-group-header-height="28" data-header-height="34" data-row-height="34">
+  return <div className="grid-host action-compare-grid" data-testid="action-compare-grid"
+    data-group-header-height="28" data-header-height="34">
     <GridViewport
       columns={columns}
       rows={sampleRowIds.length}
       getCellContent={getCellContent}
       getCellsForSelection
-      theme={canvasTheme.grid}
-      rowHeight={34}
-      freezeColumns={state.context.source_columns.filter(
-        (column) => !state.hiddenColumnKeys.includes(`source:${column.name}`),
-      ).length}
+      theme={gridTheme}
+      rowSelectionMode="multi"
+      rowHeight={rowHeight}
+      freezeColumns={frozenColumnCount}
       onColumnResize={onColumnResize}
       onCellActivated={onCellActivated}
       getGroupDetails={getGroupDetails}
