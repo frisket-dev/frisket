@@ -117,7 +117,8 @@ function dockJobStatus(job: DockActionJob): string {
 function dockJobRows(job: DockActionJob): string {
   const total = job.progress?.totalRows;
   if (total == null) return '—';
-  return `${job.progress?.completedRows.toLocaleString() ?? 0} / ${total.toLocaleString()}`;
+  const attempted = job.progress?.attemptedRows ?? job.progress?.completedRows ?? 0;
+  return `${attempted.toLocaleString()} / ${total.toLocaleString()}`;
 }
 
 function dockJobRunRef(job: DockActionJob): string {
@@ -147,8 +148,14 @@ function dockDetailRows(job: DockActionJob): Array<[string, string]> {
     ['Receipt id', job.receiptId ?? '—'],
     ['Status', dockJobStatus(job)],
     ['Action', job.actionKind ?? '—'],
-    ['Rows', dockJobRows(job)],
+    ['Attempted rows', job.progress
+      ? (job.progress.attemptedRows ?? job.progress.completedRows).toLocaleString()
+      : '—'],
+    ['Total rows', job.progress?.totalRows.toLocaleString() ?? '—'],
+    ['Succeeded rows', job.progress?.succeededRows?.toLocaleString() ?? '—'],
     ['Failed rows', job.progress?.failedRows?.toLocaleString() ?? '—'],
+    ['Skipped rows', job.progress?.skippedRows?.toLocaleString() ?? '—'],
+    ['Remaining rows', job.progress?.remainingRows?.toLocaleString() ?? '—'],
     ...(preparation ? ([['Preparing', preparation]] as Array<[string, string]>) : []),
     ['Attempts', `${job.attempts} / ${job.maxAttempts}`],
     ['Created', formatDockTime(job.timing.createdAt)],
@@ -477,14 +484,17 @@ function dockTabContributions(
 function DockRunSummaryView({ summary }: { summary?: DockRunSummary }) {
   const runningCount = summary?.runningCount ?? 0;
   const errored = summary?.anyErrored ?? false;
+  const partial = summary?.anyPartial ?? false;
   const state = runningCount > 0
     ? 'running'
     : summary?.anyComplete
-      ? (errored ? 'complete-with-errors' : 'complete')
+      ? (partial ? 'partial' : errored ? 'complete-with-errors' : 'complete')
       : 'idle';
   const label =
     state === 'running'
       ? `${runningCount.toLocaleString()} running`
+      : state === 'partial'
+        ? 'partial'
       : state === 'complete-with-errors'
         ? 'complete with errors'
         : state === 'complete'

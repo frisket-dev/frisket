@@ -17,6 +17,10 @@ export interface V1ActionStatusFixture {
   actionKind: string;
   actionName: string;
   completed?: number;
+  attempted?: number;
+  succeeded?: number;
+  skipped?: number;
+  remaining?: number;
   cost?: number | null;
   error?: string | null;
   failed?: number;
@@ -75,6 +79,11 @@ export function v1ActionStatusPayload(
   const total = fixture.total ?? 1;
   const completed = fixture.completed ?? 0;
   const failed = fixture.failed ?? 0;
+  const attempted = fixture.attempted ?? completed;
+  const terminal = ['complete', 'completed', 'done', 'partial', 'failed', 'cancelled'].includes(status);
+  const succeeded = fixture.succeeded ?? Math.max(0, attempted - failed);
+  const skipped = fixture.skipped ?? (terminal ? Math.max(0, total - attempted) : 0);
+  const remaining = fixture.remaining ?? (terminal ? 0 : Math.max(0, total - attempted));
   const cost = fixture.cost ?? 0;
   const live = fixture.live ?? false;
   return {
@@ -100,6 +109,10 @@ export function v1ActionStatusPayload(
         total,
         completed,
         failed,
+        attempted,
+        succeeded,
+        skipped,
+        remaining,
         cost,
         live,
         // ActionRunPublicStatus requires `timing`; without it the frontend's

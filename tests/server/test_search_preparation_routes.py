@@ -1797,7 +1797,7 @@ def test_live_action_progress_overrides_a_stale_queued_receipt(
     assert terminal.groups[0].status == "failed"
     assert terminal.jobs[0].status == "failed"
     assert terminal.jobs[0].progress is not None
-    assert terminal.jobs[0].progress.status == "completed"
+    assert terminal.jobs[0].progress.status == "partial"
     assert terminal.jobs[0].progress.total == 3
     assert terminal.jobs[0].progress.completed == 3
     assert terminal.jobs[0].progress.failed == 1

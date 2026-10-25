@@ -221,7 +221,12 @@ class _BoundDocumentConverter:
         doc, column_type, column_id = self._source(source)
         # A blank input cell does no work and records no document link.
         if doc is None or (isinstance(doc, str) and not doc.strip()) or doc == {}:
-            return ConvertedDocument(markdown="")
+            if _is_media_typed(column_type):
+                raise RowError(
+                    "missing_input",
+                    "Document input is missing; download or upload the document first.",
+                )
+            return ConvertedDocument(markdown="", ocr_used=[])
 
         engine = self._selected_engine()
         media_typed = _is_media_typed(column_type)

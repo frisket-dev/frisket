@@ -1668,6 +1668,16 @@ def _create_index(
         else:
             _insert_receipt(project, receipt)
         if probe_run_id is not None and probe_run_store is not None:
+            # A paid probe run has exactly one provider input.
+            settled = project.db.execute(
+                "UPDATE runs SET completed_rows=1, failed_rows=0 "
+                "WHERE id=? AND total_rows=1",
+                (probe_run_id,),
+            )
+            if settled.rowcount != 1:
+                raise RuntimeError(
+                    "embedding probe run disappeared or changed scope before completion"
+                )
             probe_run_store.finish_run(probe_run_id, "completed", commit=False)
         project.db.commit()
     except BaseException as exc:
@@ -2528,6 +2538,19 @@ def _do_refresh(
                     output_column_ids=frozenset(),
                     claimless_direct_effect=True,
                 )
+                # Run units are provider inputs. ``refreshed`` also includes
+                # cached representations that needed publishing, so it may be
+                # larger than this run's admitted scope.
+                settled = project.db.execute(
+                    "UPDATE runs SET completed_rows=?, failed_rows=0 "
+                    "WHERE id=? AND total_rows=?",
+                    (len(to_embed), run_id, len(to_embed)),
+                )
+                if settled.rowcount != 1:
+                    raise RuntimeError(
+                        "embedding refresh run disappeared or changed scope "
+                        "before completion"
+                    )
             else:
                 # A no-op refresh has no accounting run or attempt. Preserve
                 # its receipt-only transaction: there is no project-run tuple

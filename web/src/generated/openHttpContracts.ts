@@ -2545,6 +2545,7 @@ type HttpActionJob_ActionJobLease = ({
 type HttpActionJob_ActionJobProgress = ({
   "action_kind": (string);
   "action_name": (string);
+  "attempted": (number);
   "cancel_requested": (boolean);
   "completed": (number);
   "cost": (((number)) | ((null)));
@@ -2555,11 +2556,14 @@ type HttpActionJob_ActionJobProgress = ({
   "live": (boolean);
   "preparation"?: (((HttpActionJob_ActionPreparationHint)) | ((null)));
   "queue"?: (((HttpActionJob_ActionRunQueue)) | ((HttpActionJob_ActionRunMissingQueue)) | ((null)));
+  "remaining": (number);
   "row_errors"?: (((HttpActionJob_RunRowErrorSummary)) | ((null)));
   "run_id": (number);
   "sheet_id": (number);
+  "skipped": (number);
   "stalled_reason"?: (((string)) | ((null)));
   "status": (string);
+  "succeeded": (number);
   "timing": (HttpActionJob_ActionRunTiming);
   "total": (number);
   "work_progress"?: (((HttpActionJob_ActionWorkProgress)) | ((null)));
@@ -2719,6 +2723,7 @@ type HttpActionJobsPage_ActionJobLease = ({
 type HttpActionJobsPage_ActionJobProgress = ({
   "action_kind": (string);
   "action_name": (string);
+  "attempted": (number);
   "cancel_requested": (boolean);
   "completed": (number);
   "cost": (((number)) | ((null)));
@@ -2729,11 +2734,14 @@ type HttpActionJobsPage_ActionJobProgress = ({
   "live": (boolean);
   "preparation"?: (((HttpActionJobsPage_ActionPreparationHint)) | ((null)));
   "queue"?: (((HttpActionJobsPage_ActionRunQueue)) | ((HttpActionJobsPage_ActionRunMissingQueue)) | ((null)));
+  "remaining": (number);
   "row_errors"?: (((HttpActionJobsPage_RunRowErrorSummary)) | ((null)));
   "run_id": (number);
   "sheet_id": (number);
+  "skipped": (number);
   "stalled_reason"?: (((string)) | ((null)));
   "status": (string);
+  "succeeded": (number);
   "timing": (HttpActionJobsPage_ActionRunTiming);
   "total": (number);
   "work_progress"?: (((HttpActionJobsPage_ActionWorkProgress)) | ((null)));
@@ -3095,6 +3103,7 @@ type HttpActionRunStatus_ActionRunMissingQueue = ({
 type HttpActionRunStatus_ActionRunPublicStatus = ({
   "action_kind": (string);
   "action_name": (string);
+  "attempted": (number);
   "cancel_requested": (boolean);
   "completed": (number);
   "cost": (((number)) | ((null)));
@@ -3105,10 +3114,13 @@ type HttpActionRunStatus_ActionRunPublicStatus = ({
   "live": (boolean);
   "preparation"?: (((HttpActionRunStatus_ActionPreparationHint)) | ((null)));
   "queue"?: (((HttpActionRunStatus_ActionRunQueue)) | ((HttpActionRunStatus_ActionRunMissingQueue)) | ((null)));
+  "remaining": (number);
   "row_errors"?: (((HttpActionRunStatus_RunRowErrorSummary)) | ((null)));
   "run_id": (number);
+  "skipped": (number);
   "stalled_reason"?: (((string)) | ((null)));
   "status": (string);
+  "succeeded": (number);
   "timing": (HttpActionRunStatus_ActionRunTiming);
   "total": (number);
   "work_progress"?: (((HttpActionRunStatus_ActionWorkProgress)) | ((null)));
@@ -11714,6 +11726,7 @@ type HttpSearchPreparationBatch_ActionFileWorkProgress = ({
 type HttpSearchPreparationBatch_ActionJobProgress = ({
   "action_kind": (string);
   "action_name": (string);
+  "attempted": (number);
   "cancel_requested": (boolean);
   "completed": (number);
   "cost": (((number)) | ((null)));
@@ -11724,11 +11737,14 @@ type HttpSearchPreparationBatch_ActionJobProgress = ({
   "live": (boolean);
   "preparation"?: (((HttpSearchPreparationBatch_ActionPreparationHint)) | ((null)));
   "queue"?: (((HttpSearchPreparationBatch_ActionRunQueue)) | ((HttpSearchPreparationBatch_ActionRunMissingQueue)) | ((null)));
+  "remaining": (number);
   "row_errors"?: (((HttpSearchPreparationBatch_RunRowErrorSummary)) | ((null)));
   "run_id": (number);
   "sheet_id": (number);
+  "skipped": (number);
   "stalled_reason"?: (((string)) | ((null)));
   "status": (string);
+  "succeeded": (number);
   "timing": (HttpSearchPreparationBatch_ActionRunTiming);
   "total": (number);
   "work_progress"?: (((HttpSearchPreparationBatch_ActionWorkProgress)) | ((null)));
@@ -11853,6 +11869,7 @@ type HttpSearchPreparationBatchList_ActionFileWorkProgress = ({
 type HttpSearchPreparationBatchList_ActionJobProgress = ({
   "action_kind": (string);
   "action_name": (string);
+  "attempted": (number);
   "cancel_requested": (boolean);
   "completed": (number);
   "cost": (((number)) | ((null)));
@@ -11863,11 +11880,14 @@ type HttpSearchPreparationBatchList_ActionJobProgress = ({
   "live": (boolean);
   "preparation"?: (((HttpSearchPreparationBatchList_ActionPreparationHint)) | ((null)));
   "queue"?: (((HttpSearchPreparationBatchList_ActionRunQueue)) | ((HttpSearchPreparationBatchList_ActionRunMissingQueue)) | ((null)));
+  "remaining": (number);
   "row_errors"?: (((HttpSearchPreparationBatchList_RunRowErrorSummary)) | ((null)));
   "run_id": (number);
   "sheet_id": (number);
+  "skipped": (number);
   "stalled_reason"?: (((string)) | ((null)));
   "status": (string);
+  "succeeded": (number);
   "timing": (HttpSearchPreparationBatchList_ActionRunTiming);
   "total": (number);
   "work_progress"?: (((HttpSearchPreparationBatchList_ActionWorkProgress)) | ((null)));

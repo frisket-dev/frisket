@@ -187,6 +187,9 @@ export interface DockRunSummary {
   runningCount: number;
   /** True when there is finished run history but nothing running. */
   anyComplete: boolean;
+  /** True when finished history includes the server's public partial outcome.
+   *  Kept distinct from errors because an all-skipped run has no failed row. */
+  anyPartial: boolean;
   /** True when something in that finished history did NOT finish cleanly.
    *  The pill read a flat "all complete" over a job the dock's own table
    *  called "complete with errors" — this carries the errored state up so the
@@ -226,6 +229,10 @@ export function deriveDockRunSummary(
   }
 
   const anyComplete = runningCount === 0 && (run !== null || jobs.length > 0);
+  const anyPartial = anyComplete && (
+    jobs.some((job) => job.progress?.status === 'partial')
+    || run?.status === 'partial'
+  );
   // isErrorJob is the dock's existing "this row is a problem" predicate (the
   // Errors chip already counts with it), so the pill and the Errors tab agree
   // by construction. The active run contributes too: a direct run that failed
@@ -235,5 +242,5 @@ export function deriveDockRunSummary(
     || (run !== null && (run.status === 'failed' || run.failedRows > 0))
   );
   const percent = runningCount > 0 && total > 0 ? Math.min(100, (100 * completed) / total) : null;
-  return { runningCount, anyComplete, anyErrored, percent };
+  return { runningCount, anyComplete, anyPartial, anyErrored, percent };
 }

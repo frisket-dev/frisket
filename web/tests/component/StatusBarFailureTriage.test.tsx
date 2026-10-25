@@ -167,6 +167,46 @@ describe('StatusBar terminal-run label honesty', () => {
     expect(detailStatus).not.toHaveTextContent('with errors');
     expect(detailStatus).toHaveClass('status-complete');
   });
+
+  it('shows the public partial outcome and its authoritative counters', () => {
+    renderBar(finishedRun({
+      status: 'partial',
+      attemptedRows: 100,
+      succeededRows: 88,
+      skippedRows: 0,
+      remainingRows: 0,
+    }));
+    const label = document.querySelector('.run-label');
+    expect(label).toHaveTextContent('partial · 100 attempted · 12 failed');
+    expect(label).not.toHaveTextContent('complete');
+    expect(label).not.toHaveClass('run-done');
+
+    fireEvent.click(screen.getByTestId('run-watcher-toggle'));
+    const watcher = screen.getByTestId('run-watcher');
+    expect(watcher).toHaveTextContent('attempted100');
+    expect(watcher).toHaveTextContent('succeeded88');
+    expect(watcher).toHaveTextContent('failed12');
+    expect(watcher).toHaveTextContent('skipped0');
+    expect(watcher).toHaveTextContent('remaining0');
+    expect(document.querySelector('.run-watcher-status')).toHaveClass('status-partial');
+  });
+
+  it('does not present an all-skipped run as complete', () => {
+    renderBar(finishedRun({
+      status: 'partial',
+      completedRows: 0,
+      failedRows: 0,
+      rowErrors: undefined,
+      attemptedRows: 0,
+      succeededRows: 0,
+      skippedRows: 100,
+      remainingRows: 0,
+    }));
+    const label = document.querySelector('.run-label');
+    expect(label).toHaveTextContent('partial · 0 attempted · 100 skipped');
+    expect(label).not.toHaveTextContent('complete');
+    expect(label).not.toHaveClass('run-done');
+  });
 });
 
 describe('StatusBar queued-run feedback', () => {

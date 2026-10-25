@@ -64,7 +64,10 @@ function compactStatusCopy(run: RunProgress): string {
   if (run.status === 'failed') return `failed after ${rowsProgress(run)}`;
   // A run that finished with failed rows says so here rather than asserting
   // "complete" and contradicting itself two chips later with "· 3 failed".
-  return `${runStatusLabel(run.status, run.failedRows)} · ${run.totalRows.toLocaleString()} rows`;
+  const terminalRows = run.attemptedRows == null
+    ? `${run.totalRows.toLocaleString()} rows`
+    : `${run.attemptedRows.toLocaleString()} attempted`;
+  return `${runStatusLabel(run.status, run.failedRows)} · ${terminalRows}`;
 }
 
 function actionTitle(name: string): string {
@@ -303,6 +306,9 @@ export function StatusBar({
                     {actionTitle(run.actionName)} · {compactStatusCopy(run)}
                     {run.failedRows > 0 && (
                       <span className="run-failed"> · {run.failedRows.toLocaleString()} failed</span>
+                    )}
+                    {(run.skippedRows ?? 0) > 0 && (
+                      <span> · {run.skippedRows?.toLocaleString()} skipped</span>
                     )}{' '}
                     · {formatUsd(run.costSoFar)}
                   </span>
@@ -326,6 +332,9 @@ export function StatusBar({
                   {actionTitle(run.actionName)} · {compactStatusCopy(run)}
                   {run.failedRows > 0 && (
                     <span className="run-failed"> · {run.failedRows.toLocaleString()} failed</span>
+                  )}
+                  {(run.skippedRows ?? 0) > 0 && (
+                    <span> · {run.skippedRows?.toLocaleString()} skipped</span>
                   )}{' '}
                   · {formatUsd(run.costSoFar)}
                 </span>
@@ -714,10 +723,34 @@ function RunWatcherBody({
           {run.completedRows.toLocaleString()} / {run.totalRows.toLocaleString()}
           {files.length === 0 && ` (${pct.toFixed(0)}%)`}
         </span>
+        {run.attemptedRows != null && (
+          <>
+            <span className="prov-key">attempted</span>
+            <span>{run.attemptedRows.toLocaleString()}</span>
+          </>
+        )}
+        {run.succeededRows != null && (
+          <>
+            <span className="prov-key">succeeded</span>
+            <span>{run.succeededRows.toLocaleString()}</span>
+          </>
+        )}
         <span className="prov-key">failed</span>
         <span className={run.failedRows > 0 ? 'run-failed' : undefined}>
           {run.failedRows.toLocaleString()}
         </span>
+        {run.skippedRows != null && (
+          <>
+            <span className="prov-key">skipped</span>
+            <span>{run.skippedRows.toLocaleString()}</span>
+          </>
+        )}
+        {run.remainingRows != null && (
+          <>
+            <span className="prov-key">remaining</span>
+            <span>{run.remainingRows.toLocaleString()}</span>
+          </>
+        )}
         <span className="prov-key">cost</span>
         <span>{formatUsd(run.costSoFar)}</span>
       </div>

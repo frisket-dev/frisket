@@ -2,11 +2,11 @@ import type { RunProgress } from './api/types';
 
 export type RunProgressStatus = RunProgress['status'];
 
-// ONE rule for "it finished, but not cleanly". The backend's own `partial`
-// status is flattened to 'complete' by toRunProgressStatus below, so
-// `failedRows > 0` on a complete run is the only signal left that anything
-// went wrong — and three surfaces used to each decide for themselves whether
-// to consult it. Only the dock's job table did. The bottom-dock pill said
+// ONE compatibility rule for legacy servers that reported a terminal run as
+// `complete` even when it left failed rows behind. New servers publish
+// `partial` directly and toRunProgressStatus preserves it. Three surfaces used
+// to each decide for themselves whether to consult failedRows. Only the dock's
+// job table did. The bottom-dock pill said
 // "all complete" and the status bar said "complete · 4 rows · 3 failed",
 // asserting success and contradicting it in the same line, for the same job
 // the detail pane called "complete with errors".
@@ -19,8 +19,8 @@ export function runCompletedWithErrors(
   return status === 'complete' && (failedRows ?? 0) > 0;
 }
 
-/** Terminal status as a person should read it: 'complete with errors' where a
- *  complete run left failed rows behind, otherwise the status itself. */
+/** Terminal status as a person should read it. Preserve the server's public
+ *  outcome; only repair the legacy complete-plus-failures combination. */
 export function runStatusLabel(
   status: RunProgressStatus | string | null | undefined,
   failedRows: number | null | undefined,
@@ -86,10 +86,10 @@ export function toRunProgressStatus(
     case 'failed':
     case 'cancelled':
     case 'complete':
+    case 'partial':
       return raw;
     case 'completed':
     case 'done':
-    case 'partial':
       return 'complete';
     default:
       return typeof status === 'object' && status?.live ? 'running' : 'complete';

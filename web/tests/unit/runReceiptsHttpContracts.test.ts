@@ -54,6 +54,7 @@ describe('run and receipt HTTP contracts', () => {
         public_status: {
           run_id: 17, action_kind: 'map.translate', action_name: 'Translate', status: 'running',
           live: true, cancel_requested: true, completed: 0, total: 10, failed: 0, cost: null,
+          attempted: 0, succeeded: 0, skipped: 0, remaining: 10,
           timing: {},
           preparation: {
             message: 'Preparing the language model if this worker needs it, then translating…',
@@ -65,6 +66,10 @@ describe('run and receipt HTTP contracts', () => {
     await expect(getRunProgressContract('project-1', 17, contractError)).resolves.toMatchObject({
       status: 'running',
       completedRows: 0,
+      attemptedRows: 0,
+      succeededRows: 0,
+      skippedRows: 0,
+      remainingRows: 10,
       cancelRequested: true,
       preparation: {
         message: 'Preparing the language model if this worker needs it, then translating…',
