@@ -1852,6 +1852,12 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
+      "id": "tenant.row_source_documents.get",
+      "method": "GET",
+      "path": "/api/projects/{pid}/rows/{row_id}/source-documents",
+      "request": null
+    },
+    {
       "id": "tenant.run_rows.get",
       "method": "GET",
       "path": "/api/projects/{pid}/actions/runs/{run_id}/rows",
@@ -8270,6 +8276,26 @@ export type HttpInline_f8fd7cf5145f948b = ({
   "row_id": (number);
 });
 
+type HttpInline_f8fedf06a1c02cd8_ActionError = ({
+  "action_kind"?: (((string)) | ((null)));
+  "code": (string);
+  "details"?: ({
+  [key: string]: JsonValue;
+});
+  "field"?: (((string)) | ((null)));
+  "message": (string);
+  "needs_confirmation"?: (boolean);
+  "schema_version"?: ("frisket.action_error.v1") & (string);
+});
+
+type HttpInline_f8fedf06a1c02cd8_HttpError = ({
+  "detail": (HttpInline_f8fedf06a1c02cd8_JsonValue);
+});
+
+type HttpInline_f8fedf06a1c02cd8_JsonValue = JsonValue;
+
+export type HttpInline_f8fedf06a1c02cd8 = (((HttpInline_f8fedf06a1c02cd8_ActionError)) | ((HttpInline_f8fedf06a1c02cd8_HttpError)));
+
 export type HttpInline_fa1495952891aea0 = ({
   "pid": (string);
   "sheet_id": (number);
@@ -11283,6 +11309,43 @@ export type HttpReviewedRunRevision = ({
   "reviewed_rows": (number);
   "schema_version": ("frisket.reviewed_run_revision.v1") & (string);
   "source_run_id": (number);
+});
+
+type HttpRowSourceDocumentsResponse_EvidenceLinkSummary = ({
+  "artifact_count": (number);
+  "evidence_kind": (string);
+  "export_ref": (string);
+  "id": (number);
+  "role": (string);
+  "snippet": (((string)) | ((null)));
+  "span_count": (number);
+  "stable_id": (string);
+  "status": (string);
+  "viewer_href": (string);
+});
+
+type HttpRowSourceDocumentsResponse_RowSourceDocument = ({
+  "column_id": (number);
+  "column_name": (string);
+  "column_type": ("file" | "image") & (string);
+  "filename": (((string)) | ((null)));
+  "page"?: (((number)) | ((null)));
+  "row_id": (number);
+  "row_position": (number);
+  "sheet_id": (number);
+  "sheet_name": (string);
+});
+
+export type HttpRowSourceDocumentsResponse = ({
+  "ancestry_found": (boolean);
+  "documents": (Array<(HttpRowSourceDocumentsResponse_RowSourceDocument)>);
+  "evidence_links": (Array<(HttpRowSourceDocumentsResponse_EvidenceLinkSummary)>);
+  "lineage_stale": (boolean);
+  "row_id": (number);
+  "schema_version": ("frisket.row_source_documents.v1") & (string);
+  "sheet_id": (number);
+  "truncated": (boolean);
+  "unavailable_source_count": (number);
 });
 
 type HttpRunTraceRowEvidence_JsonValue = JsonValue;
@@ -17298,6 +17361,21 @@ export type HttpContractOperationMap = {
       readonly "401": HttpError;
       readonly "403": HttpError;
       readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.row_source_documents.get": {
+    readonly pathParams: HttpInline_24f76f09f7c0ab9a;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpRowSourceDocumentsResponse;
+      readonly "400": HttpActionError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpInline_f8fedf06a1c02cd8;
       readonly "409": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;

@@ -691,6 +691,8 @@ def list_row_evidence(
     sheet_id: int,
     row_id: int,
     project_id: str | None = None,
+    subject_ref: dict[str, Any] | None = None,
+    limit: int | None = None,
 ) -> dict[str, Any]:
     """Resolve ACTIVE row-level (column-less) evidence links for ``row_id`` --
     the shape ``derive.table_from_list``'s item-evidence propagation writes
@@ -698,18 +700,28 @@ def list_row_evidence(
     not one of its columns). The column-scoped sibling is
     :func:`list_cell_evidence`."""
 
-    rows = project.db.execute(
-        "SELECT * FROM evidence_links "
-        "WHERE sheet_id=? AND row_id=? AND column_id IS NULL AND status='active' "
-        "ORDER BY created_at, id",
-        (int(sheet_id), int(row_id)),
-    ).fetchall()
-    return {
+    where = "WHERE sheet_id=? AND row_id=? AND column_id IS NULL AND status='active'"
+    params: list[Any] = [int(sheet_id), int(row_id)]
+    if subject_ref is not None:
+        where += " AND subject_ref_json=?"
+        params.append(_json_dumps(subject_ref))
+    sql = f"SELECT * FROM evidence_links {where} ORDER BY created_at, id"
+    if limit is not None:
+        sql += " LIMIT ?"
+        params.append(max(0, int(limit)) + 1)
+    rows = project.db.execute(sql, params).fetchall()
+    truncated = limit is not None and len(rows) > limit
+    if truncated:
+        rows = rows[:limit]
+    payload = {
         "schema_version": CELL_EVIDENCE_SCHEMA_VERSION,
         "sheet_id": sheet_id,
         "row_id": row_id,
         "links": [_link_summary(project, row, project_id=project_id) for row in rows],
     }
+    if limit is not None:
+        payload["truncated"] = truncated
+    return payload
 
 
 # Contiguous-run grouping for a citation's CITED (required=1) temporal

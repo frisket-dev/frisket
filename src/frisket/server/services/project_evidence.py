@@ -34,6 +34,10 @@ from frisket.engine.store.media_clip import (
     resolve_link_run_clip_source,
 )
 from frisket.server.route_errors import RouteError
+from frisket.server.services.row_source_documents import (
+    RowSourceNotFound,
+    resolve_row_source_documents,
+)
 
 
 # Mirrors sheet_grid.py's MAX_EXPLICIT_ROW_IDS bound on the same
@@ -84,6 +88,27 @@ class ProjectEvidenceService:
             include_stale=include_stale,
             project_id=project_id,
         )
+
+    def row_source_documents(self, project_id: str, *, row_id: int) -> Any:
+        project = self._project_or_404(project_id)
+        try:
+            with project.read_snapshot() as snapshot:
+                return resolve_row_source_documents(
+                    snapshot,
+                    row_id=row_id,
+                    project_id=project_id,
+                )
+        except RowSourceNotFound as exc:
+            raise ProjectEvidenceRouteError(
+                404,
+                _v1_action_error(
+                    code="row_not_found",
+                    message="No visible row exists with that id in this project.",
+                    field="row_id",
+                    details={"row_id": row_id},
+                ),
+                bare_json=True,
+            ) from exc
 
     def cell_text_annotations(
         self,
