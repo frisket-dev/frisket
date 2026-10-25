@@ -67,21 +67,18 @@ def resolve_row_source_documents(
         if remaining <= 0:
             truncated = True
             break
-        by_row, sources_truncated = _immediate_sources_batch(
-            project, frontier, limit=remaining
+        candidate_ids, sources_truncated = _immediate_source_ids(
+            project,
+            frontier,
+            visited=visited,
+            limit=remaining,
         )
         stop_after_frontier = sources_truncated
         truncated = truncated or sources_truncated
-        candidate_ids = list(
-            dict.fromkeys(
-                source_id
-                for frontier_row_id in frontier
-                for source_id in by_row.get(frontier_row_id, [])
-                if source_id not in visited
-            )
-        )
         if depth == 0:
-            ancestry_found = bool(by_row.get(row_id))
+            ancestry_found = bool(candidate_ids) or _row_has_immediate_source(
+                project, row_id
+            )
         if not candidate_ids:
             break
         if depth >= MAX_SOURCE_ANCESTRY_DEPTH:
@@ -165,39 +162,44 @@ def _visible_rows(project: Any, row_ids: list[int]) -> dict[int, Any]:
     return rows
 
 
-def _immediate_sources_batch(
-    project: Any, row_ids: list[int], *, limit: int
-) -> tuple[dict[int, list[int]], bool]:
-    memberships: dict[int, list[int]] = {row_id: [] for row_id in row_ids}
-    source_rows: list[Any] = []
-    for chunk in _chunks(row_ids):
-        placeholders = ",".join("?" for _ in chunk)
-        remaining = max(0, limit + 1 - len(source_rows))
-        if remaining == 0:
-            break
-        source_rows.extend(
-            project.db.execute(
-                "SELECT owner_row_id,source_row_id FROM ("
-                "SELECT m.materialized_row_id AS owner_row_id,m.source_row_id,"
-                "m.role AS source_role FROM materialized_row_sources m "
-                f"WHERE m.materialized_row_id IN ({placeholders}) "
-                "UNION ALL "
-                "SELECT r.id AS owner_row_id,r.parent_row_id AS source_row_id,"
-                "'' AS source_role FROM rows r "
-                f"WHERE r.id IN ({placeholders}) AND r.parent_row_id IS NOT NULL "
-                "AND NOT EXISTS (SELECT 1 FROM materialized_row_sources m "
-                "WHERE m.materialized_row_id=r.id)"
-                ") ORDER BY owner_row_id,source_role,source_row_id LIMIT ?",
-                (*chunk, *chunk, remaining),
-            ).fetchall()
-        )
+def _immediate_source_ids(
+    project: Any,
+    row_ids: list[int],
+    *,
+    visited: set[int],
+    limit: int,
+) -> tuple[list[int], bool]:
+    row_placeholders = ",".join("?" for _ in row_ids)
+    visited_ids = sorted(visited)
+    visited_placeholders = ",".join("?" for _ in visited_ids)
+    source_rows = project.db.execute(
+        "SELECT DISTINCT source_row_id FROM ("
+        "SELECT m.source_row_id FROM materialized_row_sources m "
+        f"WHERE m.materialized_row_id IN ({row_placeholders}) "
+        "UNION ALL "
+        "SELECT r.parent_row_id AS source_row_id FROM rows r "
+        f"WHERE r.id IN ({row_placeholders}) AND r.parent_row_id IS NOT NULL "
+        "AND NOT EXISTS (SELECT 1 FROM materialized_row_sources m "
+        "WHERE m.materialized_row_id=r.id)"
+        f") WHERE source_row_id NOT IN ({visited_placeholders}) "
+        "ORDER BY source_row_id LIMIT ?",
+        (*row_ids, *row_ids, *visited_ids, limit + 1),
+    ).fetchall()
     truncated = len(source_rows) > limit
-    for row in source_rows[:limit]:
-        sources = memberships[int(row["owner_row_id"])]
-        source_id = int(row["source_row_id"])
-        if source_id not in sources:
-            sources.append(source_id)
-    return memberships, truncated
+    return [int(row["source_row_id"]) for row in source_rows[:limit]], truncated
+
+
+def _row_has_immediate_source(project: Any, row_id: int) -> bool:
+    return (
+        project.db.execute(
+            "SELECT 1 FROM rows r WHERE r.id=? AND ("
+            "r.parent_row_id IS NOT NULL OR EXISTS ("
+            "SELECT 1 FROM materialized_row_sources m "
+            "WHERE m.materialized_row_id=r.id)) LIMIT 1",
+            (row_id,),
+        ).fetchone()
+        is not None
+    )
 
 
 def _chunks(values: list[int]) -> list[list[int]]:

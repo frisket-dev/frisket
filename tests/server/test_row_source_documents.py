@@ -282,6 +282,53 @@ def test_carried_file_copies_collapse_to_the_deepest_original_locator(
         project.close()
 
 
+def test_convergent_fan_in_reaches_the_shared_original_document(tmp_path: Path) -> None:
+    project = Project.create(tmp_path / "project.frisket")
+    try:
+        document = _document_row(project, "Original", "shared.pdf")
+        parent = _child_row(project, "Parent", document[0], document[1])
+        children_sheet = project.add_sheet("Children", parent_sheet_id=parent[0])
+        children_column = project.add_column(children_sheet, "value")
+        children = project.add_rows(
+            children_sheet,
+            [{"value": f"child-{index}"} for index in range(200)],
+            {"value": children_column},
+            parent_row_ids=[parent[1]] * 200,
+        )
+        aggregate_sheet = project.add_sheet("Aggregate", parent_sheet_id=children_sheet)
+        aggregate_column = project.add_column(aggregate_sheet, "value")
+        [aggregate_row] = project.add_rows(
+            aggregate_sheet, [{"value": "summary"}], {"value": aggregate_column}
+        )
+        op_id = project.append_op("derive.reduce", {"action_id": "derive.reduce"})
+        project.db.executemany(
+            "INSERT INTO materialized_row_sources "
+            "(materialized_row_id,source_row_id,source_sheet_id,op_id,role) "
+            "VALUES (?,?,?,?,?)",
+            [
+                (
+                    aggregate_row,
+                    child_row,
+                    children_sheet,
+                    op_id,
+                    "aggregate_source",
+                )
+                for child_row in children
+            ],
+        )
+        project.db.commit()
+
+        payload = ProjectEvidenceService(_Workspace(project)).row_source_documents(  # type: ignore[arg-type]
+            "project", row_id=aggregate_row
+        )
+
+        assert payload["truncated"] is False
+        assert [item["filename"] for item in payload["documents"]] == ["shared.pdf"]
+        assert payload["documents"][0]["row_id"] == document[1]
+    finally:
+        project.close()
+
+
 def test_refreshed_ancestor_marks_downstream_partial_membership_stale(
     tmp_path: Path,
 ) -> None:
