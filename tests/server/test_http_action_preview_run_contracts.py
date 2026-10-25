@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -16,6 +17,7 @@ from frisket.server.services.action_preview_runs import ActionPreviewRunResponse
 class _PreviewRunService:
     def __init__(self) -> None:
         self.start_body: dict[str, Any] | None = None
+        self.cancelled: tuple[str, str, bool] | None = None
 
     def start_preview(
         self,
@@ -112,9 +114,17 @@ class _PreviewRunService:
         )
 
     def cancel_preview(
-        self, project_id: str, preview_id: str
+        self, project_id: str, preview_id: str, *, discard: bool = False
     ) -> ActionPreviewRunResponse:
+        self.cancelled = (project_id, preview_id, discard)
         return ActionPreviewRunResponse(status_code=204, payload={})
+
+    def open_preview_file(self, project_id: str, preview_id: str, artifact_id: str):
+        del project_id, preview_id
+        artifact = getattr(self, "artifact", None)
+        if artifact is None or artifact.id != artifact_id:
+            return None
+        return artifact.path.open("rb"), artifact
 
 
 def _error(status_code: int, code: str) -> ActionPreviewRunResponse:
@@ -192,6 +202,13 @@ def test_action_preview_lifecycle_preserves_transport_shape_and_omits_unset_poll
     cancelled = client.delete("/api/projects/project-1/actions/v1/preview/preview-1")
     assert cancelled.status_code == 204
     assert cancelled.content == b""
+    assert service.cancelled == ("project-1", "preview-1", False)
+
+    discarded = client.delete(
+        "/api/projects/project-1/actions/v1/preview/preview-1?discard=true"
+    )
+    assert discarded.status_code == 204
+    assert service.cancelled == ("project-1", "preview-1", True)
 
 
 def test_action_preview_lifecycle_preserves_domain_error_statuses_and_openapi() -> None:
@@ -240,3 +257,33 @@ def test_table_preview_has_no_source_identity_or_invented_total() -> None:
         "total": None,
         "warnings": ["Page image unavailable; text retained."],
     }
+
+
+def test_preview_artifact_range_is_bounded_and_reports_416(tmp_path: Path) -> None:
+    from frisket.engine.runner.preview import PreviewValueArtifact
+
+    client, service = _client()
+    content = ("αβγ\n" * 50_000).encode()
+    path = tmp_path / "large.txt"
+    path.write_bytes(content)
+    service.artifact = PreviewValueArtifact(
+        id="artifact-1",
+        path=path,
+        size=len(content),
+        mime="text/plain; charset=utf-8",
+        filename="large.txt",
+        value_kind="text",
+        preview="αβγ",
+        total_characters=200_000,
+    )
+    url = "/api/projects/project-1/actions/v1/preview/done/artifacts/artifact-1"
+
+    part = client.get(url, headers={"Range": "bytes=2-70000"})
+    assert part.status_code == 206
+    assert part.headers["accept-ranges"] == "bytes"
+    assert part.headers["content-range"] == f"bytes 2-65537/{len(content)}"
+    assert part.content == content[2:65538]
+
+    missing = client.get(url, headers={"Range": f"bytes={len(content)}-"})
+    assert missing.status_code == 416
+    assert missing.headers["content-range"] == f"bytes */{len(content)}"

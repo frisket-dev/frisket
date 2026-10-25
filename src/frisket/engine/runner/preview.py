@@ -12,9 +12,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import tempfile
+import uuid
 from collections.abc import Mapping
 from contextlib import nullcontext
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import Any, Callable
 
 from frisket.ai.llm import ModelRouter
@@ -58,6 +61,10 @@ from frisket.execution.runtime_binding import bind_fact_to_route
 # can never fall back to "all rows" — derive/reduce Preview has previously
 # omitted previewRows and run the whole sheet this way.
 PREVIEW_MAX_ROWS = 20
+PREVIEW_VALUE_INLINE_BYTE_LIMIT = 64 * 1024
+PREVIEW_AGGREGATE_INLINE_BYTE_LIMIT = 1024 * 1024
+PREVIEW_SCRATCH_BYTE_LIMIT = 16 * 1024 * 1024
+PREVIEW_ARTIFACT_EXCERPT_CHARACTERS = 2_048
 
 
 class PreviewRowCapError(ValueError):
@@ -74,6 +81,10 @@ class PreviewEffectRequiresRun(ValueError):
             "This action can cause an external or metered effect, so it cannot "
             "run as a preview. Run the action instead."
         )
+
+
+class PreviewScratchLimitExceeded(ValueError):
+    """A row preview exceeded its explicit ephemeral artifact byte budget."""
 
 
 def _has_exact_free_local_terms(recipe: Recipe, spec: dict, estimate: Any) -> bool:
@@ -132,6 +143,112 @@ class PreviewResult:
     row_ids: list[int]
     sampled: int
     total: int
+    artifacts: dict[str, "PreviewValueArtifact"] = field(
+        default_factory=dict, repr=False
+    )
+    _scratch: tempfile.TemporaryDirectory[str] | None = field(default=None, repr=False)
+
+    def finalize_artifacts(self) -> None:
+        """Spool large text/JSON once and release its in-memory value copy."""
+
+        if self._scratch is not None or self.artifacts:
+            return
+        inline_bytes = 0
+        scratch_bytes = 0
+        scratch: tempfile.TemporaryDirectory[str] | None = None
+        try:
+            for row_id, cells in self.values.items():
+                for name, cell in cells.items():
+                    value = cell.get("value")
+                    encoded, value_kind, mime = _preview_artifact_bytes(value)
+                    if encoded is None:
+                        continue
+                    size = len(encoded)
+                    should_spool = (
+                        size > PREVIEW_VALUE_INLINE_BYTE_LIMIT
+                        or inline_bytes + size > PREVIEW_AGGREGATE_INLINE_BYTE_LIMIT
+                    )
+                    if not should_spool:
+                        inline_bytes += size
+                        continue
+                    if scratch_bytes + size > PREVIEW_SCRATCH_BYTE_LIMIT:
+                        raise PreviewScratchLimitExceeded(
+                            "Preview values exceed the 16 MiB scratch limit."
+                        )
+                    if scratch is None:
+                        scratch = tempfile.TemporaryDirectory(
+                            prefix="frisket-preview-values-"
+                        )
+                    artifact_id = uuid.uuid4().hex
+                    suffix = ".json" if value_kind == "json" else ".txt"
+                    path = Path(scratch.name) / f"{artifact_id}{suffix}"
+                    path.write_bytes(encoded)
+                    preview = encoded[:PREVIEW_VALUE_INLINE_BYTE_LIMIT].decode(
+                        "utf-8", errors="ignore"
+                    )[:PREVIEW_ARTIFACT_EXCERPT_CHARACTERS]
+                    artifact = PreviewValueArtifact(
+                        id=artifact_id,
+                        path=path,
+                        size=size,
+                        mime=mime,
+                        filename=f"row-{row_id}-{name}{suffix}",
+                        value_kind=value_kind,
+                        preview=preview,
+                        total_characters=(
+                            len(value)
+                            if isinstance(value, str)
+                            else len(encoded.decode("utf-8"))
+                        ),
+                    )
+                    self.artifacts[artifact_id] = artifact
+                    cell["value"] = None
+                    cell["bounded_value"] = artifact
+                    scratch_bytes += size
+            self._scratch = scratch
+        except BaseException:
+            if scratch is not None:
+                scratch.cleanup()
+            self.artifacts.clear()
+            raise
+
+    def close(self) -> None:
+        if self._scratch is not None:
+            self._scratch.cleanup()
+            self._scratch = None
+        self.artifacts.clear()
+
+
+@dataclass(frozen=True)
+class PreviewValueArtifact:
+    id: str
+    path: Path
+    size: int
+    mime: str
+    filename: str
+    value_kind: str
+    preview: str
+    total_characters: int
+
+
+def _preview_artifact_bytes(value: Any) -> tuple[bytes | None, str, str]:
+    if isinstance(value, str):
+        return value.encode("utf-8"), "text", "text/plain; charset=utf-8"
+    if isinstance(value, (dict, list)):
+        try:
+            return (
+                json.dumps(
+                    value,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    allow_nan=False,
+                ).encode("utf-8"),
+                "json",
+                "application/json",
+            )
+        except (TypeError, ValueError, RecursionError):
+            return None, "json", "application/json"
+    return None, "text", "text/plain"
 
 
 def _preview_validated(

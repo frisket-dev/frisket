@@ -12,6 +12,7 @@ from typing import Annotated, Literal
 from pydantic import Field, JsonValue
 
 from frisket.contracts.http.models import RunRowErrorSummary, WireModel
+from frisket.contracts.http.action_compare import ActionDraft, ActionDraftScope
 
 
 class HistoryOutputColumn(WireModel):
@@ -142,20 +143,12 @@ class ColumnRunsPage(WireModel):
     runs: list[ColumnRun]
 
 
-class ReviewedRunScope(WireModel):
-    kind: Literal["sheet_rows"]
-    sheet_id: int = Field(gt=0)
+class ReviewedRunScope(ActionDraftScope):
     row_ids: list[int] = Field(min_length=1)
 
 
-class ReviewedRunDraft(WireModel):
-    """A reusable action draft; execution authorization is intentionally absent."""
-
-    action_id: str = Field(min_length=1)
+class ReviewedRunDraft(ActionDraft):
     scope: ReviewedRunScope
-    params: dict[str, JsonValue]
-    output_names: dict[str, str]
-    sheet_name: str | None = None
 
 
 class ReviewedRunRevision(WireModel):

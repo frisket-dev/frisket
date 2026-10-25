@@ -5,7 +5,13 @@ from typing import Any, Self
 from pydantic import Field, field_validator, model_validator
 
 from frisket.actions.classify_types import Classifier, ClassifyField
-from frisket.actions.core import ActionCategory, action, model_rows
+from frisket.actions.core import (
+    ActionCategory,
+    ActionComparison,
+    ActionComparisonKind,
+    action,
+    model_rows,
+)
 from frisket.actions.extract.grounding import complete_extraction
 from frisket.actions.extraction_types import (
     ExtractEvidencePolicy,
@@ -188,6 +194,9 @@ EXTRACT = action(
     title="Extract structured fields",
     category=ActionCategory.TEXT,
     description="Extract typed fields from each row, with optional source citations.",
+    comparison=ActionComparison(
+        ActionComparisonKind.ROW_OVERLAY, structural_params=("fields",)
+    ),
     run=model_rows(
         extract,
         source_param="source",

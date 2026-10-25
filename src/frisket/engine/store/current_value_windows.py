@@ -118,7 +118,7 @@ heads AS MATERIALIZED (
   FROM rows AS r
   JOIN sheets AS sheet ON sheet.id=r.sheet_id AND sheet.hidden=0
   JOIN columns AS col ON col.sheet_id=r.sheet_id
-    AND col.id=:column_id AND col.hidden=0
+    AND col.id=:column_id AND (:include_hidden=1 OR col.hidden=0)
   LEFT JOIN current_cells AS head
     ON head.row_id=r.id AND head.column_id=:column_id
   WHERE r.sheet_id=:sheet_id AND r.hidden=0 AND r.id IN ({row_ids})
@@ -167,10 +167,17 @@ def _authority_cte(row_ids: list[int]) -> str:
     return _AUTHORITY_CTE.format(row_ids=placeholders)
 
 
-def _params(sheet_id: int, column_id: int, row_ids: list[int]) -> dict[str, int]:
+def _params(
+    sheet_id: int,
+    column_id: int,
+    row_ids: list[int],
+    *,
+    include_hidden: bool = False,
+) -> dict[str, int]:
     return {
         "sheet_id": sheet_id,
         "column_id": column_id,
+        "include_hidden": int(include_hidden),
         **{f"row_{index}": row_id for index, row_id in enumerate(row_ids)},
     }
 
@@ -519,6 +526,7 @@ def read_current_column(
     row_ids: list[int],
     bounded: bool,
     preserve_invalid: bool = False,
+    include_hidden: bool = False,
 ) -> dict[int, CurrentCellRead]:
     """Read one column for a row page, omitting only oversized bounded values."""
 
@@ -546,7 +554,7 @@ def read_current_column(
             "FROM authority ORDER BY row_id"
         )
         query_params: dict[str, int] = {
-            **_params(sheet_id, column_id, chunk),
+            **_params(sheet_id, column_id, chunk, include_hidden=include_hidden),
             "byte_limit": MANUAL_EDIT_BYTE_LIMIT if bounded else 2**63 - 1,
             "preview_limit": PREVIEW_CODEPOINT_LIMIT,
         }
@@ -650,8 +658,9 @@ def current_text_metadata(
     row_id: int,
     column_id: int,
     include_scalars: bool = False,
+    include_hidden: bool = False,
 ) -> CurrentTextMetadata:
-    params = _params(sheet_id, column_id, [row_id])
+    params = _params(sheet_id, column_id, [row_id], include_hidden=include_hidden)
     row = db.execute(
         "WITH "
         + _authority_cte([row_id])
@@ -736,6 +745,7 @@ def read_current_text(
     metadata: CurrentTextMetadata,
     start: int,
     limit: int,
+    include_hidden: bool = False,
 ) -> str:
     """Shared bounded SQL read for grid/viewer and scoped Ask source reads.
 
@@ -759,7 +769,7 @@ def read_current_text(
         "WITH "
         + _authority_cte([row_id])
         + " SELECT CAST(stored_value AS TEXT) AS value FROM authority",
-        _params(sheet_id, column_id, [row_id]),
+        _params(sheet_id, column_id, [row_id], include_hidden=include_hidden),
         start=start,
         limit=limit,
         has_nul=metadata.has_nul,

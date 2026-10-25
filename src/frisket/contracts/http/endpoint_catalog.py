@@ -378,6 +378,7 @@ _TENANT_VIEWER: tuple[RouteSpec, ...] = (
     ("row_source_documents", "GET"),
     ("column_runs", "GET"),
     ("reviewed_run_revision", "GET"),
+    ("v1_action_compare_context", "POST"),
     (
         "column_stats",
         "GET",
@@ -605,7 +606,10 @@ _TENANT_NOTIFICATION_TEST: tuple[RouteSpec, ...] = (
 
 _TENANT_ACTION_RUN: tuple[RouteSpec, ...] = (("v1_action_run", "POST"),)
 
-_TENANT_ACTION_PREVIEW: tuple[RouteSpec, ...] = (("v1_action_preview_start", "POST"),)
+_TENANT_ACTION_PREVIEW: tuple[RouteSpec, ...] = (
+    ("v1_action_preview_start", "POST"),
+    ("v1_action_compare_preview_start", "POST"),
+)
 
 _TENANT_SKILLS: tuple[RouteSpec, ...] = (
     ("list_skills", "GET"),
@@ -876,6 +880,8 @@ _BROWSER_CLIENT_IDS = (
             "tenant.action_v1_validate_params.post",
             "tenant.v1_action_run.post",
             "tenant.v1_action_preview_cancel.delete",
+            "tenant.v1_action_compare_context.post",
+            "tenant.v1_action_compare_preview_start.post",
             "tenant.v1_action_preview_start.post",
             "tenant.v1_action_preview_status.get",
             "tenant.action_run_status.get",

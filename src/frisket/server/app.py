@@ -185,6 +185,7 @@ from frisket.server.services.action_param_validation import (
 from frisket.server.services.action_previews import ActionPreviewService
 from frisket.server.services.action_preview_runs import ActionPreviewRunService
 from frisket.server.services.action_preview_jobs import ActionPreviewJobRegistry
+from frisket.server.services.action_compare import ActionCompareService
 from frisket.server.services.action_registry import ActionRegistryService
 from frisket.server.services.action_run_rows import ActionRunRowsService
 from frisket.server.services.action_run_cancel import ActionRunCancelService
@@ -1082,6 +1083,7 @@ def create_app(
     register_action_preview_run_routes(
         app,
         service=action_preview_run_service,
+        compare_service=ActionCompareService(ws),
         import_admission=import_admission,
     )
 
