@@ -1,9 +1,10 @@
 import { useState, useSyncExternalStore, type ReactNode } from 'react';
-import { Check, Copy, Eye, EyeOff, LockKeyhole, Plus, RefreshCw, RotateCcw, Square, X } from 'lucide-react';
+import { CircleAlert, Check, Copy, Eye, EyeOff, LockKeyhole, Plus, RefreshCw, RotateCcw, Square, X } from 'lucide-react';
 import type { ActionComparisonBoundedValue } from '../api/actionComparison';
 import type { GeneratedActionDraft, JsonValue } from '../api/types';
 import { Button } from '../components/Button';
 import { IconButton } from '../components/IconButton';
+import { OverflowRow } from '../components/OverflowRow';
 import { StatusChip, type StatusTone } from '../components/PanelPrimitives';
 import { CompareToolbar } from './CompareLayout';
 import {
@@ -77,10 +78,12 @@ function CellValue({ cell, previewId, rowId, columnKey, onOpen }: {
   columnKey: string;
   onOpen?: ActionCompareTabProps['onOpenBoundedValue'];
 }) {
+  const [expanded, setExpanded] = useState(false);
   if (!cell || cell.state === 'pending') return <span className="action-compare-empty">Pending</span>;
   if (cell.state === 'cancelled') return <span className="action-compare-empty">Cancelled</span>;
   if (cell.state === 'missing') return <span className="action-compare-empty">No result</span>;
-  if (cell.state === 'error') return <span className="action-compare-error">{cell.error || 'Row failed'}</span>;
+  if (cell.state === 'error') return <span className="action-compare-error"><CircleAlert size={13} aria-hidden />
+    <strong>Error:</strong> {cell.error || 'Row failed'}</span>;
   if (cell.state === 'null') return <span className="action-compare-empty">Empty</span>;
   if (cell.bounded_value) return <div className="action-compare-bounded">
     <span>{cell.bounded_value.preview}</span>
@@ -89,7 +92,15 @@ function CellValue({ cell, previewId, rowId, columnKey, onOpen }: {
       value: cell.bounded_value!, previewId, rowId, columnKey,
     })}>Open full value</Button>}
   </div>;
-  return <Value value={cell.value ?? null} />;
+  const value = cell.value ?? null;
+  const expandable = typeof value === 'string' ? value.length > 160
+    : value !== null && typeof value === 'object';
+  return <div className="action-compare-inline-value" data-expanded={expanded ? 'true' : 'false'}>
+    <div className="action-compare-inline-value-content"><Value value={value} /></div>
+    {expandable && <Button type="button" variant="text" onClick={() => setExpanded((current) => !current)}>
+      {expanded ? 'Collapse' : 'Expand'}
+    </Button>}
+  </div>;
 }
 
 function Origin({ cell }: { cell: ActionCompareResultCell | undefined }) {
@@ -126,6 +137,10 @@ export function ActionCompareTab({ session, onUseSettings, renderVariantEditor,
   const editing = state.variants.find((variant) => variant.id === editingId) ?? null;
   const running = state.sequenceStatus === 'running';
   const pending = state.variants.some((variant) => variant.status === 'pending');
+  const visibilityFields = [
+    ...context.source_columns.map((column) => ({ key: `source:${column.name}`, name: column.name })),
+    ...context.output_columns.map((column) => ({ key: `output:${column.logical_key}`, name: column.current_name })),
+  ];
 
   const controls = <>
     {running ? <Button type="button" onClick={session.stop}><Square size={13} /> Stop</Button>
@@ -141,72 +156,82 @@ export function ActionCompareTab({ session, onUseSettings, renderVariantEditor,
     {!context.available && <div className="action-compare-stale" role="alert">
       <span>{context.reason?.message ?? 'This action cannot be compared.'}</span>
     </div>}
-    <CompareToolbar testIdPrefix="action-compare" running={running} controls={controls} label="Variants"
-      tag={sampleLabel(context.sample_row_ids.length, state.capturedSelection?.totalCount ?? null)}>
-      {state.variants.map((variant) => {
-        const use = session.useVariant(variant.id);
-        const changes = editingId === null && hoveredId === variant.id && !variant.baseline && describeVariantChanges
-          ? describeVariantChanges(baseline.draft, variant.draft) : [];
-        return <div key={variant.id} className="action-compare-variant" data-status={variant.status}
-          data-testid={`action-compare-variant-${variant.displayKey}`}
-          onMouseEnter={() => setHoveredId(variant.id)} onMouseLeave={() => setHoveredId(null)}>
-          {variant.baseline ? <div className="action-compare-variant-body" aria-label={`Variant ${variant.displayKey}`}>
-            <strong>{variant.displayKey}</strong><span>{variant.label}</span>
-            <StatusChip tone={statusTone(variant.status)} size="sm">{statusLabel(variant)}</StatusChip>
-          </div> : <button type="button" className="action-compare-variant-body"
-            aria-label={`Configure variant ${variant.displayKey}`} onClick={() => setEditingId(variant.id)}>
-            <strong>{variant.displayKey}</strong><span>{variant.label}</span>
-            <StatusChip tone={statusTone(variant.status)} size="sm">{statusLabel(variant)}</StatusChip>
-          </button>}
-          {use && <IconButton icon={Check} size="inline" className="action-compare-use"
-            label={`Use settings from variant ${variant.displayKey}`} onClick={() => onUseSettings(use)} />}
-          {variant.baseline ? <LockKeyhole className="action-compare-lock" size={12} aria-label="Baseline cannot be removed" />
-            : <IconButton icon={X} size="inline" className="action-compare-remove"
-              label={`Remove variant ${variant.displayKey}`} onClick={() => {
-                setEditingId((current) => current === variant.id ? null : current); session.removeVariant(variant.id);
-              }} />}
-          {['failed', 'cancelled', 'expired'].includes(variant.status) && <IconButton icon={RotateCcw} size="inline"
-            label={`Retry variant ${variant.displayKey}`} onClick={() => session.retryVariant(variant.id)} />}
-          {changes.length > 0 && <div className="action-compare-settings" role="tooltip">
-            <strong>{variant.displayKey} · {variant.label}</strong>
-            {changes.map((change) => <div key={change.label}><span>{change.label}</span><del>{change.before}</del><span>→</span><ins>{change.after}</ins></div>)}
-            <small>Click to edit</small>
-          </div>}
-        </div>;
-      })}
-      <Button type="button" className="action-compare-add" disabled={state.variants.length >= Math.min(3, context.limits.max_challengers) + 1}
-        onClick={() => { const id = session.addVariant(); if (id) setEditingId(id); }}><Plus size={13} /> Variant</Button>
-    </CompareToolbar>
+    <div className="action-compare-toolbar-shell">
+      <CompareToolbar testIdPrefix="action-compare" running={running} controls={controls} label="Variants"
+        tag={sampleLabel(context.sample_row_ids.length, state.capturedSelection?.totalCount ?? null)}>
+        {state.variants.map((variant) => {
+          const use = session.useVariant(variant.id);
+          const changes = editingId === null && hoveredId === variant.id && !variant.baseline && describeVariantChanges
+            ? describeVariantChanges(baseline.draft, variant.draft) : [];
+          return <div key={variant.id} className="action-compare-variant" data-status={variant.status}
+            data-active={editingId === variant.id || hoveredId === variant.id ? 'true' : undefined}
+            data-testid={`action-compare-variant-${variant.displayKey}`}
+            onMouseEnter={() => setHoveredId(variant.id)} onMouseLeave={() => setHoveredId(null)}>
+            {variant.baseline ? <div className="action-compare-variant-body" aria-label={`Variant ${variant.displayKey}`}>
+              <i className="action-compare-variant-pip" aria-hidden /><strong>{variant.displayKey}</strong><span>{variant.label}</span>
+              <StatusChip tone={statusTone(variant.status)} size="sm">{statusLabel(variant)}</StatusChip>
+            </div> : <button type="button" className="action-compare-variant-body"
+              aria-label={`Configure variant ${variant.displayKey}`} onClick={() => setEditingId(variant.id)}>
+              <i className="action-compare-variant-pip" aria-hidden /><strong>{variant.displayKey}</strong><span>{variant.label}</span>
+              <StatusChip tone={statusTone(variant.status)} size="sm">{statusLabel(variant)}</StatusChip>
+            </button>}
+            {use && <IconButton icon={Check} size="inline" className="action-compare-use"
+              label={`Use settings from variant ${variant.displayKey}`} onClick={() => onUseSettings(use)} />}
+            {variant.baseline ? <LockKeyhole className="action-compare-lock" size={12} aria-label="Baseline cannot be removed" />
+              : <IconButton icon={X} size="inline" className="action-compare-remove"
+                label={`Remove variant ${variant.displayKey}`} onClick={() => {
+                  setEditingId((current) => current === variant.id ? null : current); session.removeVariant(variant.id);
+                }} />}
+            {['failed', 'cancelled', 'expired'].includes(variant.status) && <IconButton icon={RotateCcw} size="inline"
+              label={`Retry variant ${variant.displayKey}`} onClick={() => session.retryVariant(variant.id)} />}
+            {changes.length > 0 && <div className="action-compare-settings" role="tooltip">
+              <strong>{variant.displayKey} · {variant.label}</strong>
+              {changes.map((change) => <div key={change.label}><span>{change.label}</span>
+                <span className="action-compare-setting-values"><del>{change.before}</del><span aria-hidden>→</span><ins>{change.after}</ins></span>
+              </div>)}
+              <small>Click to edit</small>
+            </div>}
+          </div>;
+        })}
+        <Button type="button" className="action-compare-add" disabled={state.variants.length >= Math.min(3, context.limits.max_challengers) + 1}
+          onClick={() => { const id = session.addVariant(); if (id) setEditingId(id); }}><Plus size={13} /> Variant</Button>
+      </CompareToolbar>
 
-    {editing && renderVariantEditor && <aside className="action-compare-editor" aria-label={`Configure variant ${editing.displayKey}`}>
-      <header><strong>{editing.displayKey} · {editing.label}</strong>
-        <IconButton icon={X} size="inline" label="Close variant editor" onClick={() => setEditingId(null)} /></header>
-      {renderVariantEditor({
-        variantId: editing.id, label: editing.displayKey, draft: editing.draft,
-        lockedParams: context.locked_params, structureLocked: true, lockReason: 'Fixed for this comparison',
-        onDraftChange: (draft) => session.updateVariant(editing.id, draft),
-        onDuplicate: () => { const id = session.addVariant(editing.id); if (id) setEditingId(id); },
-        onDismiss: () => setEditingId(null),
-      })}
-      <Button type="button" onClick={() => { const id = session.addVariant(editing.id); if (id) setEditingId(id); }}>
-        <Copy size={13} /> Duplicate
-      </Button>
-    </aside>}
+      {editing && renderVariantEditor && <aside className="action-compare-editor" aria-label={`Configure variant ${editing.displayKey}`}>
+        <header><strong>{editing.displayKey} · {editing.label}</strong>
+          <IconButton icon={X} size="inline" label="Close variant editor" onClick={() => setEditingId(null)} /></header>
+        {renderVariantEditor({
+          variantId: editing.id, label: editing.displayKey, draft: editing.draft,
+          lockedParams: context.locked_params, structureLocked: true, lockReason: 'Fixed for this comparison',
+          onDraftChange: (draft) => session.updateVariant(editing.id, draft),
+          onDuplicate: () => { const id = session.addVariant(editing.id); if (id) setEditingId(id); },
+          onDismiss: () => setEditingId(null),
+        })}
+        <Button type="button" onClick={() => { const id = session.addVariant(editing.id); if (id) setEditingId(id); }}>
+          <Copy size={13} /> Duplicate
+        </Button>
+      </aside>}
+    </div>
 
-    <div className="action-compare-visibility" aria-label="Visible comparison fields"><span>Columns</span>
-      {[...context.source_columns.map((column) => ({ key: `source:${column.name}`, name: column.name })),
-        ...context.output_columns.map((column) => ({ key: `output:${column.logical_key}`, name: column.current_name }))]
-        .map(({ key, name }) => { const visible = !hidden.has(key); return <Button key={key} type="button" aria-pressed={visible}
+    <div className="action-compare-visibility"><span>Columns</span>
+      <OverflowRow items={visibilityFields} getKey={(field) => field.key} aria-label="Visible comparison fields"
+        className="action-compare-visibility-row" overflowLabel="More comparison fields"
+        triggerClassName="action-compare-visibility-overflow"
+        renderItem={({ key, name }) => { const visible = !hidden.has(key); return <Button type="button" aria-pressed={visible}
           aria-label={`${visible ? 'Hide' : 'Show'} ${name}`} onClick={() => session.setColumnVisible(key, !visible)}>
           {visible ? '✓' : '+'} {name}
-        </Button>; })}
+        </Button>; }}
+        renderOverflowItem={({ key, name }, closeMenu) => { const visible = !hidden.has(key); return <button type="button"
+          role="menuitemcheckbox" aria-checked={visible} className="menu-item" onClick={() => {
+            session.setColumnVisible(key, !visible); closeMenu();
+          }}><span aria-hidden>{visible ? '✓' : '+'}</span><span className="menu-item-name">{name}</span></button>; }} />
     </div>
 
     {(context.origin_summary.mixed_runs || context.origin_summary.includes_manual_edits || context.origin_summary.includes_reject_clear)
       && <div className="action-compare-notice" role="note">
         {context.origin_summary.mixed_runs && <span>Includes other runs.</span>}
-        {context.origin_summary.includes_manual_edits && <span>Manual edits will be kept.</span>}
-        {context.origin_summary.includes_reject_clear && <span>Previously cleared rejections may be filled again.</span>}
+        {(context.origin_summary.includes_manual_edits || context.origin_summary.includes_reject_clear)
+          && <span>Includes edited values.</span>}
       </div>}
     {state.stale && <div className="action-compare-stale" role="alert"><span>Data changed since this comparison.</span>
       {onRefresh && <Button type="button" onClick={onRefresh}>Refresh comparison</Button>}</div>}
@@ -233,11 +258,13 @@ export function ActionCompareTab({ session, onUseSettings, renderVariantEditor,
           const explicitValueState = cell && ['value', 'null'].includes(cell.state)
             && original && ['value', 'null'].includes(original.state);
           const comparison = variant.baseline || !explicitValueState ? undefined : actionCompareCellEquality(original, cell);
+          const highlightedComparison = state.highlightDifferences ? comparison : undefined;
           return <td key={`${output.logical_key}:${variant.id}`}
             data-testid={`action-compare-cell-${rowId}-${output.logical_key}-${variant.displayKey}`}
-            data-comparison={state.highlightDifferences ? comparison : undefined}
+            data-comparison={highlightedComparison}
             data-cell-state={cell?.state ?? variant.status}
             data-previous={!variant.result && variant.previousResult ? 'true' : undefined}>
+            {highlightedComparison === 'different' && <span className="sr-only">Differs from A. </span>}
             {!variant.result && variant.previousResult && <small>Previous settings</small>}
             <Origin cell={cell} />
             <CellValue cell={displayedCell(variant, cell)}
@@ -247,7 +274,7 @@ export function ActionCompareTab({ session, onUseSettings, renderVariantEditor,
       </tr>)}
     </tbody></table></div>
     <footer><span>{context.baseline_mode === 'current_values'
-      ? 'A shows current values · settings come from the selected run' : 'A uses the original settings'}</span>
-      <span>Runs these settings again; sample results are not saved.</span></footer>
+      ? 'A shows current values' : 'A uses the original settings'}</span>
+      <span>Nothing changes until you use a variant.</span></footer>
   </section>;
 }

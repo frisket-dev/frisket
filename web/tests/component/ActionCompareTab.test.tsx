@@ -58,7 +58,7 @@ describe('ActionCompareTab', () => {
         runVariant: async () => ({
           status: 'ready', previewId: 'preview-B', result: {
             rows: {
-              10: { party: cell('Acme') },
+              10: { party: cell('Other party') },
               11: { party: { state: 'error', error: 'Provider refused this row', origin } },
             },
           },
@@ -76,7 +76,16 @@ describe('ActionCompareTab', () => {
     expect(screen.queryByRole('columnheader', { name: 'note' })).not.toBeInTheDocument();
     expect(screen.getByText('Edited')).toBeInTheDocument();
     expect(screen.getByText('Empty')).toBeInTheDocument();
-    expect(screen.getByText('Provider refused this row')).toBeInTheDocument();
+    expect(screen.getByText(/Provider refused this row/)).toBeInTheDocument();
+    expect(screen.getByText('Includes other runs.')).toBeInTheDocument();
+    expect(screen.getByText('Includes edited values.')).toBeInTheDocument();
+    expect(screen.queryByText('Manual edits will be kept.')).not.toBeInTheDocument();
+    expect(screen.getByText('A shows current values')).toBeInTheDocument();
+    expect(screen.getByText('Nothing changes until you use a variant.')).toBeInTheDocument();
+
+    const changed = screen.getByTestId('action-compare-cell-10-party-B');
+    expect(changed).toHaveAttribute('data-comparison', 'different');
+    expect(within(changed).getByText('Differs from A.')).toHaveClass('sr-only');
 
     const different = screen.getByTestId('action-compare-cell-11-party-B');
     expect(different).toHaveAttribute('data-cell-state', 'error');
@@ -105,11 +114,23 @@ describe('ActionCompareTab', () => {
     expect(screen.queryByRole('button', { name: 'Use settings from variant A' })).not.toBeInTheDocument();
     fireEvent.click(within(screen.getByTestId('action-compare-variant-B')).getByRole('button', { name: 'Configure variant B' }));
     expect(screen.getByText('Editor for B')).toBeInTheDocument();
+    expect(screen.getByRole('complementary', { name: 'Configure variant B' }).parentElement)
+      .toHaveClass('action-compare-toolbar-shell');
     expect(renderVariantEditor).toHaveBeenCalledWith(expect.objectContaining({
       variantId: b,
       lockedParams: ['source'],
       structureLocked: true,
       lockReason: 'Fixed for this comparison',
     }));
+  });
+
+  it('clamps long inline values until the reader expands them', () => {
+    const context = fixture();
+    context.source_rows['10']!.body = cell('Long source text '.repeat(30));
+    const session = createActionCompareSession({ context }, { runVariant: vi.fn() });
+    render(<ActionCompareTab session={session} onUseSettings={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand' }));
+    expect(screen.getByRole('button', { name: 'Collapse' })).toBeInTheDocument();
   });
 });
