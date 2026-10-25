@@ -68,14 +68,14 @@ def _create(
     return r.outputs[0].ref["index_id"]
 
 
-def _refresh(project, pid, index_id):
-    run_action_spec(
+def _refresh(project, pid, index_id, *, mode="full", key="r@1"):
+    return run_action_spec(
         project,
         {
             "action_id": "embedding.index_refresh",
             "scope": {"kind": "project"},
-            "params": {"index_id": index_id, "mode": "full"},
-            "idempotency_key": "r@1",
+            "params": {"index_id": index_id, "mode": mode},
+            "idempotency_key": key,
         },
         project_id=pid,
         deps=ExecutorDeps(embedding_gateway=_Gateway()),
@@ -116,11 +116,26 @@ def test_refresh_clears_refresh_needed(tmp_path):
     client = _client(tmp_path)
     pid, project, sheet = _seed(client)
     index_id = _create(project, pid, sheet)
-    _refresh(project, pid, index_id)
+    result = _refresh(project, pid, index_id)
     [idx] = _list(client, pid, sheet).json()["indexes"]
     assert idx["refresh_needed"] is False
     assert idx["ready_items"] == 2
     assert idx["last_refreshed_at"]
+
+    status = client.get(
+        f"/api/projects/{pid}/actions/runs/{result.run_id}/status"
+    ).json()["run"]["public_status"]
+    assert status["status"] == "completed"
+    assert {
+        key: status[key]
+        for key in ("total", "attempted", "succeeded", "failed", "skipped")
+    } == {
+        "total": 2,
+        "attempted": 2,
+        "succeeded": 2,
+        "failed": 0,
+        "skipped": 0,
+    }
 
 
 def test_remote_index_exposes_policy_flags(tmp_path):
@@ -168,6 +183,37 @@ def _cell_edit(project, pid, *, row_id, column_id, value, key):
         },
         project_id=pid,
     )
+
+
+def test_refresh_counts_provider_inputs_not_cached_publish_items(tmp_path):
+    client = _client(tmp_path)
+    pid, project, sheet = _seed(client)
+    index_id = _create(project, pid, sheet)
+    _refresh(project, pid, index_id, key="r@initial")
+
+    col = _headline_col(project, sheet)
+    cat = _row_id(project, sheet, col, "cat")
+    kitten = _row_id(project, sheet, col, "kitten")
+    _cell_edit(project, pid, row_id=cat, column_id=col, value="panther", key="e@cat")
+    _refresh(project, pid, index_id, mode="incremental", key="r@panther")
+    _cell_edit(project, pid, row_id=cat, column_id=col, value="cat", key="e@cat-back")
+    _cell_edit(
+        project,
+        pid,
+        row_id=kitten,
+        column_id=col,
+        value="puppy",
+        key="e@kitten",
+    )
+
+    result = _refresh(project, pid, index_id, mode="incremental", key="r@mixed")
+    assert result.outputs[0].ref["refreshed"] == 2
+    status = client.get(
+        f"/api/projects/{pid}/actions/runs/{result.run_id}/status"
+    ).json()["run"]["public_status"]
+    assert status["status"] == "completed"
+    assert (status["total"], status["attempted"], status["succeeded"]) == (1, 1, 1)
+    assert (status["failed"], status["skipped"]) == (0, 0)
 
 
 def test_editing_a_source_cell_marks_refresh_needed_before_similarity(tmp_path):
