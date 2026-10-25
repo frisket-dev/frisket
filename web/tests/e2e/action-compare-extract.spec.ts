@@ -270,12 +270,12 @@ test('fresh Ask can enter Compare before any action executes', async ({ page }) 
   await expect(form.getByTestId('text-source-columns')
     .getByRole('button', { name: 'Remove case_text' })).toBeVisible();
   await form.getByLabel('Question', { exact: true }).fill('What is the current scheduled hearing date?');
-  await form.getByTestId('field-output-answer').fill('current_hearing');
   const trigger = form.getByTestId('engine-selector').locator('.engine-selector__trigger');
   await trigger.click();
   await page.getByTestId('engine-selector-dialog')
     .locator('[data-engine-selector-choice="replay-model"]').click();
   await expect(trigger).toContainText('Gemini 3.5 Flash-Lite');
+  await form.getByTestId('field-output-answer').fill('current_hearing');
   await form.getByTestId('generated-action-run-scope-menu-button').click();
   await expect(form.getByTestId('generated-action-menu-compare')).toBeVisible();
   await shoot(page, '07-fresh-ask-compare-entry.png');
