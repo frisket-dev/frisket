@@ -11,6 +11,7 @@ import type {
   HttpProjectSettingsRequest,
   HttpProjectSettingsResponse,
   HttpReceipt,
+  HttpRowSourceDocumentsResponse,
   HttpRunTraceRowEvidence,
 } from '../generated/openHttpContracts';
 
@@ -900,6 +901,7 @@ export interface CellEvidenceLinkSummary {
  * must not narrow it into a client-owned object shape.
  */
 export type CellEvidencePayload = HttpCellEvidenceResponse;
+export type RowSourceDocumentsPayload = HttpRowSourceDocumentsResponse;
 
 /**
  * answers-view-column-evidence-batch-v1: the Grounded Answers reading view's
@@ -4950,6 +4952,9 @@ export interface FrisketApi {
     columnId: string,
     opts?: { includeStale?: boolean },
   ): Promise<CellEvidencePayload>;
+  /** Existing citations and readable original documents reachable through a
+   * bounded, cycle-safe row-ancestry walk. Fetched only for the open row. */
+  getRowSourceDocuments(rowId: string): Promise<RowSourceDocumentsPayload>;
   /** The Grounded Answers view's middle-pane batch — one call per (sheet,
    *  column) instead of one getCellEvidence call per visible row. `rowIds`
    *  scopes the batch to the list's virtualization window; omitted = every

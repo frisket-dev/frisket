@@ -228,6 +228,11 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
             "GET",
         ): "tenant.reviewed_run_revision.get",
         ("tenant", "column_evidence", "GET"): "tenant.column_evidence.get",
+        (
+            "tenant",
+            "row_source_documents",
+            "GET",
+        ): "tenant.row_source_documents.get",
         ("tenant", "column_stats", "GET"): "tenant.column_stats.get",
         (
             "tenant",

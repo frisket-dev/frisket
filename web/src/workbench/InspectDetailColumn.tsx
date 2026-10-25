@@ -34,6 +34,8 @@ export interface InspectDetailColumnProps {
   detailContributions?: WorkbenchResolvedLayoutContribution[];
   renderDetailContribution?(contribution: WorkbenchResolvedLayoutContribution): ReactNode;
   onOpenInDocumentView?(columnId: string): void;
+  onOpenRowRef?(sheetId: string, rowId: string): void;
+  onOpenSourceDocument?(sheetId: string, rowId: string, columnId: string): void;
   /** Deliberate per-row retry of a terminal empty_output cell — threaded to
    *  RowDrawerBody's "Retry anyway" affordance. */
   onRetryCell?(columnName: string): Promise<void>;
@@ -69,6 +71,8 @@ export function InspectDetailColumn({
   detailContributions,
   renderDetailContribution,
   onOpenInDocumentView,
+  onOpenRowRef,
+  onOpenSourceDocument,
   onRetryCell,
   titleColumnOrder,
   expandedRunResultFields,
@@ -186,6 +190,8 @@ export function InspectDetailColumn({
             detailContributions={detailContributions}
             renderDetailContribution={renderDetailContribution}
             onOpenInDocumentView={onOpenInDocumentView}
+            onOpenRowRef={onOpenRowRef}
+            onOpenSourceDocument={onOpenSourceDocument}
             onRetryCell={onRetryCell}
             bodyRef={bodyRef}
             expandedRunResultFields={expandedRunResultFields}

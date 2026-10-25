@@ -10,6 +10,7 @@ from frisket.contracts.http.project_evidence import (
     CellTextAnnotationsResponse,
     ColumnEvidenceResponse,
     EvidenceViewerResponse,
+    RowSourceDocumentsResponse,
 )
 from frisket.server.route_errors import http_error_responses
 
@@ -45,6 +46,20 @@ def register_project_evidence_routes(
                 column_id=column_id,
                 include_stale=include_stale,
             )
+        )
+
+    @app.get(
+        "/api/projects/{pid}/rows/{row_id}/source-documents",
+        response_model=RowSourceDocumentsResponse,
+        response_model_exclude_unset=True,
+        responses={
+            **PROJECT_EVIDENCE_ERROR_RESPONSES,
+            **http_error_responses(401, 403, 409, 422, 500),
+        },
+    )
+    def row_source_documents(pid: str, row_id: int) -> RowSourceDocumentsResponse:
+        return RowSourceDocumentsResponse.model_validate(
+            service.row_source_documents(pid, row_id=row_id)
         )
 
     # This is the inverse of cell_evidence. That endpoint answers "what

@@ -665,6 +665,26 @@ export function useWorkspaceNavigationController({
     },
     [sheet, prioritizeDocumentRow, documentView, selection, setDocumentView, setOpenSplit],
   );
+  const openDocumentRef = useCallback(
+    (sheetId: string, rowId: string, columnId: string) => {
+      setOpenSplit(null);
+      setDocumentView({
+        sheetId,
+        sourceColumnId: columnId,
+        titleColumnId: null,
+        layout: 'continuous',
+        fit: 'width',
+        videoFit: 'full',
+        textLayer: true,
+        sync: false,
+        activeRowId: rowId,
+        readerLocationKey: crypto.randomUUID(),
+      });
+      selection.clearRowSelection(sheetId);
+      selectSheet(sheetId);
+    },
+    [selectSheet, selection, setDocumentView, setOpenSplit],
+  );
   const setDocumentPriorityLabel = useCallback((rowId: string, label: string) => {
     setDocumentPriority((current) => current?.rowId === rowId ? { ...current, label } : current);
   }, []);
@@ -826,14 +846,14 @@ export function useWorkspaceNavigationController({
     selectSheet, onMainViewTabKeyDown, workspaceRoute, runActionFromSurface,
     openSourcesFromCommandPalette, openSettingsFromCommandPalette, openRowPanel, openColumnPanel,
     walkDetailRow, openMapPanel, openGraphPanel, openMapSplit, openSourceHealthMainView,
-    openEvidenceViewerForWorkspace, activeDocumentPriority, openRowInDocumentView, openRowRef,
+    openEvidenceViewerForWorkspace, activeDocumentPriority, openRowInDocumentView, openDocumentRef, openRowRef,
     closeRoutePanel, closeActionRoute, closeActionDrawerOnLaunch, actionPanelVisible,
     openImportDialog, mainView, overlays,
   }), [
     selectSheet, onMainViewTabKeyDown, workspaceRoute, runActionFromSurface,
     openSourcesFromCommandPalette, openSettingsFromCommandPalette, openRowPanel, openColumnPanel,
     walkDetailRow, openMapPanel, openGraphPanel, openMapSplit, openSourceHealthMainView,
-    openEvidenceViewerForWorkspace, activeDocumentPriority, openRowInDocumentView, openRowRef,
+    openEvidenceViewerForWorkspace, activeDocumentPriority, openRowInDocumentView, openDocumentRef, openRowRef,
     closeRoutePanel, closeActionRoute, closeActionDrawerOnLaunch, actionPanelVisible,
     openImportDialog, mainView, overlays,
   ]);

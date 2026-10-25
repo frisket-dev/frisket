@@ -93,6 +93,17 @@ async function ready() {
 }
 
 describe('located text search navigation', () => {
+  it('opens an exact cross-sheet source document in the normal Document view', async () => {
+    columnType = 'file';
+    await ready();
+    act(() => latest.openDocumentRef('2', '20', '7'));
+    expect(stores.chrome.store.get().documentView).toMatchObject({
+      sheetId: '2', sourceColumnId: '7', activeRowId: '20', sync: false,
+    });
+    await waitFor(() => expect(stores.route.store.get()).toMatchObject({ sheetId: '2' }));
+    await waitFor(() => expect(latest.mainViewModel.activeWorkView).toBe('document'));
+  });
+
   it('opens a cross-sheet large text hit in the existing Detail reader at its revision-pinned passage', async () => {
     await ready();
     act(() => latest.overlayModel.navigateToSearchHit(hit()));

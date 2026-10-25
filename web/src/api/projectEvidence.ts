@@ -23,8 +23,14 @@ export type ColumnEvidenceWire =
   HttpContractSuccessResponse<'tenant.column_evidence.get'>;
 export type EvidenceViewerWire =
   HttpContractSuccessResponse<'tenant.evidence_viewer.get'>;
+export type RowSourceDocumentsWire =
+  HttpContractSuccessResponse<'tenant.row_source_documents.get'>;
 
 export interface ProjectEvidenceApi {
+  getRowSourceDocuments(
+    rowId: string,
+    options?: ProjectEvidenceOptions,
+  ): Promise<RowSourceDocumentsWire>;
   getCellEvidence(
     rowId: string,
     columnId: string,
@@ -52,6 +58,10 @@ export interface ProjectEvidenceApi {
  * as the generated transport returned them; annotations alone have a client
  * domain model because their geometry is rendered directly. */
 export interface ProjectEvidenceDomainApi {
+  getRowSourceDocuments(
+    rowId: string,
+    options?: ProjectEvidenceOptions,
+  ): Promise<RowSourceDocumentsWire>;
   getCellEvidence(
     rowId: string,
     columnId: string,
@@ -87,6 +97,18 @@ export function createProjectEvidenceApi(
   projectId: string,
 ): ProjectEvidenceApi {
   return {
+    getRowSourceDocuments(rowId, options = {}) {
+      return httpContract(
+        'tenant.row_source_documents.get',
+        {
+          pathParams: { pid: projectId, row_id: numericPathRef(rowId) },
+          query: {},
+          signal: options.signal,
+          headers: options.headers,
+          errorFactory,
+        },
+      );
+    },
     getCellEvidence(rowId, columnId, includeStale = false, options = {}) {
       return httpContract(
         'tenant.cell_evidence.get',
@@ -278,6 +300,9 @@ export function createProjectEvidenceDomainApi(
 ): ProjectEvidenceDomainApi {
   const evidenceApi = createProjectEvidenceApi(errorFactory, projectId);
   return {
+    getRowSourceDocuments(rowId, options) {
+      return evidenceApi.getRowSourceDocuments(rowId, options);
+    },
     getCellEvidence(rowId, columnId, includeStale, options) {
       return evidenceApi.getCellEvidence(rowId, columnId, includeStale, options);
     },

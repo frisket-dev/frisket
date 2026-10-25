@@ -17,6 +17,8 @@ export const WorkspaceInspectDetailRegion = memo(function WorkspaceInspectDetail
     closeRoutePanel,
     handleCellEdit,
     openRowInDocumentView,
+    openDocumentRef,
+    openRowRef,
     runActionBackfill,
   } = useWorkspaceShell();
   const walkDetailRow = useWorkspaceRowWalk();
@@ -89,6 +91,8 @@ export const WorkspaceInspectDetailRegion = memo(function WorkspaceInspectDetail
         detailContributions={resolveRegionContributions(resolvedWorkbenchLayout, 'rowDetail').contributions}
         renderDetailContribution={renderRowDetailContribution}
         onOpenInDocumentView={(columnId) => openRowInDocumentView(String(rowDrawer.id), columnId)}
+        onOpenRowRef={(sheetId, rowId) => openRowRef(sheetId, rowId)}
+        onOpenSourceDocument={(sheetId, rowId, columnId) => openDocumentRef(sheetId, rowId, columnId)}
         onRetryCell={onRetryCell}
         titleColumnOrder={titleColumnOrder}
         expandedRunResultFields={expandedRunResultFields}

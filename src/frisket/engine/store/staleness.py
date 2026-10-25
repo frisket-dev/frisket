@@ -82,6 +82,14 @@ def _ancestor_changed(project: Any, ancestors: set[int], watermark: int) -> bool
         return False
     ids = sorted(ancestors)
     ph = _placeholders(len(ids))
+    refresh_hit = project.db.execute(
+        f"SELECT 1 FROM sheets s JOIN ops o ON o.id=s.last_verified_op_cursor "
+        f"WHERE s.id IN ({ph}) AND s.last_verified_op_cursor > ? "
+        f"AND o.kind='sheet.refresh' AND o.status='applied' LIMIT 1",
+        (*ids, watermark),
+    ).fetchone()
+    if refresh_hit is not None:
+        return True
     edit_hit = project.db.execute(
         f"SELECT 1 FROM edits e "
         f"JOIN rows r ON e.row_id = r.id "

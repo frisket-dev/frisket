@@ -375,6 +375,7 @@ _TENANT_VIEWER: tuple[RouteSpec, ...] = (
         "column_evidence",
         "GET",
     ),
+    ("row_source_documents", "GET"),
     ("column_runs", "GET"),
     ("reviewed_run_revision", "GET"),
     (
@@ -888,6 +889,7 @@ _BROWSER_CLIENT_IDS = (
             "tenant.column_runs.get",
             "tenant.reviewed_run_revision.get",
             "tenant.column_evidence.get",
+            "tenant.row_source_documents.get",
             "tenant.column_values_preview.post",
             "tenant.column_stats.get",
             "tenant.qa_threads.get",

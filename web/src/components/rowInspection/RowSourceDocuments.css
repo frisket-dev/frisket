@@ -1,0 +1,30 @@
+.row-source-documents {
+  display: grid;
+  gap: 8px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.row-source-documents h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.row-source-evidence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.row-open-source-document {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.row-source-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
