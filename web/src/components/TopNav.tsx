@@ -687,10 +687,10 @@ export function ProjectMenu({
         ref={triggerRef}
         className="brand-project brand-project-btn"
         data-testid="switch-project"
-        title="Switch project"
+        title={`Switch project: ${project.name}`}
         onClick={() => dispatch({ type: 'toggleOpen' })}
       >
-        {project.name} <DropdownIndicator />
+        <span className="brand-project-label">{project.name}</span><DropdownIndicator />
       </button>
       {open && (
         <ProjectMenuPopover

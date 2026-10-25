@@ -20,6 +20,13 @@
   display: inline-flex; align-items: center; gap: 3px;
   max-width: 130px;
 }
+.brand-project-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-menu .brand-project > svg { flex-shrink: 0; }
 
 .form-help { display: inline-flex; margin-top: 10px; font-size: 12px; color: var(--accent); }
 
