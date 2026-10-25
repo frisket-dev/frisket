@@ -160,7 +160,7 @@ def test_ordinary_preview_keeps_large_values_inline(tmp_path: Path) -> None:
     assert result.payload["status"] == "done", result.payload
     cell = result.payload["result"]["rows"][str(row_ids[0])]["large_result"]
     assert cell["value"] == large
-    assert "artifact" not in cell
+    assert "bounded_value" not in cell
 
 
 def test_opus_preview_derives_first_use_hint_until_normal_row_progress(

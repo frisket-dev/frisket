@@ -6,9 +6,6 @@ import json
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from frisket.engine.executor.action_families.runs import (
-    typed_run_has_matching_producer_receipt,
-)
 from frisket.engine.executor.map_rows_action import (
     bound_typed_program_request_from_runner_spec,
     normalized_typed_request_identity,
@@ -32,9 +29,6 @@ def reconstruct_run_action_draft(
     bound = bound_typed_program_request_from_runner_spec(runner_spec, project=project)
     if bound is None:
         raise ValueError("unsupported action family")
-    run_id = int(run["id"])
-    if not typed_run_has_matching_producer_receipt(project, run_id=run_id, bound=bound):
-        raise ValueError("stored action identity does not match its producer")
     return ReconstructedRunActionDraft(
         runner_spec=dict(runner_spec),
         bound=bound,

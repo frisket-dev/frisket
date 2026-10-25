@@ -23,6 +23,9 @@ from frisket.contracts.http.action_compare import (
     ActionDraft,
 )
 from frisket.engine.executor import resolve_map_preview
+from frisket.engine.executor.action_families.runs import (
+    typed_run_has_matching_producer_receipt,
+)
 from frisket.engine.executor.actions import MapPreviewPlan
 from frisket.engine.executor.map_rows_action import normalized_typed_request_identity
 from frisket.engine.runner.preview import PREVIEW_MAX_ROWS
@@ -319,6 +322,10 @@ def _resolve_run_draft(project, *, run_id: int, column_id: int):
         raise ActionCompareRouteError(404, "selected column is not part of this run")
     try:
         reconstructed = reconstruct_run_action_draft(project, run)
+        if not typed_run_has_matching_producer_receipt(
+            project, run_id=run_id, bound=reconstructed.bound
+        ):
+            raise ValueError("stored action identity does not match its producer")
         runner_spec = reconstructed.runner_spec
     except (TypeError, ValueError, json.JSONDecodeError) as exc:
         raise ActionCompareRouteError(
