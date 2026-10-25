@@ -96,7 +96,7 @@ describe('ActionCompareTab', () => {
     await session.runPending();
     const onUseSettings = vi.fn();
 
-    render(<ActionCompareTab session={session} onUseSettings={onUseSettings}
+    render(<ActionCompareTab projectId="project-1" session={session} onUseSettings={onUseSettings}
       labelForDraft={(_draft, displayKey) => displayKey === 'B' ? 'Claude Sonnet 4.5' : 'Current values'}
       describeVariantChanges={() => [{ label: 'Context', before: 'Old instructions', after: 'New instructions' }]} />);
 
@@ -182,7 +182,8 @@ describe('ActionCompareTab', () => {
     const session = createActionCompareSession({ context: fixture() }, { runVariant: vi.fn() });
     const b = session.addVariant()!;
     const renderVariantEditor = vi.fn(({ label }) => <div>Editor for {label}</div>);
-    render(<ActionCompareTab session={session} onUseSettings={vi.fn()} renderVariantEditor={renderVariantEditor} />);
+    render(<ActionCompareTab projectId="project-1" session={session} onUseSettings={vi.fn()}
+      renderVariantEditor={renderVariantEditor} />);
 
     expect(editor.props!.getCellContent([2, 0])).toMatchObject({
       kind: GridCellKind.Custom,
@@ -207,6 +208,31 @@ describe('ActionCompareTab', () => {
     }));
   });
 
+  it('uses the shared renderer with project identity and generated-text display semantics', () => {
+    const context = fixture();
+    const digest = 'b'.repeat(64);
+    context.source_columns[0] = {
+      ...context.source_columns[0], column_type: 'image',
+    };
+    context.source_rows['10']!.body = cell(JSON.stringify({
+      blob: digest, mime: 'image/png', filename: 'source.png',
+    }));
+    context.baseline_rows!['10']!.party = cell('First\\nsecond');
+    const session = createActionCompareSession({ context }, { runVariant: vi.fn() });
+
+    render(<ActionCompareTab projectId="project-1" session={session} onUseSettings={vi.fn()} />);
+
+    expect(editor.props!.getCellContent([0, 0])).toMatchObject({
+      kind: GridCellKind.Image,
+      data: [`/api/projects/project-1/blobs/${digest}`],
+    });
+    expect(editor.props!.getCellContent([1, 0])).toMatchObject({
+      kind: GridCellKind.Text,
+      data: 'First\\nsecond',
+      displayData: 'First\nsecond',
+    });
+  });
+
   it('routes bounded and structured activation to the existing reader callbacks', () => {
     const context = fixture();
     context.source_rows['10']!.body = {
@@ -217,14 +243,16 @@ describe('ActionCompareTab', () => {
         retrieval_revision: 4, truncated: true,
       },
     };
-    context.output_columns[0] = { ...context.output_columns[0], column_type: 'json' };
+    context.output_columns[0] = {
+      ...context.output_columns[0], column_type: 'json', semantic_type: 'entity_mentions',
+    };
     context.baseline_rows!['10']!.party = cell('unused', {
       state: 'value', value: { party: { name: 'Acme', roles: ['buyer', 'seller'] } },
     });
     const session = createActionCompareSession({ context }, { runVariant: vi.fn() });
     const onOpenBoundedValue = vi.fn();
     const onOpenStructuredValue = vi.fn();
-    render(<ActionCompareTab session={session} onUseSettings={vi.fn()}
+    render(<ActionCompareTab projectId="project-1" session={session} onUseSettings={vi.fn()}
       onOpenBoundedValue={onOpenBoundedValue} onOpenStructuredValue={onOpenStructuredValue} />);
 
     act(() => editor.props!.onCellActivated?.([0, 0]));
@@ -237,7 +265,9 @@ describe('ActionCompareTab', () => {
 
     act(() => editor.props!.onCellActivated?.([1, 0]));
     expect(onOpenStructuredValue).toHaveBeenCalledWith(expect.objectContaining({
-      column: expect.objectContaining({ name: 'party', type: 'json' }),
+      column: expect.objectContaining({
+        name: 'party', type: 'json', semanticType: 'entity_mentions',
+      }),
       row: expect.objectContaining({ id: '10', cells: expect.any(Object) }),
     }));
     expect(onOpenStructuredValue.mock.calls[0][0].row.cells)
@@ -279,7 +309,7 @@ describe('ActionCompareTab', () => {
     await session.runPending();
     session.addVariant();
 
-    render(<ActionCompareTab session={session} onUseSettings={vi.fn()} />);
+    render(<ActionCompareTab projectId="project-1" session={session} onUseSettings={vi.fn()} />);
     const grid = editor.props!;
 
     for (const columnIndex of [2, 5, 8]) {

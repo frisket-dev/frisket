@@ -109,7 +109,8 @@ function ActionCompareContents() {
       return query && <ActionCompareVariantChoiceOwner key={variant.id}
         projectId={chromePreferences.projectId} variantId={variant.id} query={query} publish={publishChoice} />;
     })}
-    <ActionCompareTab session={session} onUseSettings={model.useActionCompareSettings}
+    <ActionCompareTab projectId={model.project.id} session={session}
+      onUseSettings={model.useActionCompareSettings}
       labelForDraft={presentation?.labelForDraft}
       describeVariantChanges={presentation?.describeVariantChanges}
       renderVariantEditor={editor => <VariantEditor editor={editor} sheetId={state.context.sheet.id} />}
@@ -126,7 +127,7 @@ function ActionCompareContents() {
       {value.kind === 'current_cell' ? <LargeCellValue projectId={model.project.id} rowId={String(value.row_id)}
         columnId={String(value.column_id)} descriptor={value} /> : <PreviewValueReader value={value} />}
     </Modal>}
-    {structuredValue && <Modal title={`${structuredValue.column.name} · row ${structuredValue.row.index + 1}`}
+    {structuredValue && <Modal title={`${structuredValue.column.name} · sample row ${structuredValue.row.index + 1}`}
       size="wide" onClose={() => setStructuredValue(null)} closeLabel="Close full value">
       <FieldValue col={structuredValue.column} columns={[structuredValue.column]} row={structuredValue.row}
         sheetId={String(state.context.sheet.id)} value={structuredValue.row.cells[structuredValue.column.id] ?? null} />

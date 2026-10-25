@@ -30,6 +30,7 @@ export interface ActionCompareVariantEditorRenderProps {
 export interface ActionCompareSettingChange { label: string; before: string; after: string }
 
 export interface ActionCompareTabProps {
+  projectId: string;
   session: ActionCompareSession;
   onUseSettings(selection: ActionCompareUseSettings): void;
   renderVariantEditor?(props: ActionCompareVariantEditorRenderProps): ReactNode;
@@ -61,7 +62,7 @@ function statusLabel(variant: ActionCompareVariant): string {
   return variant.status === 'current' ? 'in table' : variant.status;
 }
 
-export function ActionCompareTab({ session, onUseSettings, renderVariantEditor,
+export function ActionCompareTab({ projectId, session, onUseSettings, renderVariantEditor,
   labelForDraft, describeVariantChanges, onOpenBoundedValue, onOpenStructuredValue,
   onRefresh, className }: ActionCompareTabProps) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot);
@@ -200,7 +201,7 @@ export function ActionCompareTab({ session, onUseSettings, renderVariantEditor,
     {state.stale && <div className="action-compare-stale" role="alert"><span>Data changed since this comparison.</span>
       {onRefresh && <Button type="button" onClick={onRefresh}>Refresh comparison</Button>}</div>}
 
-    <ActionCompareGrid state={state} labelForDraft={labelForDraft}
+    <ActionCompareGrid projectId={projectId} state={state} labelForDraft={labelForDraft}
       onOpenBoundedValue={onOpenBoundedValue} onOpenStructuredValue={onOpenStructuredValue} />
   </section>;
 }

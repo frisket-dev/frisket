@@ -677,6 +677,9 @@ export function parseJsonArray(v: CellValue): unknown[] | null {
 
 export interface BuildCellOptions {
   projectId?: string;
+  /** Decode escaped line breaks/tabs for generated text without fabricating
+   * column provenance. Defaults to the ordinary grid's `col.ai` behavior. */
+  decodeEscapes?: boolean;
   /** Wrap long text in text-ish cells (pair with taller rows). */
   wrap?: boolean;
   /** Run is streaming into this column and the cell is still empty. */
@@ -947,7 +950,9 @@ const textBuilder: CellBuilder = (col, v, opts) => {
       readonly: true,
     };
   }
-  const display = textDisplayValue(v, { decodeEscapes: Boolean(col.ai) });
+  const display = textDisplayValue(v, {
+    decodeEscapes: opts.decodeEscapes ?? Boolean(col.ai),
+  });
   return {
     kind: GridCellKind.Text,
     data: v === null ? '' : String(v),
