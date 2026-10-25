@@ -313,6 +313,47 @@ describe('GeneratedActionParamsEditor', () => {
     });
   });
 
+  it('allows nested field descriptions without ignoring a schema property named description', async () => {
+    const draft: GeneratedActionDraft = {
+      ...structuredClone(DRAFT),
+      params: {
+        ...structuredClone(DRAFT.params),
+        fields: [{
+          name: 'events',
+          type: 'list',
+          description: 'Events in the filing',
+          items: {
+            type: 'object',
+            properties: {
+              description: { type: 'string', description: 'Event summary' },
+              date: { type: 'string', description: 'Event date' },
+            },
+            required: ['description', 'date'],
+          },
+        }],
+      },
+      output_names: { events: 'events' },
+    };
+    const onDraftChange = mountEditor(vi.fn(), ['source', 'fields'], { draft });
+    await waitFor(() => expect(onDraftChange).toHaveBeenCalled());
+    onDraftChange.mockClear();
+
+    const descriptions = screen.getAllByTestId('list-item-field-description');
+    fireEvent.change(descriptions[0], { target: { value: 'Updated event summary' } });
+
+    await waitFor(() => expect(onDraftChange).toHaveBeenCalled());
+    expect(screen.queryByTestId('generated-locked-param-problem')).not.toBeInTheDocument();
+    expect(onDraftChange.mock.lastCall?.[0]).toMatchObject({
+      params: { fields: [{
+        name: 'events',
+        items: { properties: {
+          description: { type: 'string', description: 'Updated event summary' },
+          date: { type: 'string', description: 'Event date' },
+        } },
+      }] },
+    });
+  });
+
   it('keeps Ask response type locked when the comparison context names it', () => {
     const entry = structuredClone(ENTRY);
     entry.kind = 'map.ask';
@@ -404,13 +445,14 @@ describe('GeneratedActionParamsEditor', () => {
     // summary must describe the retained selected scope, and all rows must
     // remain reachable without reopening the comparison.
     expect(screen.getByTestId('generated-action-run')).toHaveTextContent('Replace selected rows');
-    expect(screen.getByText('3 selected rows will be replaced')).toBeInTheDocument();
+    expect(screen.getByText('3 selected rows')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('generated-action-run-scope-menu-button'));
     fireEvent.click(screen.getByTestId('generated-action-row-scope-all'));
     expect(onExecute.mock.lastCall?.[0]).toMatchObject({
       scope: { kind: 'sheet_rows', sheet_id: 7 },
     });
     expect(screen.getByTestId('generated-action-run')).toHaveTextContent('Replace all rows');
+    expect(screen.getByText('All 240 rows')).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('generated-action-run-scope-menu-button'));
     fireEvent.click(screen.getByTestId('generated-action-menu-return-to-compare'));
@@ -430,7 +472,7 @@ describe('GeneratedActionParamsEditor', () => {
     const { onExecute } = mountFinalForm('use-new-comparison-variant');
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
     expect(screen.getByTestId('generated-action-run')).toHaveTextContent('Run');
-    expect(screen.getByText('Run defaults to all 240 rows')).toBeInTheDocument();
+    expect(screen.getByText('All 240 rows')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('generated-action-run'));
     expect(onExecute).toHaveBeenCalledWith(expect.objectContaining({
       scope: { kind: 'sheet_rows', sheet_id: 7 },

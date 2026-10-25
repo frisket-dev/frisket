@@ -8,6 +8,7 @@ import { PluginActionUIBoundary } from './PluginActionUIBoundary';
 import type { GeneratedActionCustomization } from './generatedActionCustomizations';
 
 import { compatibleSourceColumns, formatUsd, isProjectScopedAction } from '../../actions/model';
+import { jsonValuesEqual } from '../../actions/canonicalJson';
 import { quotedUsd } from '../../actions/quotedCost';
 import { formatDuration } from '../../format';
 import { parseStrictJson } from '../../actions/strictJson';
@@ -278,31 +279,33 @@ export function GeneratedActionParamsEditor({
     onClose={() => undefined} />;
 }
 
-function withoutEditableDescriptions(value: CanonicalFieldValue | undefined): unknown {
-  if (Array.isArray(value)) return value.map(withoutEditableDescriptions);
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(Object.entries(value)
-      .filter(([name]) => name !== 'description' && name !== 'label_descriptions')
-      .map(([name, child]) => [name, withoutEditableDescriptions(child as CanonicalFieldValue)]));
-  }
-  return value;
+function withoutSchemaDescription(value: unknown): unknown {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return value;
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+    .filter(([name]) => name !== 'description'));
 }
 
-function sameJson(left: unknown, right: unknown): boolean {
-  if (left === right) return true;
-  if (Array.isArray(left) || Array.isArray(right)) {
-    return Array.isArray(left) && Array.isArray(right)
-      && left.length === right.length
-      && left.every((item, index) => sameJson(item, right[index]));
-  }
-  if (left === null || right === null || typeof left !== 'object' || typeof right !== 'object') return false;
-  const leftRecord = left as Record<string, unknown>;
-  const rightRecord = right as Record<string, unknown>;
-  const leftKeys = Object.keys(leftRecord).sort();
-  const rightKeys = Object.keys(rightRecord).sort();
-  return leftKeys.length === rightKeys.length
-    && leftKeys.every((key, index) => key === rightKeys[index]
-      && sameJson(leftRecord[key], rightRecord[key]));
+function withoutEditableFieldAnnotations(value: CanonicalFieldValue | undefined): unknown {
+  if (!Array.isArray(value)) return value;
+  return value.map((field) => {
+    if (field === null || typeof field !== 'object' || Array.isArray(field)) return field;
+    const lockedField = Object.fromEntries(Object.entries(field as Record<string, unknown>)
+      .filter(([name]) => name !== 'description' && name !== 'label_descriptions'));
+    const items = lockedField.items;
+    if (items === null || typeof items !== 'object' || Array.isArray(items)) return lockedField;
+    const properties = (items as Record<string, unknown>).properties;
+    if (properties === null || typeof properties !== 'object' || Array.isArray(properties)) {
+      return lockedField;
+    }
+    return {
+      ...lockedField,
+      items: {
+        ...items,
+        properties: Object.fromEntries(Object.entries(properties)
+          .map(([name, schema]) => [name, withoutSchemaDescription(schema)])),
+      },
+    };
+  });
 }
 
 function normalizedLockedValue(
@@ -312,7 +315,7 @@ function normalizedLockedValue(
   structureLocked: boolean,
 ): unknown {
   const stripped = structureLocked && name === 'fields'
-    ? withoutEditableDescriptions(value) : value;
+    ? withoutEditableFieldAnnotations(value) : value;
   if (actionId !== 'map.classify' || name !== 'fields' || !Array.isArray(stripped)) return stripped;
   return stripped.map((field) => {
     if (!field || typeof field !== 'object' || Array.isArray(field)) return field;
@@ -331,7 +334,7 @@ function lockedParamChanged(
   next: CanonicalFieldValue | undefined,
   structureLocked: boolean,
 ): boolean {
-  return !sameJson(
+  return !jsonValuesEqual(
     normalizedLockedValue(actionId, name, previous, structureLocked),
     normalizedLockedValue(actionId, name, next, structureLocked),
   );
@@ -1279,20 +1282,9 @@ function GeneratedActionFormContents({
         switchActions={switchActions} onSwitchAction={onSwitchAction}
         variant="drawer" onClose={onClose} />}
       <ActionCredentialGate actionTemplate={actionTemplate} />
-      {!paramsOnly && (launchMode?.kind === 'use-comparison-variant'
-        || launchMode?.kind === 'use-new-comparison-variant') && (
-        <p className="form-hint" data-testid="comparison-rerun-notice">
-          Runs these settings again; sample results are not saved.
-        </p>
-      )}
       {!paramsOnly && launchMode?.comparisonStale && (
         <p className="form-hint" role="status" data-testid="comparison-stale-run-notice">
           Data changed since this comparison. This run will use current data.
-        </p>
-      )}
-      {!paramsOnly && replacementLaunch && (
-        <p className="form-hint" data-testid="replacement-overlay-notice">
-          Manual edits will be kept. Previously cleared rejections may be filled again.
         </p>
       )}
       {!paramsOnly && sheet && onMaterializePdfTables && <PdfTablesReview actionKind={catalogEntry.kind}
@@ -1468,18 +1460,11 @@ function GeneratedActionFormContents({
             ? effectiveRunScope === 'selected' ? 'Replace selected rows' : 'Replace all rows'
             : customization?.primaryLabel ?? 'Run'} rowCount={sheet?.rowCount ?? 0}
         selectedCount={scopeSelectedRowIds.length} canRun={canRun}
-        scopeSummary={editComparePrimary
-          ? `Compare uses a sample · Replace ${effectiveRunScope === 'selected'
-            ? selectedScopeSummary : `all ${(sheet?.rowCount ?? 0).toLocaleString()} rows`}`
-          : replacementLaunch
-            ? effectiveRunScope === 'selected'
-              ? `${selectedScopeSummary} will be replaced`
-              : `All ${(sheet?.rowCount ?? 0).toLocaleString()} rows will be replaced`
-            : launchMode?.kind === 'use-new-comparison-variant'
-              ? effectiveRunScope === 'selected'
-                ? `${selectedScopeSummary} will run`
-                : `Run defaults to all ${(sheet?.rowCount ?? 0).toLocaleString()} rows`
-            : undefined}
+        scopeSummary={launchMode
+          ? effectiveRunScope === 'selected'
+            ? selectedScopeSummary
+            : `All ${(sheet?.rowCount ?? 0).toLocaleString()} rows`
+          : undefined}
         scope={runScope} onScopeChange={setRunScope}
         runOnScopeSelect={Boolean(launchMode)
           || catalogEntry.cost_policy?.requires_confirmation !== true

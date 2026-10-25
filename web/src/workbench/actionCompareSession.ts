@@ -9,6 +9,7 @@ import type {
 import { ConfirmationRequiredError } from '../api/contractErrors';
 import { pollPreviewJob } from '../api/previewJobTransport';
 import { freshActionRequestKey, type GeneratedActionDraft, type JsonValue, type RegisteredActionRequest, type RunEstimate } from '../api/types';
+import { jsonValuesEqual } from '../actions/canonicalJson';
 
 export type ActionCompareVariantStatus =
   | 'pending' | 'running' | 'ready' | 'failed' | 'cancelled' | 'expired' | 'current';
@@ -196,20 +197,6 @@ function aborted(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError';
 }
 
-function sameJson(left: JsonValue, right: JsonValue): boolean {
-  if (left === right) return true;
-  if (Array.isArray(left) || Array.isArray(right)) {
-    return Array.isArray(left) && Array.isArray(right)
-      && left.length === right.length
-      && left.every((item, index) => sameJson(item, right[index]));
-  }
-  if (left === null || right === null || typeof left !== 'object' || typeof right !== 'object') return false;
-  const leftKeys = Object.keys(left).sort();
-  const rightKeys = Object.keys(right).sort();
-  return leftKeys.length === rightKeys.length
-    && leftKeys.every((key, index) => key === rightKeys[index] && sameJson(left[key], right[key]));
-}
-
 export type ActionCompareCellEquality = 'same' | 'different' | 'not_comparable';
 
 export function actionCompareCellEquality(
@@ -224,7 +211,7 @@ export function actionCompareCellEquality(
     return left.state === right.state ? 'same' : 'different';
   }
   if (left.value === undefined || right.value === undefined) return 'not_comparable';
-  return sameJson(left.value, right.value) ? 'same' : 'different';
+  return jsonValuesEqual(left.value, right.value) ? 'same' : 'different';
 }
 
 export function createActionCompareSession(
