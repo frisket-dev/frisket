@@ -1,13 +1,35 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  GridCellKind,
+  type DataEditorProps,
+} from '@glideapps/glide-data-grid';
 
 import type { ActionComparisonCell, ActionComparisonContext } from '../../src/api/actionComparison';
 import { createActionCompareSession } from '../../src/workbench/actionCompareSession';
 import { ActionCompareTab } from '../../src/workbench/ActionCompareTab';
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+const editor = vi.hoisted(() => ({ props: null as DataEditorProps | null }));
+vi.mock('@glideapps/glide-data-grid', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@glideapps/glide-data-grid')>();
+  const { forwardRef } = await import('react');
+  return {
+    ...actual,
+    DataEditor: forwardRef((_props: DataEditorProps, ref) => {
+      void ref;
+      editor.props = _props;
+      return null;
+    }),
+  };
+});
+
+afterEach(() => { cleanup(); vi.restoreAllMocks(); editor.props = null; });
+
+function actionCompareGridCellFacts(cell: object): readonly string[] {
+  return (cell as { actionCompareFacts?: readonly string[] }).actionCompareFacts ?? [];
+}
 
 function rect(top: number, bottom: number): DOMRect {
   return { x: 0, y: top, top, bottom, left: 0, right: 1200, width: 1200,
@@ -56,7 +78,7 @@ function fixture(): ActionComparisonContext {
 }
 
 describe('ActionCompareTab', () => {
-  it('renders typed grouped results, visibility controls, and uses only evaluated settings', async () => {
+  it('projects typed grouped results through the shared grid and uses only evaluated settings', async () => {
     const session = createActionCompareSession(
       { context: fixture(), capturedSelection: { rowIds: [10, 11, 12], totalCount: 237 } },
       {
@@ -75,36 +97,61 @@ describe('ActionCompareTab', () => {
     const onUseSettings = vi.fn();
 
     render(<ActionCompareTab session={session} onUseSettings={onUseSettings}
-      labelForDraft={(_draft, displayKey) => displayKey === 'B' ? 'Claude Sonnet 4.5' : 'Current values'} />);
+      labelForDraft={(_draft, displayKey) => displayKey === 'B' ? 'Claude Sonnet 4.5' : 'Current values'}
+      describeVariantChanges={() => [{ label: 'Context', before: 'Old instructions', after: 'New instructions' }]} />);
 
     expect(screen.getByText('Comparing 2 of 237 selected rows')).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: 'party' })).toBeInTheDocument();
     expect(within(screen.getByTestId('action-compare-variant-B')).getByText('Claude Sonnet 4.5')).toBeInTheDocument();
-    expect(screen.getAllByRole('columnheader').some((header) => header.textContent === 'B · Claude Sonnet 4.5')).toBe(true);
-    expect(screen.queryByRole('columnheader', { name: 'note' })).not.toBeInTheDocument();
-    expect(screen.getByText('Edited')).toBeInTheDocument();
-    expect(screen.getByText('Empty')).toBeInTheDocument();
-    expect(screen.getByText(/Provider refused this row/)).toBeInTheDocument();
-    expect(screen.getByText('Includes other runs.')).toBeInTheDocument();
-    expect(screen.getByText('Includes edited values.')).toBeInTheDocument();
-    expect(screen.queryByText('Manual edits will be kept.')).not.toBeInTheDocument();
-    expect(screen.getByText('A shows current values')).toBeInTheDocument();
-    expect(screen.getByText('Nothing changes until you use a variant.')).toBeInTheDocument();
-    expect(screen.getByText('First document').closest('.action-compare-inline-value'))
-      .not.toHaveAttribute('data-expandable');
+    expect(screen.getByTestId('action-compare-grid')).toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.queryByText('A shows current values')).not.toBeInTheDocument();
+    expect(screen.queryByText('Nothing changes until you use a variant.')).not.toBeInTheDocument();
 
-    const changed = screen.getByTestId('action-compare-cell-10-party-B');
-    expect(changed).toHaveAttribute('data-comparison', 'different');
-    expect(within(changed).getByText('Differs from A.')).toHaveClass('sr-only');
+    const grid = editor.props!;
+    expect(grid.headerHeight).toBe(34);
+    expect(grid.groupHeaderHeight).toBe(28);
+    expect(grid.rowHeight).toBe(34);
+    expect(grid.rowMarkers).toEqual({ kind: 'both', width: 40 });
+    expect(grid.freezeColumns).toBe(1);
+    expect(grid.columns.map((column) => column.title)).toEqual([
+      'body', 'A · Current values', 'B · Claude Sonnet 4.5',
+    ]);
+    expect(grid.getGroupDetails?.(grid.columns[1].group!)).toMatchObject({ name: 'party', icon: 'aiBolt' });
 
-    const different = screen.getByTestId('action-compare-cell-11-party-B');
-    expect(different).toHaveAttribute('data-cell-state', 'error');
-    expect(different).not.toHaveAttribute('data-comparison');
+    fireEvent.mouseEnter(screen.getByTestId('action-compare-variant-B'));
+    const tooltip = screen.getByRole('tooltip');
+    expect(within(tooltip).getByText('Context')).toBeInTheDocument();
+    expect(within(tooltip).getByText('Old instructions').tagName).toBe('DEL');
+    expect(within(tooltip).getByText('New instructions').tagName).toBe('INS');
+    expect(within(tooltip).queryByText('→')).not.toBeInTheDocument();
+    fireEvent.mouseLeave(screen.getByTestId('action-compare-variant-B'));
+
+    const source = grid.getCellContent([0, 0]);
+    expect(source).toMatchObject({ kind: GridCellKind.Text, displayData: 'First document', readonly: true });
+    const edited = grid.getCellContent([1, 0]);
+    expect(edited).toMatchObject({ kind: GridCellKind.Text, displayData: 'Acme', readonly: true });
+    expect(actionCompareGridCellFacts(edited)).toContain('Edited');
+    const changed = grid.getCellContent([2, 0]);
+    expect(changed).toMatchObject({ kind: GridCellKind.Text, displayData: 'Other party', readonly: true });
+    expect(actionCompareGridCellFacts(changed)).toContain('Differs from A');
+    expect(changed.themeOverride?.bgCell).toBeTruthy();
+    const failed = grid.getCellContent([2, 1]);
+    expect(failed).toMatchObject({ kind: GridCellKind.Text, displayData: '⚠ Provider refused this row' });
+    expect(actionCompareGridCellFacts(failed)).toContain('Not compared');
+
     fireEvent.click(screen.getByRole('button', { name: 'Hide difference highlighting' }));
-    expect(different).not.toHaveAttribute('data-comparison');
+    const unhighlighted = editor.props!.getCellContent([2, 0]);
+    expect(unhighlighted.themeOverride?.bgCell).not.toBe(changed.themeOverride?.bgCell);
+    expect(actionCompareGridCellFacts(unhighlighted)).toContain('Differs from A');
 
     fireEvent.click(screen.getByRole('button', { name: 'Show note' }));
-    expect(screen.getByRole('columnheader', { name: 'note' })).toBeInTheDocument();
+    expect(editor.props!.columns.map((column) => column.title)).toEqual([
+      'body', 'A · Current values', 'B · Claude Sonnet 4.5',
+      'A · Current values', 'B · Claude Sonnet 4.5',
+    ]);
+
+    act(() => editor.props!.onColumnResize?.(editor.props!.columns[0], 287));
+    expect(editor.props!.columns[0].width).toBe(287);
 
     const bChip = screen.getByTestId('action-compare-variant-B');
     fireEvent.click(within(bChip).getByRole('button', { name: 'Use settings from variant B' }));
@@ -113,6 +160,15 @@ describe('ActionCompareTab', () => {
       context: expect.objectContaining({ expected_output_signature: 'sig' }),
       capturedSelection: { rowIds: [10, 11, 12], totalCount: 237 },
     }));
+
+    const b = session.getSnapshot().variants.find((variant) => variant.displayKey === 'B')!;
+    act(() => session.updateVariant(b.id, { ...b.draft, params: { ...b.draft.params, model: 'new/model' } }));
+    const previous = editor.props!.getCellContent([2, 0]);
+    expect(previous).toMatchObject({ displayData: 'Other party', style: 'faded' });
+    expect(actionCompareGridCellFacts(previous)).toContain('Previous settings');
+    expect(actionCompareGridCellFacts(previous)).not.toContain('Differs from A');
+    act(() => editor.props!.onCellActivated?.([2, 0]));
+    expect(screen.getByText('Previous settings')).toBeInTheDocument();
   });
 
   it('does not expose Use on an existing baseline and opens the injected editor for a challenger', () => {
@@ -127,14 +183,19 @@ describe('ActionCompareTab', () => {
     const renderVariantEditor = vi.fn(({ label }) => <div>Editor for {label}</div>);
     render(<ActionCompareTab session={session} onUseSettings={vi.fn()} renderVariantEditor={renderVariantEditor} />);
 
+    expect(editor.props!.getCellContent([2, 0])).toMatchObject({
+      kind: GridCellKind.Custom,
+      data: expect.objectContaining({ kind: 'frisket-pending' }),
+    });
+
     expect(screen.queryByRole('button', { name: 'Use settings from variant A' })).not.toBeInTheDocument();
     fireEvent.click(within(screen.getByTestId('action-compare-variant-B')).getByRole('button', { name: 'Configure variant B' }));
     expect(screen.getByText('Editor for B')).toBeInTheDocument();
-    const editor = screen.getByRole('complementary', { name: 'Configure variant B' });
-    expect(editor.parentElement)
+    const editorPanel = screen.getByRole('complementary', { name: 'Configure variant B' });
+    expect(editorPanel.parentElement)
       .toHaveClass('action-compare-toolbar-shell');
-    expect(editor).toHaveStyle({ maxHeight: '400px' });
-    expect(within(editor).getByRole('button', { name: 'Close variant editor' })
+    expect(editorPanel).toHaveStyle({ maxHeight: '448px' });
+    expect(within(editorPanel).getByRole('button', { name: 'Close variant editor' })
       .closest('.action-compare-editor-body')).toBeNull();
     expect(screen.getByText('Editor for B').closest('.action-compare-editor-body')).toBeInTheDocument();
     expect(renderVariantEditor).toHaveBeenCalledWith(expect.objectContaining({
@@ -145,13 +206,44 @@ describe('ActionCompareTab', () => {
     }));
   });
 
-  it('clamps long inline values until the reader expands them', () => {
+  it('routes bounded and structured activation to the existing reader callbacks', () => {
     const context = fixture();
-    context.source_rows['10']!.body = cell('Long source text '.repeat(30));
+    context.source_rows['10']!.body = {
+      state: 'value', value: null, origin,
+      bounded_value: {
+        kind: 'current_cell', row_id: 10, column_id: 2, preview: 'Long source text',
+        value_kind: 'text', total_characters: 50_000, total_bytes: 50_000,
+        retrieval_revision: 4, truncated: true,
+      },
+    };
+    context.output_columns[0] = { ...context.output_columns[0], column_type: 'json' };
+    context.baseline_rows!['10']!.party = cell('unused', {
+      state: 'value', value: { party: { name: 'Acme', roles: ['buyer', 'seller'] } },
+    });
     const session = createActionCompareSession({ context }, { runVariant: vi.fn() });
-    render(<ActionCompareTab session={session} onUseSettings={vi.fn()} />);
+    const onOpenBoundedValue = vi.fn();
+    const onOpenStructuredValue = vi.fn();
+    render(<ActionCompareTab session={session} onUseSettings={vi.fn()}
+      onOpenBoundedValue={onOpenBoundedValue} onOpenStructuredValue={onOpenStructuredValue} />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Expand' }));
-    expect(screen.getByRole('button', { name: 'Collapse' })).toBeInTheDocument();
+    act(() => editor.props!.onCellActivated?.([0, 0]));
+    expect(onOpenBoundedValue).toHaveBeenCalledWith(expect.objectContaining({
+      value: expect.objectContaining({ kind: 'current_cell' }),
+      previewId: null,
+      rowId: 10,
+      columnKey: 'body',
+    }));
+
+    act(() => editor.props!.onCellActivated?.([1, 0]));
+    expect(onOpenStructuredValue).toHaveBeenCalledWith(expect.objectContaining({
+      column: expect.objectContaining({ name: 'party', type: 'json' }),
+      row: expect.objectContaining({ id: '10', cells: expect.any(Object) }),
+    }));
+    expect(onOpenStructuredValue.mock.calls[0][0].row.cells)
+      .toEqual(expect.objectContaining({
+        [onOpenStructuredValue.mock.calls[0][0].column.id]: JSON.stringify({
+          party: { name: 'Acme', roles: ['buyer', 'seller'] },
+        }),
+      }));
   });
 });

@@ -1,19 +1,18 @@
 import { useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
-import { CircleAlert, Check, Copy, Eye, EyeOff, LockKeyhole, Plus, RefreshCw, RotateCcw, Square, X } from 'lucide-react';
+import { Check, Copy, Eye, EyeOff, LockKeyhole, Plus, RefreshCw, RotateCcw, Square, X } from 'lucide-react';
 import type { ActionComparisonBoundedValue } from '../api/actionComparison';
-import type { GeneratedActionDraft, JsonValue } from '../api/types';
+import type { GeneratedActionDraft } from '../api/types';
 import { Button } from '../components/Button';
 import { IconButton } from '../components/IconButton';
 import { OverflowRow } from '../components/OverflowRow';
 import { StatusChip, type StatusTone } from '../components/PanelPrimitives';
 import { CompareToolbar } from './CompareLayout';
 import {
-  actionCompareCellEquality,
-  type ActionCompareResultCell,
   type ActionCompareSession,
   type ActionCompareUseSettings,
   type ActionCompareVariant,
 } from './actionCompareSession';
+import { ActionCompareGrid, type ActionCompareStructuredValue } from './ActionCompareGrid';
 import './ActionCompareTab.css';
 
 export interface ActionCompareVariantEditorRenderProps {
@@ -39,6 +38,7 @@ export interface ActionCompareTabProps {
   onOpenBoundedValue?(args: {
     value: ActionComparisonBoundedValue; previewId: string | null; rowId: number; columnKey: string;
   }): void;
+  onOpenStructuredValue?(value: ActionCompareStructuredValue): void;
   onRefresh?(): void;
   className?: string;
 }
@@ -61,77 +61,9 @@ function statusLabel(variant: ActionCompareVariant): string {
   return variant.status === 'current' ? 'in table' : variant.status;
 }
 
-function Value({ value, depth = 0 }: { value: JsonValue; depth?: number }) {
-  if (value === null) return <span className="action-compare-empty">Empty</span>;
-  if (typeof value === 'string') return <span className="action-compare-text">{value || 'Empty text'}</span>;
-  if (typeof value === 'number') return <span className="action-compare-number">{value}</span>;
-  if (typeof value === 'boolean') return <span>{value ? 'True' : 'False'}</span>;
-  if (depth >= 2) return <span className="action-compare-empty">Structured value</span>;
-  if (Array.isArray(value)) return value.length
-    ? <ul className="action-compare-list">{value.map((item, index) => <li key={index}><Value value={item} depth={depth + 1} /></li>)}</ul>
-    : <span className="action-compare-empty">Empty list</span>;
-  const entries = Object.entries(value);
-  return entries.length ? <dl className="action-compare-object">{entries.map(([key, item]) => <div key={key}>
-    <dt>{key}</dt><dd><Value value={item} depth={depth + 1} /></dd>
-  </div>)}</dl> : <span className="action-compare-empty">Empty object</span>;
-}
-
-function CellValue({ cell, previewId, rowId, columnKey, onOpen }: {
-  cell: ActionCompareResultCell | undefined;
-  previewId: string | null;
-  rowId: number;
-  columnKey: string;
-  onOpen?: ActionCompareTabProps['onOpenBoundedValue'];
-}) {
-  const [expanded, setExpanded] = useState(false);
-  if (!cell || cell.state === 'pending') return <span className="action-compare-empty">Pending</span>;
-  if (cell.state === 'cancelled') return <span className="action-compare-empty">Cancelled</span>;
-  if (cell.state === 'missing') return <span className="action-compare-empty">No result</span>;
-  if (cell.state === 'error') return <span className="action-compare-error"><CircleAlert size={13} aria-hidden />
-    <strong>Error:</strong> {cell.error || 'Row failed'}</span>;
-  if (cell.state === 'null') return <span className="action-compare-empty">Empty</span>;
-  if (cell.bounded_value) return <div className="action-compare-bounded">
-    <span>{cell.bounded_value.preview}</span>
-    <small>Not compared · {cell.bounded_value.total_bytes.toLocaleString()} bytes</small>
-    {onOpen && <Button type="button" variant="text" onClick={() => onOpen({
-      value: cell.bounded_value!, previewId, rowId, columnKey,
-    })}>Open full value</Button>}
-  </div>;
-  const value = cell.value ?? null;
-  const expandable = typeof value === 'string' ? value.length > 160
-    : value !== null && typeof value === 'object';
-  return <div className="action-compare-inline-value" data-expandable={expandable ? 'true' : undefined}
-    data-expanded={expanded ? 'true' : 'false'}>
-    <div className="action-compare-inline-value-content"><Value value={value} /></div>
-    {expandable && <Button type="button" variant="text" onClick={() => setExpanded((current) => !current)}>
-      {expanded ? 'Collapse' : 'Expand'}
-    </Button>}
-  </div>;
-}
-
-function Origin({ cell }: { cell: ActionCompareResultCell | undefined }) {
-  if (cell?.origin?.review_decision === 'reject_clear') return <span className="action-compare-origin">Cleared rejection</span>;
-  if (cell?.origin?.review_decision === 'edit' || cell?.origin?.kind === 'manual_edit') {
-    return <span className="action-compare-origin">Edited</span>;
-  }
-  return null;
-}
-
-function displayedCell(
-  variant: ActionCompareVariant,
-  cell: ActionCompareResultCell | undefined,
-): ActionCompareResultCell {
-  if (cell) return cell;
-  if (variant.status === 'pending' || variant.status === 'running') return { state: 'pending' };
-  if (variant.status === 'cancelled') return { state: 'cancelled' };
-  if (variant.status === 'failed' || variant.status === 'expired') {
-    return { state: 'error', error: variant.error ?? 'Preview failed' };
-  }
-  return { state: 'missing' };
-}
-
 export function ActionCompareTab({ session, onUseSettings, renderVariantEditor,
-  labelForDraft, describeVariantChanges, onOpenBoundedValue, onRefresh, className }: ActionCompareTabProps) {
+  labelForDraft, describeVariantChanges, onOpenBoundedValue, onOpenStructuredValue,
+  onRefresh, className }: ActionCompareTabProps) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
@@ -141,8 +73,6 @@ export function ActionCompareTab({ session, onUseSettings, renderVariantEditor,
   const { context } = state;
   const baseline = state.variants[0];
   const hidden = new Set(state.hiddenColumnKeys);
-  const sources = context.source_columns.filter((column) => !hidden.has(`source:${column.name}`));
-  const outputs = context.output_columns.filter((column) => !hidden.has(`output:${column.logical_key}`));
   const editing = state.variants.find((variant) => variant.id === editingId) ?? null;
   const editingLabel = editing ? labelForDraft?.(editing.draft, editing.displayKey) ?? editing.label : null;
   const running = state.sequenceStatus === 'running';
@@ -160,9 +90,8 @@ export function ActionCompareTab({ session, onUseSettings, renderVariantEditor,
     const measure = () => {
       const sectionRect = section.getBoundingClientRect();
       const toolbarRect = toolbar.getBoundingClientRect();
-      const footerTop = section.querySelector('footer')?.getBoundingClientRect().top ?? sectionRect.bottom;
       if (sectionRect.height <= 0 || toolbarRect.height <= 0) return;
-      const next = actionCompareEditorMaxHeight(toolbarRect.bottom, footerTop);
+      const next = actionCompareEditorMaxHeight(toolbarRect.bottom, sectionRect.bottom);
       setEditorMaxHeight((current) => current === next ? current : next);
     };
     measure();
@@ -173,8 +102,6 @@ export function ActionCompareTab({ session, onUseSettings, renderVariantEditor,
     const observer = new ResizeObserver(measure);
     observer.observe(section);
     observer.observe(toolbar);
-    const footer = section.querySelector('footer');
-    if (footer) observer.observe(footer);
     return () => observer.disconnect();
   }, [editing]);
 
@@ -194,7 +121,10 @@ export function ActionCompareTab({ session, onUseSettings, renderVariantEditor,
     </div>}
     <div ref={toolbarRef} className="action-compare-toolbar-shell">
       <CompareToolbar testIdPrefix="action-compare" running={running} controls={controls} label="Variants"
-        tag={sampleLabel(context.sample_row_ids.length, state.capturedSelection?.totalCount ?? null)}>
+        tag={sampleLabel(
+          Math.min(20, context.limits.max_sample_rows, context.sample_row_ids.length),
+          state.capturedSelection?.totalCount ?? null,
+        )}>
         {state.variants.map((variant) => {
           const use = session.useVariant(variant.id);
           const displayLabel = labelForDraft?.(variant.draft, variant.displayKey) ?? variant.label;
@@ -224,7 +154,7 @@ export function ActionCompareTab({ session, onUseSettings, renderVariantEditor,
             {changes.length > 0 && <div className="action-compare-settings" role="tooltip">
               <strong>{variant.displayKey} · {displayLabel}</strong>
               {changes.map((change) => <div key={change.label}><span>{change.label}</span>
-                <span className="action-compare-setting-values"><del>{change.before}</del><span aria-hidden>→</span><ins>{change.after}</ins></span>
+                <span className="action-compare-setting-values"><del>{change.before}</del><ins>{change.after}</ins></span>
               </div>)}
               <small>Click to edit</small>
             </div>}
@@ -267,54 +197,10 @@ export function ActionCompareTab({ session, onUseSettings, renderVariantEditor,
           }}><span aria-hidden>{visible ? '✓' : '+'}</span><span className="menu-item-name">{name}</span></button>; }} />
     </div>
 
-    {(context.origin_summary.mixed_runs || context.origin_summary.includes_manual_edits || context.origin_summary.includes_reject_clear)
-      && <div className="action-compare-notice" role="note">
-        {context.origin_summary.mixed_runs && <span>Includes other runs.</span>}
-        {(context.origin_summary.includes_manual_edits || context.origin_summary.includes_reject_clear)
-          && <span>Includes edited values.</span>}
-      </div>}
     {state.stale && <div className="action-compare-stale" role="alert"><span>Data changed since this comparison.</span>
       {onRefresh && <Button type="button" onClick={onRefresh}>Refresh comparison</Button>}</div>}
 
-    <div className="action-compare-table-scroll"><table className="action-compare-table"><thead><tr>
-      <th rowSpan={2} scope="col" aria-label="Row">#</th>
-      {sources.map((column, sourceIndex) => <th key={column.column_id} rowSpan={2} scope="col" className="action-compare-source-sticky"
-        style={{ left: 48 + sourceIndex * 150 }}>{column.name}<small>{column.param}</small></th>)}
-      {outputs.map((column) => <th key={column.logical_key} colSpan={state.variants.length} scope="colgroup" aria-label={column.current_name}>
-        <span aria-hidden>⚡</span> {column.current_name}{column.hidden && <small>hidden output</small>}
-      </th>)}
-    </tr><tr>{outputs.flatMap((output) => state.variants.map((variant) => <th key={`${output.logical_key}:${variant.id}`} scope="col">
-      {variant.displayKey} · {labelForDraft?.(variant.draft, variant.displayKey) ?? variant.label}
-    </th>))}</tr></thead><tbody>
-      {context.sample_row_ids.map((rowId, index) => <tr key={rowId}><th scope="row">{index + 1}</th>
-        {sources.map((source, sourceIndex) => { const cell = context.source_rows[String(rowId)]?.[source.name]; return <td key={source.column_id}
-          className="action-compare-source-sticky" style={{ left: 48 + sourceIndex * 150 }}>
-          <CellValue cell={cell} previewId={null} rowId={rowId} columnKey={source.name} onOpen={onOpenBoundedValue} />
-        </td>; })}
-        {outputs.flatMap((output) => state.variants.map((variant) => {
-          const displayed = variant.result ?? variant.previousResult;
-          const cell = displayed?.rows[String(rowId)]?.[output.logical_key];
-          const original = baseline.result?.rows[String(rowId)]?.[output.logical_key];
-          const explicitValueState = cell && ['value', 'null'].includes(cell.state)
-            && original && ['value', 'null'].includes(original.state);
-          const comparison = variant.baseline || !explicitValueState ? undefined : actionCompareCellEquality(original, cell);
-          const highlightedComparison = state.highlightDifferences ? comparison : undefined;
-          return <td key={`${output.logical_key}:${variant.id}`}
-            data-testid={`action-compare-cell-${rowId}-${output.logical_key}-${variant.displayKey}`}
-            data-comparison={highlightedComparison}
-            data-cell-state={cell?.state ?? variant.status}
-            data-previous={!variant.result && variant.previousResult ? 'true' : undefined}>
-            {highlightedComparison === 'different' && <span className="sr-only">Differs from A. </span>}
-            {!variant.result && variant.previousResult && <small>Previous settings</small>}
-            <Origin cell={cell} />
-            <CellValue cell={displayedCell(variant, cell)}
-              previewId={variant.previewId} rowId={rowId} columnKey={output.logical_key} onOpen={onOpenBoundedValue} />
-          </td>;
-        }))}
-      </tr>)}
-    </tbody></table></div>
-    <footer><span>{context.baseline_mode === 'current_values'
-      ? 'A shows current values' : 'A uses the original settings'}</span>
-      <span>Nothing changes until you use a variant.</span></footer>
+    <ActionCompareGrid state={state} labelForDraft={labelForDraft}
+      onOpenBoundedValue={onOpenBoundedValue} onOpenStructuredValue={onOpenStructuredValue} />
   </section>;
 }

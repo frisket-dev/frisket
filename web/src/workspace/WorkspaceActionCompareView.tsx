@@ -10,10 +10,12 @@ import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { BoundedTextReader } from '../components/BoundedTextReader';
 import { LargeCellValue } from '../components/LargeCellValue';
 import { Modal } from '../components/Modal';
+import { FieldValue } from '../components/rowInspection/FieldValue';
 import { GeneratedActionParamsEditor } from '../components/action-panel/GeneratedActionForm';
 import { currentSelectorChoice, selectorQueryKey } from '../engine-selector/selectorProjection';
 import { useSelectorChoices, type SelectorChoicesLoader } from '../engine-selector/useSelectorChoices';
 import { ActionCompareTab, type ActionCompareVariantEditorRenderProps } from '../workbench/ActionCompareTab';
+import type { ActionCompareStructuredValue } from '../workbench/ActionCompareGrid';
 import {
   actionCompareSelectorField,
   actionCompareSelectorQuery,
@@ -100,6 +102,7 @@ function ActionCompareContents() {
     lockedParams: state.context.locked_params,
     selectorChoices,
   }) : null, [entry, selectorChoices, state.context.baseline_mode, state.context.locked_params]);
+  const [structuredValue, setStructuredValue] = useState<ActionCompareStructuredValue | null>(null);
   return <>
     {entry && selectorField && state.variants.map((variant) => {
       const query = actionCompareSelectorQuery(entry, variant.draft);
@@ -110,16 +113,23 @@ function ActionCompareContents() {
       labelForDraft={presentation?.labelForDraft}
       describeVariantChanges={presentation?.describeVariantChanges}
       renderVariantEditor={editor => <VariantEditor editor={editor} sheetId={state.context.sheet.id} />}
-      onOpenBoundedValue={({ value }) => setValue(value)} onRefresh={model.refreshActionCompare} />
+      onOpenBoundedValue={({ value: nextValue }) => { setStructuredValue(null); setValue(nextValue); }}
+      onOpenStructuredValue={(nextValue) => { setValue(null); setStructuredValue(nextValue); }}
+      onRefresh={model.refreshActionCompare} />
     {model.actionCompareCloseWarn && <CompareDiscardDialog title="Discard this comparison?"
-      description="The comparison settings and preview results will be discarded. Your table will not change."
+      description="The comparison settings and preview results will be discarded."
       testId="action-compare" onCancel={model.cancelActionCompareClose} onDiscard={model.closeActionCompare} />}
     {model.actionComparePendingTarget && <CompareDiscardDialog title="Start a new comparison?"
-      description="Starting another comparison discards these settings and preview results. Your table will not change."
+      description="Starting another comparison discards these settings and preview results."
       testId="action-compare-retarget" onCancel={model.cancelActionCompareRetarget} onDiscard={model.confirmActionCompareRetarget} />}
     {value && <Modal title="Full value" size="wide" onClose={() => setValue(null)} closeLabel="Close full value">
       {value.kind === 'current_cell' ? <LargeCellValue projectId={model.project.id} rowId={String(value.row_id)}
         columnId={String(value.column_id)} descriptor={value} /> : <PreviewValueReader value={value} />}
+    </Modal>}
+    {structuredValue && <Modal title={`${structuredValue.column.name} · row ${structuredValue.row.index + 1}`}
+      size="wide" onClose={() => setStructuredValue(null)} closeLabel="Close full value">
+      <FieldValue col={structuredValue.column} columns={[structuredValue.column]} row={structuredValue.row}
+        sheetId={String(state.context.sheet.id)} value={structuredValue.row.cells[structuredValue.column.id] ?? null} />
     </Modal>}
   </>;
 }
