@@ -40,8 +40,10 @@ export function ExtractFieldsEditor({ fields, onChange, optional = false,
       return {
         name: field.name, type: field.type as ExtractField['type'], description: field.description,
         ...(field.type === 'category' ? { labels: field.labels ?? [] } : {}),
-        ...(field.type === 'list' ? { items: field.items as unknown as ExtractField['items'] } : {}),
-        ...(field.type === 'json' ? { properties: field.properties as unknown as ExtractField['properties'] } : {}),
+        ...(field.type === 'list' && field.items
+          ? { items: field.items as unknown as ExtractField['items'] } : {}),
+        ...(field.type === 'json' && field.properties
+          ? { properties: field.properties as unknown as ExtractField['properties'] } : {}),
         ...(field.required ? { required: true } : {}),
       };
     }))} />;

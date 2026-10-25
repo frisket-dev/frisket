@@ -22,8 +22,8 @@ export function jsonValuesEqual(left: unknown, right: unknown): boolean {
   }
   const leftRecord = left as Record<string, unknown>;
   const rightRecord = right as Record<string, unknown>;
-  const leftKeys = Object.keys(leftRecord).sort();
-  const rightKeys = Object.keys(rightRecord).sort();
+  const leftKeys = Object.keys(leftRecord).filter((key) => leftRecord[key] !== undefined).sort();
+  const rightKeys = Object.keys(rightRecord).filter((key) => rightRecord[key] !== undefined).sort();
   return leftKeys.length === rightKeys.length
     && leftKeys.every((key, index) => key === rightKeys[index]
       && jsonValuesEqual(leftRecord[key], rightRecord[key]));

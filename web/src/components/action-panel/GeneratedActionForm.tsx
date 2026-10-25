@@ -316,13 +316,16 @@ function normalizedLockedValue(
 ): unknown {
   const stripped = structureLocked && name === 'fields'
     ? withoutEditableFieldAnnotations(value) : value;
-  if (actionId !== 'map.classify' || name !== 'fields' || !Array.isArray(stripped)) return stripped;
+  if ((actionId !== 'map.classify' && actionId !== 'map.extract')
+    || name !== 'fields' || !Array.isArray(stripped)) return stripped;
   return stripped.map((field) => {
     if (!field || typeof field !== 'object' || Array.isArray(field)) return field;
     const normalized = { ...field } as Record<string, unknown>;
-    const type = typeof normalized.type === 'string' ? normalized.type : 'category';
-    normalized.type = type;
+    const type = actionId === 'map.classify' && typeof normalized.type !== 'string'
+      ? 'category' : normalized.type;
+    if (actionId === 'map.classify') normalized.type = type;
     if (type === 'category' && normalized.labels === undefined) normalized.labels = [];
+    if (type === 'list' && normalized.items === undefined) normalized.items = { type: 'string' };
     return normalized;
   });
 }

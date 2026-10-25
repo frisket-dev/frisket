@@ -257,6 +257,37 @@ describe('GeneratedActionParamsEditor', () => {
     });
   });
 
+  it.each([
+    ['json without properties', { name: 'details', type: 'json', description: 'Details' }],
+    ['list without items', { name: 'mentions', type: 'list', description: 'Mentions' }],
+    ['category without labels', { name: 'topic', type: 'category', description: 'Topic' }],
+  ] as const)('allows an Extract description edit for %s', async (_case, field) => {
+    const draft: GeneratedActionDraft = {
+      ...structuredClone(DRAFT),
+      params: {
+        ...structuredClone(DRAFT.params),
+        fields: [field],
+      },
+      output_names: { [field.name]: field.name },
+    };
+    const onDraftChange = mountEditor(vi.fn(), ['source', 'fields'], { draft });
+    await waitFor(() => expect(onDraftChange).toHaveBeenCalled());
+    onDraftChange.mockClear();
+
+    fireEvent.change(screen.getByTestId('output-field-description'), {
+      target: { value: 'Updated description' },
+    });
+
+    await waitFor(() => expect(onDraftChange).toHaveBeenCalled());
+    expect(screen.queryByTestId('generated-locked-param-problem')).not.toBeInTheDocument();
+    expect(onDraftChange.mock.lastCall?.[0].params.fields).toEqual([{
+      ...field,
+      description: 'Updated description',
+      ...(field.type === 'category' ? { labels: [] } : {}),
+      ...(field.type === 'list' ? { items: { type: 'string' } } : {}),
+    }]);
+  });
+
   it('accepts a Classify description edit from a sorted server draft with omitted defaults', async () => {
     const entry = structuredClone(ENTRY);
     entry.kind = 'map.classify';
