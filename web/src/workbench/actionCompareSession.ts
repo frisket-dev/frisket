@@ -135,6 +135,42 @@ function resultFromBaseline(
     : null;
 }
 
+function normalizePreviewResult(
+  context: ActionComparisonContext,
+  rows: ActionComparisonPreviewSnapshot['rows'],
+): ActionCompareVariantResult {
+  const logicalKeys = new Set<string>();
+  const logicalKeyByCurrentName = new Map<string, string>();
+  for (const output of context.output_columns) {
+    if (logicalKeys.has(output.logical_key)) {
+      throw new Error(`Comparison context repeats logical output ${JSON.stringify(output.logical_key)}.`);
+    }
+    logicalKeys.add(output.logical_key);
+    const existing = logicalKeyByCurrentName.get(output.current_name);
+    if (existing !== undefined && existing !== output.logical_key) {
+      throw new Error(`Comparison context maps ${JSON.stringify(output.current_name)} to multiple outputs.`);
+    }
+    logicalKeyByCurrentName.set(output.current_name, output.logical_key);
+  }
+
+  return {
+    rows: Object.fromEntries(Object.entries(rows).map(([rowId, cells]) => {
+      const normalized: Record<string, ActionCompareResultCell> = {};
+      for (const [currentName, cell] of Object.entries(cells)) {
+        const logicalKey = logicalKeyByCurrentName.get(currentName);
+        if (logicalKey === undefined) {
+          throw new Error(`Comparison preview returned unexpected output ${JSON.stringify(currentName)}.`);
+        }
+        if (Object.prototype.hasOwnProperty.call(normalized, logicalKey)) {
+          throw new Error(`Comparison preview returned output ${JSON.stringify(logicalKey)} more than once.`);
+        }
+        normalized[logicalKey] = cloneJson(cell) as ActionCompareResultCell;
+      }
+      return [rowId, normalized];
+    })),
+  };
+}
+
 function firstVariant(
   context: ActionComparisonContext,
   id: string,
@@ -597,6 +633,16 @@ export function createActionCompareRunner(
     if (preview.status !== 'done') {
       return { status: 'failed', previewId: started.preview_id, error: 'The comparison preview did not finish.' };
     }
+    let result: ActionCompareVariantResult;
+    try {
+      result = normalizePreviewResult(context, preview.rows);
+    } catch (error) {
+      return {
+        status: 'failed',
+        previewId: started.preview_id,
+        error: error instanceof Error ? error.message : 'The comparison preview outputs did not match its context.',
+      };
+    }
     let stale = false;
     try {
       const refreshed = await api.getContext({
@@ -611,7 +657,7 @@ export function createActionCompareRunner(
     return {
       status: 'ready',
       previewId: started.preview_id,
-      result: { rows: cloneJson(preview.rows) as ActionCompareVariantResult['rows'] },
+      result,
       stale,
     };
   };

@@ -338,6 +338,89 @@ describe('createActionCompareRunner', () => {
     }, expect.anything());
   });
 
+  it('normalizes renamed physical preview columns to logical output keys', async () => {
+    const renamed = context('preview');
+    renamed.draft.output_names = { answer: 'renamed answer' };
+    renamed.comparison_basis = { kind: 'draft', draft: renamed.draft };
+    renamed.output_columns[0].current_name = 'renamed answer';
+    const api = {
+      getContext: vi.fn().mockResolvedValue(renamed),
+      startPreview: vi.fn().mockResolvedValue({
+        schema_version: 'frisket.action_preview.v1', preview_id: 'renamed-preview', total: 2,
+      }),
+      getPreview: vi.fn().mockResolvedValue({
+        previewId: 'renamed-preview', status: 'done',
+        progress: { done: 2, total: 2, preparation: null },
+        rows: {
+          101: { 'renamed answer': { state: 'value', value: 'Alpha' } },
+          102: { 'renamed answer': { state: 'null' } },
+        },
+        rowIds: [101, 102], sampled: 2, total: 2, error: null, accounting: null,
+      }),
+      cancelPreview: vi.fn(),
+    } as unknown as ActionComparisonApi;
+    const variant = createActionCompareSession({ context: renamed }, { runVariant: vi.fn() })
+      .getSnapshot().variants[0];
+
+    const outcome = await createActionCompareRunner(api, vi.fn())({
+      context: renamed, variant, signal: new AbortController().signal, onStarted: vi.fn(),
+    });
+
+    expect(outcome).toMatchObject({
+      status: 'ready',
+      result: {
+        rows: {
+          101: { answer: { state: 'value', value: 'Alpha' } },
+          102: { answer: { state: 'null' } },
+        },
+      },
+    });
+  });
+
+  it('refuses preview output names that are unknown or ambiguous in context', async () => {
+    const base = context('preview');
+    const api = {
+      getContext: vi.fn(),
+      startPreview: vi.fn().mockResolvedValue({
+        schema_version: 'frisket.action_preview.v1', preview_id: 'bad-preview', total: 1,
+      }),
+      getPreview: vi.fn().mockResolvedValue({
+        previewId: 'bad-preview', status: 'done',
+        progress: { done: 1, total: 1, preparation: null },
+        rows: { 101: { stranger: { state: 'value', value: 'unexpected' } } },
+        rowIds: [101], sampled: 1, total: 1, error: null, accounting: null,
+      }),
+      cancelPreview: vi.fn(),
+    } as unknown as ActionComparisonApi;
+    const variant = createActionCompareSession({ context: base }, { runVariant: vi.fn() })
+      .getSnapshot().variants[0];
+
+    const unknown = await createActionCompareRunner(api, vi.fn())({
+      context: base, variant, signal: new AbortController().signal, onStarted: vi.fn(),
+    });
+    expect(unknown).toEqual({
+      status: 'failed', previewId: 'bad-preview',
+      error: 'Comparison preview returned unexpected output "stranger".',
+    });
+    expect(api.getContext).not.toHaveBeenCalled();
+
+    const ambiguous = context('preview');
+    ambiguous.output_columns.push({
+      ...ambiguous.output_columns[0], logical_key: 'reason', current_name: 'answer',
+    });
+    const ambiguousVariant = createActionCompareSession(
+      { context: ambiguous }, { runVariant: vi.fn() },
+    ).getSnapshot().variants[0];
+    const collision = await createActionCompareRunner(api, vi.fn())({
+      context: ambiguous, variant: ambiguousVariant,
+      signal: new AbortController().signal, onStarted: vi.fn(),
+    });
+    expect(collision).toEqual({
+      status: 'failed', previewId: 'bad-preview',
+      error: 'Comparison context maps "answer" to multiple outputs.',
+    });
+  });
+
   it('retries only the gated variant with the exact 402 hash and stops when confirmation is declined', async () => {
     const estimate = { cost: 0.12, rows: 2, promise_set_hash: 'exact-hash' };
     const api = {
