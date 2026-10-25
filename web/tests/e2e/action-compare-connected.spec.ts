@@ -331,7 +331,6 @@ test.describe('connected action comparison', () => {
     await page.getByTestId('action-compare-maintab-close').click();
     await expect(page.getByTestId('action-compare-toolbar')).toHaveCount(0);
 
-    await selectEveryRow(page);
     await expect.poll(async () => page.evaluate(() => (
       window as typeof window & { __frisketGridSelection?: { rows: number[] } }
     ).__frisketGridSelection?.rows.length ?? 0)).toBe(0);
