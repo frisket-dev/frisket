@@ -269,8 +269,7 @@ test.describe('connected action comparison', () => {
     await expect(history).toHaveCount(0);
     await expect(replacementForm.getByTestId('field-context')).toHaveValue(PROMPT_A);
     expect(await topicValues(page, pid, sheetId, topic!.id, 3)).toEqual(baseline);
-    await replacementForm.getByRole('button', { name: 'Choose run scope' }).click();
-    await page.getByRole('menuitem', { name: 'Return to Compare' }).click();
+    await page.getByTestId('action-drawer-close').click();
     await expect(replacementForm).toHaveCount(0);
     await page.getByRole('button', { name: 'Use settings from variant B' }).click();
     await expect(replacementForm.getByTestId('field-context')).toHaveValue(PROMPT_B);
