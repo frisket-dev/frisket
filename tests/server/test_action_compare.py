@@ -16,7 +16,14 @@ from frisket.server.app import create_app
 from frisket.server.services.action_compare import ActionCompareService
 from frisket.server.services.action_preview_runs import ActionPreviewRunService
 from frisket.server.workspace import Workspace
-from http_test_helpers import drain_queue, post_v1_action_with_exact_confirmation
+from http_test_helpers import (
+    drain_queue,
+    post_cell_edit_as_v1_action,
+    post_column_add_as_v1_action,
+    post_operation_undo_as_v1_action,
+    post_review_decision_as_v1_action,
+    post_v1_action_with_exact_confirmation,
+)
 
 
 class _ClassifyAdapter:
@@ -33,9 +40,27 @@ class _ClassifyAdapter:
         )
 
 
-def _router() -> ModelRouter:
+class _PartialClassifyAdapter:
+    async def complete(self, request: LLMRequest, client: Any) -> LLMResponse:
+        del client
+        data = (
+            {"beat": "civic"}
+            if "Transit opened." in str(request.messages)
+            else {"beat": "civic", "tone": "neutral"}
+        )
+        return LLMResponse(
+            content=json.dumps(data),
+            data=data,
+            tokens_in=5,
+            tokens_out=2,
+            cost=0.0,
+            model=request.model,
+        )
+
+
+def _router(adapter: Any | None = None) -> ModelRouter:
     router = ModelRouter(keys={"anthropic": "test"}, cache=None, cache_mode="off")
-    router._adapters["anthropic"] = _ClassifyAdapter()  # noqa: SLF001
+    router._adapters["anthropic"] = adapter or _ClassifyAdapter()  # noqa: SLF001
     return router
 
 
@@ -68,6 +93,47 @@ def _ask_draft(sheet_id: int, row_ids: list[int]) -> dict:
         },
         "output_names": {"answer": "subject"},
     }
+
+
+def _completed_classify_run(
+    client: TestClient,
+    project_id: str,
+    project: Any,
+    *,
+    fields: list[dict[str, Any]],
+    idempotency_key: str,
+) -> tuple[int, list[int], int, dict[str, int]]:
+    sheet_id = project.add_sheet("Stories")
+    source_id = project.add_column(sheet_id, "story", type="text")
+    row_ids = project.add_rows(
+        sheet_id,
+        [{"story": "City hall voted."}, {"story": "Transit opened."}],
+        {"story": source_id},
+    )
+    started = post_v1_action_with_exact_confirmation(
+        client,
+        project_id,
+        {
+            "action_id": "map.classify",
+            "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
+            "params": {
+                "source": ["story"],
+                "engine": "llm",
+                "model": "anthropic/claude-haiku-4-5",
+                "fields": fields,
+            },
+            "idempotency_key": idempotency_key,
+        },
+    )
+    assert started.status_code == 200, started.text
+    run_id = int(started.json()["run_id"])
+    drain_queue(client)
+    output_ids = {
+        str(column["name"]): int(column["id"])
+        for column in project.columns(sheet_id)
+        if column["name"] != "story"
+    }
+    return sheet_id, row_ids, run_id, output_ids
 
 
 def test_catalog_has_one_typed_row_overlay_opt_in_for_initial_actions() -> None:
@@ -401,6 +467,188 @@ def test_run_context_accepts_a_real_backfill_successor_receipt(tmp_path: Path) -
 
         assert context_response.status_code == 200, context_response.text
         assert context_response.json()["draft"]["action_id"] == "map.classify"
+
+
+def test_run_context_reports_real_overlays_and_complete_partial_output_family(
+    tmp_path: Path,
+) -> None:
+    app = create_app(
+        tmp_path / "partial-family-workspace",
+        router=_router(_PartialClassifyAdapter()),
+        serve_spa=False,
+        enable_provider_config=False,
+    )
+    with TestClient(app) as client:
+        pid = client.post("/api/projects", json={"name": "Compare family"}).json()["id"]
+        project = app.state.workspace.get(pid)
+        _sheet_id, row_ids, run_id, output_ids = _completed_classify_run(
+            client,
+            pid,
+            project,
+            fields=[
+                {
+                    "name": "beat",
+                    "type": "category",
+                    "labels": ["civic", "private"],
+                },
+                {
+                    "name": "tone",
+                    "type": "category",
+                    "labels": ["neutral", "urgent"],
+                },
+            ],
+            idempotency_key="action-compare-family@run",
+        )
+        edited = post_cell_edit_as_v1_action(
+            client,
+            pid,
+            [
+                {
+                    "row_id": row_ids[0],
+                    "column_id": output_ids["tone"],
+                    "value": "urgent",
+                }
+            ],
+            idempotency_key="action-compare-family@edit",
+        )
+        assert edited.status_code == 200, edited.text
+        rejected = post_review_decision_as_v1_action(
+            client,
+            pid,
+            run_id=run_id,
+            row_id=row_ids[0],
+            column_id=output_ids["beat"],
+            decision="reject_clear",
+            idempotency_key="action-compare-family@reject-clear",
+        )
+        assert rejected.status_code == 200, rejected.text
+
+        response = client.post(
+            f"/api/projects/{pid}/actions/v1/compare-context",
+            json={
+                "source": {
+                    "kind": "run",
+                    "run_id": run_id,
+                    "column_id": output_ids["beat"],
+                },
+                "sample_row_ids": row_ids,
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert payload["origin_summary"] == {
+            "mixed_runs": False,
+            "includes_manual_edits": True,
+            "includes_reject_clear": True,
+        }
+        assert [column["logical_key"] for column in payload["output_columns"]] == [
+            "beat",
+            "tone",
+        ]
+        assert {
+            target["logical_key"]: target["column_id"]
+            for target in payload["replacement_targets"]
+        } == {
+            "beat": output_ids["beat"],
+            "tone": output_ids["tone"],
+        }
+        first = payload["baseline_rows"][str(row_ids[0])]
+        second = payload["baseline_rows"][str(row_ids[1])]
+        assert first["tone"] == {
+            "state": "value",
+            "value": "urgent",
+            "origin": {
+                "kind": "manual_edit",
+                "run_id": None,
+                "op_id": edited.json()["op_ids"][0],
+                "review_decision": "edit",
+            },
+        }
+        assert first["beat"] == {
+            "state": "null",
+            "value": None,
+            "origin": {
+                "kind": "manual_edit",
+                "run_id": None,
+                "op_id": rejected.json()["op_ids"][0],
+                "review_decision": "reject_clear",
+            },
+        }
+        assert second["beat"]["state"] == "error"
+        assert second["tone"]["state"] == "error"
+
+
+def test_compare_preview_refuses_a_source_retired_after_context_capture(
+    tmp_path: Path,
+) -> None:
+    app = create_app(
+        tmp_path / "retired-source-workspace",
+        serve_spa=False,
+        enable_provider_config=False,
+    )
+    with TestClient(app) as client:
+        pid = client.post("/api/projects", json={"name": "Retired source"}).json()["id"]
+        project = app.state.workspace.get(pid)
+        sheet_id = project.add_sheet("Stories")
+        base_id = project.add_column(sheet_id, "base")
+        row_ids = project.add_rows(
+            sheet_id,
+            [{"base": "Alpha"}, {"base": "Beta"}],
+            {"base": base_id},
+        )
+        added = post_column_add_as_v1_action(
+            client,
+            pid,
+            sheet_id,
+            "text",
+            idempotency_key="action-compare-source@add",
+        )
+        assert added.status_code == 200, added.text
+        context_response = client.post(
+            f"/api/projects/{pid}/actions/v1/compare-context",
+            json={
+                "source": {
+                    "kind": "draft",
+                    "draft": _ask_draft(sheet_id, row_ids),
+                },
+                "sample_row_ids": row_ids,
+            },
+        )
+        assert context_response.status_code == 200, context_response.text
+        context = context_response.json()
+
+        retired = post_operation_undo_as_v1_action(
+            client,
+            pid,
+            expected_op_id=added.json()["op_ids"][0],
+            idempotency_key="action-compare-source@retire",
+        )
+        assert retired.status_code == 200, retired.text
+        assert [column["name"] for column in project.columns(sheet_id)] == ["base"]
+        receipt_count = project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[
+            0
+        ]
+
+        preview = client.post(
+            f"/api/projects/{pid}/actions/v1/compare-preview",
+            json={
+                "action": {
+                    **context["draft"],
+                    "idempotency_key": "action-compare-source@preview",
+                },
+                "comparison": {
+                    "basis": context["comparison_basis"],
+                    "expected_output_signature": context["expected_output_signature"],
+                    "expected_sample_fingerprint": context["sample_fingerprint"],
+                },
+            },
+        )
+
+        assert 400 <= preview.status_code < 500, preview.text
+        assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == (
+            receipt_count
+        )
 
 
 def test_output_signature_preserves_description_property_and_semantic_type(
