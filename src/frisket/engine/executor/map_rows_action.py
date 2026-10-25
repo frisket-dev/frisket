@@ -6,6 +6,7 @@ import hashlib
 import inspect
 import json
 import copy
+from collections.abc import Collection
 from contextlib import AsyncExitStack, asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
@@ -286,10 +287,14 @@ class _TypedMapRowsProgram(Recipe):
         output_fields: tuple[dict[str, Any], ...],
         evaluation_context: ModelRowsEvaluationContext | None = None,
         runtime_binding: Any | None = None,
+        preserve_invalid_source_columns: Collection[str] = (),
     ) -> None:
         self.name = action.action_id
         self.description = action.definition.description
         self._terminal = action.definition.run
+        self.preserve_invalid_source_columns = frozenset(
+            preserve_invalid_source_columns
+        )
         # Installed native handlers retain per-row durability even when they
         # declare no injected capabilities.
         self.batch_local_results = (
@@ -1517,6 +1522,7 @@ class _TypedModelRowsProgram(_TypedMapRowsProgram):
         output_fields: tuple[dict[str, Any], ...],
         evaluation_context: ModelRowsEvaluationContext | None = None,
         runtime_binding: Any | None = None,
+        preserve_invalid_source_columns: Collection[str] = (),
     ) -> None:
         super().__init__(
             action,
@@ -1526,6 +1532,7 @@ class _TypedModelRowsProgram(_TypedMapRowsProgram):
             output_fields,
             evaluation_context,
             runtime_binding,
+            preserve_invalid_source_columns,
         )
         self._response_model = self._terminal.response_model
         self._response_schema = compile_output_schema(
@@ -2406,8 +2413,12 @@ def _typed_map_rows_plan(
     terminal_policy = _MapTerminalPolicy.for_terminal(action.definition.run)
     params, output_fields = bound.params, bound.output_fields
     request_identity = normalized_typed_request_identity(bound)
-    source_columns = tuple(
-        reference.column for reference in discover_references(params)
+    declared_references = discover_references(params)
+    source_columns = tuple(reference.column for reference in declared_references)
+    preserve_invalid_source_columns = frozenset(
+        reference.column
+        for reference in declared_references
+        if reference.preserve_invalid
     )
     final_names = dict(
         output_names
@@ -2508,6 +2519,7 @@ def _typed_map_rows_plan(
         fields,
         evaluation_context,
         bound.runtime_binding,
+        preserve_invalid_source_columns,
     )
     return TypedMapRowsPlan(
         action=action,

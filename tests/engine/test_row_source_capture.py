@@ -165,3 +165,45 @@ def test_local_page_mutable_inputs_do_not_mutate_capture_or_other_rows(tmp_path)
         assert page.cell(sheet, column, rows[0])[0] == {"items": [1]}
     finally:
         project.close()
+
+
+@pytest.mark.parametrize("paged", [False, True])
+def test_invalid_source_values_require_an_explicit_repair_policy(tmp_path, paged):
+    project = Project.create(tmp_path / f"invalid-source-{paged}.frisket")
+    try:
+        sheet = project.add_sheet("Source")
+        column = project.add_column(sheet, "date", type="date")
+        [row_id] = project.add_rows(sheet, [{"date": "12/31/24"}], {"date": column})
+        ordinary = SimpleNamespace(source_columns=lambda spec: ["date"])
+        repair = SimpleNamespace(
+            source_columns=lambda spec: ["date"],
+            preserve_invalid_source_columns=frozenset({"date"}),
+        )
+
+        def read(recipe, *, preserve_invalid=False):
+            page = (
+                read_source_page(
+                    project,
+                    sheet,
+                    [column],
+                    [row_id],
+                    preserve_invalid_column_ids=({column} if preserve_invalid else ()),
+                )
+                if paged
+                else None
+            )
+            return row_values(
+                project,
+                recipe,
+                {"sheet_id": sheet},
+                {"date": column},
+                row_id,
+                for_model=False,
+                column_types={"date": "date"},
+                source_page=page,
+            )
+
+        assert read(ordinary)["date"] is None
+        assert read(repair, preserve_invalid=True)["date"] == "12/31/24"
+    finally:
+        project.close()

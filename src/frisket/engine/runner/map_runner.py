@@ -840,6 +840,13 @@ class MapRunner:
             for name in map(str, recipe.source_columns(spec))
             if name in col_map
         ]
+        # Repair actions may deliberately consume a projection-invalid payload;
+        # every other source keeps the ordinary typed-reader mask.
+        preserve_invalid_column_ids = frozenset(
+            col_map[name]
+            for name in getattr(recipe, "preserve_invalid_source_columns", ())
+            if name in col_map
+        )
 
         def persist_result_batch(
             batch: list[dict[str, Any]],
@@ -2001,6 +2008,7 @@ class MapRunner:
                         prepared.sheet_id,
                         source_column_ids,
                         page,
+                        preserve_invalid_column_ids=preserve_invalid_column_ids,
                     )
                     if batch_local_results
                     else None
