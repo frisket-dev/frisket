@@ -104,7 +104,7 @@ describe('ActionCompareHistoryMenu', () => {
     fireEvent.click(screen.getByTestId('action-compare-history-choose-run-42'));
     expect(choose).toHaveBeenCalledWith(anchor);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Older' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Older' }));
     await waitFor(() => expect(getColumnRuns).toHaveBeenCalledWith('column-7', 20, 20));
     expect(await screen.findByText('Claude Sonnet', { exact: false })).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('action-compare-history-choose-run-older'));
@@ -122,7 +122,7 @@ describe('ActionCompareHistoryMenu', () => {
       onChoose={vi.fn()} onClose={vi.fn()} />);
 
     expect(await screen.findByText('History is temporarily unavailable')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Try again' }));
     expect(await screen.findByText('No stored runs.')).toBeInTheDocument();
     expect(getColumnRuns).toHaveBeenCalledTimes(2);
   });

@@ -74,12 +74,6 @@
   font-size: 12px;
 }
 .action-run-entry-primary { margin-right: auto; }
-.action-run-entry-secondary {
-  color: var(--text-mid);
-  background: transparent;
-}
-.action-run-entry-secondary:hover { background: var(--bg-hover); color: var(--text); }
-
 .action-run-entry-layout {
   padding: 6px 10px 8px;
   border-top: 1px solid var(--border);

@@ -45,7 +45,7 @@ function ActionRunHistoryItem({
   onChoose(anchor: ActionRunAnchor): void;
 }) {
   return (
-    <li>
+    <li role="none">
       <button
         type="button"
         role="menuitem"
@@ -146,7 +146,7 @@ export function ActionCompareHistoryMenu({
       {visibleState.status === 'error' && (
         <>
           <div className="menu-error" role="alert">{visibleState.error}</div>
-          <button type="button" className="menu-item" onClick={() => loadPage(visibleState.offset)}>
+          <button type="button" role="menuitem" className="menu-item" onClick={() => loadPage(visibleState.offset)}>
             Try again
           </button>
         </>
@@ -158,7 +158,7 @@ export function ActionCompareHistoryMenu({
               No stored runs.
             </div>
           ) : (
-            <ul className="action-compare-history-list">
+            <ul className="action-compare-history-list" role="none">
               {info.runs.map((run) => (
                 <ActionRunHistoryItem
                   key={run.runId}
@@ -176,11 +176,11 @@ export function ActionCompareHistoryMenu({
               {' '}of {info.totalRuns.toLocaleString()}
             </span>
             <div>
-              <button type="button" className="menu-item" disabled={newerOffset == null}
+              <button type="button" role="menuitem" className="menu-item" disabled={newerOffset == null}
                 onClick={() => newerOffset != null && loadPage(newerOffset)}>
                 <ChevronLeft size={14} aria-hidden /> Newer
               </button>
-              <button type="button" className="menu-item" disabled={olderOffset == null}
+              <button type="button" role="menuitem" className="menu-item" disabled={olderOffset == null}
                 onClick={() => olderOffset != null && loadPage(olderOffset)}>
                 Older <ChevronRight size={14} aria-hidden />
               </button>

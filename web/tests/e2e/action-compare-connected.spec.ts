@@ -264,6 +264,16 @@ test.describe('connected action comparison', () => {
     await shoot(page, '02-earlier-runs.png');
     await page.keyboard.press('Escape');
     await expect(history).toHaveCount(0);
+    await page.getByTestId('action-history-button').click();
+    await page.getByTestId(`action-compare-history-choose-${baselineRunId}`).click();
+    await expect(history).toHaveCount(0);
+    await expect(replacementForm.getByTestId('field-context')).toHaveValue(PROMPT_A);
+    expect(await topicValues(page, pid, sheetId, topic!.id, 3)).toEqual(baseline);
+    await replacementForm.getByRole('button', { name: 'Choose run scope' }).click();
+    await page.getByRole('menuitem', { name: 'Return to Compare' }).click();
+    await expect(replacementForm).toHaveCount(0);
+    await page.getByRole('button', { name: 'Use settings from variant B' }).click();
+    await expect(replacementForm.getByTestId('field-context')).toHaveValue(PROMPT_B);
     await expect(replacementForm.getByRole('button', { name: 'Replace columns', exact: true })).toBeEnabled();
     await shoot(page, '06-replace-settings.png');
 
