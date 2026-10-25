@@ -12,16 +12,14 @@ import {
   openAction,
   openProject,
   runAndWait,
-  selectActionInputColumns,
   sheetColumns,
   uniqueName,
 } from './helpers';
-import { prepareOwnModelReplay, REPLAY_MODEL as MODEL } from './replayModelScenario';
 import {
-  actionSelectorResponse,
-  stubActionSelectorChoices,
-  type SelectorGroupFixture,
-} from './selectorChoicesFixture';
+  exposeReplayModel,
+  prepareOwnModelReplay,
+  REPLAY_MODEL as MODEL,
+} from './replayModelScenario';
 
 const REPO_ROOT = path.basename(process.cwd()) === 'web'
   ? path.resolve(process.cwd(), '..')
@@ -150,34 +148,6 @@ finally:
   });
 }
 
-async function exposeReplayModel(page: Page, projectId: string): Promise<void> {
-  const engineGroups: SelectorGroupFixture[] = [{
-    id: 'gemini', label: 'Gemini', choices: [{
-      choiceId: 'replay-engine-model', label: 'Gemini 3.5 Flash-Lite',
-      summary: 'Replay-backed hosted model',
-      authoredSelection: { kind: 'engine_model', engine: 'llm', model: MODEL },
-    }],
-  }];
-  const modelGroups: SelectorGroupFixture[] = [{
-    id: 'gemini', label: 'Gemini', choices: [{
-      choiceId: 'replay-model', label: 'Gemini 3.5 Flash-Lite',
-      summary: 'Replay-backed hosted model',
-      authoredSelection: { kind: 'model', model: MODEL },
-    }],
-  }];
-  await stubActionSelectorChoices(page, projectId, ({ actionId, field, params }) => {
-    const engineField = field === 'engine';
-    const groups = engineField ? engineGroups : modelGroups;
-    const selected = engineField
-      ? params.engine === 'llm' && params.model === MODEL
-      : params.model === MODEL;
-    return actionSelectorResponse({
-      projectId, actionId, field, groups,
-      currentChoiceId: selected ? groups[0].choices[0].choiceId : null,
-    });
-  });
-}
-
 async function shoot(page: Page, name: string): Promise<void> {
   mkdirSync(ARTIFACT_DIR, { recursive: true });
   await page.screenshot({ path: path.join(ARTIFACT_DIR, name), animations: 'disabled', fullPage: true });
@@ -281,8 +251,9 @@ test('fresh Ask can enter Compare before any action executes', async ({ page }) 
 
   await openProject(page, pid, sheetId);
   await openAction(page, 'map.ask');
-  await selectActionInputColumns(page, 'case_text');
   const form = page.getByTestId('generated-action-form');
+  await expect(form.getByTestId('text-source-columns')
+    .getByRole('button', { name: 'Remove case_text' })).toBeVisible();
   await form.getByLabel('Question', { exact: true }).fill('What is the current scheduled hearing date?');
   await form.getByTestId('field-output-answer').fill('current_hearing');
   const trigger = form.getByTestId('engine-selector').locator('.engine-selector__trigger');

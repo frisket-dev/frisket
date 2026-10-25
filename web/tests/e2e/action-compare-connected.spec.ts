@@ -17,7 +17,11 @@ import {
   uniqueName,
   type WireColumn,
 } from './helpers';
-import { prepareOwnModelReplay, REPLAY_MODEL as MODEL } from './replayModelScenario';
+import {
+  exposeReplayModel,
+  prepareOwnModelReplay,
+  REPLAY_MODEL as MODEL,
+} from './replayModelScenario';
 
 const ARTIFACT_DIR = process.env.FRISKET_COMPARE_SCREENSHOTS
   ?? path.resolve('screenshots/action-compare-connected');
@@ -191,6 +195,7 @@ test.describe('connected action comparison', () => {
     test.setTimeout(120_000);
     const pid = await createProject(page.request, uniqueName('e2e-action-compare-connected'));
     await prepareOwnModelReplay(page.request, pid);
+    await exposeReplayModel(page, pid);
     const sheetId = await importCsv(page.request, pid, 'local-news.csv', CSV);
     const baseline = ['transit', 'money', 'other'];
     const challenger = ['other', 'other', 'other'];
