@@ -131,7 +131,7 @@ describe('action comparison presentation', () => {
 
     const changes = presentation.describeVariantChanges(before, after);
     expect(changes).toHaveLength(2);
-    expect(changes[0]?.label).toBe('Defendant · Description');
+    expect(changes[0]?.label).toBe('defendant');
     expect(changes[0]?.before).toBe('Named defendant.');
     expect(changes[0]?.after.endsWith('…')).toBe(true);
     expect(changes[0]?.after.length).toBeLessThanOrEqual(96);

@@ -127,7 +127,7 @@ fieldset.ocr-compare-chips-row {
   max-width: 230px;
 }
 .ocr-compare-variant-chip[data-pip='pending'] {
-  border-style: dashed;
+  border-style: solid;
   border-color: var(--amber);
 }
 .ocr-compare-variant-chip[data-pip='error'] {
@@ -775,7 +775,7 @@ fieldset.ocr-compare-chips-row {
   font-weight: 650;
 }
 .engine-tier-chip.locked {
-  border-style: dashed;
+  border-style: solid;
   border-color: var(--border);
   background: var(--bg-panel);
   color: var(--text-light);

@@ -1,11 +1,11 @@
 .action-compare { position: relative; display: flex; flex: 1 1 auto; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; color: var(--text); background: var(--bg); }
 .action-compare-toolbar-shell { position: relative; z-index: 6; flex: 0 0 auto; }
-.action-compare-variant { position: relative; display: flex; flex: 0 0 auto; min-width: max-content; min-height: 34px; align-items: center; border: 1px dashed var(--amber); border-radius: var(--radius-7); background: var(--bg); }
-.action-compare-variant[data-active='true'] { border-style: solid; border-color: #c98a2e; }
+.action-compare-variant { position: relative; display: flex; flex: 0 0 auto; min-width: max-content; min-height: 34px; align-items: center; border: 1px solid var(--border-strong); border-radius: var(--radius-7); background: var(--bg); }
+.action-compare-variant[data-active='true'] { border-color: var(--accent); }
 .action-compare-variant[data-status='running'] { border-style: solid; border-color: var(--accent); }
 .action-compare-variant[data-status='failed'], .action-compare-variant[data-status='expired'] { border-color: var(--red); }
 .action-compare-variant-body { display: inline-flex; min-height: 32px; align-items: center; gap: var(--space-6); padding: 0 var(--space-6) 0 var(--space-10); border: 0; color: inherit; background: transparent; font: inherit; white-space: nowrap; }
-.action-compare-variant-pip { width: 7px; height: 7px; flex: 0 0 auto; border: 1px solid var(--amber); border-radius: 50%; }
+.action-compare-variant-key { display: inline-flex; width: 20px; height: 20px; flex: 0 0 auto; align-items: center; justify-content: center; border: 1px solid var(--border-strong); border-radius: var(--radius-4); background: var(--bg-hover); color: var(--text); font-size: var(--font-size-small); line-height: 1; vertical-align: middle; }
 button.action-compare-variant-body { cursor: pointer; }
 button.action-compare-variant-body:hover { background: var(--bg-hover); }
 button.action-compare-variant-body:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }

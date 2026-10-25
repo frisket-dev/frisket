@@ -463,7 +463,7 @@ describe('GeneratedActionParamsEditor', () => {
       'This run will use current data',
     );
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
-    expect(screen.getByTestId('generated-action-run')).toHaveTextContent('Replace all rows');
+    expect(screen.getByTestId('generated-action-run')).toHaveTextContent('Replace columns');
     fireEvent.click(screen.getByTestId('generated-action-run'));
     expect(onExecute).toHaveBeenCalledWith(expect.objectContaining({
       scope: { kind: 'sheet_rows', sheet_id: 7 },
@@ -480,14 +480,14 @@ describe('GeneratedActionParamsEditor', () => {
     // A cost-gate cancellation leaves this form mounted. Its next action and
     // summary must describe the retained selected scope, and all rows must
     // remain reachable without reopening the comparison.
-    expect(screen.getByTestId('generated-action-run')).toHaveTextContent('Replace selected rows');
+    expect(screen.getByTestId('generated-action-run')).toHaveTextContent('Replace columns');
     expect(screen.getByText('3 selected rows')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('generated-action-run-scope-menu-button'));
     fireEvent.click(screen.getByTestId('generated-action-row-scope-all'));
     expect(onExecute.mock.lastCall?.[0]).toMatchObject({
       scope: { kind: 'sheet_rows', sheet_id: 7 },
     });
-    expect(screen.getByTestId('generated-action-run')).toHaveTextContent('Replace all rows');
+    expect(screen.getByTestId('generated-action-run')).toHaveTextContent('Replace columns');
     expect(screen.getByText('All 240 rows')).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('generated-action-run-scope-menu-button'));

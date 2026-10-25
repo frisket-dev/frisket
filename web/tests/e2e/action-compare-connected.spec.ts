@@ -252,7 +252,7 @@ test.describe('connected action comparison', () => {
     await page.getByRole('button', { name: 'Use settings from variant B' }).click();
     const replacementForm = page.getByTestId('generated-action-form');
     await expect(replacementForm).toBeVisible();
-    await expect(replacementForm.getByRole('button', { name: 'Replace all rows', exact: true })).toBeVisible();
+    await expect(replacementForm.getByRole('button', { name: 'Replace columns', exact: true })).toBeVisible();
     await expect(replacementForm.getByTestId('field-context')).toHaveValue(PROMPT_B);
     const historyButton = await page.getByTestId('action-history-button').boundingBox();
     const closeButton = await page.getByTestId('action-drawer-close').boundingBox();
@@ -264,7 +264,7 @@ test.describe('connected action comparison', () => {
     await shoot(page, '02-earlier-runs.png');
     await page.keyboard.press('Escape');
     await expect(history).toHaveCount(0);
-    await expect(replacementForm.getByRole('button', { name: 'Replace all rows', exact: true })).toBeEnabled();
+    await expect(replacementForm.getByRole('button', { name: 'Replace columns', exact: true })).toBeEnabled();
     await shoot(page, '06-replace-settings.png');
 
     await clickRunButton(page);

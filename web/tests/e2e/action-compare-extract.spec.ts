@@ -236,18 +236,18 @@ test('Extract compares two typed fields across A/B/C and opens Use settings', as
   await expectComparisonCell(page, 2, 0, 'CV 24-CV-0187');
   await shoot(page, '05-extract-abc-results.png');
   await page.getByTestId('action-compare-variant-C').hover();
-  await expect(page.getByRole('tooltip')).toContainText('Description');
+  await expect(page.getByRole('tooltip')).toContainText('case_number');
   await shoot(page, '05b-setting-changes.png');
 
   await page.getByRole('button', { name: 'Use settings from variant C' }).click();
   const useForm = page.getByTestId('generated-action-form');
   await expect(useForm).toBeVisible();
-  await expect(useForm.getByRole('button', { name: 'Replace all rows', exact: true })).toBeVisible();
+  await expect(useForm.getByRole('button', { name: 'Replace columns', exact: true })).toBeVisible();
   await useForm.locator('details.action-advanced > summary').click();
   await expect(useForm.getByTestId('field-context')).toHaveValue(C.context);
   await expect(useForm.getByTestId('output-field-description').first())
     .toHaveValue(C.fields[0].description);
-  await expect(useForm.getByRole('button', { name: 'Replace all rows', exact: true })).toBeEnabled();
+  await expect(useForm.getByRole('button', { name: 'Replace columns', exact: true })).toBeEnabled();
   await shoot(page, '06-extract-use-settings.png');
   await useForm.getByRole('button', { name: 'Choose run scope' }).click();
   await page.getByRole('menuitem', { name: 'Return to Compare' }).click();

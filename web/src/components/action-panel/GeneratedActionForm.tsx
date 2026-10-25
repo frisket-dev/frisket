@@ -1461,7 +1461,7 @@ function GeneratedActionFormContents({
         primaryLabel={editComparePrimary
           ? 'Compare…'
           : replacementLaunch
-            ? effectiveRunScope === 'selected' ? 'Replace selected rows' : 'Replace all rows'
+            ? 'Replace columns'
             : customization?.primaryLabel ?? 'Run'} rowCount={sheet?.rowCount ?? 0}
         selectedCount={scopeSelectedRowIds.length} canRun={canRun}
         scopeSummary={launchMode

@@ -139,7 +139,7 @@ function descriptionChanges(
     if (typeof left.description === 'string' && typeof right.description === 'string'
       && left.description !== right.description) {
       changes.push({
-        label: `${titleize(left.name)} · Description`,
+        label: left.name,
         before: bounded(left.description),
         after: bounded(right.description),
       });

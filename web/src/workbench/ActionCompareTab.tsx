@@ -131,11 +131,11 @@ export function ActionCompareTab({ session, onUseSettings, renderVariantEditor,
             data-testid={`action-compare-variant-${variant.displayKey}`}
             onMouseEnter={() => setHoveredId(variant.id)} onMouseLeave={() => setHoveredId(null)}>
             {variant.baseline ? <div className="action-compare-variant-body" aria-label={`Variant ${variant.displayKey}`}>
-              <i className="action-compare-variant-pip" aria-hidden /><strong>{variant.displayKey}</strong><span>{displayLabel}</span>
+              <strong className="action-compare-variant-key">{variant.displayKey}</strong><span>{displayLabel}</span>
               <StatusChip tone={statusTone(variant.status)} size="sm">{statusLabel(variant)}</StatusChip>
             </div> : <button type="button" className="action-compare-variant-body"
               aria-label={`Configure variant ${variant.displayKey}`} onClick={() => setEditingId(variant.id)}>
-              <i className="action-compare-variant-pip" aria-hidden /><strong>{variant.displayKey}</strong><span>{displayLabel}</span>
+              <strong className="action-compare-variant-key">{variant.displayKey}</strong><span>{displayLabel}</span>
               <StatusChip tone={statusTone(variant.status)} size="sm">{statusLabel(variant)}</StatusChip>
             </button>}
             {use && <IconButton icon={Check} size="inline" className="action-compare-use"
@@ -148,7 +148,7 @@ export function ActionCompareTab({ session, onUseSettings, renderVariantEditor,
             {['failed', 'cancelled', 'expired'].includes(variant.status) && <IconButton icon={RotateCcw} size="inline"
               label={`Retry variant ${variant.displayKey}`} onClick={() => session.retryVariant(variant.id)} />}
             {changes.length > 0 && <div className="action-compare-settings" role="tooltip">
-              <strong>{variant.displayKey} · {displayLabel}</strong>
+              <strong><span className="action-compare-variant-key">{variant.displayKey}</span> {displayLabel}</strong>
               {changes.map((change) => <div key={change.label}><span>{change.label}</span>
                 <span className="action-compare-setting-values"><del>{change.before}</del><ins>{change.after}</ins></span>
               </div>)}
@@ -162,7 +162,7 @@ export function ActionCompareTab({ session, onUseSettings, renderVariantEditor,
 
       {editing && renderVariantEditor && <aside className="action-compare-editor" style={editorMaxHeight === null
         ? undefined : { maxHeight: editorMaxHeight }} aria-label={`Configure variant ${editing.displayKey}`}>
-        <header><strong>{editing.displayKey} · {editingLabel}</strong>
+        <header><strong><span className="action-compare-variant-key">{editing.displayKey}</span> {editingLabel}</strong>
           <IconButton icon={X} size="inline" label="Close variant editor" onClick={() => setEditingId(null)} /></header>
         <div className="action-compare-editor-body">
           {renderVariantEditor({
