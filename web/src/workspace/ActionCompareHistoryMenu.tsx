@@ -2,6 +2,7 @@ import './ActionCompareHistoryMenu.css';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ColumnRun, ColumnRunsInfo } from '../api/types';
+import { MODEL_OPTIONS } from '../actions/model';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { AnchoredMenu } from '../components/MenuPop';
 import { countLabel } from '../format';
@@ -59,7 +60,7 @@ function ActionRunHistoryItem({
             <span className="action-compare-history-status">{runStatus(run)}</span>
           </span>
           <span className="menu-item-description">
-            {run.model?.trim() || 'No model'} · {countLabel(run.totalRows, 'row')} · {runTime(run)}
+            {MODEL_OPTIONS.find((model) => model.id === run.model)?.label || run.model?.trim() || 'No model'} · {countLabel(run.totalRows, 'row')} · {runTime(run)}
           </span>
         </span>
       </button>
@@ -139,7 +140,6 @@ export function ActionCompareHistoryMenu({
       data-testid="action-compare-history-menu"
       aria-label="Earlier runs"
     >
-      <div className="menu-section-label">Earlier runs</div>
       {visibleState.status === 'loading' && (
         <div className="menu-empty" role="status">Loading…</div>
       )}
@@ -153,9 +153,6 @@ export function ActionCompareHistoryMenu({
       )}
       {info && (
         <>
-          <div className="action-compare-history-summary">
-            {info.columnName} · {countLabel(info.totalRuns, 'run')}
-          </div>
           {info.runs.length === 0 ? (
             <div className="menu-empty" data-testid="action-compare-history-empty">
               No stored runs.
@@ -173,7 +170,7 @@ export function ActionCompareHistoryMenu({
               ))}
             </ul>
           )}
-          <footer className="action-compare-history-footer">
+          {(newerOffset !== null || olderOffset !== null) && <footer className="action-compare-history-footer">
             <span>
               {info.offset + (info.runs.length > 0 ? 1 : 0)}–{info.offset + info.runs.length}
               {' '}of {info.totalRuns.toLocaleString()}
@@ -188,7 +185,7 @@ export function ActionCompareHistoryMenu({
                 Older <ChevronRight size={14} aria-hidden />
               </button>
             </div>
-          </footer>
+          </footer>}
         </>
       )}
     </AnchoredMenu>
