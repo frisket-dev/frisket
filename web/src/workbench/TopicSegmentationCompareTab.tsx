@@ -249,8 +249,7 @@ export function TopicSegmentationCompareTab({
               : pendingPairs.length ? `${pendingPairs.length} pending` : undefined}
             statusDetail={!docs.length ? 'Drop a transcript sample first'
               : !runnableColumns.length ? 'Add an available topic-segmentation variant' : undefined}
-            onRun={() => pendingPairs.length ? runPending() : runAll()}
-            onCancel={session.cancelRuns} />
+            onRun={() => pendingPairs.length ? runPending() : runAll()} />
           <SegmentedToggle
             testId="topic-compare-mode-switch"
             className="ocr-compare-mode-switch"
