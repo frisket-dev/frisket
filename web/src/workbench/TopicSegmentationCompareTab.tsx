@@ -489,23 +489,19 @@ export function TopicSegmentationCompareTab({
                   <CompareResultState
                     run={run}
                     engineLabel={engineLabel(column.engineId)}
-                    pendingLabel="not run yet — press Run"
+                    pendingLabel="not run yet — select Run comparison"
                     runningLabel="finding topics…"
-                    pendingTestId="topic-compare-engine-pending"
-                    runningTestId="topic-compare-engine-running"
-                    errorTestId="topic-compare-engine-error"
-                    retryTestId="topic-compare-engine-retry"
+                    testIdPrefix="topic-compare-engine"
                     onRetry={activeDoc ? () => retryColumn(activeDoc, column) : undefined}
-                  >
-                    {run?.status === 'done' && activeParsed ? (
+                    renderResult={(completed) => activeParsed ? (
                       <TopicSectionsLane
-                        result={run.results.result}
-                        units={run.results.units}
+                        result={completed.results.result}
+                        units={completed.results.units}
                         diffKeys={effectiveMode === 'diff' ? diffKeys : []}
                         onNavigate={navigateToBoundary}
                       />
                     ) : null}
-                  </CompareResultState>
+                  />
                 </CompareResultColumn>
               );
             })}
@@ -528,7 +524,7 @@ export function TopicSegmentationCompareTab({
         fallback={docs.length === 0
           ? 'drop transcripts to compare'
           : pendingPairs.length > 0
-            ? `${pendingPairs.length} pending — press Run`
+            ? `${pendingPairs.length} pending — select Run comparison`
             : effectiveMode === 'diff'
               ? doneResults
                 ? 'no boundary differences'

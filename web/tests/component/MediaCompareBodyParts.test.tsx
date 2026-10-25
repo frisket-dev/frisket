@@ -47,7 +47,7 @@ describe('shared media comparison presentation', () => {
     />);
     expect(screen.queryByTestId('fixture-empty-variants')).not.toBeInTheDocument();
     expect(screen.getByTestId('fixture-run-hint')).toHaveTextContent(
-      'Ready to compare — press Run.',
+      'Ready to compare — select Run comparison.',
     );
   });
 
@@ -70,19 +70,22 @@ describe('shared media comparison presentation', () => {
 
   it('shares pending, running, failure with Retry, and completed content', async () => {
     const onRetry = vi.fn();
+    const renderResult = vi.fn(() => <p>completed domain content</p>);
     const props = {
       engineLabel: 'Fixture engine',
       pendingLabel: 'not run yet',
       runningLabel: 'working…',
-      retryTestId: 'fixture-retry',
+      testIdPrefix: 'fixture-engine',
       onRetry,
-      children: <p>completed domain content</p>,
+      renderResult,
     };
     const view = render(<CompareResultState run={undefined} {...props} />);
     expect(screen.getByText('not run yet')).toBeVisible();
+    expect(renderResult).not.toHaveBeenCalled();
 
     view.rerender(<CompareResultState run={{ status: 'running' }} {...props} />);
     expect(screen.getByText('working…')).toBeVisible();
+    expect(renderResult).not.toHaveBeenCalled();
 
     view.rerender(<CompareResultState
       run={{ status: 'error', message: 'fixture failed safely' }}
@@ -91,14 +94,15 @@ describe('shared media comparison presentation', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(
       'Fixture engine failedfixture failed safely',
     );
-    await userEvent.click(screen.getByTestId('fixture-retry'));
+    expect(renderResult).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByTestId('fixture-engine-retry'));
     expect(onRetry).toHaveBeenCalledOnce();
 
-    view.rerender(<CompareResultState
-      run={{ status: 'done', results: 'done', confidence: null }}
-      {...props}
-    />);
+    const completed = { status: 'done' as const, results: 'done', confidence: null };
+    view.rerender(<CompareResultState run={completed} {...props} />);
     expect(screen.getByText('completed domain content')).toBeVisible();
+    expect(renderResult).toHaveBeenCalledOnce();
+    expect(renderResult).toHaveBeenCalledWith(completed);
   });
 
   it('shares accessible footer navigation and fallback copy', async () => {

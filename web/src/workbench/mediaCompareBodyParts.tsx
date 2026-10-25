@@ -61,55 +61,61 @@ export function CompareVoteControl({
   );
 }
 
+type CompletedEngineRunState<R> = Extract<EngineRunState<R>, { status: 'done' }>;
+
 /** Pending/running/error presentation shared by media and topic result lanes.
- * Completed content stays domain-owned and is supplied as children. */
+ * Completed content stays domain-owned and is rendered lazily. */
 export function CompareResultState<R>({
   run,
   engineLabel,
   pendingLabel,
   runningLabel,
-  pendingTestId,
-  runningTestId,
-  errorTestId,
-  retryTestId,
+  testIdPrefix,
   onRetry,
-  children,
+  renderResult,
 }: {
   run: EngineRunState<R> | undefined;
   engineLabel: string;
   pendingLabel: ReactNode;
   runningLabel: ReactNode;
-  pendingTestId?: string;
-  runningTestId?: string;
-  errorTestId?: string;
-  retryTestId?: string;
+  testIdPrefix?: string;
   onRetry?(): void;
-  children: ReactNode;
+  renderResult(run: CompletedEngineRunState<R>): ReactNode;
 }) {
   if (!run) {
     return (
-      <div className="ocr-compare-engine-pending muted" data-testid={pendingTestId}>
+      <div
+        className="ocr-compare-engine-pending muted"
+        data-testid={testIdPrefix ? `${testIdPrefix}-pending` : undefined}
+      >
         {pendingLabel}
       </div>
     );
   }
   if (run.status === 'running') {
     return (
-      <div className="ocr-compare-engine-running muted" data-testid={runningTestId}>
+      <div
+        className="ocr-compare-engine-running muted"
+        data-testid={testIdPrefix ? `${testIdPrefix}-running` : undefined}
+      >
         <Loader2 size={13} className="ocr-compare-spin" aria-hidden /> {runningLabel}
       </div>
     );
   }
   if (run.status === 'error') {
     return (
-      <div className="ocr-compare-engine-error" data-testid={errorTestId} role="alert">
+      <div
+        className="ocr-compare-engine-error"
+        data-testid={testIdPrefix ? `${testIdPrefix}-error` : undefined}
+        role="alert"
+      >
         <strong>{engineLabel} failed</strong>
         <span>{run.message}</span>
         {onRetry ? (
           <Button
             type="button"
             className="ocr-compare-engine-retry"
-            data-testid={retryTestId}
+            data-testid={testIdPrefix ? `${testIdPrefix}-retry` : undefined}
             onClick={onRetry}
           >
             <RotateCw size={12} /> Retry
@@ -118,7 +124,7 @@ export function CompareResultState<R>({
       </div>
     );
   }
-  return <>{children}</>;
+  return <>{renderResult(run)}</>;
 }
 
 /** Exactly one pre-result prompt: no variants, configured but unavailable,
@@ -151,7 +157,7 @@ export function CompareColumnsState({
   if (!showReady) return null;
   return (
     <div className="ocr-compare-run-hint" data-testid={`${testIdPrefix}-run-hint`}>
-      Ready to compare — press <strong>Run</strong>.
+      Ready to compare — select <strong>Run comparison</strong>.
     </div>
   );
 }

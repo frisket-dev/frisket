@@ -308,7 +308,7 @@ export interface MediaCompareBodyProps<R> {
   columnSummary(column: CompareColumn): string;
   frontDoorTitle: string;
   frontDoorHint: string;
-  /** Pending-column empty label ("not run yet — press Run" for staged OCR). */
+  /** Pending-column empty label ("not run yet — select Run comparison" for staged OCR). */
   pendingLabel: string;
 }
 
@@ -495,13 +495,9 @@ export function MediaCompareBody<R>({
                       engineLabel={engineLabel(column.engineId)}
                       pendingLabel={pendingLabel}
                       runningLabel={<>running {engineLabel(column.engineId)}…</>}
-                      pendingTestId={t('engine-pending')}
-                      runningTestId={t('engine-running')}
-                      errorTestId={t('engine-error')}
-                      retryTestId={t('engine-retry')}
+                      testIdPrefix={t('engine')}
                       onRetry={() => retryColumn(activeDoc, column)}
-                    >
-                      {diff && diffArmed
+                      renderResult={() => diff && diffArmed
                         ? diff.units.map((unit, unitIndex) => {
                             const tokens = columnIndex === 0
                               ? diff.leftTokens[unitIndex]
@@ -546,7 +542,7 @@ export function MediaCompareBody<R>({
                               </p>
                             </div>
                           ))}
-                    </CompareResultState>
+                    />
                   )}
                 </CompareResultColumn>
               );
@@ -573,7 +569,7 @@ export function MediaCompareBody<R>({
         fallback={docs.length === 0
           ? 'drop media to compare'
           : pendingPairs.length > 0
-            ? `${pendingPairs.length} pending${config.autoRun ? '' : ' — press Run'}`
+            ? `${pendingPairs.length} pending${config.autoRun ? '' : ' — select Run comparison'}`
             : diffArmed
               ? effectiveMode === 'diff' && diff === null
                 ? noDiffReason ?? 'waiting for both'
