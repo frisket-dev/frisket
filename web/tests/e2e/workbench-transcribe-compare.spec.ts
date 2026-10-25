@@ -1,3 +1,4 @@
+import { actionSelectorResponse, stubActionSelectorChoices } from './selectorChoicesFixture';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -35,7 +36,29 @@ const VIDEO_FIXTURE = readFileSync(path.join(MEDIA_DIR, 'tiny-video.mp4'));
 // path,
 // plus a remote engine that exercises the cost gate ONLY (every scratch call is
 // intercepted, so nothing ever reaches a provider).
-async function patchTranscribeCatalog(page: Page) {
+async function patchTranscribeCatalog(page: Page, projectId: string) {
+  const engines = [
+    { id: 'faster_whisper', label: 'Whisper (local)', tier: 'local', available: true },
+    { id: 'parakeet-tdt', label: 'Parakeet (local)', tier: 'local', available: true },
+    { id: 'vosk', label: 'Vosk (local)', tier: 'local', available: true },
+    {
+      id: 'stubprovider/whisper-1',
+      label: 'Stub remote transcription',
+      tier: 'hosted',
+      billable: true,
+      available: true,
+    },
+  ];
+  await stubActionSelectorChoices(page, projectId, ({ actionId, field, params }) =>
+    actionSelectorResponse({
+      projectId, actionId, field,
+      groups: [{ id: 'transcription', label: 'Transcription', choices: engines.map(({ id, label }) => ({
+        choiceId: id, label, authoredSelection: { kind: 'engine', engine: id },
+      })) }],
+      currentChoiceId: typeof params.engine === 'string' && engines.some(({ id }) => id === params.engine)
+        ? params.engine : null,
+    }),
+  );
   await page.route('**/actions/v1/catalog', async (route) => {
     const response = await route.fetch();
     const body = await response.json();
@@ -44,18 +67,7 @@ async function patchTranscribeCatalog(page: Page) {
     );
     if (transcribe) {
       transcribe.ui_hints = transcribe.ui_hints ?? {};
-      transcribe.ui_hints.engines = [
-        { id: 'faster_whisper', label: 'Whisper (local)', tier: 'local', available: true },
-        { id: 'parakeet-tdt', label: 'Parakeet (local)', tier: 'local', available: true },
-        { id: 'vosk', label: 'Vosk (local)', tier: 'local', available: true },
-        {
-          id: 'stubprovider/whisper-1',
-          label: 'Stub remote transcription',
-          tier: 'hosted',
-          billable: true,
-          available: true,
-        },
-      ];
+      transcribe.ui_hints.engines = engines;
     }
     await route.fulfill({
       status: 200,
@@ -243,9 +255,9 @@ async function approveCostGate(page: Page) {
 /** Nothing runs on drop any more; the operator asks for it. The two default
  * variants are seeded from the catalog asynchronously, so a Run that lands
  * before the second one exists would quote only the first. */
-async function runComparison(page: Page, expectedVariants = 2) {
-  await expect(page.getByTestId('transcribe-compare-engine-chip')).toHaveCount(
-    expectedVariants,
+async function runComparison(page: Page, expectedColumns = 2) {
+  await expect(page.getByTestId('transcribe-compare-engine-column')).toHaveCount(
+    expectedColumns,
   );
   await page.getByTestId('transcribe-compare-run').click();
 }
@@ -272,7 +284,7 @@ test('ribbon opens the scratch Transcribe Compare tab; audio AND video docs rend
   const sheetsBefore = await listSheets(page.request, pid);
   const rowsBefore = (await sheetData(page.request, pid, sheetId, 0, 50)).rows.length;
 
-  await patchTranscribeCatalog(page);
+  await patchTranscribeCatalog(page, pid);
   const { estimates, starts } = await routeComparison(page);
 
   // Guard: nothing durable is written during a scratch session.
@@ -340,7 +352,7 @@ test('ribbon opens the scratch Transcribe Compare tab; audio AND video docs rend
 test('renders long transcripts without diff highlighting and lets each result scroll independently', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('tc-scroll'));
   const sheetId = await importCsv(page.request, pid, 'alpha.csv', 'name\nAlpha\n');
-  await patchTranscribeCatalog(page);
+  await patchTranscribeCatalog(page, pid);
   await routeComparison(page, LONG_ENGINE_SEGMENTS);
   await openProject(page, pid, sheetId);
   await openTranscribeCompare(page);
@@ -380,7 +392,7 @@ test('plain transcript results leave source playback under the operator’s cont
 }) => {
   const pid = await createProject(page.request, uniqueName('tc-source'));
   const sheetId = await importCsv(page.request, pid, 'alpha.csv', 'name\nAlpha\n');
-  await patchTranscribeCatalog(page);
+  await patchTranscribeCatalog(page, pid);
   await routeComparison(page);
   await openProject(page, pid, sheetId);
   await openTranscribeCompare(page);
@@ -400,7 +412,7 @@ test('adding or removing engines keeps every transcript as plain output', async 
 }) => {
   const pid = await createProject(page.request, uniqueName('tc-plain'));
   const sheetId = await importCsv(page.request, pid, 'alpha.csv', 'name\nAlpha\n');
-  await patchTranscribeCatalog(page);
+  await patchTranscribeCatalog(page, pid);
   await routeComparison(page);
   await openProject(page, pid, sheetId);
   await openTranscribeCompare(page);
@@ -427,7 +439,7 @@ test('adding or removing engines keeps every transcript as plain output', async 
 test('votes cycle per document; doc list marks + footer tally update', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('tc-votes'));
   const sheetId = await importCsv(page.request, pid, 'alpha.csv', 'name\nAlpha\n');
-  await patchTranscribeCatalog(page);
+  await patchTranscribeCatalog(page, pid);
   await routeComparison(page);
   await openProject(page, pid, sheetId);
   await openTranscribeCompare(page);
@@ -458,7 +470,7 @@ test('closing the tab warns that scratch votes/text are discarded (verdict copya
 }) => {
   const pid = await createProject(page.request, uniqueName('tc-discard'));
   const sheetId = await importCsv(page.request, pid, 'alpha.csv', 'name\nAlpha\n');
-  await patchTranscribeCatalog(page);
+  await patchTranscribeCatalog(page, pid);
   await routeComparison(page);
   await openProject(page, pid, sheetId);
   await openTranscribeCompare(page);
@@ -487,7 +499,7 @@ test('no-drift: the transcribe action form and the compare tab render the identi
 }) => {
   const pid = await createProject(page.request, uniqueName('tc-nodrift'));
   const sheetId = await importCsv(page.request, pid, 'alpha.csv', 'name\nAlpha\n');
-  await patchTranscribeCatalog(page);
+  await patchTranscribeCatalog(page, pid);
   await routeComparison(page);
   await openProject(page, pid, sheetId);
 
@@ -535,7 +547,7 @@ test('a billable engine is offered, and spends only through the cost gate', asyn
 }) => {
   const pid = await createProject(page.request, uniqueName('tc-billable'));
   const sheetId = await importCsv(page.request, pid, 'alpha.csv', 'name\nAlpha\n');
-  await patchTranscribeCatalog(page);
+  await patchTranscribeCatalog(page, pid);
   const { estimates, starts } = await routeComparison(page);
   await openProject(page, pid, sheetId);
   await openTranscribeCompare(page);
@@ -547,7 +559,7 @@ test('a billable engine is offered, and spends only through the cost gate', asyn
   await page
     .getByTestId(`transcribe-compare-add-engine-option-${REMOTE_ENGINE}`)
     .click();
-  await expect(page.getByTestId('transcribe-compare-engine-chip')).toHaveCount(3);
+  await expect(page.getByTestId('transcribe-compare-engine-column')).toHaveCount(3);
 
   // Still nothing spent: adding the engine only configures a candidate.
   expect(starts).toEqual([]);

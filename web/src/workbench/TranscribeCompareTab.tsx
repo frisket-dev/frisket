@@ -282,7 +282,6 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
                       onSetDiarize={(diarize) => updateColumnOptions(col.id, { diarize })}
                     />
                   )}
-                  laterHint="Additional per-engine options stack here as engines declare them."
                 />
               ) : null}
             </div>

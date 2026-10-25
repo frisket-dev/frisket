@@ -1,3 +1,4 @@
+import { actionSelectorResponse, stubActionSelectorChoices } from './selectorChoicesFixture';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -23,7 +24,105 @@ import { createProject, importCsv, openProject, uniqueName } from './helpers';
 const MEDIA_DIR = path.resolve(process.cwd(), 'tests', 'fixtures', 'media');
 const AUDIO_FIXTURE = readFileSync(path.join(MEDIA_DIR, 'tiny-audio.wav'));
 
-async function patchTranscribeCatalog(page: Page) {
+async function patchTranscribeCatalog(page: Page, projectId: string) {
+  const engines = [
+    {
+      id: 'faster_whisper',
+      label: 'Whisper (local)',
+      tier: 'local',
+      available: true,
+      target_id: 'local',
+      transcription_options: {
+        language: true, vad: true, model_size: true,
+      },
+      language: {
+        mode: 'single',
+        default: 'auto',
+        detects: true,
+        choices: [
+          { value: 'en', label: 'English' },
+          { value: 'fr', label: 'French' },
+          { value: 'de', label: 'German' },
+          { value: 'es', label: 'Spanish' },
+        ],
+      },
+      diarization: { supported: false, mode: 'none' },
+      targets: [{
+        target: 'local', target_id: 'local', available: true,
+        transcription_options: { language: true, vad: true, model_size: true },
+        diarization: { supported: false, mode: 'none' },
+        sizes: ['tiny', 'base', 'small', 'medium'],
+      }],
+    },
+    {
+      id: 'parakeet-tdt',
+      label: 'Parakeet (local)',
+      tier: 'local',
+      available: true,
+      target_id: 'local-onnx',
+      transcription_options: {
+        language: false, vad: true, model_size: false,
+      },
+      diarization: { supported: false, mode: 'none' },
+      targets: [{
+        target: 'local-onnx', target_id: 'local-onnx', available: true,
+        transcription_options: { language: false, vad: true, model_size: false },
+        diarization: { supported: false, mode: 'none' },
+      }],
+    },
+    {
+      id: 'stubprovider/whisper-1',
+      label: 'Stub remote transcription',
+      tier: 'hosted',
+      billable: true,
+      available: true,
+      target_id: 'remote-api:stubprovider',
+      transcription_options: {
+        language: true, vad: false, model_size: false,
+      },
+      language: {
+        mode: 'single',
+        default: 'auto',
+        detects: true,
+        choices: [
+          { value: 'en', label: 'English' },
+          { value: 'es', label: 'Spanish' },
+        ],
+      },
+      diarization: { supported: false, mode: 'none' },
+      targets: [{
+        target: 'remote-api:stubprovider', target_id: 'remote-api:stubprovider', available: true,
+        transcription_options: { language: true, vad: false, model_size: false },
+        diarization: { supported: false, mode: 'none' },
+      }],
+    },
+    {
+      id: 'joint_diarizer_fixture',
+      label: 'Synthetic joint diarizer',
+      tier: 'sidecar',
+      available: true,
+      target_id: 'models-gateway',
+      transcription_options: {
+        language: false, vad: false, model_size: false,
+      },
+      diarization: { supported: true, mode: 'intrinsic', speaker_hint: 'none' },
+      targets: [{
+        target: 'models-gateway', target_id: 'models-gateway', available: true,
+        transcription_options: { language: false, vad: false, model_size: false },
+        diarization: { supported: true, mode: 'intrinsic', speaker_hint: 'none' },
+      }],
+    },
+  ];
+  await stubActionSelectorChoices(page, projectId, ({ actionId, field, params }) =>
+    actionSelectorResponse({
+      projectId, actionId, field,
+      groups: [{ id: 'transcription', label: 'Transcription', choices: engines.map(({ id, label }) => ({
+        choiceId: id, label, authoredSelection: { kind: 'engine', engine: id },
+      })) }],
+      currentChoiceId: typeof params.engine === 'string' && engines.some(({ id }) => id === params.engine)
+        ? params.engine : null,
+    }),
+  );
   await page.route('**/actions/v1/catalog', async (route) => {
     const response = await route.fetch();
     const body = await response.json();
@@ -32,94 +131,7 @@ async function patchTranscribeCatalog(page: Page) {
     );
     if (transcribe) {
       transcribe.ui_hints = transcribe.ui_hints ?? {};
-      transcribe.ui_hints.engines = [
-        {
-          id: 'faster_whisper',
-          label: 'Whisper (local)',
-          tier: 'local',
-          available: true,
-          target_id: 'local',
-          transcription_options: {
-            language: true, vad: true, model_size: true,
-          },
-          language: {
-            mode: 'single',
-            default: 'auto',
-            detects: true,
-            choices: [
-              { value: 'en', label: 'English' },
-              { value: 'fr', label: 'French' },
-              { value: 'de', label: 'German' },
-              { value: 'es', label: 'Spanish' },
-            ],
-          },
-          diarization: { supported: false, mode: 'none' },
-          targets: [{
-            target: 'local', target_id: 'local', available: true,
-            transcription_options: { language: true, vad: true, model_size: true },
-            diarization: { supported: false, mode: 'none' },
-            sizes: ['tiny', 'base', 'small', 'medium'],
-          }],
-        },
-        {
-          id: 'parakeet-tdt',
-          label: 'Parakeet (local)',
-          tier: 'local',
-          available: true,
-          target_id: 'local-onnx',
-          transcription_options: {
-            language: false, vad: true, model_size: false,
-          },
-          diarization: { supported: false, mode: 'none' },
-          targets: [{
-            target: 'local-onnx', target_id: 'local-onnx', available: true,
-            transcription_options: { language: false, vad: true, model_size: false },
-            diarization: { supported: false, mode: 'none' },
-          }],
-        },
-        {
-          id: 'stubprovider/whisper-1',
-          label: 'Stub remote transcription',
-          tier: 'hosted',
-          billable: true,
-          available: true,
-          target_id: 'remote-api:stubprovider',
-          transcription_options: {
-            language: true, vad: false, model_size: false,
-          },
-          language: {
-            mode: 'single',
-            default: 'auto',
-            detects: true,
-            choices: [
-              { value: 'en', label: 'English' },
-              { value: 'es', label: 'Spanish' },
-            ],
-          },
-          diarization: { supported: false, mode: 'none' },
-          targets: [{
-            target: 'remote-api:stubprovider', target_id: 'remote-api:stubprovider', available: true,
-            transcription_options: { language: true, vad: false, model_size: false },
-            diarization: { supported: false, mode: 'none' },
-          }],
-        },
-        {
-          id: 'joint_diarizer_fixture',
-          label: 'Synthetic joint diarizer',
-          tier: 'sidecar',
-          available: true,
-          target_id: 'models-gateway',
-          transcription_options: {
-            language: false, vad: false, model_size: false,
-          },
-          diarization: { supported: true, mode: 'intrinsic', speaker_hint: 'none' },
-          targets: [{
-            target: 'models-gateway', target_id: 'models-gateway', available: true,
-            transcription_options: { language: false, vad: false, model_size: false },
-            diarization: { supported: true, mode: 'intrinsic', speaker_hint: 'none' },
-          }],
-        },
-      ];
+      transcribe.ui_hints.engines = engines;
     }
     await route.fulfill({
       status: 200,
@@ -256,7 +268,7 @@ async function openTranscribeCompareWithAudio(page: Page) {
   // Both default variants are seeded from the catalog asynchronously. Run
   // before the second one lands and only one candidate is ever quoted, which
   // is what made the first two tests in this file see a single column.
-  await expect(page.getByTestId('transcribe-compare-engine-chip')).toHaveCount(2);
+  await expect(page.getByTestId('transcribe-compare-engine-column')).toHaveCount(2);
   await runComparison(page);
   // Wait for the transcript itself, not the chip: a later starts-count
   // assertion must not race the run this helper just asked for. The mocked
@@ -271,7 +283,7 @@ test('the gear opens the SAME Configure-variant popover component OCR Compare us
 }) => {
   const pid = await createProject(page.request, uniqueName('tco-reuse'));
   const sheetId = await importCsv(page.request, pid, 'alpha.csv', 'name\nAlpha\n');
-  await patchTranscribeCatalog(page);
+  await patchTranscribeCatalog(page, pid);
   await routeComparison(page);
   await openProject(page, pid, sheetId);
   await openTranscribeCompareWithAudio(page);
@@ -296,7 +308,7 @@ test('faster_whisper exposes language + model size + VAD; parakeet-tdt exposes o
 }) => {
   const pid = await createProject(page.request, uniqueName('tco-fields'));
   const sheetId = await importCsv(page.request, pid, 'alpha.csv', 'name\nAlpha\n');
-  await patchTranscribeCatalog(page);
+  await patchTranscribeCatalog(page, pid);
   await routeComparison(page);
   await openProject(page, pid, sheetId);
   await openTranscribeCompareWithAudio(page);
@@ -328,7 +340,7 @@ test('faster_whisper exposes language + model size + VAD; parakeet-tdt exposes o
 test('language choices and wire codes come from the selected engine declaration', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('tco-language'));
   const sheetId = await importCsv(page.request, pid, 'alpha.csv', 'name\nAlpha\n');
-  await patchTranscribeCatalog(page);
+  await patchTranscribeCatalog(page, pid);
   const { starts } = await routeComparison(page);
   await openProject(page, pid, sheetId);
   await openTranscribeCompareWithAudio(page);
@@ -359,7 +371,7 @@ test('choosing a model size re-runs the variant with model_size on the scratch p
 }) => {
   const pid = await createProject(page.request, uniqueName('tco-modelsize'));
   const sheetId = await importCsv(page.request, pid, 'alpha.csv', 'name\nAlpha\n');
-  await patchTranscribeCatalog(page);
+  await patchTranscribeCatalog(page, pid);
   const { starts } = await routeComparison(page);
   await openProject(page, pid, sheetId);
   await openTranscribeCompareWithAudio(page);
@@ -386,7 +398,7 @@ test('an intrinsic engine shows always-on diarization and sends no unsupported W
 }) => {
   const pid = await createProject(page.request, uniqueName('tco-intrinsic'));
   const sheetId = await importCsv(page.request, pid, 'alpha.csv', 'name\nAlpha\n');
-  await patchTranscribeCatalog(page);
+  await patchTranscribeCatalog(page, pid);
   const { starts } = await routeComparison(page);
   await openProject(page, pid, sheetId);
   await openTranscribeCompareWithAudio(page);
@@ -422,7 +434,7 @@ test('an intrinsic engine shows always-on diarization and sends no unsupported W
 test('Duplicate variant compares two model sizes of the same engine side by side', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('tco-duplicate'));
   const sheetId = await importCsv(page.request, pid, 'alpha.csv', 'name\nAlpha\n');
-  await patchTranscribeCatalog(page);
+  await patchTranscribeCatalog(page, pid);
   await routeComparison(page);
   await openProject(page, pid, sheetId);
   await openTranscribeCompareWithAudio(page);
@@ -457,7 +469,7 @@ test('the gear can swap a chip onto a billable engine, and the gate stands in fr
 }) => {
   const pid = await createProject(page.request, uniqueName('tco-billable'));
   const sheetId = await importCsv(page.request, pid, 'alpha.csv', 'name\nAlpha\n');
-  await patchTranscribeCatalog(page);
+  await patchTranscribeCatalog(page, pid);
   const { estimates, starts } = await routeComparison(page);
   await openProject(page, pid, sheetId);
   await openTranscribeCompareWithAudio(page);
