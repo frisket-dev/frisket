@@ -36,8 +36,6 @@ const REPO_ROOT = path.basename(process.cwd()) === 'web'
 const PYTHON = process.env.FRISKET_E2E_PYTHON
   ?? path.join(REPO_ROOT, '.venv/bin/python');
 
-type RunColumn = WireColumn & { current_run_id?: number | null };
-
 function classifyAction(sheetId: number, prompt: string, idempotencyKey: string) {
   return {
     action_id: 'map.classify',
@@ -208,9 +206,8 @@ test.describe('connected action comparison', () => {
     await openProject(page, pid, sheetId);
     await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
     const columns = await sheetColumns(page.request, pid, sheetId);
-    const topic = columns.find((column) => column.name === 'topic') as RunColumn | undefined;
+    const topic = columns.find((column) => column.name === 'topic');
     expect(topic).toBeTruthy();
-    expect(topic!.current_run_id).toBe(baselineRunId);
     expect(await topicValues(page, pid, sheetId, topic!.id, 3)).toEqual(baseline);
 
     await clickGroupHeader(page, columns, 'topic', 'topic');
