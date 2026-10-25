@@ -23,6 +23,8 @@ import {
   REPLAY_MODEL as MODEL,
 } from './replayModelScenario';
 
+test.use({ deviceScaleFactor: 2 });
+
 const ARTIFACT_DIR = process.env.FRISKET_COMPARE_SCREENSHOTS
   ?? path.resolve('screenshots/action-compare-connected');
 const PROMPT_A = 'Classify each local news item by its primary subject.';

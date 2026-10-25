@@ -21,6 +21,8 @@ import {
   REPLAY_MODEL as MODEL,
 } from './replayModelScenario';
 
+test.use({ deviceScaleFactor: 2 });
+
 const REPO_ROOT = path.basename(process.cwd()) === 'web'
   ? path.resolve(process.cwd(), '..')
   : process.cwd();
@@ -185,6 +187,8 @@ async function configureVariant(page: Page, key: 'B' | 'C', settings: ExtractSet
   await rows.nth(1).getByTestId('output-field-description').fill(settings.fields[1].description);
   await editor.locator('details.action-advanced > summary').click();
   await editor.getByTestId('field-context').fill(settings.context);
+  await expect(page.getByTestId('action-compare-toolbar')).toBeInViewport();
+  await expect(editor.getByRole('button', { name: 'Close variant editor' })).toBeInViewport();
   return editor;
 }
 
@@ -230,6 +234,9 @@ test('Extract compares two typed fields across A/B/C and opens Use settings', as
   await expect(page.getByRole('columnheader', { name: 'hearing_date' })).toBeVisible();
   expect(await page.locator("td[data-comparison='different']").count()).toBeGreaterThan(0);
   await shoot(page, '05-extract-abc-results.png');
+  await page.getByTestId('action-compare-variant-C').hover();
+  await expect(page.getByRole('tooltip')).toContainText('Description');
+  await shoot(page, '05b-setting-changes.png');
 
   await page.getByRole('button', { name: 'Use settings from variant C' }).click();
   const useForm = page.getByTestId('generated-action-form');
@@ -240,6 +247,14 @@ test('Extract compares two typed fields across A/B/C and opens Use settings', as
   await expect(useForm.getByTestId('output-field-description').first())
     .toHaveValue(C.fields[0].description);
   await shoot(page, '06-extract-use-settings.png');
+  await useForm.getByRole('button', { name: 'Choose run scope' }).click();
+  await page.getByRole('menuitem', { name: 'Return to Compare' }).click();
+  await expect(useForm).toHaveCount(0);
+  await page.getByTestId('action-compare-maintab-close').click();
+  await expect(page.getByTestId('action-compare-discard-warning')).toBeVisible();
+  await shoot(page, '07-close-comparison.png');
+  await page.getByTestId('action-compare-discard-confirm').click();
+  await expect(page.getByTestId('action-compare-toolbar')).toHaveCount(0);
 });
 
 test('fresh Ask can enter Compare before any action executes', async ({ page }) => {
