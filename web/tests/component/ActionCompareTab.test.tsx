@@ -117,6 +117,7 @@ describe('ActionCompareTab', () => {
       'body', 'A · Current values', 'B · Claude Sonnet 4.5',
     ]);
     expect(grid.getGroupDetails?.(grid.columns[1].group!)).toMatchObject({ name: 'party', icon: 'aiBolt' });
+    expect(grid.getGroupDetails?.('')).toEqual({ name: '' });
 
     fireEvent.mouseEnter(screen.getByTestId('action-compare-variant-B'));
     const tooltip = screen.getByRole('tooltip');
@@ -184,9 +185,8 @@ describe('ActionCompareTab', () => {
     render(<ActionCompareTab session={session} onUseSettings={vi.fn()} renderVariantEditor={renderVariantEditor} />);
 
     expect(editor.props!.getCellContent([2, 0])).toMatchObject({
-      kind: GridCellKind.Text,
-      displayData: 'Pending',
-      style: 'faded',
+      kind: GridCellKind.Custom,
+      data: { kind: 'frisket-pending' },
     });
 
     expect(screen.queryByRole('button', { name: 'Use settings from variant A' })).not.toBeInTheDocument();
@@ -291,9 +291,8 @@ describe('ActionCompareTab', () => {
     }
     for (const columnIndex of [3, 6, 9]) {
       expect(grid.getCellContent([columnIndex, 0])).toMatchObject({
-        kind: GridCellKind.Text,
-        displayData: 'Pending',
-        style: 'faded',
+        kind: GridCellKind.Custom,
+        data: { kind: 'frisket-pending' },
       });
     }
     for (const columnIndex of [1, 4, 7]) {

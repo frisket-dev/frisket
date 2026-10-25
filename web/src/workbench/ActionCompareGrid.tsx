@@ -151,7 +151,6 @@ function rowForCell(
 }
 
 function statusText(cell: ActionCompareResultCell): string | null {
-  if (cell.state === 'pending') return 'Pending';
   if (cell.state === 'cancelled') return 'Cancelled';
   if (cell.state === 'missing') return 'No result';
   return null;
@@ -277,6 +276,7 @@ export function ActionCompareGrid({ state, labelForDraft, onOpenBoundedValue,
       ? { ...projected.column, type: 'text', format: null }
       : projected.column, row, {
       gridCellPalette: canvasTheme.cells,
+      pending: cell.state === 'pending',
       wrap: false,
     });
     if (status) rendered = { ...rendered, style: 'faded' };
@@ -343,8 +343,10 @@ export function ActionCompareGrid({ state, labelForDraft, onOpenBoundedValue,
   }, []);
   const getGroupDetails = useCallback<NonNullable<GridViewportProps['getGroupDetails']>>((groupName) => {
     if (groupName === SOURCE_GROUP) return { name: 'Sources' };
+    const outputName = outputNames.get(groupName);
+    if (outputName === undefined) return { name: groupName };
     return {
-      name: outputNames.get(groupName) ?? groupName,
+      name: outputName,
       icon: 'aiBolt',
       overrideTheme: canvasTheme.ai,
     };
