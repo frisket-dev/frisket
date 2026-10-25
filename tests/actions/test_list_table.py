@@ -134,6 +134,17 @@ def test_source_modes_cannot_silently_change_schema_authority():
         ListTableParams(
             source=ListColumnSource(kind="column", sheet_id=1, column_id=1), columns=[]
         )
+    with pytest.raises(ValidationError):
+        ListTableParams(
+            source=NamedListSource(
+                kind="named_result",
+                sheet_id=1,
+                column_id=1,
+                run_id=1,
+                route="r",
+                schema="s",
+            )
+        )
 
 
 def test_parent_columns_require_stable_distinct_ids_and_aliases():
@@ -197,17 +208,6 @@ def test_parent_column_alias_cannot_overwrite_an_item_projection():
     )
     with pytest.raises(TableError, match="collides"):
         expand_list_table(params, reader)
-    with pytest.raises(ValidationError):
-        ListTableParams(
-            source=NamedListSource(
-                kind="named_result",
-                sheet_id=1,
-                column_id=1,
-                run_id=1,
-                route="r",
-                schema="s",
-            )
-        )
 
 
 def test_reader_holds_snapshot_uses_actual_source_and_retains_item_associations(

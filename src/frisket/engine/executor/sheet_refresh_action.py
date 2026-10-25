@@ -513,7 +513,7 @@ def _refresh_sheet(
             current = {
                 str(column["name"]): column
                 for column in cur.execute(
-                    "SELECT name, type, format, ai_generated, hidden FROM columns "
+                    "SELECT name, type, ai_generated, hidden FROM columns "
                     "WHERE sheet_id=? AND active=1",
                     (sheet_id,),
                 ).fetchall()
@@ -523,14 +523,13 @@ def _refresh_sheet(
                 for name, copied in copied_by_output.items()
                 if (existing := current.get(name)) is None
                 or existing["type"] != canonical_column_type(copied.type)
-                or existing["format"] != copied.format
                 or bool(existing["ai_generated"]) != copied.ai_generated
                 or bool(existing["hidden"])
             ]
             if drifted:
                 raise TableError(
                     "invalid_input_ref",
-                    "Selected parent column metadata changed; create a new derived sheet",
+                    "Selected source or copied column metadata changed; create a new derived sheet",
                     details={"columns": drifted},
                 )
         resolved = {

@@ -327,23 +327,53 @@ def test_refresh_updates_parent_context_and_preserves_column_ids(
             "Q2",
         ]
 
-        rows_before_drift = project.visible_row_ids(child_id)
-        project.db.execute(
-            "UPDATE columns SET format='changed-format' WHERE id=?",
-            (parent["columns"]["title"],),
-        )
-        project.db.commit()
-        refused = run_action_spec(
+        child_format = run_action_spec(
             project,
-            _refresh(sheet_id=child_id, key="refresh-parent-context-drift"),
+            {
+                "action_id": "column.patch",
+                "scope": {"kind": "project"},
+                "params": {
+                    "sheet_id": child_id,
+                    "column_id": after["quarter"],
+                    "format": "markdown",
+                },
+                "idempotency_key": "format-copied-child-column",
+            },
             project_id="p-ref",
         )
-        assert refused.status == "failed"
-        assert refused.errors[0].code == "invalid_input_ref"
-        assert project.visible_row_ids(child_id) == rows_before_drift
+        assert child_format.status == "completed", child_format.errors
+        parent_format = run_action_spec(
+            project,
+            {
+                "action_id": "column.patch",
+                "scope": {"kind": "project"},
+                "params": {
+                    "sheet_id": parent["sheet_id"],
+                    "column_id": parent["columns"]["title"],
+                    "format": "currency",
+                },
+                "idempotency_key": "format-parent-source-column",
+            },
+            project_id="p-ref",
+        )
+        assert parent_format.status == "completed", parent_format.errors
+        refreshed_again = run_action_spec(
+            project,
+            _refresh(sheet_id=child_id, key="refresh-parent-context-format-change"),
+            project_id="p-ref",
+        )
+        assert refreshed_again.status == "completed", refreshed_again.errors
         assert {
             column["name"]: column["id"] for column in project.columns(child_id)
         } == after
+        assert (
+            next(
+                column["format"]
+                for column in project.columns(child_id)
+                if column["name"] == "quarter"
+            )
+            == "markdown"
+        )
         assert list(project.get_values(child_id, after["quarter"]).values()) == [
             "First quarter",
             "First quarter",

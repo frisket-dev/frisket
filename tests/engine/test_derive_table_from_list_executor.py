@@ -570,6 +570,25 @@ def test_parent_context_collision_refuses_without_publication(
         }
 
 
+def test_pre_parent_context_request_hash_replays_through_public_execution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with case_env(CASES[0], tmp_path, monkeypatch) as env:
+        request = _derive_action(env.seeded)
+        first = env.run(request)
+        assert first.status == "completed", first.errors
+        receipt = env.project.db.execute(
+            "SELECT params_hash FROM receipts WHERE id=?", (first.receipt_id,)
+        ).fetchone()
+        assert receipt["params_hash"] == (
+            "sha256:b70fa9ad5ade31fd2f0bbab81d4c985face0ede673632667a374ae6b71be24f2"
+        )
+
+        replay = env.run(request)
+        assert replay.status == "completed", replay.errors
+        assert replay.receipt_id == first.receipt_id
+
+
 @pytest.mark.parametrize("hidden", [False, True])
 def test_declared_column_visibility_replays_until_changed(
     tmp_path, monkeypatch, hidden
