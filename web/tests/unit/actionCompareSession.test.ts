@@ -10,6 +10,7 @@ import {
   actionCompareCellEquality,
   createActionCompareRunner,
   createActionCompareSession,
+  type ActionCompareCostConfirmation,
   type ActionCompareRunOutcome,
   type ActionCompareVariantRun,
 } from '../../src/workbench/actionCompareSession';
@@ -106,12 +107,12 @@ describe('action comparison session', () => {
     session.addVariant(c!);
     expect(session.addVariant()).toBeNull();
     expect(session.getSnapshot().variants.map((variant) => [
-      variant.displayKey, variant.status, variant.previewId, variant.resultRevision,
+      variant.displayKey, variant.status, variant.previewId,
     ])).toEqual([
-      ['A', 'current', null, 0],
-      ['B', 'pending', null, null],
-      ['C', 'pending', null, null],
-      ['D', 'pending', null, null],
+      ['A', 'current', null],
+      ['B', 'pending', null],
+      ['C', 'pending', null],
+      ['D', 'pending', null],
     ]);
   });
 
@@ -170,13 +171,13 @@ describe('action comparison session', () => {
     session.updateVariant(b, changed);
     expect(cancelPreview).toHaveBeenCalledWith('preview-B');
     expect(session.getSnapshot().variants[1]).toMatchObject({
-      status: 'pending', draftRevision: 1, resultRevision: null,
+      status: 'pending', draftRevision: 1,
     });
 
     pending.resolve(ready('preview-B', 'late result'));
     await running;
     expect(session.getSnapshot().variants[1]).toMatchObject({
-      status: 'pending', result: null, resultRevision: null,
+      status: 'pending', result: null,
     });
   });
 
@@ -205,18 +206,21 @@ describe('action comparison session', () => {
     ]);
   });
 
-  it('cancels, joins, and discards before an approved retarget', async () => {
-    const pending = deferred<ActionCompareRunOutcome>();
-    const cancelPreview = vi.fn(async () => undefined);
-    const discardPreview = vi.fn(async () => undefined);
+  it('lets pending admission resolve, then discards its known preview before disposal finishes', async () => {
+    const admission = deferred<Awaited<ReturnType<ActionComparisonApi['startPreview']>>>();
+    const discard = deferred<void>();
+    const startPreview = vi.fn(() => admission.promise);
+    const api = {
+      startPreview,
+      getPreview: vi.fn(),
+      getContext: vi.fn(),
+      cancelPreview: vi.fn(),
+    } as unknown as ActionComparisonApi;
+    const discardPreview = vi.fn(() => discard.promise);
     const session = createActionCompareSession(
       { context: context() },
       {
-        runVariant: async ({ onStarted }) => {
-          onStarted('preview-B');
-          return pending.promise;
-        },
-        cancelPreview,
+        runVariant: createActionCompareRunner(api, vi.fn()),
         discardPreview,
       },
     );
@@ -224,20 +228,25 @@ describe('action comparison session', () => {
     const running = session.runPending();
     await Promise.resolve();
 
-    expect(await session.retarget({ context: context('preview') }, async () => false)).toBe(false);
-    expect(session.getSnapshot().context.baseline_mode).toBe('current_values');
+    const disposing = session.dispose();
+    let disposed = false;
+    void disposing.then(() => { disposed = true; });
+    await Promise.resolve();
+    expect(disposed).toBe(false);
+    expect(startPreview).toHaveBeenCalledTimes(1);
+    expect(startPreview.mock.calls[0]).toHaveLength(1);
 
-    const retargeted = session.retarget({ context: context('preview') }, async () => true);
-    pending.resolve({ status: 'cancelled', previewId: 'preview-B' });
-    expect(await retargeted).toBe(true);
+    admission.resolve({
+      schema_version: 'frisket.action_preview.v1', preview_id: 'admitted-after-stop', total: 2,
+    });
+    await vi.waitFor(() => expect(discardPreview).toHaveBeenCalledWith('admitted-after-stop'));
+    expect(api.getPreview).not.toHaveBeenCalled();
+    expect(disposed).toBe(false);
+    discard.resolve();
+    await disposing;
     await running;
 
-    expect(cancelPreview).toHaveBeenCalledWith('preview-B');
-    expect(discardPreview).toHaveBeenCalledWith('preview-B');
-    expect(session.getSnapshot()).toMatchObject({
-      context: { baseline_mode: 'preview' },
-      variants: [{ displayKey: 'A', status: 'pending' }],
-    });
+    expect(session.getSnapshot()).toMatchObject({ disposed: true, variants: [] });
   });
 
   it('returns settings only for a usable evaluated variant', async () => {
@@ -268,6 +277,8 @@ describe('actionCompareCellEquality', () => {
   it('preserves null/error/missing states and compares object keys independently of order', () => {
     const origin = valueCell('x').origin;
     expect(actionCompareCellEquality(valueCell(null), valueCell(null))).toBe('same');
+    expect(actionCompareCellEquality(valueCell(null), valueCell('present'))).toBe('different');
+    expect(actionCompareCellEquality(valueCell('present'), valueCell(null))).toBe('different');
     expect(actionCompareCellEquality(
       { state: 'value', value: { a: 1, b: [2, 3] }, origin },
       { state: 'value', value: { b: [2, 3], a: 1 }, origin },
@@ -331,7 +342,7 @@ describe('createActionCompareRunner', () => {
         expected_output_signature: 'output-v1',
         expected_sample_fingerprint: 'sample-v1',
       },
-    }), expect.anything());
+    }));
     expect(api.getContext).toHaveBeenCalledWith({
       source: context('preview').comparison_basis,
       sample_row_ids: [101, 102],
@@ -441,7 +452,9 @@ describe('createActionCompareRunner', () => {
 
     await runner({ context: context('preview'), variant, signal: new AbortController().signal, onStarted: vi.fn() });
 
-    expect(confirm).toHaveBeenCalledWith(estimate, 'Approve this preview');
+    expect(confirm).toHaveBeenCalledWith(estimate, 'Approve this preview', expect.anything());
+    expect(confirm.mock.calls[0][2]).toBeInstanceOf(AbortSignal);
+    expect(confirm.mock.calls[0][2].aborted).toBe(false);
     const first = api.startPreview.mock.calls[0][0].action;
     const retry = api.startPreview.mock.calls[1][0].action;
     expect(retry).toEqual({ ...first, confirmation: 'exact-hash' });
@@ -458,5 +471,39 @@ describe('createActionCompareRunner', () => {
     });
     expect(declined).toEqual({ status: 'cancelled' });
     expect(declinedApi.getPreview).not.toHaveBeenCalled();
+  });
+
+  it('aborts a pending cost confirmation without retrying admission', async () => {
+    const estimate = { cost: 0.12, rows: 2, promise_set_hash: 'exact-hash' };
+    const api = {
+      getContext: vi.fn(),
+      startPreview: vi.fn().mockRejectedValue(new ConfirmationRequiredError(estimate, 'Approve')),
+      getPreview: vi.fn(),
+      cancelPreview: vi.fn(),
+    } as unknown as ActionComparisonApi;
+    let confirmationSignal: AbortSignal | null = null;
+    const confirmationEntered = deferred<void>();
+    const confirm = vi.fn<ActionCompareCostConfirmation>((_estimate, _message, signal) => {
+      confirmationSignal = signal;
+      confirmationEntered.resolve();
+      return new Promise<boolean>((resolve) => {
+        signal.addEventListener('abort', () => resolve(false), { once: true });
+      });
+    });
+    const session = createActionCompareSession(
+      { context: context() },
+      { runVariant: createActionCompareRunner(api, confirm) },
+    );
+    session.addVariant();
+    const running = session.runPending();
+    await confirmationEntered.promise;
+
+    await session.dispose();
+    await running;
+
+    expect(confirmationSignal).not.toBeNull();
+    expect(confirmationSignal!.aborted).toBe(true);
+    expect(api.startPreview).toHaveBeenCalledTimes(1);
+    expect(api.getPreview).not.toHaveBeenCalled();
   });
 });

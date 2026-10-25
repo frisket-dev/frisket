@@ -32,7 +32,6 @@ export interface ActionCompareVariant {
   baseline: boolean;
   draft: GeneratedActionDraft;
   draftRevision: number;
-  resultRevision: number | null;
   status: ActionCompareVariantStatus;
   previewId: string | null;
   result: ActionCompareVariantResult | null;
@@ -84,7 +83,11 @@ export interface ActionCompareSessionDependencies {
   labelForDraft?(draft: GeneratedActionDraft, displayKey: string): string;
 }
 
-export type ActionCompareCostConfirmation = (estimate: RunEstimate, message: string) => Promise<boolean>;
+export type ActionCompareCostConfirmation = (
+  estimate: RunEstimate,
+  message: string,
+  signal: AbortSignal,
+) => Promise<boolean>;
 
 export interface ActionCompareUseSettings {
   variantId: string;
@@ -109,11 +112,6 @@ export interface ActionCompareSession {
   setHighlightDifferences(value: boolean): void;
   setStale(value: boolean): void;
   useVariant(variantId: string): ActionCompareUseSettings | null;
-  retarget(
-    next: ActionCompareSessionInit,
-    confirmDiscard: (snapshot: ActionCompareSessionSnapshot) => boolean | Promise<boolean>,
-  ): Promise<boolean>;
-  discard(): Promise<void>;
   dispose(): Promise<void>;
 }
 
@@ -186,7 +184,6 @@ function firstVariant(
     baseline: true,
     draft,
     draftRevision: 0,
-    resultRevision: available && current ? 0 : null,
     status: available ? (current ? 'current' : 'pending') : 'failed',
     previewId: null,
     result: available && current ? resultFromBaseline(context.baseline_rows) : null,
@@ -220,8 +217,12 @@ export function actionCompareCellEquality(
   right: ActionCompareResultCell | undefined,
 ): ActionCompareCellEquality {
   if (!left || !right || left.bounded_value || right.bounded_value) return 'not_comparable';
-  if (left.state === 'null' && right.state === 'null') return 'same';
-  if (left.state !== 'value' || right.state !== 'value') return 'not_comparable';
+  const leftSuccessful = left.state === 'value' || left.state === 'null';
+  const rightSuccessful = right.state === 'value' || right.state === 'null';
+  if (!leftSuccessful || !rightSuccessful) return 'not_comparable';
+  if (left.state === 'null' || right.state === 'null') {
+    return left.state === right.state ? 'same' : 'different';
+  }
   if (left.value === undefined || right.value === undefined) return 'not_comparable';
   return sameJson(left.value, right.value) ? 'same' : 'different';
 }
@@ -233,6 +234,7 @@ export function createActionCompareSession(
   const listeners = new Set<() => void>();
   const createId = dependencies.createId ?? defaultId;
   const previewIds = new Set<string>();
+  const previewDiscards = new Map<string, Promise<void>>();
   let activeSequence: { stopRequested: boolean; promise: Promise<void> } | null = null;
   let activeRun: {
     variantId: string;
@@ -285,6 +287,17 @@ export function createActionCompareSession(
     previewIds.add(previewId);
   }
 
+  function discardRememberedPreview(previewId: string): Promise<void> {
+    rememberPreview(previewId);
+    const existing = previewDiscards.get(previewId);
+    if (existing) return existing;
+    const discard = Promise.resolve(dependencies.discardPreview?.(previewId))
+      .then(() => { previewIds.delete(previewId); })
+      .finally(() => { previewDiscards.delete(previewId); });
+    previewDiscards.set(previewId, discard);
+    return discard;
+  }
+
   function cancelActive(variantId?: string): void {
     const active = activeRun;
     if (!active || (variantId && active.variantId !== variantId)) return;
@@ -310,7 +323,6 @@ export function createActionCompareSession(
         baseline: false,
         draft,
         draftRevision: 0,
-        resultRevision: null,
         status: 'pending',
         previewId: null,
         result: null,
@@ -334,7 +346,6 @@ export function createActionCompareSession(
       previewId: null,
       previousResult: variant.result ?? variant.previousResult,
       result: null,
-      resultRevision: null,
       error: null,
     }));
   }
@@ -344,11 +355,7 @@ export function createActionCompareSession(
     if (!variant || variant.baseline || snapshot.disposed) return false;
     cancelActive(variantId);
     if (variant.previewId) {
-      const previewId = variant.previewId;
-      void dependencies.discardPreview?.(previewId).then(
-        () => previewIds.delete(previewId),
-        () => undefined,
-      );
+      void discardRememberedPreview(variant.previewId).catch(() => undefined);
     }
     publish({ variants: snapshot.variants.filter((candidate) => candidate.id !== variantId) });
     return true;
@@ -373,8 +380,9 @@ export function createActionCompareSession(
       rememberPreview(previewId);
       const current = snapshot.variants.find((candidate) => candidate.id === variantId);
       if (activeRun?.variantId !== variantId || activeRun.draftRevision !== draftRevision
-        || current?.draftRevision !== draftRevision) {
-        void dependencies.discardPreview?.(previewId).catch(() => undefined);
+        || current?.draftRevision !== draftRevision || current?.status !== 'running'
+        || controller.signal.aborted || sequence.stopRequested) {
+        void discardRememberedPreview(previewId).catch(() => undefined);
         return;
       }
       activeRun.previewId = previewId;
@@ -403,24 +411,24 @@ export function createActionCompareSession(
       if (outcome.status === 'ready') {
         replaceVariant(variantId, (candidate) => ({
           ...candidate, status: 'ready', previewId: outcome.previewId,
-          result: outcome.result, resultRevision: draftRevision, error: null,
+          result: outcome.result, error: null,
         }));
         if (outcome.stale) publish({ stale: true });
       } else if (outcome.status === 'failed') {
         replaceVariant(variantId, (candidate) => ({
           ...candidate, status: 'failed', previewId: outcomePreviewId,
-          result: null, resultRevision: null, error: outcome.error,
+          result: null, error: outcome.error,
         }));
       } else if (outcome.status === 'expired') {
         replaceVariant(variantId, (candidate) => ({
           ...candidate, status: 'expired', previewId: outcomePreviewId,
-          result: null, resultRevision: null,
+          result: null,
           error: outcome.error ?? 'Preview expired; re-run this variant.',
         }));
       } else {
         replaceVariant(variantId, (candidate) => ({
           ...candidate, status: 'cancelled', previewId: outcomePreviewId,
-          result: null, resultRevision: null, error: null,
+          result: null, error: null,
         }));
       }
     }
@@ -462,7 +470,7 @@ export function createActionCompareSession(
     cancelActive();
     if (runningId) {
       replaceVariant(runningId, (variant) => variant.status === 'running'
-        ? { ...variant, status: 'cancelled', result: null, resultRevision: null }
+        ? { ...variant, status: 'cancelled', result: null }
         : variant);
     }
     publish({ sequenceStatus: 'cancelled', activeVariantId: null });
@@ -502,21 +510,8 @@ export function createActionCompareSession(
   async function discardPreviews(): Promise<void> {
     stop();
     await activeSequence?.promise;
-    await Promise.allSettled([...previewIds].map((previewId) => dependencies.discardPreview?.(previewId)));
+    await Promise.allSettled([...previewIds].map(discardRememberedPreview));
     previewIds.clear();
-  }
-
-  async function retarget(
-    next: ActionCompareSessionInit,
-    confirmDiscard: (current: ActionCompareSessionSnapshot) => boolean | Promise<boolean>,
-  ): Promise<boolean> {
-    const populated = snapshot.context.baseline_mode === 'preview' || snapshot.variants.length > 1
-      || previewIds.size > 0 || snapshot.sequenceStatus === 'running';
-    if (populated && !(await confirmDiscard(snapshot))) return false;
-    await discardPreviews();
-    snapshot = makeInitialSnapshot(next);
-    for (const listener of listeners) listener();
-    return true;
   }
 
   async function dispose(): Promise<void> {
@@ -539,8 +534,6 @@ export function createActionCompareSession(
     setHighlightDifferences,
     setStale,
     useVariant,
-    retarget,
-    discard: discardPreviews,
     dispose,
   };
 }
@@ -593,14 +586,14 @@ export function createActionCompareRunner(
             expected_output_signature: context.expected_output_signature,
             expected_sample_fingerprint: context.sample_fingerprint,
           },
-        }, { signal });
+        });
         break;
       } catch (error) {
-        if (signal.aborted || aborted(error)) return { status: 'cancelled' };
+        if (signal.aborted) return { status: 'cancelled' };
         if (!(error instanceof ConfirmationRequiredError)) {
           return { status: 'failed', error: error instanceof Error ? error.message : String(error) };
         }
-        const approved = await requestCostConfirmation(error.estimate, error.message);
+        const approved = await requestCostConfirmation(error.estimate, error.message, signal);
         if (!approved || signal.aborted) return { status: 'cancelled' };
         if (!error.estimate.promise_set_hash) {
           return { status: 'failed', error: 'The server did not provide the confirmation hash for this preview.' };
@@ -612,6 +605,7 @@ export function createActionCompareRunner(
     }
 
     onStarted(started.preview_id);
+    if (signal.aborted) return { status: 'cancelled', previewId: started.preview_id };
     const preview = await pollComparisonPreview(api, started.preview_id, {
       signal,
       intervalMs: 250,
