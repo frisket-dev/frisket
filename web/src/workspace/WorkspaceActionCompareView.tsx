@@ -22,7 +22,7 @@ import {
   createActionComparePresentation,
 } from '../workbench/actionComparePresentation';
 import { CompareDiscardDialog } from '../workbench/CompareDiscardDialog';
-import { ActionCompareHistoryDialog } from './ActionCompareHistoryDialog';
+import { ActionCompareHistoryMenu } from './ActionCompareHistoryMenu';
 import { useMainViewModel } from './WorkspaceContext';
 
 export const ActionCompareVariantChoiceOwner = memo(function ActionCompareVariantChoiceOwner({
@@ -134,10 +134,13 @@ function ActionCompareContents() {
   </>;
 }
 
-export function WorkspaceActionCompareHistory() {
+export function WorkspaceActionCompareHistoryMenu() {
   const model = useMainViewModel();
-  const anchor = model.actionCompareHistoryAnchor;
-  return anchor && <ActionCompareHistoryDialog anchor={anchor}
-    onChoose={chosen => { model.setActionCompareHistoryAnchor(null); void model.editActionRun(chosen); }}
-    onClose={() => model.setActionCompareHistoryAnchor(null)} />;
+  const target = model.actionCompareHistoryMenuTarget;
+  return target && <ActionCompareHistoryMenu anchor={target.runAnchor} trigger={target.trigger}
+    onChoose={chosen => {
+      model.closeActionCompareHistory();
+      void model.restoreActionRunSettings(chosen);
+    }}
+    onClose={model.closeActionCompareHistory} />;
 }

@@ -1,7 +1,7 @@
 import '../workbench/contributions.css';
 import './WorkspaceMainView.css';
 import '../grid/SheetGrid.css';
-import { WorkspaceActionCompareView, WorkspaceActionCompareHistory } from './WorkspaceActionCompareView';
+import { WorkspaceActionCompareView, WorkspaceActionCompareHistoryMenu } from './WorkspaceActionCompareView';
 import { CompareDiscardDialog } from '../workbench/CompareDiscardDialog';
 import { memo } from 'react';
 import { ImportDropzone } from '../components/importWorkspace/ImportDropzone';
@@ -105,7 +105,7 @@ function WorkspaceMainViewBody() {
     );
   return (
     <>
-      <WorkspaceActionCompareHistory />
+      <WorkspaceActionCompareHistoryMenu />
       {actionCompareOpen && <div className="workbench-ocr-compare-keepalive" hidden={!actionCompareActive}>
         <WorkspaceActionCompareView />
       </div>}

@@ -1,0 +1,66 @@
+.action-compare-history-menu {
+  max-height: min(420px, calc(100vh - 16px));
+}
+
+.action-compare-history-summary {
+  padding: 4px 10px 7px;
+  color: var(--text-light);
+  font-size: 11px;
+}
+
+.action-compare-history-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.action-compare-history-item {
+  align-items: flex-start;
+  color: var(--text);
+}
+
+.action-compare-history-item .menu-item-label {
+  justify-content: space-between;
+}
+
+.action-compare-history-column {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action-compare-history-status {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: var(--radius-999);
+  color: var(--text-mid);
+  background: var(--bg-panel);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.action-compare-history-item[data-active='true'] .action-compare-history-status {
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+
+.action-compare-history-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 5px 0 10px;
+  border-top: 1px solid var(--border);
+  color: var(--text-light);
+  font-size: 11px;
+}
+
+.action-compare-history-footer > div {
+  display: flex;
+}
+
+.action-compare-history-footer .menu-item {
+  width: auto;
+  padding: 6px;
+}

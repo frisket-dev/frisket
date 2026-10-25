@@ -43,7 +43,6 @@ export function WorkspaceHeaderMenuSlot() {
     visibleOrderedColumns,
     loadActionRunEntry,
     compareActionRun,
-    editActionRun,
   } = useMainViewModel();
   const { openDiscover } = useWorkspaceShell();
   const run = useRun();
@@ -129,7 +128,6 @@ export function WorkspaceHeaderMenuSlot() {
                   state={visibleHeaderMenu}
                   actionRunEntry={actionRunEntry}
                   onCompareActionRun={anchor => { closeHeaderMenu(); compareActionRun(anchor); }}
-                  onEditActionRun={anchor => { closeHeaderMenu(); void editActionRun(anchor); }}
                   activeSort={headerMenuActiveSort}
                   activeFilter={headerMenuActiveFilter}
                   onSort={(direction) => {

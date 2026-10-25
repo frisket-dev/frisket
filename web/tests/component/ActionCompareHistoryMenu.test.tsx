@@ -4,7 +4,7 @@ import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createProjectApi } from '../../src/api/real';
 import type { ColumnRun, ColumnRunsInfo } from '../../src/api/types';
-import { ActionCompareHistoryDialog } from '../../src/workspace/ActionCompareHistoryDialog';
+import { ActionCompareHistoryMenu } from '../../src/workspace/ActionCompareHistoryMenu';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
 
 const projectApi = createProjectApi('compare-history');
@@ -15,6 +15,7 @@ const { render } = createWorkspaceTestHarness({
 
 afterEach(() => {
   cleanup();
+  document.querySelectorAll('[data-history-test-trigger]').forEach((element) => element.remove());
   vi.restoreAllMocks();
 });
 
@@ -62,8 +63,15 @@ function page(overrides: Partial<ColumnRunsInfo> = {}): ColumnRunsInfo {
 
 const anchor = { sheetId: 'sheet-1', runId: 'run-42', columnId: 'column-7' };
 
-describe('ActionCompareHistoryDialog', () => {
-  it('pages actual stored runs and returns an explicit run anchor', async () => {
+function trigger(): HTMLButtonElement {
+  const button = document.createElement('button');
+  button.dataset.historyTestTrigger = 'true';
+  document.body.append(button);
+  return button;
+}
+
+describe('ActionCompareHistoryMenu', () => {
+  it('anchors bounded stored-run pages and returns the selected run identity', async () => {
     const getColumnRuns = vi.spyOn(projectApi, 'getColumnRuns')
       .mockResolvedValueOnce(page())
       .mockResolvedValueOnce(page({
@@ -80,13 +88,17 @@ describe('ActionCompareHistoryDialog', () => {
       }));
     const choose = vi.fn();
     const close = vi.fn();
-    render(<ActionCompareHistoryDialog anchor={anchor} onChoose={choose} onClose={close} />);
+    render(<ActionCompareHistoryMenu anchor={anchor} trigger={trigger()}
+      onChoose={choose} onClose={close} />);
 
+    expect(screen.getByTestId('action-compare-history-menu')).toHaveAttribute(
+      'aria-label',
+      'Earlier runs',
+    );
     await waitFor(() => expect(getColumnRuns).toHaveBeenCalledWith('column-7', 0, 20));
-    expect(await screen.findByText('Extract structured fields')).toBeInTheDocument();
-    expect(screen.getByText('Qwen 3 4B')).toBeInTheDocument();
-    expect(screen.getByText('Current')).toBeInTheDocument();
-    expect(screen.getByText(/Current values include more than one run or manual edits/)).toBeInTheDocument();
+    expect(await screen.findByText('Qwen 3 4B', { exact: false })).toBeInTheDocument();
+    expect(screen.getByText('In table')).toBeInTheDocument();
+    expect(screen.getByText('240 rows', { exact: false })).toBeInTheDocument();
     expect(screen.queryByText('DO_NOT_RENDER')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('action-compare-history-choose-run-42'));
@@ -94,23 +106,43 @@ describe('ActionCompareHistoryDialog', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Older' }));
     await waitFor(() => expect(getColumnRuns).toHaveBeenCalledWith('column-7', 20, 20));
-    expect(await screen.findByText('Claude Sonnet')).toBeInTheDocument();
+    expect(await screen.findByText('Claude Sonnet', { exact: false })).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('action-compare-history-choose-run-older'));
     expect(choose).toHaveBeenLastCalledWith({ ...anchor, runId: 'run-older' });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Close earlier runs' }));
+    fireEvent.keyDown(document, { key: 'Escape' });
     expect(close).toHaveBeenCalledTimes(1);
   });
 
-  it('shows a bounded retry state without fabricating history', async () => {
+  it('retries a failed page without fabricating history records', async () => {
     const getColumnRuns = vi.spyOn(projectApi, 'getColumnRuns')
       .mockRejectedValueOnce(new Error('History is temporarily unavailable'))
-      .mockResolvedValueOnce(page({ totalRuns: 0, hasMore: false, nextOffset: null, mixedOrigins: false, runs: [] }));
-    render(<ActionCompareHistoryDialog anchor={anchor} onChoose={vi.fn()} onClose={vi.fn()} />);
+      .mockResolvedValueOnce(page({ totalRuns: 0, hasMore: false, nextOffset: null, runs: [] }));
+    render(<ActionCompareHistoryMenu anchor={anchor} trigger={trigger()}
+      onChoose={vi.fn()} onClose={vi.fn()} />);
 
     expect(await screen.findByText('History is temporarily unavailable')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
-    expect(await screen.findByText('No stored runs are available.')).toBeInTheDocument();
+    expect(await screen.findByText('No stored runs.')).toBeInTheDocument();
     expect(getColumnRuns).toHaveBeenCalledTimes(2);
+  });
+
+  it('renders only paged runs, not separate latest/current summary records', async () => {
+    vi.spyOn(projectApi, 'getColumnRuns').mockResolvedValue(page({
+      totalRuns: 0,
+      hasMore: false,
+      nextOffset: null,
+      currentRun: run({ runId: 'current-summary' }),
+      currentRunLoaded: true,
+      latestRun: run({ runId: 'latest-summary' }),
+      latestRunLoaded: true,
+      runs: [],
+    }));
+    render(<ActionCompareHistoryMenu anchor={anchor} trigger={trigger()}
+      onChoose={vi.fn()} onClose={vi.fn()} />);
+
+    expect(await screen.findByText('No stored runs.')).toBeInTheDocument();
+    expect(screen.queryByTestId('action-compare-history-choose-current-summary')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('action-compare-history-choose-latest-summary')).not.toBeInTheDocument();
   });
 });

@@ -82,7 +82,6 @@ const menuEntry: ActionColumnMenuEntry = {
 
 function renderColumnMenu(entry: ActionColumnMenuEntry | null) {
   const compare = vi.fn();
-  const edit = vi.fn();
   render(
     <GridColumnHeaderMenu
       state={{
@@ -102,7 +101,6 @@ function renderColumnMenu(entry: ActionColumnMenuEntry | null) {
       onColumnAction={vi.fn()}
       actionRunEntry={entry}
       onCompareActionRun={compare}
-      onEditActionRun={edit}
       frozenColumnCount={0}
       onFreezeColumns={vi.fn()}
       onUnfreezeColumns={vi.fn()}
@@ -121,19 +119,18 @@ function renderColumnMenu(entry: ActionColumnMenuEntry | null) {
       onSetRowTitleColumn={vi.fn()}
     />,
   );
-  return { compare, edit };
+  return { compare };
 }
 
 describe('generated column menu entry', () => {
-  it('shows readable whole-family actions and emits the exact run anchor', () => {
+  it('shows only Compare and emits the exact whole-family run anchor', () => {
     const callbacks = renderColumnMenu(menuEntry);
     expect(screen.getByText('Extract structured fields')).toBeInTheDocument();
     expect(screen.queryByText('map.extract')).not.toBeInTheDocument();
     expect(screen.queryByText(/output columns?/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId('header-menu-compare-action-run'));
-    fireEvent.click(screen.getByTestId('header-menu-edit-action-run'));
     expect(callbacks.compare).toHaveBeenCalledWith(anchor);
-    expect(callbacks.edit).toHaveBeenCalledWith(anchor);
+    expect(screen.queryByText('Edit settings…')).not.toBeInTheDocument();
     expect(screen.queryByText('Earlier runs')).not.toBeInTheDocument();
   });
 

@@ -61,7 +61,7 @@ export interface ActionFormHeaderProps {
   sheetName?: string;
   /** Visible launch provenance, e.g. `on Court filings · from variant B`. */
   contextLabel?: string;
-  onOpenHistory?(): void;
+  onOpenHistory?(trigger: HTMLButtonElement): void;
   switchActions?: ActionTemplate[];
   onSwitchAction?(actionTemplate: ActionTemplate): void;
   variant: 'panel' | 'drawer';
@@ -155,7 +155,8 @@ export function ActionFormHeader({
         </span>
       ) : undefined}
       actions={variant === 'drawer' ? <>
-        {onOpenHistory && <IconButton icon={CalendarClock} onClick={onOpenHistory}
+        {onOpenHistory && <IconButton icon={CalendarClock}
+          onClick={(event) => onOpenHistory(event.currentTarget)}
           className="action-history-trigger" label="Earlier runs" data-testid="action-history-button" />}
         <ActionHelpPopover action={actionTemplate} />
       </> : undefined}

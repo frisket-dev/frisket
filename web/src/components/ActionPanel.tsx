@@ -130,7 +130,7 @@ export interface ActionPanelProps {
    * explicit null, so later grid changes cannot silently retarget Compare. */
   onCompareAction?(draft: GeneratedActionDraft,
     capturedSelection?: ActionCompareCapturedSelection | null): void;
-  onOpenActionHistory?(actionId: string): void;
+  onOpenActionHistory?(trigger: HTMLButtonElement): void;
   onReturnToActionCompare?(): void;
 }
 
@@ -625,8 +625,7 @@ export function ActionPanel({
                 actionCompareLaunch ? actionCompareLaunch.capturedSelection : undefined)
               : undefined}
             onOpenHistory={actionCompareLaunch?.context.comparison_basis.kind === 'run'
-              && onOpenActionHistory
-              ? () => onOpenActionHistory(generatedCatalogEntry.kind) : undefined}
+              ? onOpenActionHistory : undefined}
             sampleColumnValues={sampleColumnValues}
             onOpenDiagnose={() => chrome.openDiagnosePanel(project)}
             onBackfill={onBackfill}

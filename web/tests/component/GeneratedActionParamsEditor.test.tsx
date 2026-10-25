@@ -426,8 +426,10 @@ describe('GeneratedActionParamsEditor', () => {
   it('keeps Compare and final replacement scopes distinct for an existing action', async () => {
     const { onCompare, onExecute, onOpenHistory } = mountFinalForm('edit-existing');
     expect(screen.getByText('on Court filings · settings from run 42')).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('action-history-button'));
+    const historyButton = screen.getByTestId('action-history-button');
+    fireEvent.click(historyButton);
     expect(onOpenHistory).toHaveBeenCalledTimes(1);
+    expect(onOpenHistory).toHaveBeenCalledWith(historyButton);
 
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
     expect(screen.getByTestId('generated-action-run')).toHaveTextContent('Compare');
@@ -452,8 +454,11 @@ describe('GeneratedActionParamsEditor', () => {
   });
 
   it('keeps replacement scope truthful and reversible when a selected-row launch is cancelled', async () => {
-    const { onExecute, onReturnToCompare } = mountFinalForm('use-comparison-variant');
+    const { onExecute, onOpenHistory, onReturnToCompare } = mountFinalForm('use-comparison-variant');
     expect(screen.getByText('on Court filings · from variant B')).toBeInTheDocument();
+    const historyButton = screen.getByTestId('action-history-button');
+    fireEvent.click(historyButton);
+    expect(onOpenHistory).toHaveBeenCalledWith(historyButton);
     expect(screen.getByTestId('comparison-stale-run-notice')).toHaveTextContent(
       'This run will use current data',
     );

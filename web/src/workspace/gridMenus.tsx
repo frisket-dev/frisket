@@ -10,7 +10,6 @@ import {
   GitCompareArrows,
   ListFilter,
   MapPin,
-  Pencil,
   Pin,
   PinOff,
   Save,
@@ -48,7 +47,6 @@ export function GridColumnHeaderMenu({
   actionsDisabled,
   actionRunEntry,
   onCompareActionRun,
-  onEditActionRun,
   frozenColumnCount,
   onFreezeColumns,
   onUnfreezeColumns,
@@ -258,17 +256,6 @@ export function GridColumnHeaderMenu({
             >
               <GitCompareArrows size={14} aria-hidden />
               Compare settings…
-            </button>
-          )}
-          {onEditActionRun && (
-            <button
-              type="button"
-              className="grid-header-menu-item"
-              data-testid="header-menu-edit-action-run"
-              onClick={() => onEditActionRun(actionRunEntry.anchor)}
-            >
-              <Pencil size={14} aria-hidden />
-              Edit settings…
             </button>
           )}
         </>

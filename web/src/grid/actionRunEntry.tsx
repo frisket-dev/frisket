@@ -1,5 +1,5 @@
 import './actionRunEntry.css';
-import { GitCompareArrows, Pencil, Sparkles } from 'lucide-react';
+import { GitCompareArrows, Sparkles } from 'lucide-react';
 import type { CSSProperties, ReactNode } from 'react';
 import { Button } from '../components/Button';
 import { countLabel, formatRelativeTime } from '../format';
@@ -36,7 +36,6 @@ export interface ActionColumnMenuEntry {
 
 export interface ActionRunEntryCallbacks {
   onCompareActionRun?(anchor: ActionRunAnchor): void;
-  onEditActionRun?(anchor: ActionRunAnchor): void;
 }
 
 function safeLabels(labels: readonly string[]): string[] {
@@ -72,7 +71,6 @@ export function ActionRunEntryCard({
   selectedRowCount,
   layoutControls,
   onCompareActionRun,
-  onEditActionRun,
   onPointerEnter,
   onPointerLeave,
   style,
@@ -137,16 +135,6 @@ export function ActionRunEntryCard({
                 {selectedRowCount > 0
                   ? `Compare on ${countLabel(selectedRowCount, 'row')}…`
                   : 'Compare…'}
-              </Button>
-            )}
-            {onEditActionRun && (
-              <Button
-                type="button"
-                className="action-run-entry-secondary"
-                data-testid="action-run-entry-edit"
-                onClick={() => onEditActionRun(anchor)}
-              >
-                <Pencil size={13} aria-hidden /> Edit settings…
               </Button>
             )}
           </div>

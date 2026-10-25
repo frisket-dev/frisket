@@ -909,7 +909,6 @@ export function useWorkspaceModel({
           }}
           loadActionRunEntry={actionCompare.loadActionRunEntry}
           onCompareActionRun={actionCompare.compareActionRun}
-          onEditActionRun={actionCompare.editActionRun}
           onColumnOpen={openColumnPanel}
           onHeaderSort={sortHeaderColumn}
           onColumnHeaderMenu={openGridHeaderMenu}

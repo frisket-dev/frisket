@@ -1,17 +1,10 @@
-import './ActionCompareHistoryDialog.css';
-import { ChevronLeft, ChevronRight, Clock3 } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import './ActionCompareHistoryMenu.css';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ColumnRun, ColumnRunsInfo } from '../api/types';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
-import { Button } from '../components/Button';
-import { Modal } from '../components/Modal';
-import {
-  PanelEmpty,
-  PanelError,
-  PanelLoading,
-  PanelNotice,
-} from '../components/PanelPrimitives';
-import { formatDuration } from '../format';
+import { AnchoredMenu } from '../components/MenuPop';
+import { countLabel } from '../format';
 import type { ActionRunAnchor } from '../grid/actionRunEntry';
 
 const HISTORY_PAGE_SIZE = 20;
@@ -33,69 +26,63 @@ function runTime(run: ColumnRun): string {
   });
 }
 
-function statusLabel(status: string): string {
-  const words = status.trim().replace(/[_-]+/g, ' ');
-  return words ? `${words.charAt(0).toUpperCase()}${words.slice(1)}` : 'Unknown status';
-}
-
-function rowSummary(run: ColumnRun): string {
-  const facts = [
-    `${run.completedRows.toLocaleString()} of ${run.totalRows.toLocaleString()} rows completed`,
-  ];
-  if (run.failedRows > 0) facts.push(`${run.failedRows.toLocaleString()} failed`);
-  if (run.durationMs != null) facts.push(formatDuration(run.durationMs));
-  return facts.join(' · ');
+function runStatus(run: ColumnRun): string {
+  if (run.current) return 'In table';
+  const words = run.status.trim().replace(/[_-]+/g, ' ');
+  return words ? `${words.charAt(0).toUpperCase()}${words.slice(1)}` : 'Unknown';
 }
 
 function ActionRunHistoryItem({
   anchor,
+  columnName,
   run,
   onChoose,
 }: {
   anchor: ActionRunAnchor;
+  columnName: string;
   run: ColumnRun;
   onChoose(anchor: ActionRunAnchor): void;
 }) {
   return (
-    <li className="action-compare-history-item" data-current={run.current || undefined}>
-      <div className="action-compare-history-item-main">
-        <div className="action-compare-history-item-title">
-          <strong>{run.actionName || 'Action run'}</strong>
-          <span className="action-compare-history-status">{statusLabel(run.status)}</span>
-          {run.current && <span className="action-compare-history-current">Current</span>}
-        </div>
-        <div className="action-compare-history-model">
-          {run.model?.trim() || 'No model recorded'}
-        </div>
-        <div className="action-compare-history-meta">
-          <span>{rowSummary(run)}</span>
-          <span>{runTime(run)}</span>
-        </div>
-      </div>
-      <Button
+    <li>
+      <button
         type="button"
+        role="menuitem"
+        className="menu-item action-compare-history-item"
+        data-active={run.current || undefined}
         data-testid={`action-compare-history-choose-${run.runId}`}
         onClick={() => onChoose({ ...anchor, runId: run.runId })}
       >
-        Use settings
-      </Button>
+        <span className="menu-item-copy">
+          <span className="menu-item-label">
+            <span className="action-compare-history-column">{columnName}</span>
+            <span className="action-compare-history-status">{runStatus(run)}</span>
+          </span>
+          <span className="menu-item-description">
+            {run.model?.trim() || 'No model'} · {countLabel(run.totalRows, 'row')} · {runTime(run)}
+          </span>
+        </span>
+      </button>
     </li>
   );
 }
 
-/** Bounded, real stored-run history for one generated-column anchor. Choosing
- * a row only returns its identity; canonical draft restoration remains owned
- * by the comparison-context boundary. */
-export function ActionCompareHistoryDialog({
+/** Bounded stored-run history anchored to the action-header clock. Choosing a
+ * real run returns only its identity; canonical settings restoration remains
+ * owned by the comparison-context boundary. */
+export function ActionCompareHistoryMenu({
   anchor,
+  trigger,
   onChoose,
   onClose,
 }: {
   anchor: ActionRunAnchor;
+  trigger: HTMLButtonElement;
   onChoose(anchor: ActionRunAnchor): void;
   onClose(): void;
 }) {
   const { projectApi } = useWorkspaceStores();
+  const triggerRef = useMemo(() => ({ current: trigger }), [trigger]);
   const requestSequence = useRef(0);
   const [state, setState] = useState<HistoryLoadState>({
     columnId: anchor.columnId,
@@ -140,51 +127,46 @@ export function ActionCompareHistoryDialog({
     ? Math.max(0, visibleState.offset - HISTORY_PAGE_SIZE)
     : null;
   const olderOffset = info?.hasMore ? info.nextOffset : null;
-  const pageStart = info && info.runs.length > 0 ? info.offset + 1 : 0;
-  const pageEnd = info ? info.offset + info.runs.length : 0;
 
   return (
-    <Modal
-      title={<><Clock3 size={15} aria-hidden /> Earlier runs</>}
+    <AnchoredMenu
+      anchorRef={triggerRef}
       onClose={onClose}
-      closeLabel="Close earlier runs"
-      testId="action-compare-history-dialog"
-      size="wide"
+      width={360}
+      align="right"
+      dismissOnFocusOutside
+      className="action-compare-history-menu"
+      data-testid="action-compare-history-menu"
+      aria-label="Earlier runs"
     >
-      <p className="action-compare-history-intro">
-        Choose a stored run to load its settings. Your comparison rows and final run scope stay unchanged.
-      </p>
-
+      <div className="menu-section-label">Earlier runs</div>
       {visibleState.status === 'loading' && (
-        <PanelLoading label="Loading earlier runs…" testId="action-compare-history-loading" />
+        <div className="menu-empty" role="status">Loading…</div>
       )}
       {visibleState.status === 'error' && (
         <>
-          <PanelError testId="action-compare-history-error">{visibleState.error}</PanelError>
-          <Button type="button" onClick={() => loadPage(visibleState.offset)}>Try again</Button>
+          <div className="menu-error" role="alert">{visibleState.error}</div>
+          <button type="button" className="menu-item" onClick={() => loadPage(visibleState.offset)}>
+            Try again
+          </button>
         </>
       )}
       {info && (
         <>
           <div className="action-compare-history-summary">
-            <strong>{info.columnName}</strong>
-            <span>
-              {info.totalRuns.toLocaleString()} stored {info.totalRuns === 1 ? 'run' : 'runs'}
-            </span>
+            {info.columnName} · {countLabel(info.totalRuns, 'run')}
           </div>
-          {info.mixedOrigins && (
-            <PanelNotice tone="warning" className="action-compare-history-mixed" role="note">
-              Current values include more than one run or manual edits. History restores settings only.
-            </PanelNotice>
-          )}
           {info.runs.length === 0 ? (
-            <PanelEmpty testId="action-compare-history-empty">No stored runs are available.</PanelEmpty>
+            <div className="menu-empty" data-testid="action-compare-history-empty">
+              No stored runs.
+            </div>
           ) : (
             <ul className="action-compare-history-list">
               {info.runs.map((run) => (
                 <ActionRunHistoryItem
                   key={run.runId}
                   anchor={anchor}
+                  columnName={info.columnName}
                   run={run}
                   onChoose={onChoose}
                 />
@@ -193,28 +175,22 @@ export function ActionCompareHistoryDialog({
           )}
           <footer className="action-compare-history-footer">
             <span>
-              {pageStart.toLocaleString()}–{pageEnd.toLocaleString()} of{' '}
-              {info.totalRuns.toLocaleString()}
+              {info.offset + (info.runs.length > 0 ? 1 : 0)}–{info.offset + info.runs.length}
+              {' '}of {info.totalRuns.toLocaleString()}
             </span>
             <div>
-              <Button
-                type="button"
-                disabled={newerOffset == null}
-                onClick={() => newerOffset != null && loadPage(newerOffset)}
-              >
+              <button type="button" className="menu-item" disabled={newerOffset == null}
+                onClick={() => newerOffset != null && loadPage(newerOffset)}>
                 <ChevronLeft size={14} aria-hidden /> Newer
-              </Button>
-              <Button
-                type="button"
-                disabled={olderOffset == null}
-                onClick={() => olderOffset != null && loadPage(olderOffset)}
-              >
+              </button>
+              <button type="button" className="menu-item" disabled={olderOffset == null}
+                onClick={() => olderOffset != null && loadPage(olderOffset)}>
                 Older <ChevronRight size={14} aria-hidden />
-              </Button>
+              </button>
             </div>
           </footer>
         </>
       )}
-    </Modal>
+    </AnchoredMenu>
   );
 }

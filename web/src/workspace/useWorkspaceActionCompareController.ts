@@ -27,6 +27,11 @@ interface ComparisonTarget {
   sampleRowIds?: number[];
 }
 
+interface ActionCompareHistoryMenuTarget {
+  runAnchor: ActionRunAnchor;
+  trigger: HTMLButtonElement;
+}
+
 class ActionComparisonUnavailableError extends Error {}
 
 /** Bridges comparison-session cancellation to the shared cost gate without
@@ -78,9 +83,9 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
   const [session, setSession] = useState<ActionCompareSession | null>(null);
   const sessionRef = useRef<ActionCompareSession | null>(null);
   const [pendingTarget, setPendingTarget] = useState<ComparisonTarget | null>(null);
-  const [historyAnchor, setHistoryAnchor] = useState<ActionRunAnchor | null>(null);
+  const [historyMenuTarget, setHistoryMenuTarget] = useState<ActionCompareHistoryMenuTarget | null>(null);
   const latestTarget = useRef<ComparisonTarget | null>(null);
-  const editAnchor = useRef<ActionRunAnchor | null>(null);
+  const historySeedAnchor = useRef<ActionRunAnchor | null>(null);
   const operation = useRef({ revision: 0, targetPending: false });
   const captureSelection = useCallback((targetSheet: string) => {
     if (targetSheet !== sheetId) return null;
@@ -205,7 +210,7 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
 
   const launchSettings = useCallback((context: ActionComparisonContext, draft: GeneratedActionDraft,
     selection: ActionCompareCapturedSelection | null, chosen?: ActionCompareUseSettings) => {
-    editAnchor.current = context.comparison_basis.kind === 'run' ? {
+    historySeedAnchor.current = context.comparison_basis.kind === 'run' ? {
       sheetId: String(context.sheet.id), columnId: String(context.comparison_basis.column_id),
       runId: String(context.comparison_basis.run_id),
     } : null;
@@ -216,7 +221,7 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
       returnToCompare: Boolean(sessionRef.current), comparisonStale: chosen?.comparisonStale ?? false,
     } });
   }, [runActionFromSurface]);
-  const editActionRun = useCallback(async (anchor: ActionRunAnchor) => {
+  const restoreActionRunSettings = useCallback(async (anchor: ActionRunAnchor) => {
     const supersedesRetarget = operation.current.targetPending;
     const revision = operation.current.revision + 1;
     operation.current = { revision, targetPending: false };
@@ -266,8 +271,8 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
         context = await readContext(targetForRun(anchor));
       } catch (error) {
         if (!(error instanceof ActionComparisonUnavailableError)) throw error;
-        // Keep the run metadata/Edit entry usable, but do not advertise a
-        // comparison that canonical context resolution refused.
+        // Keep run metadata usable, but do not advertise a comparison that
+        // canonical context resolution refused.
       }
     }
     return { actionTitle: run.actionName, comparisonKind: context ? comparisonKind : null,
@@ -277,13 +282,25 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
       outcomeLabel: run.status };
   }, [entries, projectApi, readContext, targetForRun]);
 
-  const openActionCompareHistory = useCallback(() => {
-    if (editAnchor.current) { setHistoryAnchor(editAnchor.current); return; }
+  const openActionCompareHistory = useCallback((trigger: HTMLButtonElement) => {
+    const seededRun = historySeedAnchor.current;
+    if (seededRun) {
+      setHistoryMenuTarget((current) => current?.trigger === trigger
+        ? null
+        : { runAnchor: seededRun, trigger });
+      return;
+    }
     const basis = sessionRef.current?.getSnapshot().context.comparison_basis;
     const context = sessionRef.current?.getSnapshot().context;
-    if (basis?.kind === 'run' && context) setHistoryAnchor({ sheetId: String(context.sheet.id),
-      runId: String(basis.run_id), columnId: String(basis.column_id) });
+    if (basis?.kind === 'run' && context) {
+      const runAnchor = { sheetId: String(context.sheet.id),
+        runId: String(basis.run_id), columnId: String(basis.column_id) };
+      setHistoryMenuTarget((current) => current?.trigger === trigger
+        ? null
+        : { runAnchor, trigger });
+    }
   }, []);
+  const closeActionCompareHistory = useCallback(() => setHistoryMenuTarget(null), []);
 
   const closeActionCompare = useCallback(() => {
     operation.current = { revision: operation.current.revision + 1, targetPending: false };
@@ -322,13 +339,13 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
 
   return useMemo(() => ({ actionCompareSession: session, actionCompareOpen: tab.open, actionCompareActive: tab.active,
     actionCompareCloseWarn: tab.closeWarn, actionComparePendingTarget: pendingTarget,
-    actionCompareHistoryAnchor: historyAnchor, setActionCompareHistoryAnchor: setHistoryAnchor,
-    openActionCompare, compareActionRun, editActionRun, loadActionRunEntry, useActionCompareSettings,
-    openActionCompareHistory, returnToActionCompare, closeActionCompare,
+    actionCompareHistoryMenuTarget: historyMenuTarget,
+    openActionCompare, compareActionRun, restoreActionRunSettings, loadActionRunEntry, useActionCompareSettings,
+    openActionCompareHistory, closeActionCompareHistory, returnToActionCompare, closeActionCompare,
     cancelActionCompareClose, cancelActionCompareRetarget, confirmActionCompareRetarget,
     refreshActionCompare,
   }), [cancelActionCompareClose, cancelActionCompareRetarget, closeActionCompare, compareActionRun,
-    confirmActionCompareRetarget, editActionRun, historyAnchor, loadActionRunEntry, openActionCompare,
+    closeActionCompareHistory, confirmActionCompareRetarget, historyMenuTarget, loadActionRunEntry, openActionCompare,
     openActionCompareHistory, pendingTarget, refreshActionCompare, returnToActionCompare, session, tab.active,
-    tab.closeWarn, tab.open, useActionCompareSettings]);
+    restoreActionRunSettings, tab.closeWarn, tab.open, useActionCompareSettings]);
 }

@@ -234,7 +234,7 @@ export interface GeneratedActionFormProps {
   /** Opens comparison from the current validated draft. Selection capture is
    * owned by the workspace controller, not rediscovered in this form. */
   onCompare?(draft: GeneratedActionDraft): void;
-  onOpenHistory?(): void;
+  onOpenHistory?(trigger: HTMLButtonElement): void;
   /** Browser-only draft publication for comparison editors. This value is
    * never invocation consent and is never persisted by the form. */
   onDraftChange?(draft: GeneratedActionDraft): void;

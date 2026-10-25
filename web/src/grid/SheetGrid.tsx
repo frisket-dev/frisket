@@ -352,7 +352,6 @@ export interface SheetGridProps {
    * Never called per row, per cell, or during ordinary grid rendering. */
   loadActionRunEntry?(anchor: ActionRunAnchor): Promise<ActionRunEntryDetails | null>;
   onCompareActionRun?(anchor: ActionRunAnchor): void;
-  onEditActionRun?(anchor: ActionRunAnchor): void;
   onColumnGroupsChange?(groups: ColumnGroupViewSpec[]): void;
   onSelectedRowsChange?(selection: { sheetId: string; rowIds: string[]; rowIndexes: number[] }): void;
   onColumnOrderChange?(columns: string[]): void;
@@ -1216,7 +1215,6 @@ function NativeColumnGroupMenu({
   selectedRowCount,
   showLayoutControls,
   onCompareActionRun,
-  onEditActionRun,
   onPointerEnter,
   onPointerLeave,
 }: {
@@ -1275,7 +1273,6 @@ function NativeColumnGroupMenu({
           selectedRowCount={selectedRowCount}
           layoutControls={showLayoutControls ? layoutControls : undefined}
           onCompareActionRun={onCompareActionRun}
-          onEditActionRun={onEditActionRun}
           onPointerEnter={onPointerEnter}
           onPointerLeave={onPointerLeave}
           style={{
@@ -1352,7 +1349,7 @@ function useSheetGridController({
   onRevealColumns, onAddColumnAtEnd,
   onRowOpen, onColumnOpen, onHeaderSort, onSelectedRowsChange,
   onColumnHeaderMenu, loadActionRunEntry,
-  onCompareActionRun, onEditActionRun,
+  onCompareActionRun,
   onColumnGroupsChange, onColumnOrderChange, onCellEdit,
   onFacetValueFilter, rowCacheStore,
   columnAnnotations: externalColumnAnnotations = EMPTY_COLUMN_ANNOTATIONS,
@@ -1493,7 +1490,7 @@ function useSheetGridController({
     onHeaderSort,
     aiColumnTheme,
     loadActionRunEntry,
-    { onCompareActionRun, onEditActionRun },
+    { onCompareActionRun },
   );
 
   const previewColumnAt = useCallback((col: number) => {
@@ -2473,7 +2470,6 @@ function SheetGridSurface({ controller }: { controller: SheetGridController }) {
             selectedRowCount={gridSelection.rows.toArray().length}
             showLayoutControls={headerHandlers.activeGroupMenuPinned}
             onCompareActionRun={headerHandlers.onCompareActionRun}
-            onEditActionRun={headerHandlers.onEditActionRun}
             onPointerEnter={headerHandlers.keepGroupHoverOpen}
             onPointerLeave={headerHandlers.closeGroupHover}
           />

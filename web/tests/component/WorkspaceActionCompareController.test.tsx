@@ -349,7 +349,7 @@ describe('useWorkspaceActionCompareController', () => {
     expect(harness!.runActionFromSurface).not.toHaveBeenCalled();
   });
 
-  it('loads actual run settings and anchors the launch to that run and source sheet', async () => {
+  it('restores actual run settings and anchors the launch to that run and source sheet', async () => {
     const olderDraft: GeneratedActionDraft = {
       ...ALL_ROWS_DRAFT,
       params: { ...ALL_ROWS_DRAFT.params, model: 'test/older-model', instruction: 'Older run settings' },
@@ -359,7 +359,7 @@ describe('useWorkspaceActionCompareController', () => {
     );
     const view = renderController(['31', '32']);
 
-    await act(async () => view.result.current.editActionRun({
+    await act(async () => view.result.current.restoreActionRunSettings({
       sheetId: '7', columnId: '101', runId: '42',
     }));
 
@@ -375,13 +375,17 @@ describe('useWorkspaceActionCompareController', () => {
         returnToCompare: false,
       }),
     });
-    act(() => view.result.current.openActionCompareHistory());
-    expect(view.result.current.actionCompareHistoryAnchor).toEqual({
-      sheetId: '7', columnId: '101', runId: '42',
+    const trigger = document.createElement('button');
+    act(() => view.result.current.openActionCompareHistory(trigger));
+    expect(view.result.current.actionCompareHistoryMenuTarget).toEqual({
+      runAnchor: { sheetId: '7', columnId: '101', runId: '42' },
+      trigger,
     });
+    act(() => view.result.current.closeActionCompareHistory());
+    expect(view.result.current.actionCompareHistoryMenuTarget).toBeNull();
   });
 
-  it('captures the current grid selection for Edit even when an open comparison has an older selection', async () => {
+  it('captures the current grid selection when restoring history beside an open comparison', async () => {
     vi.mocked(harness!.api.getContext).mockResolvedValue(comparisonContext({ runId: 42 }));
     let liveSelection: readonly string[] = ['11', '12'];
     const current = harness!;
@@ -404,7 +408,7 @@ describe('useWorkspaceActionCompareController', () => {
 
     liveSelection = ['31', '32'];
     view.rerender();
-    await act(async () => view.result.current.editActionRun({
+    await act(async () => view.result.current.restoreActionRunSettings({
       sheetId: '7', columnId: '101', runId: '42',
     }));
 
@@ -539,7 +543,7 @@ describe('useWorkspaceActionCompareController', () => {
     expect(harness!.stores.compareView.store.get().action.open).toBe(false);
   });
 
-  it('closes the obsolete comparison when Edit supersedes a pending retarget', async () => {
+  it('closes the obsolete comparison when history restoration supersedes a pending retarget', async () => {
     const initial = comparisonContext();
     const nextDraft = {
       ...ALL_ROWS_DRAFT,
@@ -563,9 +567,9 @@ describe('useWorkspaceActionCompareController', () => {
     expect(oldSession.getSnapshot().disposed).toBe(true);
     expect(view.result.current.actionCompareSession).toBeNull();
 
-    let edit!: Promise<void>;
+    let restore!: Promise<void>;
     act(() => {
-      edit = view.result.current.editActionRun({
+      restore = view.result.current.restoreActionRunSettings({
         sheetId: '7', columnId: '101', runId: '42',
       });
     });
@@ -574,7 +578,7 @@ describe('useWorkspaceActionCompareController', () => {
     await act(async () => {
       resolveRetarget(comparisonContext({ draft: nextDraft }));
       resolveEdit(comparisonContext({ runId: 42 }));
-      await edit;
+      await restore;
     });
 
     expect(harness!.runActionFromSurface).toHaveBeenCalledTimes(1);
