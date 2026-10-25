@@ -370,7 +370,7 @@ export function TopicSegmentationCompareTab({
           disabled={catalog.length === 0 || noAvailableEngines}
           onClick={addVariant}
         >
-          <Plus size={12} /> variant
+          <Plus size={12} /> Variant
         </button>
       </CompareToolbar>
 

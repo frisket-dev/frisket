@@ -4,7 +4,7 @@ import { Button } from '../components/Button';
 import { useState } from 'react';
 import { Modal } from '../components/Modal';
 
-export function CompareDiscardDialog({ title = 'Discard this scratch session?', description, verdict, testId, onCancel, onDiscard }: {
+export function CompareDiscardDialog({ title = 'Discard this comparison?', description, verdict, testId, onCancel, onDiscard }: {
   title?: string;
   description: string;
   verdict?: string;

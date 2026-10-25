@@ -1,9 +1,11 @@
-import { useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
-import { Check, Copy, Eye, EyeOff, LockKeyhole, Play, Plus, RotateCcw, Square, X } from 'lucide-react';
+import { useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { Check, Copy, Eye, EyeOff, LockKeyhole, Play, Plus, RotateCw, Square, X } from 'lucide-react';
 import type { ActionComparisonBoundedValue } from '../api/actionComparison';
 import type { GeneratedActionDraft } from '../api/types';
 import { Button } from '../components/Button';
 import { IconButton } from '../components/IconButton';
+import { WindowCloseButton } from '../components/WindowCloseButton';
+import { useEscapeDismiss } from '../hooks/useEscapeDismiss';
 import { OverflowRow } from '../components/OverflowRow';
 import { StatusChip, type StatusTone } from '../components/PanelPrimitives';
 import { CompareToolbar } from './CompareLayout';
@@ -73,6 +75,7 @@ export function ActionCompareTab({ projectId, session, rowHeight, wrapText, froz
   const [editingId, setEditingId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [editorMaxHeight, setEditorMaxHeight] = useState<number | null>(null);
+  const tooltipId = useId();
   const sectionRef = useRef<HTMLElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const { context } = state;
@@ -86,6 +89,10 @@ export function ActionCompareTab({ projectId, session, rowHeight, wrapText, froz
     ...context.source_columns.map((column) => ({ key: `source:${column.name}`, name: column.name })),
     ...context.output_columns.map((column) => ({ key: `output:${column.logical_key}`, name: column.current_name })),
   ];
+
+  useEscapeDismiss(() => { setEditingId(null); setHoveredId(null); }, {
+    enabled: editing !== null || hoveredId !== null, typingGuard: true,
+  });
 
   useLayoutEffect(() => {
     if (!editing) return undefined;
@@ -111,10 +118,10 @@ export function ActionCompareTab({ projectId, session, rowHeight, wrapText, froz
   }, [editing]);
 
   const controls = <>
-    {running ? <Button type="button" onClick={session.stop}><Square size={13} /> Stop</Button>
+    {running ? <Button type="button" onClick={session.stop}><Square size={13} /> Cancel</Button>
       : <Button type="button" disabled={!pending} onClick={() => void session.runPending()}><Play size={13} /> Run comparison</Button>}
     <Button type="button" aria-pressed={state.highlightDifferences}
-      aria-label={state.highlightDifferences ? 'Hide difference highlighting' : 'Highlight differences'}
+      aria-label="Highlight differences"
       onClick={() => session.setHighlightDifferences(!state.highlightDifferences)}>
       {state.highlightDifferences ? <Eye size={13} /> : <EyeOff size={13} />} Highlight differences
     </Button>
@@ -134,12 +141,16 @@ export function ActionCompareTab({ projectId, session, rowHeight, wrapText, froz
           return <div key={variant.id} className="action-compare-variant" data-status={variant.status}
             data-active={editingId === variant.id || hoveredId === variant.id ? 'true' : undefined}
             data-testid={`action-compare-variant-${variant.displayKey}`}
-            onMouseEnter={() => setHoveredId(variant.id)} onMouseLeave={() => setHoveredId(null)}>
+            onMouseEnter={() => setHoveredId(variant.id)} onMouseLeave={() => setHoveredId(null)}
+            onFocus={() => setHoveredId(variant.id)} onBlur={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget)) setHoveredId(null);
+            }}>
             {variant.baseline ? <div className="action-compare-variant-body" aria-label={`Variant ${variant.displayKey}`}>
               <strong className="action-compare-variant-key">{variant.displayKey}</strong><span>{displayLabel}</span>
               <StatusChip tone={statusTone(variant.status)} size="sm">{statusLabel(variant)}</StatusChip>
             </div> : <button type="button" className="action-compare-variant-body"
-              aria-label={`Configure variant ${variant.displayKey}`} onClick={() => setEditingId(variant.id)}>
+              aria-label={`Configure variant ${variant.displayKey}`}
+              aria-describedby={changes.length > 0 ? tooltipId : undefined} onClick={() => setEditingId(variant.id)}>
               <strong className="action-compare-variant-key">{variant.displayKey}</strong><span>{displayLabel}</span>
               <StatusChip tone={statusTone(variant.status)} size="sm">{statusLabel(variant)}</StatusChip>
             </button>}
@@ -150,9 +161,9 @@ export function ActionCompareTab({ projectId, session, rowHeight, wrapText, froz
                 label={`Remove variant ${variant.displayKey}`} onClick={() => {
                   setEditingId((current) => current === variant.id ? null : current); session.removeVariant(variant.id);
                 }} />}
-            {['failed', 'cancelled', 'unavailable'].includes(variant.status) && <IconButton icon={RotateCcw} size="inline"
+            {['failed', 'cancelled', 'unavailable'].includes(variant.status) && <IconButton icon={RotateCw} size="inline"
               label={`Retry variant ${variant.displayKey}`} onClick={() => session.retryVariant(variant.id)} />}
-            {changes.length > 0 && <div className="action-compare-settings" role="tooltip">
+            {changes.length > 0 && <div id={tooltipId} className="action-compare-settings" role="tooltip">
               <strong><span className="action-compare-variant-key">{variant.displayKey}</span> {displayLabel}</strong>
               {changes.map((change) => <div key={change.label}><span>{change.label}</span>
                 <span className="action-compare-setting-values"><del>{change.before}</del><ins>{change.after}</ins></span>
@@ -168,7 +179,7 @@ export function ActionCompareTab({ projectId, session, rowHeight, wrapText, froz
       {editing && renderVariantEditor && <aside className="action-compare-editor" style={editorMaxHeight === null
         ? undefined : { maxHeight: editorMaxHeight }} aria-label={`Configure variant ${editing.displayKey}`}>
         <header><strong><span className="action-compare-variant-key">{editing.displayKey}</span> {editingLabel}</strong>
-          <IconButton icon={X} size="inline" label="Close variant editor" onClick={() => setEditingId(null)} /></header>
+          <WindowCloseButton size="inline" label="Close variant editor" onClick={() => setEditingId(null)} /></header>
         <div className="action-compare-editor-body">
           {renderVariantEditor({
             variantId: editing.id, label: editing.displayKey, draft: editing.draft,
@@ -189,7 +200,7 @@ export function ActionCompareTab({ projectId, session, rowHeight, wrapText, froz
         className="action-compare-visibility-row" overflowLabel="More comparison fields"
         triggerClassName="action-compare-visibility-overflow"
         renderItem={({ key, name }) => { const visible = !hidden.has(key); return <Button type="button" aria-pressed={visible}
-          aria-label={`${visible ? 'Hide' : 'Show'} ${name}`} onClick={() => session.setColumnVisible(key, !visible)}>
+          aria-label={name} onClick={() => session.setColumnVisible(key, !visible)}>
           {visible ? '✓' : '+'} {name}
         </Button>; }}
         renderOverflowItem={({ key, name }, closeMenu) => { const visible = !hidden.has(key); return <button type="button"

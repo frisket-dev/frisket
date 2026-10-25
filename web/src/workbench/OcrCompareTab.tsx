@@ -432,7 +432,7 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
           disabled={busy}
           onClick={addEngineFlow}
         >
-          <Plus size={12} /> engine
+          <Plus size={12} /> Engine
         </button>
       </CompareToolbar>
 

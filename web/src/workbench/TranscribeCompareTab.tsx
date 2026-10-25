@@ -210,7 +210,7 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
   return (
     <section className="ocr-compare-tab" data-testid="transcribe-compare-tab">
       {session.selectorOwners}
-      <CompareToolbar testIdPrefix="transcribe-compare" running={runningCount > 0} label="ENGINES" chipsTestId="transcribe-compare-engine-chips" disabled={busy} tag="temporary files · usage is recorded"
+      <CompareToolbar testIdPrefix="transcribe-compare" running={runningCount > 0} label="Engines" chipsTestId="transcribe-compare-engine-chips" disabled={busy}
         controls={<>
           <label className="form-label form-field">First seconds
             <TextInput type="number" min="0.001" step="any"
@@ -294,7 +294,7 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
           disabled={busy}
           onClick={addVariant}
         >
-          <Plus size={12} /> engine
+          <Plus size={12} /> Engine
         </button>
       </CompareToolbar>
 

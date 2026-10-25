@@ -133,6 +133,11 @@ describe('ActionCompareTab', () => {
     expect(within(tooltip).getByText('New instructions').tagName).toBe('INS');
     expect(within(tooltip).queryByText('→')).not.toBeInTheDocument();
     fireEvent.mouseLeave(screen.getByTestId('action-compare-variant-B'));
+    const configure = screen.getByRole('button', { name: 'Configure variant B' });
+    fireEvent.focus(configure);
+    expect(configure).toHaveAttribute('aria-describedby', screen.getByRole('tooltip').id);
+    fireEvent.keyDown(configure, { key: 'Escape' });
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
 
     const source = grid.getCellContent([0, 0]);
     expect(source).toMatchObject({ kind: GridCellKind.Text, displayData: 'First document', readonly: true });
@@ -147,12 +152,12 @@ describe('ActionCompareTab', () => {
     expect(failed).toMatchObject({ kind: GridCellKind.Text, displayData: '⚠ Provider refused this row' });
     expect(actionCompareGridCellFacts(failed)).toContain('Not compared');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Hide difference highlighting' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Highlight differences' }));
     const unhighlighted = editor.props!.getCellContent([2, 0]);
     expect(unhighlighted.themeOverride?.bgCell).not.toBe(changed.themeOverride?.bgCell);
     expect(actionCompareGridCellFacts(unhighlighted)).toContain('Differs from A');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Show note' }));
+    fireEvent.click(screen.getByRole('button', { name: 'note' }));
     expect(editor.props!.columns.map((column) => column.title)).toEqual([
       'body', 'A · Current values', 'B · Claude Sonnet 4.5',
       'A · Current values', 'B · Claude Sonnet 4.5',
@@ -214,6 +219,8 @@ describe('ActionCompareTab', () => {
       structureLocked: true,
       lockReason: 'Fixed for this comparison',
     }));
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Close variant editor' }), { key: 'Escape' });
+    expect(screen.queryByRole('complementary')).not.toBeInTheDocument();
   });
 
   it('shows a retry affordance when a known preview becomes unavailable', async () => {
