@@ -69,7 +69,7 @@ function displayedCell(
   if (cell) return cell;
   if (variant.status === 'pending' || variant.status === 'running') return { state: 'pending' };
   if (variant.status === 'cancelled') return { state: 'cancelled' };
-  if (variant.status === 'failed' || variant.status === 'expired') {
+  if (variant.status === 'failed' || variant.status === 'unavailable') {
     return { state: 'error', error: variant.error ?? 'Preview failed' };
   }
   return { state: 'missing' };

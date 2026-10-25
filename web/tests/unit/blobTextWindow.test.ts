@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { BLOB_TEXT_SECTION_BYTES, readDocumentTextWindow } from '../../src/api/raw/blobText';
+import { ApiError } from '../../src/api/contractErrors';
+import {
+  BLOB_TEXT_SECTION_BYTES,
+  readDocumentTextResource,
+  readDocumentTextWindow,
+} from '../../src/api/raw/blobText';
 
 function serve(text: string) {
   const bytes = new TextEncoder().encode(text);
@@ -79,5 +84,23 @@ describe('original blob text sections', () => {
     controller.abort();
     await expect(reading).rejects.toMatchObject({ name: 'AbortError' });
     expect(fetch).toHaveBeenCalledWith('/original', expect.objectContaining({ signal: controller.signal }));
+  });
+
+  it('preserves HTTP status for bounded and full-resource failures', async () => {
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      status: 404,
+      ok: false,
+      headers: new Headers(),
+      body: { cancel },
+    }));
+
+    await expect(readDocumentTextWindow('/missing', { signal: signal() })).rejects.toEqual(
+      expect.objectContaining<ApiError>({ status: 404, message: 'Could not load this file (404).' }),
+    );
+    await expect(readDocumentTextResource('/missing', { signal: signal() })).rejects.toEqual(
+      expect.objectContaining<ApiError>({ status: 404, message: 'Could not load this file (404).' }),
+    );
+    expect(cancel).toHaveBeenCalledOnce();
   });
 });

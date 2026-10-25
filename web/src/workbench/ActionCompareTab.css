@@ -3,7 +3,7 @@
 .action-compare-variant { position: relative; display: flex; flex: 0 0 auto; min-width: max-content; min-height: 34px; align-items: center; border: 1px solid var(--border-strong); border-radius: var(--radius-7); background: var(--bg); }
 .action-compare-variant[data-active='true'] { border-color: var(--accent); }
 .action-compare-variant[data-status='running'] { border-style: solid; border-color: var(--accent); }
-.action-compare-variant[data-status='failed'], .action-compare-variant[data-status='expired'] { border-color: var(--red); }
+.action-compare-variant[data-status='failed'], .action-compare-variant[data-status='unavailable'] { border-color: var(--red); }
 .action-compare-variant-body { display: inline-flex; min-height: 32px; align-items: center; gap: var(--space-6); padding: 0 var(--space-6) 0 var(--space-10); border: 0; color: inherit; background: transparent; font: inherit; white-space: nowrap; }
 .action-compare-variant-key { display: inline-flex; width: 20px; height: 20px; flex: 0 0 auto; align-items: center; justify-content: center; border: 1px solid var(--border-strong); border-radius: var(--radius-4); background: var(--bg-hover); color: var(--text); font-size: var(--font-size-small); line-height: 1; vertical-align: middle; }
 button.action-compare-variant-body { cursor: pointer; }

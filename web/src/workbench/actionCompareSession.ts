@@ -6,13 +6,16 @@ import type {
   ActionComparisonContext,
   ActionComparisonPreviewSnapshot,
 } from '../api/actionComparison';
-import { ConfirmationRequiredError } from '../api/contractErrors';
+import { ApiError, ConfirmationRequiredError } from '../api/contractErrors';
 import { pollPreviewJob } from '../api/previewJobTransport';
 import { freshActionRequestKey, type GeneratedActionDraft, type JsonValue, type RegisteredActionRequest, type RunEstimate } from '../api/types';
 import { jsonValuesEqual } from '../actions/canonicalJson';
 
 export type ActionCompareVariantStatus =
-  | 'pending' | 'running' | 'ready' | 'failed' | 'cancelled' | 'expired' | 'current';
+  | 'pending' | 'running' | 'ready' | 'failed' | 'cancelled' | 'unavailable' | 'current';
+
+export const ACTION_COMPARE_PREVIEW_UNAVAILABLE_MESSAGE =
+  'Preview no longer available; run this variant again.';
 
 export interface ActionCompareResultCell {
   state: 'value' | 'null' | 'missing' | 'error' | 'pending' | 'cancelled';
@@ -67,7 +70,7 @@ export type ActionCompareRunOutcome =
   | { status: 'ready'; previewId: string; result: ActionCompareVariantResult; stale?: boolean }
   | { status: 'failed'; previewId?: string | null; error: string }
   | { status: 'cancelled'; previewId?: string | null }
-  | { status: 'expired'; previewId?: string | null; error?: string };
+  | { status: 'unavailable'; previewId?: string | null; error?: string };
 
 export type ActionCompareVariantRun = (args: {
   context: ActionComparisonContext;
@@ -107,6 +110,7 @@ export interface ActionCompareSession {
   updateVariant(variantId: string, draft: GeneratedActionDraft): boolean;
   removeVariant(variantId: string): boolean;
   retryVariant(variantId: string): boolean;
+  markPreviewUnavailable(previewId: string): boolean;
   runPending(): Promise<void>;
   stop(): void;
   setColumnVisible(key: string, visible: boolean): void;
@@ -350,8 +354,22 @@ export function createActionCompareSession(
 
   function retryVariant(variantId: string): boolean {
     const current = snapshot.variants.find((variant) => variant.id === variantId);
-    if (!current || !['failed', 'cancelled', 'expired'].includes(current.status)) return false;
+    if (!current || !['failed', 'cancelled', 'unavailable'].includes(current.status)) return false;
     return replaceVariant(variantId, (variant) => ({ ...variant, status: 'pending', previewId: null, error: null }));
+  }
+
+  function markPreviewUnavailable(previewId: string): boolean {
+    const current = snapshot.variants.find((variant) => variant.previewId === previewId);
+    // A reader can outlive an edit or rerun. Only the exact completed preview
+    // may retire its own result; a late 404 cannot clobber newer work.
+    if (!current || current.status !== 'ready') return false;
+    return replaceVariant(current.id, (variant) => ({
+      ...variant,
+      status: 'unavailable',
+      result: null,
+      previousResult: variant.result ?? variant.previousResult,
+      error: ACTION_COMPARE_PREVIEW_UNAVAILABLE_MESSAGE,
+    }));
   }
 
   async function runOne(variantId: string, sequence: { stopRequested: boolean }): Promise<'continue' | 'stop'> {
@@ -406,11 +424,11 @@ export function createActionCompareSession(
           ...candidate, status: 'failed', previewId: outcomePreviewId,
           result: null, error: outcome.error,
         }));
-      } else if (outcome.status === 'expired') {
+      } else if (outcome.status === 'unavailable') {
         replaceVariant(variantId, (candidate) => ({
-          ...candidate, status: 'expired', previewId: outcomePreviewId,
+          ...candidate, status: 'unavailable', previewId: outcomePreviewId,
           result: null,
-          error: outcome.error ?? 'Preview expired; re-run this variant.',
+          error: outcome.error ?? ACTION_COMPARE_PREVIEW_UNAVAILABLE_MESSAGE,
         }));
       } else {
         replaceVariant(variantId, (candidate) => ({
@@ -515,6 +533,7 @@ export function createActionCompareSession(
     updateVariant,
     removeVariant,
     retryVariant,
+    markPreviewUnavailable,
     runPending,
     stop,
     setColumnVisible,
@@ -593,14 +612,26 @@ export function createActionCompareRunner(
 
     onStarted(started.preview_id);
     if (signal.aborted) return { status: 'cancelled', previewId: started.preview_id };
-    const preview = await pollComparisonPreview(api, started.preview_id, {
-      signal,
-      intervalMs: 250,
-      initialDelayMs: 0,
-      visibility: 'continue',
-      maxFailures: 3,
-      cancelOnFailure: true,
-    });
+    let preview: ActionComparisonPreviewSnapshot | null;
+    try {
+      preview = await pollComparisonPreview(api, started.preview_id, {
+        signal,
+        intervalMs: 250,
+        initialDelayMs: 0,
+        visibility: 'continue',
+        maxFailures: 3,
+        cancelOnFailure: true,
+      });
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) {
+        return {
+          status: 'unavailable',
+          previewId: started.preview_id,
+          error: ACTION_COMPARE_PREVIEW_UNAVAILABLE_MESSAGE,
+        };
+      }
+      throw error;
+    }
     if (!preview || preview.status === 'cancelled') {
       return { status: 'cancelled', previewId: started.preview_id };
     }

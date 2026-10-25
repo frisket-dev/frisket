@@ -3,6 +3,7 @@ import { isGeneratedActionCatalogEntry } from '../api/types';
 import type { ActionComparisonBoundedValue } from '../api/actionComparison';
 import type { HttpSelectorChoicesQuery, SelectorChoice } from '../api/selectorChoices';
 import { readDocumentTextResource, readDocumentTextWindow } from '../api/raw/blobText';
+import { ApiError } from '../api/contractErrors';
 import { useActionCatalogHandle } from '../bind/useActionCatalogHandle';
 import { useProjectDataResource } from '../bind/useRouteHandle';
 import { useSelector } from '../bind/useSelector';
@@ -21,6 +22,7 @@ import {
   actionCompareSelectorQuery,
   createActionComparePresentation,
 } from '../workbench/actionComparePresentation';
+import { ACTION_COMPARE_PREVIEW_UNAVAILABLE_MESSAGE } from '../workbench/actionCompareSession';
 import { CompareDiscardDialog } from '../workbench/CompareDiscardDialog';
 import { ActionCompareHistoryMenu } from './ActionCompareHistoryMenu';
 import { loadFrozenColumnCount } from './gridColumnState';
@@ -64,9 +66,32 @@ function VariantEditor({ editor, sheetId }: { editor: ActionCompareVariantEditor
     resolveParams={resolveParams} />;
 }
 
-function PreviewValueReader({ value }: { value: Extract<ActionComparisonBoundedValue, { kind: 'preview_artifact' }> }) {
-  const loadWindow = useCallback((options: { start: number; signal: AbortSignal }) => readDocumentTextWindow(value.href, options), [value.href]);
-  const copyFullValue = useCallback((signal: AbortSignal) => readDocumentTextResource(value.href, { signal }), [value.href]);
+export function PreviewValueReader({ value, previewId, onUnavailable }: {
+  value: Extract<ActionComparisonBoundedValue, { kind: 'preview_artifact' }>;
+  previewId: string | null;
+  onUnavailable(previewId: string): void;
+}) {
+  const unavailable = useCallback((error: unknown): never => {
+    if (error instanceof ApiError && error.status === 404) {
+      if (previewId !== null) onUnavailable(previewId);
+      throw new Error(ACTION_COMPARE_PREVIEW_UNAVAILABLE_MESSAGE);
+    }
+    throw error;
+  }, [onUnavailable, previewId]);
+  const loadWindow = useCallback(async (options: { start: number; signal: AbortSignal }) => {
+    try {
+      return await readDocumentTextWindow(value.href, options);
+    } catch (error) {
+      return unavailable(error);
+    }
+  }, [unavailable, value.href]);
+  const copyFullValue = useCallback(async (signal: AbortSignal) => {
+    try {
+      return await readDocumentTextResource(value.href, { signal });
+    } catch (error) {
+      return unavailable(error);
+    }
+  }, [unavailable, value.href]);
   return <BoundedTextReader coordinate="bytes" loadWindow={loadWindow} downloadUrl={value.href} copyFullValue={copyFullValue} />;
 }
 
@@ -86,7 +111,10 @@ function ActionCompareContents() {
   const { chromePreferences } = useWorkspaceStores();
   const catalog = useActionCatalogHandle();
   const catalogSnapshot = useSelector(catalog.store, current => current);
-  const [value, setValue] = useState<ActionComparisonBoundedValue | null>(null);
+  const [value, setValue] = useState<{
+    value: ActionComparisonBoundedValue;
+    previewId: string | null;
+  } | null>(null);
   const [variantChoices, setVariantChoices] = useState<Record<string, SelectorChoice | null>>({});
   const entry = catalogSnapshot.catalog?.actions.find(candidate => candidate.kind === state.context.draft.action_id);
   const selectorField = entry ? actionCompareSelectorField(entry) : null;
@@ -124,7 +152,10 @@ function ActionCompareContents() {
       labelForDraft={presentation?.labelForDraft}
       describeVariantChanges={presentation?.describeVariantChanges}
       renderVariantEditor={editor => <VariantEditor editor={editor} sheetId={state.context.sheet.id} />}
-      onOpenBoundedValue={({ value: nextValue }) => { setStructuredValue(null); setValue(nextValue); }}
+      onOpenBoundedValue={({ value: nextValue, previewId }) => {
+        setStructuredValue(null);
+        setValue({ value: nextValue, previewId });
+      }}
       onOpenStructuredValue={(nextValue) => { setValue(null); setStructuredValue(nextValue); }}
       onRefresh={model.refreshActionCompare} />
     {model.actionCompareCloseWarn && <CompareDiscardDialog title="Discard this comparison?"
@@ -134,8 +165,10 @@ function ActionCompareContents() {
       description="Starting another comparison discards these settings and preview results."
       testId="action-compare-retarget" onCancel={model.cancelActionCompareRetarget} onDiscard={model.confirmActionCompareRetarget} />}
     {value && <Modal title="Full value" size="wide" onClose={() => setValue(null)} closeLabel="Close full value">
-      {value.kind === 'current_cell' ? <LargeCellValue projectId={model.project.id} rowId={String(value.row_id)}
-        columnId={String(value.column_id)} descriptor={value} /> : <PreviewValueReader value={value} />}
+      {value.value.kind === 'current_cell' ? <LargeCellValue projectId={model.project.id} rowId={String(value.value.row_id)}
+        columnId={String(value.value.column_id)} descriptor={value.value} />
+        : <PreviewValueReader value={value.value} previewId={value.previewId}
+          onUnavailable={session.markPreviewUnavailable} />}
     </Modal>}
     {structuredValue && <Modal title={`${structuredValue.column.name} · sample row ${structuredValue.row.index + 1}`}
       size="wide" onClose={() => setStructuredValue(null)} closeLabel="Close full value">

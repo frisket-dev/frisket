@@ -5,7 +5,7 @@ import type {
   ActionComparisonCell,
   ActionComparisonContext,
 } from '../../src/api/actionComparison';
-import { ConfirmationRequiredError } from '../../src/api/contractErrors';
+import { ApiError, ConfirmationRequiredError } from '../../src/api/contractErrors';
 import {
   actionCompareCellEquality,
   createActionCompareRunner,
@@ -271,6 +271,44 @@ describe('action comparison session', () => {
     await fresh.runPending();
     expect(fresh.useVariant(fresh.getSnapshot().variants[0].id)).toMatchObject({ variantLabel: 'A' });
   });
+
+  it('marks only the exact ready preview unavailable and makes it retryable', async () => {
+    const rerun = deferred<ActionCompareRunOutcome>();
+    let attempt = 0;
+    const session = createActionCompareSession(
+      { context: context() },
+      { runVariant: async ({ onStarted }) => {
+        attempt += 1;
+        if (attempt === 1) return ready('preview-B');
+        onStarted('preview-new');
+        return rerun.promise;
+      } },
+    );
+    const b = session.addVariant()!;
+    await session.runPending();
+
+    expect(session.markPreviewUnavailable('preview-other')).toBe(false);
+    expect(session.markPreviewUnavailable('preview-B')).toBe(true);
+    expect(session.getSnapshot().variants.find((variant) => variant.id === b)).toMatchObject({
+      status: 'unavailable',
+      previewId: 'preview-B',
+      result: null,
+      previousResult: expect.any(Object),
+      error: 'Preview no longer available; run this variant again.',
+    });
+    expect(session.retryVariant(b)).toBe(true);
+    expect(session.getSnapshot().variants.find((variant) => variant.id === b)).toMatchObject({
+      status: 'pending', previewId: null, error: null,
+    });
+    const running = session.runPending();
+    await Promise.resolve();
+    expect(session.markPreviewUnavailable('preview-B')).toBe(false);
+    expect(session.getSnapshot().variants.find((variant) => variant.id === b)).toMatchObject({
+      status: 'running', previewId: 'preview-new',
+    });
+    rerun.resolve(ready('preview-new'));
+    await running;
+  });
 });
 
 describe('actionCompareCellEquality', () => {
@@ -505,5 +543,48 @@ describe('createActionCompareRunner', () => {
     expect(confirmationSignal!.aborted).toBe(true);
     expect(api.startPreview).toHaveBeenCalledTimes(1);
     expect(api.getPreview).not.toHaveBeenCalled();
+  });
+
+  it('makes a disappeared known preview retryable without masking authorization failures', async () => {
+    vi.useFakeTimers();
+    try {
+      const unavailableApi = {
+        getContext: vi.fn(),
+        startPreview: vi.fn().mockResolvedValue({
+          schema_version: 'frisket.action_preview.v1', preview_id: 'gone-preview', total: 2,
+        }),
+        getPreview: vi.fn().mockRejectedValue(new ApiError(404, 'Preview not found.')),
+        cancelPreview: vi.fn().mockResolvedValue(undefined),
+      } as unknown as ActionComparisonApi;
+      const variant = createActionCompareSession(
+        { context: context('preview') }, { runVariant: vi.fn() },
+      ).getSnapshot().variants[0];
+      const unavailable = createActionCompareRunner(unavailableApi, vi.fn())({
+        context: context('preview'), variant, signal: new AbortController().signal,
+        onStarted: vi.fn(),
+      });
+      const unavailableOutcome = expect(unavailable).resolves.toEqual({
+        status: 'unavailable', previewId: 'gone-preview',
+        error: 'Preview no longer available; run this variant again.',
+      });
+      await vi.advanceTimersByTimeAsync(1_000);
+      await unavailableOutcome;
+
+      const forbiddenApi = {
+        ...unavailableApi,
+        startPreview: vi.fn().mockResolvedValue({
+          schema_version: 'frisket.action_preview.v1', preview_id: 'forbidden-preview', total: 2,
+        }),
+        getPreview: vi.fn().mockRejectedValue(new ApiError(403, 'Not allowed.')),
+      } as unknown as ActionComparisonApi;
+      const forbidden = expect(createActionCompareRunner(forbiddenApi, vi.fn())({
+        context: context('preview'), variant, signal: new AbortController().signal,
+        onStarted: vi.fn(),
+      })).rejects.toMatchObject({ status: 403, message: 'Not allowed.' });
+      await vi.advanceTimersByTimeAsync(1_000);
+      await forbidden;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

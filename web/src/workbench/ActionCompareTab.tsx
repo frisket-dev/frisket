@@ -57,7 +57,7 @@ const sampleLabel = (sampled: number, selected: number | null) => selected !== n
 
 function statusTone(status: ActionCompareVariant['status']): StatusTone {
   if (status === 'ready' || status === 'current') return 'success';
-  if (status === 'failed' || status === 'expired') return 'error';
+  if (status === 'failed' || status === 'unavailable') return 'error';
   return status === 'running' ? 'info' : 'neutral';
 }
 
@@ -150,7 +150,7 @@ export function ActionCompareTab({ projectId, session, rowHeight, wrapText, froz
                 label={`Remove variant ${variant.displayKey}`} onClick={() => {
                   setEditingId((current) => current === variant.id ? null : current); session.removeVariant(variant.id);
                 }} />}
-            {['failed', 'cancelled', 'expired'].includes(variant.status) && <IconButton icon={RotateCcw} size="inline"
+            {['failed', 'cancelled', 'unavailable'].includes(variant.status) && <IconButton icon={RotateCcw} size="inline"
               label={`Retry variant ${variant.displayKey}`} onClick={() => session.retryVariant(variant.id)} />}
             {changes.length > 0 && <div className="action-compare-settings" role="tooltip">
               <strong><span className="action-compare-variant-key">{variant.displayKey}</span> {displayLabel}</strong>

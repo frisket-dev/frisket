@@ -216,6 +216,34 @@ describe('ActionCompareTab', () => {
     }));
   });
 
+  it('shows a retry affordance when a known preview becomes unavailable', async () => {
+    const session = createActionCompareSession(
+      { context: fixture() },
+      { runVariant: async () => ({
+        status: 'ready', previewId: 'preview-B', result: {
+          rows: { 10: { party: cell('Other party') } },
+        },
+      }) },
+    );
+    const b = session.addVariant()!;
+    await session.runPending();
+    session.markPreviewUnavailable('preview-B');
+
+    render(<ActionCompareTab projectId="project-1" {...gridPreferences}
+      session={session} onUseSettings={vi.fn()} />);
+
+    expect(screen.getByTestId('action-compare-variant-B')).toHaveTextContent('unavailable');
+    expect(editor.props!.getCellContent([2, 0])).toMatchObject({
+      kind: GridCellKind.Text,
+      displayData: 'Other party',
+      style: 'faded',
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Retry variant B' }));
+    expect(session.getSnapshot().variants.find((variant) => variant.id === b)).toMatchObject({
+      status: 'pending', previewId: null,
+    });
+  });
+
   it('uses the shared renderer with project identity and generated-text display semantics', () => {
     const context = fixture();
     const digest = 'b'.repeat(64);
