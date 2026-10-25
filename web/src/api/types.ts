@@ -11,6 +11,7 @@ import type {
   HttpProjectSettingsRequest,
   HttpProjectSettingsResponse,
   HttpReceipt,
+  HttpRowSourceDocumentsResponse,
   HttpRunTraceRowEvidence,
 } from '../generated/openHttpContracts';
 
@@ -900,6 +901,7 @@ export interface CellEvidenceLinkSummary {
  * must not narrow it into a client-owned object shape.
  */
 export type CellEvidencePayload = HttpCellEvidenceResponse;
+export type RowSourceDocumentsPayload = HttpRowSourceDocumentsResponse;
 
 /**
  * answers-view-column-evidence-batch-v1: the Grounded Answers reading view's
@@ -3021,10 +3023,16 @@ export interface RunProgress {
    *  then marks every empty output cell; a set restricts the pulse to those
    *  rows so a selected-row rerun never pulses untargeted rows. */
   targetRowIds?: string[] | null;
-  status: 'queued' | 'running' | 'stalled' | 'orphaned' | 'complete' | 'failed' | 'cancelled';
+  status: 'queued' | 'running' | 'stalled' | 'orphaned' | 'complete' | 'partial' | 'failed' | 'cancelled';
   completedRows: number;
   totalRows: number;
   failedRows: number;
+  /** Authoritative public outcome counters. They are absent only on the
+   *  optimistic client-side run before the first server status snapshot. */
+  attemptedRows?: number;
+  succeededRows?: number;
+  skippedRows?: number;
+  remainingRows?: number;
   costSoFar: number; // USD
   /** True after cancellation is durably requested and while the writer is stopping. */
   cancelRequested?: boolean;
@@ -4950,6 +4958,12 @@ export interface FrisketApi {
     columnId: string,
     opts?: { includeStale?: boolean },
   ): Promise<CellEvidencePayload>;
+  /** Existing citations and readable original documents reachable through a
+   * bounded, cycle-safe row-ancestry walk. Fetched only for the open row. */
+  getRowSourceDocuments(
+    rowId: string,
+    opts?: { signal?: AbortSignal },
+  ): Promise<RowSourceDocumentsPayload>;
   /** The Grounded Answers view's middle-pane batch — one call per (sheet,
    *  column) instead of one getCellEvidence call per visible row. `rowIds`
    *  scopes the batch to the list's virtualization window; omitted = every

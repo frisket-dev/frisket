@@ -41,6 +41,7 @@ import httpx
 from frisket.ai.llm import ModelRouter
 from frisket.engine.jobs import Worker
 from frisket.engine.runner.confirmation_context import quoted_usd
+from frisket.server.run_status import public_run_progress
 from frisket.server.services.action_runs import ActionRunService
 from frisket.server.workspace import Workspace
 
@@ -527,10 +528,7 @@ class LocalBackend:
         prog = self.ws.active_runs.get((project_id, run_id))
         return {
             "run_id": run_id,
-            "status": row["status"],
-            "total": row["total_rows"],
-            "completed": row["completed_rows"],
-            "failed": row["failed_rows"],
+            **public_run_progress(row, row["status"]),
             "cost": row["cost_actual"],
             "live": (row["status"] == "running" and prog is not None and not prog.done),
         }

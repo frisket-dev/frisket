@@ -9,7 +9,11 @@
 // carries it up to the pill.
 
 import { describe, expect, it } from 'vitest';
-import { runCompletedWithErrors, runStatusLabel } from '../../src/runStatusModel';
+import {
+  runCompletedWithErrors,
+  runStatusLabel,
+  toRunProgressStatus,
+} from '../../src/runStatusModel';
 import { deriveDockRunSummary } from '../../src/workbench/dockJobSummary';
 import type { DockActionJob } from '../../src/workbench/WorkbenchBottomDock';
 import type { RunProgress } from '../../src/api/types';
@@ -59,6 +63,12 @@ describe('the one completed-with-errors rule', () => {
     expect(runStatusLabel('complete', 0)).toBe('complete');
     expect(runStatusLabel('cancelled', 3)).toBe('cancelled');
   });
+
+  it('preserves the server public partial outcome', () => {
+    expect(toRunProgressStatus('partial')).toBe('partial');
+    expect(runStatusLabel('partial', 0)).toBe('partial');
+    expect(runStatusLabel('partial', 3)).toBe('partial');
+  });
 });
 
 describe('dock run summary carries the errored state', () => {
@@ -74,6 +84,22 @@ describe('dock run summary carries the errored state', () => {
   it('stays clean when everything finished cleanly', () => {
     const summary = deriveDockRunSummary([job()], null);
     expect(summary.anyComplete).toBe(true);
+    expect(summary.anyErrored).toBe(false);
+    expect(summary.anyPartial).toBe(false);
+  });
+
+  it('keeps an all-skipped public partial outcome out of all-complete', () => {
+    const summary = deriveDockRunSummary([], progress({
+      status: 'partial',
+      completedRows: 0,
+      failedRows: 0,
+      attemptedRows: 0,
+      succeededRows: 0,
+      skippedRows: 4,
+      remainingRows: 0,
+    }));
+    expect(summary.anyComplete).toBe(true);
+    expect(summary.anyPartial).toBe(true);
     expect(summary.anyErrored).toBe(false);
   });
 

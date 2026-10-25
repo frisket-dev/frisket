@@ -37,6 +37,7 @@ This file pins three things:
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +48,7 @@ from frisket.ai.llm import ChaosConfig, ModelRouter, ResponseCache
 from frisket.ops.base import Recipe
 from frisket.engine.runner import CostGate, MapRunner
 from frisket.server.app import create_app
+from frisket.server.run_status import ProjectRunStatus, project_run_status_payload
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
@@ -194,6 +196,54 @@ class TestNonLlmExecuteFailurePersistence:
 
 
 class TestRowErrorSummaryShape:
+    def test_multi_output_row_with_any_failure_counts_once_and_projects_failed(
+        self, project: Project
+    ) -> None:
+        sheet, _ = _seed_sheet(project, ["one row"])
+        row_id = int(
+            project.db.execute(
+                "SELECT id FROM rows WHERE sheet_id=?", (sheet,)
+            ).fetchone()[0]
+        )
+        first = project.add_column(sheet, "first", type="text", ai_generated=True)
+        second = project.add_column(sheet, "second", type="text", ai_generated=True)
+        op = project.append_op("map", {"action_kind": "map.classify"})
+        store = RunResultStore(project)
+        run_id = store.start_run(op, sheet, "map.classify", total_rows=1)
+        write_claimed_test_results(
+            project,
+            run_id,
+            [
+                {"row_id": row_id, "column_id": first, "value": "ok"},
+                {
+                    "row_id": row_id,
+                    "column_id": second,
+                    "value": None,
+                    "error": "one sibling output failed",
+                    "error_code": "model_error",
+                    "outcome": "model_error",
+                },
+            ],
+        )
+        store.finish_run(run_id, "completed")
+        run = project.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+
+        assert int(run["completed_rows"]) == 1
+        assert int(run["failed_rows"]) == 1
+        public_status = project_run_status_payload(
+            ProjectRunStatus(
+                row=run,
+                progress=None,
+                job=None,
+                public_status="completed",
+            ),
+            run_id=run_id,
+            now=datetime.now(UTC),
+        )
+        assert public_status["status"] == "failed"
+        assert public_status["attempted"] == 1
+        assert public_status["succeeded"] == 0
+
     def test_groups_by_message_with_counts_and_row_id_examples(
         self, project: Project, tmp_path: Path, monkeypatch
     ) -> None:
@@ -405,6 +455,7 @@ class TestSurfacedViaStatusAndHistoryEndpoints:
         body = status.json()
 
         # Surface A: actions.run_status's "run" dict (run-detail region).
+        assert body["run"]["status"] == "failed"
         run_row_errors = body["run"]["row_errors"]
         assert run_row_errors["total_failed_rows"] == 5
         assert run_row_errors["groups"][0]["count"] == 5
@@ -414,8 +465,17 @@ class TestSurfacedViaStatusAndHistoryEndpoints:
         # SAME shape getRunProgress (web/src/api/real.ts) maps into
         # RunProgress.rowErrors, which both the Jobs tab and the Errors tab
         # (WorkbenchBottomDock.tsx's shared renderJobDetail) render.
-        public_row_errors = body["run"]["public_status"]["row_errors"]
+        public_status = body["run"]["public_status"]
+        public_row_errors = public_status["row_errors"]
         assert public_row_errors == run_row_errors
+        assert public_status["status"] == "failed"
+        assert public_status["total"] == 5
+        assert public_status["completed"] == 5
+        assert public_status["failed"] == 5
+        assert public_status["attempted"] == 5
+        assert public_status["succeeded"] == 0
+        assert public_status["skipped"] == 0
+        assert public_status["remaining"] == 0
 
     def test_history_endpoint_carries_row_errors_for_the_op(
         self, tmp_path: Path, monkeypatch

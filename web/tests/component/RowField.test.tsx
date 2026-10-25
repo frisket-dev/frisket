@@ -526,3 +526,26 @@ describe('row drawer terminal empty_output retry', () => {
     expect(screen.queryByTestId('cell-retry-translation')).toBeNull();
   });
 });
+
+describe('row drawer source-row navigation', () => {
+  it('opens the exact parent row through the shared cross-sheet navigator', () => {
+    const col = columnDef({ id: 'value', name: 'value', type: 'text' });
+    const onOpenRowRef = vi.fn();
+    render(
+      <RowDrawerBody
+        projectId="row-field-test"
+        sheet={sheetMeta([col], { parent: {
+          sheetId: 'source-sheet', sheetName: 'Source rows', viaAction: 'derive.join',
+        } })}
+        row={row({ value: 'derived' }, { parentRowId: 'source-row' })}
+        onEdit={noopEdit}
+        onOpenRowRef={onOpenRowRef}
+        expandedRunResultFields={new Set()}
+        onToggleRunResultField={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('row-lineage'));
+    expect(onOpenRowRef).toHaveBeenCalledExactlyOnceWith('source-sheet', 'source-row');
+  });
+});

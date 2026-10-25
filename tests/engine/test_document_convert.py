@@ -559,7 +559,9 @@ def test_url_cell_refuses_with_download_pointer(project, monkeypatch):
         )
 
 
-def test_empty_cell_does_no_work_and_produces_blank(project, monkeypatch):
+def test_empty_text_cell_does_no_work_and_explicitly_reports_no_ocr(
+    project, monkeypatch
+):
     _stub_markitdown(monkeypatch)
     sheet, cid, row_id = _seed(project, {}, coltype="text")
     result, conv = _run_convert(
@@ -572,7 +574,27 @@ def test_empty_cell_does_no_work_and_produces_blank(project, monkeypatch):
         engine="markitdown",
     )
     assert result.markdown == ""
+    assert result.ocr_used == []
+    assert result.model_fields_set == {"markdown", "ocr_used"}
     assert row_id not in conv.calls_by_row
+
+
+def test_missing_file_cell_refuses_before_document_conversion(project):
+    sheet, cid, row_id = _seed(project, None, coltype="file")
+
+    with pytest.raises(RowError) as raised:
+        _run_convert(
+            project,
+            name="doc",
+            cid=cid,
+            sheet=sheet,
+            row_id=row_id,
+            value=None,
+            engine="docling",
+        )
+
+    assert raised.value.code == "missing_input"
+    assert "download or upload" in raised.value.message.lower()
 
 
 def test_stale_source_value_refuses(project, monkeypatch):

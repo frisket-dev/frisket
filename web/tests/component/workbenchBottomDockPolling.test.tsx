@@ -143,6 +143,32 @@ describe('WorkbenchBottomDock — live Jobs/Errors resource interest', () => {
   });
 });
 
+it('labels an all-skipped terminal summary as partial, not all complete', () => {
+  const liveActionJobs = { start: vi.fn(), dispose: vi.fn() };
+  render(
+    <WorkbenchBottomDock
+      region={region}
+      activeTabPlacementId="jobs"
+      onSelectTab={() => undefined}
+      onCloseTab={() => undefined}
+      renderContribution={() => <div>Jobs</div>}
+      liveActionJobs={liveActionJobs}
+      runSummary={{
+        runningCount: 0,
+        anyComplete: true,
+        anyPartial: true,
+        anyErrored: false,
+        percent: null,
+      }}
+    />,
+  );
+
+  const summary = screen.getByTestId('bottom-dock-run-summary');
+  expect(summary).toHaveAttribute('data-run-state', 'partial');
+  expect(summary).toHaveTextContent('partial');
+  expect(summary).not.toHaveTextContent('all complete');
+});
+
 it('shows the preparation hint in a zero-row running job detail', () => {
   const job: DockActionJob = {
     schemaVersion: 'frisket.action_job.v1', projectId: 'project-a', jobId: 1,
@@ -171,4 +197,37 @@ it('shows the preparation hint in a zero-row running job detail', () => {
 
   expect(screen.getByText('Preparing')).toBeTruthy();
   expect(screen.getByText('Preparing the language model if this worker needs it, then translating…')).toBeTruthy();
+});
+
+it('shows authoritative public outcome counters in job detail', () => {
+  const job: DockActionJob = {
+    schemaVersion: 'frisket.action_job.v1', projectId: 'project-a', jobId: 2,
+    kind: 'action', runId: null, receiptId: null, status: 'done',
+    actionKind: 'map.clean_dates', actionName: 'Clean dates', attempts: 1, maxAttempts: 3,
+    lease: { lockedBy: null, lockedAt: null, leaseExpiresAt: null, leaseExpired: false },
+    timing: { createdAt: '2026-10-25T00:00:00Z', startedAt: '2026-10-25T00:00:01Z', finishedAt: '2026-10-25T00:00:02Z' },
+    error: null,
+    progress: {
+      runId: 'run-2', actionName: 'Clean dates', actionKind: 'map.clean_dates', sheetId: '1',
+      targetColumnId: 'cleaned', status: 'partial', completedRows: 3, totalRows: 5,
+      failedRows: 1, attemptedRows: 3, succeededRows: 2, skippedRows: 2,
+      remainingRows: 0, costSoFar: 0,
+    },
+  };
+  render(
+    <WorkbenchJobSplitPanel
+      jobs={[job]}
+      loading={false}
+      error={null}
+      mode="jobs"
+    />,
+  );
+
+  expect(screen.getAllByText('partial')).not.toHaveLength(0);
+  expect(screen.getByText('Attempted rows')).toBeTruthy();
+  expect(screen.getByText('Succeeded rows')).toBeTruthy();
+  expect(screen.getByText('Skipped rows')).toBeTruthy();
+  expect(screen.getByText('Remaining rows')).toBeTruthy();
+  expect(screen.getByText('Succeeded rows').parentElement).toHaveTextContent('2');
+  expect(screen.getByText('Skipped rows').parentElement).toHaveTextContent('2');
 });

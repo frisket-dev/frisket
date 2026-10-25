@@ -52,6 +52,30 @@ class ColumnEvidenceResponse(WireModel):
     rows: list[ColumnEvidenceRow]
 
 
+class RowSourceDocument(WireModel):
+    sheet_id: int
+    sheet_name: str
+    row_id: int
+    row_position: int = Field(ge=0)
+    column_id: int
+    column_name: str
+    column_type: Literal["file", "image"]
+    filename: str | None
+    page: int | None = Field(default=None, ge=1)
+
+
+class RowSourceDocumentsResponse(WireModel):
+    schema_version: Literal["frisket.row_source_documents.v1"]
+    sheet_id: int
+    row_id: int
+    ancestry_found: bool
+    lineage_stale: bool
+    unavailable_source_count: int = Field(ge=0)
+    truncated: bool
+    evidence_links: list[EvidenceLinkSummary]
+    documents: list[RowSourceDocument]
+
+
 class TextAnnotationOutputColumn(WireModel):
     id: int
     name: str | None

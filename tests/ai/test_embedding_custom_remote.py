@@ -347,6 +347,12 @@ def test_paid_dimension_probe_is_metered_and_receipt_names_real_cost(project):
     assert receipt.run_id == res.run_id
     run = RunResultStore(project).get_run(int(res.run_id))
     assert run is not None
+    assert (
+        run["status"],
+        run["total_rows"],
+        run["completed_rows"],
+        run["failed_rows"],
+    ) == ("completed", 1, 1, 0)
     assert float(run["cost_actual"]) == pytest.approx(probe_cost)
     [fact] = RunResultStore(project).model_calls(int(res.run_id))
     assert fact["capability"] == "llm.embed"
@@ -438,6 +444,14 @@ def test_paid_probe_retry_after_metadata_failure_does_not_call_provider_twice(
     assert receipt.status == "completed"
     assert receipt.run_id == first_run_id
     assert float(receipt.provider_use[0]["cost_actual"]) == pytest.approx(probe_cost)
+    repaired_run = RunResultStore(project).get_run(first_run_id)
+    assert repaired_run is not None
+    assert (
+        repaired_run["status"],
+        repaired_run["total_rows"],
+        repaired_run["completed_rows"],
+        repaired_run["failed_rows"],
+    ) == ("completed", 1, 1, 0)
 
 
 def test_create_receipt_records_requested_model_and_probe_facts(project):

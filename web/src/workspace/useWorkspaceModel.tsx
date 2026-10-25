@@ -340,7 +340,7 @@ export function useWorkspaceModel({
     selectSheet, onMainViewTabKeyDown, workspaceRoute, runActionFromSurface,
     openSourcesFromCommandPalette, openSettingsFromCommandPalette, openRowPanel, openColumnPanel,
     walkDetailRow, openMapPanel, openGraphPanel, openMapSplit, openSourceHealthMainView,
-    openEvidenceViewerForWorkspace, activeDocumentPriority, openRowInDocumentView, openRowRef,
+    openEvidenceViewerForWorkspace, activeDocumentPriority, openRowInDocumentView, openDocumentRef, openRowRef,
     closeRoutePanel, closeActionRoute, closeActionDrawerOnLaunch, actionPanelVisible,
     openImportDialog,
   } = navigation;
@@ -1156,6 +1156,7 @@ export function useWorkspaceModel({
     handleCellEdit,
     closeRoutePanel,
     openRowInDocumentView,
+    openDocumentRef,
     applyLens,
     leftSidebarPluginPanelDescriptors,
     openEvidenceViewer: openEvidenceViewerForWorkspace,

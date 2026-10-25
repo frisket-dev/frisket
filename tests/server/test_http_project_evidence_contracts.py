@@ -16,11 +16,37 @@ from pydantic import ValidationError
 from frisket.contracts.http.project_evidence import (
     CellEvidenceResponse,
     EvidenceViewerResponse,
+    RowSourceDocumentsResponse,
 )
 from frisket.server.routes.project_evidence import register_project_evidence_routes
 
 
 class _EvidenceService:
+    def row_source_documents(self, _pid: str, *, row_id: int) -> dict:
+        return {
+            "schema_version": "frisket.row_source_documents.v1",
+            "sheet_id": 7,
+            "row_id": row_id,
+            "ancestry_found": True,
+            "lineage_stale": False,
+            "unavailable_source_count": 0,
+            "truncated": False,
+            "evidence_links": [],
+            "documents": [
+                {
+                    "sheet_id": 2,
+                    "sheet_name": "Documents",
+                    "row_id": 3,
+                    "row_position": 1,
+                    "column_id": 4,
+                    "column_name": "document",
+                    "column_type": "file",
+                    "filename": "source.pdf",
+                    "page": None,
+                }
+            ],
+        }
+
     def cell_evidence(
         self, _pid: str, *, row_id: int, column_id: int, include_stale: bool
     ) -> dict:
@@ -222,9 +248,11 @@ def test_project_evidence_contracts_preserve_explicit_dynamic_json_leaves() -> N
     annotations = client.get("/api/projects/project-1/cells/8/9/annotations")
     viewer = client.get("/api/projects/project-1/evidence/links/evidence_link:3/viewer")
     column = client.get("/api/projects/project-1/sheets/7/columns/9/evidence")
+    sources = client.get("/api/projects/project-1/rows/8/source-documents")
 
     assert cell.status_code == annotations.status_code == viewer.status_code == 200
     assert column.status_code == 200
+    assert sources.status_code == 200
     assert cell.json()["current_value_ref"]["producer_detail"] == [1]
     assert annotations.json()["layers"][0]["spans"][0]["metadata"] == {
         "entity_type": "person",
@@ -237,6 +265,7 @@ def test_project_evidence_contracts_preserve_explicit_dynamic_json_leaves() -> N
     ]
     assert artifact["pages"][0]["regions"][0]["bbox"] == [[0, 0, 1, 1]]
     assert column.json()["rows"] == []
+    assert sources.json()["documents"][0]["sheet_name"] == "Documents"
 
 
 @pytest.mark.parametrize(
@@ -272,8 +301,14 @@ def test_project_evidence_contracts_reject_unknown_envelope_fields() -> None:
     else:
         raise AssertionError("closed HTTP envelope accepted an unexpected field")
 
+    sources = _EvidenceService().row_source_documents("project-1", row_id=8)
+    sources["documents"][0]["unexpected"] = True
+    with pytest.raises(ValidationError) as exc_info:
+        RowSourceDocumentsResponse.model_validate(sources)
+    assert exc_info.value.errors()[0]["loc"] == ("documents", 0, "unexpected")
 
-def test_project_evidence_openapi_names_the_four_json_read_models() -> None:
+
+def test_project_evidence_openapi_names_the_json_read_models() -> None:
     # Ask the actual FastAPI instance for OpenAPI. Reaching through
     # TestClient's compatibility wrapper can expose an empty schema under the
     # complete pytest plugin set despite the routes having response models.
@@ -300,6 +335,11 @@ def test_project_evidence_openapi_names_the_four_json_read_models() -> None:
     ]["responses"]["200"]["content"]["application/json"]["schema"] == {
         "$ref": "#/components/schemas/ColumnEvidenceResponse"
     }
+    assert paths["/api/projects/{pid}/rows/{row_id}/source-documents"]["get"][
+        "responses"
+    ]["200"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/RowSourceDocumentsResponse"
+    }
     components = document["components"]["schemas"]
     for name in (
         "CellEvidenceResponse",
@@ -309,5 +349,7 @@ def test_project_evidence_openapi_names_the_four_json_read_models() -> None:
         "TextAnnotationCounts",
         "TextAnnotationSpanMetadata",
         "TextAnnotationUnpositioned",
+        "RowSourceDocument",
+        "RowSourceDocumentsResponse",
     ):
         assert components[name]["additionalProperties"] is False

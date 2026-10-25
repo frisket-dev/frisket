@@ -13,6 +13,8 @@ from frisket.actions.list_table import (
 from frisket.actions.types import (
     DynamicTableResult,
     ListColumnSource,
+    ListCopiedColumn,
+    ListParentColumn,
     ListItem,
     NamedListSource,
     RowSource,
@@ -21,17 +23,24 @@ from frisket.actions.types import (
 )
 from frisket.engine.executor.list_table_read import AdmittedListTableReader
 from frisket.engine.store import Project
+from frisket.contracts.actions.schemas._base import MAX_IMPORT_ROWS_COLUMNS
 from helpers import replace_test_source_cell
 
 
 class ItemReader:
-    def __init__(self, values):
+    def __init__(self, values, *, parent_values=None, copied_columns=()):
+        parent_values = parent_values or {}
         self.items = tuple(
-            ListItem(value=value, source=RowSource(sheet_id=1, row_id=1))
+            ListItem(
+                value=value,
+                source=RowSource(sheet_id=1, row_id=1),
+                parent_values=parent_values,
+            )
             for value in values
         )
+        self.copied_columns = tuple(copied_columns)
 
-    def read(self, source, *, item_schema=None):
+    def read(self, source, *, item_schema=None, parent_columns=()):
         return self.items
 
 
@@ -136,6 +145,69 @@ def test_source_modes_cannot_silently_change_schema_authority():
                 schema="s",
             )
         )
+
+
+def test_parent_columns_require_stable_distinct_ids_and_aliases():
+    params = ListTableParams(
+        source=ListColumnSource(kind="column", sheet_id=1, column_id=1),
+        parent_columns=[
+            ListParentColumn(column_id=2, output_name="case"),
+            ListParentColumn(column_id=3, output_name="filed_at"),
+        ],
+    )
+    assert [column.model_dump() for column in params.parent_columns] == [
+        {"column_id": 2, "output_name": "case"},
+        {"column_id": 3, "output_name": "filed_at"},
+    ]
+    with pytest.raises(ValidationError, match="duplicate_parent_column"):
+        ListTableParams(
+            source=ListColumnSource(kind="column", sheet_id=1, column_id=1),
+            parent_columns=[
+                {"column_id": 2, "output_name": "case"},
+                {"column_id": 2, "output_name": "case_copy"},
+            ],
+        )
+    with pytest.raises(ValidationError, match="duplicate_column_name"):
+        ListTableParams(
+            source=ListColumnSource(kind="column", sheet_id=1, column_id=1),
+            parent_columns=[
+                {"column_id": 2, "output_name": "case"},
+                {"column_id": 3, "output_name": "case"},
+            ],
+        )
+    with pytest.raises(ValidationError, match="too_many_columns"):
+        ListTableParams(
+            source=NamedListSource(
+                kind="named_result",
+                sheet_id=1,
+                column_id=1,
+                run_id=1,
+                route="items",
+                schema="items",
+            ),
+            item_schema={"type": "object"},
+            columns=[ListProjectionColumn(name="item", path="$.item", type="text")],
+            parent_columns=[
+                {"column_id": index + 2, "output_name": f"parent_{index}"}
+                for index in range(MAX_IMPORT_ROWS_COLUMNS)
+            ],
+        )
+
+
+def test_parent_column_alias_cannot_overwrite_an_item_projection():
+    params = ListTableParams(
+        source=ListColumnSource(kind="column", sheet_id=1, column_id=1),
+        parent_columns=[ListParentColumn(column_id=2, output_name="name")],
+    )
+    reader = ItemReader(
+        [{"name": "item"}],
+        parent_values={"name": "parent"},
+        copied_columns=[
+            ListCopiedColumn(name="name", type="text", format=None, ai_generated=False)
+        ],
+    )
+    with pytest.raises(TableError, match="collides"):
+        expand_list_table(params, reader)
 
 
 def test_reader_holds_snapshot_uses_actual_source_and_retains_item_associations(

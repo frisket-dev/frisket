@@ -1711,6 +1711,20 @@ class ListColumnSource(ActionParams):
         return names
 
 
+class ListParentColumn(ActionParams):
+    """One parent-sheet column copied into every expanded child row."""
+
+    column_id: int = Field(gt=0, strict=True)
+    output_name: StrictStr = Field(min_length=1)
+
+    @field_validator("output_name")
+    @classmethod
+    def _output_name(cls, value: str) -> str:
+        if value != value.strip():
+            raise ValueError("column name must be nonempty and trimmed")
+        return value
+
+
 class NamedListSource(ActionParams):
     """A completed named result whose receipt permits list materialization."""
 
@@ -1730,19 +1744,38 @@ ListTableSource = typing.Annotated[
 
 
 @dataclass(frozen=True)
+class ListCopiedColumn:
+    """Host-resolved metadata for one copied parent output."""
+
+    name: str
+    type: str
+    format: str | None
+    ai_generated: bool
+
+
+@dataclass(frozen=True)
 class ListItem:
     """One admitted list value and its opaque, item-specific source token."""
 
     value: Any
     source: RowSource
+    parent_values: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "parent_values", MappingProxyType(dict(self.parent_values))
+        )
 
 
 class ListTableReader(Protocol):
+    copied_columns: tuple[ListCopiedColumn, ...]
+
     def read(
         self,
         source: ListTableSource,
         *,
         item_schema: dict[str, Any] | None = None,
+        parent_columns: Sequence[ListParentColumn] = (),
     ) -> tuple[ListItem, ...]:
         """Admit and read list items; the host retains item evidence privately."""
         ...

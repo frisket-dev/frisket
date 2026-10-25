@@ -219,9 +219,12 @@ def create_mcp_server(backend: LocalBackend | HostedBackend) -> FastMCP:
 
     @server.tool()
     async def get_run_status(project_id: str, run_id: int) -> dict:
-        """Progress of a run: status (running/completed/failed/cancelled),
-        total/completed/failed row counts, cost in USD so far, and live
-        (whether this server still holds the in-flight handle)."""
+        """Progress of a run: status (including completed, partial, failed,
+        and cancelled); total, attempted, succeeded, failed, skipped, and
+        remaining row counts; cost in USD so far; and live (whether this server
+        still holds the in-flight handle). ``completed`` is the legacy alias
+        for ``attempted``; use ``status`` and the explicit outcome counts for an
+        unambiguous result."""
         return await _call(backend.get_run_status, project_id, run_id)
 
     return server

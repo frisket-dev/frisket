@@ -82,6 +82,14 @@ def _ancestor_changed(project: Any, ancestors: set[int], watermark: int) -> bool
         return False
     ids = sorted(ancestors)
     ph = _placeholders(len(ids))
+    refresh_hit = project.db.execute(
+        f"SELECT 1 FROM sheets s JOIN ops o ON o.id=s.last_verified_op_cursor "
+        f"WHERE s.id IN ({ph}) AND s.last_verified_op_cursor > ? "
+        f"AND o.kind='sheet.refresh' AND o.status='applied' LIMIT 1",
+        (*ids, watermark),
+    ).fetchone()
+    if refresh_hit is not None:
+        return True
     edit_hit = project.db.execute(
         f"SELECT 1 FROM edits e "
         f"JOIN rows r ON e.row_id = r.id "
@@ -211,6 +219,18 @@ def _multi_parent_sources(project: Any, derived_ids: list[int]) -> dict[int, set
 
 def sheet_is_stale(project: Any, sheet_id: int) -> bool:
     """Convenience single-sheet check (used by refresh precondition tests)."""
+    sheet = project.db.execute(
+        "SELECT parent_sheet_id,parent_op_id,last_verified_op_cursor "
+        "FROM sheets WHERE id=? AND hidden=0",
+        (int(sheet_id),),
+    ).fetchone()
+    if sheet is None or sheet["parent_sheet_id"] is None:
+        return False
+    watermark = sheet["last_verified_op_cursor"]
+    if watermark is None:
+        watermark = sheet["parent_op_id"]
+    if int(watermark or 0) >= project.op_cursor:
+        return False
     states = compute_sync_states(project)
     entry = states.get(int(sheet_id))
     return entry is not None and entry["sync_state"] == "stale"
