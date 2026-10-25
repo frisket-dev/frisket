@@ -13,7 +13,6 @@ import {
 } from 'react';
 import { Maximize2 } from 'lucide-react';
 import {
-  DataEditor,
   CompactSelection,
   GridCellKind,
   GridColumnIcon,
@@ -31,7 +30,7 @@ import {
   type Rectangle,
   type Theme,
 } from '@glideapps/glide-data-grid';
-import '@glideapps/glide-data-grid/dist/index.css';
+import { GridViewport } from './GridViewport';
 import {
   type SavedViewColumnGroup,
   type CellValue,
@@ -53,9 +52,7 @@ import {
   audioMedia,
   buildCell,
   cellEditability,
-  customRenderers,
   isExpandableEntityMentionCell,
-  headerIcons,
   isOverlayEditable,
   oneClickFacetValue,
   isAudioPlayButtonHit,
@@ -2395,26 +2392,16 @@ function SheetGridSurface({ controller }: { controller: SheetGridController }) {
       ref={hostRef}
     >
         {/* Do not key on theme colors; remounting Glide loses its internal scroll position. */}
-      <DataEditor
+      <GridViewport
         ref={gridRef}
-        width="100%"
-        height="100%"
         columns={columns}
         rows={rowCount}
         getCellContent={getCellContent}
-        customRenderers={customRenderers}
-        headerIcons={headerIcons}
         theme={gridTheme}
-        rowMarkers={{ kind: 'both', width: 40 }}
         rowSelectionMode="multi"
         rowHeight={rowHeight}
-        headerHeight={34}
-        groupHeaderHeight={GROUP_HEADER_HEIGHT}
-        smoothScrollX
-        smoothScrollY
         overscrollX={addColumnOverscrollX}
         freezeColumns={Math.max(0, Math.min(frozenColumnCount, columns.length))}
-        verticalBorder={false}
         getCellsForSelection
         gridSelection={gridSelection}
         onGridSelectionChange={onGridSelectionChange}
