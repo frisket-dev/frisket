@@ -6,8 +6,15 @@
 // pure getComputedStyle read — so we drive the CSS vars directly and assert the
 // mapping, plus that flipping a var re-derives.
 
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { readAiColumnTheme, readGridCellPalette, readGridTheme } from '../../src/grid/gridTheme';
+import {
+  readAiColumnTheme,
+  readGridCellPalette,
+  readGridDifferenceTheme,
+  readGridTheme,
+} from '../../src/grid/gridTheme';
+import { useGridTheme } from '../../src/grid/useGridTheme';
 
 function setToken(name: string, value: string): void {
   document.documentElement.style.setProperty(name, value);
@@ -61,6 +68,36 @@ describe('grid canvas theme derivation', () => {
     // follow, never a baked-in literal.
     setToken('--bg', '#1d1b17');
     expect(readGridTheme().bgCell).toBe('#1d1b17');
+  });
+
+  it('derives comparison differences from the same canvas token source', () => {
+    setToken('--amber-bg', '#f7ecd8');
+    setToken('--text', '#211f1b');
+
+    expect(readGridDifferenceTheme()).toEqual({
+      bgCell: '#f7ecd8',
+      bgCellMedium: '#f7ecd8',
+      textDark: '#211f1b',
+    });
+  });
+
+  it('publishes one reactive snapshot when the root theme changes', async () => {
+    setToken('--bg', '#ffffff');
+    setToken('--amber-bg', '#f7ecd8');
+    const { result } = renderHook(() => useGridTheme());
+    expect(result.current.gridTheme.bgCell).toBe('#ffffff');
+    expect(result.current.differenceTheme.bgCell).toBe('#f7ecd8');
+
+    act(() => {
+      setToken('--bg', '#1d1b17');
+      setToken('--amber-bg', '#4a3821');
+      document.documentElement.setAttribute('data-frisket-theme', 'hook-dark');
+    });
+
+    await waitFor(() => expect(result.current.gridTheme.bgCell).toBe('#1d1b17'));
+    expect(result.current.differenceTheme.bgCell).toBe('#4a3821');
+    expect((window as unknown as { __frisketGridTheme?: Partial<{ bgCell: string }> })
+      .__frisketGridTheme?.bgCell).toBe('#1d1b17');
   });
 
   it('derives the AI-column tint and readable header foreground from CSS tokens', () => {

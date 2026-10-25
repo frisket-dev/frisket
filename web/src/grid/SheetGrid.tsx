@@ -64,7 +64,8 @@ import {
 } from './cells';
 import { countLabel } from '../format';
 import { ColumnAnnotationChip, type ColumnAnnotation } from './columnAnnotations';
-import { readAiColumnTheme, readGridCellPalette, readGridTheme, type GridCellPalette } from './gridTheme';
+import type { GridCellPalette } from './gridTheme';
+import { useGridTheme } from './useGridTheme';
 import {
   addColumnScrollGutter,
   resolveColumnAnnotationPlacement,
@@ -496,32 +497,7 @@ function useColumnModel(
     [sheet.id, storageScope, stored],
   );
 
-  // Grid + AI-column themes are derived from the CSS token palette (styles.css
-  // :root) so the canvas grid cannot drift from CSS, and re-derived when the
-  // active `data-frisket-theme` flips. The live base theme is published on
-  // window.__frisketGridTheme (dev/test builds only) so the reskin e2e can
-  // drift-guard it — not a production API surface.
-  const [gridTheme, setGridTheme] = useState<Partial<Theme>>(readGridTheme);
-  const [aiColumnTheme, setAiColumnTheme] = useState<Partial<Theme>>(readAiColumnTheme);
-  const [gridCellPalette, setGridCellPalette] = useState<GridCellPalette>(readGridCellPalette);
-  useEffect(() => {
-    const sync = () => {
-      const next = readGridTheme();
-      setGridTheme(next);
-      setAiColumnTheme(readAiColumnTheme());
-      setGridCellPalette(readGridCellPalette());
-      if (import.meta.env.DEV) {
-        (window as unknown as { __frisketGridTheme?: Partial<Theme> }).__frisketGridTheme = next;
-      }
-    };
-    sync();
-    const observer = new MutationObserver(sync);
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['data-frisket-theme'],
-    });
-    return () => observer.disconnect();
-  }, []);
+  const { gridTheme, aiColumnTheme, gridCellPalette } = useGridTheme();
 
   const sortByName = useMemo(() => {
     const map = new Map<string, GridSortDirection>();

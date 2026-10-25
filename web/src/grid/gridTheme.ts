@@ -96,6 +96,18 @@ export function readGridCellPalette(): GridCellPalette {
   };
 }
 
+/** Comparison-only difference tint, derived beside the ordinary grid themes
+ * so read-only projections do not grow a second CSS-token mapping. */
+export function readGridDifferenceTheme(): Partial<Theme> {
+  const s = tokens();
+  const background = v(s, '--amber-bg', '#f7ecd8');
+  return {
+    bgCell: background,
+    bgCellMedium: background,
+    textDark: v(s, '--text', '#211f1b'),
+  };
+}
+
 /** AI/generated-column tint override, derived from the CSS token palette.
  *  fgIconHeader uses the foreground token for solid surfaces, with white as
  *  the documented light/dark fallback while older themes lack that token.
