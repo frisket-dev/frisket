@@ -231,9 +231,11 @@ test('Extract compares two typed fields across A/B/C and opens Use settings', as
   const columns = await sheetColumns(page.request, pid, sheetId);
   await clickGroupHeader(page, columns, 'case_number', 'hearing_date');
   const provenance = page.getByTestId('action-run-entry-card');
+  await expect(provenance).toBeVisible();
   await expect(provenance).toContainText('Extract structured fields');
   await expect(provenance).toContainText('case_number');
   await expect(provenance).toContainText('hearing_date');
+  await expect(provenance.getByTestId('action-run-entry-compare')).toBeVisible();
   await shoot(page, '01-extract-run.png');
   await provenance.getByTestId('action-run-entry-compare').click();
 

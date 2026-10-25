@@ -6,7 +6,6 @@ import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
 import {
-  clickGroupHeader,
   clickHeaderMenu,
   clickRunButton,
   createProject,
@@ -210,44 +209,33 @@ test.describe('connected action comparison', () => {
     expect(topic).toBeTruthy();
     expect(await topicValues(page, pid, sheetId, topic!.id, 3)).toEqual(baseline);
 
-    await clickGroupHeader(page, columns, 'topic', 'topic');
-    const entry = page.getByTestId('action-run-entry-card');
-    await expect(entry).toBeVisible();
-    await expect(entry).toContainText('Classify');
-    await expect(entry).toContainText('snippet');
-    await expect(entry).toContainText('topic');
-    await expect(entry.getByTestId('action-run-entry-compare')).toBeVisible();
-    await shoot(page, '01-run-entry.png');
-
-    // Toggle the pinned group card closed, then prove the same family actions
-    // are available from the individual generated-column menu.
-    await clickGroupHeader(page, columns, 'topic', 'topic');
-    await expect(entry).toHaveCount(0);
+    // A single-output run has no native column group. Its generated-column
+    // menu remains the provenance and comparison entry point.
     await clickHeaderMenu(page, columns, 'topic');
     await expect(page.getByTestId('header-menu-action-run-section')).toContainText('Classify');
     await expect(page.getByTestId('header-menu-compare-action-run')).toBeVisible();
     await expect(page.getByTestId('header-menu-edit-action-run')).toBeVisible();
     await expect(page.getByTestId('header-menu-earlier-action-runs')).toBeVisible();
-    await shoot(page, '02-column-menu.png');
+    await shoot(page, '01-column-menu.png');
 
     await page.getByTestId('header-menu-earlier-action-runs').click();
     const history = page.getByTestId('action-compare-history-dialog');
     await expect(history).toBeVisible();
     await expect(history).toContainText('1 stored run');
     await expect(history.getByTestId(`action-compare-history-choose-${baselineRunId}`)).toBeVisible();
-    await shoot(page, '03-earlier-runs.png');
+    await shoot(page, '02-earlier-runs.png');
     await page.getByLabel('Close earlier runs').click();
 
     await chooseCompareFromColumnMenu(page, columns, 'topic');
     await expect(page.getByTestId('action-compare-scratch-tag')).toHaveText('Comparing 3 sample rows');
     await expect(page.getByTestId('action-compare-variant-A')).toContainText('in table');
-    await shoot(page, '04-current-values.png');
+    await shoot(page, '03-current-values.png');
 
     await page.getByRole('button', { name: 'Variant', exact: true }).click();
     const editor = page.getByRole('complementary', { name: 'Configure variant B' });
     await expect(editor).toBeVisible();
     await editor.getByTestId('field-context').fill(PROMPT_B);
-    await shoot(page, '05-variant-editor.png');
+    await shoot(page, '04-variant-editor.png');
     await editor.getByRole('button', { name: 'Close variant editor' }).click();
 
     await page.getByRole('button', { name: 'Re-run', exact: true }).click();
@@ -255,14 +243,14 @@ test.describe('connected action comparison', () => {
     const variantB = page.getByTestId('action-compare-variant-B');
     await expect(variantB).toContainText('ready', { timeout: 60_000 });
     await expect(page.locator("td[data-comparison='different']")).toHaveCount(2);
-    await shoot(page, '06-preview-results.png');
+    await shoot(page, '05-preview-results.png');
 
     await page.getByRole('button', { name: 'Use settings from variant B' }).click();
     const replacementForm = page.getByTestId('generated-action-form');
     await expect(replacementForm).toBeVisible();
     await expect(replacementForm.getByTestId('replacement-overlay-notice')).toBeVisible();
     await expect(replacementForm.getByTestId('field-context')).toHaveValue(PROMPT_B);
-    await shoot(page, '07-replace-settings.png');
+    await shoot(page, '06-replace-settings.png');
 
     await clickRunButton(page);
     await expect(page.getByTestId('run-progress')).toContainText('complete', { timeout: 60_000 });
@@ -270,7 +258,7 @@ test.describe('connected action comparison', () => {
       () => topicValues(page, pid, sheetId, topic!.id, 3),
       { timeout: 20_000 },
     ).toEqual(challenger);
-    await shoot(page, '08-replaced-grid.png');
+    await shoot(page, '07-replaced-grid.png');
 
     await expect(page.getByTestId('undo-button')).toBeEnabled();
     await page.getByTestId('undo-button').click();
@@ -278,7 +266,7 @@ test.describe('connected action comparison', () => {
       () => topicValues(page, pid, sheetId, topic!.id, 3),
       { timeout: 20_000 },
     ).toEqual(baseline);
-    await shoot(page, '09-undone-grid.png');
+    await shoot(page, '08-undone-grid.png');
   });
 
   test('samples 20 default rows but preserves a larger captured selection', async ({ page }) => {
