@@ -252,15 +252,25 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
       if (id) next.updateVariant(id, variant.draft);
     }
   }, [openTarget]);
+  const cancelActionCompareClose = useCallback(() => {
+    compareView.setCloseWarn('action', false);
+  }, [compareView]);
+  const cancelActionCompareRetarget = useCallback(() => {
+    setPendingTarget(null);
+  }, []);
+  const confirmActionCompareRetarget = useCallback(() => {
+    if (pendingTarget) void openTarget(pendingTarget);
+  }, [openTarget, pendingTarget]);
 
-  return { actionCompareSession: session, actionCompareOpen: tab.open, actionCompareActive: tab.active,
+  return useMemo(() => ({ actionCompareSession: session, actionCompareOpen: tab.open, actionCompareActive: tab.active,
     actionCompareCloseWarn: tab.closeWarn, actionComparePendingTarget: pendingTarget,
     actionCompareHistoryAnchor: historyAnchor, setActionCompareHistoryAnchor: setHistoryAnchor,
     openActionCompare, compareActionRun, editActionRun, loadActionRunEntry, useActionCompareSettings,
     openActionCompareHistory, returnToActionCompare, closeActionCompare,
-    cancelActionCompareClose: () => compareView.setCloseWarn('action', false),
-    cancelActionCompareRetarget: () => setPendingTarget(null),
-    confirmActionCompareRetarget: () => { if (pendingTarget) void openTarget(pendingTarget); },
+    cancelActionCompareClose, cancelActionCompareRetarget, confirmActionCompareRetarget,
     refreshActionCompare,
-  };
+  }), [cancelActionCompareClose, cancelActionCompareRetarget, closeActionCompare, compareActionRun,
+    confirmActionCompareRetarget, editActionRun, historyAnchor, loadActionRunEntry, openActionCompare,
+    openActionCompareHistory, pendingTarget, refreshActionCompare, returnToActionCompare, session, tab.active,
+    tab.closeWarn, tab.open, useActionCompareSettings]);
 }
