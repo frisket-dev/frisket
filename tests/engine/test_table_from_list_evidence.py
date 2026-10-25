@@ -700,8 +700,15 @@ def test_item_grounding_publishes_the_link_spans_captured_during_admission(
     try:
         read = AdmittedListTableReader.read
 
-        def read_then_change_link(reader, source, *, item_schema=None):
-            items = read(reader, source, item_schema=item_schema)
+        def read_then_change_link(
+            reader, source, *, item_schema=None, parent_columns=()
+        ):
+            items = read(
+                reader,
+                source,
+                item_schema=item_schema,
+                parent_columns=parent_columns,
+            )
             captured = [
                 reader.item_associations[item.source]["evidence_link"] for item in items
             ]
