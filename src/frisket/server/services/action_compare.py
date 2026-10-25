@@ -24,23 +24,21 @@ from frisket.contracts.http.action_compare import (
 )
 from frisket.engine.executor import resolve_map_preview
 from frisket.engine.executor.actions import MapPreviewPlan
-from frisket.engine.executor.map_rows_action import (
-    bound_typed_program_request_from_runner_spec,
-    normalized_typed_request_identity,
-    typed_request_hash,
-)
+from frisket.engine.executor.map_rows_action import normalized_typed_request_identity
 from frisket.engine.runner.preview import PREVIEW_MAX_ROWS
 from frisket.engine.runner.result_generations import _compatibility_key
 from frisket.engine.store.current_value_windows import (
     PREVIEW_CODEPOINT_LIMIT,
+    CurrentValueNotTextual,
+    CurrentValueUnavailable,
     current_text_metadata,
     read_current_column,
     read_current_text,
 )
-from frisket.engine.store.receipts import FINISHED_RECEIPT_STATUSES, ReceiptStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.retrieval_lifecycle import read_binding_revisions
 from frisket.server.route_errors import RouteError
+from frisket.server.services.run_action_drafts import reconstruct_run_action_draft
 from frisket.server.workspace import Workspace
 
 
@@ -83,6 +81,11 @@ class ActionCompareService:
             baseline_mode = "current_values"
 
         sheet_id = int(draft["scope"]["sheet_id"])
+        sheet = project.db.execute(
+            "SELECT id,name FROM sheets WHERE id=? AND hidden=0", (sheet_id,)
+        ).fetchone()
+        if sheet is None:
+            raise ActionCompareRouteError(404, "comparison sheet was not found")
         sample_row_ids = _require_sample_rows(
             project, sheet_id, list(request.sample_row_ids)
         )
@@ -125,24 +128,24 @@ class ActionCompareService:
             }
         )
         output_signature = _output_signature(output_columns)
-        source_rows, baseline_rows, origin_summary, sample_fingerprint = (
-            _sample_payload(
-                project,
-                sheet_id=sheet_id,
-                row_ids=sample_row_ids,
-                source_columns=source_columns,
-                output_columns=output_columns,
-                include_baseline=baseline_mode == "current_values",
-                baseline_seed_run_id=(
-                    request.source.run_id if request.source.kind == "run" else None
-                ),
+        try:
+            source_rows, baseline_rows, origin_summary, sample_fingerprint = (
+                _sample_payload(
+                    project,
+                    sheet_id=sheet_id,
+                    row_ids=sample_row_ids,
+                    source_columns=source_columns,
+                    output_columns=output_columns,
+                    include_baseline=baseline_mode == "current_values",
+                    baseline_seed_run_id=(
+                        request.source.run_id if request.source.kind == "run" else None
+                    ),
+                )
             )
-        )
-        sheet = project.db.execute(
-            "SELECT id,name FROM sheets WHERE id=? AND hidden=0", (sheet_id,)
-        ).fetchone()
-        if sheet is None:
-            raise ActionCompareRouteError(404, "comparison sheet was not found")
+        except (CurrentValueNotTextual, CurrentValueUnavailable) as exc:
+            raise ActionCompareRouteError(
+                409, "A comparison input is no longer available."
+            ) from exc
         return {
             "schema_version": ACTION_COMPARE_SCHEMA_VERSION,
             "available": available,
@@ -227,20 +230,23 @@ class ActionCompareService:
                 "comparison_output_mismatch",
                 "These settings change the comparison output names.",
             )
-        source_params = {
-            str(item["param"])
-            for item in (
-                typed_action_for_request(
-                    {
-                        **context["draft"],
-                        "idempotency_key": "action-compare-admission",
-                    }
+        try:
+            source_params = {
+                str(item["param"])
+                for item in (
+                    typed_action_for_request(
+                        {
+                            **context["draft"],
+                            "idempotency_key": "action-compare-admission",
+                        }
+                    )
+                    .action.catalog_entry()["ui_hints"]
+                    .get("source_requirements")
+                    or []
                 )
-                .action.catalog_entry()["ui_hints"]
-                .get("source_requirements")
-                or []
-            )
-        }
+            }
+        except (KeyError, TypeError, ValueError, ValidationError) as exc:
+            return _refusal("invalid_comparison_basis", str(exc))
         candidate_params = dict(plan.runner_spec.get("params") or {})
         if any(
             candidate_params.get(name) != context["draft"]["params"].get(name)
@@ -312,19 +318,8 @@ def _resolve_run_draft(project, *, run_id: int, column_id: int):
     if column_id not in {binding.column_id for binding in bindings}:
         raise ActionCompareRouteError(404, "selected column is not part of this run")
     try:
-        runner_spec = json.loads(run["params"] or "{}")
-        if not isinstance(runner_spec, dict):
-            raise ValueError("stored run spec is not an object")
-        bound = bound_typed_program_request_from_runner_spec(
-            runner_spec, project=project
-        )
-        if bound is None:
-            raise ValueError("unsupported action family")
-        receipt = ReceiptStore(project).latest_for_run_action_statuses(
-            run_id, bound.action.action_id, FINISHED_RECEIPT_STATUSES
-        )
-        if receipt is None or receipt.params_hash != typed_request_hash(bound):
-            raise ValueError("stored action identity does not match its producer")
+        reconstructed = reconstruct_run_action_draft(project, run)
+        runner_spec = reconstructed.runner_spec
     except (TypeError, ValueError, json.JSONDecodeError) as exc:
         raise ActionCompareRouteError(
             409, "This run cannot be reconstructed with the current action."
@@ -348,7 +343,7 @@ def _resolve_run_draft(project, *, run_id: int, column_id: int):
         str(logical): str(columns[by_role[str(role)].column_id]["name"])
         for logical, role in stored_names.items()
     }
-    canonical = normalized_typed_request_identity(bound)
+    canonical = reconstructed.draft
     canonical.pop("replace_existing", None)
     canonical.pop("expected_output_columns", None)
     canonical.pop("implementation_identity", None)
@@ -401,22 +396,29 @@ def _source_columns(project, bound, plan: MapPreviewPlan) -> list[dict[str, Any]
         value = getattr(bound.params, param)
         for reference in discover_references(value):
             params_by_column.setdefault(reference.column, param)
-    columns_by_name = {
-        str(column["name"]): column
+    columns_by_id = {
+        int(column["id"]): column
         for column in project.columns(
             int(plan.runner_spec["sheet_id"]), include_hidden=True
         )
     }
-    return [
-        {
-            "param": params_by_column.get(name, name),
-            "column_id": int(column_id),
-            "name": str(name),
-            "column_type": str(columns_by_name[name]["type"]),
-            "format": columns_by_name[name]["format"],
-        }
-        for name, column_id in plan.source_column_ids.items()
-    ]
+    columns = []
+    for name, column_id in plan.source_column_ids.items():
+        column = columns_by_id.get(int(column_id))
+        if column is None or bool(column["hidden"]):
+            raise ActionCompareRouteError(
+                409, f"Comparison source column {name!r} is no longer available."
+            )
+        columns.append(
+            {
+                "param": params_by_column.get(name, name),
+                "column_id": int(column_id),
+                "name": str(name),
+                "column_type": str(column["type"]),
+                "format": column["format"],
+            }
+        )
+    return columns
 
 
 def _output_columns(plan: MapPreviewPlan, bindings) -> list[dict[str, Any]]:
@@ -434,6 +436,7 @@ def _output_columns(plan: MapPreviewPlan, bindings) -> list[dict[str, Any]]:
                 "column_id": None if binding is None else binding.column_id,
                 "current_name": current_name,
                 "column_type": str(field["column_type"]),
+                "semantic_type": field.get("semantic_type"),
                 "format": field.get("format"),
                 "hidden": bool(field.get("hidden", False)),
                 "schema": dict(field.get("schema") or {}),
@@ -442,15 +445,24 @@ def _output_columns(plan: MapPreviewPlan, bindings) -> list[dict[str, Any]]:
     return outputs
 
 
-def _strip_descriptions(value: Any) -> Any:
+_NAMED_SCHEMA_MAPS = frozenset(
+    {"properties", "patternProperties", "$defs", "definitions", "dependentSchemas"}
+)
+
+
+def _strip_schema_annotations(value: Any, *, named_schema_map: bool = False) -> Any:
     if isinstance(value, dict):
-        return {
-            key: _strip_descriptions(child)
-            for key, child in value.items()
-            if key != "description"
-        }
+        stripped = {}
+        for key, child in value.items():
+            if key == "description" and not named_schema_map:
+                continue
+            stripped[key] = _strip_schema_annotations(
+                child,
+                named_schema_map=(not named_schema_map and key in _NAMED_SCHEMA_MAPS),
+            )
+        return stripped
     if isinstance(value, list):
-        return [_strip_descriptions(item) for item in value]
+        return [_strip_schema_annotations(item) for item in value]
     return value
 
 
@@ -459,9 +471,10 @@ def _output_signature(outputs: list[dict[str, Any]]) -> str:
         {
             "logical_key": output["logical_key"],
             "column_type": output["column_type"],
+            "semantic_type": output.get("semantic_type"),
             "format": output["format"],
             "hidden": output["hidden"],
-            "schema": _strip_descriptions(output["schema"]),
+            "schema": _strip_schema_annotations(output["schema"]),
         }
         for output in outputs
     ]
@@ -517,6 +530,10 @@ def _sample_payload(
                 bounded=True,
             )
             for row_id in row_ids:
+                if row_id not in reads:
+                    raise CurrentValueUnavailable(
+                        f"comparison source row {row_id} is unavailable"
+                    )
                 cell = _compare_cell(
                     snapshot.db, reads[row_id], row_id, int(column["column_id"])
                 )
@@ -531,6 +548,10 @@ def _sample_payload(
                 source_rows[str(row_id)][column["name"]] = cell
         if include_baseline and baseline_rows is not None:
             for output in output_columns:
+                if output["column_id"] is None:
+                    raise CurrentValueUnavailable(
+                        f"comparison output {output['logical_key']!r} is unbound"
+                    )
                 column_id = int(output["column_id"])
                 reads = read_current_column(
                     snapshot.db,
@@ -541,6 +562,10 @@ def _sample_payload(
                     include_hidden=True,
                 )
                 for row_id in row_ids:
+                    if row_id not in reads:
+                        raise CurrentValueUnavailable(
+                            f"comparison output row {row_id} is unavailable"
+                        )
                     cell = _compare_cell(snapshot.db, reads[row_id], row_id, column_id)
                     cell, aggregate_bytes = _bounded_aggregate_cell(
                         snapshot.db,

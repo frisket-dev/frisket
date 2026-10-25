@@ -26,6 +26,39 @@ from frisket.engine.store.runs import (
 )
 
 
+def typed_run_has_matching_producer_receipt(
+    project: Project,
+    *,
+    run_id: int,
+    bound: Any,
+) -> bool:
+    """Accept the original producer or an exact backfill successor receipt."""
+
+    from frisket.engine.executor.map_rows_action import typed_request_hash
+
+    expected_hash = typed_request_hash(bound)
+    receipts = ReceiptStore(project)
+    producer = receipts.latest_for_run_action_statuses(
+        run_id,
+        bound.action.action_id,
+        FINISHED_RECEIPT_STATUSES,
+    )
+    if producer is not None and producer.params_hash == expected_hash:
+        return True
+    successor = receipts.latest_for_run_statuses(run_id, FINISHED_RECEIPT_STATUSES)
+    if successor is None:
+        return False
+    try:
+        return any(
+            evidence.ref.get("kind") == "backfill_source_generation"
+            and evidence.ref.get("successor_run_id") == run_id
+            and evidence.ref.get("successor_request_hash") == expected_hash
+            for evidence in successor.parsed().evidence
+        )
+    except ValueError:
+        return False
+
+
 def _run_backfill_terminal_projection(
     project: Project,
     action: ActionSpec,
@@ -200,7 +233,6 @@ def _resolve_backfill_target(
     runner_spec = dict(runner_spec)
     from frisket.engine.executor.map_rows_action import (
         bound_typed_program_request_from_runner_spec,
-        typed_request_hash,
     )
 
     try:
@@ -215,36 +247,9 @@ def _resolve_backfill_target(
             field="params.column",
         )
     if original_bound is not None:
-        producer_kind = original_bound.action.action_id
-        expected_hash = typed_request_hash(original_bound)
-        producer_receipt = ReceiptStore(project).latest_for_run_action_statuses(
-            run_id,
-            producer_kind,
-            FINISHED_RECEIPT_STATUSES,
-        )
-        matches_producer = (
-            producer_receipt is not None
-            and producer_receipt.params_hash == expected_hash
-        )
-        if not matches_producer:
-            # Backfill can itself create the selected generation, including
-            # through a custom action using RunBackfiller. Its host receipt
-            # pins this exact successor program; do not infer it from an
-            # action name, parent chain, or descriptive author return.
-            successor = ReceiptStore(project).latest_for_run_statuses(
-                run_id, FINISHED_RECEIPT_STATUSES
-            )
-            if successor is not None:
-                try:
-                    matches_producer = any(
-                        evidence.ref.get("kind") == "backfill_source_generation"
-                        and evidence.ref.get("successor_run_id") == run_id
-                        and evidence.ref.get("successor_request_hash") == expected_hash
-                        for evidence in successor.parsed().evidence
-                    )
-                except ValueError:
-                    matches_producer = False
-        if not matches_producer:
+        if not typed_run_has_matching_producer_receipt(
+            project, run_id=run_id, bound=original_bound
+        ):
             return ActionError(
                 code="invalid_run_params",
                 message=(

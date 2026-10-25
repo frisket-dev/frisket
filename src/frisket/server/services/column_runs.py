@@ -2,14 +2,10 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
-from frisket.engine.executor.map_rows_action import (
-    bound_typed_program_request_from_runner_spec,
-    normalized_typed_request_identity,
-)
 from frisket.server.run_payloads import column_run_provenance_payload
+from frisket.server.services.run_action_drafts import reconstruct_run_action_draft
 from frisket.server.workspace import Workspace
 from frisket.server.route_errors import RouteError
 
@@ -72,17 +68,8 @@ class ColumnRunHistoryService:
                 "Review at least one result before revising this run.",
             )
         try:
-            stored = json.loads(run["params"] or "{}")
-            if not isinstance(stored, dict):
-                raise ValueError("stored run spec is not an object")
-            bound = bound_typed_program_request_from_runner_spec(
-                stored,
-                project=project,
-            )
-            if bound is None:
-                raise ValueError("unsupported action family")
-            draft = normalized_typed_request_identity(bound)
-        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            draft = reconstruct_run_action_draft(project, run).draft
+        except (TypeError, ValueError) as exc:
             raise ColumnRunHistoryRouteError(
                 409,
                 "This run cannot be revised with the current action form.",

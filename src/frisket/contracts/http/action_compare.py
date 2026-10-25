@@ -76,6 +76,7 @@ class ActionCompareOutputColumn(WireModel):
     column_id: int | None = Field(default=None, gt=0)
     current_name: str
     column_type: str
+    semantic_type: str | None = None
     format: str | None
     hidden: bool
     schema_: dict[str, JsonValue] = Field(alias="schema")

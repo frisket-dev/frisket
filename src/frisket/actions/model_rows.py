@@ -195,7 +195,14 @@ ASK = action(
         "one answer column with the selected data type."
     ),
     category=ActionCategory.TEXT,
-    comparison=ActionComparison(ActionComparisonKind.ROW_OVERLAY),
+    comparison=ActionComparison(
+        ActionComparisonKind.ROW_OVERLAY,
+        structural_params=(
+            "response_type",
+            "include_confidence",
+            "include_reasoning",
+        ),
+    ),
     run=model_rows(ask, dynamic_outputs=ask_outputs),
 )
 

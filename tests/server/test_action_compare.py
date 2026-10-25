@@ -5,9 +5,12 @@ import json
 from typing import Any
 
 from fastapi.testclient import TestClient
+import pytest
 
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
+from frisket.engine.executor import resolve_map_preview
+from frisket.engine.executor.actions import MapPreviewPlan
 from frisket.engine.runner.preview import PreviewColumn, PreviewResult
 from frisket.server.app import create_app
 from frisket.server.services.action_compare import ActionCompareService
@@ -75,6 +78,24 @@ def test_catalog_has_one_typed_row_overlay_opt_in_for_initial_actions() -> None:
         == {"kind": "row_overlay"}
     }
     assert eligible == {"map.extract", "map.ask", "map.classify"}
+    structural = {
+        entry.action_id: entry.definition.comparison.structural_params
+        for entry in ACTION_REGISTRY.actions
+        if entry.action_id in eligible and entry.definition.comparison is not None
+    }
+    assert structural == {
+        "map.ask": (
+            "response_type",
+            "include_confidence",
+            "include_reasoning",
+        ),
+        "map.extract": ("fields", "include_confidence"),
+        "map.classify": (
+            "fields",
+            "include_confidence",
+            "include_justification",
+        ),
+    }
 
 
 def test_draft_context_is_bounded_canonical_and_read_only(tmp_path: Path) -> None:
@@ -101,7 +122,12 @@ def test_draft_context_is_bounded_canonical_and_read_only(tmp_path: Path) -> Non
         "draft": payload["draft"],
     }
     assert payload["sample_row_ids"] == row_ids
-    assert payload["locked_params"] == ["source"]
+    assert payload["locked_params"] == [
+        "include_confidence",
+        "include_reasoning",
+        "response_type",
+        "source",
+    ]
     assert payload["source_columns"] == [
         {
             "param": "source",
@@ -288,6 +314,223 @@ def test_run_context_uses_complete_binding_and_current_renamed_target(
             },
         )
         assert incompatible.status_code == 409
+
+
+def test_run_context_accepts_a_real_backfill_successor_receipt(tmp_path: Path) -> None:
+    app = create_app(
+        tmp_path / "backfill-workspace",
+        router=_router(),
+        serve_spa=False,
+        enable_provider_config=False,
+    )
+    with TestClient(app) as client:
+        pid = client.post("/api/projects", json={"name": "Backfill compare"}).json()[
+            "id"
+        ]
+        project = app.state.workspace.get(pid)
+        sheet_id = project.add_sheet("Stories")
+        source_id = project.add_column(sheet_id, "story", type="text")
+        row_ids = project.add_rows(
+            sheet_id,
+            [{"story": "City hall voted."}],
+            {"story": source_id},
+        )
+        original = post_v1_action_with_exact_confirmation(
+            client,
+            pid,
+            {
+                "action_id": "map.classify",
+                "scope": {
+                    "kind": "sheet_rows",
+                    "sheet_id": sheet_id,
+                    "row_ids": row_ids,
+                },
+                "params": {
+                    "source": ["story"],
+                    "engine": "llm",
+                    "model": "anthropic/claude-haiku-4-5",
+                    "fields": [
+                        {
+                            "name": "beat",
+                            "type": "category",
+                            "labels": ["civic", "private"],
+                        }
+                    ],
+                },
+                "idempotency_key": "action-compare-backfill@original",
+            },
+        )
+        assert original.status_code == 200, original.text
+        drain_queue(client)
+        output_id = int(
+            next(
+                column
+                for column in project.columns(sheet_id)
+                if column["name"] == "beat"
+            )["id"]
+        )
+        successor = post_v1_action_with_exact_confirmation(
+            client,
+            pid,
+            {
+                "action_id": "run.backfill",
+                "scope": {
+                    "kind": "sheet_rows",
+                    "sheet_id": sheet_id,
+                    "row_ids": row_ids,
+                },
+                "params": {"column": "beat"},
+                "idempotency_key": "action-compare-backfill@successor",
+            },
+        )
+        assert successor.status_code == 200, successor.text
+        successor_run_id = int(successor.json()["run_id"])
+        drain_queue(client)
+
+        context_response = client.post(
+            f"/api/projects/{pid}/actions/v1/compare-context",
+            json={
+                "source": {
+                    "kind": "run",
+                    "run_id": successor_run_id,
+                    "column_id": output_id,
+                },
+                "sample_row_ids": row_ids,
+            },
+        )
+
+        assert context_response.status_code == 200, context_response.text
+        assert context_response.json()["draft"]["action_id"] == "map.classify"
+
+
+def test_output_signature_preserves_description_property_and_semantic_type(
+    tmp_path: Path,
+) -> None:
+    workspace, sheet_id, row_ids = _workspace(tmp_path / "workspace")
+    compare = ActionCompareService(workspace)
+    draft = {
+        "action_id": "map.extract",
+        "scope": {
+            "kind": "sheet_rows",
+            "sheet_id": sheet_id,
+            "row_ids": row_ids,
+        },
+        "params": {
+            "source": ["text"],
+            "engine": "llm",
+            "model": "anthropic/claude-haiku-4-5",
+            "fields": [
+                {
+                    "name": "record",
+                    "type": "json",
+                    "description": "Editable annotation",
+                    "properties": {"description": {"type": "string"}},
+                }
+            ],
+        },
+        "output_names": {"record": "record"},
+    }
+    context = compare.context(
+        "compare",
+        {
+            "source": {"kind": "draft", "draft": draft},
+            "sample_row_ids": row_ids,
+        },
+    )
+
+    def plan_for(candidate: dict) -> MapPreviewPlan:
+        plan = resolve_map_preview(
+            workspace.get("compare"),
+            {**candidate, "idempotency_key": "compare-signature-candidate"},
+        )
+        assert isinstance(plan, MapPreviewPlan), plan
+        return plan
+
+    admission = {
+        "basis": context["comparison_basis"],
+        "expected_output_signature": context["expected_output_signature"],
+        "expected_sample_fingerprint": context["sample_fingerprint"],
+    }
+    edited_description = json.loads(json.dumps(context["draft"]))
+    edited_description["params"]["fields"][0]["description"] = "New annotation"
+    assert (
+        compare.validate_preview_admission(
+            "compare",
+            action=edited_description,
+            comparison=admission,
+            plan=plan_for(edited_description),
+        )
+        is None
+    )
+
+    changed_property = json.loads(json.dumps(context["draft"]))
+    changed_property["params"]["fields"][0]["properties"]["description"] = {
+        "type": "integer"
+    }
+    refusal = compare.validate_preview_admission(
+        "compare",
+        action=changed_property,
+        comparison=admission,
+        plan=plan_for(changed_property),
+    )
+    assert refusal is not None
+    assert refusal["code"] == "comparison_output_mismatch"
+
+    semantic_plan = plan_for(context["draft"])
+    semantic_plan.output_fields = tuple(
+        {**field, "semantic_type": "changed-semantic-type"}
+        for field in semantic_plan.output_fields
+    )
+    semantic_refusal = compare.validate_preview_admission(
+        "compare",
+        action=context["draft"],
+        comparison=admission,
+        plan=semantic_plan,
+    )
+    assert semantic_refusal is not None
+    assert semantic_refusal["code"] == "comparison_output_mismatch"
+
+
+@pytest.mark.parametrize("hidden_target", ["sheet", "source"])
+def test_context_maps_hidden_inputs_to_public_4xx(
+    tmp_path: Path,
+    hidden_target: str,
+) -> None:
+    app = create_app(
+        tmp_path / f"hidden-{hidden_target}",
+        serve_spa=False,
+        enable_provider_config=False,
+    )
+    with TestClient(app, raise_server_exceptions=False) as client:
+        pid = client.post("/api/projects", json={"name": "Hidden input"}).json()["id"]
+        project = app.state.workspace.get(pid)
+        sheet_id = project.add_sheet("Stories")
+        source_id = project.add_column(sheet_id, "text", type="text")
+        row_ids = project.add_rows(
+            sheet_id,
+            [{"text": "Alpha"}],
+            {"text": source_id},
+        )
+        with project.db:
+            if hidden_target == "sheet":
+                project.db.execute("UPDATE sheets SET hidden=1 WHERE id=?", (sheet_id,))
+            else:
+                project.db.execute(
+                    "UPDATE columns SET hidden=1 WHERE id=?", (source_id,)
+                )
+
+        response = client.post(
+            f"/api/projects/{pid}/actions/v1/compare-context",
+            json={
+                "source": {
+                    "kind": "draft",
+                    "draft": _ask_draft(sheet_id, row_ids),
+                },
+                "sample_row_ids": row_ids,
+            },
+        )
+
+        assert 400 <= response.status_code < 500, response.text
 
 
 def test_compare_preview_revalidates_fingerprint_before_start(tmp_path: Path) -> None:

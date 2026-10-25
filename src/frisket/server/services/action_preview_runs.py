@@ -588,7 +588,6 @@ class ActionPreviewRunService:
                 if cancel_event.is_set():
                     raise ValueError("preview cancelled")
                 result = plan.run(cancel_event)
-                result.finalize_artifacts()
                 progress_cb(plan.total, plan.total)
                 return result
 
@@ -828,7 +827,8 @@ class ActionPreviewRunService:
                 result = asyncio.run(
                     runner.preview(runner_spec, **program_kwargs, **preview_kwargs)
                 )
-                result.finalize_artifacts()
+                if comparison is not None:
+                    result.finalize_artifacts()
             except BaseException as exc:
                 failure = exc
                 raise

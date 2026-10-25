@@ -306,7 +306,8 @@ CLASSIFY = action(
     description="Assign labels locally or classify structured fields with a model.",
     category=ActionCategory.TEXT,
     comparison=ActionComparison(
-        ActionComparisonKind.ROW_OVERLAY, structural_params=("fields",)
+        ActionComparisonKind.ROW_OVERLAY,
+        structural_params=("fields", "include_confidence", "include_justification"),
     ),
     examples=(
         ClassifyParams(

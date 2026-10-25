@@ -195,7 +195,8 @@ EXTRACT = action(
     category=ActionCategory.TEXT,
     description="Extract typed fields from each row, with optional source citations.",
     comparison=ActionComparison(
-        ActionComparisonKind.ROW_OVERLAY, structural_params=("fields",)
+        ActionComparisonKind.ROW_OVERLAY,
+        structural_params=("fields", "include_confidence"),
     ),
     run=model_rows(
         extract,
