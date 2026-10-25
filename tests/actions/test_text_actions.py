@@ -5,7 +5,7 @@ import datetime as dt
 import pytest
 from pydantic import ValidationError
 
-from frisket.actions.types import Outcome, Row, Template
+from frisket.actions.types import Outcome, Row, Template, discover_references
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.actions.text import (
     CLEAN_DATES,
@@ -69,6 +69,16 @@ def test_text_action_catalogs_derive_source_requirements_from_params() -> None:
     ]
     assert entries["map.regex_extract"]["ui_hints"]["category"] == "extract"
     assert entries["map.columns_from_json"]["ui_hints"]["category"] == "extract"
+
+
+def test_clean_dates_source_preserves_repairable_invalid_values() -> None:
+    repair = CleanDatesParams(source="published")
+    template = Template(text="{{published}}")
+
+    for values in ([repair, template], [template, repair]):
+        [reference] = discover_references(values)
+        assert reference.column == "published"
+        assert reference.preserve_invalid is True
 
 
 @pytest.mark.parametrize(

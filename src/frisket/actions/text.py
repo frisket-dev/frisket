@@ -79,6 +79,7 @@ class CleanDateSource(ColumnRef[Any]):
         "number",
         "integer",
     )
+    preserve_invalid: ClassVar[bool] = True
 
 
 class CleanDatesParams(ActionParams):

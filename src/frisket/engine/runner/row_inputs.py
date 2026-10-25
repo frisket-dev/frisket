@@ -5,7 +5,7 @@ the spec declares one."""
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
@@ -132,13 +132,22 @@ class RowSourcePage:
 
 
 def read_source_page(
-    project: Project, sheet_id: int, column_ids: list[int], row_ids: list[int]
+    project: Project,
+    sheet_id: int,
+    column_ids: list[int],
+    row_ids: list[int],
+    *,
+    preserve_invalid_column_ids: Collection[int] = (),
 ) -> RowSourcePage:
     # Close the coherent read transaction before queueing or executing a row.
+    preserved = frozenset(preserve_invalid_column_ids)
     with project.read_snapshot() as snapshot:
         columns = {
             column_id: snapshot.get_values_with_refs(
-                sheet_id, column_id, row_ids=row_ids
+                sheet_id,
+                column_id,
+                row_ids=row_ids,
+                **({"preserve_invalid": True} if column_id in preserved else {}),
             )
             for column_id in column_ids
         }
@@ -221,6 +230,9 @@ def row_values(
         col_types = {c["name"]: c["type"] for c in project.columns(spec["sheet_id"])}
     values: dict[str, Any] = {}
     source_names = [str(name) for name in recipe.source_columns(spec)]
+    preserve_invalid_names = frozenset(
+        getattr(recipe, "preserve_invalid_source_columns", ())
+    )
     # A program may admit provenance-only sources without sending their values
     # to the model. They still participate in the same frozen source checks and
     # returned-result capture as prompt inputs.
@@ -242,13 +254,22 @@ def row_values(
         if source_page is not None:
             val, ref = source_page.cell(spec["sheet_id"], cid, row_id)
         elif capture is None and expected is None:
-            val = project.get_values(spec["sheet_id"], cid, row_ids=[row_id]).get(
-                row_id
+            read_options = (
+                {"preserve_invalid": True} if name in preserve_invalid_names else {}
             )
+            val = project.get_values(
+                spec["sheet_id"], cid, row_ids=[row_id], **read_options
+            ).get(row_id)
             ref = None
         else:
+            read_options = (
+                {"preserve_invalid": True} if name in preserve_invalid_names else {}
+            )
             got, refs = project.get_values_with_refs(
-                spec["sheet_id"], cid, row_ids=[row_id]
+                spec["sheet_id"],
+                cid,
+                row_ids=[row_id],
+                **read_options,
             )
             val = got.get(row_id)
             ref = refs.get(row_id)

@@ -508,6 +508,7 @@ class InputReference:
     column: str
     accepted_column_types: tuple[str, ...] | None = None
     ai_generated_only: bool = False
+    preserve_invalid: bool = False
 
 
 @dataclass(frozen=True)
@@ -1426,7 +1427,13 @@ class ColumnRef(_SemanticText[T], Generic[T]):
         return self.root
 
     def references(self) -> tuple[InputReference, ...]:
-        return (InputReference(self.root, column_ref_types(type(self))),)
+        return (
+            InputReference(
+                self.root,
+                column_ref_types(type(self)),
+                preserve_invalid=bool(getattr(type(self), "preserve_invalid", False)),
+            ),
+        )
 
     def read(self, row: Row) -> T:
         return row.read(self.root)
@@ -1441,6 +1448,7 @@ class GeneratedColumnRef(ColumnRef[T], Generic[T]):
                 self.root,
                 column_ref_types(type(self)),
                 ai_generated_only=True,
+                preserve_invalid=bool(getattr(type(self), "preserve_invalid", False)),
             ),
         )
 
@@ -1547,28 +1555,26 @@ def discover_references(value: Any) -> tuple[InputReference, ...]:
                 current = found.get(reference.column)
                 if current is None:
                     found[reference.column] = reference
-                elif current.accepted_column_types is None:
-                    found[reference.column] = InputReference(
-                        reference.column,
-                        reference.accepted_column_types,
-                        current.ai_generated_only or reference.ai_generated_only,
-                    )
-                elif reference.accepted_column_types is not None:
-                    accepted = tuple(
-                        item
-                        for item in current.accepted_column_types
-                        if item in reference.accepted_column_types
-                    )
+                else:
+                    if current.accepted_column_types is None:
+                        accepted = reference.accepted_column_types
+                    elif reference.accepted_column_types is None:
+                        accepted = current.accepted_column_types
+                    else:
+                        accepted = tuple(
+                            child
+                            for child in current.accepted_column_types
+                            if child in reference.accepted_column_types
+                        )
                     found[reference.column] = InputReference(
                         reference.column,
                         accepted,
-                        current.ai_generated_only or reference.ai_generated_only,
-                    )
-                elif reference.ai_generated_only and not current.ai_generated_only:
-                    found[reference.column] = InputReference(
-                        current.column,
-                        current.accepted_column_types,
-                        ai_generated_only=True,
+                        ai_generated_only=(
+                            current.ai_generated_only or reference.ai_generated_only
+                        ),
+                        preserve_invalid=(
+                            current.preserve_invalid or reference.preserve_invalid
+                        ),
                     )
         elif isinstance(item, BaseModel):
             for child in item.__class__.model_fields:
