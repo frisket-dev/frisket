@@ -107,6 +107,11 @@ type ListTableParams_ListColumnSource = ({
   "include_columns"?: (((Array<(string)>)) | ((null)));
 });
 
+type ListTableParams_ListParentColumn = ({
+  "column_id": (number);
+  "output_name": (string);
+});
+
 type ListTableParams_ListProjectionColumn = ({
   "name": (string);
   "path": (string);
@@ -129,6 +134,7 @@ export type ListTableParams = ({
   [key: string]: JsonValue;
 })) | ((null)));
   "columns"?: (((Array<(ListTableParams_ListProjectionColumn)>)) | ((null)));
+  "parent_columns"?: (Array<(ListTableParams_ListParentColumn)>);
 });
 
 type TemporalSegmentsParams_TemporalDraftPoint = ({

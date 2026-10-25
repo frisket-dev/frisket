@@ -11,7 +11,9 @@ from frisket.actions.types import (
     ActionParams,
     DynamicOutput,
     DynamicTableResult,
+    ListCopiedColumn,
     ListItem,
+    ListParentColumn,
     ListTableReader,
     ListTableSource,
     NamedListSource,
@@ -62,6 +64,9 @@ class ListTableParams(ActionParams):
     columns: list[ListProjectionColumn] | None = Field(
         default=None, max_length=MAX_IMPORT_ROWS_COLUMNS
     )
+    parent_columns: list[ListParentColumn] = Field(
+        default_factory=list, max_length=MAX_IMPORT_ROWS_COLUMNS
+    )
 
     @model_validator(mode="after")
     def _source_projection(self) -> ListTableParams:
@@ -77,11 +82,23 @@ class ListTableParams(ActionParams):
                 raise ValueError("duplicate_column_name")
         elif self.item_schema is not None or self.columns is not None:
             raise ValueError("live list columns discover their output schema")
+        parent_ids = [column.column_id for column in self.parent_columns]
+        if len(parent_ids) != len(set(parent_ids)):
+            raise ValueError("duplicate_parent_column")
+        parent_names = [column.output_name for column in self.parent_columns]
+        if len(parent_names) != len(set(parent_names)):
+            raise ValueError("duplicate_column_name")
+        if self.columns is not None:
+            item_names = [column.name for column in self.columns]
+            if set(item_names) & set(parent_names):
+                raise ValueError("duplicate_column_name")
+            if len(item_names) + len(parent_names) > MAX_IMPORT_ROWS_COLUMNS:
+                raise ValueError("too_many_columns")
         return self
 
 
 def declared_columns(params: ListTableParams) -> tuple[TableColumn, ...] | None:
-    if params.columns is None:
+    if params.columns is None or params.parent_columns:
         return None
     return tuple(
         TableColumn(key=column.name, type=column.type, hidden=column.hidden)
@@ -184,6 +201,7 @@ def project_items(
     columns: list[ListProjectionColumn] | tuple[ListProjectionColumn, ...],
     *,
     require_paths: bool,
+    parent_columns: tuple[ListCopiedColumn, ...] = (),
 ) -> Iterator[TableRow[DynamicOutput]]:
     # Share the established path semantics without importing the executor while
     # action registration is still being initialized.
@@ -207,6 +225,12 @@ def project_items(
                     details={"column": column.name, "type": column.type},
                 )
             values[column.name] = value
+        parent_names = {column.name for column in parent_columns}
+        if set(item.parent_values) != parent_names:
+            raise TableError(
+                "invalid_input_ref", "Parent-column snapshot is incomplete"
+            )
+        values.update(item.parent_values)
         yield TableRow(
             output=DynamicOutput(values), sources=(item.source,), parent=item.source
         )
@@ -215,18 +239,57 @@ def project_items(
 def expand_list_table(
     params: ListTableParams, tables: ListTableReader
 ) -> TableResult[DynamicOutput] | DynamicTableResult:
-    items = tables.read(params.source, item_schema=params.item_schema)
-    if params.columns is not None:
+    items = tables.read(
+        params.source,
+        item_schema=params.item_schema,
+        parent_columns=params.parent_columns,
+    )
+    copied_columns = tuple(tables.copied_columns)
+    if params.columns is not None and not copied_columns:
         return TableResult(
             rows=project_items(items, params.columns, require_paths=True)
         )
-    projection = infer_projection(items, params.source.include_columns)
+    projection = (
+        tuple(params.columns)
+        if params.columns is not None
+        else infer_projection(items, params.source.include_columns)
+    )
+    item_names = {column.name for column in projection}
+    copied_names = {column.name for column in copied_columns}
+    if item_names & copied_names:
+        raise TableError(
+            "duplicate_column_name",
+            "A selected parent-column alias collides with a list item column",
+            details={"columns": sorted(item_names & copied_names)},
+        )
+    if len(projection) + len(copied_columns) > MAX_IMPORT_ROWS_COLUMNS:
+        raise TableError(
+            "invalid_item_schema",
+            "List items and parent context exceed the supported column limit",
+            details={
+                "max_columns": MAX_IMPORT_ROWS_COLUMNS,
+                "found": len(projection) + len(copied_columns),
+            },
+        )
     return DynamicTableResult(
         schema=tuple(
             TableColumn(key=column.name, type=column.type, hidden=column.hidden)
             for column in projection
+        )
+        + tuple(
+            TableColumn(
+                key=column.name,
+                type=column.type,
+                format=column.format,
+            )
+            for column in copied_columns
         ),
-        rows=project_items(items, projection, require_paths=False),
+        rows=project_items(
+            items,
+            projection,
+            require_paths=params.columns is not None,
+            parent_columns=copied_columns,
+        ),
     )
 
 

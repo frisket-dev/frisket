@@ -1225,6 +1225,7 @@ def run_table_source(
                 "reads": reads,
                 "op_spec": identity,
                 "list_reader": list_reader,
+                "resolved_output_names": prepared.resolved_output_names,
                 "sheet_rows_reader": prepared.readers.get(SheetRowsReader),
                 "collection_reader": prepared.readers.get(CollectionReader),
                 "semantic_match_reader": prepared.readers.get(SemanticMatchReader),
@@ -1484,6 +1485,17 @@ def _projection_initial_values(readers, row, ordinal):
     return row
 
 
+def _list_output_ai_generated(list_reader, name, resolved_output_names):
+    logical = next(
+        (key for key, resolved in resolved_output_names.items() if resolved == name),
+        name,
+    )
+    copied = {column.name: column for column in list_reader.copied_columns}.get(logical)
+    return (
+        copied.ai_generated if copied is not None else list_reader.source_ai_generated
+    )
+
+
 def _perform_table_in_txn(
     project: Project,
     cur: Any,
@@ -1542,6 +1554,7 @@ def _perform_table_in_txn(
             project_id=project_id, action_kind=action.kind, error=rows
         )
     list_reader = resolved.get("list_reader")
+    resolved_output_names = resolved.get("resolved_output_names", {})
     roles = resolved.get("source_roles", {})
     write = write_contributor_table(
         cur,
@@ -1562,7 +1575,9 @@ def _perform_table_in_txn(
                         for reader in projections
                     )
                     if projections
-                    else list_reader.source_ai_generated
+                    else _list_output_ai_generated(
+                        list_reader, column.name, resolved_output_names
+                    )
                     if list_reader is not None
                     else resolved.get("collection_reader") is None
                     and resolved.get("joined_tables_reader") is None

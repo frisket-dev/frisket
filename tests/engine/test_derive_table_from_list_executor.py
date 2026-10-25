@@ -176,6 +176,7 @@ def _seed(project: Project, tmp_path: Path) -> dict[str, Any]:
     return {
         "sheet_id": sheet_id,
         "run_id": mapped.run_id,
+        "title_column_id": columns["title"],
         "entities_column_id": columns["__result_entities"],
         "debug_column_id": columns["__result_debug_payload"],
         "source_row_ids": [
@@ -379,6 +380,174 @@ CASES = [
         check_state=_check_state,
     )
 ]
+
+
+def test_live_list_copies_selected_parent_context_with_exact_metadata_and_nulls(
+    tmp_path: Path,
+) -> None:
+    from frisket.contracts.action import Receipt
+    from frisket.engine.executor import run_action_spec
+
+    project = Project.create(tmp_path / "parent-context.frisket")
+    try:
+        sheet_id = project.add_sheet("Cases")
+        case_id = project.add_column(sheet_id, "case", type="text")
+        score_id = project.add_column(
+            sheet_id, "score", type="number", ai_generated=True, format="0.0"
+        )
+        notes_id = project.add_column(sheet_id, "large_notes", type="text")
+        items_id = project.add_column(sheet_id, "items", type="json")
+        parent_rows = project.add_rows(
+            sheet_id,
+            [
+                {
+                    "case": "A",
+                    "score": 0.5,
+                    "large_notes": "unselected " * 100,
+                    "items": [{"name": "a"}, {"name": "b"}],
+                },
+                {
+                    "case": None,
+                    "score": 0.8,
+                    "large_notes": "unselected " * 100,
+                    "items": [{"name": "c"}],
+                },
+                {
+                    "case": "C",
+                    "score": None,
+                    "large_notes": "unselected " * 100,
+                    "items": [{"name": "d"}, {"name": "e"}],
+                },
+            ],
+            {
+                "case": case_id,
+                "score": score_id,
+                "large_notes": notes_id,
+                "items": items_id,
+            },
+        )
+        result = run_action_spec(
+            project,
+            {
+                "action_id": "derive.table_from_list",
+                "scope": {"kind": "project"},
+                "sheet_name": "Expanded",
+                "params": {
+                    "source": {
+                        "kind": "column",
+                        "sheet_id": sheet_id,
+                        "column_id": items_id,
+                    },
+                    "parent_columns": [
+                        {"column_id": case_id, "output_name": "source_case"},
+                        {"column_id": score_id, "output_name": "source_score"},
+                    ],
+                },
+                "idempotency_key": "parent-context-live-v1",
+            },
+            project_id="parent-context",
+        )
+        assert result.status == "completed", result.errors
+        child_id = next(
+            output.sheet_id for output in result.outputs if output.kind == "sheet"
+        )
+        columns = {
+            row["name"]: row
+            for row in project.db.execute(
+                "SELECT * FROM columns WHERE sheet_id=? ORDER BY position", (child_id,)
+            )
+        }
+        assert list(columns) == ["name", "source_case", "source_score"]
+        assert "large_notes" not in columns
+        assert "items" not in columns
+        assert columns["name"]["ai_generated"] == 0
+        assert columns["source_case"]["ai_generated"] == 0
+        assert columns["source_score"]["ai_generated"] == 1
+        assert columns["source_score"]["format"] == "0.0"
+        assert list(
+            project.get_values(child_id, columns["source_case"]["id"]).values()
+        ) == ["A", "A", None, "C", "C"]
+        assert list(
+            project.get_values(child_id, columns["source_score"]["id"]).values()
+        ) == [0.5, 0.5, 0.8, None, None]
+        child_rows = project.db.execute(
+            "SELECT parent_row_id FROM rows WHERE sheet_id=? ORDER BY position",
+            (child_id,),
+        ).fetchall()
+        assert [row["parent_row_id"] for row in child_rows] == [
+            parent_rows[0],
+            parent_rows[0],
+            parent_rows[1],
+            parent_rows[2],
+            parent_rows[2],
+        ]
+        receipt = Receipt.model_validate_json(
+            project.db.execute(
+                "SELECT body FROM receipts WHERE id=?", (result.receipt_id,)
+            ).fetchone()["body"]
+        )
+        read = next(
+            item.ref for item in receipt.inputs if item.ref["kind"] == "list_table_read"
+        )
+        assert [column["column_id"] for column in read["parent_columns"]] == [
+            case_id,
+            score_id,
+        ]
+        assert read["parent_source_row_ids"] == parent_rows
+        assert read["parent_values_hash"].startswith("sha256:")
+    finally:
+        project.close()
+
+
+def test_named_result_copies_current_parent_context_for_receipt_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with case_env(CASES[0], tmp_path, monkeypatch) as env:
+        request = _derive_action(env.seeded, target_sheet_name="Named Context")
+        request["params"]["parent_columns"] = [
+            {"column_id": env.seeded["title_column_id"], "output_name": "episode"}
+        ]
+        result = env.run(request)
+        assert result.status == "completed", result.errors
+        child_id = next(
+            output.sheet_id for output in result.outputs if output.kind == "sheet"
+        )
+        episode = next(
+            column
+            for column in env.project.columns(child_id)
+            if column["name"] == "episode"
+        )
+        assert list(env.project.get_values(child_id, episode["id"]).values()) == [
+            "Episode 1",
+            "Episode 2",
+        ]
+        receipt = env.project.db.execute(
+            "SELECT body FROM receipts WHERE id=?", (result.receipt_id,)
+        ).fetchone()["body"]
+        from frisket.contracts.action import Receipt
+
+        read = next(
+            item.ref
+            for item in Receipt.model_validate_json(receipt).inputs
+            if item.ref["kind"] == "list_table_read"
+        )
+        assert read["parent_source_row_ids"] == env.seeded["source_row_ids"]
+
+
+def test_parent_context_collision_refuses_without_publication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with case_env(CASES[0], tmp_path, monkeypatch) as env:
+        before = env.counts()
+        request = _derive_action(env.seeded, target_sheet_name="Collision")
+        request["params"]["parent_columns"] = [
+            {"column_id": env.seeded["title_column_id"], "output_name": "title"}
+        ]
+        result = env.run(request)
+        assert result.status == "failed"
+        assert result.errors[0].code == "invalid_action_request"
+        assert "duplicate_column_name" in result.errors[0].message
+        assert env.counts() == before
 
 
 @pytest.mark.parametrize("hidden", [False, True])

@@ -47,13 +47,18 @@ def _seed_parent() -> dict[str, Any]:
     }
 
 
-def _derive(*, sheet_id: int, column_id: int) -> dict[str, Any]:
+def _derive(
+    *, sheet_id: int, column_id: int, parent_columns: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
     return {
         "action_id": "derive.table_from_list",
         "scope": {"kind": "project"},
         "sheet_name": "Vendors",
         "params": {
             "source": {"kind": "column", "sheet_id": sheet_id, "column_id": column_id},
+            **(
+                {"parent_columns": parent_columns} if parent_columns is not None else {}
+            ),
         },
         "idempotency_key": "refresh_derive@sha256:v1",
     }
@@ -260,6 +265,89 @@ def test_refresh_reuses_typed_runtime_output_names_and_column_ids(
         assert list(project.get_values(child_id, before_columns[0][0]).values()) == [
             "Changed",
             "Initech",
+        ]
+    finally:
+        project.close()
+
+
+def test_refresh_updates_parent_context_and_preserves_column_ids(
+    tmp_path: Path,
+) -> None:
+    project = Project.create(tmp_path / "parent-context-refresh.frisket")
+    try:
+        imported = run_action_spec(project, _seed_parent(), project_id="p-ref")
+        parent = imported.outputs[0].ref
+        action = _derive(
+            sheet_id=parent["sheet_id"],
+            column_id=parent["columns"]["rows_json"],
+            parent_columns=[
+                {"column_id": parent["columns"]["title"], "output_name": "quarter"}
+            ],
+        )
+        created = run_action_spec(project, action, project_id="p-ref")
+        assert created.status == "completed", created.errors
+        child_id = next(
+            output.sheet_id for output in created.outputs if output.kind == "sheet"
+        )
+        before = {column["name"]: column["id"] for column in project.columns(child_id)}
+        source_row = project.db.execute(
+            "SELECT id FROM rows WHERE sheet_id=? ORDER BY position",
+            (parent["sheet_id"],),
+        ).fetchone()["id"]
+        edited = run_action_spec(
+            project,
+            {
+                "action_id": "cell.edit",
+                "scope": {"kind": "project"},
+                "params": {
+                    "edits": [
+                        {
+                            "row_id": source_row,
+                            "column_id": parent["columns"]["title"],
+                            "value": "First quarter",
+                        }
+                    ]
+                },
+                "idempotency_key": "edit-parent-context",
+            },
+            project_id="p-ref",
+        )
+        assert edited.status == "completed", edited.errors
+        refreshed = run_action_spec(
+            project,
+            _refresh(sheet_id=child_id, key="refresh-parent-context"),
+            project_id="p-ref",
+        )
+        assert refreshed.status == "completed", refreshed.errors
+        after = {column["name"]: column["id"] for column in project.columns(child_id)}
+        assert after == before
+        assert list(project.get_values(child_id, after["quarter"]).values()) == [
+            "First quarter",
+            "First quarter",
+            "Q2",
+        ]
+
+        rows_before_drift = project.visible_row_ids(child_id)
+        project.db.execute(
+            "UPDATE columns SET format='changed-format' WHERE id=?",
+            (parent["columns"]["title"],),
+        )
+        project.db.commit()
+        refused = run_action_spec(
+            project,
+            _refresh(sheet_id=child_id, key="refresh-parent-context-drift"),
+            project_id="p-ref",
+        )
+        assert refused.status == "failed"
+        assert refused.errors[0].code == "invalid_input_ref"
+        assert project.visible_row_ids(child_id) == rows_before_drift
+        assert {
+            column["name"]: column["id"] for column in project.columns(child_id)
+        } == after
+        assert list(project.get_values(child_id, after["quarter"]).values()) == [
+            "First quarter",
+            "First quarter",
+            "Q2",
         ]
     finally:
         project.close()

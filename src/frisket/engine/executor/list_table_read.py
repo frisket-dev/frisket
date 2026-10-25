@@ -5,11 +5,13 @@ from __future__ import annotations
 import hashlib
 import json
 from contextlib import nullcontext
-from typing import Any
+from typing import Any, Sequence
 
 from frisket.actions.types import (
     ListColumnSource,
+    ListCopiedColumn,
     ListItem,
+    ListParentColumn,
     ListTableSource,
     NamedListSource,
     RowSource,
@@ -36,10 +38,15 @@ class AdmittedListTableReader:
         self.item_associations: dict[RowSource, dict[str, Any]] = {}
         self.parent_sheet_id: int | None = None
         self.source_ai_generated = False
+        self.copied_columns: tuple[ListCopiedColumn, ...] = ()
         self.facts: list[dict[str, Any]] = []
 
     def read(
-        self, source: ListTableSource, *, item_schema: dict[str, Any] | None = None
+        self,
+        source: ListTableSource,
+        *,
+        item_schema: dict[str, Any] | None = None,
+        parent_columns: Sequence[ListParentColumn] = (),
     ) -> tuple[ListItem, ...]:
         if not isinstance(source, (ListColumnSource, NamedListSource)):
             raise TableError("invalid_input_ref", "Expected an admitted list source")
@@ -92,6 +99,45 @@ class AdmittedListTableReader:
                     source.sheet_id, source.column_id
                 )
 
+            copied_columns = []
+            copied_source_facts = []
+            parent_values_by_name = {}
+            for requested in parent_columns:
+                parent_column = project.db.execute(
+                    "SELECT id, name, type, format, ai_generated FROM columns "
+                    "WHERE id=? AND sheet_id=? AND active=1 AND hidden=0",
+                    (requested.column_id, source.sheet_id),
+                ).fetchone()
+                if parent_column is None or requested.column_id == source.column_id:
+                    raise TableError(
+                        "invalid_input_ref",
+                        "Selected parent column must be a visible non-source column "
+                        "on the list's sheet",
+                        details={"column_id": requested.column_id},
+                    )
+                copied_columns.append(
+                    ListCopiedColumn(
+                        name=requested.output_name,
+                        type=str(parent_column["type"]),
+                        format=parent_column["format"],
+                        ai_generated=bool(parent_column["ai_generated"]),
+                    )
+                )
+                copied_source_facts.append(
+                    {
+                        **requested.model_dump(mode="json"),
+                        "source_name": str(parent_column["name"]),
+                        "type": str(parent_column["type"]),
+                        "format": parent_column["format"],
+                        "ai_generated": bool(parent_column["ai_generated"]),
+                    }
+                )
+                parent_values_by_name[requested.output_name] = project.get_values(
+                    source.sheet_id,
+                    requested.column_id,
+                    row_ids=row_ids,
+                )
+
             entries = []
             associations = {}
             for row_id in row_ids:
@@ -118,7 +164,16 @@ class AdmittedListTableReader:
                                 },
                             )
                     token = RowSource(sheet_id=source.sheet_id, row_id=row_id)
-                    entries.append(ListItem(value=item, source=token))
+                    entries.append(
+                        ListItem(
+                            value=item,
+                            source=token,
+                            parent_values={
+                                name: parent_values.get(row_id)
+                                for name, parent_values in parent_values_by_name.items()
+                            },
+                        )
+                    )
                     # Match the extract writer's exact item-hash encoding.
                     # Manual edits have no run authority, but unchanged items
                     # can still retain matching same-index/value grounding.
@@ -165,11 +220,43 @@ class AdmittedListTableReader:
                 "source_values_hash": "sha256:" + hashlib.sha256(encoded).hexdigest(),
                 "source_ai_generated": bool(column["ai_generated"]),
             }
+            if parent_columns:
+                parent_snapshot = [
+                    (
+                        row_id,
+                        {
+                            requested.output_name: parent_values_by_name[
+                                requested.output_name
+                            ].get(row_id)
+                            for requested in parent_columns
+                        },
+                    )
+                    for row_id in row_ids
+                ]
+                try:
+                    parent_encoded = json.dumps(
+                        parent_snapshot,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        allow_nan=False,
+                    ).encode()
+                except (ValueError, TypeError) as exc:
+                    raise TableError(
+                        "invalid_input_ref", "Parent column values must be serializable"
+                    ) from exc
+                fact.update(
+                    parent_columns=copied_source_facts,
+                    parent_source_row_ids=row_ids,
+                    parent_values_hash=(
+                        "sha256:" + hashlib.sha256(parent_encoded).hexdigest()
+                    ),
+                )
             if receipt_id is not None:
                 fact["source_receipt_id"] = receipt_id
                 fact["named_result"] = dict(source_ref)
             self.parent_sheet_id = source.sheet_id
             self.source_ai_generated = bool(column["ai_generated"])
+            self.copied_columns = tuple(copied_columns)
             self.sources.update(associations)
             self.item_associations.update(associations)
             self.facts.append(fact)
