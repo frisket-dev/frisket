@@ -12,10 +12,14 @@ button.action-compare-variant-body:focus-visible { outline: 2px solid var(--focu
 .action-compare-use { position: absolute; z-index: 2; top: -7px; right: -7px; width: 20px; height: 20px; border-color: var(--accent); border-radius: var(--radius-999); color: var(--text-on-solid); background: var(--accent); box-shadow: 0 0 0 2px var(--bg), var(--shadow-sm); }
 .action-compare-remove, .action-compare-lock { margin-right: var(--space-8); color: var(--text-light); }
 .action-compare-add { flex: 0 0 auto; min-height: 34px; }
-.action-compare-settings { position: absolute; z-index: 10; top: calc(100% + 5px); left: 0; width: 300px; padding: var(--space-10) var(--space-12); border: 1px solid var(--border-strong); border-radius: var(--radius-8); background: var(--bg); box-shadow: var(--shadow-menu); }
-.action-compare-settings > div { display: grid; grid-template-columns: minmax(72px, auto) minmax(0, 1fr); gap: 10px; margin-top: 8px; }
-.action-compare-setting-values { display: flex; min-width: 0; flex-wrap: wrap; gap: 4px; }
-.action-compare-setting-values del, .action-compare-setting-values ins { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.action-compare-settings { position: absolute; z-index: 10; top: calc(100% + 5px); left: 0; width: min(340px, calc(100vw - 24px)); max-height: min(420px, calc(100vh - 120px)); overflow: auto; padding: var(--space-10) var(--space-12); border: 1px solid var(--border-strong); border-radius: var(--radius-8); background: var(--bg); box-shadow: var(--shadow-menu); }
+.action-compare-settings > div { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; margin-top: 10px; }
+.action-compare-settings > div > span:first-child { color: var(--text-mid); font-weight: 600; }
+.action-compare-setting-values { display: grid; min-width: 0; grid-template-columns: 12px minmax(0, 1fr); gap: 2px 5px; }
+.action-compare-setting-values del { grid-column: 1 / -1; }
+.action-compare-setting-values > span { grid-column: 1; grid-row: 2; }
+.action-compare-setting-values ins { grid-column: 2; grid-row: 2; }
+.action-compare-setting-values del, .action-compare-setting-values ins { min-width: 0; overflow-wrap: break-word; white-space: normal; }
 .action-compare-settings del { color: var(--text-light); }
 .action-compare-settings ins { text-decoration: none; }
 .action-compare-settings small { display: block; margin-top: 8px; color: var(--text-light); }
