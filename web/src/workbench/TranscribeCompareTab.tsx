@@ -149,7 +149,6 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
     catalogRef.current = session.catalog;
   }, [session.catalog]);
   const busy = session.preparing || session.runProgress !== null;
-  useEffect(() => { if (!active) session.cancelRuns(); }, [active, session.cancelRuns]);
   const {
     catalog,
     columns,
@@ -161,16 +160,17 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
     sourceOpen,
     setSourceOpen,
     updateColumnOptions,
+    cancelRuns,
   } = session;
+  useEffect(() => { if (!active) cancelRuns(); }, [active, cancelRuns]);
   const quoteInputKey = useMemo(() => JSON.stringify({
     docs: docs.map((doc) => doc.id),
     columns: columns.map(({ id, engineId, options }) => ({ id, engineId, options })),
     timeLimit,
   }), [columns, docs, timeLimit]);
 
-  useEffect(() => {
-    paid.clearQuote();
-  }, [paid.clearQuote, quoteInputKey]);
+  const { clearQuote } = paid;
+  useEffect(() => { clearQuote(); }, [clearQuote, quoteInputKey]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const moreInputRef = useRef<HTMLInputElement>(null);

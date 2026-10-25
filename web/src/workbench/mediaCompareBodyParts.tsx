@@ -196,7 +196,6 @@ export function CompareFooter({
             <IconButton
               icon={ChevronLeft}
               size="inline"
-              className="icon-btn"
               data-testid={difference.previousTestId}
               label={difference.previousLabel}
               onClick={difference.onPrevious}
@@ -205,7 +204,6 @@ export function CompareFooter({
             <IconButton
               icon={ChevronRight}
               size="inline"
-              className="icon-btn"
               data-testid={difference.nextTestId}
               label={difference.nextLabel}
               onClick={difference.onNext}

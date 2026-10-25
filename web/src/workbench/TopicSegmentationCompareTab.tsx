@@ -1,4 +1,5 @@
 import { CompareToolbar, CompareEngineChip, CompareResultColumn } from './CompareLayout';
+import { CompareRunControl } from './CompareRunControl';
 import './TopicSegmentationCompareTab.css';
 import { Button } from '../components/Button';
 import {
@@ -10,10 +11,7 @@ import {
   type DragEvent,
 } from 'react';
 import {
-  Loader2,
-  Play,
   Plus,
-  RotateCw,
 } from 'lucide-react';
 
 import type { ProjectApiPort } from '../api/ports';
@@ -237,13 +235,6 @@ export function TopicSegmentationCompareTab({
     event.preventDefault();
     session.ingestFiles(Array.from(event.dataTransfer.files));
   }, [session]);
-  const runLabel = docs.length === 0
-    ? 'Run'
-    : runState === 'running'
-      ? `Running · ${runProgress?.done ?? 0} / ${runProgress?.total ?? runningCount}`
-      : runState === 'fresh'
-        ? 'Re-run'
-        : 'Run';
   const noAvailableEngines = runnableColumns.length === 0 && catalog.length > 0 && catalog.every((engine) => engine.available === false);
 
   return (
@@ -251,36 +242,15 @@ export function TopicSegmentationCompareTab({
       {session.selectorOwners}
       <CompareToolbar testIdPrefix="topic-compare" running={runningCount > 0}
         controls={<>
-          <Button
-            type="button"
-            className={`btn ocr-compare-run${runState === 'pending' ? ' btn-primary' : ''}`}
-            data-testid="topic-compare-run"
-            data-run-state={runState}
-            data-pending-count={pendingPairs.length}
-            disabled={docs.length === 0 || runState === 'disabled' || runState === 'running'}
-            title={
-              runnableColumns.length === 0
-                ? 'Add a topic-segmentation variant'
-                : docs.length === 0
-                  ? 'Drop a transcript sample first'
-                  : runState === 'fresh'
-                    ? 'Re-run every document and variant'
-                    : undefined
-            }
-            onClick={() => (runState === 'fresh' ? runAll() : runPending())}
-          >
-            {runState === 'running' ? (
-              <Loader2 size={13} className="ocr-compare-spin" aria-hidden />
-            ) : runState === 'fresh' ? (
-              <RotateCw size={13} aria-hidden />
-            ) : (
-              <Play size={13} aria-hidden />
-            )}
-            <span className="ocr-compare-run-label">{runLabel}</span>
-            {runState === 'pending' ? (
-              <span className="ocr-compare-run-count mono"> · {pendingPairs.length} pending</span>
-            ) : null}
-          </Button>
+          <CompareRunControl testIdPrefix="topic-compare"
+            busy={runState === 'running' || runProgress !== null}
+            disabled={!docs.length || runState === 'disabled' || runState === 'probing'}
+            progress={runProgress ? `${runProgress.done} / ${runProgress.total}`
+              : pendingPairs.length ? `${pendingPairs.length} pending` : undefined}
+            statusDetail={!docs.length ? 'Drop a transcript sample first'
+              : !runnableColumns.length ? 'Add an available topic-segmentation variant' : undefined}
+            onRun={() => pendingPairs.length ? runPending() : runAll()}
+            onCancel={session.cancelRuns} />
           <SegmentedToggle
             testId="topic-compare-mode-switch"
             className="ocr-compare-mode-switch"

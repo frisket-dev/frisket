@@ -252,9 +252,8 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
     return () => cancelRuns();
   }, [active, cancelRuns]);
 
-  useEffect(() => {
-    paid.clearQuote();
-  }, [paid.clearQuote, quoteInputKey]);
+  const { clearQuote } = paid;
+  useEffect(() => { clearQuote(); }, [clearQuote, quoteInputKey]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const moreInputRef = useRef<HTMLInputElement>(null);
