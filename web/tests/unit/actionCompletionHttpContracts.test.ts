@@ -64,6 +64,10 @@ function completedProgress() {
         total: 2,
         completed: 2,
         failed: 0,
+        attempted: 2,
+        succeeded: 2,
+        skipped: 0,
+        remaining: 0,
         cost: 0,
         error: null,
         row_errors: null,
@@ -88,6 +92,30 @@ function runningProgress() {
         ...progress.run.public_status,
         status: 'running',
         completed: 0,
+        attempted: 0,
+        succeeded: 0,
+        skipped: 0,
+        remaining: 2,
+      },
+    },
+  };
+}
+
+function partialProgress() {
+  const progress = completedProgress();
+  return {
+    ...progress,
+    run: {
+      ...progress.run,
+      completed_rows: 1,
+      public_status: {
+        ...progress.run.public_status,
+        status: 'partial',
+        completed: 1,
+        attempted: 1,
+        succeeded: 1,
+        skipped: 1,
+        remaining: 0,
       },
     },
   };
@@ -119,6 +147,21 @@ function completedReceipt() {
     provider_use: [],
     evidence: [],
     errors: [],
+  };
+}
+
+function partialReceipt() {
+  return {
+    ...completedReceipt(),
+    status: 'partial',
+    outputs: [],
+    errors: [{
+      code: 'rows_failed',
+      message: 'One row did not finish.',
+      action_kind: 'map.extract',
+      field: null,
+      details: {},
+    }],
   };
 }
 
@@ -223,5 +266,34 @@ describe('run-backed action completion domain', () => {
     ]);
     expect(requests.every(({ signal }) => signal === controller.signal)).toBe(true);
     expect(requests.some(({ path }) => path.includes(`/projects/${projectB}/`))).toBe(false);
+  });
+
+  it('treats public partial as terminal and lets the receipt own the error', async () => {
+    const projectId = 'completion-project-a';
+    const requests: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      requests.push(path);
+      if (path === `/api/projects/${projectId}/actions/runs/91/status`) {
+        return jsonResponse(partialProgress());
+      }
+      if (path === `/api/projects/${projectId}/actions/v1/receipts/receipt-completion-91`) {
+        return jsonResponse(partialReceipt());
+      }
+      throw new Error(`Unexpected action completion request: ${path}`);
+    }));
+    const completion = createActionCompletionApi(
+      (status, payload) => new Error(`mapped ${status}: ${JSON.stringify(payload)}`),
+    );
+
+    await expect(completion.waitForRunCompletion(
+      queuedResult(),
+      'map.extract did not complete',
+      { projectId, signal: new AbortController().signal },
+    )).rejects.toThrow('One row did not finish.');
+    expect(requests).toEqual([
+      `/api/projects/${projectId}/actions/runs/91/status`,
+      `/api/projects/${projectId}/actions/v1/receipts/receipt-completion-91`,
+    ]);
   });
 });

@@ -3021,10 +3021,16 @@ export interface RunProgress {
    *  then marks every empty output cell; a set restricts the pulse to those
    *  rows so a selected-row rerun never pulses untargeted rows. */
   targetRowIds?: string[] | null;
-  status: 'queued' | 'running' | 'stalled' | 'orphaned' | 'complete' | 'failed' | 'cancelled';
+  status: 'queued' | 'running' | 'stalled' | 'orphaned' | 'complete' | 'partial' | 'failed' | 'cancelled';
   completedRows: number;
   totalRows: number;
   failedRows: number;
+  /** Authoritative public outcome counters. They are absent only on the
+   *  optimistic client-side run before the first server status snapshot. */
+  attemptedRows?: number;
+  succeededRows?: number;
+  skippedRows?: number;
+  remainingRows?: number;
   costSoFar: number; // USD
   /** True after cancellation is durably requested and while the writer is stopping. */
   cancelRequested?: boolean;

@@ -95,7 +95,7 @@ export function createActionCompletionApi(
     if (progress.status === 'stalled' || progress.status === 'orphaned') {
       throw new ApiError(500, `${fallbackMessage}: ${progress.status}`);
     }
-    if (progress.status === 'complete') {
+    if (progress.status === 'complete' || progress.status === 'partial') {
       throwIfActionAborted(invocation.signal);
       const receipt = await getReceiptContract(
         invocation.projectId,
