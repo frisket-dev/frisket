@@ -182,18 +182,12 @@ fieldset.ocr-compare-chips-row {
 }
 .ocr-compare-variant-gear,
 .ocr-compare-variant-remove {
-  display: inline-flex;
-  align-items: center;
   flex-shrink: 0;
-  background: transparent;
-  border: none;
   color: inherit;
-  cursor: pointer;
-  padding: 1px;
   opacity: 0.65;
 }
-.ocr-compare-variant-gear:hover,
-.ocr-compare-variant-remove:hover {
+.ocr-compare-variant-gear:hover:not(:disabled),
+.ocr-compare-variant-remove:hover:not(:disabled) {
   opacity: 1;
 }
 .ocr-compare-variant-remove {

@@ -15,7 +15,7 @@ it('puts engine selection before run controls in reading and keyboard order', as
   </CompareToolbar>);
   const toolbar = screen.getByTestId('compare-toolbar');
   expect([...toolbar.children].map((child) => child.textContent)).toEqual([
-    'scratch · not in a projectVARIANTSAdd engine', 'Run', 'Usage is recorded',
+    'Temporary filesVariantsAdd engine', 'Run', 'Usage is recorded',
   ]);
   await user.tab();
   expect(screen.getByRole('button', { name: 'Add engine' })).toHaveFocus();
@@ -32,16 +32,35 @@ it('keeps body/configure/remove buttons distinct and keyboard-operable', async (
     variantId="variant-1" pip="error" summary="English" onBodyClick={onBodyClick}
     onConfigure={onConfigure} onRemove={onRemove} />);
   expect(screen.getByTestId('compare-variant-chip')).toHaveAttribute('data-pip', 'error');
+  expect(screen.getByText('Status: Failed')).toHaveClass('sr-only');
   await user.tab();
   await user.keyboard('{Enter}');
   expect(onBodyClick).toHaveBeenCalledOnce();
   await user.tab();
+  expect(screen.getByRole('button', { name: 'Configure Local engine' }))
+    .toHaveAttribute('data-icon-size', 'inline');
   await user.keyboard(' ');
   expect(onConfigure).toHaveBeenCalledOnce();
   await user.tab();
   expect(screen.getByRole('button', { name: 'Remove Local engine' })).toHaveFocus();
+  expect(screen.getByRole('button', { name: 'Remove Local engine' }))
+    .toHaveAttribute('data-icon-size', 'inline');
   await user.keyboard('{Enter}');
   expect(onRemove).toHaveBeenCalledOnce();
+});
+
+it.each([
+  ['idle', 'Not run'],
+  ['pending', 'Pending'],
+  ['running', 'Running'],
+  ['results', 'Results ready'],
+  ['error', 'Failed'],
+] as const)('names the %s pip state without exposing its visual glyph', (pip, status) => {
+  render(<CompareEngineChip testIdPrefix="compare" engineId="local" label="Local engine"
+    pip={pip} onRemove={() => undefined} />);
+  const pipElement = screen.getByText(`Status: ${status}`).parentElement;
+  expect(pipElement).toHaveAttribute('data-pip', pip);
+  expect(pipElement?.firstElementChild).toHaveAttribute('aria-hidden', 'true');
 });
 
 it('preserves Transcribe native busy fieldset without disabling Cancel', async () => {
