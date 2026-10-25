@@ -100,6 +100,13 @@
 .action-panel .action-form { padding: 0 18px 16px; }
 .action-panel .form-label-row { margin: 18px 0 4px; }
 .action-form .engine-selector { margin-top: 18px; }
+.locked-param-fields {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.locked-param > .form-hint { margin-top: 4px; }
 /* Compact single-
    line fields (text/select/number/checkbox/column pickers) render label-left,
    input-right instead of stacked — too many stacked options read as a huge

@@ -252,6 +252,8 @@ export function GenericSchemaRenderer({
   diagnostics,
   renderField,
   testIdOverrides,
+  disabledParams,
+  disabledReason,
   onFieldChange,
 }: {
   template: ActionTemplate;
@@ -260,6 +262,8 @@ export function GenericSchemaRenderer({
   diagnostics?: ParamValidationResult | null;
   renderField?: ActionParamFieldPresentationRenderer;
   testIdOverrides?: Readonly<Record<string, string>>;
+  disabledParams?: ReadonlySet<string>;
+  disabledReason?: string;
   onFieldChange(name: string, value: CanonicalFieldValue): void;
 }) {
   if (!supportsGenericActionTemplate(template)) {
@@ -293,6 +297,8 @@ export function GenericSchemaRenderer({
       diagnostics={diagnostics}
       renderField={renderField}
       testIdOverrides={testIdOverrides}
+      disabledParams={disabledParams}
+      disabledReason={disabledReason}
     />
   );
 }

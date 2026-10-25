@@ -15,13 +15,17 @@ const FIELD_TYPES: readonly ExtractField['type'][] = [
   'text', 'score', 'integer', 'number', 'boolean', 'category', 'date', 'list', 'json',
 ];
 
-export function ExtractFieldsEditor({ fields, onChange, optional = false }: {
+export function ExtractFieldsEditor({ fields, onChange, optional = false,
+  structureLocked = false, lockReason }: {
   fields: ExtractField[];
   onChange(fields: ExtractField[]): void;
   optional?: boolean;
+  structureLocked?: boolean;
+  lockReason?: string;
 }) {
   return <StructuredFieldsEditor actionKind={optional ? 'map.find' : 'map.extract'}
     fieldTypes={FIELD_TYPES} maxFields={optional ? 63 : 64} minFields={optional ? 0 : 1}
+    structureLocked={structureLocked} lockReason={lockReason}
     value={fields.map((field) => ({
       name: field.name, type: field.type, description: field.description ?? '',
       ...(field.labels?.length ? { labels: field.labels } : {}),
@@ -43,7 +47,8 @@ export function ExtractFieldsEditor({ fields, onChange, optional = false }: {
     }))} />;
 }
 
-export function ExtractParamsBody({ params, setParams, errors, Field, engine }:
+export function ExtractParamsBody({ params, setParams, errors, Field, engine,
+  structureLocked, lockReason }:
   GeneratedActionParamsBodyProps<'map.extract'>) {
   const groundingEnabled = params.grounding === undefined || Boolean(params.grounding?.enabled);
   const citationRequired = Boolean(
@@ -72,6 +77,7 @@ export function ExtractParamsBody({ params, setParams, errors, Field, engine }:
     <Field name="engine" />
     {engine?.description && <p className="form-hint">{engine.description}</p>}
     <ExtractFieldsEditor fields={params.fields ?? []}
+      structureLocked={structureLocked} lockReason={lockReason}
       onChange={(fields) => setParams({ ...params, fields })} />
     {errors.fields?.message && <p className="panel-error" role="alert">{errors.fields.message}</p>}
     <Field name="instruction" />
@@ -97,19 +103,22 @@ export function ExtractParamsBody({ params, setParams, errors, Field, engine }:
   </>;
 }
 
-export function FindParamsBody({ params, setParams, errors, Field }:
+export function FindParamsBody({ params, setParams, errors, Field,
+  structureLocked, lockReason }:
   GeneratedActionParamsBodyProps<'map.find'>) {
   return <>
     <Field name="source" />
     <Field name="instruction" />
     <ExtractFieldsEditor fields={params.fields ?? []} optional
+      structureLocked={structureLocked} lockReason={lockReason}
       onChange={(fields) => setParams({ ...params, fields })} />
     {errors.fields?.message && <p className="panel-error" role="alert">{errors.fields.message}</p>}
     <Field name="model" />
   </>;
 }
 
-export function McpExtractParamsBody({ params, setParams, errors, Field }:
+export function McpExtractParamsBody({ params, setParams, errors, Field,
+  structureLocked, lockReason }:
   GeneratedActionParamsBodyProps<'map.mcp_extract'>) {
   const { projectApi } = useWorkspaceStores();
   const [servers, setServers] = useState<McpToolsSelectorServer[]>([]);
@@ -127,6 +136,7 @@ export function McpExtractParamsBody({ params, setParams, errors, Field }:
   return <>
     <Field name="source" />
     <ExtractFieldsEditor fields={params.fields ?? []}
+      structureLocked={structureLocked} lockReason={lockReason}
       onChange={(fields) => setParams({ ...params, fields })} />
     {errors.fields?.message && <p className="panel-error" role="alert">{errors.fields.message}</p>}
     <Field name="instruction" />

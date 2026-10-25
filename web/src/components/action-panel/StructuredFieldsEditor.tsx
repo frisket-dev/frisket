@@ -8,7 +8,8 @@ import { makeEditableField, toOutputFields, type EditableOutputField } from './o
 /** UI-only ids and partially typed label text stay outside canonical Params. */
 export function StructuredFieldsEditor({
   value, onChange, actionKind = 'map.extract', fieldTypes, maxFields, minFields, error,
-  labelError, onLabelInteraction,
+  labelError, onLabelInteraction, structureLocked = false,
+  lockReason = 'Fixed for this comparison.',
 }: {
   value: OutputField[];
   onChange(value: OutputField[]): void;
@@ -20,6 +21,8 @@ export function StructuredFieldsEditor({
   error?: string;
   labelError?: { fieldIndex: number; message: string };
   onLabelInteraction?(fieldIndex: number): void;
+  structureLocked?: boolean;
+  lockReason?: string;
 }) {
   const [state, setState] = useState(() => ({
     signature: JSON.stringify(value), fields: value.map(makeEditableField),
@@ -56,6 +59,7 @@ export function StructuredFieldsEditor({
     <OutputFieldsEditor fields={fields} labelsRaw={labelsRaw}
       actionKind={actionKind} fieldTypes={fieldTypes} maxFields={maxFields} minFields={minFields}
       usesFieldNameDestination={false} outputFieldsReadOnly={false}
+      structureLocked={structureLocked} lockReason={lockReason}
       onFieldsChange={update} onLabelsRawChange={setLabelsRaw}
       labelError={labelError} onLabelInteraction={onLabelInteraction} />
     {error && <p className="panel-error" role="alert">{error}</p>}

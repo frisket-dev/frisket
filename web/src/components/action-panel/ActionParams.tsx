@@ -86,6 +86,8 @@ export function ActionParams({
   diagnostics,
   renderField,
   testIdOverrides,
+  disabledParams,
+  disabledReason = 'Fixed for this comparison.',
 }: {
   /** Already filtered by the caller: params rendered bespoke elsewhere in
    *  the form (or internal-only) must not be in this list. */
@@ -98,6 +100,8 @@ export function ActionParams({
   diagnostics?: ParamValidationResult | null;
   renderField?: ActionParamFieldPresentationRenderer;
   testIdOverrides?: Readonly<Record<string, string>>;
+  disabledParams?: ReadonlySet<string>;
+  disabledReason?: string;
 }) {
   const renderedBasic: ReactNode[] = [];
   const renderedAdvanced = [];
@@ -148,7 +152,7 @@ export function ActionParams({
       continue;
     }
     const dense = Boolean(param.denseGroup && param.layout !== 'grid' && !param.advanced && !param.advancedGroup);
-    const rendered = (
+    const input = (
       <ParamInput
         key={param.name}
         param={param}
@@ -162,6 +166,14 @@ export function ActionParams({
         dense={dense}
       />
     );
+    const rendered = disabledParams?.has(param.name) ? (
+      <div key={param.name} className="locked-param">
+        <fieldset className="locked-param-fields" disabled>{input}</fieldset>
+        <p className="form-hint" data-testid={`field-${param.name}-lock-reason`}>
+          {disabledReason}
+        </p>
+      </div>
+    ) : input;
     if (param.layout === 'grid' && !param.advanced && !param.advancedGroup) {
       flushDense();
       if (param.group) gridGroup = param.group;

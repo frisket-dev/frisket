@@ -38,9 +38,11 @@ import { useSelector } from '../bind/useSelector';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { sendProductTelemetry, telemetryActionKind } from '../telemetry/productTelemetry';
 import { DeriveActionForm } from './action-panel/DeriveActionForm';
+import type { GeneratedActionLaunchMode } from './action-panel/GeneratedActionForm';
 import { pdfTablesMaterializeRequest } from '../actions/pdfTablesMaterialize';
 import { columnTablesExportRequest } from '../actions/columnTablesExport';
 import type { OcrCompareTarget } from '../actions/ocrCompare';
+import { supportsRowOverlayComparison } from '../grid/actionComparisonCatalog';
 
 const EMPTY_SELECTED_ROW_IDS: string[] = [];
 
@@ -123,6 +125,11 @@ export interface ActionPanelProps {
     initial?: ActionLaunchPrefill,
   ) => void;
   onOpenOcrCompare?(target: OcrCompareTarget): void;
+  /** Fresh draft entry. The workspace controller captures the visible row
+   * selection and opens the transient comparison session. */
+  onCompareAction?(draft: GeneratedActionDraft): void;
+  onOpenActionHistory?(actionId: string): void;
+  onReturnToActionCompare?(): void;
 }
 
 function frameActionForm(
@@ -154,6 +161,9 @@ export function ActionPanel({
   onBackfill,
   onNavigateToAction,
   onOpenOcrCompare,
+  onCompareAction,
+  onOpenActionHistory,
+  onReturnToActionCompare,
 }: ActionPanelProps) {
   const actionCatalog = useActionCatalogHandle();
   const { chromePreferences, projectApi } = useWorkspaceStores();
@@ -241,7 +251,7 @@ export function ActionPanel({
     if (routeActionKind) {
       return {
         kind: 'route',
-        key: `route:${routeActionLaunchId}|${routeActionKind}|${routeActionInitial?.sourceColumn ?? ''}|${routeActionInitial?.prompt ?? ''}`,
+        key: `route:${routeActionLaunchId}|${routeActionKind}|${routeActionInitial?.sourceColumn ?? ''}|${routeActionInitial?.prompt ?? ''}|${routeActionInitial?.actionCompare?.kind ?? ''}|${routeActionInitial?.actionCompare?.kind === 'use-comparison-variant' ? routeActionInitial.actionCompare.variantId : ''}`,
         actionKind: routeActionKind,
         initial: routeActionInitial,
         launchId: routeActionLaunchId,
@@ -387,12 +397,14 @@ export function ActionPanel({
           launchId: openIntent.launchId,
           actionTemplate,
           generatedCatalogEntry,
-          ...(initial?.actionDraft && initial.actionDraft.action_id === generatedCatalogEntry?.kind
-            ? { generatedDraft: initial.actionDraft } : {}),
-          ...((boundColumn || initial?.prompt) ? {
+          ...((initial?.actionDraft ?? initial?.actionCompare?.context.draft)?.action_id
+            === generatedCatalogEntry?.kind
+            ? { generatedDraft: initial?.actionDraft ?? initial?.actionCompare?.context.draft } : {}),
+          ...((boundColumn || initial?.prompt || initial?.actionCompare) ? {
             initial: {
               ...(boundColumn ? { sourceColumn: boundColumn } : {}),
               ...(initial?.prompt ? { prompt: initial.prompt } : {}),
+              ...(initial?.actionCompare ? { actionCompare: initial.actionCompare } : {}),
               ...(redirectOutputFields ? { outputFields: redirectOutputFields } : {}),
             },
           } : {}),
@@ -487,6 +499,8 @@ export function ActionPanel({
       : null;
 
   const actionSelectedRowIds = useMemo(() => {
+    const captured = openAction?.initial?.actionCompare?.capturedSelection;
+    if (openAction?.initial?.actionCompare) return captured?.rowIds.map(String) ?? [];
     const draft = openAction?.generatedDraft;
     if (!draft) return selectedRowIds;
     return draft.scope.kind === 'sheet_rows'
@@ -501,6 +515,34 @@ export function ActionPanel({
     && actionSelectedRowIds.length === 0 && activeRowId
     ? [activeRowId] : actionSelectedRowIds, [generatedCatalogEntry?.kind,
     openAction?.generatedDraft, hasExactRowScopeInitializer, actionSelectedRowIds, activeRowId]);
+  const actionCompareLaunch = openAction?.initial?.actionCompare;
+  const actionCompareContextLabel = actionCompareLaunch
+    ? actionCompareLaunch.kind === 'use-comparison-variant'
+      ? `on ${actionCompareLaunch.context.sheet.name} · from variant ${actionCompareLaunch.variantLabel}`
+      : actionCompareLaunch.context.comparison_basis.kind === 'run'
+        ? `on ${actionCompareLaunch.context.sheet.name} · settings from run ${actionCompareLaunch.context.comparison_basis.run_id}`
+        : `on ${actionCompareLaunch.context.sheet.name} · existing results`
+    : undefined;
+  const actionCompareLaunchMode = useMemo<GeneratedActionLaunchMode | undefined>(() => {
+    if (!actionCompareLaunch) return undefined;
+    const common = {
+      contextLabel: actionCompareContextLabel ?? `on ${actionCompareLaunch.context.sheet.name}`,
+      capturedSelectedRowIds: actionCompareLaunch.capturedSelection?.rowIds.map(String) ?? [],
+      ...(actionCompareLaunch.returnToCompare && onReturnToActionCompare
+        ? { onReturnToCompare: onReturnToActionCompare } : {}),
+    };
+    if (actionCompareLaunch.kind === 'use-comparison-variant'
+      && actionCompareLaunch.context.baseline_mode === 'preview') {
+      return { ...common, kind: 'use-new-comparison-variant' };
+    }
+    return {
+      ...common,
+      kind: actionCompareLaunch.kind,
+      expectedOutputColumns: Object.fromEntries(actionCompareLaunch.context.replacement_targets.map(
+        (target) => [target.current_name, target.column_id],
+      )),
+    };
+  }, [actionCompareContextLabel, actionCompareLaunch, onReturnToActionCompare]);
 
   // Drawer variant: the FORM only, re-hosted in
   // the fixed-400px overlay. No discovery list, no resize handle — the drawer
@@ -558,6 +600,13 @@ export function ActionPanel({
             initialSourceColumn={openAction.initial?.sourceColumn}
             initialPrompt={openAction.initial?.prompt}
             initialDraft={openAction.generatedDraft}
+            editorPolicy={actionCompareLaunch ? {
+              lockedParams: actionCompareLaunch.context.locked_params,
+              structureLocked: true,
+              lockReason: 'Fixed for this comparison.',
+            } : undefined}
+            launchMode={actionCompareLaunchMode}
+            contextLabel={actionCompareContextLabel}
             catalogAccepted={catalogLoaded && currentGeneratedCatalogEntry !== undefined}
             running={running}
             runningLabel={runningLabel}
@@ -568,6 +617,10 @@ export function ActionPanel({
             onSwitchAction={(nextTemplate) => onNavigateToAction?.(nextTemplate.kind)}
             onNavigateToAction={onNavigateToAction}
             onOpenOcrCompare={onOpenOcrCompare}
+            onCompare={supportsRowOverlayComparison(generatedCatalogEntry)
+              ? onCompareAction : undefined}
+            onOpenHistory={onOpenActionHistory
+              ? () => onOpenActionHistory(generatedCatalogEntry.kind) : undefined}
             sampleColumnValues={sampleColumnValues}
             onOpenDiagnose={() => chrome.openDiagnosePanel(project)}
             onBackfill={onBackfill}
