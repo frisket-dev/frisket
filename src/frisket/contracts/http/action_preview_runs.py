@@ -108,7 +108,7 @@ class ActionPreviewStatusResponse(WireModel):
 
 
 ACTION_PREVIEW_ERROR_RESPONSES = {
-    status: {"model": ActionPreviewErrorResponse} for status in (400, 402, 404, 409)
+    status: {"model": ActionPreviewErrorResponse} for status in (400, 402, 404)
 }
 
 
