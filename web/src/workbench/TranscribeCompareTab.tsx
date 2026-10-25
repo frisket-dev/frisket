@@ -417,20 +417,16 @@ function TranscribeOptionFields({
       {hasModelSizeOptions ? (
         <div className="ocr-compare-configure-field">
           <span className="ocr-compare-configure-label">Model size</span>
-          <div className="ocr-compare-dpi-pills" data-testid="transcribe-compare-model-pills">
-            {modelSizes.map((size) => (
-              <button
-                type="button"
-                key={size}
-                className={`ocr-compare-dpi-pill${(options.modelSize ?? DEFAULT_MODEL_SIZE) === size ? ' active' : ''}`}
-                data-testid={`transcribe-compare-model-pill-${size}`}
-                aria-pressed={(options.modelSize ?? DEFAULT_MODEL_SIZE) === size}
-                onClick={() => onSetModelSize(size)}
-              >
-                {size}
-              </button>
-            ))}
-          </div>
+          <SegmentedToggle
+            testId="transcribe-compare-model-pills"
+            fullWidth={false}
+            size="compact"
+            ariaLabel="Model size"
+            value={options.modelSize ?? DEFAULT_MODEL_SIZE}
+            onValueChange={onSetModelSize}
+            buttonTestId={(value) => `transcribe-compare-model-pill-${value}`}
+            options={modelSizes.map((size) => ({ value: size, label: size, title: size }))}
+          />
           <span className="ocr-compare-configure-hint muted">
             bigger = more accurate, slower · default {DEFAULT_MODEL_SIZE}
           </span>

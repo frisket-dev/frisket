@@ -2,7 +2,7 @@ import { CompareToolbar, CompareEngineChip } from './CompareLayout';
 import { Button } from '../components/Button';
 import { TextInput } from '../components/FormControls';
 import { useEffect, useMemo, useRef } from 'react';
-import { Loader2, Play, Plus, RotateCw } from 'lucide-react';
+import { Loader2, Play, Plus } from 'lucide-react';
 
 import type {
   OcrComparePreviewBlock,
@@ -285,15 +285,6 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
     return parts.join(' · ');
   }
 
-  const runLabel =
-    runState === 'running'
-      ? `Running · ${runProgress?.done ?? 0} / ${runProgress?.total ?? runningCount}`
-      : runState === 'probing'
-        ? 'Reading pages…'
-        : runState === 'fresh'
-          ? 'Re-run'
-          : 'Run';
-
   return (
     <section className="ocr-compare-tab" data-testid="ocr-compare-tab">
       {session.selectorOwners}
@@ -311,9 +302,7 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
                 ? 'Add an engine to stage work'
                 : runState === 'probing'
                   ? 'Reading page count — Run available once the sample is ready'
-                  : runState === 'fresh'
-                    ? 'Re-run all variants'
-                    : undefined
+                  : undefined
             }
             onClick={() => {
               if (busy) cancelRuns();
@@ -323,12 +312,12 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
           >
             {busy ? (
               <Loader2 size={13} className="ocr-compare-spin" aria-hidden />
-            ) : runState === 'fresh' ? (
-              <RotateCw size={13} aria-hidden />
             ) : (
               <Play size={13} aria-hidden />
             )}
-            <span className="ocr-compare-run-label">{busy ? 'Cancel' : runLabel}</span>
+            <span className="ocr-compare-run-label">
+              {busy ? 'Cancel' : 'Run comparison'}
+            </span>
             {runState === 'pending' ? (
               <span className="ocr-compare-run-count mono"> · {pendingPairs.length} pending</span>
             ) : null}
@@ -479,31 +468,29 @@ function OcrOptionFields({
     <fieldset disabled={disabled}>
       <div className="ocr-compare-configure-field">
         <span className="ocr-compare-configure-label">Rendering DPI</span>
-        <div className="ocr-compare-dpi-pills">
-          {DPI_PRESETS.map((dpi) => (
-            <button
-              type="button"
-              key={dpi}
-              className={`ocr-compare-dpi-pill${options.dpi === dpi ? ' active' : ''}`}
-              data-testid={`ocr-compare-dpi-pill-${dpi}`}
-              aria-pressed={options.dpi === dpi}
-              onClick={() => onSetDpi(dpi)}
-            >
-              {dpi}
-            </button>
-          ))}
-          <input
-            type="number"
-            className="ocr-compare-dpi-stepper"
-            data-testid="ocr-compare-dpi-stepper"
-            min={DPI_MIN}
-            max={DPI_MAX}
-            step={1}
-            value={options.dpi}
-            onChange={(event) => onSetDpi(clampDpi(Number(event.target.value) || DEFAULT_DPI))}
-            aria-label="Rendering DPI"
-          />
-        </div>
+        <SegmentedToggle
+          testId="ocr-compare-dpi-presets"
+          fullWidth={false}
+          size="compact"
+          ariaLabel="Rendering DPI presets"
+          value={String(options.dpi)}
+          onValueChange={(value) => onSetDpi(Number(value))}
+          buttonTestId={(value) => `ocr-compare-dpi-pill-${value}`}
+          options={DPI_PRESETS.map((dpi) => ({ value: String(dpi), label: String(dpi) }))}
+        />
+        <TextInput
+          type="number"
+          density="compact"
+          fullWidth={false}
+          className="ocr-compare-dpi-stepper"
+          data-testid="ocr-compare-dpi-stepper"
+          min={DPI_MIN}
+          max={DPI_MAX}
+          step={1}
+          value={options.dpi}
+          onChange={(event) => onSetDpi(clampDpi(Number(event.target.value) || DEFAULT_DPI))}
+          aria-label="Rendering DPI"
+        />
         <span className="ocr-compare-configure-hint muted">
           higher = sharper, slower · default {DEFAULT_DPI}
         </span>
