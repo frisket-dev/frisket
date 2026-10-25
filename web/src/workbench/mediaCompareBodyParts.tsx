@@ -4,13 +4,17 @@ import './MediaCompareShell.css';
 // render helpers over the compare session — same DOM/classes/testids as when
 // they lived inline; the parameterized `t` (testid namespacer) is threaded in so
 // each instance keeps its `${testidPrefix}-*` ids.
-import { type DragEvent } from 'react';
-import { FilePlus2 } from 'lucide-react';
+import { type DragEvent, type ReactNode } from 'react';
+import { ChevronLeft, ChevronRight, FilePlus2, Loader2, RotateCw } from 'lucide-react';
 
+import { Button } from '../components/Button';
+import { IconButton } from '../components/IconButton';
 import type {
+  EngineRunState,
   MediaCompareConfig,
   MediaCompareSession,
   ScratchDoc,
+  Vote,
 } from './mediaCompareSession';
 
 type TestId = (suffix: string) => string;
@@ -21,6 +25,196 @@ const DOC_MARK_GLYPH: Record<'neutral' | 'keep' | 'reject' | 'mixed', string> = 
   reject: '✗',
   mixed: '±',
 };
+
+const VOTE_GLYPH: Record<Vote, string> = { neutral: '·', keep: '✓', reject: '✗' };
+
+/** Shared vote control for every comparison result lane. */
+export function CompareVoteControl({
+  testId,
+  engineId,
+  vote,
+  label,
+  summary,
+  onVote,
+}: {
+  testId: string;
+  engineId?: string | null;
+  vote: Vote;
+  label: string;
+  summary?: ReactNode;
+  onVote(): void;
+}) {
+  return (
+    <button
+      type="button"
+      className="ocr-compare-vote-chip"
+      data-testid={testId}
+      data-engine-id={engineId ?? ''}
+      data-vote={vote}
+      title="Vote: click to cycle keep / reject"
+      onClick={onVote}
+    >
+      <span className="ocr-compare-vote-glyph">{VOTE_GLYPH[vote]}</span>
+      <span className="ocr-compare-vote-label">{label}</span>
+      {summary ? <span className="ocr-compare-col-summary muted mono">{summary}</span> : null}
+    </button>
+  );
+}
+
+/** Pending/running/error presentation shared by media and topic result lanes.
+ * Completed content stays domain-owned and is supplied as children. */
+export function CompareResultState<R>({
+  run,
+  engineLabel,
+  pendingLabel,
+  runningLabel,
+  pendingTestId,
+  runningTestId,
+  errorTestId,
+  retryTestId,
+  onRetry,
+  children,
+}: {
+  run: EngineRunState<R> | undefined;
+  engineLabel: string;
+  pendingLabel: ReactNode;
+  runningLabel: ReactNode;
+  pendingTestId?: string;
+  runningTestId?: string;
+  errorTestId?: string;
+  retryTestId?: string;
+  onRetry?(): void;
+  children: ReactNode;
+}) {
+  if (!run) {
+    return (
+      <div className="ocr-compare-engine-pending muted" data-testid={pendingTestId}>
+        {pendingLabel}
+      </div>
+    );
+  }
+  if (run.status === 'running') {
+    return (
+      <div className="ocr-compare-engine-running muted" data-testid={runningTestId}>
+        <Loader2 size={13} className="ocr-compare-spin" aria-hidden /> {runningLabel}
+      </div>
+    );
+  }
+  if (run.status === 'error') {
+    return (
+      <div className="ocr-compare-engine-error" data-testid={errorTestId} role="alert">
+        <strong>{engineLabel} failed</strong>
+        <span>{run.message}</span>
+        {onRetry ? (
+          <Button
+            type="button"
+            className="ocr-compare-engine-retry"
+            data-testid={retryTestId}
+            onClick={onRetry}
+          >
+            <RotateCw size={12} /> Retry
+          </Button>
+        ) : null}
+      </div>
+    );
+  }
+  return <>{children}</>;
+}
+
+/** Exactly one pre-result prompt: no variants, configured but unavailable,
+ * or ready to run. */
+export function CompareColumnsState({
+  testIdPrefix,
+  configuredCount,
+  runnableCount,
+  showReady,
+  noVariantsLabel = 'No variants — add an engine to compare.',
+  unavailableLabel = 'No engine is ready — configure a variant to finish setup.',
+}: {
+  testIdPrefix: string;
+  configuredCount: number;
+  runnableCount: number;
+  showReady: boolean;
+  noVariantsLabel?: ReactNode;
+  unavailableLabel?: ReactNode;
+}) {
+  if (runnableCount === 0) {
+    return (
+      <div
+        className="ocr-compare-empty-variants muted"
+        data-testid={`${testIdPrefix}-empty-variants`}
+      >
+        {configuredCount === 0 ? noVariantsLabel : unavailableLabel}
+      </div>
+    );
+  }
+  if (!showReady) return null;
+  return (
+    <div className="ocr-compare-run-hint" data-testid={`${testIdPrefix}-run-hint`}>
+      Ready to compare — press <strong>Run</strong>.
+    </div>
+  );
+}
+
+export interface CompareFooterDifference {
+  label: ReactNode;
+  previousLabel: string;
+  nextLabel: string;
+  onPrevious(): void;
+  onNext(): void;
+  previousTestId?: string;
+  nextTestId?: string;
+}
+
+/** Shared comparison footer frame and previous/next controls. */
+export function CompareFooter({
+  footerTestId,
+  navigationTestId,
+  verdictTestId,
+  verdict,
+  difference,
+  fallback,
+}: {
+  footerTestId: string;
+  navigationTestId: string;
+  verdictTestId: string;
+  verdict: string;
+  difference: CompareFooterDifference | null;
+  fallback: ReactNode;
+}) {
+  return (
+    <footer className="ocr-compare-footer" data-testid={footerTestId}>
+      <div className="ocr-compare-token-nav" data-testid={navigationTestId}>
+        {difference ? (
+          <>
+            <IconButton
+              icon={ChevronLeft}
+              size="inline"
+              className="icon-btn"
+              data-testid={difference.previousTestId}
+              label={difference.previousLabel}
+              onClick={difference.onPrevious}
+            />
+            <span className="mono">{difference.label}</span>
+            <IconButton
+              icon={ChevronRight}
+              size="inline"
+              className="icon-btn"
+              data-testid={difference.nextTestId}
+              label={difference.nextLabel}
+              onClick={difference.onNext}
+            />
+          </>
+        ) : (
+          <span className="mono muted">{fallback}</span>
+        )}
+      </div>
+      <div className="ocr-compare-verdict mono" data-testid={verdictTestId}>
+        Verdict so far: {verdict}
+      </div>
+    </footer>
+  );
+}
 
 function docVoteMark(doc: ScratchDoc<unknown>): 'neutral' | 'keep' | 'reject' | 'mixed' {
   const votes = Object.values(doc.votes);
