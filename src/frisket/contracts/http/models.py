@@ -572,6 +572,13 @@ class ActionWorkProgress(WireModel):
 
 
 class ActionRunPublicStatus(WireModel):
+    """Canonical run outcome and row-count partition for public clients.
+
+    ``completed`` remains the legacy processed-row count; new clients should
+    read ``attempted``, ``succeeded``, ``failed``, ``skipped``, and
+    ``remaining``.
+    """
+
     run_id: int
     action_kind: str
     action_name: str
@@ -579,6 +586,10 @@ class ActionRunPublicStatus(WireModel):
     total: int = Field(ge=0)
     completed: int = Field(ge=0)
     failed: int = Field(ge=0)
+    attempted: int = Field(ge=0)
+    succeeded: int = Field(ge=0)
+    skipped: int = Field(ge=0)
+    remaining: int = Field(ge=0)
     cost: float | None
     live: bool
     cancel_requested: bool

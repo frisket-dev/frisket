@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from frisket.contracts.action import ActionResult
 from frisket.server.app import create_app
+from frisket.server.run_status import ProjectRunStatus, project_run_status_payload
 from action_test_helpers import typed_map_request
 from helpers import write_claimless_test_model_calls
 from http_test_helpers import drain_queue
@@ -83,6 +86,78 @@ def test_action_run_status_uses_action_metadata_without_recipe_bridge(tmp_path) 
     assert public_status["total"] == 2
     assert public_status["completed"] == 2
     assert public_status["failed"] == 0
+    assert public_status["attempted"] == 2
+    assert public_status["succeeded"] == 2
+    assert public_status["skipped"] == 0
+    assert public_status["remaining"] == 0
+
+
+@pytest.mark.parametrize(
+    (
+        "stored_status",
+        "total",
+        "attempted",
+        "failed",
+        "expected_status",
+        "succeeded",
+        "skipped",
+        "remaining",
+    ),
+    [
+        ("completed", 4, 4, 4, "failed", 0, 0, 0),
+        ("completed", 4, 4, 1, "partial", 3, 0, 0),
+        ("partial", 4, 4, 4, "failed", 0, 0, 0),
+        ("completed", 4, 0, 0, "partial", 0, 4, 0),
+        ("completed", 10, 1, 1, "partial", 0, 9, 0),
+        ("cancelled", 4, 1, 0, "cancelled", 1, 3, 0),
+        ("running", 4, 1, 0, "running", 1, 0, 3),
+        ("completed", 0, 0, 0, "completed", 0, 0, 0),
+    ],
+)
+def test_public_status_projects_unambiguous_terminal_outcomes_and_counts(
+    stored_status: str,
+    total: int,
+    attempted: int,
+    failed: int,
+    expected_status: str,
+    succeeded: int,
+    skipped: int,
+    remaining: int,
+) -> None:
+    now = datetime(2026, 10, 25, tzinfo=UTC)
+    row = {
+        "action_kind": "map.template",
+        "status": stored_status,
+        "total_rows": total,
+        "completed_rows": attempted,
+        "failed_rows": failed,
+        "cancel_requested_at": None,
+        "cost_actual": 0.0,
+        "started_at": now,
+        "finished_at": now if stored_status != "running" else None,
+        "params": "{}",
+        "work_progress": None,
+    }
+
+    payload = project_run_status_payload(
+        ProjectRunStatus(
+            row=row,
+            progress=None,
+            job=None,
+            public_status=stored_status,  # type: ignore[arg-type]
+        ),
+        run_id=17,
+        now=now,
+    )
+
+    assert payload["status"] == expected_status
+    assert payload["total"] == total
+    assert payload["completed"] == attempted
+    assert payload["failed"] == failed
+    assert payload["attempted"] == attempted
+    assert payload["succeeded"] == succeeded
+    assert payload["skipped"] == skipped
+    assert payload["remaining"] == remaining
 
 
 def test_action_run_status_presents_unknown_cost_as_null_not_zero(tmp_path) -> None:

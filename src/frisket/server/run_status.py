@@ -38,6 +38,14 @@ RunStatus = Literal[
     "needs_user_action",
 ]
 
+_NONTERMINAL_PUBLIC_STATUSES = {
+    "queued",
+    "running",
+    "stalled",
+    "orphaned",
+    "needs_user_action",
+}
+
 
 @dataclass(frozen=True)
 class ProjectRunStatus:
@@ -188,6 +196,43 @@ def run_timing_payload(
     }
 
 
+def public_run_progress(row: Any, status: RunStatus) -> dict[str, Any]:
+    """Project stored counters into an unambiguous public outcome.
+
+    ``completed_rows`` is the legacy count of rows that produced a result,
+    including failed results. Keep exposing it as ``completed`` for existing
+    clients, while ``attempted`` names that meaning and the additive counters
+    distinguish successes from terminally unattempted rows.
+    """
+
+    total = int(row["total_rows"] or 0)
+    attempted = int(row["completed_rows"] or 0)
+    failed = int(row["failed_rows"] or 0)
+    succeeded = max(attempted - failed, 0)
+    unattempted = max(total - attempted, 0)
+    terminal = status not in _NONTERMINAL_PUBLIC_STATUSES
+    skipped = unattempted if terminal else 0
+    remaining = 0 if terminal else unattempted
+
+    public_status: RunStatus = status
+    if status in {"completed", "partial"}:
+        if total > 0 and failed >= total:
+            public_status = "failed"
+        elif failed > 0 or skipped > 0 or status == "partial":
+            public_status = "partial"
+
+    return {
+        "status": public_status,
+        "total": total,
+        "completed": attempted,
+        "failed": failed,
+        "attempted": attempted,
+        "succeeded": succeeded,
+        "skipped": skipped,
+        "remaining": remaining,
+    }
+
+
 def project_run_status_payload(
     status: ProjectRunStatus,
     *,
@@ -196,17 +241,16 @@ def project_run_status_payload(
     project: Project | None = None,
 ) -> dict[str, Any]:
     row = status.row
+    progress = public_run_progress(row, status.public_status)
+    public_status = progress["status"]
     payload = {
         "run_id": run_id,
         **action_metadata_for_action_kind(run_row_action_kind(row)),
-        "status": status.public_status,
-        "total": row["total_rows"],
-        "completed": row["completed_rows"],
-        "failed": row["failed_rows"],
+        **progress,
         "cancel_requested": row["cancel_requested_at"] is not None,
         "cost": row["cost_actual"],
         "live": (
-            status.public_status == "running"
+            public_status == "running"
             and status.progress is not None
             and not status.progress.done
         ),
@@ -214,7 +258,7 @@ def project_run_status_payload(
             row,
             now=now,
             job=status.job,
-            public_status=status.public_status,
+            public_status=public_status,
         ),
     }
     if status.queue_payload is not None:
@@ -223,7 +267,7 @@ def project_run_status_payload(
         payload["stalled_reason"] = status.stalled_reason
     if status.job_error:
         payload["error"] = status.job_error
-    if status.public_status == "running":
+    if public_status == "running":
         try:
             work_progress = json.loads(row["work_progress"] or "null")
         except (TypeError, ValueError, KeyError, IndexError):
@@ -243,7 +287,7 @@ def project_run_status_payload(
                     ],
                 }
             payload["work_progress"] = work_progress
-    if preparation := _run_preparation_hint(row, status.public_status):
+    if preparation := _run_preparation_hint(row, public_status):
         payload["preparation"] = preparation
     # A typed recipe/session halt (e.g. Parakeet's local_artifact_unavailable)
     # finalizes as a RESUMABLE 'cancelled' by design, but the reason lives only
@@ -766,7 +810,6 @@ def action_run_status_payload(
     public_status = project_run_status_payload(
         status, run_id=run_id, now=now, project=project
     )
-    payload["run"]["status"] = public_status["status"]
     payload["run"]["public_status"] = public_status
     return payload
 
