@@ -60,7 +60,7 @@ button.action-compare-variant-body:focus-visible { outline: 2px solid var(--focu
 .action-compare-bounded small { color: var(--text-light); }
 .action-compare-inline-value { display: grid; justify-items: start; gap: 2px; }
 .action-compare-inline-value-content { min-width: 0; max-width: 100%; }
-.action-compare-inline-value:not([data-expanded='true']) .action-compare-inline-value-content { display: -webkit-box; max-height: 4.35em; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.action-compare-inline-value[data-expandable='true']:not([data-expanded='true']) .action-compare-inline-value-content { display: -webkit-box; max-height: 4.35em; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
 .action-compare-inline-value > .btn { min-height: 20px; padding: 0; font-size: var(--font-size-caption); }
 .action-compare > footer { display: flex; flex: 0 0 auto; justify-content: space-between; gap: var(--space-12); padding: var(--space-6) var(--space-12); border-top: 1px solid var(--border); color: var(--text-mid); font-size: var(--font-size-small); }
 @media (max-width: 720px) { .action-compare-editor { right: 12px; left: 12px; width: auto; max-height: calc(100vh - 220px); } .action-compare > footer { flex-direction: column; gap: 2px; } }

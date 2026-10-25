@@ -7,7 +7,12 @@ import type { ActionComparisonCell, ActionComparisonContext } from '../../src/ap
 import { createActionCompareSession } from '../../src/workbench/actionCompareSession';
 import { ActionCompareTab } from '../../src/workbench/ActionCompareTab';
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+
+function rect(top: number, bottom: number): DOMRect {
+  return { x: 0, y: top, top, bottom, left: 0, right: 1200, width: 1200,
+    height: bottom - top, toJSON: () => ({}) };
+}
 
 const origin: ActionComparisonCell['origin'] = {
   kind: 'run_result', run_id: 5, op_id: 7, review_decision: null,
@@ -85,6 +90,8 @@ describe('ActionCompareTab', () => {
     expect(screen.queryByText('Manual edits will be kept.')).not.toBeInTheDocument();
     expect(screen.getByText('A shows current values')).toBeInTheDocument();
     expect(screen.getByText('Nothing changes until you use a variant.')).toBeInTheDocument();
+    expect(screen.getByText('First document').closest('.action-compare-inline-value'))
+      .not.toHaveAttribute('data-expandable');
 
     const changed = screen.getByTestId('action-compare-cell-10-party-B');
     expect(changed).toHaveAttribute('data-comparison', 'different');
@@ -109,6 +116,12 @@ describe('ActionCompareTab', () => {
   });
 
   it('does not expose Use on an existing baseline and opens the injected editor for a challenger', () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function measure() {
+      if (this.classList.contains('action-compare')) return rect(200, 720);
+      if (this.classList.contains('action-compare-toolbar-shell')) return rect(200, 260);
+      if (this.tagName === 'FOOTER') return rect(672, 720);
+      return rect(0, 0);
+    });
     const session = createActionCompareSession({ context: fixture() }, { runVariant: vi.fn() });
     const b = session.addVariant()!;
     const renderVariantEditor = vi.fn(({ label }) => <div>Editor for {label}</div>);
@@ -117,8 +130,10 @@ describe('ActionCompareTab', () => {
     expect(screen.queryByRole('button', { name: 'Use settings from variant A' })).not.toBeInTheDocument();
     fireEvent.click(within(screen.getByTestId('action-compare-variant-B')).getByRole('button', { name: 'Configure variant B' }));
     expect(screen.getByText('Editor for B')).toBeInTheDocument();
-    expect(screen.getByRole('complementary', { name: 'Configure variant B' }).parentElement)
+    const editor = screen.getByRole('complementary', { name: 'Configure variant B' });
+    expect(editor.parentElement)
       .toHaveClass('action-compare-toolbar-shell');
+    expect(editor).toHaveStyle({ maxHeight: '400px' });
     expect(renderVariantEditor).toHaveBeenCalledWith(expect.objectContaining({
       variantId: b,
       lockedParams: ['source'],

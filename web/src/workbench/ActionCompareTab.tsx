@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { CircleAlert, Check, Copy, Eye, EyeOff, LockKeyhole, Plus, RefreshCw, RotateCcw, Square, X } from 'lucide-react';
 import type { ActionComparisonBoundedValue } from '../api/actionComparison';
 import type { GeneratedActionDraft, JsonValue } from '../api/types';
@@ -41,6 +41,10 @@ export interface ActionCompareTabProps {
   }): void;
   onRefresh?(): void;
   className?: string;
+}
+
+function actionCompareEditorMaxHeight(toolbarBottom: number, contentBottom: number): number {
+  return Math.max(80, Math.floor(contentBottom - toolbarBottom - 12));
 }
 
 const sampleLabel = (sampled: number, selected: number | null) => selected !== null && selected > sampled
@@ -96,7 +100,8 @@ function CellValue({ cell, previewId, rowId, columnKey, onOpen }: {
   const value = cell.value ?? null;
   const expandable = typeof value === 'string' ? value.length > 160
     : value !== null && typeof value === 'object';
-  return <div className="action-compare-inline-value" data-expanded={expanded ? 'true' : 'false'}>
+  return <div className="action-compare-inline-value" data-expandable={expandable ? 'true' : undefined}
+    data-expanded={expanded ? 'true' : 'false'}>
     <div className="action-compare-inline-value-content"><Value value={value} /></div>
     {expandable && <Button type="button" variant="text" onClick={() => setExpanded((current) => !current)}>
       {expanded ? 'Collapse' : 'Expand'}
@@ -130,6 +135,9 @@ export function ActionCompareTab({ session, onUseSettings, renderVariantEditor,
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [editorMaxHeight, setEditorMaxHeight] = useState<number | null>(null);
+  const sectionRef = useRef<HTMLElement>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
   const { context } = state;
   const baseline = state.variants[0];
   const hidden = new Set(state.hiddenColumnKeys);
@@ -144,6 +152,32 @@ export function ActionCompareTab({ session, onUseSettings, renderVariantEditor,
     ...context.output_columns.map((column) => ({ key: `output:${column.logical_key}`, name: column.current_name })),
   ];
 
+  useLayoutEffect(() => {
+    if (!editing) return undefined;
+    const section = sectionRef.current;
+    const toolbar = toolbarRef.current;
+    if (!section || !toolbar) return undefined;
+    const measure = () => {
+      const sectionRect = section.getBoundingClientRect();
+      const toolbarRect = toolbar.getBoundingClientRect();
+      const footerTop = section.querySelector('footer')?.getBoundingClientRect().top ?? sectionRect.bottom;
+      if (sectionRect.height <= 0 || toolbarRect.height <= 0) return;
+      const next = actionCompareEditorMaxHeight(toolbarRect.bottom, footerTop);
+      setEditorMaxHeight((current) => current === next ? current : next);
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measure);
+      return () => window.removeEventListener('resize', measure);
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(section);
+    observer.observe(toolbar);
+    const footer = section.querySelector('footer');
+    if (footer) observer.observe(footer);
+    return () => observer.disconnect();
+  }, [editing]);
+
   const controls = <>
     {running ? <Button type="button" onClick={session.stop}><Square size={13} /> Stop</Button>
       : <Button type="button" disabled={!pending} onClick={() => void session.runPending()}><RefreshCw size={13} /> Re-run</Button>}
@@ -154,11 +188,11 @@ export function ActionCompareTab({ session, onUseSettings, renderVariantEditor,
     </Button>
   </>;
 
-  return <section className={['action-compare', className].filter(Boolean).join(' ')} aria-label="Action comparison">
+  return <section ref={sectionRef} className={['action-compare', className].filter(Boolean).join(' ')} aria-label="Action comparison">
     {!context.available && <div className="action-compare-stale" role="alert">
       <span>{context.reason?.message ?? 'This action cannot be compared.'}</span>
     </div>}
-    <div className="action-compare-toolbar-shell">
+    <div ref={toolbarRef} className="action-compare-toolbar-shell">
       <CompareToolbar testIdPrefix="action-compare" running={running} controls={controls} label="Variants"
         tag={sampleLabel(context.sample_row_ids.length, state.capturedSelection?.totalCount ?? null)}>
         {state.variants.map((variant) => {
@@ -200,7 +234,8 @@ export function ActionCompareTab({ session, onUseSettings, renderVariantEditor,
           onClick={() => { const id = session.addVariant(); if (id) setEditingId(id); }}><Plus size={13} /> Variant</Button>
       </CompareToolbar>
 
-      {editing && renderVariantEditor && <aside className="action-compare-editor" aria-label={`Configure variant ${editing.displayKey}`}>
+      {editing && renderVariantEditor && <aside className="action-compare-editor" style={editorMaxHeight === null
+        ? undefined : { maxHeight: editorMaxHeight }} aria-label={`Configure variant ${editing.displayKey}`}>
         <header><strong>{editing.displayKey} · {editingLabel}</strong>
           <IconButton icon={X} size="inline" label="Close variant editor" onClick={() => setEditingId(null)} /></header>
         {renderVariantEditor({
