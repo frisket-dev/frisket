@@ -29,10 +29,16 @@ export function ListTableParamsBody({ sheet, params, setParams }:
   const parentOptions = (sheet?.columns ?? []).filter(
     (column) => Number(column.id) !== Number(source?.column_id),
   );
-  const selectedParentNames = parentColumns.flatMap((selected) => {
+  const parentSelections = parentColumns.map((selected) => {
     const column = parentOptions.find((candidate) => Number(candidate.id) === selected.column_id);
-    return column ? [column.name] : [];
+    return { selected, column, label: column?.name ?? `Missing column #${selected.column_id}` };
   });
+  const selectedParentNames = parentSelections.map(({ label }) => label);
+  const parentPickerOptions = [
+    ...parentOptions.map(({ name, type, ai }) => ({ name, type, ai: Boolean(ai) })),
+    ...parentSelections.filter(({ column }) => !column)
+      .map(({ label }) => ({ name: label, type: 'missing', ai: false })),
+  ];
   const [includeText, setIncludeText] = useState(() => liveSource?.include_columns?.join(', ') ?? '');
   const editedSource = useRef(liveSource);
   useEffect(() => {
@@ -78,10 +84,12 @@ export function ListTableParamsBody({ sheet, params, setParams }:
     <div className="field-group"><span className="form-label">Include parent columns</span>
       <MultiColumnPicker testId="field-list_parent_columns" ariaLabel="Include parent columns"
         value={selectedParentNames}
-        options={parentOptions.map(({ name, type, ai }) => ({ name, type, ai: Boolean(ai) }))}
+        options={parentPickerOptions}
         disabled={!sheet} onValueChange={(names) => {
           const byId = new Map(parentColumns.map((column) => [column.column_id, column]));
           setParams({ ...params, parent_columns: names.flatMap((name) => {
+            const saved = parentSelections.find(({ label }) => label === name)?.selected;
+            if (saved) return [saved];
             const column = parentOptions.find((candidate) => candidate.name === name);
             if (!column) return [];
             const columnId = Number(column.id);
@@ -94,6 +102,25 @@ export function ListTableParamsBody({ sheet, params, setParams }:
     <details className="action-advanced" data-testid="derive-table-saved-configuration">
       <summary>Source and column mapping</summary>
       <pre data-testid="derive-table-saved-configuration-json">{JSON.stringify(source, null, 2)}</pre>
+      {parentSelections.length > 0 && <div className="action-source-block">
+        <div className="form-label">Parent column destinations</div>
+        {parentSelections.map(({ selected, column, label }) => <div className="field-group"
+          key={selected.column_id} data-testid={`list-parent-column-${selected.column_id}`}>
+          <span className={column ? 'form-hint' : 'panel-error'}>{label}</span>
+          <TextInput aria-label={`Destination for ${label}`} value={selected.output_name}
+            onChange={(event) => setParams({ ...params, parent_columns: parentColumns.map(
+              (candidate) => candidate.column_id === selected.column_id
+                ? { ...candidate, output_name: event.target.value }
+                : candidate,
+            ) })} />
+          {!column && <button type="button" className="btn-ghost"
+            aria-label={`Remove missing parent column #${selected.column_id}`} onClick={() => setParams({ ...params,
+              parent_columns: parentColumns.filter(
+                (candidate) => candidate.column_id !== selected.column_id,
+              ),
+            })}>Remove</button>}
+        </div>)}
+      </div>}
       {namedSource && <><label className="form-label" htmlFor="list-table-projection">Column projection and item schema</label>
       <TextArea id="list-table-projection"  rows={7}
         value={configuration} onChange={(event) => {

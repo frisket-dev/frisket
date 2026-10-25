@@ -207,6 +207,7 @@ def project_items(
     # action registration is still being initialized.
     from frisket.engine.executor.action_support import _extract_json_path
 
+    parent_names = {column.name for column in parent_columns}
     for item in items:
         values = {}
         for column in columns:
@@ -225,7 +226,6 @@ def project_items(
                     details={"column": column.name, "type": column.type},
                 )
             values[column.name] = value
-        parent_names = {column.name for column in parent_columns}
         if set(item.parent_values) != parent_names:
             raise TableError(
                 "invalid_input_ref", "Parent-column snapshot is incomplete"

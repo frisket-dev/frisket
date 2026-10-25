@@ -549,6 +549,26 @@ def test_parent_context_collision_refuses_without_publication(
         assert "duplicate_column_name" in result.errors[0].message
         assert env.counts() == before
 
+        repaired = _derive_action(
+            env.seeded,
+            target_sheet_name="Repaired Context",
+            idempotency_key="derive_entities@sha256:repaired-parent-alias",
+        )
+        repaired["params"]["parent_columns"] = [
+            {
+                "column_id": env.seeded["title_column_id"],
+                "output_name": "source_title",
+            }
+        ]
+        completed = env.run(repaired)
+        assert completed.status == "completed", completed.errors
+        child_id = next(
+            output.sheet_id for output in completed.outputs if output.kind == "sheet"
+        )
+        assert "source_title" in {
+            column["name"] for column in env.project.columns(child_id)
+        }
+
 
 @pytest.mark.parametrize("hidden", [False, True])
 def test_declared_column_visibility_replays_until_changed(

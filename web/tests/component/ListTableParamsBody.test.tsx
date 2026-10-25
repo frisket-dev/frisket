@@ -32,6 +32,9 @@ function Harness() {
     <button onClick={() => setParams({ source: {
       kind: 'column', sheet_id: 7, column_id: 44, include_columns: ['title', 'url'],
     } })}>Load another source</button>
+    <button onClick={() => setParams({ ...saved,
+      parent_columns: [{ column_id: 999, output_name: 'legacy context' }],
+    })}>Load missing parent</button>
   </>;
 }
 
@@ -79,4 +82,29 @@ it('stores selected parent columns as stable ids with explicit aliases', async (
     { column_id: 45, output_name: 'case title' },
   ]);
   expect(menu.queryByRole('option', { name: /^items/, hidden: true })).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Destination for case title'), {
+    target: { value: 'source case' },
+  });
+  expect(canonicalParams().parent_columns).toEqual([
+    { column_id: 45, output_name: 'source case' },
+  ]);
+});
+
+it('keeps a missing saved parent visible while other selections change', async () => {
+  const user = userEvent.setup();
+  render(<Harness />);
+  await user.click(screen.getByText('Load missing parent'));
+  expect(screen.getAllByText('Missing column #999')).not.toHaveLength(0);
+  expect(screen.getByLabelText('Destination for Missing column #999')).toHaveValue('legacy context');
+  await user.click(screen.getByTestId('field-list_parent_columns'));
+  await user.click(within(screen.getByTestId('field-list_parent_columns-menu'))
+    .getByRole('option', { name: /case title/, hidden: true }));
+  expect(canonicalParams().parent_columns).toEqual([
+    { column_id: 999, output_name: 'legacy context' },
+    { column_id: 45, output_name: 'case title' },
+  ]);
+  await user.click(screen.getByRole('button', { name: 'Remove missing parent column #999' }));
+  expect(canonicalParams().parent_columns).toEqual([
+    { column_id: 45, output_name: 'case title' },
+  ]);
 });
