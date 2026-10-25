@@ -238,16 +238,18 @@ export function ActionCompareTab({ session, onUseSettings, renderVariantEditor,
         ? undefined : { maxHeight: editorMaxHeight }} aria-label={`Configure variant ${editing.displayKey}`}>
         <header><strong>{editing.displayKey} · {editingLabel}</strong>
           <IconButton icon={X} size="inline" label="Close variant editor" onClick={() => setEditingId(null)} /></header>
-        {renderVariantEditor({
-          variantId: editing.id, label: editing.displayKey, draft: editing.draft,
-          lockedParams: context.locked_params, structureLocked: true, lockReason: 'Fixed for this comparison',
-          onDraftChange: (draft) => session.updateVariant(editing.id, draft),
-          onDuplicate: () => { const id = session.addVariant(editing.id); if (id) setEditingId(id); },
-          onDismiss: () => setEditingId(null),
-        })}
-        <Button type="button" onClick={() => { const id = session.addVariant(editing.id); if (id) setEditingId(id); }}>
-          <Copy size={13} /> Duplicate
-        </Button>
+        <div className="action-compare-editor-body">
+          {renderVariantEditor({
+            variantId: editing.id, label: editing.displayKey, draft: editing.draft,
+            lockedParams: context.locked_params, structureLocked: true, lockReason: 'Fixed for this comparison',
+            onDraftChange: (draft) => session.updateVariant(editing.id, draft),
+            onDuplicate: () => { const id = session.addVariant(editing.id); if (id) setEditingId(id); },
+            onDismiss: () => setEditingId(null),
+          })}
+          <Button type="button" onClick={() => { const id = session.addVariant(editing.id); if (id) setEditingId(id); }}>
+            <Copy size={13} /> Duplicate
+          </Button>
+        </div>
       </aside>}
     </div>
 

@@ -134,6 +134,9 @@ describe('ActionCompareTab', () => {
     expect(editor.parentElement)
       .toHaveClass('action-compare-toolbar-shell');
     expect(editor).toHaveStyle({ maxHeight: '400px' });
+    expect(within(editor).getByRole('button', { name: 'Close variant editor' })
+      .closest('.action-compare-editor-body')).toBeNull();
+    expect(screen.getByText('Editor for B').closest('.action-compare-editor-body')).toBeInTheDocument();
     expect(renderVariantEditor).toHaveBeenCalledWith(expect.objectContaining({
       variantId: b,
       lockedParams: ['source'],
