@@ -15,7 +15,7 @@ it('puts engine selection before run controls in reading and keyboard order', as
   </CompareToolbar>);
   const toolbar = screen.getByTestId('compare-toolbar');
   expect([...toolbar.children].map((child) => child.textContent)).toEqual([
-    'Temporary filesVariantsAdd engine', 'Run', 'Usage is recorded',
+    'Temporary comparisonVariantsAdd engine', 'Run', 'Usage is recorded',
   ]);
   await user.tab();
   expect(screen.getByRole('button', { name: 'Add engine' })).toHaveFocus();

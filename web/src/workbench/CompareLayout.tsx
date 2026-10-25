@@ -18,7 +18,7 @@ const PIP_STATUS: Record<PipState, string> = {
 /** Engine selection precedes the run controls in reading and narrow-screen order. */
 export function CompareToolbar({
   testIdPrefix, running, controls, children, note, disabled,
-  label = 'Variants', tag = 'Temporary files',
+  label = 'Variants', tag = 'Temporary comparison',
   chipsTestId = `${testIdPrefix}-variant-chips`,
 }: {
   testIdPrefix: string;
