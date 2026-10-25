@@ -115,7 +115,7 @@ describe('action comparison presentation', () => {
   it('summarizes nested field description edits without dumping structured JSON', () => {
     const presentation = createActionComparePresentation(entry(), {
       baselineMode: 'preview',
-      lockedParams: ['source'],
+      lockedParams: ['source', 'fields'],
     });
     const longDescription = `Include procedural posture and disposition. ${'More context. '.repeat(20)}`;
     const before = draft({ fields: [

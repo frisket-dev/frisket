@@ -278,9 +278,9 @@ test('fresh Ask can enter Compare before any action executes', async ({ page }) 
   await expect(trigger).toContainText('Gemini 3.5 Flash-Lite');
   await form.getByTestId('field-output-answer').fill('current_hearing');
   await form.getByTestId('generated-action-run-scope-menu-button').click();
-  await expect(form.getByTestId('generated-action-menu-compare')).toBeVisible();
+  await expect(page.getByTestId('generated-action-menu-compare')).toBeVisible();
   await shoot(page, '07-fresh-ask-compare-entry.png');
-  await form.getByTestId('generated-action-menu-compare').click();
+  await page.getByTestId('generated-action-menu-compare').click();
 
   await expect(page.getByTestId('action-compare-toolbar')).toBeVisible({ timeout: 20_000 });
   await expect(page.getByTestId('action-compare-variant-A')).toContainText('pending');

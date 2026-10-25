@@ -176,7 +176,7 @@ export function createActionComparePresentation(
       const changes: ActionCompareSettingChange[] = [];
       for (const [name, schema] of Object.entries(entry.input_schema.properties ?? {})) {
         const semantic = controls?.[name];
-        if (locked.has(name) || schema.writeOnly === true || schema.format === 'password'
+        if (schema.writeOnly === true || schema.format === 'password'
           || ['column', 'columns', 'template', 'rich_source', 'transcript_selection', 'column_or_template'].includes(String(semantic))) {
           continue;
         }
@@ -185,7 +185,7 @@ export function createActionComparePresentation(
         if (JSON.stringify(before) === JSON.stringify(after)) continue;
         const beforeLabel = displayValue(entry, name, before, baseline, options.selectorChoices);
         const afterLabel = displayValue(entry, name, after, variant, options.selectorChoices);
-        if (beforeLabel !== null && afterLabel !== null) {
+        if (!locked.has(name) && beforeLabel !== null && afterLabel !== null) {
           changes.push({ label: labelFor(entry, name, schema), before: beforeLabel, after: afterLabel });
         } else {
           changes.push(...descriptionChanges(before, after));
