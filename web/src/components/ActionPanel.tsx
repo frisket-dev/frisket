@@ -620,7 +620,8 @@ export function ActionPanel({
             onOpenOcrCompare={onOpenOcrCompare}
             onCompare={supportsRowOverlayComparison(generatedCatalogEntry)
               ? onCompareAction : undefined}
-            onOpenHistory={onOpenActionHistory
+            onOpenHistory={actionCompareLaunch?.context.comparison_basis.kind === 'run'
+              && onOpenActionHistory
               ? () => onOpenActionHistory(generatedCatalogEntry.kind) : undefined}
             sampleColumnValues={sampleColumnValues}
             onOpenDiagnose={() => chrome.openDiagnosePanel(project)}
