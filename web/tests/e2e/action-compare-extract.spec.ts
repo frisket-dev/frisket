@@ -244,6 +244,7 @@ test('Extract compares two typed fields across A/B/C and opens Use settings', as
   await expect(useForm.getByTestId('field-context')).toHaveValue(C.context);
   await expect(useForm.getByTestId('output-field-description').first())
     .toHaveValue(C.fields[0].description);
+  await expect(useForm.getByRole('button', { name: 'Replace all rows', exact: true })).toBeEnabled();
   await shoot(page, '06-extract-use-settings.png');
   await useForm.getByRole('button', { name: 'Choose run scope' }).click();
   await page.getByRole('menuitem', { name: 'Return to Compare' }).click();

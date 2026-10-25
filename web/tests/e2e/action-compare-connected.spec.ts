@@ -212,6 +212,9 @@ test.describe('connected action comparison', () => {
     );
     await openProject(page, pid, sheetId);
     await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
+    expect(await page.evaluate(async () => (
+      await document.fonts.load('500 13px "IBM Plex Sans"')
+    ).filter((font) => font.status === 'loaded').length)).toBeGreaterThan(0);
     const columns = await sheetColumns(page.request, pid, sheetId);
     const topic = columns.find((column) => column.name === 'topic');
     expect(topic).toBeTruthy();
@@ -264,6 +267,7 @@ test.describe('connected action comparison', () => {
     const historyButton = await page.getByTestId('action-history-button').boundingBox();
     const closeButton = await page.getByTestId('action-drawer-close').boundingBox();
     expect(Math.abs(historyButton!.y - closeButton!.y)).toBeLessThan(3);
+    await expect(replacementForm.getByRole('button', { name: 'Replace all rows', exact: true })).toBeEnabled();
     await shoot(page, '06-replace-settings.png');
 
     await clickRunButton(page);
