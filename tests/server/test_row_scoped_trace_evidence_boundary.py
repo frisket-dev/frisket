@@ -255,7 +255,7 @@ def test_action_run_trace_row_endpoint_returns_typed_row_scoped_evidence(
 
 
 @pytest.mark.parametrize("trace_exists", [False, True])
-def test_trace_absence_preserves_exact_run_failed_cell_in_completed_run(
+def test_trace_absence_preserves_exact_run_failed_cell_in_partial_run(
     tmp_path: Path, trace_exists: bool
 ) -> None:
     client, project_id, run_id, row_ids, column_id, _ = _seed_project(
@@ -274,7 +274,7 @@ def test_trace_absence_preserves_exact_run_failed_cell_in_completed_run(
     )
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["run"]["status"] == "completed"
+    assert body["run"]["status"] == "partial"
     assert body["status"] == ("missing" if trace_exists else "not_recorded")
     assert body["recorded"] is False
     assert body["trace"] is None

@@ -9,6 +9,7 @@ from frisket.authoring.action_metadata import (
     run_row_action_kind,
 )
 from frisket.server.paging import offset_page_meta
+from frisket.server.run_status import public_run_progress
 from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 
@@ -24,7 +25,7 @@ def _run_summary(row: Any) -> dict[str, Any]:
         "action_name": action_metadata["action_name"],
         "model": model,
         "provider": model.split("/", 1)[0] if model and "/" in model else None,
-        "status": row["status"],
+        "status": public_run_progress(row, row["status"])["status"],
         "total_rows": row["total_rows"],
         "completed_rows": row["completed_rows"],
         "failed_rows": row["failed_rows"],
