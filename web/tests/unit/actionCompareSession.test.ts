@@ -378,13 +378,9 @@ describe('createActionCompareRunner', () => {
       comparison: {
         basis: context('preview').comparison_basis,
         expected_output_signature: 'output-v1',
-        expected_sample_fingerprint: 'sample-v1',
       },
     }));
-    expect(api.getContext).toHaveBeenCalledWith({
-      source: context('preview').comparison_basis,
-      sample_row_ids: [101, 102],
-    }, expect.anything());
+    expect(api.getContext).not.toHaveBeenCalled();
   });
 
   it('normalizes renamed physical preview columns to logical output keys', async () => {

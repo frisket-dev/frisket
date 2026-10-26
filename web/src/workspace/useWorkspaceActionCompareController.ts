@@ -13,7 +13,6 @@ import { actionComparisonKind } from '../grid/actionComparisonCatalog';
 import type { ActionRunAnchor, ActionRunEntryDetails } from '../grid/actionRunEntry';
 import type { JobStoreHandle } from '../state/jobStore';
 import { openCompareTabTransition } from '../state/workspaceTransitions';
-import { isActiveRunStatus } from '../runStatusModel';
 import { createActionCompareRunner, createActionCompareSession, type ActionCompareCapturedSelection,
   type ActionCompareSession, type ActionCompareSessionSnapshot, type ActionCompareUseSettings } from '../workbench/actionCompareSession';
 
@@ -77,7 +76,6 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
   const compareView = useCompareViewHandle();
   const workView = useWorkViewHandle();
   const jobs = useJobsHandle();
-  const jobRun = useSelector(jobs.store, state => state.run);
   const catalog = useActionCatalogHandle();
   const entries = useSelector(catalog.store, state => state.catalog?.actions);
   const tab = useSelector(compareView.store, state => state.action);
@@ -86,9 +84,7 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
   const sessionRef = useRef<ActionCompareSession | null>(null);
   const [pendingTarget, setPendingTarget] = useState<ComparisonTarget | null>(null);
   const [historyMenuTarget, setHistoryMenuTarget] = useState<ActionCompareHistoryMenuTarget | null>(null);
-  const latestTarget = useRef<ComparisonTarget | null>(null);
   const historySeedAnchor = useRef<ActionRunAnchor | null>(null);
-  const observedJobRun = useRef<{ runId: string; status: string } | null>(null);
   const operation = useRef({ revision: 0, targetPending: false });
   const captureSelection = useCallback((targetSheet: string) => {
     if (targetSheet !== sheetId) return null;
@@ -150,7 +146,6 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
     operation.current = { revision, targetPending: true };
     const previous = sessionRef.current;
     sessionRef.current = null;
-    latestTarget.current = null;
     setSession(null);
     setPendingTarget(null);
     try {
@@ -162,7 +157,7 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
         runVariant: createActionCompareRunner(api, requestCostConfirmation),
         cancelPreview: id => api.cancelPreview(id), discardPreview: id => api.discardPreview(id),
       });
-      sessionRef.current = next; latestTarget.current = { ...target, sampleRowIds: context.sample_row_ids };
+      sessionRef.current = next;
       setSession(next); setPendingTarget(null);
       openCompareTabTransition({ setOpenSplit }, workView, compareView, 'action');
       return next;
@@ -221,7 +216,7 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
       ...(chosen ? { kind: 'use-comparison-variant' as const, variantId: chosen.variantId, variantLabel: chosen.variantLabel }
         : { kind: 'edit-existing' as const }),
       context, capturedSelection: selection, sampleRowIds: context.sample_row_ids,
-      returnToCompare: Boolean(sessionRef.current), comparisonStale: chosen?.comparisonStale ?? false,
+      returnToCompare: Boolean(sessionRef.current),
     } });
   }, [runActionFromSurface]);
   const restoreActionRunSettings = useCallback(async (anchor: ActionRunAnchor) => {
@@ -240,39 +235,10 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
       }
     }
   }, [compareView, launchSettings, readContext, showError, targetForRun]);
-  const checkFreshness = useCallback(async () => {
-    if (operation.current.targetPending) return null;
-    const active = sessionRef.current;
-    if (!active) return null;
-    const activeRevision = operation.current.revision;
-    const previous = active.getSnapshot().context;
-    const current = await api.getContext({ source: previous.comparison_basis, sample_row_ids: previous.sample_row_ids });
-    const stale = !current.available || current.sample_fingerprint !== previous.sample_fingerprint
-      || current.expected_output_signature !== previous.expected_output_signature;
-    if (operation.current.targetPending
-      || operation.current.revision !== activeRevision || sessionRef.current !== active) return null;
-    active.setStale(stale);
-    return stale;
-  }, [api]);
-  useEffect(() => {
-    const previous = observedJobRun.current;
-    observedJobRun.current = jobRun
-      ? { runId: jobRun.runId, status: jobRun.status }
-      : null;
-    if (!previous || !jobRun || previous.runId !== jobRun.runId
-      || !isActiveRunStatus(previous.status) || isActiveRunStatus(jobRun.status)
-      || !tab.open || !sessionRef.current) return;
-    void checkFreshness().catch(error => showError(
-      error instanceof Error ? error.message : 'Could not recheck comparison data.',
-    ));
-  }, [checkFreshness, jobRun, showError, tab.open]);
-  const useActionCompareSettings = useCallback(async (chosen: ActionCompareUseSettings) => {
-    try {
-      const comparisonStale = await checkFreshness();
-      if (comparisonStale === null) return;
-      launchSettings(chosen.context, chosen.draft, chosen.capturedSelection, { ...chosen, comparisonStale });
-    } catch (error) { showError(error instanceof Error ? error.message : 'Could not recheck comparison data.'); }
-  }, [checkFreshness, launchSettings, showError]);
+  const useActionCompareSettings = useCallback((chosen: ActionCompareUseSettings) => {
+    if (operation.current.targetPending || !sessionRef.current) return;
+    launchSettings(chosen.context, chosen.draft, chosen.capturedSelection, chosen);
+  }, [launchSettings]);
 
   const loadActionRunEntry = useCallback(async (anchor: ActionRunAnchor): Promise<ActionRunEntryDetails | null> => {
     const history = await projectApi.getColumnRuns(anchor.columnId, 0, 20);
@@ -328,20 +294,7 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
     closeActionRoute();
     if (!tab.open || !sessionRef.current) return;
     compareView.focus('action');
-    void checkFreshness().catch(error => showError(error instanceof Error ? error.message : 'Could not recheck comparison data.'));
-  }, [checkFreshness, closeActionRoute, compareView, showError, tab.open]);
-  const refreshActionCompare = useCallback(async () => {
-    const target = latestTarget.current;
-    const before = sessionRef.current?.getSnapshot();
-    if (!target || !before) return;
-    const next = await openTarget(target);
-    if (!next || next.getSnapshot().context.expected_output_signature !== before.context.expected_output_signature) return;
-    // Keep the user's alternative settings; their results were invalidated by Refresh.
-    for (const variant of before.variants.filter(variant => !variant.baseline)) {
-      const id = next.addVariant();
-      if (id) next.updateVariant(id, variant.draft);
-    }
-  }, [openTarget]);
+  }, [closeActionRoute, compareView, tab.open]);
   const cancelActionCompareClose = useCallback(() => {
     compareView.setCloseWarn('action', false);
   }, [compareView]);
@@ -358,9 +311,8 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
     openActionCompare, compareActionRun, restoreActionRunSettings, loadActionRunEntry, useActionCompareSettings,
     openActionCompareHistory, closeActionCompareHistory, returnToActionCompare, closeActionCompare,
     cancelActionCompareClose, cancelActionCompareRetarget, confirmActionCompareRetarget,
-    refreshActionCompare,
   }), [cancelActionCompareClose, cancelActionCompareRetarget, closeActionCompare, compareActionRun,
     closeActionCompareHistory, confirmActionCompareRetarget, historyMenuTarget, loadActionRunEntry, openActionCompare,
-    openActionCompareHistory, pendingTarget, refreshActionCompare, returnToActionCompare, session, tab.active,
+    openActionCompareHistory, pendingTarget, returnToActionCompare, session, tab.active,
     restoreActionRunSettings, tab.closeWarn, tab.open, useActionCompareSettings]);
 }

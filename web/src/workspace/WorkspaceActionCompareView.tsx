@@ -156,8 +156,7 @@ function ActionCompareContents() {
         setStructuredValue(null);
         setValue({ value: nextValue, previewId });
       }}
-      onOpenStructuredValue={(nextValue) => { setValue(null); setStructuredValue(nextValue); }}
-      onRefresh={model.refreshActionCompare} />
+      onOpenStructuredValue={(nextValue) => { setValue(null); setStructuredValue(nextValue); }} />
     {model.actionCompareCloseWarn && <CompareDiscardDialog title="Discard this comparison?"
       description="The comparison settings and preview results will be discarded."
       testId="action-compare" onCancel={model.cancelActionCompareClose} onDiscard={model.closeActionCompare} />}

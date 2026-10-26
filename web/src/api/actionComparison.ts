@@ -51,7 +51,6 @@ export interface ActionComparisonPreviewRequest {
   comparison: {
     basis: ActionComparisonSource;
     expected_output_signature: string;
-    expected_sample_fingerprint: string;
   };
 }
 
