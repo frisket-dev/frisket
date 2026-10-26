@@ -232,7 +232,7 @@ test.describe('connected action comparison', () => {
 
     await page.getByTestId('header-menu-compare-action-run').click();
     await expect(page.getByTestId('action-compare-sample-count')).toHaveText('3 sample rows');
-    await expect(page.getByTestId('action-compare-variant-A')).toContainText('in table');
+    await expect(page.getByTestId('action-compare-variant-A')).toHaveAttribute('data-status', 'current');
     await shoot(page, '03-current-values.png');
 
     await page.getByRole('button', { name: 'Variant', exact: true }).click();
@@ -245,7 +245,7 @@ test.describe('connected action comparison', () => {
     await page.getByRole('button', { name: 'Run comparison', exact: true }).click();
     await approveCostGateIfShown(page);
     const variantB = page.getByTestId('action-compare-variant-B');
-    await expect(variantB).toContainText('ready', { timeout: 60_000 });
+    await expect(variantB).toHaveAttribute('data-status', 'ready', { timeout: 60_000 });
     await expectComparisonCell(page, 0, 0, 'transit');
     await expectComparisonCell(page, 1, 0, 'other');
     await shoot(page, '05-preview-results.png');
@@ -349,7 +349,8 @@ test.describe('connected action comparison', () => {
     await editor.getByRole('button', { name: 'Close variant editor' }).click();
     await page.getByRole('button', { name: 'Run comparison', exact: true }).click();
     await approveCostGateIfShown(page);
-    await expect(page.getByTestId('action-compare-variant-B')).toContainText('ready', { timeout: 60_000 });
+    await expect(page.getByTestId('action-compare-variant-B'))
+      .toHaveAttribute('data-status', 'ready', { timeout: 60_000 });
 
     await page.getByRole('button', { name: 'Use settings from variant B' }).click();
     const replacementForm = page.getByTestId('generated-action-form');
@@ -368,8 +369,6 @@ test.describe('connected action comparison', () => {
       () => topicValues(page, pid, sheetId, topic.id, 25),
       { timeout: 20_000 },
     ).toEqual(selectedReplacement);
-    await expect(page.getByText('Data changed since this comparison.', { exact: true }))
-      .toBeVisible();
     await shoot(page, '12-selected-replacement.png');
 
     await expect(page.getByTestId('undo-button')).toBeEnabled();

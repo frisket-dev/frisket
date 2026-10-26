@@ -123,7 +123,6 @@ function chosenSettings(context: ActionComparisonContext): ActionCompareUseSetti
     context,
     capturedSelection: { rowIds: [11, 12, 13], totalCount: 3 },
     sampleRowIds: [...context.sample_row_ids],
-    comparisonStale: false,
   };
 }
 
@@ -217,12 +216,9 @@ describe('useWorkspaceActionCompareController', () => {
     await expect(successor).resolves.toBe(true);
   });
 
-  it('keeps the comparison selection separate from an all-row chosen draft and permits a labeled stale handoff', async () => {
+  it('keeps the comparison selection separate from an all-row chosen draft', async () => {
     const initial = comparisonContext();
-    const changed = comparisonContext({ fingerprint: 'sample-v2' });
-    vi.mocked(harness!.api.getContext)
-      .mockResolvedValueOnce(initial)
-      .mockResolvedValueOnce(changed);
+    vi.mocked(harness!.api.getContext).mockResolvedValueOnce(initial);
     const view = renderController();
 
     act(() => view.result.current.openActionCompare(ALL_ROWS_DRAFT));
@@ -245,24 +241,20 @@ describe('useWorkspaceActionCompareController', () => {
         kind: 'use-comparison-variant',
         variantId: 'variant-b',
         variantLabel: 'B',
-        comparisonStale: true,
         context: expect.objectContaining({ sheet: { id: 7, name: 'Court filings' } }),
         capturedSelection: { rowIds: [11, 12, 13], totalCount: 3 },
         sampleRowIds: [11, 12, 13],
         returnToCompare: true,
       }),
     });
+    expect(harness!.api.getContext).toHaveBeenCalledTimes(1);
     expect(chosen.draft.scope).toEqual({ kind: 'sheet_rows', sheet_id: 7 });
     expect(harness!.showError).not.toHaveBeenCalled();
   });
 
-  it('rechecks freshness when a Use-launched replacement run completes', async () => {
+  it('does not reload a snapshot when a Use-launched replacement run completes', async () => {
     const initial = comparisonContext({ runId: 41 });
-    const changed = comparisonContext({ runId: 41, fingerprint: 'sample-v2' });
-    vi.mocked(harness!.api.getContext)
-      .mockResolvedValueOnce(initial)
-      .mockResolvedValueOnce(initial)
-      .mockResolvedValueOnce(changed);
+    vi.mocked(harness!.api.getContext).mockResolvedValueOnce(initial);
     const view = renderController();
 
     act(() => view.result.current.compareActionRun({
@@ -292,8 +284,8 @@ describe('useWorkspaceActionCompareController', () => {
       run: { ...running, status: 'complete', completedRows: 3 },
     })));
 
-    await waitFor(() => expect(harness!.api.getContext).toHaveBeenCalledTimes(3));
-    expect(view.result.current.actionCompareSession!.getSnapshot().stale).toBe(true);
+    expect(harness!.api.getContext).toHaveBeenCalledTimes(1);
+    expect(view.result.current.actionCompareSession!.getSnapshot().context).toBe(initial);
   });
 
   it('honors an explicit null comparison selection instead of recapturing the live grid selection', async () => {
@@ -327,38 +319,6 @@ describe('useWorkspaceActionCompareController', () => {
     );
     expect(harness!.api.getContext).not.toHaveBeenCalled();
     expect(view.result.current.actionCompareSession).toBeNull();
-  });
-
-  it('fences a delayed Use freshness result as soon as a retarget generation starts', async () => {
-    const initial = comparisonContext();
-    let resolveFreshness!: (context: ActionComparisonContext) => void;
-    let resolveRetarget!: (context: ActionComparisonContext) => void;
-    vi.mocked(harness!.api.getContext)
-      .mockResolvedValueOnce(initial)
-      .mockImplementationOnce(() => new Promise(resolve => { resolveFreshness = resolve; }))
-      .mockImplementationOnce(() => new Promise(resolve => { resolveRetarget = resolve; }));
-    const view = renderController();
-
-    act(() => view.result.current.openActionCompare(ALL_ROWS_DRAFT));
-    await waitFor(() => expect(view.result.current.actionCompareSession).not.toBeNull());
-    const session = view.result.current.actionCompareSession!;
-    act(() => { session.addVariant(); });
-
-    let usePromise!: Promise<void>;
-    act(() => { usePromise = view.result.current.useActionCompareSettings(chosenSettings(initial)); });
-    await waitFor(() => expect(harness!.api.getContext).toHaveBeenCalledTimes(2));
-
-    const nextDraft = { ...ALL_ROWS_DRAFT, params: { ...ALL_ROWS_DRAFT.params, instruction: 'Next target' } };
-    act(() => view.result.current.openActionCompare(nextDraft));
-    expect(view.result.current.actionComparePendingTarget).not.toBeNull();
-    act(() => view.result.current.confirmActionCompareRetarget());
-    await waitFor(() => expect(harness!.api.getContext).toHaveBeenCalledTimes(3));
-
-    await act(async () => { resolveFreshness(initial); await usePromise; });
-    expect(harness!.runActionFromSurface).not.toHaveBeenCalled();
-
-    await act(async () => { resolveRetarget(comparisonContext({ draft: nextDraft })); });
-    await waitFor(() => expect(view.result.current.actionCompareSession).not.toBe(session));
   });
 
   it('refuses Use while a retarget context read is pending and stays closed after retarget failure', async () => {

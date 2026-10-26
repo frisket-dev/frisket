@@ -62,12 +62,11 @@ export interface ActionCompareSessionSnapshot {
   highlightDifferences: boolean;
   sequenceStatus: 'idle' | 'running' | 'cancelled';
   activeVariantId: string | null;
-  stale: boolean;
   disposed: boolean;
 }
 
 export type ActionCompareRunOutcome =
-  | { status: 'ready'; previewId: string; result: ActionCompareVariantResult; stale?: boolean }
+  | { status: 'ready'; previewId: string; result: ActionCompareVariantResult }
   | { status: 'failed'; previewId?: string | null; error: string }
   | { status: 'cancelled'; previewId?: string | null }
   | { status: 'unavailable'; previewId?: string | null; error?: string };
@@ -100,7 +99,6 @@ export interface ActionCompareUseSettings {
   context: ActionComparisonContext;
   capturedSelection: ActionCompareCapturedSelection | null;
   sampleRowIds: number[];
-  comparisonStale: boolean;
 }
 
 export interface ActionCompareSession {
@@ -115,7 +113,6 @@ export interface ActionCompareSession {
   stop(): void;
   setColumnVisible(key: string, visible: boolean): void;
   setHighlightDifferences(value: boolean): void;
-  setStale(value: boolean): void;
   useVariant(variantId: string): ActionCompareUseSettings | null;
   dispose(): Promise<void>;
 }
@@ -249,7 +246,6 @@ export function createActionCompareSession(
       highlightDifferences: true,
       sequenceStatus: 'idle',
       activeVariantId: null,
-      stale: false,
       disposed: false,
     };
   }
@@ -418,7 +414,6 @@ export function createActionCompareSession(
           ...candidate, status: 'ready', previewId: outcome.previewId,
           result: outcome.result, error: null,
         }));
-        if (outcome.stale) publish({ stale: true });
       } else if (outcome.status === 'failed') {
         replaceVariant(variantId, (candidate) => ({
           ...candidate, status: 'failed', previewId: outcomePreviewId,
@@ -491,10 +486,6 @@ export function createActionCompareSession(
     if (snapshot.highlightDifferences !== value) publish({ highlightDifferences: value });
   }
 
-  function setStale(value: boolean): void {
-    if (snapshot.stale !== value) publish({ stale: value });
-  }
-
   function useVariant(variantId: string): ActionCompareUseSettings | null {
     const variant = snapshot.variants.find((candidate) => candidate.id === variantId);
     if (!variant || variant.status !== 'ready') return null;
@@ -508,7 +499,6 @@ export function createActionCompareSession(
         ? { ...snapshot.capturedSelection, rowIds: [...snapshot.capturedSelection.rowIds] }
         : null,
       sampleRowIds: [...snapshot.context.sample_row_ids],
-      comparisonStale: snapshot.stale,
     };
   }
 
@@ -538,7 +528,6 @@ export function createActionCompareSession(
     stop,
     setColumnVisible,
     setHighlightDifferences,
-    setStale,
     useVariant,
     dispose,
   };
@@ -590,7 +579,6 @@ export function createActionCompareRunner(
           comparison: {
             basis: context.comparison_basis,
             expected_output_signature: context.expected_output_signature,
-            expected_sample_fingerprint: context.sample_fingerprint,
           },
         });
         break;
@@ -655,22 +643,10 @@ export function createActionCompareRunner(
         error: error instanceof Error ? error.message : 'The comparison preview outputs did not match its context.',
       };
     }
-    let stale = false;
-    try {
-      const refreshed = await api.getContext({
-        source: context.comparison_basis,
-        sample_row_ids: [...context.sample_row_ids],
-      }, { signal });
-      stale = refreshed.sample_fingerprint !== context.sample_fingerprint;
-    } catch {
-      // A failed freshness read must not turn an already-incurred successful
-      // preview into a failed result. The next explicit refresh rechecks it.
-    }
     return {
       status: 'ready',
       previewId: started.preview_id,
       result,
-      stale,
     };
   };
 }

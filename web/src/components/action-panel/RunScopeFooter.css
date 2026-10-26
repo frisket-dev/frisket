@@ -115,3 +115,23 @@
   margin: 5px 0;
   background: rgba(255, 255, 255, 0.28);
 }
+
+/* Run commands pair a primary label with scope/context detail. Give both
+   enough room to read, while the anchored width remains viewport-clamped. */
+.run-scope-menu .menu-item {
+  align-items: flex-start;
+}
+.run-scope-menu .menu-item-name {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  line-height: 1.35;
+}
+.run-scope-menu .menu-item > .muted {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 50%;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  text-align: right;
+}

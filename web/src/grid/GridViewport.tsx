@@ -1,4 +1,4 @@
-import { forwardRef } from 'react';
+import { forwardRef, useMemo } from 'react';
 import {
   DataEditor,
   type DataEditorProps,
@@ -16,19 +16,23 @@ type SharedViewportProp = keyof Pick<DataEditorProps,
 /** The common canvas viewport used by the sheet and read-only projections.
  * Consumers own data and interactions; the renderer and grid geometry stay
  * identical. */
-export type GridViewportProps = Omit<DataEditorProps, SharedViewportProp>;
+export type GridViewportProps = Omit<DataEditorProps, SharedViewportProp> & {
+  extraHeaderIcons?: DataEditorProps['headerIcons'];
+};
 
 export const GridViewport = forwardRef<DataEditorRef, GridViewportProps>(function GridViewport(
-  props,
+  { extraHeaderIcons, ...props },
   ref,
 ) {
+  const icons = useMemo(() => extraHeaderIcons
+    ? { ...headerIcons, ...extraHeaderIcons } : headerIcons, [extraHeaderIcons]);
   return <DataEditor
     {...props}
     ref={ref}
     width="100%"
     height="100%"
     customRenderers={customRenderers}
-    headerIcons={headerIcons}
+    headerIcons={icons}
     rowMarkers={{ kind: 'both', width: 40 }}
     headerHeight={34}
     groupHeaderHeight={28}

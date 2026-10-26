@@ -1,5 +1,5 @@
 import { useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
-import { Check, Copy, Eye, EyeOff, LockKeyhole, Plus, RotateCw, X } from 'lucide-react';
+import { PanelRightOpen, Copy, Eye, EyeOff, LockKeyhole, Plus, RotateCw, X } from 'lucide-react';
 import type { ActionComparisonBoundedValue } from '../api/actionComparison';
 import type { GeneratedActionDraft } from '../api/types';
 import { Button } from '../components/Button';
@@ -16,6 +16,7 @@ import {
   type ActionCompareVariant,
 } from './actionCompareSession';
 import { ActionCompareGrid, type ActionCompareStructuredValue } from './ActionCompareGrid';
+import { VariantBadge } from './VariantBadge';
 import './ActionCompareTab.css';
 
 export interface ActionCompareVariantEditorRenderProps {
@@ -46,7 +47,6 @@ export interface ActionCompareTabProps {
     value: ActionComparisonBoundedValue; previewId: string | null; rowId: number; columnKey: string;
   }): void;
   onOpenStructuredValue?(value: ActionCompareStructuredValue): void;
-  onRefresh?(): void;
   className?: string;
 }
 
@@ -59,19 +59,14 @@ const sampleLabel = (sampled: number, selected: number | null) => selected !== n
   : `${sampled} sample ${sampled === 1 ? 'row' : 'rows'}`;
 
 function statusTone(status: ActionCompareVariant['status']): StatusTone {
-  if (status === 'ready' || status === 'current') return 'success';
   if (status === 'failed' || status === 'unavailable') return 'error';
   return status === 'running' ? 'info' : 'neutral';
-}
-
-function statusLabel(variant: ActionCompareVariant): string {
-  return variant.status === 'current' ? 'in table' : variant.status;
 }
 
 export function ActionCompareTab({ projectId, session, rowHeight, wrapText, frozenColumnCount,
   onUseSettings, renderVariantEditor,
   labelForDraft, describeVariantChanges, onOpenBoundedValue, onOpenStructuredValue,
-  onRefresh, className }: ActionCompareTabProps) {
+  className }: ActionCompareTabProps) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
@@ -129,7 +124,7 @@ export function ActionCompareTab({ projectId, session, rowHeight, wrapText, froz
   </>;
 
   return <section ref={sectionRef} className={['action-compare', className].filter(Boolean).join(' ')} aria-label="Action comparison">
-    {!context.available && <div className="action-compare-stale" role="alert">
+    {!context.available && <div className="action-compare-notice" role="alert">
       <span>{context.reason?.message ?? 'This action cannot be compared.'}</span>
     </div>}
     <div ref={toolbarRef} className="action-compare-toolbar-shell">
@@ -147,15 +142,17 @@ export function ActionCompareTab({ projectId, session, rowHeight, wrapText, froz
               if (!event.currentTarget.contains(event.relatedTarget)) setHoveredId(null);
             }}>
             {variant.baseline ? <div className="action-compare-variant-body" aria-label={`Variant ${variant.displayKey}`}>
-              <strong className="action-compare-variant-key">{variant.displayKey}</strong><span>{displayLabel}</span>
-              <StatusChip tone={statusTone(variant.status)} size="sm">{statusLabel(variant)}</StatusChip>
+              <VariantBadge label={variant.displayKey} /><span>{displayLabel}</span>
+              {variant.status !== 'current' && variant.status !== 'ready' && variant.status !== 'pending' &&
+                <StatusChip tone={statusTone(variant.status)} size="sm">{variant.status}</StatusChip>}
             </div> : <button type="button" className="action-compare-variant-body"
               aria-label={`Configure variant ${variant.displayKey}`}
               aria-describedby={changes.length > 0 ? tooltipId : undefined} onClick={() => setEditingId(variant.id)}>
-              <strong className="action-compare-variant-key">{variant.displayKey}</strong><span>{displayLabel}</span>
-              <StatusChip tone={statusTone(variant.status)} size="sm">{statusLabel(variant)}</StatusChip>
+              <VariantBadge label={variant.displayKey} /><span>{displayLabel}</span>
+              {variant.status !== 'current' && variant.status !== 'ready' && variant.status !== 'pending' &&
+                <StatusChip tone={statusTone(variant.status)} size="sm">{variant.status}</StatusChip>}
             </button>}
-            {use && <IconButton icon={Check} size="inline" className="action-compare-use"
+            {use && <IconButton icon={PanelRightOpen} size="inline"
               label={`Use settings from variant ${variant.displayKey}`} onClick={() => onUseSettings(use)} />}
             {variant.baseline ? <LockKeyhole className="action-compare-lock" size={12} aria-label="Baseline cannot be removed" />
               : <IconButton icon={X} size="inline" className="action-compare-remove"
@@ -165,7 +162,7 @@ export function ActionCompareTab({ projectId, session, rowHeight, wrapText, froz
             {['failed', 'cancelled', 'unavailable'].includes(variant.status) && <IconButton icon={RotateCw} size="inline"
               label={`Retry variant ${variant.displayKey}`} onClick={() => session.retryVariant(variant.id)} />}
             {changes.length > 0 && <div id={tooltipId} className="action-compare-settings" role="tooltip">
-              <strong><span className="action-compare-variant-key">{variant.displayKey}</span> {displayLabel}</strong>
+              <strong><VariantBadge label={variant.displayKey} /> {displayLabel}</strong>
               {changes.map((change) => <div key={change.label}><span>{change.label}</span>
                 <span className="action-compare-setting-values"><del>{change.before}</del><ins>{change.after}</ins></span>
               </div>)}
@@ -179,7 +176,7 @@ export function ActionCompareTab({ projectId, session, rowHeight, wrapText, froz
 
       {editing && renderVariantEditor && <aside className="action-compare-editor" style={editorMaxHeight === null
         ? undefined : { maxHeight: editorMaxHeight }} aria-label={`Configure variant ${editing.displayKey}`}>
-        <header><strong><span className="action-compare-variant-key">{editing.displayKey}</span> {editingLabel}</strong>
+        <header><strong><VariantBadge label={editing.displayKey} /> {editingLabel}</strong>
           <WindowCloseButton size="inline" label="Close variant editor" onClick={() => setEditingId(null)} /></header>
         <div className="action-compare-editor-body">
           {renderVariantEditor({
@@ -213,9 +210,6 @@ export function ActionCompareTab({ projectId, session, rowHeight, wrapText, froz
         state.capturedSelection?.totalCount ?? null,
       )}</span>
     </div>
-
-    {state.stale && <div className="action-compare-stale" role="alert"><span>Data changed since this comparison.</span>
-      {onRefresh && <Button type="button" onClick={onRefresh}>Refresh comparison</Button>}</div>}
 
     <ActionCompareGrid projectId={projectId} state={state} rowHeight={rowHeight}
       wrapText={wrapText} frozenColumnCount={frozenColumnCount} labelForDraft={labelForDraft}
