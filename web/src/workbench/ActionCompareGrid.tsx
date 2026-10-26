@@ -9,7 +9,7 @@ import {
 
 import type { ActionComparisonBoundedValue } from '../api/actionComparison';
 import type { BoundedCellValue, CellValue, ColumnDef, Row } from '../api/types';
-import { buildCell, headerIcons, typeHeaderIcon, withWrapSafeDisplayData } from '../grid/cells';
+import { buildCell, typeHeaderIcon, withWrapSafeDisplayData } from '../grid/cells';
 import { GridViewport, type GridViewportProps } from '../grid/GridViewport';
 import { useGridTheme } from '../grid/useGridTheme';
 import {
@@ -24,7 +24,7 @@ import {
   variantBadgeIconName,
 } from './variantBadgePresentation';
 
-Object.assign(headerIcons, variantBadgeHeaderIcons);
+
 
 const SOURCE_GROUP = 'action-compare:sources';
 const OUTPUT_GROUP_PREFIX = 'action-compare:output:';
@@ -344,7 +344,7 @@ export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, froze
 
   return <div className="grid-host action-compare-grid" data-testid="action-compare-grid"
     data-group-header-height="28" data-header-height="34">
-    <GridViewport
+    <GridViewport extraHeaderIcons={variantBadgeHeaderIcons}
       columns={columns}
       rows={sampleRowIds.length}
       getCellContent={getCellContent}
