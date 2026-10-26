@@ -2669,7 +2669,6 @@ type HttpActionComparePreviewRequest_ActionCompareDraftSource = ({
 type HttpActionComparePreviewRequest_ActionComparePreviewAdmission = ({
   "basis": (((HttpActionComparePreviewRequest_ActionCompareDraftSource)) | ((HttpActionComparePreviewRequest_ActionCompareRunSource)));
   "expected_output_signature": (string);
-  "expected_sample_fingerprint": (string);
 });
 
 type HttpActionComparePreviewRequest_ActionCompareRunSource = ({

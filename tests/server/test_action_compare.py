@@ -640,7 +640,6 @@ def test_compare_preview_refuses_a_source_retired_after_context_capture(
                 "comparison": {
                     "basis": context["comparison_basis"],
                     "expected_output_signature": context["expected_output_signature"],
-                    "expected_sample_fingerprint": context["sample_fingerprint"],
                 },
             },
         )
@@ -697,7 +696,6 @@ def test_output_signature_preserves_description_property_and_semantic_type(
     admission = {
         "basis": context["comparison_basis"],
         "expected_output_signature": context["expected_output_signature"],
-        "expected_sample_fingerprint": context["sample_fingerprint"],
     }
     edited_description = json.loads(json.dumps(context["draft"]))
     edited_description["params"]["fields"][0]["description"] = "New annotation"
@@ -781,43 +779,84 @@ def test_context_maps_hidden_inputs_to_public_4xx(
         assert 400 <= response.status_code < 500, response.text
 
 
-def test_compare_preview_revalidates_fingerprint_before_start(tmp_path: Path) -> None:
-    workspace, sheet_id, row_ids = _workspace(tmp_path / "workspace")
-    compare = ActionCompareService(workspace)
-    context = compare.context(
-        "compare",
-        {
+def test_compare_preview_allows_source_value_changes_after_context_capture(
+    tmp_path: Path,
+) -> None:
+    app = create_app(
+        tmp_path / "changed-value-workspace",
+        router=_router(),
+        serve_spa=False,
+        enable_provider_config=False,
+    )
+    with TestClient(app) as client:
+        pid = client.post("/api/projects", json={"name": "Changed value"}).json()["id"]
+        project = app.state.workspace.get(pid)
+        sheet_id = project.add_sheet("Stories")
+        source_id = project.add_column(sheet_id, "text", type="text")
+        row_ids = project.add_rows(
+            sheet_id,
+            [{"text": "Alpha"}, {"text": "Beta"}],
+            {"text": source_id},
+        )
+        context_request = {
             "source": {"kind": "draft", "draft": _ask_draft(sheet_id, row_ids)},
             "sample_row_ids": row_ids,
-        },
-    )
-    starts = 0
-    preview = ActionPreviewRunService(workspace)
-    original_start = preview._registry.start
+        }
+        context_response = client.post(
+            f"/api/projects/{pid}/actions/v1/compare-context",
+            json=context_request,
+        )
+        assert context_response.status_code == 200, context_response.text
+        context = context_response.json()
 
-    def counted_start(*args, **kwargs):
-        nonlocal starts
-        starts += 1
-        return original_start(*args, **kwargs)
+        edited = post_cell_edit_as_v1_action(
+            client,
+            pid,
+            [{"row_id": row_ids[0], "column_id": source_id, "value": "Changed"}],
+            idempotency_key="compare-preview-value@edit",
+        )
+        assert edited.status_code == 200, edited.text
+        refreshed_response = client.post(
+            f"/api/projects/{pid}/actions/v1/compare-context",
+            json=context_request,
+        )
+        assert refreshed_response.status_code == 200, refreshed_response.text
+        assert (
+            refreshed_response.json()["sample_fingerprint"]
+            != context["sample_fingerprint"]
+        )
 
-    preview._registry.start = counted_start  # type: ignore[method-assign]
-    response = preview.start_compare_preview(
-        "compare",
-        {
+        body = {
             "action": {
                 **context["draft"],
-                "idempotency_key": "compare-preview@1",
+                "idempotency_key": "compare-preview-value@preview",
             },
             "comparison": {
                 "basis": context["comparison_basis"],
                 "expected_output_signature": context["expected_output_signature"],
-                "expected_sample_fingerprint": "stale",
             },
-        },
-    )
-    assert response.status_code == 409
-    assert response.payload["error"]["code"] == "comparison_stale"
-    assert starts == 0
+        }
+        response = client.post(
+            f"/api/projects/{pid}/actions/v1/compare-preview", json=body
+        )
+        if response.status_code == 402:
+            body["action"]["confirmation"] = response.json()["error"]["details"][
+                "promise_set_hash"
+            ]
+            response = client.post(
+                f"/api/projects/{pid}/actions/v1/compare-preview", json=body
+            )
+        assert response.status_code == 202, response.text
+        preview_url = (
+            f"/api/projects/{pid}/actions/v1/preview/{response.json()['preview_id']}"
+        )
+        cancelled = client.delete(preview_url)
+        assert cancelled.status_code == 204, cancelled.text
+        discarded = client.delete(
+            preview_url,
+            params={"discard": "true"},
+        )
+        assert discarded.status_code == 204, discarded.text
 
 
 def test_compare_preview_refuses_changed_output_family_before_cost_gate(
@@ -842,7 +881,6 @@ def test_compare_preview_refuses_changed_output_family_before_cost_gate(
             "comparison": {
                 "basis": context["comparison_basis"],
                 "expected_output_signature": context["expected_output_signature"],
-                "expected_sample_fingerprint": context["sample_fingerprint"],
             },
         },
     )
@@ -880,7 +918,6 @@ def test_compare_preview_refuses_changed_action_before_start(tmp_path: Path) -> 
             "comparison": {
                 "basis": context["comparison_basis"],
                 "expected_output_signature": context["expected_output_signature"],
-                "expected_sample_fingerprint": context["sample_fingerprint"],
             },
         },
     )
@@ -916,7 +953,6 @@ def test_compare_preview_refuses_changed_output_name_before_start(
             "comparison": {
                 "basis": context["comparison_basis"],
                 "expected_output_signature": context["expected_output_signature"],
-                "expected_sample_fingerprint": context["sample_fingerprint"],
             },
         },
     )
@@ -959,7 +995,6 @@ def test_compare_preview_refuses_changed_source_template_before_start(
             "comparison": {
                 "basis": context["comparison_basis"],
                 "expected_output_signature": context["expected_output_signature"],
-                "expected_sample_fingerprint": context["sample_fingerprint"],
             },
         },
     )

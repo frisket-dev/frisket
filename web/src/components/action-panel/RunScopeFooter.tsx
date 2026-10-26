@@ -2,7 +2,7 @@ import '../FormControls.css';
 import './RunScopeFooter.css';
 import { Button } from '../Button';
 import { useId, useRef, useState, type ReactNode } from 'react';
-import { Eye, Play, RefreshCcw } from 'lucide-react';
+import { Eye, Play } from 'lucide-react';
 import { DropdownIndicator } from '../DropdownIndicator';
 import { AnchoredMenu } from '../MenuPop';
 
@@ -194,7 +194,8 @@ export function RunScopeFooter({
               anchorRef={toggleRef}
               onClose={() => setMenuOpen(false)}
               align="right"
-              width={280}
+              width={(_, viewportWidth) => Math.min(360, viewportWidth - 16)}
+              className="run-scope-menu"
               id={scopePopupId}
               role="group"
               aria-label="Run scope options"
@@ -252,7 +253,7 @@ export function RunScopeFooter({
                     toggleRef.current?.focus();
                   }}
                 >
-                  <span className="menu-item-label menu-item-name"><RefreshCcw size={12} aria-hidden /> Re-run failed/missing rows</span>
+                  <span className="menu-item-name">Re-run failed/missing rows</span>
                   <span className="muted">
                     {backfillTargetName
                       ? backfillHasGaps

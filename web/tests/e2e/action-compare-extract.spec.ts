@@ -352,7 +352,7 @@ test('Extract compares two typed fields across A/B/C and opens Use settings', as
   await provenance.getByTestId('action-run-entry-compare').click();
 
   await expect(page.getByTestId('action-compare-toolbar')).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByTestId('action-compare-variant-A')).toContainText('in table');
+  await expect(page.getByTestId('action-compare-variant-A')).toHaveAttribute('data-status', 'current');
   const editorB = await configureVariant(page, 'B', B);
   await shoot(page, '02-extract-variant-b-editor.png');
   await editorB.getByRole('button', { name: 'Close variant editor' }).click();
@@ -369,8 +369,10 @@ test('Extract compares two typed fields across A/B/C and opens Use settings', as
 
   await page.getByRole('button', { name: 'Run comparison', exact: true }).click();
   await approveCostGateIfShown(page);
-  await expect(page.getByTestId('action-compare-variant-B')).toContainText('ready', { timeout: 60_000 });
-  await expect(page.getByTestId('action-compare-variant-C')).toContainText('ready', { timeout: 60_000 });
+  await expect(page.getByTestId('action-compare-variant-B'))
+    .toHaveAttribute('data-status', 'ready', { timeout: 60_000 });
+  await expect(page.getByTestId('action-compare-variant-C'))
+    .toHaveAttribute('data-status', 'ready', { timeout: 60_000 });
   await expectComparisonCell(page, 0, 0, '24-CV-0187');
   await expectComparisonCell(page, 2, 0, 'CV 24-CV-0187');
   await shoot(page, '05-extract-abc-results.png');
@@ -417,7 +419,8 @@ test('comparison opens bounded current and preview values plus inline JSON', asy
   await configureLargeValueVariant(page, LARGE_B);
   await page.getByRole('button', { name: 'Run comparison', exact: true }).click();
   await approveCostGateIfShown(page);
-  await expect(page.getByTestId('action-compare-variant-B')).toContainText('ready', { timeout: 60_000 });
+  await expect(page.getByTestId('action-compare-variant-B'))
+    .toHaveAttribute('data-status', 'ready', { timeout: 60_000 });
 
   await activateComparisonCell(page, 0, 0);
   const currentReader = page.getByTestId('bounded-text-reader');
@@ -479,7 +482,7 @@ test('fresh Ask can enter Compare before any action executes', async ({ page }) 
   await page.getByTestId('generated-action-menu-compare').click();
 
   await expect(page.getByTestId('action-compare-toolbar')).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByTestId('action-compare-variant-A')).toContainText('pending');
+  await expect(page.getByTestId('action-compare-variant-A')).toHaveAttribute('data-status', 'pending');
   await expect(page.getByTestId('action-compare-sample-count')).toHaveText('3 sample rows');
   expect((await sheetColumns(page.request, pid, sheetId)).map((column) => column.name))
     .toEqual(['case_text']);
@@ -495,8 +498,10 @@ test('fresh Ask can enter Compare before any action executes', async ({ page }) 
   await editor.getByRole('button', { name: 'Close variant editor' }).click();
   await page.getByRole('button', { name: 'Run comparison', exact: true }).click();
   await approveCostGateIfShown(page);
-  await expect(page.getByTestId('action-compare-variant-A')).toContainText('ready', { timeout: 60_000 });
-  await expect(page.getByTestId('action-compare-variant-B')).toContainText('ready', { timeout: 60_000 });
+  await expect(page.getByTestId('action-compare-variant-A'))
+    .toHaveAttribute('data-status', 'ready', { timeout: 60_000 });
+  await expect(page.getByTestId('action-compare-variant-B'))
+    .toHaveAttribute('data-status', 'ready', { timeout: 60_000 });
   await expectComparisonCell(page, 0, 0, ASK_ANSWERS_A[0]);
   await expectComparisonCell(page, 1, 0, ASK_ANSWERS_B[0]);
   await shoot(page, '12-fresh-ask-preview-results.png');

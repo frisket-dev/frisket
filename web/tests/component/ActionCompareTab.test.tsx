@@ -95,12 +95,17 @@ describe('ActionCompareTab', () => {
       },
     );
     session.addVariant();
+    session.addVariant();
     await session.runPending();
     const onUseSettings = vi.fn();
 
     render(<ActionCompareTab projectId="project-1" {...gridPreferences}
       session={session} onUseSettings={onUseSettings}
-      labelForDraft={(_draft, displayKey) => displayKey === 'B' ? 'Claude Sonnet 4.5' : 'Current values'}
+      labelForDraft={(_draft, displayKey) => ({
+        A: 'Current values',
+        B: 'Claude Sonnet 4.5',
+        C: 'Gemini 2.5 Pro',
+      })[displayKey] ?? 'Other model'}
       describeVariantChanges={() => [{ label: 'Context', before: 'Old instructions', after: 'New instructions' }]} />);
 
     expect(screen.getByText('2 of 237 selected rows')).toBeInTheDocument();
@@ -108,6 +113,9 @@ describe('ActionCompareTab', () => {
     expect(screen.getByTestId('action-compare-grid')).toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
     expect(screen.queryByText('A shows current values')).not.toBeInTheDocument();
+    expect(screen.queryByText('in table')).not.toBeInTheDocument();
+    expect(screen.queryByText('ready')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Refresh comparison' })).not.toBeInTheDocument();
     expect(screen.queryByText('Nothing changes until you use a variant.')).not.toBeInTheDocument();
 
     const grid = editor.props!;
@@ -121,8 +129,18 @@ describe('ActionCompareTab', () => {
     expect(grid.columns[1].width).toBe(170);
     expect(screen.getByTestId('action-compare-grid')).toHaveClass('grid-host');
     expect(grid.columns.map((column) => column.title)).toEqual([
-      'body', 'A · Current values', 'B · Claude Sonnet 4.5',
+      'body', 'Current values', 'Claude Sonnet 4.5', 'Gemini 2.5 Pro',
     ]);
+    expect(grid.columns.map((column) => column.icon)).toEqual([
+      'typeText', 'variantBadgeA', 'variantBadgeB', 'variantBadgeC',
+    ]);
+    expect(grid.columns[1].themeOverride?.headerIconSize).toBe(20);
+    const variantBSvg = grid.headerIcons?.variantBadgeB?.({
+      fgColor: '#123456',
+      bgColor: '#ffffff',
+    });
+    expect(variantBSvg).toContain('>B</text>');
+    expect(variantBSvg).toContain('stroke="#123456"');
     expect(grid.getGroupDetails?.(grid.columns[1].group!)).toMatchObject({ name: 'party', icon: 'aiBolt' });
     expect(grid.getGroupDetails?.('')).toEqual({ name: '' });
 
@@ -159,8 +177,8 @@ describe('ActionCompareTab', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'note' }));
     expect(editor.props!.columns.map((column) => column.title)).toEqual([
-      'body', 'A · Current values', 'B · Claude Sonnet 4.5',
-      'A · Current values', 'B · Claude Sonnet 4.5',
+      'body', 'Current values', 'Claude Sonnet 4.5', 'Gemini 2.5 Pro',
+      'Current values', 'Claude Sonnet 4.5', 'Gemini 2.5 Pro',
     ]);
 
     act(() => editor.props!.onColumnResize?.(editor.props!.columns[0], 287));

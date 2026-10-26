@@ -207,14 +207,6 @@ class ActionCompareService:
                 "comparison_action_mismatch",
                 "Every comparison variant must use the same action family.",
             )
-        if (
-            comparison.get("expected_sample_fingerprint")
-            != context["sample_fingerprint"]
-        ):
-            return _refusal(
-                "comparison_stale",
-                "The comparison sample changed; refresh it before running.",
-            )
         candidate_outputs = _output_columns(plan, [])
         candidate_signature = _output_signature(candidate_outputs)
         if (

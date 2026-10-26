@@ -194,7 +194,6 @@ function mountFinalForm(
             ? 'on Court filings · settings from run 42'
             : 'on Court filings · from variant B',
           capturedSelectedRowIds,
-          comparisonStale: kind === 'use-comparison-variant',
           onReturnToCompare,
         }}
         running={false}
@@ -459,9 +458,6 @@ describe('GeneratedActionParamsEditor', () => {
     const historyButton = screen.getByTestId('action-history-button');
     fireEvent.click(historyButton);
     expect(onOpenHistory).toHaveBeenCalledWith(historyButton);
-    expect(screen.getByTestId('comparison-stale-run-notice')).toHaveTextContent(
-      'This run will use current data',
-    );
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
     expect(screen.getByTestId('generated-action-run')).toHaveTextContent('Replace columns');
     fireEvent.click(screen.getByTestId('generated-action-run'));

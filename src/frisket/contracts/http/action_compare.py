@@ -145,7 +145,6 @@ class ActionCompareContextResponse(WireModel):
 class ActionComparePreviewAdmission(WireModel):
     basis: ActionCompareBasis
     expected_output_signature: str = Field(min_length=1)
-    expected_sample_fingerprint: str = Field(min_length=1)
 
 
 class ActionComparePreviewRequest(WireModel):

@@ -1481,7 +1481,12 @@ describe('GeneratedActionForm', () => {
     expect(onSwitchAction).toHaveBeenCalledWith(alternate);
 
     fireEvent.click(screen.getByTestId('generated-action-run-scope-menu-button'));
-    fireEvent.click(screen.getByTestId('generated-action-row-scope-backfill'));
+    const runMenu = screen.getByTestId('generated-action-run-scope-menu');
+    expect(runMenu).toHaveStyle({ width: '360px' });
+    const backfill = screen.getByTestId('generated-action-row-scope-backfill');
+    expect(backfill.querySelector('.menu-item-name')).toBe(backfill.firstElementChild);
+    expect(backfill.querySelector('svg')).not.toBeInTheDocument();
+    fireEvent.click(backfill);
     expect(onBackfill).toHaveBeenCalledWith('generated_text');
   });
 

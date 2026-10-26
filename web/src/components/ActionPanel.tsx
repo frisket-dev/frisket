@@ -530,7 +530,6 @@ export function ActionPanel({
     const common = {
       contextLabel: actionCompareContextLabel ?? `on ${actionCompareLaunch.context.sheet.name}`,
       capturedSelectedRowIds: actionCompareLaunch.capturedSelection?.rowIds.map(String) ?? [],
-      comparisonStale: actionCompareLaunch.comparisonStale,
       ...(actionCompareLaunch.returnToCompare && onReturnToActionCompare
         ? { onReturnToCompare: onReturnToActionCompare } : {}),
     };

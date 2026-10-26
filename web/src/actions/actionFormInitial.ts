@@ -12,9 +12,6 @@ interface ActionCompareLaunchBase {
   context: ActionComparisonContext;
   capturedSelection: ActionCompareCapturedSelection | null;
   sampleRowIds: number[];
-  /** The sampled inputs changed after comparison. Final execution remains
-   * allowed, but the form must say that it will resolve current data. */
-  comparisonStale?: boolean;
   /** Presentation intent only. The callback itself stays on ActionPanel. */
   returnToCompare: boolean;
 }
