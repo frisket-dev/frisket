@@ -55,9 +55,11 @@ describe('MediaProxyRemediationCard', () => {
     await waitFor(() => expect(getMediaProxyStatus).toHaveBeenCalled());
 
     expect(screen.getByText("YouTube blocked the server's network")).toBeInTheDocument();
-    expect(screen.getByTestId('media-proxy-command')).toHaveTextContent('frisket proxy up');
+    expect(screen.getByTestId('media-proxy-command')).toHaveTextContent('frisket proxy up --run');
+    expect(screen.getByText(/requires a linked server with an operator token and SSH access/)).toBeInTheDocument();
+    expect(screen.getByText(/Upload a media file downloaded on your own computer/)).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('media-proxy-copy-command'));
-    expect(writeText).toHaveBeenCalledWith('frisket proxy up');
+    expect(writeText).toHaveBeenCalledWith('frisket proxy up --run');
     expect(await screen.findByText('Copied')).toBeInTheDocument();
   });
 
@@ -67,8 +69,8 @@ describe('MediaProxyRemediationCard', () => {
     render(<MediaProxyRemediationCard group={blockedGroup()} onRetryRows={vi.fn()} />);
     await waitFor(() => expect(getMediaProxyStatus).toHaveBeenCalled());
 
-    expect(screen.getByText(/Ask your server admin/)).toBeInTheDocument();
-    expect(screen.getByTestId('media-proxy-command')).toHaveTextContent('frisket proxy up');
+    expect(screen.getByText(/Ask your server operator with SSH access/)).toBeInTheDocument();
+    expect(screen.getByTestId('media-proxy-command')).toHaveTextContent('frisket proxy up --run');
     expect(screen.queryByTestId('media-proxy-copy-command')).not.toBeInTheDocument();
   });
 

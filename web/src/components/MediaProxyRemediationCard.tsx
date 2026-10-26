@@ -7,7 +7,7 @@ import { getMediaProxyStatus, type RunRowErrorGroup } from '../api/open';
 import { usePoll } from '../hooks/usePoll';
 import './run-failure-triage.css';
 
-const PROXY_COMMAND = 'frisket proxy up';
+const PROXY_COMMAND = 'frisket proxy up --run';
 const POLL_INTERVAL_MS = 4000;
 
 // The status probe is org-scoped and 404s on the local tier (no org identity
@@ -83,13 +83,17 @@ export function MediaProxyRemediationCard({
           YouTube blocked the server's network
         </span>
         <p className="media-proxy-remediation-subline">
-          You can route downloads through your own computer instead.
+          Upload a media file downloaded on your own computer, or ask the server operator to configure a proxy.
         </p>
       </div>
+      <p className="media-proxy-remediation-copy">
+        Proxy setup requires a linked server with an operator token and SSH access.
+        A hosted workspace PAT alone does not provide this access.
+      </p>
       {canConfigure ? (
         <ol className="media-proxy-remediation-steps">
           <li>
-            On your own computer, run:
+            If you operate this server, run on your own computer:
             <div className="guidance-command-row">
               {command}
               <button
@@ -111,8 +115,8 @@ export function MediaProxyRemediationCard({
         </ol>
       ) : (
         <p className="media-proxy-remediation-copy">
-          Ask your server admin to run {command} — it routes media downloads
-          through their network connection.
+          Ask your server operator with SSH access to run {command} — it routes
+          media downloads through their network connection.
         </p>
       )}
       {probe.kind === 'ok' && (

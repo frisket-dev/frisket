@@ -56,9 +56,11 @@ YOUTUBE_PROVIDER_BLOCKED_MESSAGE = (
     "YouTube blocked this download from the server's network with an anti-bot "
     "challenge. This commonly affects cloud-hosted egress IPs. Upload the media "
     "file instead or run the download from a different network; retrying unchanged "
-    "from this server is unlikely to help. If you operate this server, running "
-    "`frisket proxy up` on your own computer routes media downloads through "
-    "your network connection instead."
+    "from this server is unlikely to help. If you operate this server, have "
+    "linked it in the CLI with an operator token, and have SSH access, run "
+    "`frisket proxy up --run` on your own computer to keep a download proxy "
+    "running through your network connection. A hosted workspace PAT alone "
+    "does not provide this access."
 )
 YTDLP_DOWNLOAD_TIMEOUT_SECONDS = 60 * 60
 _YTDLP_PROCESS_SHUTDOWN_TIMEOUT_SECONDS = 5

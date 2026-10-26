@@ -33,7 +33,14 @@ class LocalFileDestination(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     kind: Literal["local_file"]
-    path: str = Field(min_length=1)
+    path: str = Field(
+        min_length=1,
+        description=(
+            "Path on the filesystem where Frisket runs; the parent directory "
+            "must already exist. For an HTTP download, discover export links "
+            "with GET /api/projects/{pid}/actions/export."
+        ),
+    )
 
     @field_validator("path")
     @classmethod
@@ -200,8 +207,9 @@ SHEET_CSV = action(
     description=(
         "Render a visible sheet's current values into a CSV artifact, "
         "optionally scoped by a sheet.filter QuerySpec, write it to a "
-        "local file, and record sheet/query refs plus artifact hash/path "
-        "in a receipt."
+        "file on the server's filesystem, and record sheet/query refs plus "
+        "artifact hash/path in a receipt. For an HTTP download, discover "
+        "export links with GET /api/projects/{pid}/actions/export."
     ),
     category=ActionCategory.CONVERT,
     run=export_sheet_csv,
