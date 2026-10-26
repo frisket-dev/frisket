@@ -397,6 +397,140 @@ def test_refresh_of_root_sheet_is_unsupported(tmp_path: Path) -> None:
         project.close()
 
 
+def test_refresh_after_child_enrichment_explains_safe_rebuild_and_preserves_data(
+    tmp_path: Path,
+) -> None:
+    project = Project.create(tmp_path / "enriched-context.frisket")
+    try:
+        imported = run_action_spec(project, _seed_parent(), project_id="p-ref")
+        parent = imported.outputs[0].ref
+        derived = run_action_spec(
+            project,
+            _derive(
+                sheet_id=parent["sheet_id"],
+                column_id=parent["columns"]["rows_json"],
+                parent_columns=[
+                    {"column_id": parent["columns"]["title"], "output_name": "quarter"}
+                ],
+            ),
+            project_id="p-ref",
+        )
+        assert derived.status == "completed", derived.errors
+        child_id = next(
+            output.sheet_id for output in derived.outputs if output.kind == "sheet"
+        )
+        enriched = run_action_spec(
+            project,
+            {
+                "action_id": "map.clean_column",
+                "scope": {"kind": "sheet_rows", "sheet_id": child_id},
+                "params": {"source": "vendor"},
+                "output_names": {"cleaned": "reviewed_vendor"},
+                "idempotency_key": "clean-child-vendor",
+            },
+            project_id="p-ref",
+        )
+        assert enriched.status == "completed", enriched.errors
+        output_id = enriched.outputs[0].column_id
+        child_rows = list(project.get_values(child_id, output_id))
+        parent_row = next(
+            iter(project.get_values(parent["sheet_id"], parent["columns"]["title"]))
+        )
+        edited = run_action_spec(
+            project,
+            {
+                "action_id": "cell.edit",
+                "scope": {"kind": "project"},
+                "params": {
+                    "edits": [
+                        {
+                            "row_id": child_rows[0],
+                            "column_id": output_id,
+                            "value": "Reviewed supplier",
+                        },
+                        {
+                            "row_id": parent_row,
+                            "column_id": parent["columns"]["title"],
+                            "value": "First quarter",
+                        },
+                    ]
+                },
+                "idempotency_key": "review-child-edit-parent",
+            },
+            project_id="p-ref",
+        )
+        assert edited.status == "completed", edited.errors
+        columns = project.columns(child_id)
+        values = {
+            column["id"]: project.get_values(child_id, column["id"])
+            for column in columns
+        }
+        context_id = next(
+            column["id"] for column in columns if column["name"] == "quarter"
+        )
+        assert list(values[context_id].values()) == ["Q1", "Q1", "Q2"]
+        assert values[output_id][child_rows[0]] == "Reviewed supplier"
+        assert (
+            project.get_values(child_id, output_id, apply_edits=False)[child_rows[0]]
+            == "Acme"
+        )
+        history = {
+            table: [
+                tuple(row)
+                for row in project.db.execute(f"SELECT * FROM {table} ORDER BY 1, 2, 3")
+            ]
+            for table in ("rows", "results", "runs", "run_output_generations", "edits")
+        }
+        cursor = project.op_cursor
+        watermark = project.db.execute(
+            "SELECT last_verified_op_cursor FROM sheets WHERE id=?", (child_id,)
+        ).fetchone()[0]
+        assert sheet_supports_refresh(project, child_id) is False
+        assert compute_sync_states(project)[child_id]["sync_state"] == "stale"
+
+        refused = run_action_spec(
+            project,
+            _refresh(sheet_id=child_id, key="refresh-enriched-context"),
+            project_id="p-ref",
+        )
+
+        assert refused.status == "failed"
+        error = refused.errors[0]
+        assert error.code == "refresh_unsupported"
+        assert error.details["reason"] == "generation_managed_rows"
+        assert error.details["column_id"] == output_id
+        assert error.details["column_name"] == "reviewed_vendor"
+        assert "generated results and manual edits" in error.message
+        assert "Create a new derived sheet" in error.message
+        assert "rerun enrichment and review" in error.message
+        assert project.columns(child_id) == columns
+        assert {
+            column["id"]: project.get_values(child_id, column["id"])
+            for column in columns
+        } == values
+        for table, before in history.items():
+            assert [
+                tuple(row)
+                for row in project.db.execute(f"SELECT * FROM {table} ORDER BY 1, 2, 3")
+            ] == before
+        assert project.op_cursor == cursor
+        assert (
+            project.db.execute(
+                "SELECT last_verified_op_cursor FROM sheets WHERE id=?", (child_id,)
+            ).fetchone()[0]
+            == watermark
+        )
+        assert compute_sync_states(project)[child_id]["sync_state"] == "stale"
+        assert (
+            project.get_values(parent["sheet_id"], parent["columns"]["title"])[
+                parent_row
+            ]
+            == "First quarter"
+        )
+    finally:
+        project.close()
+
+
 def test_refresh_support_matches_the_runtime_admission(tmp_path: Path) -> None:
     project, parent_id, _, child_id, _ = _build(tmp_path)
     try:
