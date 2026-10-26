@@ -53,14 +53,11 @@ if TYPE_CHECKING:
 YTDLP_ENGINE_ID = "yt_dlp"
 YOUTUBE_PROVIDER_BLOCKED_CODE = "youtube_provider_blocked"
 YOUTUBE_PROVIDER_BLOCKED_MESSAGE = (
-    "YouTube blocked this download from the server's network with an anti-bot "
-    "challenge. This commonly affects cloud-hosted egress IPs. Upload the media "
-    "file instead or run the download from a different network; retrying unchanged "
-    "from this server is unlikely to help. If you operate this server, have "
-    "linked it in the CLI with an operator token, and have SSH access, run "
-    "`frisket proxy up --run` on your own computer to keep a download proxy "
-    "running through your network connection. A hosted workspace PAT alone "
-    "does not provide this access."
+    "YouTube blocked the server's network with an anti-bot challenge. "
+    "Download the file locally and upload it instead. Server operators with "
+    "a linked CLI profile, operator token and SSH access can run "
+    "`frisket proxy up --run` on their computer. "
+    "A hosted workspace PAT alone cannot set up this proxy."
 )
 YTDLP_DOWNLOAD_TIMEOUT_SECONDS = 60 * 60
 _YTDLP_PROCESS_SHUTDOWN_TIMEOUT_SECONDS = 5
