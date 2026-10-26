@@ -49,6 +49,59 @@ def _seed(project: Project, tmp_path: Path) -> dict[str, Any]:
     return {"dir": tmp_path, "path": image_path}
 
 
+def test_pre_upgrade_file_import_receipt_replays_without_source_url(tmp_path):
+    from frisket.actions.registry import ACTION_REGISTRY
+    from frisket.actions.system import BoundTypedActionRequest
+    from frisket.actions.types import ActionRequest
+    from frisket.engine.executor import run_action_spec
+    from frisket.engine.executor.map_rows_action import (
+        normalized_typed_request_identity,
+    )
+
+    path = tmp_path / "file.png"
+    path.write_bytes(_png_header(11, 7))
+    request = _import_files_action(path)
+    bound = BoundTypedActionRequest.bind(
+        ACTION_REGISTRY.get("import.files"), ActionRequest.model_validate(request)
+    )
+    identity = normalized_typed_request_identity(bound)
+    identity["params"] = bound.params.model_dump(mode="json", by_alias=True)
+    for source in identity["params"]["files"]:
+        source.pop("source_url")
+    old_hash = (
+        "sha256:"
+        + hashlib.sha256(
+            json.dumps(
+                identity, sort_keys=True, separators=(",", ":"), allow_nan=False
+            ).encode()
+        ).hexdigest()
+    )
+    project = Project.create(tmp_path / "legacy-files.frisket")
+    try:
+        first = run_action_spec(project, request, project_id="p")
+        assert first.status == "completed", first.errors
+        project.db.execute(
+            "UPDATE receipts SET params_hash=? WHERE id=?", (old_hash, first.receipt_id)
+        )
+        project.db.commit()
+        replay = run_action_spec(project, request, project_id="p")
+        assert replay.status == "completed", replay.errors
+        assert replay.receipt_id == first.receipt_id
+        explicit_null = _import_files_action(path)
+        explicit_null["params"]["files"][0]["source_url"] = None
+        assert (
+            run_action_spec(project, explicit_null, project_id="p").receipt_id
+            == first.receipt_id
+        )
+        changed = _import_files_action(path)
+        changed["params"]["files"][0]["source_url"] = "https://example.com/file.png"
+        conflict = run_action_spec(project, changed, project_id="p")
+        assert conflict.status == "failed"
+        assert conflict.errors[0].code == "idempotency_conflict"
+    finally:
+        project.close()
+
+
 def _make_action(seeded: dict[str, Any]) -> dict[str, Any]:
     return _import_files_action(seeded["path"])
 
