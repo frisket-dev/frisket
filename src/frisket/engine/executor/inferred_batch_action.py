@@ -19,12 +19,16 @@ from frisket.contracts.action import ActionError, ActionIdentity, ActionResult
 from frisket.engine.executor.action_receipts import _result_from_receipt
 from frisket.engine.executor.action_support import _failed_result
 from frisket.engine.executor.map_rows_action import (
+    TypedMapRowsPlanError,
     _TypedMapBatchProgram,
     _TypedExecutionEnvelope,
+    _require_expected_output_columns,
+    _typed_plan_error,
     _typed_receipt,
     _typed_replay_error,
     build_typed_map_rows_plan,
     materialized_row_output_fields,
+    resolve_row_output_targets,
     typed_request_hash,
     typed_map_rows_replay_result,
 )
@@ -77,6 +81,10 @@ def _source_digest(project, plan, row_ids):
     return digest.hexdigest()
 
 
+class StagedScopeChanged(Exception):
+    """Staged values no longer cover the exact admitted row scope."""
+
+
 class _StagedBatchProgram(_TypedMapBatchProgram):
     allow_all_empty_input = True
     defer_generation_seal = True
@@ -85,29 +93,48 @@ class _StagedBatchProgram(_TypedMapBatchProgram):
     def bind_stage(self, spool, batch_size):
         self._spool = spool
         self.batch_size = batch_size
+        self._staged_rows_remaining = 0
+
+    def close_stage(self):
+        if not self._spool.closed:
+            self._spool.close()
 
     async def execute_batch(self, values_by_row, spec, ctx):
         del spec, ctx
         result = {}
-        for expected_id in values_by_row:
-            row_id, error, value, warnings = pickle.load(self._spool)
-            if row_id != expected_id:
-                raise ValueError("staged row scope changed before publication")
-            produced = (
-                RowError(*error)
-                if error
-                else RowResult(
-                    output=self._terminal.output_model.model_construct(
-                        **{self._resolved_output_fields[0].key: value}
-                    ),
-                    warnings=warnings,
+        try:
+            for expected_id in values_by_row:
+                try:
+                    row_id, error, value, warnings = pickle.load(self._spool)
+                except EOFError as exc:
+                    raise StagedScopeChanged(
+                        "staged row scope changed before publication"
+                    ) from exc
+                if row_id != expected_id:
+                    raise StagedScopeChanged(
+                        "staged row scope changed before publication"
+                    )
+                produced = (
+                    RowError(*error)
+                    if error
+                    else RowResult(
+                        output=self._terminal.output_model.model_construct(
+                            **{self._resolved_output_fields[0].key: value}
+                        ),
+                        warnings=warnings,
+                    )
                 )
-            )
-            result[row_id] = (
-                self._row_error_publication(produced)
-                if error
-                else self._prepare_publication(produced)
-            )
+                result[row_id] = (
+                    self._row_error_publication(produced)
+                    if error
+                    else self._prepare_publication(produced)
+                )
+                self._staged_rows_remaining -= 1
+        except BaseException:
+            self.close_stage()
+            raise
+        if self._staged_rows_remaining == 0:
+            self.close_stage()
         return result
 
 
@@ -216,7 +243,23 @@ def stage_plan(project, plan, spool, *, should_cancel=lambda: False):
     program.bind_project(project)
     spool.seek(0)
     program.bind_stage(spool, terminal.batch_size)
-    staged = replace(plan, output_fields=fields, program=program)
+    program._staged_rows_remaining = len(row_ids)
+    staged = replace(
+        plan,
+        output_fields=fields,
+        program=program,
+        spec=MappingProxyType(
+            {
+                **plan.spec,
+                "row_ids": row_ids,
+                **(
+                    {"inferred_batch_full_scope": True}
+                    if plan.request.scope.row_ids is None
+                    else {}
+                ),
+            }
+        ),
+    )
     return staged, row_ids, before
 
 
@@ -261,55 +304,41 @@ def run_inferred_batch(
         )
         if isinstance(reservation, ActionResult):
             return reservation
+    spool = None
     try:
-        plan = build_typed_map_rows_plan(project, bound)
-        with tempfile.TemporaryFile() as spool:
-            plan, row_ids, source_digest = stage_plan(
-                project, plan, spool, should_cancel=should_cancel
+        plan = build_typed_map_rows_plan(project, bound, _admit_output_targets=False)
+        spool = tempfile.TemporaryFile()
+        plan, row_ids, source_digest = stage_plan(
+            project, plan, spool, should_cancel=should_cancel
+        )
+        # The output descriptor is known only after the one evaluation pass.
+        # Admit replacement and expected-target preconditions against that
+        # actual descriptor, before preparing a managed run.
+        field = plan.program._resolved_output_fields[0]
+        _, preconditions = resolve_row_output_targets(project, bound.request, (field,))
+        _require_expected_output_columns(bound.request, preconditions)
+        if (
+            bound.request.replace_existing
+            and bound.request.scope.row_ids is None
+            and project.visible_row_ids(bound.request.scope.sheet_id) != row_ids
+        ):
+            raise TypedMapRowsPlanError(
+                "stale_input", "Formula row scope changed before replacement"
             )
+        spec = {**plan.spec, "output_target_preconditions": preconditions}
+        plan = replace(
+            plan,
+            output_target_preconditions=MappingProxyType(preconditions),
+            spec=MappingProxyType(spec),
+        )
+    except Exception as exc:
+        from frisket.engine.runner.validation import (
+            InvalidTargetRows,
+            InvalidTargetSheet,
+        )
 
-            def factory(current, current_router):
-                runner = map_runner_factory(current, current_router)
-                original = runner.should_cancel
-                runner.should_cancel = lambda run_id: (
-                    should_cancel() or (original(run_id) if original else False)
-                )
-                runner.allow_action_lifecycle_only_recipes = True
-                return runner
-
-            return _run_reserved_maprunner_action(
-                project,
-                action,
-                bound.params,
-                project_id=project_id,
-                router=router,
-                map_runner_factory=factory,
-                resolved_execution=_PreparedMapExecution(
-                    plan.spec,
-                    plan.output_fields,
-                    plan.program,
-                    params_hash,
-                    partial(
-                        _typed_receipt,
-                        project_id=project_id,
-                        plan=plan,
-                        params_hash=params_hash,
-                    ),
-                    _typed_replay_error(project, bound),
-                    "typed_map_rows_idempotency_reservation",
-                    reservation,
-                ),
-                write_fn=partial(
-                    _publish,
-                    bound=bound,
-                    plan=plan,
-                    row_ids=row_ids,
-                    source_digest=source_digest,
-                    should_cancel=should_cancel,
-                ),
-                output_claim_error_field="output_names",
-            )
-    except (ValueError, TypeError, InterruptedError) as exc:
+        if spool is not None:
+            spool.close()
         if not queued_reservation:
             _delete_reserved_action_receipt(
                 project, reservation["receipt_id"], action_kind=bound.action.action_id
@@ -329,15 +358,84 @@ def run_inferred_batch(
                     )
                 ],
             )
+        if isinstance(exc, InvalidTargetSheet):
+            error = ActionError(
+                code="invalid_input_ref",
+                message=str(exc),
+                action_kind=bound.action.action_id,
+                field="scope.sheet_id",
+                details={"sheet_id": exc.sheet_id},
+            )
+        elif isinstance(exc, InvalidTargetRows):
+            error = ActionError(
+                code="invalid_input_ref",
+                message=str(exc),
+                action_kind=bound.action.action_id,
+                field="scope.row_ids",
+                details={"missing": exc.missing},
+            )
+        elif isinstance(exc, TypedMapRowsPlanError):
+            error = _typed_plan_error(bound.action.action_id, exc)
+        else:
+            error = ActionError(
+                code="project_write_failed"
+                if isinstance(exc, OSError)
+                else "invalid_params",
+                message="Formula staging failed"
+                if isinstance(exc, OSError)
+                else str(exc),
+                action_kind=bound.action.action_id,
+            )
         return _failed_result(
             project_id=project_id,
             action_kind=bound.action.action_id,
-            error=ActionError(
-                code="invalid_params",
-                message=str(exc),
-                action_kind=bound.action.action_id,
-            ),
+            error=error,
         )
+
+    def factory(current, current_router):
+        runner = map_runner_factory(current, current_router)
+        original = runner.should_cancel
+        runner.should_cancel = lambda run_id: (
+            should_cancel() or (original(run_id) if original else False)
+        )
+        runner.allow_action_lifecycle_only_recipes = True
+        return runner
+
+    try:
+        return _run_reserved_maprunner_action(
+            project,
+            action,
+            bound.params,
+            project_id=project_id,
+            router=router,
+            map_runner_factory=factory,
+            resolved_execution=_PreparedMapExecution(
+                plan.spec,
+                plan.output_fields,
+                plan.program,
+                params_hash,
+                partial(
+                    _typed_receipt,
+                    project_id=project_id,
+                    plan=plan,
+                    params_hash=params_hash,
+                ),
+                _typed_replay_error(project, bound),
+                "typed_map_rows_idempotency_reservation",
+                reservation,
+            ),
+            write_fn=partial(
+                _publish,
+                bound=bound,
+                plan=plan,
+                row_ids=row_ids,
+                source_digest=source_digest,
+                should_cancel=should_cancel,
+            ),
+            output_claim_error_field="output_names",
+        )
+    finally:
+        spool.close()
 
 
 def _publish(
@@ -362,7 +460,7 @@ def _publish(
     from frisket.engine.store.output_claims import OutputColumnClaimStore
     from frisket.engine.store.receipts import ReceiptStore
     from frisket.engine.store.result_generations import ResultGenerationStore
-    from frisket.execution.attempt import set_attempt_state
+    from frisket.execution.attempt import StaleAttemptWriter, set_attempt_state
 
     run_id, receipt_id = kwargs["run_id"], kwargs["receipt_id"]
     writer, claim = kwargs["writer_attempt_id"], kwargs["claim_token"]
@@ -392,6 +490,16 @@ def _publish(
                 message="Formula failed before publication",
                 action_kind=action.kind,
             )
+        elif (
+            bound.request.replace_existing
+            and bound.request.scope.row_ids is None
+            and project.visible_row_ids(bound.request.scope.sheet_id) != row_ids
+        ):
+            error = ActionError(
+                code="stale_input",
+                message="Formula row scope changed before replacement",
+                action_kind=action.kind,
+            )
         elif source_digest != _source_digest(project, plan, row_ids):
             error = ActionError(
                 code="stale_input",
@@ -404,7 +512,7 @@ def _publish(
             receipt = prior.model_copy(
                 update={"status": status, "outputs": [], "errors": [error]}
             )
-            terminalize_project_run(
+            outcome = terminalize_project_run(
                 project,
                 run_id=run_id,
                 receipt_id=receipt_id,
@@ -415,6 +523,8 @@ def _publish(
                 terminal_receipt=receipt,
                 commit=False,
             )
+            if outcome.disposition not in {"terminalized", "already_terminal"}:
+                raise StaleAttemptWriter("Formula cancellation lost its current writer")
         else:
             ResultGenerationStore(project).seal(
                 run_id,
@@ -459,7 +569,8 @@ def _publish(
                 project.db.rollback()
                 return conflict
             set_attempt_state(project, writer, "effected", commit=False)
-            claims.release(claim_token=claim, status="released", commit=False)
+            if not claims.release(claim_token=claim, status="released", commit=False):
+                raise StaleAttemptWriter("Formula publication lost its output claim")
         project.db.commit()
         return _result_from_receipt(receipt)
     except BaseException:

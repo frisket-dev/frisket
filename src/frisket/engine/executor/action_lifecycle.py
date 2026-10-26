@@ -1345,6 +1345,11 @@ def _run_reserved_maprunner_action(
 
     def delete_reservation_fn(current_project: Any, receipt_id: str) -> None:
         if prepared_execution is not None:
+            if prepared_execution.reservation is not None:
+                # An action.run worker owns this pre-existing reservation and
+                # terminalizes its returned refusal. Deleting it here would
+                # leave the queued job with no durable receipt to close.
+                return
             _delete_reserved_action_receipt(
                 current_project, receipt_id, action_kind=action.kind
             )

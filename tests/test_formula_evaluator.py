@@ -80,7 +80,6 @@ def test_invalid_formulas(text):
 
 
 def test_array_results_are_not_truncated_to_first_value():
-    assert "scalar" in CompiledFormula("SEQUENCE(2)").evaluate([{}])[0].error
     assert "scalar" in CompiledFormula("{{x}}").evaluate([{"x": [1, 2]}])[0].error
 
 
@@ -123,3 +122,72 @@ def test_rand_is_available_and_each_row_evaluates():
     assert all(0 <= value < 1 for value in values)
     assert len(set(values)) > 1
     assert formula.evaluate([{}])[0].value not in values
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "SUM(SEQUENCE(3000,3000)*SEQUENCE(3000,3000))",
+        "INDEX(RANDARRAY(1,1),1,1)",
+        "MAKEARRAY(2,2,1)",
+        "MUNIT(3000)",
+        "EXPAND(1,3000,3000)",
+        'CELL("row",{{a}})',
+        'CELL("address",{{a}})',
+    ],
+)
+def test_unsafe_array_constructors_and_scratch_metadata_refused(text):
+    with pytest.raises(FormulaValidationError):
+        CompiledFormula(text)
+
+
+def test_text_output_limit_preserves_source_text_for_scalar_operations():
+    source = "x" * 32768
+    formula = CompiledFormula("{{x}}")
+    assert "32767" in formula.evaluate([{"x": source}])[0].error
+    assert formula._workbook.get_value("Formula", 1, formula._output_col) is None
+    assert formula.evaluate([{"x": "small"}])[0].value == "small"
+    assert CompiledFormula("LEN({{x}})").evaluate([{"x": source}])[0].value == 32768
+    assert (
+        CompiledFormula("{{x}}").evaluate([{"x": source[:-1]}])[0].value == source[:-1]
+    )
+
+
+def test_timezone_inputs_normalized_to_utc():
+    from datetime import timedelta
+
+    value = datetime(2024, 1, 1, 0, 30, tzinfo=timezone(timedelta(hours=5)))
+    result = CompiledFormula("{{x}}").evaluate([{"x": value}])[0]
+    assert result.value == datetime(2023, 12, 31, 19, 30)
+    assert CompiledFormula("YEAR({{x}})").evaluate([{"x": value}])[0].value == 2023
+
+
+def test_native_failure_is_isolated_to_one_row():
+    formula = CompiledFormula("{{x}}*2")
+    native = formula._workbook
+
+    class FailingWorkbook:
+        def __getattr__(self, name):
+            return getattr(native, name)
+
+        def evaluate_cell(self, sheet, row, col):
+            if row == 2:
+                raise RuntimeError("evaluation deadline")
+            return native.evaluate_cell(sheet, row, col)
+
+    formula._workbook = FailingWorkbook()
+    result = formula.evaluate([{"x": 1}, {"x": 2}, {"x": 3}])
+    assert result[0].value == 2
+    assert "deadline" in result[1].error
+    assert result[2].value == 6
+
+
+def test_aggregate_budget_stops_repeated_deadlines(monkeypatch):
+    import frisket.authoring.formula as module
+
+    formula = CompiledFormula("{{x}}*2")
+    ticks = iter([0.0, 0.0, 6.0, 6.0])
+    monkeypatch.setattr(module.time, "monotonic", lambda: next(ticks))
+    result = formula.evaluate([{"x": 1}, {"x": 2}, {"x": 3}])
+    assert result[0].value == 2
+    assert all("budget exhausted" in item.error for item in result[1:])

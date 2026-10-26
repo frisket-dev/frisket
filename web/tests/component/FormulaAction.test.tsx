@@ -81,12 +81,29 @@ describe('Formula function guide', () => {
     const user = userEvent.setup();
     mountFormula();
     const input = screen.getByRole('textbox', { name: 'Formula', exact: true });
-    await user.click(screen.getByRole('button', { name: 'Functions & examples' }));
+    const trigger = screen.getByRole('button', { name: 'Functions & examples' });
+    expect(trigger).toHaveAttribute('data-button-variant', 'link');
+    expect(trigger.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
+    await user.click(trigger);
     const guide = screen.getByRole('region', { name: 'Common examples' });
     expect(guide).toBeVisible();
-    expect(within(guide).getByText('ROUND(number, digits)')).toBeVisible();
-    expect(within(guide).getByRole('link', { name: /Full Formualizer/ })).toHaveAttribute(
-      'href', 'https://www.formualizer.dev/docs/reference/functions');
+    expect(within(guide).queryByRole('textbox')).not.toBeInTheDocument();
+    for (const [title, reference, linkLabel] of [
+      ['Text', 'text', 'More text functions'], ['Numbers', 'math', 'More math functions'],
+      ['Dates', 'datetime', 'More date and time functions'], ['Conditions', 'logical', 'More logical functions'],
+    ]) {
+      const section = within(guide).getByRole('region', { name: title });
+      const table = within(section).getByRole('table', { name: `${title} formula examples` });
+      const exampleCount = within(table).getAllByRole('row').length - 1;
+      expect(exampleCount).toBeGreaterThanOrEqual(5);
+      expect(exampleCount).toBeLessThanOrEqual(20);
+      expect(within(table).getByRole('columnheader', { name: 'Formula' })).toBeVisible();
+      expect(within(table).getByRole('columnheader', { name: 'What it does' })).toBeVisible();
+      expect(within(section).getByRole('link', { name: `${linkLabel} ↗` })).toHaveAttribute(
+        'href', `https://www.formualizer.dev/docs/reference/functions/${reference}`);
+    }
+    const numbers = within(guide).getByRole('table', { name: 'Numbers formula examples' });
+    expect(within(numbers).queryByText(/^=(SUM|AVERAGE|MIN|MAX)\(/)).not.toBeInTheDocument();
     expect(screen.queryByRole('dialog', { name: 'Functions & examples' })).not.toBeInTheDocument();
     await user.click(input);
     await user.type(input, '=ROUND(');
@@ -97,19 +114,5 @@ describe('Formula function guide', () => {
     expect(screen.queryByRole('region', { name: 'Common examples' })).not.toBeInTheDocument();
     expect(input).toHaveValue('=ROUND(');
     expect(screen.getByRole('button', { name: 'Functions & examples' })).toHaveFocus();
-  });
-
-  it('filters the small example guide without replacing the editor text', async () => {
-    const user = userEvent.setup();
-    const form = mountFormula();
-    const input = screen.getByRole('textbox', { name: 'Formula', exact: true });
-    fireEvent.change(input, { target: { value: '=1+2' } });
-    await user.click(screen.getByRole('button', { name: 'Functions & examples' }));
-    const guide = screen.getByRole('region', { name: 'Common examples' });
-    await user.type(within(guide).getByRole('textbox', { name: 'Filter formula examples' }), 'TRIM{Enter}');
-    expect(form.onExecute).not.toHaveBeenCalled();
-    expect(within(guide).getByText('TRIM(text)')).toBeVisible();
-    expect(within(guide).queryByText('ROUND(number, digits)')).not.toBeInTheDocument();
-    expect(input).toHaveValue('=1+2');
   });
 });

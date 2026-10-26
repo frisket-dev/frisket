@@ -380,6 +380,7 @@ _QUEUED_ACTION_JOB_KINDS: frozenset[str] = frozenset(
         "derive.temporal_segments",
         "derive.transcript_segments",
         "map.find",
+        "map.formula",
     }
 )
 

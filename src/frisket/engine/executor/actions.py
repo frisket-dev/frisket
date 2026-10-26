@@ -346,11 +346,15 @@ def resolve_map_preview(
                     replace(typed_plan, spec=MappingProxyType(runner_spec)),
                     spool,
                 )
-            except (TypeError, ValueError) as exc:
+            except (OSError, RuntimeError, TypeError, ValueError) as exc:
                 spool.close()
                 return ActionError(
-                    code="invalid_params",
-                    message=str(exc),
+                    code="preview_failed"
+                    if isinstance(exc, (OSError, RuntimeError))
+                    else "invalid_params",
+                    message="Formula preview failed"
+                    if isinstance(exc, (OSError, RuntimeError))
+                    else str(exc),
                     action_kind=typed.action.action_id,
                 )
         return build_map_preview_plan(

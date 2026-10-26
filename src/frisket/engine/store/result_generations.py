@@ -660,7 +660,10 @@ class ResultGenerationStore:
                 if (
                     not isinstance(operation_spec, dict)
                     or operation_spec.get("replace_existing") is not True
-                    or "row_ids" in operation_spec
+                    or (
+                        "row_ids" in operation_spec
+                        and operation_spec.get("inferred_batch_full_scope") is not True
+                    )
                 ):
                     raise GenerationDeclarationConflict(
                         "descriptor-changing replacement requires an explicit all-rows request"

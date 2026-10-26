@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import re
 import secrets
+import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
@@ -16,8 +17,22 @@ import formualizer
 MAX_BATCH_ROWS = 1000
 MAX_FORMULA_LENGTH = 8192
 MAX_SAFE_INTEGER = 2**53
+MAX_CELL_TEXT_LENGTH = 32767
+EVALUATION_BUDGET_SECONDS = 5.0
 # These functions either expose scratch coordinates or manufacture references.
-_FORBIDDEN_FUNCTIONS = {"INDIRECT", "OFFSET", "ROW", "COLUMN"}
+_FORBIDDEN_FUNCTIONS = {"INDIRECT", "OFFSET", "ROW", "COLUMN", "CELL"}
+# Native work/deadline controls do not bound allocations made by these
+# constructors. Array-producing formulas are outside this action's cell model.
+_ARRAY_CONSTRUCTORS = {
+    "SEQUENCE",
+    "RANDARRAY",
+    "MAKEARRAY",
+    "MUNIT",
+    "EXPAND",
+    "TEXTSPLIT",
+    "HSTACK",
+    "VSTACK",
+}
 
 
 class FormulaValidationError(ValueError):
@@ -150,6 +165,13 @@ class CompiledFormula:
                         "Formula must return a scalar, not an array."
                     )
                 function = node.get_function_name()
+                if (
+                    function
+                    and function.upper().removeprefix("_XLFN.") in _ARRAY_CONSTRUCTORS
+                ):
+                    raise FormulaValidationError(
+                        f"{function} constructs arrays, which Formula does not support."
+                    )
                 if function and function.upper().removeprefix("_XLFN.") in {
                     "RAND",
                     "RANDBETWEEN",
@@ -174,7 +196,7 @@ class CompiledFormula:
     def _new_workbook(self) -> None:
         config = formualizer.EvaluationConfig()
         config.max_work_units = 1_000_000
-        config.max_eval_time_ms = 5000
+        config.max_eval_time_ms = 100
         config.range_expansion_limit = 100_000
         config.enable_parallel = False
         config.workbook_seed = secrets.randbits(64)
@@ -203,6 +225,7 @@ class CompiledFormula:
     ) -> list[FormulaResult]:
         """Evaluate in bounded batches. The caller may stream batches itself."""
         results: list[FormulaResult] = []
+        deadline = time.monotonic() + EVALUATION_BUDGET_SECONDS
         for offset in range(0, len(rows), MAX_BATCH_ROWS):
             batch = rows[offset : offset + MAX_BATCH_ROWS]
             if self._random:
@@ -241,6 +264,8 @@ class CompiledFormula:
                                 f"Column {column}: nonfinite numbers are not supported."
                             )
                             value = None
+                    if isinstance(value, datetime) and value.utcoffset() is not None:
+                        value = value.astimezone(timezone.utc).replace(tzinfo=None)
                     bound.append(value)
                 values.append(bound)
             if self.columns:
@@ -254,22 +279,50 @@ class CompiledFormula:
                     [[self._source(row)] for row in range(start, len(batch) + 1)],
                 )
                 self._prepared_rows = len(batch)
-            try:
-                outputs = self._workbook.evaluate_cells(
-                    [
-                        ("Formula", row, self._output_col)
-                        for row in range(1, len(batch) + 1)
-                    ]
-                )
-            except Exception as exc:
-                results.extend(
-                    FormulaResult(error=f"Formula evaluation failed: {exc}")
-                    for _ in batch
-                )
-                continue
-            for index, value in enumerate(outputs):
+            outputs = []
+            # A native batch deadline discards every cell, including successful
+            # rows. Evaluate independently so one failure cannot erase its peers;
+            # the shared wall-clock budget prevents N full deadline retries.
+            for index in range(len(batch)):
                 if index in errors:
-                    results.append(FormulaResult(error=errors[index]))
+                    outputs.append(FormulaResult(error=errors[index]))
+                elif time.monotonic() >= deadline:
+                    outputs.append(
+                        FormulaResult(
+                            error="Formula evaluation budget exhausted before this row."
+                        )
+                    )
+                else:
+                    try:
+                        value = self._workbook.evaluate_cell(
+                            "Formula", index + 1, self._output_col
+                        )
+                        if isinstance(value, str) and len(value) > MAX_CELL_TEXT_LENGTH:
+                            # Discard oversized native caches immediately, before
+                            # another row can accumulate a second large result.
+                            self._workbook.set_value(
+                                "Formula", index + 1, self._output_col, None
+                            )
+                            self._workbook.set_formula(
+                                "Formula",
+                                index + 1,
+                                self._output_col,
+                                self._source(index + 1),
+                            )
+                            outputs.append(
+                                FormulaResult(
+                                    error=f"Formula text exceeds the {MAX_CELL_TEXT_LENGTH}-character cell limit."
+                                )
+                            )
+                        else:
+                            outputs.append(value)
+                    except Exception as exc:
+                        outputs.append(
+                            FormulaResult(error=f"Formula evaluation failed: {exc}")
+                        )
+            for index, value in enumerate(outputs):
+                if isinstance(value, FormulaResult):
+                    results.append(value)
                 elif (
                     self._workbook.inspect_cell(
                         f"Formula!{self._output_letter}{index + 1}"
@@ -283,6 +336,13 @@ class CompiledFormula:
                     )
                 elif isinstance(value, dict) and value.get("type") == "Error":
                     kind = value.get("kind", "Unknown")
+                    if kind == "Spill":
+                        results.append(
+                            FormulaResult(
+                                error="Formula must return a scalar, not an array or spill."
+                            )
+                        )
+                        continue
                     detail = (
                         " (unknown or unsupported function)" if kind == "Name" else ""
                     )

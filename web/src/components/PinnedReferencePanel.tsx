@@ -16,6 +16,7 @@ export function PinnedReferencePanel({ id, title, anchorRef, sourceRef, onClose,
   children: ReactNode;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const [preferredWidth, setPreferredWidth] = useState(550);
   const [portalRoot, setPortalRoot] = useState<Element | null>(null);
   const [position, setPosition] = useState<CSSProperties | null>(null);
   useLayoutEffect(() => {
@@ -24,16 +25,17 @@ export function PinnedReferencePanel({ id, title, anchorRef, sourceRef, onClose,
     setPortalRoot(anchor.closest('dialog') ?? document.body);
     const measure = () => {
       const rect = anchor.getBoundingClientRect();
-      const width = 320;
       const gap = 12;
       const margin = 8;
-      if (rect.left < width + gap + margin || window.innerWidth < 760) {
+      const availableWidth = rect.left - gap - margin;
+      if (availableWidth < 320 || window.innerWidth < 760) {
         setPosition(null);
         return;
       }
       const top = Math.max(margin, Math.min(rect.top, window.innerHeight - 200));
       setPosition({ position: 'fixed', inset: 'auto', margin: 0, top,
-        left: rect.left - width - gap, width, maxHeight: window.innerHeight - top - margin });
+        right: window.innerWidth - rect.left + gap, width: Math.min(preferredWidth, availableWidth),
+        maxWidth: availableWidth, maxHeight: window.innerHeight - top - margin });
     };
     measure();
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
@@ -45,7 +47,15 @@ export function PinnedReferencePanel({ id, title, anchorRef, sourceRef, onClose,
       window.removeEventListener('resize', measure);
       window.removeEventListener('scroll', measure, true);
     };
-  }, [anchorRef]);
+  }, [anchorRef, preferredWidth]);
+  const beside = position !== null;
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    if (!beside || !panel || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => setPreferredWidth(Math.round(panel.getBoundingClientRect().width)));
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, [beside]);
   useNativePopover(panelRef, onClose, {
     enabled: position !== null && portalRoot !== null, outside: false, escape: false, sourceRef,
   });
