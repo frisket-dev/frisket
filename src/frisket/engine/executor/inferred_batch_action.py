@@ -317,6 +317,10 @@ def run_inferred_batch(
         field = plan.program._resolved_output_fields[0]
         _, preconditions = resolve_row_output_targets(project, bound.request, (field,))
         _require_expected_output_columns(bound.request, preconditions)
+        if project.visible_row_ids(bound.request.scope.sheet_id, row_ids) != row_ids:
+            raise TypedMapRowsPlanError(
+                "stale_input", "Formula row scope changed after staging"
+            )
         if (
             bound.request.replace_existing
             and bound.request.scope.row_ids is None
@@ -423,6 +427,7 @@ def run_inferred_batch(
                 _typed_replay_error(project, bound),
                 "typed_map_rows_idempotency_reservation",
                 reservation,
+                queued_reservation_owner=queued_reservation,
             ),
             write_fn=partial(
                 _publish,
@@ -464,9 +469,9 @@ def _publish(
 
     run_id, receipt_id = kwargs["run_id"], kwargs["receipt_id"]
     writer, claim = kwargs["writer_attempt_id"], kwargs["claim_token"]
-    run = project.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
     project.db.execute("BEGIN IMMEDIATE")
     try:
+        run = project.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
         claims = OutputColumnClaimStore(project)
         column_ids = claims.active_column_ids(claim_token=claim, run_id=run_id)
         claims.require_current_writer(
@@ -488,6 +493,12 @@ def _publish(
             error = ActionError(
                 code="formula_failed",
                 message="Formula failed before publication",
+                action_kind=action.kind,
+            )
+        elif project.visible_row_ids(bound.request.scope.sheet_id, row_ids) != row_ids:
+            error = ActionError(
+                code="stale_input",
+                message="Formula row scope changed after staging",
                 action_kind=action.kind,
             )
         elif (

@@ -383,6 +383,8 @@ def _terminalize_formula_attached_run(
     )
 
     stored = ReceiptStore(project).find_by_id(receipt_id)
+    if stored is not None and stored.status in FINISHED_RECEIPT_STATUSES:
+        return _result_from_existing_action_job_receipt(stored.parsed(), job_id=job_id)
     if stored is None or stored.run_id is None:
         return None
     run_id = int(stored.run_id)

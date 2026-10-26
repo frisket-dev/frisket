@@ -853,3 +853,113 @@ def test_formula_whole_scope_retype_refuses_row_appended_before_publish(
         }
     finally:
         project.close()
+
+
+def test_formula_inline_claim_refusal_cleans_its_own_reservation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from frisket.contracts.action import ActionError
+    from frisket.engine.executor import action_lifecycle
+
+    project = Project.create(tmp_path / "inline-claim.frisket", name="inline-claim")
+    try:
+        sheet = project.add_sheet("source")
+        project.add_rows(sheet, [{}], {})
+
+        def refuse_claim(*_args, **_kwargs):
+            return ActionError(
+                code="output_column_exists",
+                message="injected claim conflict",
+                action_kind="map.formula",
+            )
+
+        monkeypatch.setattr(
+            action_lifecycle, "_acquire_output_claims_for_runner", refuse_claim
+        )
+        result = _run(project, sheet, "=1")
+        assert (
+            result.status == "failed"
+            and result.errors[0].code == "output_column_exists"
+        )
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM receipts WHERE idempotency_key='formula-1'"
+            ).fetchone()[0]
+            == 0
+        )
+    finally:
+        project.close()
+
+
+def test_formula_queued_claim_refusal_keeps_worker_receipt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from frisket.contracts.action import ActionError
+    from frisket.engine.executor import action_lifecycle
+    from frisket.engine.store.receipts import ReceiptStore
+
+    project = Project.create(tmp_path / "queued-claim.frisket", name="queued-claim")
+    try:
+        sheet = project.add_sheet("source")
+        project.add_rows(sheet, [{}], {})
+        request = ActionRequest(
+            action_id="map.formula",
+            scope=SheetRows(sheet_id=sheet),
+            params={"formula": {"text": "=1"}},
+            output_names={"result": "computed"},
+            idempotency_key="queued-claim",
+        )
+        bound = BoundTypedActionRequest.bind(
+            ACTION_REGISTRY.get("map.formula"), request
+        )
+        envelope = reserve_typed_action_job(project, "p", bound)
+
+        def refuse_claim(*_args, **_kwargs):
+            return ActionError(
+                code="output_column_exists",
+                message="injected claim conflict",
+                action_kind="map.formula",
+            )
+
+        monkeypatch.setattr(
+            action_lifecycle, "_acquire_output_claims_for_runner", refuse_claim
+        )
+        result = run_action_run_job(project, {"action_job": envelope.to_json()})
+        assert (
+            result.status == "failed"
+            and result.errors[0].code == "output_column_exists"
+        )
+        assert ReceiptStore(project).find_by_id(envelope.receipt_id).status == "failed"
+    finally:
+        project.close()
+
+
+def test_formula_deleted_staged_row_reports_stale_input(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from frisket.engine.executor import inferred_batch_action
+
+    project = Project.create(tmp_path / "deleted-row.frisket", name="deleted-row")
+    try:
+        sheet = project.add_sheet("source")
+        rows = project.add_rows(sheet, [{}], {})
+        original = inferred_batch_action.stage_plan
+
+        def delete_after_stage(*args, **kwargs):
+            staged = original(*args, **kwargs)
+            project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (rows[0],))
+            project.db.commit()
+            return staged
+
+        monkeypatch.setattr(inferred_batch_action, "stage_plan", delete_after_stage)
+        result = _run(project, sheet, "=1")
+        assert result.status == "failed" and result.errors[0].code == "stale_input"
+        assert result.errors[0].field is None
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM receipts WHERE idempotency_key='formula-1'"
+            ).fetchone()[0]
+            == 0
+        )
+    finally:
+        project.close()

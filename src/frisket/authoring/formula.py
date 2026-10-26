@@ -18,7 +18,7 @@ MAX_BATCH_ROWS = 1000
 MAX_FORMULA_LENGTH = 8192
 MAX_SAFE_INTEGER = 2**53
 MAX_CELL_TEXT_LENGTH = 32767
-EVALUATION_BUDGET_SECONDS = 5.0
+BATCH_EVALUATION_BUDGET_SECONDS = 5.0
 # These functions either expose scratch coordinates or manufacture references.
 _FORBIDDEN_FUNCTIONS = {"INDIRECT", "OFFSET", "ROW", "COLUMN", "CELL"}
 # Native work/deadline controls do not bound allocations made by these
@@ -134,6 +134,10 @@ class CompiledFormula:
         # Reject large integer literals before the native parser converts them to
         # doubles. Strings are removed using Excel's doubled-quote convention.
         unquoted = re.sub(r'"(?:[^\"]|\"\")*"', "", neutral)
+        if ":" in unquoted:
+            raise FormulaValidationError(
+                "Ranges are not supported; use separate current-row column arguments."
+            )
         nesting = 0
         for char in unquoted:
             if char == "(":
@@ -156,6 +160,10 @@ class CompiledFormula:
                 node, depth = pending.pop()
                 if depth > 64:
                     raise FormulaValidationError("Formula nesting exceeds 64 levels.")
+                if node.get_operator() in {":", ",", " "}:
+                    raise FormulaValidationError(
+                        "Ranges, unions and intersections are not supported; use separate current-row column arguments."
+                    )
                 if node.node_type() == "Reference":
                     raise FormulaValidationError(
                         "Use {{column name}} references; raw cells, ranges and names are not supported."
@@ -223,11 +231,16 @@ class CompiledFormula:
     def evaluate(
         self, rows: Sequence[Mapping[str, Any]], *, clock: datetime | None = None
     ) -> list[FormulaResult]:
-        """Evaluate in bounded batches. The caller may stream batches itself."""
+        """Evaluate bounded batches, each with its own cooperative work budget.
+
+        A budget limits one scratch batch, not the overall run: large streamed
+        jobs may legitimately take longer. Unattempted rows receive explicit
+        budget errors, and callers retain ordinary per-row error reporting.
+        """
         results: list[FormulaResult] = []
-        deadline = time.monotonic() + EVALUATION_BUDGET_SECONDS
         for offset in range(0, len(rows), MAX_BATCH_ROWS):
             batch = rows[offset : offset + MAX_BATCH_ROWS]
+            deadline = time.monotonic() + BATCH_EVALUATION_BUDGET_SECONDS
             if self._random:
                 # Ephemeral RAND is seeded by cell address and does not advance
                 # on recalculation. Fresh bounded batches need independent seeds.
@@ -282,14 +295,14 @@ class CompiledFormula:
             outputs = []
             # A native batch deadline discards every cell, including successful
             # rows. Evaluate independently so one failure cannot erase its peers;
-            # the shared wall-clock budget prevents N full deadline retries.
+            # the batch wall-clock budget prevents N full deadline retries.
             for index in range(len(batch)):
                 if index in errors:
                     outputs.append(FormulaResult(error=errors[index]))
                 elif time.monotonic() >= deadline:
                     outputs.append(
                         FormulaResult(
-                            error="Formula evaluation budget exhausted before this row."
+                            error="Formula batch evaluation budget exhausted before this row."
                         )
                     )
                 else:

@@ -51,14 +51,14 @@ describe('served action ribbon organization', () => {
       }
       return tab.groups.flatMap((group) => group.items);
     });
-    // All 49 standalone actions (including Transliterate) and 9 workflow or
+    // All 50 standalone actions (including Formula and Transliterate) and 9 workflow or
     // compare commands remain present, with no duplicate base-tab launchers.
-    expect(items).toHaveLength(58);
+    expect(items).toHaveLength(59);
     expect(new Set(items.map((item) => item.kind === 'action' ? item.launcherKind
-      : item.kind === 'command' ? item.command : item.contributionId)).size).toBe(58);
+      : item.kind === 'command' ? item.command : item.contributionId)).size).toBe(items.length);
   });
 
-  it('places standalone actions with related work rather than beside Template', () => {
+  it('places actions with related work and keeps Formula beside Template', () => {
     expect(placements).toEqual(expect.arrayContaining([
       { kind: 'map.regex_extract', tab: 'analyze', group: 'EXTRACT' },
       { kind: 'map.columns_from_json', tab: 'tables', group: 'TABLES' },
@@ -66,7 +66,7 @@ describe('served action ribbon organization', () => {
       { kind: 'media.enclosure_materialize', tab: 'data', group: 'WEB' },
     ]));
     expect(placements.filter(({ tab, group }) => tab === 'transform' && group === 'TRANSFORM')
-      .map(({ kind }) => kind)).toEqual(['map.clean_column', 'map.clean_dates', 'map.template', 'map.python']);
+      .map(({ kind }) => kind)).toEqual(['map.clean_column', 'map.clean_dates', 'map.template', 'map.formula', 'map.python']);
     expect(tabs.some((tab) => tab.id === 'misc')).toBe(false);
   });
 });

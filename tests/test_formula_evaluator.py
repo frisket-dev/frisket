@@ -191,3 +191,45 @@ def test_aggregate_budget_stops_repeated_deadlines(monkeypatch):
     result = formula.evaluate([{"x": 1}, {"x": 2}, {"x": 3}])
     assert result[0].value == 2
     assert all("budget exhausted" in item.error for item in result[1:])
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "{{a}}:{{c}}",
+        "SUM({{a}}:{{c}})",
+        "SUM(({{a}}),({{c}})) + SUM(({{a}}):({{c}}))",
+        "({{a}},{{c}})",
+        "(({{a}})) (({{c}}))",
+    ],
+)
+def test_reference_range_union_and_intersection_are_refused(text):
+    with pytest.raises(FormulaValidationError):
+        CompiledFormula(text)
+
+
+def test_nested_broadcast_range_probe_refused_without_evaluation():
+    expression = "({{a}}:{{c}})"
+    for _ in range(5):
+        expression = f"(TOCOL({expression})+TOROW({expression}))"
+    with pytest.raises(FormulaValidationError, match="Ranges"):
+        CompiledFormula(f"COUNT({expression})")
+
+
+def test_colons_in_literals_and_column_names_are_supported():
+    result = CompiledFormula('LEN("12:30")+SUM({{time:zone}},{{c}})').evaluate(
+        [{"time:zone": 2, "c": 3}]
+    )[0]
+    assert result.value == 10
+
+
+def test_budget_resets_for_each_scratch_batch(monkeypatch):
+    import frisket.authoring.formula as module
+
+    monkeypatch.setattr(module, "MAX_BATCH_ROWS", 2)
+    ticks = iter([0.0, 0.0, 6.0, 7.0, 7.0])
+    monkeypatch.setattr(module.time, "monotonic", lambda: next(ticks))
+    result = CompiledFormula("{{x}}*2").evaluate([{"x": 1}, {"x": 2}, {"x": 3}])
+    assert result[0].value == 2
+    assert "batch evaluation budget exhausted" in result[1].error
+    assert result[2].value == 6
