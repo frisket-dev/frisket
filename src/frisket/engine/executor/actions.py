@@ -11,7 +11,7 @@ import ``ExecutorDeps`` from ``frisket.executor``.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Mapping
 
 from pydantic import ValidationError
@@ -167,6 +167,8 @@ class MapPreviewPlan:
     make_runner: Callable[[], Any]
     semantic_scope_total: int | None = None
     program: Recipe | None = None
+    source_column_ids: Mapping[str, int] = field(default_factory=dict)
+    output_fields: tuple[dict[str, Any], ...] = ()
 
 
 def build_map_preview_plan(
@@ -178,6 +180,8 @@ def build_map_preview_plan(
     deps: _runtime_inventory.ExecutorDeps | None,
     semantic_scope_total: int | None = None,
     program: Recipe | None = None,
+    source_column_ids: Mapping[str, int] | None = None,
+    output_fields: tuple[dict[str, Any], ...] = (),
 ) -> MapPreviewPlan:
     """Bind canonical runner-factory and hosted composition preview seams."""
 
@@ -210,6 +214,8 @@ def build_map_preview_plan(
         make_runner=make_runner,
         semantic_scope_total=semantic_scope_total,
         program=program,
+        source_column_ids=dict(source_column_ids or {}),
+        output_fields=tuple(dict(item) for item in output_fields),
     )
 
 
@@ -335,6 +341,8 @@ def resolve_map_preview(
             deps=deps,
             semantic_scope_total=semantic_scope_total,
             program=typed_plan.program,
+            source_column_ids=typed_plan.source_column_ids,
+            output_fields=typed_plan.output_fields,
         )
     return ActionError(
         code="unsupported_action_kind",

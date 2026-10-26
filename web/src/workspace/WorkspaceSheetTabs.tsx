@@ -1,7 +1,7 @@
 import './WorkspaceSheetTabs.css';
 import { memo, useCallback, useRef, useState } from 'react';
 import { MenuPop } from '../components/MenuPop';
-import { ChevronRight, GitFork, Images, Info, MapPin, Network, Rows3, AudioLines, Languages, ScanText, Sheet as SheetGlyph, Trash2, X } from 'lucide-react';
+import { ChevronRight, GitCompareArrows, GitFork, Images, Info, MapPin, Network, Rows3, AudioLines, Languages, ScanText, Sheet as SheetGlyph, Trash2, X } from 'lucide-react';
 import { useNativePopover } from '../hooks/useNativePopover';
 import { useAnchoredPosition } from '../hooks/useAnchoredPosition';
 import { useSheetTabsOverflow } from '../workbench/useSheetTabsOverflow';
@@ -16,9 +16,18 @@ import { useWorkViewHandle } from '../bind/useWorkViewHandle';
 import { useCompareViewHandle } from '../bind/useCompareViewHandle';
 import { usePreviewViewHandle } from '../bind/usePreviewViewHandle';
 import { useSelector } from '../bind/useSelector';
+import type { CompareKind } from '../state/compareViewStore';
 import { focusCompareTabTransition } from '../state/workspaceTransitions';
 import { useWorkspaceShell, useCurrentSheet } from './WorkspaceContext';
 import { SheetStalePill, SheetInfoPopover } from './SheetInfoPopover';
+
+const COMPARE_TABS = [
+  { kind: 'ocr', label: 'OCR compare', Icon: ScanText },
+  { kind: 'transcribe', label: 'Transcribe compare', Icon: AudioLines },
+  { kind: 'translate', label: 'Translate compare', Icon: Languages },
+  { kind: 'topic', label: 'Topic compare', Icon: Rows3 },
+  { kind: 'action', label: 'Action compare', Icon: GitCompareArrows },
+] as const satisfies readonly { kind: CompareKind; label: string; Icon: typeof ScanText }[];
 
 export const WorkspaceMainViewTabs = memo(function WorkspaceMainViewTabs() {
   const {
@@ -40,46 +49,8 @@ export const WorkspaceMainViewTabs = memo(function WorkspaceMainViewTabs() {
   const activePreviewView = useSelector(previewViewHandle.store, (s) =>
     previewViewForSheet(s.previewView, sheet?.id),
   );
-  const ocrCompareOpen = useSelector(compareView.store, (s) => s.ocr.open);
-  const ocrCompareActive = useSelector(compareView.store, (s) => s.ocr.active);
-  const focusOcrCompareTab = useCallback(
-    () => focusCompareTabTransition(workView, compareView, 'ocr'),
-    [workView, compareView],
-  );
-  const requestCloseOcrCompareTab = useCallback(
-    () => compareView.requestClose('ocr'),
-    [compareView],
-  );
-  const transcribeCompareOpen = useSelector(compareView.store, (s) => s.transcribe.open);
-  const transcribeCompareActive = useSelector(compareView.store, (s) => s.transcribe.active);
-  const focusTranscribeCompareTab = useCallback(
-    () => focusCompareTabTransition(workView, compareView, 'transcribe'),
-    [workView, compareView],
-  );
-  const requestCloseTranscribeCompareTab = useCallback(
-    () => compareView.requestClose('transcribe'),
-    [compareView],
-  );
-  const translateCompareOpen = useSelector(compareView.store, (s) => s.translate.open);
-  const translateCompareActive = useSelector(compareView.store, (s) => s.translate.active);
-  const focusTranslateCompareTab = useCallback(
-    () => focusCompareTabTransition(workView, compareView, 'translate'),
-    [workView, compareView],
-  );
-  const requestCloseTranslateCompareTab = useCallback(
-    () => compareView.requestClose('translate'),
-    [compareView],
-  );
-  const topicCompareOpen = useSelector(compareView.store, (s) => s.topic.open);
-  const topicCompareActive = useSelector(compareView.store, (s) => s.topic.active);
-  const focusTopicCompareTab = useCallback(
-    () => focusCompareTabTransition(workView, compareView, 'topic'),
-    [workView, compareView],
-  );
-  const requestCloseTopicCompareTab = useCallback(
-    () => compareView.requestClose('topic'),
-    [compareView],
-  );
+  const compareTabs = useSelector(compareView.store, (state) => state);
+  const compareActive = Object.values(compareTabs).some((tab) => tab.active);
   const chrome = useChromeHandle();
   const { projectApi } = useWorkspaceStores();
 
@@ -122,10 +93,7 @@ export const WorkspaceMainViewTabs = memo(function WorkspaceMainViewTabs() {
   const hasActiveSheet = Boolean(
     sheet
     && !activePromotedView
-    && !ocrCompareActive
-    && !transcribeCompareActive
-    && !translateCompareActive
-    && !topicCompareActive,
+    && !compareActive,
   );
   const { sheetTabsRef, measureRef: sheetTabsMeasureRef, visibleSheets, overflowSheets } = useSheetTabsOverflow(
     sheets,
@@ -174,10 +142,7 @@ export const WorkspaceMainViewTabs = memo(function WorkspaceMainViewTabs() {
             const active =
               sheet?.id === tabSheet.id &&
               !activePromotedView &&
-              !ocrCompareActive &&
-              !transcribeCompareActive &&
-              !translateCompareActive &&
-              !topicCompareActive;
+              !compareActive;
             const derived = Boolean(tabSheet.parent);
             return (
               <button
@@ -402,158 +367,32 @@ export const WorkspaceMainViewTabs = memo(function WorkspaceMainViewTabs() {
               </span>
             );
           })}
-          {ocrCompareOpen && (
-            <span
-              role="tab"
-              tabIndex={0}
-              className={`workbench-mainView-tab workbench-mainView-promotedTab${
-                ocrCompareActive ? ' active' : ''
-              }`}
-              aria-selected={ocrCompareActive}
-              data-active={ocrCompareActive ? 'true' : undefined}
-              data-testid="ocr-compare-maintab"
-              data-host="mainView"
-              data-mode="tab"
-              onClick={focusOcrCompareTab}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  focusOcrCompareTab();
-                }
-              }}
-            >
-              <ScanText size={13} className="workbench-mainView-tab-glyph" aria-hidden />
-              <span className="workbench-mainView-tab-name workbench-promotedTab-label">
-                OCR compare
+          {COMPARE_TABS.map(({ kind, label, Icon }) => {
+            const tab = compareTabs[kind];
+            if (!tab.open) return null;
+            const title = tab.session.label ?? label;
+            const focus = () => focusCompareTabTransition(workView, compareView, kind);
+            return (
+              <span key={kind} role="tab" tabIndex={0}
+                className={`workbench-mainView-tab workbench-mainView-promotedTab${tab.active ? ' active' : ''}`}
+                aria-selected={tab.active} data-active={tab.active ? 'true' : undefined}
+                data-testid={`${kind}-compare-maintab`} data-host="mainView" data-mode="tab"
+                onClick={focus} onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    focus();
+                  }
+                }}>
+                <Icon size={13} className="workbench-mainView-tab-glyph" aria-hidden />
+                <span className="workbench-mainView-tab-name workbench-promotedTab-label">{title}</span>
+                <button type="button" className="preview-tab-close" aria-label={`Close ${title}`}
+                  data-testid={`${kind}-compare-maintab-close`} onClick={(event) => {
+                    event.stopPropagation();
+                    compareView.requestClose(kind);
+                  }}><X size={13} /></button>
               </span>
-              <button
-                type="button"
-                className="preview-tab-close"
-                aria-label="Close OCR compare"
-                data-testid="ocr-compare-maintab-close"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  requestCloseOcrCompareTab();
-                }}
-              >
-                <X size={13} />
-              </button>
-            </span>
-          )}
-          {transcribeCompareOpen && (
-            <span
-              role="tab"
-              tabIndex={0}
-              className={`workbench-mainView-tab workbench-mainView-promotedTab${
-                transcribeCompareActive ? ' active' : ''
-              }`}
-              aria-selected={transcribeCompareActive}
-              data-active={transcribeCompareActive ? 'true' : undefined}
-              data-testid="transcribe-compare-maintab"
-              data-host="mainView"
-              data-mode="tab"
-              onClick={focusTranscribeCompareTab}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  focusTranscribeCompareTab();
-                }
-              }}
-            >
-              <AudioLines size={13} className="workbench-mainView-tab-glyph" aria-hidden />
-              <span className="workbench-mainView-tab-name workbench-promotedTab-label">
-                Transcribe compare
-              </span>
-              <button
-                type="button"
-                className="preview-tab-close"
-                aria-label="Close Transcribe compare"
-                data-testid="transcribe-compare-maintab-close"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  requestCloseTranscribeCompareTab();
-                }}
-              >
-                <X size={13} />
-              </button>
-            </span>
-          )}
-          {translateCompareOpen && (
-            <span
-              role="tab"
-              tabIndex={0}
-              className={`workbench-mainView-tab workbench-mainView-promotedTab${
-                translateCompareActive ? ' active' : ''
-              }`}
-              aria-selected={translateCompareActive}
-              data-active={translateCompareActive ? 'true' : undefined}
-              data-testid="translate-compare-maintab"
-              data-host="mainView"
-              data-mode="tab"
-              onClick={focusTranslateCompareTab}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  focusTranslateCompareTab();
-                }
-              }}
-            >
-              <Languages size={13} className="workbench-mainView-tab-glyph" aria-hidden />
-              <span className="workbench-mainView-tab-name workbench-promotedTab-label">
-                Translate compare
-              </span>
-              <button
-                type="button"
-                className="preview-tab-close"
-                aria-label="Close Translate compare"
-                data-testid="translate-compare-maintab-close"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  requestCloseTranslateCompareTab();
-                }}
-              >
-                <X size={13} />
-              </button>
-            </span>
-          )}
-          {topicCompareOpen && (
-            <span
-              role="tab"
-              tabIndex={0}
-              className={`workbench-mainView-tab workbench-mainView-promotedTab${
-                topicCompareActive ? ' active' : ''
-              }`}
-              aria-selected={topicCompareActive}
-              data-active={topicCompareActive ? 'true' : undefined}
-              data-testid="topic-compare-maintab"
-              data-host="mainView"
-              data-mode="tab"
-              onClick={focusTopicCompareTab}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  focusTopicCompareTab();
-                }
-              }}
-            >
-              <Rows3 size={13} className="workbench-mainView-tab-glyph" aria-hidden />
-              <span className="workbench-mainView-tab-name workbench-promotedTab-label">
-                Topic compare
-              </span>
-              <button
-                type="button"
-                className="preview-tab-close"
-                aria-label="Close Topic compare"
-                data-testid="topic-compare-maintab-close"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  requestCloseTopicCompareTab();
-                }}
-              >
-                <X size={13} />
-              </button>
-            </span>
-          )}
+            );
+          })}
           <AddSheetButton onClick={openImportDialog} />
         </div>
         {staleDeepestFirst.length > 0 && (

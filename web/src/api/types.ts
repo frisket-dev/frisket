@@ -1874,6 +1874,8 @@ export interface RegisteredActionRequest extends RegisteredActionDraft {
   /** One-run consent to replace compatible generated output columns. Saved
    * action drafts deliberately never carry this destructive invocation fact. */
   replace_existing?: boolean;
+  /** Physical target preconditions for an explicitly restored replacement. */
+  expected_output_columns?: Record<string, number | null>;
 }
 
 function hasRegisteredActionDraftShape(candidate: unknown): candidate is RegisteredActionDraft {

@@ -10,6 +10,7 @@ const KINDS = [
   'transcribe',
   'translate',
   'topic',
+  'action',
 ] as const satisfies readonly CompareKind[];
 const EMPTY_TAB = {
   open: false,

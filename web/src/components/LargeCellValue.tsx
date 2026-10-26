@@ -6,7 +6,9 @@ import { cellValueDownloadUrl, readFullCellValueResource } from '../api/raw/cell
 import { BoundedTextReader, type BoundedTextReaderProps } from './BoundedTextReader';
 
 export function LargeCellValue({ projectId, rowId, columnId, descriptor, textTarget }: {
-  projectId: string; rowId: string; columnId: string; descriptor?: BoundedCellValue; textTarget?: RowTextTarget;
+  projectId: string; rowId: string; columnId: string;
+  descriptor?: Pick<BoundedCellValue, 'retrieval_revision' | 'total_characters' | 'total_bytes'>;
+  textTarget?: RowTextTarget;
 }) {
   const loadWindow = useCallback<BoundedTextReaderProps['loadWindow']>(
     async (options) => {

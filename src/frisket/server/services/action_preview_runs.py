@@ -37,6 +37,7 @@ from frisket.engine.executor import (
     ExecutorDeps,
     resolve_map_preview,
 )
+from frisket.engine.executor.actions import MapPreviewPlan
 from frisket.engine.executor.column_transform_action import ColumnTransformPreviewPlan
 from frisket.engine.executor.action_support import _new_id, _routed_call_provider_use
 from frisket.engine.runner import validation
@@ -88,6 +89,16 @@ from frisket.execution.resolve_for_action import SCRATCH_PREVIEW_UNIT_ID
 from frisket.server.workspace import Workspace
 
 PREVIEW_SCHEMA_VERSION = "frisket.action_preview.v1"
+
+
+def _preview_actor_id(request_context: Any) -> str:
+    if request_context is None:
+        return "local:project"
+    state = getattr(request_context, "state", None)
+    user = getattr(state, "user", None)
+    if isinstance(user, dict) and user.get("id") is not None:
+        return f"user:{int(user['id'])}"
+    return "local:project"
 
 
 @dataclass(frozen=True)
@@ -466,6 +477,7 @@ class ActionPreviewRunService:
         *,
         request_context: Any = None,
         on_finished: Callable[[], None] | None = None,
+        comparison: dict[str, Any] | None = None,
     ) -> ActionPreviewRunResponse:
         kind = action_id_from_request(body) if isinstance(body, dict) else None
         if not action_available_in_edition(kind, self._workspace.edition):
@@ -510,6 +522,15 @@ class ActionPreviewRunService:
             if registered is not None and isinstance(
                 registered.definition.run, CreateSheet
             ):
+                if comparison is not None:
+                    return _error_response(
+                        400,
+                        _preview_error(
+                            "comparison_not_supported",
+                            "Table previews cannot run in row comparison.",
+                            kind,
+                        ),
+                    )
                 typed = (
                     typed_action_for_request(body)
                     if kind in NEW_ACTION_IDS
@@ -553,6 +574,15 @@ class ActionPreviewRunService:
             return _error_response(_status_for_action_error(plan), plan)
 
         if isinstance(plan, ColumnTransformPreviewPlan):
+            if comparison is not None:
+                return _error_response(
+                    400,
+                    _preview_error(
+                        "comparison_not_supported",
+                        "Column transforms cannot run in row comparison.",
+                        kind,
+                    ),
+                )
 
             def run_column_transform(progress_cb, cancel_event) -> PreviewResult:
                 if cancel_event.is_set():
@@ -575,6 +605,32 @@ class ActionPreviewRunService:
                     "total": plan.total,
                 },
             )
+
+        if comparison is not None:
+            if not isinstance(plan, MapPreviewPlan):
+                return _error_response(
+                    400,
+                    _preview_error(
+                        "comparison_not_supported",
+                        "Only row-overlay previews can run in action comparison.",
+                        kind,
+                    ),
+                )
+            from frisket.server.services.action_compare import ActionCompareService
+
+            refusal = ActionCompareService(self._workspace).validate_preview_admission(
+                project_id,
+                action=body,
+                comparison=comparison,
+                plan=plan,
+            )
+            if refusal is not None:
+                return _error_response(
+                    409,
+                    _preview_error(
+                        refusal["code"], refusal["message"], plan.action_kind
+                    ),
+                )
 
         # Compatibility for injected/legacy plan doubles that predate canonical
         # row scopes. Real MapPreviewPlan instances always define the field.
@@ -771,6 +827,8 @@ class ActionPreviewRunService:
                 result = asyncio.run(
                     runner.preview(runner_spec, **program_kwargs, **preview_kwargs)
                 )
+                if comparison is not None:
+                    result.finalize_artifacts()
             except BaseException as exc:
                 failure = exc
                 raise
@@ -817,6 +875,11 @@ class ActionPreviewRunService:
                 **({"receipt": receipt} if receipt is not None else {}),
                 on_finished=on_finished,
                 preparation_message=preparation_message,
+                replacement_key=(
+                    f"action_compare:{_preview_actor_id(request_context)}"
+                    if comparison is not None
+                    else None
+                ),
             )
         except BaseException:
             finish_receipt("failed")
@@ -828,6 +891,31 @@ class ActionPreviewRunService:
                 "preview_id": job.id,
                 "total": total,
             },
+        )
+
+    def start_compare_preview(
+        self,
+        project_id: str,
+        body: dict[str, Any],
+        *,
+        request_context: Any = None,
+    ) -> ActionPreviewRunResponse:
+        action = body.get("action") if isinstance(body, dict) else None
+        comparison = body.get("comparison") if isinstance(body, dict) else None
+        if not isinstance(action, dict) or not isinstance(comparison, dict):
+            return _error_response(
+                400,
+                _preview_error(
+                    "invalid_comparison_request",
+                    "Compare preview requires action and comparison objects.",
+                    None,
+                ),
+            )
+        return self.start_preview(
+            project_id,
+            action,
+            request_context=request_context,
+            comparison=comparison,
         )
 
     def get_preview(self, project_id: str, preview_id: str) -> ActionPreviewRunResponse:
@@ -867,9 +955,12 @@ class ActionPreviewRunService:
         )
 
     def cancel_preview(
-        self, project_id: str, preview_id: str
+        self, project_id: str, preview_id: str, *, discard: bool = False
     ) -> ActionPreviewRunResponse:
         self._workspace.get(project_id)
+        if discard:
+            self._registry.release(project_id, preview_id)
+            return ActionPreviewRunResponse(status_code=204, payload={})
         # Idempotent: cancelling an unknown/finished preview is still a no-op 204.
         self._registry.cancel(project_id, preview_id)
         return ActionPreviewRunResponse(status_code=204, payload={})
@@ -881,7 +972,7 @@ class ActionPreviewRunService:
         if (
             job is None
             or job.status != "done"
-            or not isinstance(result, TablePreviewResult)
+            or not isinstance(result, (TablePreviewResult, PreviewResult))
         ):
             return None
         artifact = result.artifacts.get(artifact_id)
@@ -911,7 +1002,9 @@ def _job_payload(job: PreviewJob) -> dict[str, Any]:
         "progress": progress,
     }
     if job.status == "done" and isinstance(result, PreviewResult):
-        payload["result"] = _preview_result_payload(result)
+        payload["result"] = _preview_result_payload(
+            result, project_id=job.project_id, preview_id=job.id
+        )
     elif job.status == "done" and isinstance(result, TablePreviewResult):
 
         def cell_value(value):
@@ -949,12 +1042,39 @@ def _job_payload(job: PreviewJob) -> dict[str, Any]:
     return payload
 
 
-def _preview_result_payload(result: PreviewResult) -> dict[str, Any]:
+def _preview_result_payload(
+    result: PreviewResult, *, project_id: str, preview_id: str
+) -> dict[str, Any]:
+    from urllib.parse import quote
+    from frisket.engine.runner.preview import PreviewValueArtifact
+
+    rows = {}
+    for row_id, cells in result.values.items():
+        wire_cells = {}
+        for name, raw_cell in cells.items():
+            cell = dict(raw_cell)
+            bounded = cell.get("bounded_value")
+            if isinstance(bounded, PreviewValueArtifact):
+                cell["bounded_value"] = {
+                    "kind": "preview_artifact",
+                    "artifact_id": bounded.id,
+                    "href": (
+                        f"/api/projects/{quote(project_id, safe='')}/actions/v1/preview/"
+                        f"{preview_id}/artifacts/{bounded.id}"
+                    ),
+                    "preview": bounded.preview,
+                    "value_kind": bounded.value_kind,
+                    "total_characters": bounded.total_characters,
+                    "total_bytes": bounded.size,
+                    "truncated": True,
+                }
+            wire_cells[name] = cell
+        rows[str(row_id)] = wire_cells
     payload = {
         "kind": "row_overlay",
         "sheet_id": result.sheet_id,
         "columns": [_preview_column_payload(c) for c in result.columns],
-        "rows": {str(row_id): cells for row_id, cells in result.values.items()},
+        "rows": rows,
         "row_ids": list(result.row_ids),
         "sampled": result.sampled,
         "total": result.total,

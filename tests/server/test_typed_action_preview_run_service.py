@@ -122,6 +122,47 @@ def test_typed_template_preview_uses_explicit_program_without_writes(
     assert validations == 1
 
 
+def test_ordinary_preview_keeps_large_values_inline(tmp_path: Path) -> None:
+    large = "snowman ☃ " * 10_000
+    workspace, sheet_id, row_ids = _seed(
+        tmp_path / "large-ordinary-preview",
+        records=[{"first": "Ada", "last": large}],
+    )
+    service = ActionPreviewRunService(workspace)
+
+    started = service.start_preview(
+        "typed-preview",
+        {
+            "action_id": "map.template",
+            "scope": {
+                "kind": "sheet_rows",
+                "sheet_id": sheet_id,
+                "row_ids": row_ids,
+            },
+            "params": {"template": {"text": "{{last}}"}},
+            "output_names": {"rendered": "large_result"},
+            "idempotency_key": "ordinary-large-preview@1",
+        },
+    )
+    assert started.status_code == 202, started.payload
+
+    result = None
+
+    def preview_finished() -> bool:
+        nonlocal result
+        result = service.get_preview("typed-preview", started.payload["preview_id"])
+        return result.payload["status"] != "running"
+
+    with controlled_time(timeout=5) as clock:
+        clock.wait_until(preview_finished, message="large preview did not finish")
+
+    assert result is not None
+    assert result.payload["status"] == "done", result.payload
+    cell = result.payload["result"]["rows"][str(row_ids[0])]["large_result"]
+    assert cell["value"] == large
+    assert "bounded_value" not in cell
+
+
 def test_opus_preview_derives_first_use_hint_until_normal_row_progress(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

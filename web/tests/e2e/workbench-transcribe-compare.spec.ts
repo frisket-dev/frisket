@@ -1,3 +1,4 @@
+import { actionSelectorResponse, stubActionSelectorChoices } from './selectorChoicesFixture';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -31,11 +32,55 @@ const MEDIA_DIR = path.resolve(process.cwd(), 'tests', 'fixtures', 'media');
 const AUDIO_FIXTURE = readFileSync(path.join(MEDIA_DIR, 'tiny-audio.wav'));
 const VIDEO_FIXTURE = readFileSync(path.join(MEDIA_DIR, 'tiny-video.mp4'));
 
+test.afterEach(async ({ page }) => {
+  await page.unrouteAll({ behavior: 'wait' });
+});
+
 // Three LOCAL engines so adding a third result exercises the same plain-output
 // path,
 // plus a remote engine that exercises the cost gate ONLY (every scratch call is
 // intercepted, so nothing ever reaches a provider).
-async function patchTranscribeCatalog(page: Page) {
+async function patchTranscribeCatalog(page: Page, projectId: string) {
+  const engines = [
+    {
+      id: 'faster_whisper', label: 'Whisper (local)', tier: 'local', available: true,
+      target_id: 'local',
+      targets: [{ target: 'local', target_id: 'local', available: true }],
+    },
+    {
+      id: 'parakeet-tdt', label: 'Parakeet (local)', tier: 'local', available: true,
+      target_id: 'local-onnx',
+      targets: [{ target: 'local-onnx', target_id: 'local-onnx', available: true }],
+    },
+    {
+      id: 'vosk', label: 'Vosk (local)', tier: 'local', available: true,
+      target_id: 'local',
+      targets: [{ target: 'local', target_id: 'local', available: true }],
+    },
+    {
+      id: 'stubprovider/whisper-1',
+      label: 'Stub remote transcription',
+      tier: 'hosted',
+      billable: true,
+      available: true,
+      target_id: 'remote-api:stubprovider',
+      targets: [{
+        target: 'remote-api:stubprovider',
+        target_id: 'remote-api:stubprovider',
+        available: true,
+      }],
+    },
+  ];
+  await stubActionSelectorChoices(page, projectId, ({ actionId, field, params }) =>
+    actionSelectorResponse({
+      projectId, actionId, field,
+      groups: [{ id: 'transcription', label: 'Transcription', choices: engines.map(({ id, label }) => ({
+        choiceId: id, label, authoredSelection: { kind: 'engine', engine: id },
+      })) }],
+      currentChoiceId: typeof params.engine === 'string' && engines.some(({ id }) => id === params.engine)
+        ? params.engine : null,
+    }),
+  );
   await page.route('**/actions/v1/catalog', async (route) => {
     const response = await route.fetch();
     const body = await response.json();
@@ -44,18 +89,7 @@ async function patchTranscribeCatalog(page: Page) {
     );
     if (transcribe) {
       transcribe.ui_hints = transcribe.ui_hints ?? {};
-      transcribe.ui_hints.engines = [
-        { id: 'faster_whisper', label: 'Whisper (local)', tier: 'local', available: true },
-        { id: 'parakeet-tdt', label: 'Parakeet (local)', tier: 'local', available: true },
-        { id: 'vosk', label: 'Vosk (local)', tier: 'local', available: true },
-        {
-          id: 'stubprovider/whisper-1',
-          label: 'Stub remote transcription',
-          tier: 'hosted',
-          billable: true,
-          available: true,
-        },
-      ];
+      transcribe.ui_hints.engines = engines;
     }
     await route.fulfill({
       status: 200,
@@ -230,12 +264,11 @@ async function routeComparison(page: Page, segmentsByEngine = ENGINE_SEGMENTS) {
   return { estimates, starts };
 }
 
-/** The gate is a typed confirmation, not a single click: Run it stays disabled
- * until the operator writes the word, which is the consent step itself. */
+/** The quote has already supplied the server-issued token. The deliberate
+ * Run it click is the consent step; callers assert that no preview started
+ * while the gate was open. */
 async function approveCostGate(page: Page) {
   const confirm = page.getByTestId('cost-gate-confirm');
-  await expect(confirm).toBeDisabled();
-  await page.getByTestId('cost-gate-input').fill('confirm');
   await expect(confirm).toBeEnabled();
   await confirm.click();
 }
@@ -264,6 +297,20 @@ async function dropMedia(page: Page, testid: string, kind: 'audio' | 'video') {
   });
 }
 
+async function chooseTranscribeEngine(page: Page, choiceId: string) {
+  await page.getByTestId('transcribe-compare-configure-engine').click();
+  const dialog = page.getByTestId('engine-selector-dialog');
+  await expect(dialog).toBeVisible();
+  await dialog.locator(`[data-choice-id="${choiceId}"]`).click();
+  await expect(dialog).toBeHidden();
+}
+
+async function addTranscribeEngine(page: Page, choiceId: string) {
+  await page.getByTestId('transcribe-compare-add-engine').click();
+  await expect(page.getByTestId('transcribe-compare-configure')).toBeVisible();
+  await chooseTranscribeEngine(page, choiceId);
+}
+
 test('ribbon opens the scratch Transcribe Compare tab; audio AND video docs render with a player peek', async ({
   page,
 }) => {
@@ -272,16 +319,21 @@ test('ribbon opens the scratch Transcribe Compare tab; audio AND video docs rend
   const sheetsBefore = await listSheets(page.request, pid);
   const rowsBefore = (await sheetData(page.request, pid, sheetId, 0, 50)).rows.length;
 
-  await patchTranscribeCatalog(page);
+  await patchTranscribeCatalog(page, pid);
   const { estimates, starts } = await routeComparison(page);
 
   // Guard: nothing durable is written during a scratch session.
   const durableWrites: string[] = [];
-  for (const pattern of [
-    '**/api/projects/*/import/**',
-    '**/api/projects/*/actions/v1/run',
-    '**/api/projects/*/rows',
-  ]) {
+  await page.route('**/api/projects/*/import/**', async (route) => {
+    const pathname = new URL(route.request().url()).pathname;
+    if (pathname === `/api/projects/${pid}/import/files/sessions`) {
+      await route.fallback();
+      return;
+    }
+    durableWrites.push(route.request().url());
+    await route.fulfill({ status: 500, body: 'no durable imports in scratch' });
+  });
+  for (const pattern of ['**/api/projects/*/actions/v1/run', '**/api/projects/*/rows']) {
     await page.route(pattern, async (route) => {
       durableWrites.push(route.request().url());
       await route.fulfill({ status: 500, body: 'no durable writes in scratch' });
@@ -340,7 +392,7 @@ test('ribbon opens the scratch Transcribe Compare tab; audio AND video docs rend
 test('renders long transcripts without diff highlighting and lets each result scroll independently', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('tc-scroll'));
   const sheetId = await importCsv(page.request, pid, 'alpha.csv', 'name\nAlpha\n');
-  await patchTranscribeCatalog(page);
+  await patchTranscribeCatalog(page, pid);
   await routeComparison(page, LONG_ENGINE_SEGMENTS);
   await openProject(page, pid, sheetId);
   await openTranscribeCompare(page);
@@ -380,7 +432,7 @@ test('plain transcript results leave source playback under the operator’s cont
 }) => {
   const pid = await createProject(page.request, uniqueName('tc-source'));
   const sheetId = await importCsv(page.request, pid, 'alpha.csv', 'name\nAlpha\n');
-  await patchTranscribeCatalog(page);
+  await patchTranscribeCatalog(page, pid);
   await routeComparison(page);
   await openProject(page, pid, sheetId);
   await openTranscribeCompare(page);
@@ -400,7 +452,7 @@ test('adding or removing engines keeps every transcript as plain output', async 
 }) => {
   const pid = await createProject(page.request, uniqueName('tc-plain'));
   const sheetId = await importCsv(page.request, pid, 'alpha.csv', 'name\nAlpha\n');
-  await patchTranscribeCatalog(page);
+  await patchTranscribeCatalog(page, pid);
   await routeComparison(page);
   await openProject(page, pid, sheetId);
   await openTranscribeCompare(page);
@@ -410,8 +462,7 @@ test('adding or removing engines keeps every transcript as plain output', async 
   await expect(page.getByTestId('transcribe-compare-mode-switch')).toHaveCount(0);
   await expect(page.getByTestId('transcribe-compare-diff-token')).toHaveCount(0);
 
-  await page.getByTestId('transcribe-compare-add-engine').click();
-  await page.getByTestId('transcribe-compare-add-engine-option-vosk').click();
+  await addTranscribeEngine(page, 'vosk');
   await expect(page.getByTestId('transcribe-compare-engine-column')).toHaveCount(3);
   // The third candidate is configured but unrun until asked for.
   await runComparison(page, 3);
@@ -427,7 +478,7 @@ test('adding or removing engines keeps every transcript as plain output', async 
 test('votes cycle per document; doc list marks + footer tally update', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('tc-votes'));
   const sheetId = await importCsv(page.request, pid, 'alpha.csv', 'name\nAlpha\n');
-  await patchTranscribeCatalog(page);
+  await patchTranscribeCatalog(page, pid);
   await routeComparison(page);
   await openProject(page, pid, sheetId);
   await openTranscribeCompare(page);
@@ -458,7 +509,7 @@ test('closing the tab warns that scratch votes/text are discarded (verdict copya
 }) => {
   const pid = await createProject(page.request, uniqueName('tc-discard'));
   const sheetId = await importCsv(page.request, pid, 'alpha.csv', 'name\nAlpha\n');
-  await patchTranscribeCatalog(page);
+  await patchTranscribeCatalog(page, pid);
   await routeComparison(page);
   await openProject(page, pid, sheetId);
   await openTranscribeCompare(page);
@@ -487,55 +538,51 @@ test('no-drift: the transcribe action form and the compare tab render the identi
 }) => {
   const pid = await createProject(page.request, uniqueName('tc-nodrift'));
   const sheetId = await importCsv(page.request, pid, 'alpha.csv', 'name\nAlpha\n');
-  await patchTranscribeCatalog(page);
+  await patchTranscribeCatalog(page, pid);
   await routeComparison(page);
   await openProject(page, pid, sheetId);
 
-  // Surface 1: the transcribe action's visible engine picker.
+  // Surface 1: the transcribe action's shared engine selector.
   await openAction(page, 'media.transcribe');
   await expect(page.getByTestId('action-panel')).toBeVisible();
-  await page.getByTestId('engine-picker-button').click();
-  const tierButtons = page.locator('button[data-testid^="engine-picker-tier-"]');
-  let formEngineCount = 0;
-  for (let index = 0; index < await tierButtons.count(); index += 1) {
-    await tierButtons.nth(index).click();
-    formEngineCount += await page.locator('button[data-testid^="engine-option-"]').count();
-  }
+  await page.getByTestId('field-engine').locator('.engine-selector__trigger').click();
+  const formSelector = page.getByTestId('engine-selector-dialog');
+  await expect(formSelector).toBeVisible();
+  const formEngineIds = await formSelector.locator('[data-choice-id]').evaluateAll(
+    (choices) => choices.map((choice) => choice.getAttribute('data-choice-id') ?? '').sort(),
+  );
+  await page.keyboard.press('Escape');
+  await expect(formSelector).toBeHidden();
 
-  // Surface 2: the compare tab's chips + add-engine menu (multi-pick).
+  // Surface 2: the compare tab's shared selector for a new variant.
   await openTranscribeCompare(page);
-  const chipIds = await page
+  const configuredEngineIds = await page
     .getByTestId('transcribe-compare-engine-chip')
     .evaluateAll((chips) => chips.map((chip) => chip.getAttribute('data-engine-id') ?? ''));
   await page.getByTestId('transcribe-compare-add-engine').click();
-  await expect(page.getByTestId('transcribe-compare-add-menu')).toBeVisible();
-  const menuIds = await page
-    .locator('[data-testid^="transcribe-compare-add-engine-option-"]')
-    .evaluateAll((options) => options.map((option) => option.getAttribute('data-engine-id') ?? ''));
-
-  const tabEngineIds = [...chipIds, ...menuIds];
+  await page.getByTestId('transcribe-compare-configure-engine').click();
+  const selector = page.getByTestId('engine-selector-dialog');
+  await expect(selector).toBeVisible();
+  const remainingEngineIds = await selector.locator('[data-choice-id]').evaluateAll(
+    (choices) => choices.map((choice) => choice.getAttribute('data-choice-id') ?? ''),
+  );
+  const tabEngineIds = [...configuredEngineIds, ...remainingEngineIds].sort();
   expect(tabEngineIds.length).toBeGreaterThan(0);
-  expect(formEngineCount).toBe(tabEngineIds.length);
-
-  await openAction(page, 'media.transcribe');
-  await page.getByTestId('engine-picker-button').click();
-  const search = page.getByTestId('engine-picker-search');
-  for (const engineId of tabEngineIds) {
-    await search.fill(engineId);
-    await expect(page.locator('button[data-testid^="engine-option-"]')).toHaveCount(1);
-  }
+  expect(formEngineIds).toEqual(tabEngineIds);
+  await page.keyboard.press('Escape');
+  await expect(selector).toBeHidden();
+  await page.keyboard.press('Escape');
 });
 
-// Billable -> run; not billable -> preview. This tab AUTO-RUNS on drop, which
-// is exactly why a billable engine must not be selectable here: the old flow
-// let one session-wide "allow" turn every subsequent drop into unrecorded
-// spend. The engine is now absent from the add menu entirely.
+// Billable engines are configurable without spending. The explicit Run
+// comparison action quotes every variant before the cost gate can release any
+// preview start.
 test('a billable engine is offered, and spends only through the cost gate', async ({
   page,
 }) => {
   const pid = await createProject(page.request, uniqueName('tc-billable'));
   const sheetId = await importCsv(page.request, pid, 'alpha.csv', 'name\nAlpha\n');
-  await patchTranscribeCatalog(page);
+  await patchTranscribeCatalog(page, pid);
   const { estimates, starts } = await routeComparison(page);
   await openProject(page, pid, sheetId);
   await openTranscribeCompare(page);
@@ -543,10 +590,7 @@ test('a billable engine is offered, and spends only through the cost gate', asyn
 
   // The whole catalog is offered now; the gate, not omission, is what stands
   // between the operator and a paid engine.
-  await page.getByTestId('transcribe-compare-add-engine').click();
-  await page
-    .getByTestId(`transcribe-compare-add-engine-option-${REMOTE_ENGINE}`)
-    .click();
+  await addTranscribeEngine(page, REMOTE_ENGINE);
   await expect(page.getByTestId('transcribe-compare-engine-column')).toHaveCount(3);
 
   // Still nothing spent: adding the engine only configures a candidate.

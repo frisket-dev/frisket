@@ -11,6 +11,7 @@ from frisket.ops.base import RECIPE_INVOCATION_HALT_CODES, RecipeInvocationHalt
 from frisket.engine.sandbox.shim import SandboxTeardownError
 from frisket.redaction import safe_error
 from frisket.contracts.action import Receipt
+from frisket.engine.runner.preview import PreviewScratchLimitExceeded
 
 LOG = logging.getLogger("frisket.server")
 
@@ -222,6 +223,15 @@ class ActionPreviewJobRegistry:
                         ),
                     },
                 )
+            return
+        except PreviewScratchLimitExceeded as exc:
+            with self._lock:
+                job.status = "error"
+                job.error = {
+                    "code": "preview_size_limit",
+                    "message": str(exc),
+                }
+                job.finished_at = time.monotonic()
             return
         except BaseException as exc:  # noqa: BLE001 - any escape terminates the job
             safe = safe_error("preview_failed", exc, max_chars=500)

@@ -53,6 +53,8 @@ function FieldRow({
   showRequired = false,
   required = false,
   readOnly = false,
+  structureLocked = false,
+  lockReason,
   deleteDisabled = false,
   rowTestId,
   nameTestId,
@@ -83,6 +85,9 @@ function FieldRow({
    *  recipe output contract): name/type/description render as static text and
    *  there is no delete affordance — the action owns its outputs. */
   readOnly?: boolean;
+  /** Keep the typed output shape fixed while descriptions remain editable. */
+  structureLocked?: boolean;
+  lockReason?: string;
   deleteDisabled?: boolean;
   rowTestId?: string;
   nameTestId?: string;
@@ -129,6 +134,8 @@ function FieldRow({
               value={name}
               placeholder={namePlaceholder}
               aria-label={`${ariaLabel} name`}
+              disabled={structureLocked}
+              title={structureLocked ? lockReason : undefined}
               onChange={(e) => onNameChange(e.target.value)}
             />
             {showRequired && <Button
@@ -138,8 +145,11 @@ function FieldRow({
               data-testid={requiredTestId}
               aria-pressed={required}
               aria-label={`${ariaLabel} required`}
+              disabled={structureLocked}
               title={
-                required
+                structureLocked
+                  ? lockReason
+                  : required
                   ? 'Required — the model must find this or the field is flagged'
                   : 'Optional — click to require this field'
               }
@@ -153,6 +163,8 @@ function FieldRow({
           testId={typeTestId}
           value={type}
           ariaLabel={`${ariaLabel} type`}
+          disabled={structureLocked}
+          title={structureLocked ? lockReason : undefined}
           onValueChange={onTypeChange}
           options={typeOptions.map((t) => ({ value: t, label: t }))}
         />
@@ -162,7 +174,8 @@ function FieldRow({
           icon={Trash2}
           data-testid={deleteTestId}
           label={`Remove ${ariaLabel}`}
-          disabled={deleteDisabled}
+          disabled={deleteDisabled || structureLocked}
+          title={structureLocked ? lockReason : undefined}
           onClick={onDelete}
         />
       )}
@@ -188,6 +201,8 @@ export function OutputFieldsEditor({
   actionKind,
   usesFieldNameDestination,
   outputFieldsReadOnly,
+  structureLocked = false,
+  lockReason = 'Fixed for this comparison.',
   onFieldsChange, labelError, onLabelInteraction,
   onLabelsRawChange,
   fieldTypes = actionFieldTypes,
@@ -204,6 +219,9 @@ export function OutputFieldsEditor({
   usesFieldNameDestination: boolean;
   /** Declared (non-user-defined) output columns render read-only. */
   outputFieldsReadOnly: boolean;
+  /** Comparison/Replace freezes names, types, labels, and nested schema. */
+  structureLocked?: boolean;
+  lockReason?: string;
   onFieldsChange(update: (previous: EditableOutputField[]) => EditableOutputField[]): void;
   onLabelsRawChange(update: (previous: Record<string, string>) => Record<string, string>): void;
   /** Classify routes a nested server path to one labels textarea. */
@@ -282,7 +300,8 @@ export function OutputFieldsEditor({
           {usesFieldNameDestination ? 'Output details' : 'Columns it creates'}
         </span>
         <div className="control-row">
-          {!usesFieldNameDestination && !outputFieldsReadOnly && (maxFields === undefined || fields.length < maxFields) && (
+          {!usesFieldNameDestination && !outputFieldsReadOnly && !structureLocked
+            && (maxFields === undefined || fields.length < maxFields) && (
             <Button
               type="button"
 
@@ -317,13 +336,15 @@ export function OutputFieldsEditor({
               // Classify always writes one category column — no name/type/delete.
               showName={!usesFieldNameDestination}
               showType={!usesFieldNameDestination}
-              showDelete={!usesFieldNameDestination && !outputFieldsReadOnly}
+              showDelete={!usesFieldNameDestination && !outputFieldsReadOnly && !structureLocked}
               // Extract's per-field required toggle: only where a user actually
               // defines the output fields (not classify's name-destination row,
               // not declared read-only outputs).
               showRequired={actionKind === 'map.extract' && !usesFieldNameDestination && !outputFieldsReadOnly}
               required={f.required ?? false}
               readOnly={outputFieldsReadOnly}
+              structureLocked={structureLocked}
+              lockReason={lockReason}
               deleteDisabled={fields.length <= minFields}
               rowTestId="output-field-row"
               nameTestId="output-field-name"
@@ -347,6 +368,8 @@ export function OutputFieldsEditor({
                   aria-label={`Field ${i + 1} labels`}
                   aria-describedby={labelError?.fieldIndex === i ? `classify-labels-error-${f.uiId}` : undefined}
                   rows={2}
+                  disabled={structureLocked}
+                  title={structureLocked ? lockReason : undefined}
                   ref={resizeTextareaToContent}
                   onInput={handleAutoResizeTextareaInput}
                   onFocus={() => onLabelInteraction?.(i)}
@@ -408,6 +431,8 @@ export function OutputFieldsEditor({
                     testId="list-item-kind"
                     ariaLabel={`Field ${i + 1} list item shape`}
                     value={f.itemMode}
+                    disabled={structureLocked}
+                    title={structureLocked ? lockReason : undefined}
                     onValueChange={(value) => setFieldItemMode(f.uiId, value as ItemMode)}
                     options={[
                       { value: 'object', label: 'Object with typed fields' },
@@ -427,6 +452,8 @@ export function OutputFieldsEditor({
                         description={item.description}
                         typeOptions={actionListItemFieldTypes}
                         ariaLabel={`List item field ${itemIndex + 1}`}
+                        structureLocked={structureLocked}
+                        lockReason={lockReason}
                         namePlaceholder="field"
                         descPlaceholder="description"
                         deleteDisabled={f.itemFields.length <= 1}
@@ -443,6 +470,8 @@ export function OutputFieldsEditor({
                     <Button
                       type="button"
                       data-testid="list-item-field-add"
+                      disabled={structureLocked}
+                      title={structureLocked ? lockReason : undefined}
                       onClick={() => addItemField(f.uiId)}
                     >
                       <Plus size={12} /> item field
@@ -454,12 +483,12 @@ export function OutputFieldsEditor({
           </div>
         ))}
       </div>
-      {actionKind === 'map.extract' && (
+      {!structureLocked && actionKind === 'map.extract' && (
         <p className="form-hint" data-testid="action-output-summary">
           Multiple columns are filled from one structured call per row.
         </p>
       )}
-      {actionKind !== 'map.extract' && !usesFieldNameDestination && !outputFieldsReadOnly && fields.length > 1 && (
+      {!structureLocked && actionKind !== 'map.extract' && !usesFieldNameDestination && !outputFieldsReadOnly && fields.length > 1 && (
         <p className="form-hint">Multiple fields = one structured call per row, never N calls.</p>
       )}
     </>

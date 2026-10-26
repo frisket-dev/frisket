@@ -18,6 +18,9 @@ interface GeneratedActionBodyContext {
   onParamInteraction?(name: string): void;
   onNavigateToAction?(actionKind: string, sourceColumn?: string): void;
   sampleColumnValues?(columnId: string): string[];
+  /** Comparison and replacement keep the semantic output shape fixed. */
+  structureLocked?: boolean;
+  lockReason?: string;
 }
 
 export type GeneratedActionParamsBodyProps<K extends keyof GeneratedActionParams> =

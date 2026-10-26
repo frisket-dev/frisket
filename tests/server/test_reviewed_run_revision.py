@@ -77,6 +77,56 @@ def test_revision_reuses_config_on_exact_reviewed_rows_without_authorization(
     }
 
 
+def test_revision_reuses_reviewed_rows_while_producer_is_running(
+    tmp_path: Path,
+) -> None:
+    workspace, project, _sheet_id, row_ids, run_id, output_id = _completed_template_run(
+        tmp_path / "workspace"
+    )
+    RunResultStore(project).set_result_review_metadata(
+        run_id, row_ids[0], output_id, "accept", None
+    )
+    with project.db:
+        project.db.execute(
+            "UPDATE runs SET status='running' WHERE id=?",
+            (run_id,),
+        )
+        project.db.execute(
+            "UPDATE receipts SET status='running' WHERE run_id=?",
+            (run_id,),
+        )
+
+    response = ColumnRunHistoryService(workspace).reviewed_run_revision(
+        "reviewed-revision", output_id, run_id
+    )
+
+    assert response["draft"]["scope"]["row_ids"] == [row_ids[0]]
+    assert response["draft"]["params"] == {"template": {"text": "Hello {{name}}"}}
+
+
+def test_revision_reuses_historical_spec_after_receipt_hash_evolves(
+    tmp_path: Path,
+) -> None:
+    workspace, project, _sheet_id, row_ids, run_id, output_id = _completed_template_run(
+        tmp_path / "workspace"
+    )
+    RunResultStore(project).set_result_review_metadata(
+        run_id, row_ids[1], output_id, "reject", None
+    )
+    with project.db:
+        project.db.execute(
+            "UPDATE receipts SET params_hash=? WHERE run_id=?",
+            ("sha256:" + "0" * 64, run_id),
+        )
+
+    response = ColumnRunHistoryService(workspace).reviewed_run_revision(
+        "reviewed-revision", output_id, run_id
+    )
+
+    assert response["draft"]["scope"]["row_ids"] == [row_ids[1]]
+    assert response["draft"]["output_names"] == {"rendered": "greeting"}
+
+
 def test_revision_requires_a_reviewed_result(tmp_path: Path) -> None:
     workspace, _project, _sheet_id, _rows, run_id, output_id = _completed_template_run(
         tmp_path / "workspace"

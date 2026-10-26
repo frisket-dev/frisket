@@ -1,0 +1,383 @@
+import { execFileSync } from 'node:child_process';
+import { mkdirSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+import { expect, test, type Page } from '@playwright/test';
+import { expectComparisonCell } from './actionCompareHelpers';
+
+import {
+  clickHeaderMenu,
+  clickRunButton,
+  createProject,
+  importCsv,
+  openProject,
+  runAndWait,
+  selectRow,
+  sheetColumns,
+  sheetData,
+  uniqueName,
+  type WireColumn,
+} from './helpers';
+import {
+  exposeReplayModel,
+  prepareOwnModelReplay,
+  REPLAY_MODEL as MODEL,
+} from './replayModelScenario';
+
+test.use({ deviceScaleFactor: 2 });
+
+const ARTIFACT_DIR = process.env.FRISKET_COMPARE_SCREENSHOTS
+  ?? path.resolve('screenshots/action-compare-connected');
+const PROMPT_A = 'Classify each local news item by its primary subject.';
+const PROMPT_B = 'Classify each local news item conservatively; use other unless the subject is explicit.';
+const LABELS = ['transit', 'money', 'other'];
+const CSV = `snippet
+"The transit authority cut weekend bus service."
+"A council member's spouse won a city contract."
+"The county fair opened with record attendance."
+`;
+const REPO_ROOT = path.basename(process.cwd()) === 'web'
+  ? path.resolve(process.cwd(), '..')
+  : process.cwd();
+const PYTHON = process.env.FRISKET_E2E_PYTHON
+  ?? path.join(REPO_ROOT, '.venv/bin/python');
+
+function classifyAction(sheetId: number, prompt: string, idempotencyKey: string) {
+  return {
+    action_id: 'map.classify',
+    scope: { kind: 'sheet_rows' as const, sheet_id: sheetId },
+    params: {
+      source: ['snippet'],
+      engine: 'llm',
+      model: MODEL,
+      context: prompt,
+      fields: [{ name: 'topic', type: 'category', labels: LABELS }],
+      include_justification: false,
+      include_confidence: false,
+    },
+    output_names: { topic: 'topic' },
+    idempotency_key: idempotencyKey,
+  };
+}
+
+/** Prime the exact typed map plan used by both a persisted run and a scratch
+ * comparison preview. replay_strict then proves every model-shaped call is a
+ * cache hit while the HTTP/action/worker path remains the real application. */
+function primeClassifyCache(
+  pid: string,
+  sheetId: number,
+  prompt: string,
+  topics: string[],
+): void {
+  const workspace = process.env.FRISKET_E2E_WS
+    ?? path.join(os.homedir(), '.frisket/e2e-ws');
+  const script = `
+import json
+import sys
+from pathlib import Path
+from frisket.actions.system import typed_action_for_request
+from frisket.ai.llm import LLMRequest, LLMResponse, ResponseCache, request_key
+from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
+from frisket.engine.store import Project
+
+workspace, pid, sheet_id_raw, model, prompt, labels_raw, topics_raw = sys.argv[1:]
+sheet_id = int(sheet_id_raw)
+labels = json.loads(labels_raw)
+topics = json.loads(topics_raw)
+project = Project(Path(workspace) / f"{pid}.frisket")
+try:
+    action = {
+        "action_id": "map.classify",
+        "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
+        "params": {
+            "source": ["snippet"],
+            "engine": "llm",
+            "model": model,
+            "context": prompt,
+            "fields": [{"name": "topic", "type": "category", "labels": labels}],
+            "include_justification": False,
+            "include_confidence": False,
+        },
+        "output_names": {"topic": "topic"},
+        "idempotency_key": "action-compare-connected-cache-prime",
+    }
+    plan = build_typed_map_rows_plan(project, typed_action_for_request(action))
+    spec = plan.spec_dict()
+    columns = {column["name"]: column["id"] for column in project.columns(sheet_id)}
+    source_values = project.get_values(sheet_id, columns["snippet"])
+    row_ids = project.visible_row_ids(sheet_id)
+    if len(row_ids) != len(topics):
+        raise RuntimeError(f"expected {len(row_ids)} topics, received {len(topics)}")
+    cache = ResponseCache(project.path / "project.cache.db")
+    try:
+        for row_id, topic in zip(row_ids, topics, strict=True):
+            call = plan.program.render({"snippet": source_values.get(row_id)}, spec)
+            request = LLMRequest(
+                model=spec["model"],
+                messages=call.messages,
+                schema=call.schema,
+                max_tokens=call.max_tokens,
+            )
+            data = {"topic": topic}
+            cache.put(
+                request_key(request, plan.program.version),
+                LLMResponse(
+                    content=json.dumps(data),
+                    data=data,
+                    tokens_in=24,
+                    tokens_out=4,
+                    cost=0.0,
+                    model=spec["model"],
+                ),
+            )
+    finally:
+        cache.close()
+finally:
+    project.close()
+`;
+  execFileSync(PYTHON, [
+    '-c', script, workspace, pid, String(sheetId), MODEL, prompt,
+    JSON.stringify(LABELS), JSON.stringify(topics),
+  ], {
+    cwd: REPO_ROOT,
+    stdio: 'pipe',
+    timeout: 60_000,
+    env: { ...process.env, PYTHONPATH: path.join(REPO_ROOT, 'src') },
+  });
+}
+
+async function shoot(page: Page, name: string): Promise<void> {
+  mkdirSync(ARTIFACT_DIR, { recursive: true });
+  await page.screenshot({
+    path: path.join(ARTIFACT_DIR, name),
+    animations: 'disabled',
+    fullPage: true,
+  });
+}
+
+async function approveCostGateIfShown(page: Page): Promise<void> {
+  const gate = page.getByTestId('cost-gate-modal');
+  if (!await gate.isVisible({ timeout: 1_000 }).catch(() => false)) return;
+  await page.getByTestId('cost-gate-input').fill('confirm');
+  await page.getByTestId('cost-gate-confirm').click();
+}
+
+async function topicValues(
+  page: Page,
+  pid: string,
+  sheetId: number,
+  topicColumnId: number,
+  count: number,
+): Promise<unknown[]> {
+  const data = await sheetData(page.request, pid, sheetId, 0, count);
+  return data.rows.map((row) => row.cells[String(topicColumnId)]);
+}
+
+async function chooseCompareFromColumnMenu(
+  page: Page,
+  columns: WireColumn[],
+  columnName: string,
+): Promise<void> {
+  await clickHeaderMenu(page, columns, columnName);
+  await expect(page.getByTestId('header-menu-action-run-section')).toBeVisible();
+  await page.getByTestId('header-menu-compare-action-run').click();
+  await expect(page.getByTestId('action-compare-toolbar')).toBeVisible({ timeout: 20_000 });
+}
+
+async function selectEveryRow(page: Page): Promise<void> {
+  const grid = page.getByTestId('grid');
+  const box = await grid.boundingBox();
+  if (!box) throw new Error('grid is not visible');
+  const groupHeight = Number(await grid.getAttribute('data-group-header-height') ?? 0);
+  // Glide's top-left row-marker checkbox toggles the full current row set.
+  await page.mouse.click(box.x + 20, box.y + groupHeight + 17);
+}
+
+test.describe('connected action comparison', () => {
+  test('compares a real run, applies replacement settings, and undoes them', async ({ page }) => {
+    test.setTimeout(120_000);
+    const pid = await createProject(page.request, uniqueName('e2e-action-compare-connected'));
+    await prepareOwnModelReplay(page.request, pid);
+    await exposeReplayModel(page, pid);
+    const sheetId = await importCsv(page.request, pid, 'local-news.csv', CSV);
+    const baseline = ['transit', 'money', 'other'];
+    const challenger = ['other', 'other', 'other'];
+    primeClassifyCache(pid, sheetId, PROMPT_A, baseline);
+    primeClassifyCache(pid, sheetId, PROMPT_B, challenger);
+
+    const baselineRunId = await runAndWait(
+      page.request,
+      pid,
+      classifyAction(sheetId, PROMPT_A, `action-compare-baseline:${pid}`),
+    );
+    await openProject(page, pid, sheetId);
+    await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
+    expect(await page.evaluate(async () => (
+      await document.fonts.load('500 13px "IBM Plex Sans"')
+    ).filter((font) => font.status === 'loaded').length)).toBeGreaterThan(0);
+    const columns = await sheetColumns(page.request, pid, sheetId);
+    const topic = columns.find((column) => column.name === 'topic');
+    expect(topic).toBeTruthy();
+    expect(await topicValues(page, pid, sheetId, topic!.id, 3)).toEqual(baseline);
+
+    // A single-output run has no native column group. Its generated-column
+    // menu remains the provenance and comparison entry point.
+    await clickHeaderMenu(page, columns, 'topic');
+    await expect(page.getByTestId('header-menu-action-run-section')).toContainText('Classify');
+    await expect(page.getByTestId('header-menu-compare-action-run')).toBeVisible();
+    await expect(page.getByTestId('header-menu-edit-action-run')).toHaveCount(0);
+    await expect(page.getByTestId('header-menu-earlier-action-runs')).toHaveCount(0);
+    await shoot(page, '01-column-menu.png');
+
+    await page.getByTestId('header-menu-compare-action-run').click();
+    await expect(page.getByTestId('action-compare-sample-count')).toHaveText('3 sample rows');
+    await expect(page.getByTestId('action-compare-variant-A')).toContainText('in table');
+    await shoot(page, '03-current-values.png');
+
+    await page.getByRole('button', { name: 'Variant', exact: true }).click();
+    const editor = page.getByRole('complementary', { name: 'Configure variant B' });
+    await expect(editor).toBeVisible();
+    await editor.getByTestId('field-context').fill(PROMPT_B);
+    await shoot(page, '04-variant-editor.png');
+    await editor.getByRole('button', { name: 'Close variant editor' }).click();
+
+    await page.getByRole('button', { name: 'Run comparison', exact: true }).click();
+    await approveCostGateIfShown(page);
+    const variantB = page.getByTestId('action-compare-variant-B');
+    await expect(variantB).toContainText('ready', { timeout: 60_000 });
+    await expectComparisonCell(page, 0, 0, 'transit');
+    await expectComparisonCell(page, 1, 0, 'other');
+    await shoot(page, '05-preview-results.png');
+
+    await page.getByRole('button', { name: 'Use settings from variant B' }).click();
+    const replacementForm = page.getByTestId('generated-action-form');
+    await expect(replacementForm).toBeVisible();
+    await expect(replacementForm.getByRole('button', { name: 'Replace columns', exact: true })).toBeVisible();
+    await expect(replacementForm.getByTestId('field-context')).toHaveValue(PROMPT_B);
+    const historyButton = await page.getByTestId('action-history-button').boundingBox();
+    const closeButton = await page.getByTestId('action-drawer-close').boundingBox();
+    expect(Math.abs(historyButton!.y - closeButton!.y)).toBeLessThan(3);
+    await page.getByTestId('action-history-button').click();
+    const history = page.getByTestId('action-compare-history-menu');
+    await expect(history).toBeVisible();
+    await expect(history.getByTestId(`action-compare-history-choose-${baselineRunId}`)).toBeVisible();
+    await shoot(page, '02-earlier-runs.png');
+    await page.keyboard.press('Escape');
+    await expect(history).toHaveCount(0);
+    await page.getByTestId('action-history-button').click();
+    await page.getByTestId(`action-compare-history-choose-${baselineRunId}`).click();
+    await expect(history).toHaveCount(0);
+    await expect(replacementForm.getByTestId('field-context')).toHaveValue(PROMPT_A);
+    expect(await topicValues(page, pid, sheetId, topic!.id, 3)).toEqual(baseline);
+    await page.getByTestId('action-drawer-close').click();
+    await expect(replacementForm).toHaveCount(0);
+    await page.getByRole('button', { name: 'Use settings from variant B' }).click();
+    await expect(replacementForm.getByTestId('field-context')).toHaveValue(PROMPT_B);
+    await expect(replacementForm.getByRole('button', { name: 'Replace columns', exact: true })).toBeEnabled();
+    await shoot(page, '06-replace-settings.png');
+
+    await clickRunButton(page);
+    await expect(page.getByTestId('run-progress')).toContainText('complete', { timeout: 60_000 });
+    await expect.poll(
+      () => topicValues(page, pid, sheetId, topic!.id, 3),
+      { timeout: 20_000 },
+    ).toEqual(challenger);
+    await shoot(page, '07-replaced-grid.png');
+
+    await expect(page.getByTestId('undo-button')).toBeEnabled();
+    await page.getByTestId('undo-button').click();
+    await expect.poll(
+      () => topicValues(page, pid, sheetId, topic!.id, 3),
+      { timeout: 20_000 },
+    ).toEqual(baseline);
+    await shoot(page, '08-undone-grid.png');
+  });
+
+  test('samples defaults and replaces only an explicit captured selection with Undo', async ({ page }) => {
+    test.setTimeout(120_000);
+    const pid = await createProject(page.request, uniqueName('e2e-action-compare-selection'));
+    await prepareOwnModelReplay(page.request, pid);
+    await exposeReplayModel(page, pid);
+    const csv = `snippet\n${Array.from(
+      { length: 25 },
+      (_, index) => `"selection row ${index + 1}"`,
+    ).join('\n')}\n`;
+    const sheetId = await importCsv(page.request, pid, 'selection.csv', csv);
+    primeClassifyCache(pid, sheetId, PROMPT_A, Array(25).fill('other'));
+    primeClassifyCache(pid, sheetId, PROMPT_B, Array(25).fill('transit'));
+    await runAndWait(
+      page.request,
+      pid,
+      classifyAction(sheetId, PROMPT_A, `action-compare-selection:${pid}`),
+    );
+    await openProject(page, pid, sheetId);
+    const columns = await sheetColumns(page.request, pid, sheetId);
+
+    await chooseCompareFromColumnMenu(page, columns, 'topic');
+    await expect(page.getByTestId('action-compare-sample-count')).toHaveText('20 sample rows');
+    await shoot(page, '10-default-sample.png');
+    await page.getByTestId('action-compare-maintab-close').click();
+    await expect(page.getByTestId('action-compare-toolbar')).toHaveCount(0);
+
+    await selectEveryRow(page);
+    await expect.poll(async () => page.evaluate(() => (
+      window as typeof window & { __frisketGridSelection?: { rows: number[] } }
+    ).__frisketGridSelection?.rows.length ?? 0)).toBe(25);
+    await chooseCompareFromColumnMenu(page, columns, 'topic');
+    await expect(page.getByTestId('action-compare-sample-count'))
+      .toHaveText('20 of 25 selected rows');
+    await shoot(page, '11-captured-selection.png');
+    await page.getByTestId('action-compare-maintab-close').click();
+    await expect(page.getByTestId('action-compare-toolbar')).toHaveCount(0);
+
+    await expect.poll(async () => page.evaluate(() => (
+      window as typeof window & { __frisketGridSelection?: { rows: number[] } }
+    ).__frisketGridSelection?.rows.length ?? 0)).toBe(0);
+    await selectRow(page, 0);
+    await selectRow(page, 2);
+    await expect.poll(async () => page.evaluate(() => (
+      window as typeof window & { __frisketGridSelection?: { rows: number[] } }
+    ).__frisketGridSelection?.rows.length ?? 0)).toBe(2);
+    await chooseCompareFromColumnMenu(page, columns, 'topic');
+    await expect(page.getByTestId('action-compare-sample-count'))
+      .toHaveText('2 sample rows');
+
+    await page.getByRole('button', { name: 'Variant', exact: true }).click();
+    const editor = page.getByRole('complementary', { name: 'Configure variant B' });
+    await editor.getByTestId('field-context').fill(PROMPT_B);
+    await editor.getByRole('button', { name: 'Close variant editor' }).click();
+    await page.getByRole('button', { name: 'Run comparison', exact: true }).click();
+    await approveCostGateIfShown(page);
+    await expect(page.getByTestId('action-compare-variant-B')).toContainText('ready', { timeout: 60_000 });
+
+    await page.getByRole('button', { name: 'Use settings from variant B' }).click();
+    const replacementForm = page.getByTestId('generated-action-form');
+    await replacementForm.getByRole('button', { name: 'Choose run scope' }).click();
+    const selected = page.getByTestId('generated-action-row-scope-selected');
+    await expect(selected).toContainText('Replace selected rows');
+    await expect(selected).toContainText('2 selected');
+    await selected.click();
+    await approveCostGateIfShown(page);
+    await expect(page.getByTestId('run-progress')).toContainText('complete', { timeout: 60_000 });
+    const topic = columns.find(column => column.name === 'topic')!;
+    const selectedReplacement = Array(25).fill('other');
+    selectedReplacement[0] = 'transit';
+    selectedReplacement[2] = 'transit';
+    await expect.poll(
+      () => topicValues(page, pid, sheetId, topic.id, 25),
+      { timeout: 20_000 },
+    ).toEqual(selectedReplacement);
+    await expect(page.getByText('Data changed since this comparison.', { exact: true }))
+      .toBeVisible();
+    await shoot(page, '12-selected-replacement.png');
+
+    await expect(page.getByTestId('undo-button')).toBeEnabled();
+    await page.getByTestId('undo-button').click();
+    await expect.poll(
+      () => topicValues(page, pid, sheetId, topic.id, 25),
+      { timeout: 20_000 },
+    ).toEqual(Array(25).fill('other'));
+    await shoot(page, '13-selected-replacement-undone.png');
+  });
+});

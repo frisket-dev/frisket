@@ -60,6 +60,7 @@ describe('OcrCompareTab upload comparison', () => {
       new File(['pixels'], 'receipt.png', { type: 'image/png' }));
     expect(screen.getByText('receipt.png')).toBeVisible();
     await waitFor(() => expect(screen.getByTestId('ocr-compare-run')).toBeEnabled());
+    expect(screen.getByTestId('ocr-compare-run')).toHaveTextContent('Run comparison');
     await user.click(screen.getByTestId('ocr-compare-run'));
 
     await waitFor(() => expect(starts).toHaveBeenCalledTimes(2));
@@ -74,6 +75,7 @@ describe('OcrCompareTab upload comparison', () => {
       expect(text).toContain('rapid');
       expect(text).toContain('dots');
     });
+    expect(screen.getByTestId('ocr-compare-run')).toHaveTextContent('Run comparison');
   });
 
   it('keeps page, language, DPI, and searchable-PDF options on each quoted variant', async () => {
@@ -88,7 +90,13 @@ describe('OcrCompareTab upload comparison', () => {
     await waitFor(() => expect(screen.getByTestId('ocr-compare-run')).toBeEnabled());
 
     await user.click(screen.getAllByTestId('ocr-compare-variant-gear')[0]);
+    expect(screen.getByTestId('ocr-compare-dpi-presets')).toHaveAttribute(
+      'data-segment-size', 'compact',
+    );
     expect(screen.getByTestId('ocr-compare-dpi-stepper')).toHaveAttribute('min', '50');
+    expect(screen.getByTestId('ocr-compare-dpi-stepper')).toHaveAttribute(
+      'data-control-density', 'compact',
+    );
     await user.click(screen.getByTestId('ocr-compare-dpi-pill-300'));
     await user.selectOptions(screen.getByTestId('ocr-compare-configure-language'), 'eng');
     const pages = screen.getByTestId('ocr-compare-configure-pages');
@@ -212,6 +220,9 @@ describe('comparison selector ownership', () => {
     await waitFor(() => expect(screen.getAllByTestId('transcribe-compare-engine-chip')).toHaveLength(2));
     await user.click(screen.getAllByTestId('transcribe-compare-variant-gear')[0]);
     const popover = screen.getByTestId('transcribe-compare-configure');
+    expect(within(popover).getByTestId('transcribe-compare-model-pills')).toHaveAttribute(
+      'data-segment-size', 'compact',
+    );
     expect(within(popover).getByTestId('transcribe-compare-model-pill-medium')).toBeVisible();
     expect(within(popover).queryByTestId('transcribe-compare-model-pill-large-v3')).not.toBeInTheDocument();
   });

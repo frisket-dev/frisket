@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field, StrictStr, field_validator, model_validat
 
 from frisket.actions.core import (
     ActionCategory,
+    ActionComparison,
+    ActionComparisonKind,
     OutputField,
     _validate_model_rows_source,
     action,
@@ -193,6 +195,14 @@ ASK = action(
         "one answer column with the selected data type."
     ),
     category=ActionCategory.TEXT,
+    comparison=ActionComparison(
+        ActionComparisonKind.ROW_OVERLAY,
+        structural_params=(
+            "response_type",
+            "include_confidence",
+            "include_reasoning",
+        ),
+    ),
     run=model_rows(ask, dynamic_outputs=ask_outputs),
 )
 

@@ -8,6 +8,7 @@ import { PluginActionUIBoundary } from './PluginActionUIBoundary';
 import type { GeneratedActionCustomization } from './generatedActionCustomizations';
 
 import { compatibleSourceColumns, formatUsd, isProjectScopedAction } from '../../actions/model';
+import { jsonValuesEqual } from '../../actions/canonicalJson';
 import { quotedUsd } from '../../actions/quotedCost';
 import { formatDuration } from '../../format';
 import { parseStrictJson } from '../../actions/strictJson';
@@ -145,6 +146,8 @@ interface GeneratedFieldContextValue {
   diagnostics: ActionParamResolution['diagnostics'];
   renderField(field: ActionParamFieldPresentationProps): ReactNode | undefined;
   onFieldChange(name: string, value: CanonicalFieldValue): void;
+  lockedParams: ReadonlySet<string>;
+  lockReason: string;
 }
 const GeneratedFieldContext = createContext<GeneratedFieldContextValue | null>(null);
 
@@ -158,8 +161,42 @@ function GeneratedField({ name, testId, label }: { name: string; testId?: string
       label: label ?? param.label, visibleWhen: undefined }] }}
     draft={context.draft} columns={context.columns} diagnostics={context.diagnostics}
     renderField={context.renderField} onFieldChange={context.onFieldChange}
+    disabledParams={context.lockedParams} disabledReason={context.lockReason}
     testIdOverrides={testId ? { [name]: testId } : undefined} />;
 }
+
+export interface GeneratedActionFormPolicy {
+  /** `params-only` is the comparison variant editor: no title, output-name
+   * controls, estimate, Preview, or Run footer. */
+  mode?: 'full' | 'params-only';
+  /** Server-derived top-level Params that must remain fixed. */
+  lockedParams?: ReadonlySet<string> | readonly string[];
+  /** Keep output names and semantic field structure fixed. Descriptions stay editable. */
+  structureLocked?: boolean;
+  lockReason?: string;
+}
+
+interface GeneratedActionLaunchModeBase {
+  /** Human-readable launch provenance shown in the ordinary panel header. */
+  contextLabel: string;
+  /** Exact comparison selection retained separately from the live grid. */
+  capturedSelectedRowIds: readonly string[];
+  /** Settings came from a comparison whose sampled data subsequently changed. */
+  comparisonStale?: boolean;
+  onReturnToCompare?(): void;
+}
+
+export type GeneratedActionLaunchMode = GeneratedActionLaunchModeBase & (
+  | {
+      kind: 'use-new-comparison-variant';
+    }
+  | {
+      kind: 'edit-existing' | 'use-comparison-variant';
+  /** Current-name to physical-column ID fence, derived from the transient
+   * comparison context and sent only by an explicit final replacement. */
+      expectedOutputColumns: Readonly<Record<string, number | null>>;
+    }
+);
 
 export interface GeneratedActionFormProps {
   projectId?: string | null;
@@ -191,6 +228,16 @@ export interface GeneratedActionFormProps {
   onMaterializePdfTables?(intent: PdfTablesMaterializeIntent): void;
   onExportPdfTables?(intent: PdfTablesExportIntent): void;
   onOpenOcrCompare?(target: OcrCompareTarget): void;
+  editorPolicy?: GeneratedActionFormPolicy;
+  launchMode?: GeneratedActionLaunchMode;
+  contextLabel?: string;
+  /** Opens comparison from the current validated draft. Selection capture is
+   * owned by the workspace controller, not rediscovered in this form. */
+  onCompare?(draft: GeneratedActionDraft): void;
+  onOpenHistory?(trigger: HTMLButtonElement): void;
+  /** Browser-only draft publication for comparison editors. This value is
+   * never invocation consent and is never persisted by the form. */
+  onDraftChange?(draft: GeneratedActionDraft): void;
   resolveParams(
     request: Pick<GeneratedActionRequest, 'action_id' | 'scope' | 'params'>,
   ): Promise<ActionParamResolution>;
@@ -201,6 +248,99 @@ export interface GeneratedActionFormProps {
     onPreviewComplete?: (result: PreviewSampleResult) => void,
   ): void;
   onClose(): void;
+}
+
+export interface GeneratedActionParamsEditorProps extends Omit<GeneratedActionFormProps,
+  'initialDraft' | 'running' | 'onExecute' | 'onClose' | 'editorPolicy' | 'onDraftChange'> {
+  draft: GeneratedActionDraft;
+  onDraftChange(draft: GeneratedActionDraft): void;
+  lockedParams: ReadonlySet<string> | readonly string[];
+  structureLocked: boolean;
+  lockReason?: string;
+}
+
+/** Reuses the ordinary generated action renderer for comparison settings while
+ * keeping execution, output targeting, and consent in the owning workspace. */
+export function GeneratedActionParamsEditor({
+  draft,
+  onDraftChange,
+  lockedParams,
+  structureLocked,
+  lockReason,
+  ...props
+}: GeneratedActionParamsEditorProps) {
+  return <GeneratedActionForm {...props}
+    initialDraft={draft}
+    initializeSelectorDefaults={false}
+    running={false}
+    editorPolicy={{ mode: 'params-only', lockedParams, structureLocked, lockReason }}
+    onDraftChange={onDraftChange}
+    onExecute={() => undefined}
+    onClose={() => undefined} />;
+}
+
+function withoutSchemaDescription(value: unknown): unknown {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return value;
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+    .filter(([name]) => name !== 'description'));
+}
+
+function withoutEditableFieldAnnotations(value: CanonicalFieldValue | undefined): unknown {
+  if (!Array.isArray(value)) return value;
+  return value.map((field) => {
+    if (field === null || typeof field !== 'object' || Array.isArray(field)) return field;
+    const lockedField = Object.fromEntries(Object.entries(field as Record<string, unknown>)
+      .filter(([name]) => name !== 'description' && name !== 'label_descriptions'));
+    const items = lockedField.items;
+    if (items === null || typeof items !== 'object' || Array.isArray(items)) return lockedField;
+    const properties = (items as Record<string, unknown>).properties;
+    if (properties === null || typeof properties !== 'object' || Array.isArray(properties)) {
+      return lockedField;
+    }
+    return {
+      ...lockedField,
+      items: {
+        ...items,
+        properties: Object.fromEntries(Object.entries(properties)
+          .map(([name, schema]) => [name, withoutSchemaDescription(schema)])),
+      },
+    };
+  });
+}
+
+function normalizedLockedValue(
+  actionId: string,
+  name: string,
+  value: CanonicalFieldValue | undefined,
+  structureLocked: boolean,
+): unknown {
+  const stripped = structureLocked && name === 'fields'
+    ? withoutEditableFieldAnnotations(value) : value;
+  if ((actionId !== 'map.classify' && actionId !== 'map.extract')
+    || name !== 'fields' || !Array.isArray(stripped)) return stripped;
+  return stripped.map((field) => {
+    if (!field || typeof field !== 'object' || Array.isArray(field)) return field;
+    const normalized = { ...field } as Record<string, unknown>;
+    const type = actionId === 'map.classify' && typeof normalized.type !== 'string'
+      ? 'category' : normalized.type;
+    if (actionId === 'map.classify') normalized.type = type;
+    if (type === 'category' && normalized.labels === undefined) normalized.labels = [];
+    if (type === 'list' && normalized.items === undefined) normalized.items = { type: 'string' };
+    return normalized;
+  });
+}
+
+function lockedParamChanged(
+  actionId: string,
+  name: string,
+  previous: CanonicalFieldValue | undefined,
+  next: CanonicalFieldValue | undefined,
+  structureLocked: boolean,
+): boolean {
+  return !jsonValuesEqual(
+    normalizedLockedValue(actionId, name, previous, structureLocked),
+    normalizedLockedValue(actionId, name, next, structureLocked),
+  );
 }
 function defaultColumn(entry: GeneratedActionCatalogEntry, param: string, columns: SheetMeta['columns'],
   sourceColumn: string | undefined, used: ReadonlySet<string>): string {
@@ -411,11 +551,32 @@ function GeneratedActionFormContents({
   onMaterializePdfTables,
   onExportPdfTables,
   onOpenOcrCompare,
+  editorPolicy,
+  launchMode,
+  contextLabel,
+  onCompare,
+  onOpenHistory,
+  onDraftChange,
   resolveParams,
   estimateAction,
   onExecute,
   onClose,
 }: GeneratedActionFormProps & { pluginUI?: GeneratedActionCustomization }) {
+  const paramsOnly = editorPolicy?.mode === 'params-only';
+  const replacementLaunch = launchMode?.kind === 'edit-existing'
+    || launchMode?.kind === 'use-comparison-variant';
+  const editComparePrimary = launchMode?.kind === 'edit-existing' && Boolean(onCompare);
+  const structureLocked = editorPolicy?.structureLocked === true;
+  const lockReason = editorPolicy?.lockReason ?? 'Fixed for this comparison.';
+  const lockedParamsInput = editorPolicy?.lockedParams;
+  const lockedParams = useMemo<ReadonlySet<string>>(() => (
+    lockedParamsInput instanceof Set
+      ? lockedParamsInput
+      : new Set(lockedParamsInput ?? [])
+  ), [lockedParamsInput]);
+  const scopeSelectedRowIds = useMemo(() => (
+    launchMode ? launchMode.capturedSelectedRowIds.map(String) : selectedRowIds
+  ), [launchMode, selectedRowIds]);
   const columns = sheet?.columns ?? EMPTY_COLUMNS;
   const customization = generatedActionCustomizationFor(catalogEntry.kind, pluginUI);
   const ParamsBody = customization?.body;
@@ -427,6 +588,7 @@ function GeneratedActionFormContents({
   }, [ParamsBody, catalogEntry.kind]);
   const editorProblem = editorState?.owner === ParamsBody && editorState?.action === catalogEntry.kind
     ? editorState.message : null;
+  const [lockedUpdateProblem, setLockedUpdateProblem] = useState<string | null>(null);
   const engineSelectorParam = Object.entries(catalogEntry.ui_hints.semantic_controls)
     .find(([, control]) => control === 'engine')?.[0];
   const modelSelectorParam = Object.entries(catalogEntry.ui_hints.semantic_controls)
@@ -463,22 +625,26 @@ function GeneratedActionFormContents({
     : catalogEntry.row_scope_policy.kind === 'sheet_rows'
       ? catalogEntry.row_scope_policy.selectors
       : [];
-  const defaultScope = (hasExactRowScopeInitializer || selectedRowIds.length > 0)
-    && allowedScopes.includes('exact_membership') ? 'selected' : 'all';
+  const defaultScope = launchMode
+    ? 'all'
+    : ((hasExactRowScopeInitializer || scopeSelectedRowIds.length > 0)
+      && allowedScopes.includes('exact_membership') ? 'selected' : 'all');
   const [runScope, setRunScope] = useState<'all' | 'selected'>(defaultScope);
   const effectiveRunScope = runScope === 'selected'
     && allowedScopes.includes('exact_membership')
-    && (selectedRowIds.length > 0 || hasExactRowScopeInitializer)
+    && (scopeSelectedRowIds.length > 0 || hasExactRowScopeInitializer)
     ? 'selected' : allowedScopes.includes('all_rows') ? 'all' : 'selected';
+  const selectedScopeSummary = `${scopeSelectedRowIds.length.toLocaleString()} selected ${
+    scopeSelectedRowIds.length === 1 ? 'row' : 'rows'}`;
   const scopeFor = useCallback((scope: 'all' | 'selected'): GeneratedActionRequest['scope'] => {
     if (savedTableScope) return savedTableScope;
     if (projectScoped) return { kind: 'project' };
     if (sheetId === null) throw new Error('A row action requires a source sheet.');
     return {
       kind: 'sheet_rows', sheet_id: sheetId,
-      ...(scope === 'selected' ? { row_ids: selectedRowIds.map(Number) } : {}),
+      ...(scope === 'selected' ? { row_ids: scopeSelectedRowIds.map(Number) } : {}),
     };
-  }, [savedTableScope, projectScoped, sheetId, selectedRowIds]);
+  }, [savedTableScope, projectScoped, sheetId, scopeSelectedRowIds]);
   const requestScope = useMemo(() => scopeFor(effectiveRunScope), [scopeFor, effectiveRunScope]);
   const [draft, setDraft] = useState<CanonicalDraft>(() =>
     initialParams(catalogEntry, actionTemplate, columns, initialSourceColumn, initialDraft, initialPrompt));
@@ -708,11 +874,23 @@ function GeneratedActionFormContents({
     }));
   }, [dynamicOutputs]);
   const writeFields = (updates: Record<string, CanonicalFieldValue>) => {
-    invalidateParams();
-    setDraft((current) => Object.entries(updates).reduce(
-      (next, [name, value]) => setCanonicalDraftField(actionTemplate, next, name, value),
-      current,
+    const previous = latestDraft.current;
+    const next = Object.entries(updates).reduce(
+      (candidate, [name, value]) => setCanonicalDraftField(actionTemplate, candidate, name, value),
+      previous,
+    );
+    const refused = Object.keys({ ...previous, ...next }).find((name) => (
+      lockedParams.has(name)
+      && lockedParamChanged(catalogEntry.kind, name, previous[name], next[name], structureLocked)
     ));
+    if (refused) {
+      setLockedUpdateProblem(`${lockReason} “${refused}” cannot be changed here.`);
+      return;
+    }
+    setLockedUpdateProblem(null);
+    invalidateParams();
+    latestDraft.current = next;
+    setDraft(next);
   };
   const updateField = (name: string, value: CanonicalFieldValue) => {
     markFieldTouched(name);
@@ -772,12 +950,19 @@ function GeneratedActionFormContents({
     const changed = Object.keys({ ...previous, ...params }).filter((name) => (
       JSON.stringify(previous[name]) !== JSON.stringify(params[name])
     ));
+    const refused = changed.find((name) => lockedParams.has(name)
+      && lockedParamChanged(catalogEntry.kind, name, previous[name], params[name], structureLocked));
+    if (refused) {
+      setLockedUpdateProblem(`${lockReason} “${refused}” cannot be changed here.`);
+      return;
+    }
+    setLockedUpdateProblem(null);
     changed.forEach(markFieldTouched);
     latestDraft.current = params;
     setParamsEdited(true);
     invalidateParams();
     setDraft(params);
-  }, [invalidateParams, markFieldTouched]);
+  }, [catalogEntry.kind, invalidateParams, lockReason, lockedParams, markFieldTouched, structureLocked]);
   const renderField = (field: ActionParamFieldPresentationProps): ReactNode | undefined => {
     const CustomField = customization?.fields?.[field.name];
     if (CustomField) {
@@ -867,7 +1052,8 @@ function GeneratedActionFormContents({
               template: value,
             })}
           />
-          {typeof sourceHint === 'string' && <p className="form-hint">{sourceHint}</p>}
+          {!lockedParams.has(field.name) && typeof sourceHint === 'string'
+            && <p className="form-hint">{sourceHint}</p>}
         </>
       );
     }
@@ -931,7 +1117,7 @@ function GeneratedActionFormContents({
   });
   const validIdentity = (!createsSheet || sheetName.trim().length > 0)
     && (requestScope.kind === 'project' || (Number.isSafeInteger(requestScope.sheet_id) && requestScope.sheet_id > 0
-      && selectedRowIds.every((rowId) => Number.isSafeInteger(Number(rowId)) && Number(rowId) > 0)));
+      && scopeSelectedRowIds.every((rowId) => Number.isSafeInteger(Number(rowId)) && Number(rowId) > 0)));
   // Dynamic names can only be compared with a successfully resolved schema,
   // not the empty placeholder used while resolving or reporting a refusal.
   const outputNameProblem = renameProblem ?? (dynamicOutputs && (resolutionProblem || hasInvalidDiagnostic)
@@ -956,6 +1142,13 @@ function GeneratedActionFormContents({
     output_names: Object.fromEntries(Object.entries(outputNames)
       .map(([key, value]) => [key, value.trim()])),
   }), [catalogEntry.kind, draft, createsSheet, requestScope, sheetName, outputNames]);
+  const publishedDraftIdentity = JSON.stringify(estimateDraft);
+  const lastPublishedDraft = useRef<string | null>(null);
+  useEffect(() => {
+    if (!onDraftChange || lastPublishedDraft.current === publishedDraftIdentity) return;
+    lastPublishedDraft.current = publishedDraftIdentity;
+    onDraftChange(estimateDraft);
+  }, [estimateDraft, onDraftChange, publishedDraftIdentity]);
   const estimateIdentity = JSON.stringify(estimateDraft);
   const [estimateState, setEstimateState] = useState<{
     identity: string;
@@ -963,7 +1156,7 @@ function GeneratedActionFormContents({
   }>({ identity: '', estimate: null });
 
   useEffect(() => {
-    if (!canRun || !estimateAction || !priceable) return undefined;
+    if (paramsOnly || !canRun || !estimateAction || !priceable) return undefined;
     let current = true;
     const timer = window.setTimeout(() => {
       estimateAction({
@@ -981,7 +1174,7 @@ function GeneratedActionFormContents({
       current = false;
       window.clearTimeout(timer);
     };
-  }, [canRun, catalogEntry.kind, priceable,
+  }, [canRun, catalogEntry.kind, paramsOnly, priceable,
     estimateAction, estimateDraft, estimateIdentity]);
 
   const currentEstimate = canRun && estimateState.identity === estimateIdentity
@@ -993,7 +1186,7 @@ function GeneratedActionFormContents({
   const billingLabel = currentEstimate?.billing_label?.trim() || null;
   const estimateWarning = currentEstimate?.warning?.trim() || null;
   const estimateRowCount = currentEstimate?.rows
-    ?? (sheet ? effectiveRunScope === 'selected' ? selectedRowIds.length : sheet.rowCount : null);
+    ?? (sheet ? effectiveRunScope === 'selected' ? scopeSelectedRowIds.length : sheet.rowCount : null);
   const outputColumnCount = dynamicOutputs && resolving ? 0 : outputs.length;
 
   const primaryOutputName = outputs[0] ? outputNames[outputs[0].key]?.trim() : '';
@@ -1012,11 +1205,15 @@ function GeneratedActionFormContents({
 
   const submit = (scope: 'all' | 'selected', intent: 'preview' | 'run') => {
     if (!canRun || (!projectScoped && scope === 'selected'
-      && selectedRowIds.length === 0 && !hasExactRowScopeInitializer)) return;
+      && scopeSelectedRowIds.length === 0 && !hasExactRowScopeInitializer)) return;
     const request = {
       ...estimateDraft,
       scope: scopeFor(scope),
       idempotency_key: freshActionRequestKey(catalogEntry.kind),
+      ...(intent === 'run' && replacementLaunch ? {
+        replace_existing: true,
+        expected_output_columns: launchMode.expectedOutputColumns,
+      } : {}),
     } satisfies GeneratedActionRequest;
     onExecute(request, intent);
   };
@@ -1079,15 +1276,22 @@ function GeneratedActionFormContents({
 
   return (
     <form className="action-form generated-action-form" data-testid="generated-action-form"
+      data-mode={paramsOnly ? 'params-only' : 'full'}
       onSubmit={(event) => {
         event.preventDefault();
-        submit(effectiveRunScope, 'run');
+        if (!paramsOnly) submit(effectiveRunScope, 'run');
       }}>
-      <ActionFormHeader actionTemplate={actionTemplate} title={title} sheetName={sheet?.name}
+      {!paramsOnly && <ActionFormHeader actionTemplate={actionTemplate} title={title} sheetName={sheet?.name}
+        contextLabel={launchMode?.contextLabel ?? contextLabel} onOpenHistory={onOpenHistory}
         switchActions={switchActions} onSwitchAction={onSwitchAction}
-        variant="drawer" onClose={onClose} />
+        variant="drawer" onClose={onClose} />}
       <ActionCredentialGate actionTemplate={actionTemplate} />
-      {sheet && onMaterializePdfTables && <PdfTablesReview actionKind={catalogEntry.kind}
+      {!paramsOnly && launchMode?.comparisonStale && (
+        <p className="form-hint" role="status" data-testid="comparison-stale-run-notice">
+          Data changed since this comparison. This run will use current data.
+        </p>
+      )}
+      {!paramsOnly && sheet && onMaterializePdfTables && <PdfTablesReview actionKind={catalogEntry.kind}
         sheet={sheet} outputName={outputNames.pdf_tables ?? ''}
         onMaterialize={onMaterializePdfTables} onExport={onExportPdfTables} />}
       {engineProblem && <p className="form-hint" role="alert">{engineProblem}</p>}
@@ -1101,14 +1305,16 @@ function GeneratedActionFormContents({
       {ParamsBody ? (
         <fieldset disabled={running} className="resolve-drawer-body-fields">
           <GeneratedFieldContext.Provider value={{ actionTemplate, draft: displayDraft, columns,
-            diagnostics: displayedDiagnostics, renderField, onFieldChange: updateField }}>
+            diagnostics: displayedDiagnostics, renderField, onFieldChange: updateField,
+            lockedParams, lockReason }}>
             <ParamsBody sheet={sheet} params={draft} setParams={updateBodyParams}
               setEditorProblem={setEditorProblem}
               engine={selectedEngineInfo}
               request={{ scope: requestScope, sheet_name: estimateDraft.sheet_name,
                 output_names: estimateDraft.output_names }} onParamInteraction={markFieldTouched}
               errors={displayedDiagnostics} Field={GeneratedField} onNavigateToAction={onNavigateToAction}
-              sampleColumnValues={sampleColumnValues} />
+              sampleColumnValues={sampleColumnValues} structureLocked={structureLocked}
+              lockReason={lockReason} />
           </GeneratedFieldContext.Provider>
         </fieldset>
       ) : (
@@ -1120,13 +1326,17 @@ function GeneratedActionFormContents({
           columns={columns}
           diagnostics={displayedDiagnostics}
           renderField={renderField}
+          disabledParams={lockedParams}
+          disabledReason={lockReason}
           onFieldChange={updateField}
         />
       )}
 
       {editorProblem && <p className="panel-error" role="alert" data-testid="generated-editor-problem">{editorProblem}</p>}
+      {lockedUpdateProblem && <p className="panel-error" role="alert"
+        data-testid="generated-locked-param-problem">{lockedUpdateProblem}</p>}
 
-      {catalogEntry.kind === 'media.ocr' && (
+      {!paramsOnly && catalogEntry.kind === 'media.ocr' && (
         <div className="form-actions">
           <Button type="button" data-testid="ocr-compare-open"
             disabled={running || !onOpenOcrCompare}
@@ -1136,7 +1346,8 @@ function GeneratedActionFormContents({
         </div>
       )}
 
-      {prefixConfig && <fieldset disabled={running} className="resolve-drawer-body-fields">
+      {!paramsOnly && prefixConfig && <fieldset disabled={running || structureLocked}
+        className="resolve-drawer-body-fields">
         {prefixConfig.keys?.length ? <OutputNameCombobox
           columns={createsSheet || !prefixOutput ? [] : compatibleOutputColumns(
             columns, prefixOutput.column_type, prefixOutput.existing_column_policy,
@@ -1155,14 +1366,14 @@ function GeneratedActionFormContents({
         </p>}
       </fieldset>}
 
-      {catalogEntry.kind === 'derive.join' && outputs.length > 0 && <JoinOutputNames
+      {!paramsOnly && catalogEntry.kind === 'derive.join' && outputs.length > 0 && <JoinOutputNames
         outputs={outputs} names={outputNames} disabled={running || resolving}
         onChange={(names) => {
           markOutputNamesEdited(Object.keys(names));
           setOutputNames(names);
         }} />}
 
-      {!customization?.outputNamesReadOnly && outputs.filter(({ key }) => (
+      {!paramsOnly && !customization?.outputNamesReadOnly && outputs.filter(({ key }) => (
         !customization?.hiddenOutputNameKeys?.includes(key)
       )).map(({
         key, column_type: columnType, existing_column_policy: existingColumnPolicy,
@@ -1170,6 +1381,7 @@ function GeneratedActionFormContents({
         const defaultNameCollision = !initialDraft && !editedOutputNameKeys.has(key)
           ? automaticOutputNameCollision(key, draft, columns, customization) : null;
         return <Fragment key={key}>
+          <fieldset className="locked-param-fields" disabled={structureLocked}>
           <OutputNameCombobox
             columns={createsSheet ? [] : compatibleOutputColumns(
               columns,
@@ -1184,6 +1396,7 @@ function GeneratedActionFormContents({
               markOutputNamesEdited([key]);
               setOutputNames((current) => ({ ...current, [key]: value }));
             }} />
+          </fieldset>
           {defaultNameCollision && outputNames[key] === defaultNameCollision.renamed && (
             <p className="form-hint" data-testid={`default-output-name-collision-${key}`}>
               A "{defaultNameCollision.original}" column already exists — saving to "
@@ -1193,7 +1406,7 @@ function GeneratedActionFormContents({
         </Fragment>;
       })}
 
-      {createsSheet && !customization?.outputNamesReadOnly && outputs.length === 0 && <details className="action-advanced"
+      {!paramsOnly && createsSheet && !customization?.outputNamesReadOnly && outputs.length === 0 && <details className="action-advanced"
         onToggle={(event) => {
           if (event.currentTarget.open) {
             resizeTextareaToContent(event.currentTarget.querySelector('textarea'));
@@ -1218,8 +1431,8 @@ function GeneratedActionFormContents({
           }} />
       </details>}
 
-      {outputNameProblem && <p className="panel-error" role="alert">{outputNameProblem}</p>}
-      {staleOutputNames.length > 0 && <div className="form-hint" data-testid="stale-output-names">
+      {!paramsOnly && outputNameProblem && <p className="panel-error" role="alert">{outputNameProblem}</p>}
+      {!paramsOnly && staleOutputNames.length > 0 && <div className="form-hint" data-testid="stale-output-names">
         Saved names refer to unavailable outputs: {staleOutputNames.join(', ')}.
         <Button type="button" className="btn-ghost" disabled={running}
           onClick={() => setOutputNames((names) => Object.fromEntries(
@@ -1234,7 +1447,7 @@ function GeneratedActionFormContents({
         </p>
       )}
 
-      {projectScoped ? <div className="form-actions action-run-actions">
+      {!paramsOnly && (projectScoped ? <div className="form-actions action-run-actions">
         {costLine}
         <div className="run-actions-row">
           <Button type="button" data-testid="generated-action-preview"
@@ -1244,14 +1457,38 @@ function GeneratedActionFormContents({
           <Button type="submit" className="btn-primary" data-testid="run-button"
             disabled={!canRun || running}>{running ? runningLabel : customization?.primaryLabel ?? (createsSheet ? 'Create sheet' : 'Run')}</Button>
         </div>
-      </div> : <RunScopeFooter primaryLabel={customization?.primaryLabel ?? 'Run'} rowCount={sheet?.rowCount ?? 0}
-        selectedCount={selectedRowIds.length} canRun={canRun}
+      </div> : <RunScopeFooter
+        primaryLabel={editComparePrimary
+          ? 'Compare…'
+          : replacementLaunch
+            ? 'Replace columns'
+            : customization?.primaryLabel ?? 'Run'} rowCount={sheet?.rowCount ?? 0}
+        selectedCount={scopeSelectedRowIds.length} canRun={canRun}
+        scopeSummary={launchMode
+          ? effectiveRunScope === 'selected'
+            ? selectedScopeSummary
+            : `All ${(sheet?.rowCount ?? 0).toLocaleString()} rows`
+          : undefined}
         scope={runScope} onScopeChange={setRunScope}
-        runOnScopeSelect={catalogEntry.cost_policy?.requires_confirmation !== true
+        runOnScopeSelect={Boolean(launchMode)
+          || catalogEntry.cost_policy?.requires_confirmation !== true
           || (!currentEstimatePending && quotedEstimate === 0)}
         allowedScopes={allowedScopes}
         allowEmptySelection={hasExactRowScopeInitializer}
-        primaryButtonType="submit"
+        primaryButtonType={editComparePrimary ? 'button' : 'submit'}
+        onPrimary={editComparePrimary && onCompare
+          ? () => onCompare(estimateDraft) : undefined}
+        allScopeLabel={replacementLaunch ? 'Replace all rows' : 'Run all'}
+        selectedScopeLabel={replacementLaunch ? 'Replace selected rows' : 'Run on selected'}
+        showAllScopeOption={!launchMode || editComparePrimary || effectiveRunScope === 'selected'}
+        menuItems={[
+          ...(!launchMode && onCompare ? [{ id: 'compare', label: 'Compare…',
+            detail: 'Try settings on a sample', onSelect: () => onCompare(estimateDraft) }] : []),
+          ...((launchMode?.kind === 'use-comparison-variant'
+            || launchMode?.kind === 'use-new-comparison-variant') && launchMode.onReturnToCompare
+            ? [{ id: 'return-to-compare', label: 'Return to Compare',
+              onSelect: launchMode.onReturnToCompare }] : []),
+        ]}
         backfillTargetName={backfillTargetColumn?.name ?? null}
         backfillHasGaps={backfillHasGaps}
         onBackfill={onBackfill}
@@ -1264,7 +1501,7 @@ function GeneratedActionFormContents({
           : 'Complete the required fields.')}
         testIdPrefix="generated-action"
         onPreview={(scope) => submit(scope, 'preview')}
-        onRun={(scope) => submit(scope, 'run')}>{costLine}</RunScopeFooter>}
+        onRun={(scope) => submit(scope, 'run')}>{costLine}</RunScopeFooter>)}
     </form>
   );
 }

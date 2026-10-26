@@ -1,6 +1,7 @@
 import '../workbench/contributions.css';
 import './WorkspaceMainView.css';
 import '../grid/SheetGrid.css';
+import { WorkspaceActionCompareView, WorkspaceActionCompareHistoryMenu } from './WorkspaceActionCompareView';
 import { CompareDiscardDialog } from '../workbench/CompareDiscardDialog';
 import { memo } from 'react';
 import { ImportDropzone } from '../components/importWorkspace/ImportDropzone';
@@ -88,6 +89,8 @@ function WorkspaceMainViewBody() {
     translateCompareActive,
     topicCompareOpen,
     topicCompareActive,
+    actionCompareOpen,
+    actionCompareActive,
   } = useMainViewModel();
 
   // Compare sessions are scratch state and must never be persisted.
@@ -102,6 +105,10 @@ function WorkspaceMainViewBody() {
     );
   return (
     <>
+      <WorkspaceActionCompareHistoryMenu />
+      {actionCompareOpen && <div className="workbench-ocr-compare-keepalive" hidden={!actionCompareActive}>
+        <WorkspaceActionCompareView />
+      </div>}
       {ocrCompareOpen && (
         <div className="workbench-ocr-compare-keepalive" hidden={!ocrCompareActive}>
           <WorkspaceOcrCompareView />
@@ -126,6 +133,7 @@ function WorkspaceMainViewBody() {
         !transcribeCompareActive &&
         !translateCompareActive &&
         !topicCompareActive &&
+        !actionCompareActive &&
         body}
     </>
   );
@@ -145,7 +153,6 @@ function WorkspaceOcrCompareView() {
     <div className="workbench-ocr-compare-view" data-testid="workbench-ocr-compare-view">
       <OcrCompareTab active={ocrCompareActive} target={ocrCompareTarget} onSessionChange={setOcrCompareSession} />
       {ocrCompareCloseWarn && <CompareDiscardDialog
-        title="Discard this OCR comparison?"
         description="Leaving discards the preview text and your votes — nothing is saved to the project."
         verdict={ocrCompareSession.verdict} testId="ocr-compare"
         onCancel={() => setOcrCompareCloseWarn(false)} onDiscard={closeOcrCompareTab} />}

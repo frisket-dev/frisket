@@ -1,8 +1,9 @@
 import { CompareToolbar, CompareEngineChip } from './CompareLayout';
+import { CompareRunControl } from './CompareRunControl';
 import { Button } from '../components/Button';
 import { TextInput } from '../components/FormControls';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Play, Plus } from 'lucide-react';
+import { Plus } from 'lucide-react';
 
 import type { PreviewSampleResult, TranscribeCompareScratchInput } from '../api/types';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
@@ -148,7 +149,6 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
     catalogRef.current = session.catalog;
   }, [session.catalog]);
   const busy = session.preparing || session.runProgress !== null;
-  useEffect(() => { if (!active) session.cancelRuns(); }, [active, session.cancelRuns]);
   const {
     catalog,
     columns,
@@ -160,16 +160,17 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
     sourceOpen,
     setSourceOpen,
     updateColumnOptions,
+    cancelRuns,
   } = session;
+  useEffect(() => { if (!active) cancelRuns(); }, [active, cancelRuns]);
   const quoteInputKey = useMemo(() => JSON.stringify({
     docs: docs.map((doc) => doc.id),
     columns: columns.map(({ id, engineId, options }) => ({ id, engineId, options })),
     timeLimit,
   }), [columns, docs, timeLimit]);
 
-  useEffect(() => {
-    paid.clearQuote();
-  }, [paid.clearQuote, quoteInputKey]);
+  const { clearQuote } = paid;
+  useEffect(() => { clearQuote(); }, [clearQuote, quoteInputKey]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const moreInputRef = useRef<HTMLInputElement>(null);
@@ -210,7 +211,7 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
   return (
     <section className="ocr-compare-tab" data-testid="transcribe-compare-tab">
       {session.selectorOwners}
-      <CompareToolbar testIdPrefix="transcribe-compare" running={runningCount > 0} label="ENGINES" chipsTestId="transcribe-compare-engine-chips" disabled={busy} tag="temporary files · usage is recorded"
+      <CompareToolbar testIdPrefix="transcribe-compare" running={runningCount > 0} label="Engines" chipsTestId="transcribe-compare-engine-chips" disabled={busy}
         controls={<>
           <label className="form-label form-field">First seconds
             <TextInput type="number" min="0.001" step="any"
@@ -220,12 +221,12 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
                 for (const column of session.columns) session.invalidateColumn(column.id);
               }} />
           </label>
-          <Button type="button" className="btn-primary" data-testid="transcribe-compare-run"
-            disabled={!active || busy || !session.docs.length || !runnableColumns.length || !Number.isFinite(Number(timeLimit)) || Number(timeLimit) <= 0}
-            onClick={() => session.pendingPairs.length ? session.runPending() : session.runAll()}>
-            <Play size={13} /> {session.preparing ? 'Estimating…' : 'Run comparison'}
-          </Button>
-          {busy && <Button type="button" data-testid="transcribe-compare-cancel" onClick={session.cancelRuns}>Cancel</Button>}
+          <CompareRunControl testIdPrefix="transcribe-compare" busy={busy}
+            disabled={!active || !session.docs.length || !runnableColumns.length || session.runState === 'probing' || !Number.isFinite(Number(timeLimit)) || Number(timeLimit) <= 0}
+            workingLabel={session.preparing ? 'Preparing…' : 'Running…'}
+            progress={session.runProgress ? `${session.runProgress.done} / ${session.runProgress.total}` : undefined}
+            onRun={() => session.pendingPairs.length ? session.runPending() : session.runAll()}
+            onCancel={session.cancelRuns} />
           <Button
             type="button"
             className="ocr-compare-source-toggle"
@@ -281,7 +282,6 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
                       onSetDiarize={(diarize) => updateColumnOptions(col.id, { diarize })}
                     />
                   )}
-                  laterHint="Additional per-engine options stack here as engines declare them."
                 />
               ) : null}
             </div>
@@ -294,7 +294,7 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
           disabled={busy}
           onClick={addVariant}
         >
-          <Plus size={12} /> engine
+          <Plus size={12} /> Engine
         </button>
       </CompareToolbar>
 
@@ -417,20 +417,16 @@ function TranscribeOptionFields({
       {hasModelSizeOptions ? (
         <div className="ocr-compare-configure-field">
           <span className="ocr-compare-configure-label">Model size</span>
-          <div className="ocr-compare-dpi-pills" data-testid="transcribe-compare-model-pills">
-            {modelSizes.map((size) => (
-              <button
-                type="button"
-                key={size}
-                className={`ocr-compare-dpi-pill${(options.modelSize ?? DEFAULT_MODEL_SIZE) === size ? ' active' : ''}`}
-                data-testid={`transcribe-compare-model-pill-${size}`}
-                aria-pressed={(options.modelSize ?? DEFAULT_MODEL_SIZE) === size}
-                onClick={() => onSetModelSize(size)}
-              >
-                {size}
-              </button>
-            ))}
-          </div>
+          <SegmentedToggle
+            testId="transcribe-compare-model-pills"
+            fullWidth={false}
+            size="compact"
+            ariaLabel="Model size"
+            value={options.modelSize ?? DEFAULT_MODEL_SIZE}
+            onValueChange={onSetModelSize}
+            buttonTestId={(value) => `transcribe-compare-model-pill-${value}`}
+            options={modelSizes.map((size) => ({ value: size, label: size, title: size }))}
+          />
           <span className="ocr-compare-configure-hint muted">
             bigger = more accurate, slower · default {DEFAULT_MODEL_SIZE}
           </span>

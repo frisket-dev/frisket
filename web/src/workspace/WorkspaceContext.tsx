@@ -77,6 +77,9 @@ export interface WorkspaceShellHandle {
   runWithPreview: WorkspaceViewModel['runWithPreview'];
   executeRegisteredAction: WorkspaceViewModel['executeRegisteredAction'];
   openOcrCompareTab: WorkspaceViewModel['openOcrCompareTab'];
+  openActionCompare: WorkspaceViewModel['openActionCompare'];
+  openActionCompareHistory: WorkspaceViewModel['openActionCompareHistory'];
+  returnToActionCompare: WorkspaceViewModel['returnToActionCompare'];
   doStepTo: WorkspaceViewModel['doStepTo'];
   loadHistoryPage: WorkspaceViewModel['loadHistoryPage'];
   pluginManagerOperations: WorkspaceViewModel['pluginManagerOperations'];

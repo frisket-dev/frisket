@@ -10,6 +10,8 @@ from pydantic import Field, StrictStr, TypeAdapter, field_validator, model_valid
 from frisket.actions.classify_types import Classifier, ClassifyField
 from frisket.actions.core import (
     ActionCategory,
+    ActionComparison,
+    ActionComparisonKind,
     _validate_model_rows_source,
     action,
     model_rows,
@@ -303,6 +305,10 @@ CLASSIFY = action(
     title="Classify rows",
     description="Assign labels locally or classify structured fields with a model.",
     category=ActionCategory.TEXT,
+    comparison=ActionComparison(
+        ActionComparisonKind.ROW_OVERLAY,
+        structural_params=("fields", "include_confidence", "include_justification"),
+    ),
     examples=(
         ClassifyParams(
             source=["story"],

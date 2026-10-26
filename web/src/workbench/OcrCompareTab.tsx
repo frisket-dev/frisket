@@ -1,8 +1,9 @@
 import { CompareToolbar, CompareEngineChip } from './CompareLayout';
+import { CompareRunControl } from './CompareRunControl';
 import { Button } from '../components/Button';
 import { TextInput } from '../components/FormControls';
 import { useEffect, useMemo, useRef } from 'react';
-import { Loader2, Play, Plus, RotateCw } from 'lucide-react';
+import { Plus } from 'lucide-react';
 
 import type {
   OcrComparePreviewBlock,
@@ -251,9 +252,8 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
     return () => cancelRuns();
   }, [active, cancelRuns]);
 
-  useEffect(() => {
-    paid.clearQuote();
-  }, [paid.clearQuote, quoteInputKey]);
+  const { clearQuote } = paid;
+  useEffect(() => { clearQuote(); }, [clearQuote, quoteInputKey]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const moreInputRef = useRef<HTMLInputElement>(null);
@@ -285,57 +285,21 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
     return parts.join(' · ');
   }
 
-  const runLabel =
-    runState === 'running'
-      ? `Running · ${runProgress?.done ?? 0} / ${runProgress?.total ?? runningCount}`
-      : runState === 'probing'
-        ? 'Reading pages…'
-        : runState === 'fresh'
-          ? 'Re-run'
-          : 'Run';
-
   return (
     <section className="ocr-compare-tab" data-testid="ocr-compare-tab">
       {session.selectorOwners}
       <CompareToolbar testIdPrefix="ocr-compare" running={runningCount > 0}
         controls={<>
-          <Button
-            type="button"
-            className={`btn ocr-compare-run${runState === 'pending' ? ' btn-primary' : ''}`}
-            data-testid="ocr-compare-run"
-            data-run-state={runState}
-            data-pending-count={pendingPairs.length}
-            disabled={!active || (!busy && (runState === 'disabled' || runState === 'probing'))}
-            title={
-              runState === 'disabled'
-                ? 'Add an engine to stage work'
-                : runState === 'probing'
-                  ? 'Reading page count — Run available once the sample is ready'
-                  : runState === 'fresh'
-                    ? 'Re-run all variants'
-                    : undefined
-            }
-            onClick={() => {
-              if (busy) cancelRuns();
-              else if (runState === 'pending') runPending();
-              else if (runState === 'fresh') runAll();
-            }}
-          >
-            {busy ? (
-              <Loader2 size={13} className="ocr-compare-spin" aria-hidden />
-            ) : runState === 'fresh' ? (
-              <RotateCw size={13} aria-hidden />
-            ) : (
-              <Play size={13} aria-hidden />
-            )}
-            <span className="ocr-compare-run-label">{busy ? 'Cancel' : runLabel}</span>
-            {runState === 'pending' ? (
-              <span className="ocr-compare-run-count mono"> · {pendingPairs.length} pending</span>
-            ) : null}
-            {runState === 'running' ? (
-              <span className="ocr-compare-run-progress" data-testid="ocr-compare-run-progress" />
-            ) : null}
-          </Button>
+          <CompareRunControl testIdPrefix="ocr-compare" busy={busy}
+            disabled={!active || !docs.length || runState === 'disabled' || runState === 'probing'}
+            workingLabel={preparing ? 'Preparing…' : 'Running…'}
+            progress={runProgress ? `${runProgress.done} / ${runProgress.total}`
+              : runState === 'probing' ? 'Reading pages…'
+                : !preparing && pendingPairs.length ? `${pendingPairs.length} pending` : undefined}
+            statusDetail={runState === 'disabled' ? 'Add an available engine and a sample'
+              : runState === 'probing' ? 'Reading the page count' : undefined}
+            onRun={() => pendingPairs.length ? runPending() : runAll()}
+            onCancel={cancelRuns} />
           <SegmentedToggle
             testId="ocr-compare-mode-switch"
             className="ocr-compare-mode-switch"
@@ -419,7 +383,6 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
                       disabled={busy}
                     />
                   )}
-                  laterHint="More per-engine options (model tier, page range, deskew, table mode) stack here as engines declare them."
                 />
               ) : null}
             </div>
@@ -432,7 +395,7 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
           disabled={busy}
           onClick={addEngineFlow}
         >
-          <Plus size={12} /> engine
+          <Plus size={12} /> Engine
         </button>
       </CompareToolbar>
 
@@ -446,7 +409,7 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
         columnSummary={variantSummary}
         frontDoorTitle="Drop a small sample of PDFs or images"
         frontDoorHint="Nothing uploads to your project — this session is disposable. Configure variants, then Run."
-        pendingLabel="not run yet — press Run"
+        pendingLabel="not run yet — select Run comparison"
       />
       {paid.quote}
       {paid.gate}
@@ -476,34 +439,32 @@ function OcrOptionFields({
   const options = optionsOf(column);
   const pagesProblem = parsePageList(options.pagesText).error;
   return (
-    <fieldset disabled={disabled}>
+    <fieldset className="ocr-compare-configure-fields" disabled={disabled}>
       <div className="ocr-compare-configure-field">
         <span className="ocr-compare-configure-label">Rendering DPI</span>
-        <div className="ocr-compare-dpi-pills">
-          {DPI_PRESETS.map((dpi) => (
-            <button
-              type="button"
-              key={dpi}
-              className={`ocr-compare-dpi-pill${options.dpi === dpi ? ' active' : ''}`}
-              data-testid={`ocr-compare-dpi-pill-${dpi}`}
-              aria-pressed={options.dpi === dpi}
-              onClick={() => onSetDpi(dpi)}
-            >
-              {dpi}
-            </button>
-          ))}
-          <input
-            type="number"
-            className="ocr-compare-dpi-stepper"
-            data-testid="ocr-compare-dpi-stepper"
-            min={DPI_MIN}
-            max={DPI_MAX}
-            step={1}
-            value={options.dpi}
-            onChange={(event) => onSetDpi(clampDpi(Number(event.target.value) || DEFAULT_DPI))}
-            aria-label="Rendering DPI"
-          />
-        </div>
+        <SegmentedToggle
+          testId="ocr-compare-dpi-presets"
+          fullWidth={false}
+          size="compact"
+          ariaLabel="Rendering DPI presets"
+          value={String(options.dpi)}
+          onValueChange={(value) => onSetDpi(Number(value))}
+          buttonTestId={(value) => `ocr-compare-dpi-pill-${value}`}
+          options={DPI_PRESETS.map((dpi) => ({ value: String(dpi), label: String(dpi) }))}
+        />
+        <TextInput
+          type="number"
+          density="compact"
+          fullWidth={false}
+          className="ocr-compare-dpi-stepper"
+          data-testid="ocr-compare-dpi-stepper"
+          min={DPI_MIN}
+          max={DPI_MAX}
+          step={1}
+          value={options.dpi}
+          onChange={(event) => onSetDpi(clampDpi(Number(event.target.value) || DEFAULT_DPI))}
+          aria-label="Rendering DPI"
+        />
         <span className="ocr-compare-configure-hint muted">
           higher = sharper, slower · default {DEFAULT_DPI}
         </span>

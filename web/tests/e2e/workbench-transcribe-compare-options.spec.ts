@@ -1,3 +1,4 @@
+import { actionSelectorResponse, stubActionSelectorChoices } from './selectorChoicesFixture';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -16,14 +17,114 @@ import { createProject, importCsv, openProject, uniqueName } from './helpers';
 // (model_size/vad) on the NEXT requested run — configuring no longer re-runs by
 // itself, (4) Duplicate variant compares two configs of the same engine,
 // (5) the gear CAN swap a chip onto a billable engine, with the cost gate
-// standing in front of it — compare is no longer the free-only surface. The
-// add-engine MENU flow (workbench-transcribe-compare.spec.ts) is UNCHANGED by
-// this feature — only the per-chip gear/popover is new.
+// standing in front of it — compare is no longer the free-only surface.
 
 const MEDIA_DIR = path.resolve(process.cwd(), 'tests', 'fixtures', 'media');
 const AUDIO_FIXTURE = readFileSync(path.join(MEDIA_DIR, 'tiny-audio.wav'));
 
-async function patchTranscribeCatalog(page: Page) {
+test.afterEach(async ({ page }) => {
+  await page.unrouteAll({ behavior: 'wait' });
+});
+
+async function patchTranscribeCatalog(page: Page, projectId: string) {
+  const engines = [
+    {
+      id: 'faster_whisper',
+      label: 'Whisper (local)',
+      tier: 'local',
+      available: true,
+      target_id: 'local',
+      transcription_options: {
+        language: true, vad: true, model_size: true,
+      },
+      language: {
+        mode: 'single',
+        default: 'auto',
+        detects: true,
+        choices: [
+          { value: 'en', label: 'English' },
+          { value: 'fr', label: 'French' },
+          { value: 'de', label: 'German' },
+          { value: 'es', label: 'Spanish' },
+        ],
+      },
+      diarization: { supported: false, mode: 'none' },
+      targets: [{
+        target: 'local', target_id: 'local', available: true,
+        transcription_options: { language: true, vad: true, model_size: true },
+        diarization: { supported: false, mode: 'none' },
+        sizes: ['tiny', 'base', 'small', 'medium'],
+      }],
+    },
+    {
+      id: 'parakeet-tdt',
+      label: 'Parakeet (local)',
+      tier: 'local',
+      available: true,
+      target_id: 'local-onnx',
+      transcription_options: {
+        language: false, vad: true, model_size: false,
+      },
+      diarization: { supported: false, mode: 'none' },
+      targets: [{
+        target: 'local-onnx', target_id: 'local-onnx', available: true,
+        transcription_options: { language: false, vad: true, model_size: false },
+        diarization: { supported: false, mode: 'none' },
+      }],
+    },
+    {
+      id: 'stubprovider/whisper-1',
+      label: 'Stub remote transcription',
+      tier: 'hosted',
+      billable: true,
+      available: true,
+      target_id: 'remote-api:stubprovider',
+      transcription_options: {
+        language: true, vad: false, model_size: false,
+      },
+      language: {
+        mode: 'single',
+        default: 'auto',
+        detects: true,
+        choices: [
+          { value: 'en', label: 'English' },
+          { value: 'es', label: 'Spanish' },
+        ],
+      },
+      diarization: { supported: false, mode: 'none' },
+      targets: [{
+        target: 'remote-api:stubprovider', target_id: 'remote-api:stubprovider', available: true,
+        transcription_options: { language: true, vad: false, model_size: false },
+        diarization: { supported: false, mode: 'none' },
+      }],
+    },
+    {
+      id: 'joint_diarizer_fixture',
+      label: 'Synthetic joint diarizer',
+      tier: 'sidecar',
+      available: true,
+      target_id: 'models-gateway',
+      transcription_options: {
+        language: false, vad: false, model_size: false,
+      },
+      diarization: { supported: true, mode: 'intrinsic', speaker_hint: 'none' },
+      targets: [{
+        target: 'models-gateway', target_id: 'models-gateway', available: true,
+        transcription_options: { language: false, vad: false, model_size: false },
+        diarization: { supported: true, mode: 'intrinsic', speaker_hint: 'none' },
+      }],
+    },
+  ];
+  await stubActionSelectorChoices(page, projectId, ({ actionId, field, params }) =>
+    actionSelectorResponse({
+      projectId, actionId, field,
+      groups: [{ id: 'transcription', label: 'Transcription', choices: engines.map(({ id, label }) => ({
+        choiceId: id, label, authoredSelection: { kind: 'engine', engine: id },
+      })) }],
+      currentChoiceId: typeof params.engine === 'string' && engines.some(({ id }) => id === params.engine)
+        ? params.engine : null,
+    }),
+  );
   await page.route('**/actions/v1/catalog', async (route) => {
     const response = await route.fetch();
     const body = await response.json();
@@ -32,94 +133,7 @@ async function patchTranscribeCatalog(page: Page) {
     );
     if (transcribe) {
       transcribe.ui_hints = transcribe.ui_hints ?? {};
-      transcribe.ui_hints.engines = [
-        {
-          id: 'faster_whisper',
-          label: 'Whisper (local)',
-          tier: 'local',
-          available: true,
-          target_id: 'local',
-          transcription_options: {
-            language: true, vad: true, model_size: true,
-          },
-          language: {
-            mode: 'single',
-            default: 'auto',
-            detects: true,
-            choices: [
-              { value: 'en', label: 'English' },
-              { value: 'fr', label: 'French' },
-              { value: 'de', label: 'German' },
-              { value: 'es', label: 'Spanish' },
-            ],
-          },
-          diarization: { supported: false, mode: 'none' },
-          targets: [{
-            target: 'local', target_id: 'local', available: true,
-            transcription_options: { language: true, vad: true, model_size: true },
-            diarization: { supported: false, mode: 'none' },
-            sizes: ['tiny', 'base', 'small', 'medium'],
-          }],
-        },
-        {
-          id: 'parakeet-tdt',
-          label: 'Parakeet (local)',
-          tier: 'local',
-          available: true,
-          target_id: 'local-onnx',
-          transcription_options: {
-            language: false, vad: true, model_size: false,
-          },
-          diarization: { supported: false, mode: 'none' },
-          targets: [{
-            target: 'local-onnx', target_id: 'local-onnx', available: true,
-            transcription_options: { language: false, vad: true, model_size: false },
-            diarization: { supported: false, mode: 'none' },
-          }],
-        },
-        {
-          id: 'stubprovider/whisper-1',
-          label: 'Stub remote transcription',
-          tier: 'hosted',
-          billable: true,
-          available: true,
-          target_id: 'remote-api:stubprovider',
-          transcription_options: {
-            language: true, vad: false, model_size: false,
-          },
-          language: {
-            mode: 'single',
-            default: 'auto',
-            detects: true,
-            choices: [
-              { value: 'en', label: 'English' },
-              { value: 'es', label: 'Spanish' },
-            ],
-          },
-          diarization: { supported: false, mode: 'none' },
-          targets: [{
-            target: 'remote-api:stubprovider', target_id: 'remote-api:stubprovider', available: true,
-            transcription_options: { language: true, vad: false, model_size: false },
-            diarization: { supported: false, mode: 'none' },
-          }],
-        },
-        {
-          id: 'joint_diarizer_fixture',
-          label: 'Synthetic joint diarizer',
-          tier: 'sidecar',
-          available: true,
-          target_id: 'models-gateway',
-          transcription_options: {
-            language: false, vad: false, model_size: false,
-          },
-          diarization: { supported: true, mode: 'intrinsic', speaker_hint: 'none' },
-          targets: [{
-            target: 'models-gateway', target_id: 'models-gateway', available: true,
-            transcription_options: { language: false, vad: false, model_size: false },
-            diarization: { supported: true, mode: 'intrinsic', speaker_hint: 'none' },
-          }],
-        },
-      ];
+      transcribe.ui_hints.engines = engines;
     }
     await route.fulfill({
       status: 200,
@@ -230,18 +244,25 @@ async function routeComparison(page: Page) {
   return { estimates, starts };
 }
 
-/** The gate is a typed confirmation, not a single click: Run it stays disabled
- * until the operator writes the word, which is the consent step itself. */
+/** The quote has already supplied the server-issued token. The deliberate
+ * Run it click is the consent step; callers assert that no preview started
+ * while the gate was open. */
 async function approveCostGate(page: Page) {
   const confirm = page.getByTestId('cost-gate-confirm');
-  await expect(confirm).toBeDisabled();
-  await page.getByTestId('cost-gate-input').fill('confirm');
   await expect(confirm).toBeEnabled();
   await confirm.click();
 }
 
 async function runComparison(page: Page) {
   await page.getByTestId('transcribe-compare-run').click();
+}
+
+async function chooseTranscribeEngine(page: Page, choiceId: string) {
+  await page.getByTestId('transcribe-compare-configure-engine').click();
+  const dialog = page.getByTestId('engine-selector-dialog');
+  await expect(dialog).toBeVisible();
+  await dialog.locator(`[data-choice-id="${choiceId}"]`).click();
+  await expect(dialog).toBeHidden();
 }
 
 async function openTranscribeCompareWithAudio(page: Page) {
@@ -271,7 +292,7 @@ test('the gear opens the SAME Configure-variant popover component OCR Compare us
 }) => {
   const pid = await createProject(page.request, uniqueName('tco-reuse'));
   const sheetId = await importCsv(page.request, pid, 'alpha.csv', 'name\nAlpha\n');
-  await patchTranscribeCatalog(page);
+  await patchTranscribeCatalog(page, pid);
   await routeComparison(page);
   await openProject(page, pid, sheetId);
   await openTranscribeCompareWithAudio(page);
@@ -296,7 +317,7 @@ test('faster_whisper exposes language + model size + VAD; parakeet-tdt exposes o
 }) => {
   const pid = await createProject(page.request, uniqueName('tco-fields'));
   const sheetId = await importCsv(page.request, pid, 'alpha.csv', 'name\nAlpha\n');
-  await patchTranscribeCatalog(page);
+  await patchTranscribeCatalog(page, pid);
   await routeComparison(page);
   await openProject(page, pid, sheetId);
   await openTranscribeCompareWithAudio(page);
@@ -328,7 +349,7 @@ test('faster_whisper exposes language + model size + VAD; parakeet-tdt exposes o
 test('language choices and wire codes come from the selected engine declaration', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('tco-language'));
   const sheetId = await importCsv(page.request, pid, 'alpha.csv', 'name\nAlpha\n');
-  await patchTranscribeCatalog(page);
+  await patchTranscribeCatalog(page, pid);
   const { starts } = await routeComparison(page);
   await openProject(page, pid, sheetId);
   await openTranscribeCompareWithAudio(page);
@@ -359,7 +380,7 @@ test('choosing a model size re-runs the variant with model_size on the scratch p
 }) => {
   const pid = await createProject(page.request, uniqueName('tco-modelsize'));
   const sheetId = await importCsv(page.request, pid, 'alpha.csv', 'name\nAlpha\n');
-  await patchTranscribeCatalog(page);
+  await patchTranscribeCatalog(page, pid);
   const { starts } = await routeComparison(page);
   await openProject(page, pid, sheetId);
   await openTranscribeCompareWithAudio(page);
@@ -386,7 +407,7 @@ test('an intrinsic engine shows always-on diarization and sends no unsupported W
 }) => {
   const pid = await createProject(page.request, uniqueName('tco-intrinsic'));
   const sheetId = await importCsv(page.request, pid, 'alpha.csv', 'name\nAlpha\n');
-  await patchTranscribeCatalog(page);
+  await patchTranscribeCatalog(page, pid);
   const { starts } = await routeComparison(page);
   await openProject(page, pid, sheetId);
   await openTranscribeCompareWithAudio(page);
@@ -395,9 +416,7 @@ test('an intrinsic engine shows always-on diarization and sends no unsupported W
     .locator('[data-testid="transcribe-compare-engine-chip"][data-engine-id="parakeet-tdt"]')
     .first();
   await parakeetChip.getByTestId('transcribe-compare-variant-gear').click();
-  await page
-    .getByTestId('transcribe-compare-configure-engine')
-    .selectOption('joint_diarizer_fixture');
+  await chooseTranscribeEngine(page, 'joint_diarizer_fixture');
 
   const popover = page.getByTestId('transcribe-compare-configure');
   await expect(popover.getByTestId('transcribe-compare-diarization-intrinsic')).toContainText(
@@ -422,7 +441,7 @@ test('an intrinsic engine shows always-on diarization and sends no unsupported W
 test('Duplicate variant compares two model sizes of the same engine side by side', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('tco-duplicate'));
   const sheetId = await importCsv(page.request, pid, 'alpha.csv', 'name\nAlpha\n');
-  await patchTranscribeCatalog(page);
+  await patchTranscribeCatalog(page, pid);
   await routeComparison(page);
   await openProject(page, pid, sheetId);
   await openTranscribeCompareWithAudio(page);
@@ -447,17 +466,14 @@ test('Duplicate variant compares two model sizes of the same engine side by side
   await expect(chips.nth(1).locator('.ocr-compare-variant-summary')).toContainText('medium');
 });
 
-// The whole "stranded un-allowed remote engine" class of race is gone with the
-// gate that created it: the gear's engine <select> lists only free engines, so
-// a swap always lands on something immediately runnable and there is nothing to
-// restore on Cancel. What is still worth pinning is that the billable engine
-// cannot be reached from the gear at all.
+// The shared selector can author a paid variant, but changing the chip does not
+// spend. The ordinary cost gate still stands in front of its next run.
 test('the gear can swap a chip onto a billable engine, and the gate stands in front of it', async ({
   page,
 }) => {
   const pid = await createProject(page.request, uniqueName('tco-billable'));
   const sheetId = await importCsv(page.request, pid, 'alpha.csv', 'name\nAlpha\n');
-  await patchTranscribeCatalog(page);
+  await patchTranscribeCatalog(page, pid);
   const { estimates, starts } = await routeComparison(page);
   await openProject(page, pid, sheetId);
   await openTranscribeCompareWithAudio(page);
@@ -467,16 +483,7 @@ test('the gear can swap a chip onto a billable engine, and the gate stands in fr
     .locator('[data-testid="transcribe-compare-engine-chip"][data-engine-id="parakeet-tdt"]')
     .first();
   await parakeetChip.getByTestId('transcribe-compare-variant-gear').click();
-  const engineSelect = page
-    .getByTestId('transcribe-compare-configure')
-    .getByTestId('transcribe-compare-configure-engine');
-  await expect(engineSelect).toBeVisible();
-  // Compare is no longer the free-only surface: the paid engine is spellable
-  // here, and consent is what guards it.
-  await expect(
-    engineSelect.locator(`option[value="${REMOTE_ENGINE}"]`),
-  ).toHaveCount(1);
-  await engineSelect.selectOption(REMOTE_ENGINE);
+  await chooseTranscribeEngine(page, REMOTE_ENGINE);
   await page.keyboard.press('Escape');
 
   await expect(

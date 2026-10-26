@@ -1,14 +1,34 @@
 import '../PanelPrimitives.css';
 import { useState } from 'react';
 
-import type { OutputField } from '../../api/open';
+import type { OutputField, OutputJsonSchema } from '../../api/open';
 import { OutputFieldsEditor } from './OutputFieldsEditor';
 import { makeEditableField, toOutputFields, type EditableOutputField } from './outputFieldModel';
+
+function patchLockedItemDescriptions(
+  items: OutputJsonSchema,
+  itemFields: EditableOutputField['itemFields'],
+): OutputJsonSchema {
+  if (items.type !== 'object' || !items.properties) return items;
+  const descriptions = new Map(itemFields.map((field) => [field.name, field.description]));
+  return {
+    ...items,
+    properties: Object.fromEntries(Object.entries(items.properties).map(([name, schema]) => {
+      const description = descriptions.get(name);
+      if (description === undefined) return [name, schema];
+      const trimmedDescription = description.trim();
+      if (trimmedDescription) return [name, { ...schema, description: trimmedDescription }];
+      return [name, Object.fromEntries(Object.entries(schema)
+        .filter(([key]) => key !== 'description'))];
+    })) as Record<string, OutputJsonSchema>,
+  };
+}
 
 /** UI-only ids and partially typed label text stay outside canonical Params. */
 export function StructuredFieldsEditor({
   value, onChange, actionKind = 'map.extract', fieldTypes, maxFields, minFields, error,
-  labelError, onLabelInteraction,
+  labelError, onLabelInteraction, structureLocked = false,
+  lockReason = 'Fixed for this comparison.',
 }: {
   value: OutputField[];
   onChange(value: OutputField[]): void;
@@ -20,6 +40,8 @@ export function StructuredFieldsEditor({
   error?: string;
   labelError?: { fieldIndex: number; message: string };
   onLabelInteraction?(fieldIndex: number): void;
+  structureLocked?: boolean;
+  lockReason?: string;
 }) {
   const [state, setState] = useState(() => ({
     signature: JSON.stringify(value), fields: value.map(makeEditableField),
@@ -44,8 +66,10 @@ export function StructuredFieldsEditor({
     // list editor does not expose, such as enums or deeply nested properties.
     for (const [index, field] of next.entries()) {
       const previous = fields.find((candidate) => candidate.uiId === field.uiId);
-      if (field.type === 'list' && previous?.items
-        && field.itemMode === previous.itemMode && field.itemFields === previous.itemFields) {
+      if (field.type !== 'list' || !previous?.items || field.itemMode !== previous.itemMode) continue;
+      if (structureLocked && field.itemMode === 'object') {
+        output[index].items = patchLockedItemDescriptions(previous.items, field.itemFields);
+      } else if (field.itemFields === previous.itemFields) {
         output[index].items = previous.items;
       }
     }
@@ -56,6 +80,7 @@ export function StructuredFieldsEditor({
     <OutputFieldsEditor fields={fields} labelsRaw={labelsRaw}
       actionKind={actionKind} fieldTypes={fieldTypes} maxFields={maxFields} minFields={minFields}
       usesFieldNameDestination={false} outputFieldsReadOnly={false}
+      structureLocked={structureLocked} lockReason={lockReason}
       onFieldsChange={update} onLabelsRawChange={setLabelsRaw}
       labelError={labelError} onLabelInteraction={onLabelInteraction} />
     {error && <p className="panel-error" role="alert">{error}</p>}

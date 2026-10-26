@@ -176,6 +176,16 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
         ): "tenant.v1_action_preview_start.post",
         (
             "tenant",
+            "v1_action_compare_context",
+            "POST",
+        ): "tenant.v1_action_compare_context.post",
+        (
+            "tenant",
+            "v1_action_compare_preview_start",
+            "POST",
+        ): "tenant.v1_action_compare_preview_start.post",
+        (
+            "tenant",
             "v1_action_preview_status",
             "GET",
         ): "tenant.v1_action_preview_status.get",

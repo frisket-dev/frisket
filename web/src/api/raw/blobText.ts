@@ -1,3 +1,5 @@
+import { ApiError } from '../contractErrors';
+
 /** Named reads of original text blobs; bounded reading and explicit full copy. */
 export interface BlobTextWindow {
   coordinate: 'bytes';
@@ -32,9 +34,8 @@ export async function readDocumentTextWindow(
   }
   if (response.status !== 206) {
     await response.body?.cancel();
-    throw new Error(response.ok
-      ? 'This server cannot show text sections. Download the file to read it.'
-      : `Could not load this file (${response.status}).`);
+    if (!response.ok) throw new ApiError(response.status, `Could not load this file (${response.status}).`);
+    throw new Error('This server cannot show text sections. Download the file to read it.');
   }
   const match = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(contentRange ?? '');
   const [rangeStart, rangeEnd, total] = match ? match.slice(1).map(Number) : [];
@@ -74,6 +75,6 @@ export async function readDocumentTextResource(
   { signal }: { signal: AbortSignal },
 ): Promise<string> {
   const response = await fetch(url, { signal });
-  if (!response.ok) throw new Error(`Could not load this file (${response.status}).`);
+  if (!response.ok) throw new ApiError(response.status, `Could not load this file (${response.status}).`);
   return response.text();
 }

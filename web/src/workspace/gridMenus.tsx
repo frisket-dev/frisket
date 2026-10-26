@@ -7,6 +7,7 @@ import {
   Eye,
   EyeOff,
   FileDown,
+  GitCompareArrows,
   ListFilter,
   MapPin,
   Pin,
@@ -24,6 +25,10 @@ import type {
 import type { ActionTemplate } from '../api/types';
 import { ACTION_ICON_BY_KIND } from '../workbench/actSurface';
 import { clampMaxHeightBelow } from '../hooks/useAnchoredPosition';
+import type {
+  ActionColumnMenuEntry,
+  ActionRunEntryCallbacks,
+} from '../grid/actionRunEntry';
 import { type HeaderMenuState } from './workspaceState';
 import { gridFilterLabel } from './gridColumnState';
 
@@ -40,6 +45,8 @@ export function GridColumnHeaderMenu({
   columnActions,
   onColumnAction,
   actionsDisabled,
+  actionRunEntry,
+  onCompareActionRun,
   frozenColumnCount,
   onFreezeColumns,
   onUnfreezeColumns,
@@ -73,6 +80,9 @@ export function GridColumnHeaderMenu({
   columnActions: ActionTemplate[];
   onColumnAction(actionTemplate: ActionTemplate): void;
   actionsDisabled?: boolean;
+  /** Catalog-gated generated-column entry. Its anchor identifies the complete
+   * output family; menu actions must not operate on only the visible column. */
+  actionRunEntry?: ActionColumnMenuEntry | null;
   frozenColumnCount: number;
   onFreezeColumns(count: number): void;
   onUnfreezeColumns(): void;
@@ -100,7 +110,7 @@ export function GridColumnHeaderMenu({
   isRowTitleColumn: boolean;
   /** Sets sheets.title_column_id to this column (server-persisted). */
   onSetRowTitleColumn(): void;
-}) {
+} & ActionRunEntryCallbacks) {
   const left = Math.max(8, state.bounds.x + state.bounds.width - 246);
   const top = state.bounds.y + state.bounds.height + 4;
   // Cap the menu to the space below its anchor so every item (incl. the
@@ -230,6 +240,26 @@ export function GridColumnHeaderMenu({
         <ArrowUpDown size={14} aria-hidden />
         Advanced sort…
       </button>
+
+      {actionRunEntry?.comparisonKind === 'row_overlay' && (
+        <>
+          <div className="grid-header-menu-sep" />
+          <div className="grid-header-menu-action-origin" data-testid="header-menu-action-run-section">
+            <span>{actionRunEntry.actionTitle}</span>
+          </div>
+          {onCompareActionRun && (
+            <button
+              type="button"
+              className="grid-header-menu-item"
+              data-testid="header-menu-compare-action-run"
+              onClick={() => onCompareActionRun(actionRunEntry.anchor)}
+            >
+              <GitCompareArrows size={14} aria-hidden />
+              Compare settings…
+            </button>
+          )}
+        </>
+      )}
 
       {columnActions.length > 0 && (
         <>

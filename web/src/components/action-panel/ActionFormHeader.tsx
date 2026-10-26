@@ -59,6 +59,9 @@ export interface ActionFormHeaderProps {
   actionTemplate: ActionTemplate;
   title?: string;
   sheetName?: string;
+  /** Visible launch provenance, e.g. `on Court filings · from variant B`. */
+  contextLabel?: string;
+  onOpenHistory?(trigger: HTMLButtonElement): void;
   switchActions?: ActionTemplate[];
   onSwitchAction?(actionTemplate: ActionTemplate): void;
   variant: 'panel' | 'drawer';
@@ -70,6 +73,8 @@ export function ActionFormHeader({
   actionTemplate,
   title,
   sheetName,
+  contextLabel,
+  onOpenHistory,
   switchActions,
   onSwitchAction,
   variant,
@@ -90,7 +95,8 @@ export function ActionFormHeader({
 
   return (
     <PanelHeader
-      className={`panel-header form-header${variant === 'drawer' ? ' action-drawer-header' : ''}`}
+      className={`panel-header form-header${variant === 'drawer' ? ' action-drawer-header' : ''}${
+        variant === 'drawer' && onOpenHistory ? ' action-drawer-header-with-history' : ''}`}
       kicker={variant === 'drawer' ? (
         <span className="action-drawer-header-icon" aria-hidden>
           <HeaderIcon size={16} />
@@ -143,12 +149,17 @@ export function ActionFormHeader({
       ) : (
         <span data-testid="action-form-title">{formTitle}</span>
       )}
-      chips={sheetName ? (
-        <span className="muted action-form-context" title={`on ${sheetName}`}>
-          on {sheetName}
+      chips={contextLabel || sheetName ? (
+        <span className="muted action-form-context" title={contextLabel ?? `on ${sheetName}`}>
+          {contextLabel ?? `on ${sheetName}`}
         </span>
       ) : undefined}
-      actions={variant === 'drawer' ? <ActionHelpPopover action={actionTemplate} /> : undefined}
+      actions={variant === 'drawer' ? <>
+        {onOpenHistory && <IconButton icon={CalendarClock}
+          onClick={(event) => onOpenHistory(event.currentTarget)}
+          className="action-history-trigger" label="Earlier runs" data-testid="action-history-button" />}
+        <ActionHelpPopover action={actionTemplate} />
+      </> : undefined}
       onClose={variant === 'drawer' ? onClose : undefined}
       closeTestId="action-drawer-close"
       closeClassName="action-drawer-close"

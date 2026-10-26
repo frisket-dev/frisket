@@ -1,4 +1,5 @@
 import { CompareToolbar, CompareEngineChip, CompareResultColumn } from './CompareLayout';
+import { CompareRunControl } from './CompareRunControl';
 import './TopicSegmentationCompareTab.css';
 import { Button } from '../components/Button';
 import {
@@ -10,12 +11,7 @@ import {
   type DragEvent,
 } from 'react';
 import {
-  ChevronLeft,
-  ChevronRight,
-  Loader2,
-  Play,
   Plus,
-  RotateCw,
 } from 'lucide-react';
 
 import type { ProjectApiPort } from '../api/ports';
@@ -29,7 +25,14 @@ import { engineUnavailableReason } from '../actions/engineCatalog';
 import { ResizeSeam } from '../components/ResizeSeam';
 import { SegmentedToggle } from '../components/PanelPrimitives';
 import { CompareBillableEnginesNote, ConfigureVariantPopover } from './MediaCompareShell';
-import { CompareDocList, CompareFrontDoor } from './mediaCompareBodyParts';
+import {
+  CompareColumnsState,
+  CompareDocList,
+  CompareFooter,
+  CompareFrontDoor,
+  CompareResultState,
+  CompareVoteControl,
+} from './mediaCompareBodyParts';
 import { useCompareVariantConfigure } from './useCompareVariantConfigure';
 import {
   PEEK_MAX_WIDTH,
@@ -40,7 +43,6 @@ import {
   type EngineRunState,
   type MediaCompareConfig,
   type ScratchDoc,
-  type Vote,
 } from './mediaCompareSession';
 import {
   differingBoundaryKeys,
@@ -49,12 +51,6 @@ import {
 
 const TESTID = 'topic-compare';
 const TOPIC_COMPARE_ACCEPT = '.txt,.srt,.vtt,text/plain,text/vtt,application/x-subrip';
-const VOTE_GLYPH: Record<Vote, string> = {
-  neutral: '·',
-  keep: '✓',
-  reject: '✗',
-};
-
 interface TopicCompareColumnResult {
   result: TopicSegmentationCompareEngineResult;
   units: TopicSegmentationCompareUnit[];
@@ -239,13 +235,6 @@ export function TopicSegmentationCompareTab({
     event.preventDefault();
     session.ingestFiles(Array.from(event.dataTransfer.files));
   }, [session]);
-  const runLabel = docs.length === 0
-    ? 'Run'
-    : runState === 'running'
-      ? `Running · ${runProgress?.done ?? 0} / ${runProgress?.total ?? runningCount}`
-      : runState === 'fresh'
-        ? 'Re-run'
-        : 'Run';
   const noAvailableEngines = runnableColumns.length === 0 && catalog.length > 0 && catalog.every((engine) => engine.available === false);
 
   return (
@@ -253,36 +242,14 @@ export function TopicSegmentationCompareTab({
       {session.selectorOwners}
       <CompareToolbar testIdPrefix="topic-compare" running={runningCount > 0}
         controls={<>
-          <Button
-            type="button"
-            className={`btn ocr-compare-run${runState === 'pending' ? ' btn-primary' : ''}`}
-            data-testid="topic-compare-run"
-            data-run-state={runState}
-            data-pending-count={pendingPairs.length}
-            disabled={docs.length === 0 || runState === 'disabled' || runState === 'running'}
-            title={
-              runnableColumns.length === 0
-                ? 'Add a topic-segmentation variant'
-                : docs.length === 0
-                  ? 'Drop a transcript sample first'
-                  : runState === 'fresh'
-                    ? 'Re-run every document and variant'
-                    : undefined
-            }
-            onClick={() => (runState === 'fresh' ? runAll() : runPending())}
-          >
-            {runState === 'running' ? (
-              <Loader2 size={13} className="ocr-compare-spin" aria-hidden />
-            ) : runState === 'fresh' ? (
-              <RotateCw size={13} aria-hidden />
-            ) : (
-              <Play size={13} aria-hidden />
-            )}
-            <span className="ocr-compare-run-label">{runLabel}</span>
-            {runState === 'pending' ? (
-              <span className="ocr-compare-run-count mono"> · {pendingPairs.length} pending</span>
-            ) : null}
-          </Button>
+          <CompareRunControl testIdPrefix="topic-compare"
+            busy={runState === 'running' || runProgress !== null}
+            disabled={!docs.length || runState === 'disabled' || runState === 'probing'}
+            progress={runProgress ? `${runProgress.done} / ${runProgress.total}`
+              : pendingPairs.length ? `${pendingPairs.length} pending` : undefined}
+            statusDetail={!docs.length ? 'Drop a transcript sample first'
+              : !runnableColumns.length ? 'Add an available topic-segmentation variant' : undefined}
+            onRun={() => pendingPairs.length ? runPending() : runAll()} />
           <SegmentedToggle
             testId="topic-compare-mode-switch"
             className="ocr-compare-mode-switch"
@@ -370,7 +337,7 @@ export function TopicSegmentationCompareTab({
           disabled={catalog.length === 0 || noAvailableEngines}
           onClick={addVariant}
         >
-          <Plus size={12} /> variant
+          <Plus size={12} /> Variant
         </button>
       </CompareToolbar>
 
@@ -450,74 +417,60 @@ export function TopicSegmentationCompareTab({
             className="ocr-compare-columns topic-compare-columns"
             data-column-count={runnableColumns.length}
           >
-            {runnableColumns.length === 0 ? (
-              <div className="ocr-compare-empty-variants muted">
-                Add a variant to inspect topic boundaries.
-              </div>
-            ) : null}
+            <CompareColumnsState
+              testIdPrefix="topic-compare"
+              configuredCount={columns.length}
+              runnableCount={runnableColumns.length}
+              showReady={false}
+              noVariantsLabel="Add a variant to inspect topic boundaries."
+              unavailableLabel="No variant is ready — configure one to finish setup."
+            />
             {runnableColumns.map((column) => {
               const run = activeDoc?.runs[column.id];
               const vote = activeDoc?.votes[column.id] ?? 'neutral';
               return (
-                <CompareResultColumn data-testid="topic-compare-engine-column"
+                <CompareResultColumn
+                  data-testid="topic-compare-engine-column"
                   data-engine-id={column.engineId ?? ''}
                   data-variant-id={column.id}
                   data-run-status={run?.status ?? 'pending'}
                   key={column.id}
-                  header={<>
-                    <button
-                      type="button"
-                      className="ocr-compare-vote-chip"
-                      data-testid="topic-compare-vote-chip"
-                      data-vote={vote}
-                      onClick={() => castVote(column.id)}
-                    >
-                      <span className="ocr-compare-vote-glyph">{VOTE_GLYPH[vote]}</span>
-                      <span className="ocr-compare-vote-label">{engineLabel(column.engineId)}</span>
-                      <span className="ocr-compare-col-summary muted mono">
-                        {detailOf(column)}
-                      </span>
-                    </button>
-                    {run?.status === 'done' ? (
-                      <span className="topic-compare-lane-meta mono muted">
-                        {run.results.result.sections.length} sections · {run.results.result.runtime_ms}ms
-                      </span>
-                    ) : null}
-                  </>}
-
+                  header={(
+                    <>
+                      <CompareVoteControl
+                        testId="topic-compare-vote-chip"
+                        engineId={column.engineId}
+                        vote={vote}
+                        label={engineLabel(column.engineId)}
+                        summary={detailOf(column)}
+                        onVote={() => castVote(column.id)}
+                      />
+                      {run?.status === 'done' ? (
+                        <span className="topic-compare-lane-meta mono muted">
+                          {run.results.result.sections.length} sections ·{' '}
+                          {run.results.result.runtime_ms}ms
+                        </span>
+                      ) : null}
+                    </>
+                  )}
                   textClassName="topic-compare-engine-text"
                 >
-                  {!run ? (
-                    <div className="ocr-compare-engine-pending muted">
-                      not run yet — press Run
-                    </div>
-                  ) : run.status === 'running' ? (
-                    <div className="ocr-compare-engine-running muted">
-                      <Loader2 size={13} className="ocr-compare-spin" /> finding topics…
-                    </div>
-                  ) : run.status === 'error' ? (
-                    <div className="ocr-compare-engine-error" role="alert">
-                      <strong>{engineLabel(column.engineId)} failed</strong>
-                      <span>{run.message}</span>
-                      {activeDoc ? (
-                        <Button
-                          type="button"
-                          className="ocr-compare-engine-retry"
-                          data-testid="topic-compare-engine-retry"
-                          onClick={() => retryColumn(activeDoc, column)}
-                        >
-                          <RotateCw size={12} /> Retry
-                        </Button>
-                      ) : null}
-                    </div>
-                  ) : activeParsed ? (
-                    <TopicSectionsLane
-                      result={run.results.result}
-                      units={run.results.units}
-                      diffKeys={effectiveMode === 'diff' ? diffKeys : []}
-                      onNavigate={navigateToBoundary}
-                    />
-                  ) : null}
+                  <CompareResultState
+                    run={run}
+                    engineLabel={engineLabel(column.engineId)}
+                    pendingLabel="not run yet — select Run comparison"
+                    runningLabel="finding topics…"
+                    testIdPrefix="topic-compare-engine"
+                    onRetry={activeDoc ? () => retryColumn(activeDoc, column) : undefined}
+                    renderResult={(completed) => activeParsed ? (
+                      <TopicSectionsLane
+                        result={completed.results.result}
+                        units={completed.results.units}
+                        diffKeys={effectiveMode === 'diff' ? diffKeys : []}
+                        onNavigate={navigateToBoundary}
+                      />
+                    ) : null}
+                  />
                 </CompareResultColumn>
               );
             })}
@@ -525,48 +478,28 @@ export function TopicSegmentationCompareTab({
         </div>
       )}
 
-      <footer className="ocr-compare-footer" data-testid="topic-compare-footer">
-        <div className="ocr-compare-token-nav" data-testid="topic-compare-boundary-nav">
-          {effectiveMode === 'diff' && diffKeys.length > 0 ? (
-            <>
-              <button
-                type="button"
-                className="icon-btn"
-                aria-label="Previous differing boundary"
-                onClick={() => jumpBoundary(-1)}
-              >
-                <ChevronLeft size={13} />
-              </button>
-              <span className="mono">
-                {diffKeys.length} boundary {diffKeys.length === 1 ? 'position' : 'positions'} differ
-              </span>
-              <button
-                type="button"
-                className="icon-btn"
-                aria-label="Next differing boundary"
-                onClick={() => jumpBoundary(1)}
-              >
-                <ChevronRight size={13} />
-              </button>
-            </>
-          ) : (
-            <span className="mono muted">
-              {docs.length === 0
-                ? 'drop transcripts to compare'
-                : pendingPairs.length > 0
-                  ? `${pendingPairs.length} pending — press Run`
-                  : effectiveMode === 'diff'
-                    ? doneResults
-                      ? 'no boundary differences'
-                      : 'waiting for both variants'
-                    : 'survey — no diff'}
-            </span>
-          )}
-        </div>
-        <div className="ocr-compare-verdict mono" data-testid="topic-compare-verdict">
-          Verdict so far: {verdict}
-        </div>
-      </footer>
+      <CompareFooter
+        footerTestId="topic-compare-footer"
+        navigationTestId="topic-compare-boundary-nav"
+        verdictTestId="topic-compare-verdict"
+        verdict={verdict}
+        difference={effectiveMode === 'diff' && diffKeys.length > 0 ? {
+          label: <>{diffKeys.length} boundary {diffKeys.length === 1 ? 'position' : 'positions'} differ</>,
+          previousLabel: 'Previous differing boundary',
+          nextLabel: 'Next differing boundary',
+          onPrevious: () => jumpBoundary(-1),
+          onNext: () => jumpBoundary(1),
+        } : null}
+        fallback={docs.length === 0
+          ? 'drop transcripts to compare'
+          : pendingPairs.length > 0
+            ? `${pendingPairs.length} pending — select Run comparison`
+            : effectiveMode === 'diff'
+              ? doneResults
+                ? 'no boundary differences'
+                : 'waiting for both variants'
+              : 'survey — no diff'}
+      />
     </section>
   );
 }

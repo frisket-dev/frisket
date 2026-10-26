@@ -6,7 +6,8 @@ import { StructuredFieldsEditor } from './StructuredFieldsEditor';
 type ClassifyField = GeneratedActionParams['map.classify']['fields'][number];
 const FIELD_TYPES: readonly NonNullable<ClassifyField['type']>[] = ['category', 'score', 'integer', 'number', 'boolean', 'text'];
 
-export function ClassifyParamsBody({ params, setParams, errors, Field, onParamInteraction, engine }:
+export function ClassifyParamsBody({ params, setParams, errors, Field, onParamInteraction, engine,
+  structureLocked, lockReason }:
   GeneratedActionParamsBodyProps<'map.classify'>) {
   const local = (params.engine ?? 'local_semantic') === 'local_semantic';
   const options = engine?.classification_options;
@@ -25,6 +26,7 @@ export function ClassifyParamsBody({ params, setParams, errors, Field, onParamIn
     {engine?.description && <p className="form-hint">{engine.description}</p>}
     <StructuredFieldsEditor actionKind="map.classify" maxFields={maxFields}
       fieldTypes={fieldTypes}
+      structureLocked={structureLocked} lockReason={lockReason}
       value={(params.fields ?? []).map((field) => ({
         name: field.name, type: field.type ?? 'category', description: field.description ?? '',
         ...(field.labels?.length ? { labels: field.labels } : {}),

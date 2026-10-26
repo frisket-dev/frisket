@@ -182,7 +182,8 @@ describe('TopicSegmentationCompareTab', () => {
       }),
     );
     await waitFor(() => expect(screen.getByTestId('topic-compare-doc-item')).toBeVisible());
-    expect(screen.getByTestId('topic-compare-run')).toHaveAttribute('data-run-state', 'pending');
+    expect(screen.getByTestId('topic-compare-run')).toBeEnabled();
+    expect(screen.getByTestId('topic-compare-run')).toHaveTextContent('Run comparison');
 
     await user.click(screen.getByTestId('topic-compare-run'));
     await waitFor(() =>
@@ -214,8 +215,8 @@ describe('TopicSegmentationCompareTab', () => {
       expect.objectContaining({ hasData: true, verdict: expect.stringContaining('✓1') }),
     );
 
-    // Fresh results make the same button an explicit Re-run over all pairs.
-    expect(screen.getByTestId('topic-compare-run')).toHaveAttribute('data-run-state', 'fresh');
+    // With no pending pairs, running again processes all pairs.
+    expect(screen.getByTestId('topic-compare-run')).toBeEnabled();
     await user.click(screen.getByTestId('topic-compare-run'));
     await waitFor(() => expect(compare).toHaveBeenCalledTimes(4));
   });

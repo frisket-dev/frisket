@@ -3,7 +3,7 @@ import '@testing-library/jest-dom/vitest';
 import { useState } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import type { OutputField } from '../../src/api/types';
+import type { OutputField, OutputJsonSchema } from '../../src/api/types';
 import { StructuredFieldsEditor } from '../../src/components/action-panel/StructuredFieldsEditor';
 
 afterEach(cleanup);
@@ -16,6 +16,17 @@ function Editor({ initial, onChange }: { initial: OutputField[]; onChange(fields
       ...(labels?.length ? { labels } : {}) }));
     setFields(next);
     onChange(next);
+  }} />;
+}
+
+function LockedEditor({ initial, onChange }: {
+  initial: OutputField[];
+  onChange(fields: OutputField[]): void;
+}) {
+  const [fields, setFields] = useState(initial);
+  return <StructuredFieldsEditor value={fields} structureLocked onChange={(value) => {
+    setFields(value);
+    onChange(value);
   }} />;
 }
 
@@ -40,6 +51,49 @@ it('preserves nested list schemas while editing the field name', () => {
   render(<Editor initial={[{ name: 'items', type: 'list', description: '', items }]} onChange={onChange} />);
   fireEvent.change(screen.getByLabelText('Field 1 name'), { target: { value: 'records' } });
   expect(onChange.mock.lastCall?.[0][0]).toEqual({ name: 'records', type: 'list', description: '', items });
+});
+
+it('patches only the nested description when output structure is locked', () => {
+  const onChange = vi.fn();
+  const items = {
+    type: 'object',
+    properties: {
+      description: {
+        type: 'string', description: 'Event summary', enum: ['brief', 'full'], format: 'event-summary',
+      },
+      count: { type: 'integer', description: 'Event count', minimum: 0 },
+      metadata: {
+        type: 'object',
+        description: 'Event metadata',
+        properties: { source: { type: 'string', enum: ['filing', 'attachment'] } },
+        required: ['source'],
+      },
+    },
+    required: ['description', 'metadata'],
+  } as unknown as OutputJsonSchema;
+  render(<LockedEditor initial={[{
+    name: 'events', type: 'list', description: 'Events in the filing', items,
+  }]} onChange={onChange} />);
+
+  fireEvent.change(screen.getAllByTestId('list-item-field-description')[0], {
+    target: { value: 'Updated event summary' },
+  });
+
+  expect(onChange).toHaveBeenCalledWith([{
+    name: 'events',
+    type: 'list',
+    description: 'Events in the filing',
+    items: {
+      ...items,
+      properties: {
+        ...items.properties,
+        description: {
+          ...items.properties?.description,
+          description: 'Updated event summary',
+        },
+      },
+    },
+  }]);
 });
 
 it('uses the same editable controls for nested fields without changing add/remove limits', () => {

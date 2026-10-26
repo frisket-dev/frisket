@@ -365,6 +365,8 @@ jobs:
           UV_NO_SYNC=1 FRISKET_E2E_MINIMAL_DEPS=1 FRISKET_CACHE_MODE=replay_strict
           npm run e2e --
           --project=chromium --no-deps --workers=1
+          action-compare-connected.spec.ts
+          action-compare-extract.spec.ts
           action-validation-ux.spec.ts
           ask-skill-authoring.spec.ts
           backfill-cost-gate.spec.ts

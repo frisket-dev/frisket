@@ -118,6 +118,16 @@
   color: var(--text-light);
   padding: 4px 8px 2px;
 }
+.grid-header-menu-action-origin {
+  padding: 5px 8px 4px;
+  color: var(--text);
+}
+.grid-header-menu-action-origin span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  font-weight: 700;
+}
 /* Filtered-state chip near the caret (replaces inc 6's funnel sprite). */
 .grid-header-menu-filtered {
   margin-left: 6px;

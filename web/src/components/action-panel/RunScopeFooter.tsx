@@ -12,6 +12,7 @@ export interface RunScopeFooterProps {
   previewLabel?: string;
   rowCount: number;
   selectedCount: number;
+  scopeSummary?: ReactNode;
   scope?: 'all' | 'selected';
   onScopeChange?(scope: 'all' | 'selected'): void;
   /** Existing callers launch immediately from the split-button menu. A
@@ -24,7 +25,21 @@ export interface RunScopeFooterProps {
   /** An exact view/lens may intentionally contain zero rows. */
   allowEmptySelection?: boolean;
   primaryButtonType?: 'button' | 'submit';
+  /** Overrides the ordinary run callback for a configure-first primary such
+   * as Compare. Scope menu actions continue to call `onRun`. */
+  onPrimary?(): void;
   primaryTestId?: string;
+  allScopeLabel?: string;
+  selectedScopeLabel?: string;
+  showAllScopeOption?: boolean;
+  showSelectedScopeOption?: boolean;
+  menuItems?: readonly {
+    id: string;
+    label: string;
+    detail?: string;
+    disabled?: boolean;
+    onSelect(): void;
+  }[];
   backfillTargetName?: string | null;
   backfillHasGaps?: boolean;
   onBackfill?(targetColumnName: string): void;
@@ -45,13 +60,20 @@ export function RunScopeFooter({
   previewLabel = 'Preview',
   rowCount,
   selectedCount,
+  scopeSummary,
   scope: controlledScope,
   onScopeChange,
   runOnScopeSelect = true,
   allowedScopes = ['all_rows', 'exact_membership'],
   allowEmptySelection = false,
   primaryButtonType = 'button',
+  onPrimary,
   primaryTestId,
+  allScopeLabel = 'Run all',
+  selectedScopeLabel = 'Run on selected',
+  showAllScopeOption = true,
+  showSelectedScopeOption = true,
+  menuItems = [],
   backfillTargetName = null,
   backfillHasGaps = false,
   onBackfill,
@@ -89,7 +111,9 @@ export function RunScopeFooter({
     ? allAllowed
     : selectedAllowed && (selectedCount > 0 || allowEmptySelection);
   const hasScopeChoice = allAllowed && selectedAllowed;
-  const hasScopeMenu = hasScopeChoice || Boolean(onBackfill);
+  const hasVisibleScopeChoice = hasScopeChoice
+    && (showAllScopeOption || (showSelectedScopeOption && selectedCount > 0));
+  const hasScopeMenu = hasVisibleScopeChoice || Boolean(onBackfill) || menuItems.length > 0;
   const canBackfill = Boolean(onBackfill && backfillTargetName && backfillHasGaps);
   const backfillTitle = !backfillTargetName
     ? 'Select an existing AI column to re-run its failed or missing rows'
@@ -121,9 +145,9 @@ export function RunScopeFooter({
     <div className="form-actions action-run-actions">
       {children}
       <p className="run-scope-summary">
-        {effectiveScope === 'all'
+        {scopeSummary ?? (effectiveScope === 'all'
           ? `All ${rowCount.toLocaleString()} rows will run`
-          : `${selectedCount.toLocaleString()} selected rows will run`}
+          : `${selectedCount.toLocaleString()} selected rows will run`)}
       </p>
       <div className="run-actions-row">
         <Button
@@ -144,7 +168,9 @@ export function RunScopeFooter({
               disabled={!canRun || !scopeAvailable}
               title={disabledTitle}
               data-testid={primaryTestId ?? `${testIdPrefix}-run`}
-              onClick={primaryButtonType === 'button' ? () => onRun(effectiveScope) : undefined}
+              onClick={primaryButtonType === 'button'
+                ? () => onPrimary ? onPrimary() : onRun(effectiveScope)
+                : undefined}
             >
               <Play size={13} /> {visiblePrimaryLabel}
             </Button>
@@ -168,34 +194,50 @@ export function RunScopeFooter({
               anchorRef={toggleRef}
               onClose={() => setMenuOpen(false)}
               align="right"
+              width={280}
               id={scopePopupId}
               role="group"
               aria-label="Run scope options"
               data-testid={`${testIdPrefix}-run-scope-menu`}
             >
-              {hasScopeChoice && <button
+              {hasScopeChoice && showAllScopeOption && <button
                 type="button"
                 className="menu-item"
                 data-active={effectiveScope === 'all'}
                 data-testid={`${testIdPrefix}-row-scope-all`}
                 onClick={() => runScope('all')}
               >
-                <span className="menu-item-name">Run all</span>
+                <span className="menu-item-name">{allScopeLabel}</span>
                 <span className="muted">{rowCount.toLocaleString()} rows</span>
               </button>}
-              {hasScopeChoice && <button
+              {hasScopeChoice && showSelectedScopeOption && selectedCount > 0 && <button
                 type="button"
                 className="menu-item"
                 data-active={effectiveScope === 'selected'}
                 data-testid={`${testIdPrefix}-row-scope-selected`}
-                disabled={selectedCount === 0}
                 onClick={() => runScope('selected')}
               >
-                <span className="menu-item-name">Run on selected</span>
+                <span className="menu-item-name">{selectedScopeLabel}</span>
                 <span className="muted">
-                  {selectedCount > 0 ? `${selectedCount.toLocaleString()} selected` : 'No rows selected'}
+                  {selectedCount.toLocaleString()} selected
                 </span>
               </button>}
+              {menuItems.map((item) => <button
+                key={item.id}
+                type="button"
+                role="menuitem"
+                className="menu-item"
+                data-testid={`${testIdPrefix}-menu-${item.id}`}
+                disabled={item.disabled}
+                onClick={() => {
+                  item.onSelect();
+                  setMenuOpen(false);
+                  toggleRef.current?.focus();
+                }}
+              >
+                <span className="menu-item-name">{item.label}</span>
+                {item.detail && <span className="muted">{item.detail}</span>}
+              </button>)}
               {onBackfill && (
                 <button
                   type="button"

@@ -1451,6 +1451,27 @@ class ActionCategory(StrEnum):
     SOURCES = "sources"
 
 
+class ActionComparisonKind(StrEnum):
+    ROW_OVERLAY = "row_overlay"
+
+
+@dataclass(frozen=True)
+class ActionComparison:
+    """Typed opt-in plus action-owned structural parameter locks."""
+
+    kind: ActionComparisonKind
+    structural_params: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.kind, ActionComparisonKind):
+            raise TypeError("comparison kind must be an ActionComparisonKind")
+        if any(
+            not isinstance(name, str) or not name or name != name.strip()
+            for name in self.structural_params
+        ) or len(self.structural_params) != len(set(self.structural_params)):
+            raise ValueError("comparison structural params must be unique names")
+
+
 class RowScope(StrEnum):
     """The row selectors an action accepts."""
 
@@ -3235,6 +3256,7 @@ class Action(Generic[P, OutputT]):
     row_scope: RowScope
     export_target: ExportTarget | None
     form: str = "generated"
+    comparison: ActionComparison | None = None
     _example_params: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
@@ -3244,6 +3266,10 @@ class Action(Generic[P, OutputT]):
             or self.form != self.form.strip()
         ):
             raise ValueError("action form must be a non-empty trimmed string")
+        if self.comparison is not None and not isinstance(
+            self.comparison, ActionComparison
+        ):
+            raise TypeError("action comparison must be an ActionComparison")
 
 
 def action(
@@ -3264,6 +3290,7 @@ def action(
     row_scope: RowScope = RowScope.SELECTABLE_ROWS,
     export_target: ExportTarget | None = None,
     form: str = "generated",
+    comparison: ActionComparison | None = None,
     examples: typing.Iterable[P] = (),
 ) -> Action[P, OutputT]:
     """Declare an action, its presentation, and illustrative Params instances.
@@ -3345,6 +3372,7 @@ def action(
         row_scope,
         export_target,
         form=form,
+        comparison=comparison,
         _example_params=tuple(example_params),
     )
 
@@ -4183,6 +4211,11 @@ class RegisteredAction:
                 "semantic_controls": controls,
                 "source_requirements": source_requirements,
                 "logical_outputs": outputs,
+                **(
+                    {"comparison": {"kind": definition.comparison.kind.value}}
+                    if definition.comparison is not None
+                    else {}
+                ),
                 **(
                     {"typed_action": {"creates_sheet": True}}
                     if _creates_sheet(definition.run)
