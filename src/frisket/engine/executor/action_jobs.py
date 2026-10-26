@@ -769,6 +769,10 @@ def _supports_typed_action_job(bound: Any) -> bool:
     from frisket.actions.transcript_types import TranscriptReader
 
     terminal = bound.action.definition.run
+    from frisket.actions.core import MapBatch
+
+    if isinstance(terminal, MapBatch) and terminal.infer_output_types:
+        return True
     if isinstance(terminal, _ProjectAction):
         return True
     if not isinstance(terminal, CreateSheet):
@@ -996,6 +1000,7 @@ def run_action_run_job(
     payload: Mapping[str, Any],
     *,
     executor_lookup: ActionJobExecutorLookup | None = None,
+    should_cancel: Callable[[], bool] = lambda: False,
 ) -> ActionResult:
     """Execute one generic action.run job and terminalize its receipt.
 
@@ -1032,6 +1037,33 @@ def run_action_run_job(
 
     executor = executor_lookup(action_kind) if executor_lookup is not None else None
     try:
+        bound = bind_typed_action_job(envelope, project=project)
+        if not isinstance(bound, ActionResult):
+            from frisket.actions.core import MapBatch
+
+            if (
+                isinstance(bound.action.definition.run, MapBatch)
+                and bound.action.definition.run.infer_output_types
+            ):
+                from frisket.engine.executor.inferred_batch_action import (
+                    run_inferred_batch,
+                )
+                from frisket.engine.executor.actions import _default_map_runner_factory
+
+                def executor(current, intent):
+                    return run_inferred_batch(
+                        current,
+                        intent.project_id,
+                        bound,
+                        None,
+                        _default_map_runner_factory,
+                        reservation={
+                            "action_id": intent.action_id,
+                            "receipt_id": intent.receipt_id,
+                        },
+                        should_cancel=should_cancel,
+                    )
+
         if executor is None:
             from frisket.actions.core import CreateSheet
             from frisket.authoring.workbench.installed_actions import (

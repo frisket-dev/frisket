@@ -141,6 +141,7 @@ class _PreparedMapExecution:
     receipt_fn: Callable[[Any, int, str, str], Receipt]
     replay_error_fn: Callable[[Receipt], ActionError | None]
     reservation_kind: str
+    reservation: Mapping[str, str] | None = None
 
 
 def _run_action_core_spec(
@@ -1413,7 +1414,12 @@ def _run_reserved_maprunner_action(
             instance_principal(project)
         if atomic_publication:
             project.db.execute("BEGIN IMMEDIATE")
-        if prepared_execution is not None:
+        if (
+            prepared_execution is not None
+            and prepared_execution.reservation is not None
+        ):
+            reservation = dict(prepared_execution.reservation)
+        elif prepared_execution is not None:
             reservation = _reserve_running_action_receipt(
                 project,
                 action,

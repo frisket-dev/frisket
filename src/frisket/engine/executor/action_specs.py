@@ -307,6 +307,7 @@ _RUNLESS_ACTION_KINDS: frozenset[str] = frozenset(
         "replay.accept_column",
         "replay.dismiss",
         "map.find",
+        "map.formula",
         "resolve.combine",
         "resolve.entities",
         "resolve.fill_missing",
