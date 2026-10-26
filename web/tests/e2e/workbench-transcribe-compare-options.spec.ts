@@ -17,12 +17,14 @@ import { createProject, importCsv, openProject, uniqueName } from './helpers';
 // (model_size/vad) on the NEXT requested run — configuring no longer re-runs by
 // itself, (4) Duplicate variant compares two configs of the same engine,
 // (5) the gear CAN swap a chip onto a billable engine, with the cost gate
-// standing in front of it — compare is no longer the free-only surface. The
-// add-engine MENU flow (workbench-transcribe-compare.spec.ts) is UNCHANGED by
-// this feature — only the per-chip gear/popover is new.
+// standing in front of it — compare is no longer the free-only surface.
 
 const MEDIA_DIR = path.resolve(process.cwd(), 'tests', 'fixtures', 'media');
 const AUDIO_FIXTURE = readFileSync(path.join(MEDIA_DIR, 'tiny-audio.wav'));
+
+test.afterEach(async ({ page }) => {
+  await page.unrouteAll({ behavior: 'wait' });
+});
 
 async function patchTranscribeCatalog(page: Page, projectId: string) {
   const engines = [
@@ -242,18 +244,25 @@ async function routeComparison(page: Page) {
   return { estimates, starts };
 }
 
-/** The gate is a typed confirmation, not a single click: Run it stays disabled
- * until the operator writes the word, which is the consent step itself. */
+/** The quote has already supplied the server-issued token. The deliberate
+ * Run it click is the consent step; callers assert that no preview started
+ * while the gate was open. */
 async function approveCostGate(page: Page) {
   const confirm = page.getByTestId('cost-gate-confirm');
-  await expect(confirm).toBeDisabled();
-  await page.getByTestId('cost-gate-input').fill('confirm');
   await expect(confirm).toBeEnabled();
   await confirm.click();
 }
 
 async function runComparison(page: Page) {
   await page.getByTestId('transcribe-compare-run').click();
+}
+
+async function chooseTranscribeEngine(page: Page, choiceId: string) {
+  await page.getByTestId('transcribe-compare-configure-engine').click();
+  const dialog = page.getByTestId('engine-selector-dialog');
+  await expect(dialog).toBeVisible();
+  await dialog.locator(`[data-choice-id="${choiceId}"]`).click();
+  await expect(dialog).toBeHidden();
 }
 
 async function openTranscribeCompareWithAudio(page: Page) {
@@ -407,9 +416,7 @@ test('an intrinsic engine shows always-on diarization and sends no unsupported W
     .locator('[data-testid="transcribe-compare-engine-chip"][data-engine-id="parakeet-tdt"]')
     .first();
   await parakeetChip.getByTestId('transcribe-compare-variant-gear').click();
-  await page
-    .getByTestId('transcribe-compare-configure-engine')
-    .selectOption('joint_diarizer_fixture');
+  await chooseTranscribeEngine(page, 'joint_diarizer_fixture');
 
   const popover = page.getByTestId('transcribe-compare-configure');
   await expect(popover.getByTestId('transcribe-compare-diarization-intrinsic')).toContainText(
@@ -459,11 +466,8 @@ test('Duplicate variant compares two model sizes of the same engine side by side
   await expect(chips.nth(1).locator('.ocr-compare-variant-summary')).toContainText('medium');
 });
 
-// The whole "stranded un-allowed remote engine" class of race is gone with the
-// gate that created it: the gear's engine <select> lists only free engines, so
-// a swap always lands on something immediately runnable and there is nothing to
-// restore on Cancel. What is still worth pinning is that the billable engine
-// cannot be reached from the gear at all.
+// The shared selector can author a paid variant, but changing the chip does not
+// spend. The ordinary cost gate still stands in front of its next run.
 test('the gear can swap a chip onto a billable engine, and the gate stands in front of it', async ({
   page,
 }) => {
@@ -479,16 +483,7 @@ test('the gear can swap a chip onto a billable engine, and the gate stands in fr
     .locator('[data-testid="transcribe-compare-engine-chip"][data-engine-id="parakeet-tdt"]')
     .first();
   await parakeetChip.getByTestId('transcribe-compare-variant-gear').click();
-  const engineSelect = page
-    .getByTestId('transcribe-compare-configure')
-    .getByTestId('transcribe-compare-configure-engine');
-  await expect(engineSelect).toBeVisible();
-  // Compare is no longer the free-only surface: the paid engine is spellable
-  // here, and consent is what guards it.
-  await expect(
-    engineSelect.locator(`option[value="${REMOTE_ENGINE}"]`),
-  ).toHaveCount(1);
-  await engineSelect.selectOption(REMOTE_ENGINE);
+  await chooseTranscribeEngine(page, REMOTE_ENGINE);
   await page.keyboard.press('Escape');
 
   await expect(
