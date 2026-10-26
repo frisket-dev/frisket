@@ -43,6 +43,7 @@ import { SelectorField } from '../../engine-selector/SelectorField';
 import { selectorReadinessMessage } from '../../engine-selector/selectorProjection';
 import type { SelectorChoice } from '../../api/selectorChoices';
 import type { HttpSelectorChoicesQuery } from '../../api/selectorChoices';
+import { FormulaFunctionGuide } from './FormulaFunctionGuide';
 import { JoinOutputNames } from './JoinOutputNames';
 import { PdfTablesReview, type PdfTablesMaterializeIntent, type PdfTablesExportIntent } from './PdfTablesReview';
 import type { OcrCompareTarget } from '../../actions/ocrCompare';
@@ -402,7 +403,7 @@ function initialParams(entry: GeneratedActionCatalogEntry, template: ActionTempl
         && eligible.some((column) => column.name === sourceColumn)
         ? [sourceColumn]
         : eligible.slice(0, Math.max(1, requirement?.min ?? 1)).map((column) => column.name);
-    } else if (control === 'template') {
+    } else if (control === 'template' || control === 'formula') {
       edits[param.name] = schema && 'default' in schema
         ? schema.default as CanonicalFieldValue
         : { text: sourceColumn ? `{{${sourceColumn}}}` : '' };
@@ -1057,15 +1058,25 @@ function GeneratedActionFormContents({
         </>
       );
     }
-    if (semanticControl === 'template') {
-      return (
-        <>
-          <label className="form-label" htmlFor={field.id}>{field.label}</label>
-          <TemplateComposer value={templateText(draft[field.name])} columns={columns}
+    if (semanticControl === 'template' || semanticControl === 'formula') {
+      const formula = semanticControl === 'formula';
+      const requirement = catalogEntry.ui_hints.source_requirements
+        ?.find((candidate) => candidate.param === field.name) ?? null;
+      const insertColumns = formula ? compatibleSourceColumns(orderedSourceColumns(columns), requirement) : columns;
+      const composer = <TemplateComposer value={templateText(draft[field.name])} columns={insertColumns}
             textareaTestId={field.testid} insertTestId={`${field.testid}-column-insert`}
-            ariaLabel={field.label} onChange={(text) => updateField(field.name, { text })} />
-        </>
-      );
+            textareaId={field.id} ariaLabel={field.label}
+            {...(formula ? {
+              tightInsert: true,
+              excelQuotedLiterals: true,
+              placeholder: '=ROUND({{amount}}, 2)',
+              insertAriaLabel: 'Insert column in formula',
+              hideHint: true,
+            } : {})}
+            onChange={(text) => updateField(field.name, { text })} />;
+      return formula
+        ? <FormulaFunctionGuide label={field.label} fieldId={field.id}>{composer}</FormulaFunctionGuide>
+        : <><label className="form-label" htmlFor={field.id}>{field.label}</label>{composer}</>;
     }
     const schemaType = catalogEntry.input_schema.properties?.[field.name]?.type;
     const param = actionTemplate.params?.find((candidate) => candidate.name === field.name);
@@ -1092,7 +1103,7 @@ function GeneratedActionFormContents({
     const value = draft[param.name];
     if (value === undefined) return !required.has(param.name);
     const semantic = catalogEntry.ui_hints.semantic_controls[param.name];
-    if (semantic === 'template'
+    if (semantic === 'template' || semantic === 'formula'
       || (semantic === 'rich_source' && !Array.isArray(value))
       || (semantic === 'column_or_template' && typeof value !== 'string')) {
       return templateText(value).trim().length > 0;

@@ -509,7 +509,7 @@ function generatedCatalogParams(entry: ActionCatalogEntry): ActionParam[] | unde
         ? 'columns'
         : semantic === 'rich_source' || semantic === 'model'
           ? 'text'
-        : semantic === 'template'
+        : (semantic === 'template' || semantic === 'formula')
           ? 'textarea'
           : choices.length
             ? 'category'
@@ -539,7 +539,7 @@ function generatedCatalogParams(entry: ActionCatalogEntry): ActionParam[] | unde
       } : {}),
     };
     const param = catalogFormParamToActionParam(declaration, schema);
-    return { ...param, ...(semantic === 'template' ? { monospace: true } : {}) };
+    return { ...param, ...((semantic === 'template' || semantic === 'formula') ? { monospace: true } : {}) };
   });
 }
 
@@ -579,7 +579,8 @@ export const ACTION_PLACEMENTS: Partial<Record<string, ActionPlacement>> = {
   'map.clean_column': { tab: 'transform', group: 'TRANSFORM', order: 0, primary: true },
   'map.clean_dates': { tab: 'transform', group: 'TRANSFORM', order: 1 },
   'map.template': { tab: 'transform', group: 'TRANSFORM', order: 2 },
-  'map.python': { tab: 'transform', group: 'TRANSFORM', order: 3 },
+  'map.formula': { tab: 'transform', group: 'TRANSFORM', order: 3 },
+  'map.python': { tab: 'transform', group: 'TRANSFORM', order: 4 },
   'cluster.values': { tab: 'transform', group: 'RESOLVE', order: 0, primary: true },
   'resolve.substitute': { tab: 'transform', group: 'RESOLVE', order: 1 },
   'resolve.replace': { tab: 'transform', group: 'RESOLVE', order: 2 },
@@ -600,6 +601,7 @@ export const ACTION_PLACEMENTS: Partial<Record<string, ActionPlacement>> = {
  * entirely catalog/host driven. */
 const ACTION_SEARCH_KEYWORDS: Partial<Record<string, string[]>> = {
   'research.web_search': ['web search'],
+  'map.formula': ['formula', 'excel', 'calculate', 'arithmetic', 'calculated column'],
   'resolve.substitute': ['substitute', 'recode', 'map values', 'lookup', 'resolve', 'clean'],
   'resolve.replace': ['replace', 'rules', 'find and replace', 'regex', 'resolve', 'clean'],
   'resolve.combine': ['combine', 'group values', 'buckets', 'merge', 'resolve', 'clean'],

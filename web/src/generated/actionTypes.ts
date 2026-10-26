@@ -940,6 +940,14 @@ export type VisualCutsParams = ({
   "source": (VisualCutsParams_VideoColumn);
 });
 
+type FormulaParams_Formula = ({
+  "text": (string);
+});
+
+export type FormulaParams = ({
+  "formula": (FormulaParams_Formula);
+});
+
 type JudgeParams_GeneratedColumnRef_Any_ = (string);
 
 type JudgeParams_ModelRef = (string);
@@ -1640,6 +1648,7 @@ export interface GeneratedActionParams {
   'map.find': FindParams;
   'map.find_topic_sections': TopicSectionsParams;
   'map.find_visual_cuts': VisualCutsParams;
+  'map.formula': FormulaParams;
   'map.judge': JudgeParams;
   'map.mcp_extract': McpExtractParams;
   'map.ner': NerParams;
