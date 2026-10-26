@@ -5,10 +5,10 @@
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--border-strong);
+  border: 1px solid color-mix(in srgb, var(--text-on-solid) 45%, transparent);
   border-radius: var(--variant-badge-radius);
-  color: var(--text);
-  background: var(--bg-hover);
+  color: var(--text-on-solid);
+  background: var(--ai);
   font-family: var(--mono);
   font-size: var(--variant-badge-font-size);
   font-weight: var(--variant-badge-font-weight);
