@@ -1,0 +1,17 @@
+.variant-badge {
+  display: inline-flex;
+  width: var(--variant-badge-size);
+  height: var(--variant-badge-size);
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--variant-badge-radius);
+  color: var(--text);
+  background: var(--bg-hover);
+  font-family: var(--mono);
+  font-size: var(--variant-badge-font-size);
+  font-weight: var(--variant-badge-font-weight);
+  line-height: 1;
+  vertical-align: middle;
+}

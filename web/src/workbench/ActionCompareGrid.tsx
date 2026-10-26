@@ -9,7 +9,7 @@ import {
 
 import type { ActionComparisonBoundedValue } from '../api/actionComparison';
 import type { BoundedCellValue, CellValue, ColumnDef, Row } from '../api/types';
-import { buildCell, typeHeaderIcon, withWrapSafeDisplayData } from '../grid/cells';
+import { buildCell, headerIcons, typeHeaderIcon, withWrapSafeDisplayData } from '../grid/cells';
 import { GridViewport, type GridViewportProps } from '../grid/GridViewport';
 import { useGridTheme } from '../grid/useGridTheme';
 import {
@@ -18,6 +18,13 @@ import {
   type ActionCompareSessionSnapshot,
   type ActionCompareVariant,
 } from './actionCompareSession';
+import {
+  VARIANT_BADGE_PRESENTATION,
+  variantBadgeHeaderIcons,
+  variantBadgeIconName,
+} from './variantBadgePresentation';
+
+Object.assign(headerIcons, variantBadgeHeaderIcons);
 
 const SOURCE_GROUP = 'action-compare:sources';
 const OUTPUT_GROUP_PREFIX = 'action-compare:output:';
@@ -186,6 +193,10 @@ function compareColumns(
 export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, frozenColumnCount,
   labelForDraft, onOpenBoundedValue, onOpenStructuredValue }: ActionCompareGridProps) {
   const { gridTheme, aiColumnTheme, gridCellPalette, differenceTheme } = useGridTheme();
+  const variantColumnTheme = useMemo(() => ({
+    ...aiColumnTheme,
+    headerIconSize: VARIANT_BADGE_PRESENTATION.size,
+  }), [aiColumnTheme]);
   const sampleRowIds = useMemo(() => state.context.sample_row_ids.slice(
     0,
     Math.min(20, state.context.limits.max_sample_rows),
@@ -201,21 +212,23 @@ export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, froze
   ), [state.context.output_columns]);
   const columns = useMemo<GridColumn[]>(() => projectedColumns.map((projected) => {
     const output = projected.kind === 'output';
-    const icon = output ? 'aiBolt' : typeHeaderIcon(projected.column.type);
+    const icon = output
+      ? variantBadgeIconName(projected.variant.displayKey) ?? 'aiBolt'
+      : typeHeaderIcon(projected.column.type);
     return {
       id: projected.id,
       title: output
-        ? `${projected.variant.displayKey} · ${labelForDraft?.(
+        ? labelForDraft?.(
           projected.variant.draft,
           projected.variant.displayKey,
-        ) ?? projected.variant.label}`
+        ) ?? projected.variant.label
         : projected.column.name,
       group: output ? `${OUTPUT_GROUP_PREFIX}${projected.logicalKey}` : SOURCE_GROUP,
       width: widths[projected.id] ?? (output ? DEFAULT_OUTPUT_WIDTH : DEFAULT_SOURCE_WIDTH),
       ...(icon ? { icon } : {}),
-      ...(output ? { themeOverride: aiColumnTheme } : {}),
+      ...(output ? { themeOverride: variantColumnTheme } : {}),
     };
-  }), [aiColumnTheme, labelForDraft, projectedColumns, widths]);
+  }), [labelForDraft, projectedColumns, variantColumnTheme, widths]);
 
   const cellAt = useCallback((projected: CompareGridColumn, rowId: number) => {
     if (projected.kind === 'source') {
