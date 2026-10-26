@@ -32,4 +32,6 @@ paid or external runs.
   never as a routine upgrade.
 - Prefer deleting dead code over commenting it out; a change that only
   adds is worth a second look.
+- Don't edit `README.md`; Jonathan maintains it. If docs should change,
+  suggest the wording in your PR description instead.
 - See CONTRIBUTING.md for PR and testing expectations.
