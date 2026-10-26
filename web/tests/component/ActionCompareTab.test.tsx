@@ -113,6 +113,9 @@ describe('ActionCompareTab', () => {
     expect(screen.getByTestId('action-compare-grid')).toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
     expect(screen.queryByText('A shows current values')).not.toBeInTheDocument();
+    expect(screen.queryByText('in table')).not.toBeInTheDocument();
+    expect(screen.queryByText('ready')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Refresh comparison' })).not.toBeInTheDocument();
     expect(screen.queryByText('Nothing changes until you use a variant.')).not.toBeInTheDocument();
 
     const grid = editor.props!;
