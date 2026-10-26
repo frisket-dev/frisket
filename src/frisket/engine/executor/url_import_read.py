@@ -101,6 +101,15 @@ class AdmittedUrlImporter:
         )
         return DynamicTableResult(
             schema=tuple(columns),
+            warnings=(
+                (
+                    f"Imported {len(records)} rows; downloaded {len(blobs)}, "
+                    f"failed {len(errors)}. Check the error column; you can download "
+                    "the files locally and upload them with their source URLs."
+                ),
+            )
+            if errors
+            else (),
             rows=[
                 TableRow(
                     output=DynamicOutput(

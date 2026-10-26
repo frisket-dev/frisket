@@ -6,7 +6,7 @@ import mimetypes
 from itertools import chain
 from pathlib import Path
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from frisket.actions.core import ActionCategory, action, create_sheet
 from frisket.actions.imports import FileSource
@@ -30,6 +30,14 @@ class FileImportSource(ActionParams):
     path: str = Field(min_length=1)
     filename: str | None = None
     mime: str | None = None
+    source_url: str | None = Field(
+        default=None, description="Original source URL, when known."
+    )
+
+    @field_validator("source_url")
+    @classmethod
+    def _trim_source_url(cls, value: str | None) -> str | None:
+        return value.strip() or None if value is not None else None
 
 
 class ImportFilesParams(ActionParams):
@@ -72,11 +80,14 @@ def file_columns(params: ImportFilesParams) -> tuple[TableColumn, ...]:
                     "file",
                 )
             )
-    return (
+    columns = (
         TableColumn(key="filename", type="text"),
         TableColumn(key="media", type=next(iter(kinds)) if len(kinds) == 1 else "file"),
         TableColumn(key="size", type="integer", format="filesize"),
     )
+    if params.files is not None and any(source.source_url for source in params.files):
+        columns += (TableColumn(key="source_url", type="text"),)
+    return columns
 
 
 def import_files(
@@ -87,15 +98,15 @@ def import_files(
 ) -> TableResult[DynamicOutput]:
     def rows():
         if params.files is not None:
+            include_source_url = any(source.source_url for source in params.files)
             for source in params.files:
                 filename, mime = _file_name_and_mime(source)
                 with files.open_binary(source.path) as stream:
                     staged = blobs.stage(stream, filename=filename, mime=mime)
-                yield TableRow(
-                    output=DynamicOutput(
-                        {"filename": filename, "media": staged, "size": staged.size}
-                    )
-                )
+                values = {"filename": filename, "media": staged, "size": staged.size}
+                if include_source_url:
+                    values["source_url"] = source.source_url
+                yield TableRow(output=DynamicOutput(values))
             return
         assert params.inventory_ref is not None
         if inventory is None:

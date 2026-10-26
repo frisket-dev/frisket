@@ -88,6 +88,9 @@ def test_typed_url_table_names_receipt_and_replay(tmp_path, monkeypatch):
         }
         result = run_action_spec(project, request, project_id="p")
         assert result.status == "completed", result.errors
+        assert len(result.warnings) == 1
+        assert "Imported 2 rows; downloaded 1, failed 1" in result.warnings[0]
+        assert "upload" in result.warnings[0]
         sheet = next(
             output.sheet_id for output in result.outputs if output.kind == "sheet"
         )
@@ -96,6 +99,7 @@ def test_typed_url_table_names_receipt_and_replay(tmp_path, monkeypatch):
         assert columns["Picture"]["type"] == "image"
         assert columns["size"]["format"] == "filesize"
         receipt = json.loads(ReceiptStore(project).body_by_id(result.receipt_id))
+        assert receipt["warnings"] == result.warnings
         assert next(
             item["ref"]
             for item in receipt["inputs"]
@@ -116,6 +120,7 @@ def test_typed_url_table_names_receipt_and_replay(tmp_path, monkeypatch):
         assert blob["provider"] == "direct"
         replay = run_action_spec(project, request, project_id="p")
         assert replay.receipt_id == result.receipt_id
+        assert replay.warnings == result.warnings
         assert len(seen) == 2
         conflict = run_action_spec(
             project, {**request, "output_names": {"media": "Different"}}, project_id="p"
@@ -129,6 +134,18 @@ def test_typed_url_table_names_receipt_and_replay(tmp_path, monkeypatch):
         assert collision.errors[0].code == "duplicate_sheet_name"
         assert len(seen) == 2
         assert project.row_count(sheet) == 2
+
+
+def test_all_failed_url_downloads_are_reported(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        import_family, "download_url", lambda url: (b"", None, None, "blocked")
+    )
+    with closing(Project.create(tmp_path / "failed.frisket")) as project:
+        result = run_action_spec(
+            project, _action(["https://example.com/a"], key="failed"), project_id="p"
+        )
+        assert result.status == "completed"
+        assert "Imported 1 rows; downloaded 0, failed 1" in result.warnings[0]
 
 
 @pytest.mark.parametrize("fail_write", [False, True])
