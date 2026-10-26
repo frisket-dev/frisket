@@ -16,6 +16,7 @@ from frisket.engine.executor.map_rows_action import _TypedMapRowsProgram
 ELIGIBLE = {
     "map.clean_column",
     "map.clean_dates",
+    "map.formula",
     "map.columns_from_json",
     "map.regex_extract",
     "map.template",
@@ -43,7 +44,7 @@ def program(registered, *, runtime_binding=None):
 @pytest.mark.parametrize(
     "registered", BUILTIN_MAP_ROWS, ids=lambda item: item.action_id
 )
-def test_builtin_local_batch_eligibility_is_limited_to_six_data_only_handlers(
+def test_builtin_local_batch_eligibility_is_limited_to_data_only_handlers(
     registered,
 ):
     assert program(registered).batch_local_results == (registered.action_id in ELIGIBLE)
@@ -51,7 +52,7 @@ def test_builtin_local_batch_eligibility_is_limited_to_six_data_only_handlers(
         assert not program(registered).batch_local_results
 
 
-def test_all_six_eligible_actions_are_covered():
+def test_all_eligible_actions_are_covered():
     assert ELIGIBLE <= {registered.action_id for registered in BUILTIN_MAP_ROWS}
 
 

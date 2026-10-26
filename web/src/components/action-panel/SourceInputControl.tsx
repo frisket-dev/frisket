@@ -38,13 +38,17 @@ function templateSegments(
   template: string,
   columns: ColumnDef[],
   knownPrefixes: string[] = [],
+  excelQuotedLiterals = false,
 ): ReactNode[] {
   const nodes: ReactNode[] = [];
   const columnNames = new Set(columns.map((column) => column.name));
-  const tokenPattern = /\{\{\s*([^}]+?)\s*\}\}/g;
+  const tokenPattern = excelQuotedLiterals
+    ? /"(?:[^"]|"")*"|\{\{\s*([^}]+?)\s*\}\}/g
+    : /\{\{\s*([^}]+?)\s*\}\}/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = tokenPattern.exec(template)) !== null) {
+    if (match[1] === undefined) continue;
     if (match.index > lastIndex) {
       nodes.push(template.slice(lastIndex, match.index));
     }
@@ -79,7 +83,10 @@ export function TemplateComposer({
   ariaLabel,
   placeholder = '{{headline}} — {{body}}',
   knownTokenPrefixes = [],
+  excelQuotedLiterals = false,
   hideHint = false,
+  insertAriaLabel = 'Insert column in template',
+  textareaId,
   tightInsert = false,
   compactInsert = false,
   onChange,
@@ -94,9 +101,13 @@ export function TemplateComposer({
   /** Token name prefixes that highlight as "known" alongside column names
    *  (e.g. `secret.` so `{{secret.TOKEN}}` is not flagged unknown). */
   knownTokenPrefixes?: string[];
+  /** Excel double-quoted literals contain text, not column references. */
+  excelQuotedLiterals?: boolean;
   /** Suppress the built-in compose hint (callers that repeat the composer per
    *  field supply their own single hint instead). */
   hideHint?: boolean;
+  insertAriaLabel?: string;
+  textareaId?: string;
   /** Insert tokens with NO surrounding whitespace — for structured fields (a
    *  URL, a JSON string) where a prose space would corrupt the value. */
   tightInsert?: boolean;
@@ -143,9 +154,10 @@ export function TemplateComposer({
       <div className="template-composer">
         <div className="template-input-shell">
           <div className="template-highlight-layer" aria-hidden>
-            {templateSegments(value, columns, knownTokenPrefixes)}
+            {templateSegments(value, columns, knownTokenPrefixes, excelQuotedLiterals)}
           </div>
           <TextArea
+            id={textareaId}
             ref={setNode}
             className="template-input"
             data-testid={textareaTestId}
@@ -175,7 +187,7 @@ export function TemplateComposer({
           <PanelSelect
             className="template-column-insert"
             data-testid={insertTestId}
-            aria-label="Insert column in template"
+            aria-label={insertAriaLabel}
             value={TEMPLATE_SOURCE_SELECT_VALUE}
             onChange={(e) => onInsertSelect(e.target.value)}
           >

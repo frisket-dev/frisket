@@ -103,6 +103,7 @@ from frisket.actions.sources import CHECK, CREATE, DELETE, UPDATE, POLL
 from frisket.actions.sheets import REFRESH
 from frisket.actions.runs import BACKFILL
 from frisket.actions.text import CLEAN_DATES, TEMPLATE
+from frisket.actions.formula import FORMULA
 from frisket.actions.temporal_finders import FIND_TOPIC_SECTIONS, FIND_VISUAL_CUTS
 from frisket.actions.python import PYTHON
 from frisket.actions.api_call import API_CALL
@@ -112,6 +113,7 @@ MAP_ACTIONS = ActionNamespace(
     "map",
     actions=(
         TEMPLATE,
+        FORMULA,
         CLEAN_DATES,
         TO_GEO_POINT,
         REGEX_EXTRACT,

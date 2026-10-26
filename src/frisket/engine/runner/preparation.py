@@ -608,7 +608,10 @@ def prepare_validated(
                 allowed_descriptor_change = (
                     changed
                     and spec.get("replace_existing") is True
-                    and "row_ids" not in spec
+                    and (
+                        "row_ids" not in spec
+                        or spec.get("inferred_batch_full_scope") is True
+                    )
                     and not bool(existing["hidden"])
                 )
                 if changed and not allowed_descriptor_change:

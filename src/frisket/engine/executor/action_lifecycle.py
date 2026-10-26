@@ -141,6 +141,8 @@ class _PreparedMapExecution:
     receipt_fn: Callable[[Any, int, str, str], Receipt]
     replay_error_fn: Callable[[Receipt], ActionError | None]
     reservation_kind: str
+    reservation: Mapping[str, str] | None = None
+    queued_reservation_owner: bool = False
 
 
 def _run_action_core_spec(
@@ -1344,6 +1346,11 @@ def _run_reserved_maprunner_action(
 
     def delete_reservation_fn(current_project: Any, receipt_id: str) -> None:
         if prepared_execution is not None:
+            if prepared_execution.queued_reservation_owner:
+                # An action.run worker owns this pre-existing reservation and
+                # terminalizes its returned refusal. Deleting it here would
+                # leave the queued job with no durable receipt to close.
+                return
             _delete_reserved_action_receipt(
                 current_project, receipt_id, action_kind=action.kind
             )
@@ -1413,7 +1420,12 @@ def _run_reserved_maprunner_action(
             instance_principal(project)
         if atomic_publication:
             project.db.execute("BEGIN IMMEDIATE")
-        if prepared_execution is not None:
+        if (
+            prepared_execution is not None
+            and prepared_execution.reservation is not None
+        ):
+            reservation = dict(prepared_execution.reservation)
+        elif prepared_execution is not None:
             reservation = _reserve_running_action_receipt(
                 project,
                 action,
@@ -1724,14 +1736,22 @@ def _run_reserved_maprunner_action(
             claim_token=claim_token, status="failed"
         )
         delete_reservation_fn(project, reservation["receipt_id"])
+        staged_inferred = bool(
+            prepared_execution is not None
+            and getattr(
+                getattr(program, "_terminal", None), "infer_output_types", False
+            )
+        )
         return _failed_result(
             project_id=project_id,
             action_kind=action.kind,
             error=ActionError(
-                code="invalid_input_ref",
-                message=str(exc),
+                code="stale_input" if staged_inferred else "invalid_input_ref",
+                message="Staged row scope changed" if staged_inferred else str(exc),
                 action_kind=action.kind,
-                field=(
+                field=None
+                if staged_inferred
+                else (
                     "row_scope.selector.membership.row_ids"
                     if action.row_scope is not None
                     else "params.row_ids"

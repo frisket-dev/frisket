@@ -2428,6 +2428,26 @@ class MapRunner:
         # ``out_cols`` is the persisted preparation/claim enumeration.  A
         # resumed worker must not recompute dynamic descriptors from changed
         # recipe code after authority was published.
+        batch_size = getattr(recipe, "batch_size", None)
+        if batch_size is not None and len(row_ids) > batch_size:
+            for start in range(0, len(row_ids), batch_size):
+                if cancelled and cancelled():
+                    break
+                await self._run_batch_recipe(
+                    recipe,
+                    spec,
+                    ctx,
+                    row_ids=row_ids[start : start + batch_size],
+                    col_map=col_map,
+                    out_cols=out_cols,
+                    column_types=column_types,
+                    persist_result_batch=persist_result_batch,
+                    progress=progress,
+                    required_field_names=required_field_names,
+                    admitted_work_scope=admitted_work_scope,
+                    cancelled=cancelled,
+                )
+            return progress
         field_names = list(out_cols)
         values_by_row = {
             row_id: row_values(

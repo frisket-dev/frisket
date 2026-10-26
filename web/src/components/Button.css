@@ -12,7 +12,7 @@
   padding: var(--space-6) var(--space-12);
   cursor: pointer;
 }
-.btn:where(:not([data-button-variant='text'])):hover:not(:disabled) { background: var(--bg-hover); }
+.btn:where(:not([data-button-variant='text'], [data-button-variant='link'])):hover:not(:disabled) { background: var(--bg-hover); }
 .btn[aria-pressed='true'] { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
 .btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -24,7 +24,9 @@
 .btn-reject, .btn-danger { background: var(--red); border-color: var(--red); color: var(--text-on-solid); }
 .btn-reject:hover:not(:disabled), .btn-danger:hover:not(:disabled) { background: var(--danger-strong); }
 .btn-icon { width: 28px; height: 28px; padding: 0; }
-.btn[data-button-variant='text'] { font: inherit; color: inherit; padding: 0; border: 0; background: none; justify-content: flex-start; }
+.btn:is([data-button-variant='text'], [data-button-variant='link']) { font: inherit; color: inherit; padding: 0; border: 0; background: none; justify-content: flex-start; }
+.btn[data-button-variant='link'] { color: var(--accent); }
+.btn[data-button-variant='link']:hover:not(:disabled) { color: var(--accent-strong); }
 .tab-list { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--border); }
 .tab-button {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;

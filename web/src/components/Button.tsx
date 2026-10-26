@@ -1,7 +1,7 @@
 import './Button.css';
 import { forwardRef, type ButtonHTMLAttributes } from 'react';
 
-export const Button = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'standard' | 'text' }>(function Button(
+export const Button = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'standard' | 'text' | 'link' }>(function Button(
   { className, children, variant = 'standard', ...props }, ref,
 ) {
   return <button {...props} ref={ref} data-button-variant={variant} className={['btn', className].filter(Boolean).join(' ')}>{children}</button>;

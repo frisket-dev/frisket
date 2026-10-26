@@ -156,6 +156,10 @@ export const BUILTIN_ACTION_HELP: Partial<Record<string, { how: string; goodFor:
     how: 'Creates a new column, preserves present values, and fills missing cells from neighboring rows, a constant, or a column aggregate.',
     goodFor: 'Completing sparse columns with fill down, fill up, a fixed value, mean, median, or mode without changing the source column.',
   },
+  'map.formula': {
+    how: 'Calculates an Excel-style formula once per row using named {{column}} inputs. Results do not recalculate when inputs change.',
+    goodFor: 'Arithmetic, conditions, and text operations on values in the current row. Use named columns; cell references and ranges are not supported.',
+  },
   'map.template': {
     how: 'Renders a text template once per row, substituting values from the columns you reference.',
     goodFor: 'Building labels, URLs, search queries, briefs, and other consistent text from existing fields.',

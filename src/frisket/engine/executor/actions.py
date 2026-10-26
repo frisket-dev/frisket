@@ -333,6 +333,30 @@ def resolve_map_preview(
         if isinstance(preview_scope, ActionError):
             return preview_scope
         runner_spec, semantic_scope_total = preview_scope
+        if getattr(typed.action.definition.run, "infer_output_types", False):
+            import tempfile
+            from dataclasses import replace
+            from types import MappingProxyType
+            from frisket.engine.executor.inferred_batch_action import stage_plan
+
+            spool = tempfile.TemporaryFile()
+            try:
+                typed_plan, _, _ = stage_plan(
+                    project,
+                    replace(typed_plan, spec=MappingProxyType(runner_spec)),
+                    spool,
+                )
+            except (OSError, RuntimeError, TypeError, ValueError) as exc:
+                spool.close()
+                return ActionError(
+                    code="preview_failed"
+                    if isinstance(exc, (OSError, RuntimeError))
+                    else "invalid_params",
+                    message="Formula preview failed"
+                    if isinstance(exc, (OSError, RuntimeError))
+                    else str(exc),
+                    action_kind=typed.action.action_id,
+                )
         return build_map_preview_plan(
             project,
             action_kind=typed.action.action_id,

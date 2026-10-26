@@ -3783,6 +3783,15 @@ def run_typed_map_rows_action(
     """Run a direct typed request through the shared reserved-map lifecycle."""
 
     action, request = bound.action, bound.request
+    if (
+        isinstance(action.definition.run, MapBatch)
+        and action.definition.run.infer_output_types
+    ):
+        from frisket.engine.executor.inferred_batch_action import run_inferred_batch
+
+        return run_inferred_batch(
+            project, project_id, bound, router, map_runner_factory
+        )
     terminal_policy = _MapTerminalPolicy.for_terminal(action.definition.run)
     replay = typed_map_rows_replay_result(project, project_id, bound)
     if replay is not None:

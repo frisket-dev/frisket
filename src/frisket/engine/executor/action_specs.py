@@ -307,6 +307,7 @@ _RUNLESS_ACTION_KINDS: frozenset[str] = frozenset(
         "replay.accept_column",
         "replay.dismiss",
         "map.find",
+        "map.formula",
         "resolve.combine",
         "resolve.entities",
         "resolve.fill_missing",
@@ -379,6 +380,7 @@ _QUEUED_ACTION_JOB_KINDS: frozenset[str] = frozenset(
         "derive.temporal_segments",
         "derive.transcript_segments",
         "map.find",
+        "map.formula",
     }
 )
 

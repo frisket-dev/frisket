@@ -1648,6 +1648,9 @@ class SemanticJoin(MapRows[P, OutputT]):
 
 @dataclass(frozen=True)
 class MapBatch(MapRows[P, OutputT]):
+    infer_output_types: bool = False
+    batch_size: int = 1000
+
     handler: Callable[..., Mapping[int, RowResult[OutputT] | RowError]]
 
 
@@ -2523,6 +2526,7 @@ def _output_fields(
     table_fields: bool = False,
     allow_defaults: bool = False,
     row_files: bool = False,
+    infer_output_types: bool = False,
 ) -> tuple[OutputField, ...]:
     if not model.model_fields:
         raise TypeError("map_rows output model must declare at least one field")
@@ -2536,13 +2540,22 @@ def _output_fields(
         if not info.is_required() and not allow_defaults:
             raise TypeError(f"static output field {key!r} must be required")
         annotation = info.rebuild_annotation()
+        from frisket.actions.types import InferredScalarOutput
+
+        inferred = any(isinstance(item, InferredScalarOutput) for item in info.metadata)
+        if inferred and not infer_output_types:
+            raise TypeError("InferredScalar requires infer_output_types=True")
+        if infer_output_types and not inferred:
+            raise TypeError("inferred batch outputs must use InferredScalar")
         if (
             not table_fields
             and not row_files
             and _has_staged_file_annotation(annotation)
         ):
             raise TypeError(f"unsupported output field type {annotation!r}")
-        if (table_fields or row_files) and _without_none(
+        if inferred:
+            column_type = "inferred"
+        elif (table_fields or row_files) and _without_none(
             _value_annotation(info.annotation)
         ) in ((StagedFile,), (StagedImage,), (StagedAudio,), (StagedVideo,)):
             column_type = (
@@ -2702,6 +2715,8 @@ def map_batch(
     *,
     dynamic_outputs: Callable[[Any], Mapping[str, Any]] | None = None,
     active_outputs: Callable[[Any], typing.Iterable[str]] | None = None,
+    infer_output_types: bool = False,
+    batch_size: int = 1000,
 ) -> MapBatch[Any, Any]:
     """Whole-scope rows with the same outputs and capabilities as map_rows."""
     _validate_params_callback(active_outputs, "active_outputs")
@@ -2713,17 +2728,32 @@ def map_batch(
     )
     if dynamic_outputs is not None and active_outputs is not None:
         raise TypeError("dynamic_outputs and active_outputs are mutually exclusive")
+    if (
+        type(infer_output_types) is not bool
+        or type(batch_size) is not int
+        or not 1 <= batch_size <= 1000
+    ):
+        raise TypeError("batch_size must be between 1 and 1000")
+    if infer_output_types and (injections or dynamic_outputs or active_outputs):
+        raise TypeError(
+            "inferred batches require local handlers without injections or dynamic outputs"
+        )
     output_model = _batch_result_model(return_type)
     if active_outputs is not None and output_model is DynamicOutput:
         raise TypeError("active_outputs requires a statically declared output model")
     if dynamic_outputs is None:
         output_fields = _output_fields(
-            output_model, allow_json=True, allow_defaults=active_outputs is not None
+            output_model,
+            allow_json=True,
+            allow_defaults=active_outputs is not None,
+            infer_output_types=infer_output_types,
         )
     else:
         if output_model is not DynamicOutput:
             raise TypeError("dynamic_outputs requires RowResult[DynamicOutput]")
         output_fields = ()
+    if infer_output_types and len(output_fields) != 1:
+        raise TypeError("inferred batches require exactly one scalar output")
     return MapBatch(
         handler,
         params_model,
@@ -2733,6 +2763,8 @@ def map_batch(
         active_outputs,
         injections,
         _engine_parameter(params_model, capabilities),
+        infer_output_types=infer_output_types,
+        batch_size=batch_size,
     )
 
 
@@ -4348,6 +4380,20 @@ def _semantic_metadata(
                 "accepted_column_types": list(
                     TemporalSelectionColumn.accepted_column_types
                 ),
+            }
+        elif control == "formula":
+            details = {
+                "min": 0,
+                "accepted_column_types": [
+                    "text",
+                    "category",
+                    "number",
+                    "integer",
+                    "boolean",
+                    "date",
+                    "datetime",
+                ],
+                "template_columns": "exact",
             }
         elif control == "column":
             accepted_types = column_ref_types(annotation)

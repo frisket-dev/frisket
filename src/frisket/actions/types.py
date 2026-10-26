@@ -5,6 +5,7 @@ import types
 import typing
 from collections.abc import AsyncIterable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
+from functools import cached_property
 from types import MappingProxyType
 from typing import (
     Any,
@@ -103,7 +104,12 @@ def source_kind(
     annotation: Any,
 ) -> (
     Literal[
-        "column", "columns", "template", "column_or_template", "columns_or_template"
+        "column",
+        "columns",
+        "template",
+        "formula",
+        "column_or_template",
+        "columns_or_template",
     ]
     | None
 ):
@@ -114,6 +120,8 @@ def source_kind(
             return "column"
         if issubclass(annotation, Template):
             return "template"
+        if issubclass(annotation, Formula):
+            return "formula"
     origin = typing.get_origin(annotation)
     args = typing.get_args(annotation)
     if (
@@ -1478,6 +1486,49 @@ class Template(BaseModel, Generic[T]):
         return render_column_template(self.text, dict(row.values))
 
 
+class Formula(BaseModel):
+    """A calculated-once expression over named values on the current row."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    text: str
+
+    @model_validator(mode="after")
+    def _validate_expression(self) -> Formula:
+        self.compiled
+        return self
+
+    @cached_property
+    def compiled(self) -> Any:
+        from frisket.authoring.formula import CompiledFormula
+
+        return CompiledFormula(self.text)
+
+    def references(self) -> tuple[InputReference, ...]:
+        return tuple(
+            InputReference(
+                name,
+                (
+                    "text",
+                    "category",
+                    "number",
+                    "integer",
+                    "boolean",
+                    "date",
+                    "datetime",
+                ),
+            )
+            for name in self.compiled.columns
+        )
+
+
+@dataclass(frozen=True)
+class InferredScalarOutput:
+    """Mark an output whose scalar type is resolved before publication."""
+
+
+InferredScalar = Annotated[Any, InferredScalarOutput()]
+
+
 class EngineRef(_SemanticText[T], Generic[T]):
     """Saved engine selection, associated with its injected capability by type."""
 
@@ -1550,7 +1601,7 @@ def discover_references(value: Any) -> tuple[InputReference, ...]:
     found: dict[str, InputReference] = {}
 
     def visit(item: Any) -> None:
-        if isinstance(item, (ColumnRef, Template, HttpRequest)):
+        if isinstance(item, (ColumnRef, Template, Formula, HttpRequest)):
             for reference in item.references():
                 current = found.get(reference.column)
                 if current is None:

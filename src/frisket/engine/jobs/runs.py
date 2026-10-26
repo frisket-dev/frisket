@@ -1458,12 +1458,28 @@ def register_action_run_handler(
                         project,
                         dict(payload),
                         executor_lookup=registry.action_executor,
+                        should_cancel=lambda: (
+                            queue is not None
+                            and handler_context.job_id is not None
+                            and (
+                                queue.get(handler_context.job_id) is None
+                                or queue.get(handler_context.job_id).status != "running"
+                            )
+                        ),
                     )
             else:
                 result = run_action_run_job(
                     project,
                     dict(payload),
                     executor_lookup=registry.action_executor,
+                    should_cancel=lambda: (
+                        queue is not None
+                        and handler_context.job_id is not None
+                        and (
+                            queue.get(handler_context.job_id) is None
+                            or queue.get(handler_context.job_id).status != "running"
+                        )
+                    ),
                 )
             if envelope is not None and settlement is not None:
                 stored = ReceiptStore(project).find_by_id(envelope.receipt_id)

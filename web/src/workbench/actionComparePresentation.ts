@@ -177,7 +177,7 @@ export function createActionComparePresentation(
       for (const [name, schema] of Object.entries(entry.input_schema.properties ?? {})) {
         const semantic = controls?.[name];
         if (schema.writeOnly === true || schema.format === 'password'
-          || ['column', 'columns', 'template', 'rich_source', 'transcript_selection', 'column_or_template'].includes(String(semantic))) {
+          || ['column', 'columns', 'template', 'formula', 'rich_source', 'transcript_selection', 'column_or_template'].includes(String(semantic))) {
           continue;
         }
         const before = baseline.params[name];

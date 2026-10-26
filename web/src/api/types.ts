@@ -1133,7 +1133,7 @@ interface ActionSourceRequirementBase {
 
 export type ActionSourceRequirement = ActionSourceRequirementBase & (
   | {
-      mode: 'column' | 'columns' | 'column_or_template' | 'columns_or_template' | 'template' | 'field' | 'computed';
+      mode: 'column' | 'columns' | 'column_or_template' | 'columns_or_template' | 'template' | 'formula' | 'field' | 'computed';
       param: string;
       column_name?: never;
     }
@@ -1595,6 +1595,7 @@ export type GeneratedSemanticControl =
   | 'column'
   | 'columns'
   | 'template'
+  | 'formula'
   | 'rich_source'
   | 'transcript_selection'
   | 'column_or_template'
@@ -1645,7 +1646,7 @@ export function isGeneratedActionCatalogEntry(
     && isRecord(entry.input_schema.properties)
     && isRecord(controls)
     && Object.values(controls).every((value) => (
-      ['column', 'columns', 'template', 'rich_source', 'transcript_selection', 'column_or_template', 'engine', 'model'].includes(String(value))
+      ['column', 'columns', 'template', 'formula', 'rich_source', 'transcript_selection', 'column_or_template', 'engine', 'model'].includes(String(value))
     ))
     && Array.isArray(outputs)
     && outputs.every((value) => isRecord(value)

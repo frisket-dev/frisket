@@ -369,6 +369,64 @@ def action_job_exhausted_lease_result(
     )
 
 
+def _terminalize_formula_attached_run(
+    project: Any,
+    *,
+    receipt_id: str,
+    job_id: int | None,
+    error: ActionError,
+) -> ActionResult | None:
+    """Close a Formula run and its deferred generation under its exact writer."""
+    from frisket.engine.executor.project_run_terminalization import (
+        CurrentWriterTerminalAuthority,
+        terminalize_project_run,
+    )
+
+    stored = ReceiptStore(project).find_by_id(receipt_id)
+    if stored is not None and stored.status in FINISHED_RECEIPT_STATUSES:
+        return _result_from_existing_action_job_receipt(stored.parsed(), job_id=job_id)
+    if stored is None or stored.run_id is None:
+        return None
+    run_id = int(stored.run_id)
+    run = project.db.execute(
+        "SELECT status, current_attempt_id FROM runs WHERE id=?", (run_id,)
+    ).fetchone()
+    claims = project.db.execute(
+        "SELECT DISTINCT claim_token FROM output_column_claims "
+        "WHERE run_id=? AND receipt_id=? AND status='active'",
+        (run_id, receipt_id),
+    ).fetchall()
+    if (
+        run is not None
+        and run["status"] in {"completed", "failed", "cancelled"}
+        and run["current_attempt_id"] is None
+        and not claims
+    ):
+        return None
+    if run is None or run["current_attempt_id"] is None or len(claims) != 1:
+        raise ActionJobTerminalizationError(
+            f"cannot reconcile {error.action_kind} run {run_id}: current writer is not proven"
+        )
+    outcome = terminalize_project_run(
+        project,
+        run_id=run_id,
+        receipt_id=receipt_id,
+        status="failed",
+        authority=CurrentWriterTerminalAuthority(
+            writer_attempt_id=str(run["current_attempt_id"]),
+            claim_token=str(claims[0]["claim_token"]),
+        ),
+        errors=[error],
+    )
+    if outcome.disposition not in {"terminalized", "already_terminal"}:
+        raise ActionJobTerminalizationError(
+            f"cannot reconcile {error.action_kind} run {run_id}: {outcome.reason}"
+        )
+    finished = ReceiptStore(project).find_by_id(receipt_id)
+    assert finished is not None
+    return _result_from_existing_action_job_receipt(finished.parsed(), job_id=job_id)
+
+
 def action_job_retry_exhausted_result(
     project: Any,
     *,
@@ -769,6 +827,10 @@ def _supports_typed_action_job(bound: Any) -> bool:
     from frisket.actions.transcript_types import TranscriptReader
 
     terminal = bound.action.definition.run
+    from frisket.actions.core import MapBatch
+
+    if isinstance(terminal, MapBatch) and terminal.infer_output_types:
+        return True
     if isinstance(terminal, _ProjectAction):
         return True
     if not isinstance(terminal, CreateSheet):
@@ -996,6 +1058,7 @@ def run_action_run_job(
     payload: Mapping[str, Any],
     *,
     executor_lookup: ActionJobExecutorLookup | None = None,
+    should_cancel: Callable[[], bool] = lambda: False,
 ) -> ActionResult:
     """Execute one generic action.run job and terminalize its receipt.
 
@@ -1032,6 +1095,33 @@ def run_action_run_job(
 
     executor = executor_lookup(action_kind) if executor_lookup is not None else None
     try:
+        bound = bind_typed_action_job(envelope, project=project)
+        if not isinstance(bound, ActionResult):
+            from frisket.actions.core import MapBatch
+
+            if (
+                isinstance(bound.action.definition.run, MapBatch)
+                and bound.action.definition.run.infer_output_types
+            ):
+                from frisket.engine.executor.inferred_batch_action import (
+                    run_inferred_batch,
+                )
+                from frisket.engine.executor.actions import _default_map_runner_factory
+
+                def executor(current, intent):
+                    return run_inferred_batch(
+                        current,
+                        intent.project_id,
+                        bound,
+                        None,
+                        _default_map_runner_factory,
+                        reservation={
+                            "action_id": intent.action_id,
+                            "receipt_id": intent.receipt_id,
+                        },
+                        should_cancel=should_cancel,
+                    )
+
         if executor is None:
             from frisket.actions.core import CreateSheet
             from frisket.authoring.workbench.installed_actions import (
@@ -1077,6 +1167,19 @@ def run_action_run_job(
             ],
         )
     except Exception:  # noqa: BLE001 — the receipt must terminalize
+        if action_kind == "map.formula":
+            attached = _terminalize_formula_attached_run(
+                project,
+                receipt_id=receipt_id,
+                job_id=job_id if isinstance(job_id, int) else None,
+                error=ActionError(
+                    code="action_job_failed",
+                    message="map.formula action.run job failed",
+                    action_kind=action_kind,
+                ),
+            )
+            if attached is not None:
+                return attached
         return action_job_failure_result(
             project,
             project_id=project_id,
@@ -1121,6 +1224,15 @@ def run_action_run_job(
                     action_kind=action_kind,
                 )
             )
+            if action_kind == "map.formula":
+                attached = _terminalize_formula_attached_run(
+                    project,
+                    receipt_id=receipt_id,
+                    job_id=job_id if isinstance(job_id, int) else None,
+                    error=error,
+                )
+                if attached is not None:
+                    return attached
             if _is_retryable_action_error(error):
                 _mark_action_job_receipt_queued_for_retry(
                     project,
@@ -1219,13 +1331,29 @@ def reconcile_exhausted_action_run_jobs(
             stored = ReceiptStore(project).find_by_id(envelope.receipt_id)
             if stored is None or stored.status in FINISHED_RECEIPT_STATUSES:
                 continue
-            action_job_exhausted_lease_result(
-                project,
-                project_id=project_id,
-                receipt_id=envelope.receipt_id,
+            error = ActionError(
+                code="action_job_lease_exhausted",
+                message=f"{envelope.action_kind} action.run job exhausted its lease/retries",
                 action_kind=envelope.action_kind,
-                job_id=job.id,
             )
+            attached = (
+                _terminalize_formula_attached_run(
+                    project,
+                    receipt_id=envelope.receipt_id,
+                    job_id=job.id,
+                    error=error,
+                )
+                if envelope.action_kind == "map.formula"
+                else None
+            )
+            if attached is None:
+                action_job_exhausted_lease_result(
+                    project,
+                    project_id=project_id,
+                    receipt_id=envelope.receipt_id,
+                    action_kind=envelope.action_kind,
+                    job_id=job.id,
+                )
             reconciled += 1
         except Exception as exc:  # noqa: BLE001 - recovery must not crash workers
             LOG.warning(

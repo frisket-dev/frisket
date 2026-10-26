@@ -25,6 +25,7 @@ genai-prices = "2026-10-02T00:00:00Z"
 pydantic-graph = "2026-10-02T00:00:00Z"
 pydantic-ai-harness = "2026-10-02T00:00:00Z"
 pydantic-ai-slim = "2026-10-02T00:00:00Z"
+formualizer = "2026-10-27T00:00:00Z"
 indra-ocr = "2026-10-14T00:00:00Z"
 
 [[package]]
@@ -1257,8 +1258,23 @@ wheels = [
 ]
 
 [[package]]
+name = "formualizer"
+version = "0.13.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/ed/3e/70359e41d26250fb94a7f60b6fe70fd08c78ea9fbc8ab8687d363931e016/formualizer-0.13.0.tar.gz", hash = "sha256:16b664cb905c32f4d53ac13ad5bdbd4759f7d009543530255ffcaa9d3f1ff867", size = 3286194, upload-time = "2026-10-25T20:58:12.002Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3c/5a/a5d156b9e6f32f33743dd50454660a956d9cc431646b68984cc587e97d76/formualizer-0.13.0-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:315dae0a243def2d1879bdcff550ffc2b020a938a001ec54bb1af1e5387b31e8", size = 8379582, upload-time = "2026-10-25T20:57:56.718Z" },
+    { url = "https://files.pythonhosted.org/packages/86/98/64a69cf423b8b8b8e3ecf531d1b8fadd4c10fb55ef651c5fd7dcd6a3c7e3/formualizer-0.13.0-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:49c357f869b141a864d2b1431ac8eba9c4719a23d8693ab79e53acc407d3aa7d", size = 7925507, upload-time = "2026-10-25T20:57:59.125Z" },
+    { url = "https://files.pythonhosted.org/packages/5a/df/80b2e8b76b844a6fc33988ca6d8c85ddc746039ac2e5d076d6a079ed6319/formualizer-0.13.0-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:28dafd55cf928a7f8e1960a9a9e1f7c338f3d19f8072ee64d7f6e1e1d38f6f95", size = 8331288, upload-time = "2026-10-25T20:58:00.977Z" },
+    { url = "https://files.pythonhosted.org/packages/ce/b7/de7bd2e229788963ebdca7a5001b3e9f4409d36609b8a792c5fecf9cf656/formualizer-0.13.0-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:8fc3612b6a284c9ba83be6a2e5d3a0204a577a2f8ea0c704201e80a8f044786f", size = 8690965, upload-time = "2026-10-25T20:58:03.272Z" },
+    { url = "https://files.pythonhosted.org/packages/5a/49/05cde8d3e45d0c75b7b61f4c1d297eccdde90a2bd65fe200a9e602cdc671/formualizer-0.13.0-cp310-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:48b2cc2b6fd00d6f58f5e8e9dd380d495582e779e2bc127e72ce4280d395b02f", size = 8541726, upload-time = "2026-10-25T20:58:05.705Z" },
+    { url = "https://files.pythonhosted.org/packages/0d/8b/f083ef123363c9e93901fb841d8b547305bff79eebeb6cee29e5be4ee8c7/formualizer-0.13.0-cp310-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:7630f09326eaea28ab560abc5255a8a146d4db3791baf688af71294e39119b00", size = 8939346, upload-time = "2026-10-25T20:58:08.094Z" },
+    { url = "https://files.pythonhosted.org/packages/e0/3e/ee5422f039661cbe54e71e8a38fd0a2ed2a112c362a7f5cbeb4a1821daa0/formualizer-0.13.0-cp310-abi3-win_amd64.whl", hash = "sha256:4931d184b6561513c320eb91d9d41d0dc535cf1cfc59c1cc8a8df3aba209ca79", size = 8300635, upload-time = "2026-10-25T20:58:10.168Z" },
+]
+
+[[package]]
 name = "frisket-data"
-version = "0.1.1a100"
+version = "0.1.1a101"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
@@ -1271,6 +1287,7 @@ dependencies = [
     { name = "fastembed" },
     { name = "feedparser" },
     { name = "filelock" },
+    { name = "formualizer" },
     { name = "httpx" },
     { name = "itsdangerous" },
     { name = "jsonschema" },
@@ -1414,6 +1431,7 @@ requires-dist = [
     { name = "filelock", specifier = ">=3.29.1" },
     { name = "followthemoney", marker = "extra == 'complete'", specifier = ">=4.9.2" },
     { name = "followthemoney", marker = "extra == 'entities'", specifier = ">=4.9.2" },
+    { name = "formualizer", specifier = "==0.13.0" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "huggingface-hub", marker = "extra == 'asr'", specifier = ">=0.30.2,<2" },
     { name = "huggingface-hub", marker = "extra == 'complete'", specifier = ">=0.24" },
