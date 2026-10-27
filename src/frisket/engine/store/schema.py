@@ -2503,6 +2503,15 @@ SCHEMA += (
     f"('{REVIEW_OUTPUT_ROLES_META_KEY}','{REVIEW_OUTPUT_ROLES_VERSION}');\n"
 )
 
+# Range filters read only these always-inline native numeric kinds. Text,
+# invalid values and large exact integers don't inflate this index.
+NUMERIC_CURRENT_INDEX_SQL = """
+CREATE INDEX IF NOT EXISTS idx_current_cells_numeric_value
+ON current_cells(column_id,inline_value,row_id)
+WHERE validity='valid' AND inline_value_kind IN ('integer','real');
+"""
+SCHEMA += NUMERIC_CURRENT_INDEX_SQL
+
 # The run queue (jobs + worker_heartbeats) lives in its OWN database, never a
 # project bundle: `<workspace>/.queue.db` locally, the hosted run-queue Postgres
 # in production. Its schema is owned entirely by frisket.jobs.queue as a single

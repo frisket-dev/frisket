@@ -64,7 +64,8 @@ def _encode_complex(value: Any) -> str:
 def repair_unicode_text(value: str) -> str:
     """Replace unpaired surrogates while preserving valid pairs and text."""
 
-    if _SURROGATE_CODE_UNITS.search(value) is None:
+    # ASCII cannot contain surrogates; avoid rescanning large valid strings.
+    if value.isascii() or _SURROGATE_CODE_UNITS.search(value) is None:
         return value
     return value.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace")
 

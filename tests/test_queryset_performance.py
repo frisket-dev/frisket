@@ -275,7 +275,10 @@ def test_numeric_filter_and_sort_reduce_sqlite_vm_work(tmp_path: Path) -> None:
     assert (grid["total"], [row["id"] for row in grid["rows"]]) == expected
     assert optimized_count_steps < legacy_count_steps * 0.7
     assert optimized_page_steps < legacy_page_steps * 0.7
-    assert resolved_steps < (optimized_count_steps + optimized_page_steps) * 0.7
+    # Count/page now use the native range index separately. The public resolver
+    # should add only modest metadata work to those already-cheap queries.
+    assert resolved_steps <= (optimized_count_steps + optimized_page_steps) * 1.2
+    assert resolved_steps < (legacy_count_steps + legacy_page_steps) * 0.7
     assert grid_steps < (legacy_count_steps + legacy_page_steps) * 0.9
 
 
