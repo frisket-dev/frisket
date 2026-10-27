@@ -48,8 +48,13 @@ class ImportFilesUploadService:
         *,
         files: list[AdmittedUpload],
         sheet_name: str | None,
+        source_urls: list[str] | None = None,
         deps: ExecutorDeps | None = None,
     ) -> ImportFilesUploadResponse:
+        if source_urls is not None and len(source_urls) != len(files):
+            raise ImportFilesRouteError(422, "source_urls must have one entry per file")
+        if source_urls is not None:
+            source_urls = [url.strip() for url in source_urls]
         project = self._workspace.get(project_id)
         name = sheet_name or "files"
         executor_deps = deps or ExecutorDeps()
@@ -74,6 +79,8 @@ class ImportFilesUploadService:
                     "mime": upload.mime,
                 }
             )
+            if source_urls is not None:
+                sources[-1]["source_url"] = source_urls[index] or None
             idempotency_files.append(
                 {
                     "filename": upload.filename,
@@ -87,6 +94,7 @@ class ImportFilesUploadService:
             {
                 "files": idempotency_files,
                 "sheet_name": sheet_name,
+                **({"source_urls": source_urls} if source_urls is not None else {}),
             },
             sort_keys=True,
             separators=(",", ":"),

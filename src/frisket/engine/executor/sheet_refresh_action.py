@@ -380,7 +380,7 @@ def _refresh_sheet(
             details={"sheet_id": sheet_id},
         )
     managed_column = cur.execute(
-        "SELECT generation.column_id FROM run_output_generations generation "
+        "SELECT generation.column_id, column.name FROM run_output_generations generation "
         "JOIN columns column ON column.id=generation.column_id "
         "WHERE column.sheet_id=? ORDER BY generation.column_id LIMIT 1",
         (sheet_id,),
@@ -389,11 +389,19 @@ def _refresh_sheet(
         return _fail(
             project_id=project_id,
             code="refresh_unsupported",
-            message="generation-managed sheets cannot be refreshed in place",
+            message=(
+                "Cannot refresh this sheet in place because column "
+                f"'{managed_column['name']}' is managed by an action run. Refresh replaces "
+                "child rows and cannot safely preserve generated results and manual edits. "
+                "Create a new derived sheet from the current parent, then rerun "
+                "enrichment and review before replacing the existing sheet. "
+                "The existing child sheet and its copied parent context are unchanged."
+            ),
             field="sheet_id",
             details={
                 "sheet_id": sheet_id,
                 "column_id": int(managed_column["column_id"]),
+                "column_name": str(managed_column["name"]),
                 "reason": "generation_managed_rows",
             },
         )

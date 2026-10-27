@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import Annotated, Any
 
-from fastapi import FastAPI, File, Form, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, Response
 from frisket.contracts.action import ActionResult
 from frisket.contracts.http.action_estimate_validation import ACTION_RUN_ERROR_RESPONSES
@@ -648,7 +648,13 @@ def register_import_files_routes(
         request: Request,
         files: list[UploadFile] = File(...),
         sheet_name: str | None = None,
+        source_urls: list[str] | None = Form(
+            None,
+            description="Optional source URLs in the same order as files, one per file.",
+        ),
     ) -> dict[str, Any] | Response:
+        if source_urls is not None and len(source_urls) != len(files):
+            raise HTTPException(422, "source_urls must have one entry per file")
         uploads = await admit_uploads(
             files,
             max_files=limits.max_upload_files,
@@ -659,6 +665,7 @@ def register_import_files_routes(
             pid,
             files=uploads,
             sheet_name=sheet_name,
+            source_urls=source_urls,
             deps=service.executor_deps_for_request(pid, request),
         )
         if response.force_json_response:

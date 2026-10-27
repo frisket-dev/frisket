@@ -528,6 +528,7 @@ type ImportFilesParams_FileImportSource = ({
   "path": (string);
   "filename"?: (((string)) | ((null)));
   "mime"?: (((string)) | ((null)));
+  "source_url"?: (((string)) | ((null)));
 });
 
 export type ImportFilesParams = ({

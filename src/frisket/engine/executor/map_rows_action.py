@@ -2633,6 +2633,11 @@ def typed_request_hash(bound: BoundTypedActionRequest) -> str:
         # Parent copies were added after list-table receipts existed. The empty
         # default preserves the original request meaning and replay identity.
         identity["params"].pop("parent_columns")
+    if bound.action.action_id == "import.files":
+        # Omitted source metadata has the same meaning as pre-upgrade imports.
+        for source in identity["params"].get("files") or []:
+            if source.get("source_url") is None:
+                source.pop("source_url", None)
     options = resolved_engine_options(bound.action.definition.run, bound.params)
     if options is not None:
         identity["engine_options"] = options

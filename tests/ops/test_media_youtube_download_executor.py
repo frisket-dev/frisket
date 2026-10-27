@@ -275,7 +275,8 @@ def test_media_youtube_cloud_block_surfaces_stable_non_secret_row_diagnosis(
         assert {row["error"] for row in row_errors} == {
             YOUTUBE_PROVIDER_BLOCKED_MESSAGE
         }
-        assert all("cloud-hosted egress IPs" in row["error"] for row in row_errors)
+        assert all("upload it instead" in row["error"] for row in row_errors)
+        assert all("PAT alone cannot" in row["error"] for row in row_errors)
     finally:
         project.close()
 

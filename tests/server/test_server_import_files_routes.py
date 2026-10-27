@@ -196,6 +196,35 @@ def test_held_file_upload_reads_bounded_original_handle_not_replaced_path(tmp_pa
     assert project.read_blob(cell["blob"]) == raw
 
 
+def test_upload_source_urls_are_positional_and_affect_idempotency(tmp_path):
+    client = TestClient(create_app(tmp_path / "workspace"))
+    pid = client.post("/api/projects", json={"name": "Source URLs"}).json()["id"]
+    endpoint = f"/api/projects/{pid}/import/files"
+
+    def upload(urls):
+        return client.post(
+            endpoint,
+            files=[
+                ("files", ("one.txt", b"same", "text/plain")),
+                ("files", ("two.txt", b"same", "text/plain")),
+                *(("source_urls", (None, url)) for url in urls),
+            ],
+        )
+
+    urls = ["https://example.com/one", "https://example.com/two"]
+    response = upload(urls)
+    assert response.status_code == 200, response.text
+    project = client.app.state.workspace.get(pid)
+    sheet_id = response.json()["sheet_id"]
+    columns = {c["name"]: c["id"] for c in project.columns(sheet_id)}
+    assert list(project.get_values(sheet_id, columns["source_url"]).values()) == urls
+    assert upload(urls).json() == response.json()
+    changed = upload(list(reversed(urls)))
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["sheet_id"] != sheet_id
+    assert upload(urls[:1]).status_code == 422
+
+
 def test_files_upload_default_name_allocates_and_replays_but_explicit_name_refuses(
     tmp_path: Path,
 ) -> None:

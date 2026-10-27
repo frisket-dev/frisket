@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from frisket.authoring import actions as action_contract
+from frisket.server.run_status import public_run_progress
 from frisket.server.workspace import Workspace
 from frisket.server.route_errors import RouteError
 
@@ -43,12 +44,17 @@ class ActionRunTraceService:
     ) -> dict[str, Any]:
         project = self._workspace.get(project_id)
         try:
-            return action_contract.run_trace_row(
+            payload = action_contract.run_trace_row(
                 project_id,
                 project,
                 run_id,
                 row_id,
                 column_id=column_id,
             )
+            run = project.db.execute(
+                "SELECT * FROM runs WHERE id=?", (run_id,)
+            ).fetchone()
+            payload["run"]["status"] = public_run_progress(run, run["status"])["status"]
+            return payload
         except KeyError as exc:
             raise ActionRunTraceRouteError(404, str(exc)) from exc

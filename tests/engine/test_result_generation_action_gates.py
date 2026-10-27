@@ -405,6 +405,7 @@ def test_managed_sheet_refresh_refuses_before_rows_or_receipts_change(
         assert result.errors[0].details == {
             "sheet_id": child_id,
             "column_id": column_id,
+            "column_name": "vendor",
             "reason": "generation_managed_rows",
         }
         after = (
