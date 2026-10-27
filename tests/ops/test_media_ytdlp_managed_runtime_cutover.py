@@ -537,7 +537,7 @@ def test_ytdlp_cloud_anti_bot_challenge_becomes_safe_provider_diagnosis(
     assert captured.value.code == ytdlp.YOUTUBE_PROVIDER_BLOCKED_CODE
     assert captured.value.retryable is False
     assert str(captured.value) == ytdlp.YOUTUBE_PROVIDER_BLOCKED_MESSAGE
-    assert "cloud-hosted egress IPs" in str(captured.value)
+    assert "upload it instead" in str(captured.value)
     assert "must-not-persist" not in str(captured.value)
 
 
