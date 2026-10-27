@@ -337,6 +337,7 @@ class PdfSplitWriter(StreamingSheetWriter):
                     column_ids=self._column_ids,
                     op_id=self._op_id,
                     receipt_id=self._receipt_id,
+                    import_writer_authority=self._writer_authority,
                 )
             operation = db.execute(
                 "SELECT undo_info FROM ops WHERE id=?", (self._op_id,)

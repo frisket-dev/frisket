@@ -169,6 +169,7 @@ def publish_import_blobs(
     column_ids: Mapping[str, int],
     op_id: int,
     receipt_id: str,
+    import_writer_authority: str | None = None,
 ) -> tuple[dict[str, Any], ...]:
     """Bind prepared bytes and evidence without committing the caller transaction.
 
@@ -388,6 +389,7 @@ def publish_import_blobs(
             column_ids=[column_id],
             cells=cells,
             row_ids=[cell.row_id for cell in cells],
+            import_writer_authority=import_writer_authority,
         )
 
     refs: list[dict[str, Any]] = []
@@ -497,6 +499,7 @@ def publish_import_blobs(
                     producer_id=int(producer[0]),
                     column_ids=[source_column_id],
                     row_ids=[cell.row_id],
+                    import_writer_authority=import_writer_authority,
                     cells=[BaseCellWrite(cell.row_id, source_column_id, href)],
                 )
             prepared_ref = prepared_refs.get(blob.occurrence_id)

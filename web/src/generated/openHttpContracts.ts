@@ -5226,9 +5226,15 @@ type HttpDocumentPage_DocumentDescriptor = ({
   "source_kind": ("annotated_text" | "text" | "pdf" | "image" | "video" | "audio" | "other") & (string);
   "source_label": (((string)) | ((null)));
   "source_label_truncated": (boolean);
+  "source_page_range"?: (((HttpDocumentPage_DocumentSourcePageRange)) | ((null)));
   "source_present": (boolean);
   "title": (string);
   "title_truncated": (boolean);
+});
+
+type HttpDocumentPage_DocumentSourcePageRange = ({
+  "end": (number);
+  "start": (number);
 });
 
 export type HttpDocumentPage = ({

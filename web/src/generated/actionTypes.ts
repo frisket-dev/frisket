@@ -609,6 +609,11 @@ export type ImportNdjsonParams = ({
 export type ImportPdfPacketParams = ({
   "source_ref": (string);
   "keep_ocr_text"?: (boolean);
+  "plan_hash"?: (((string)) | ((null)));
+  "destination"?: ("new_sheet" | "append" | "replace") & (string);
+  "destination_sheet_id"?: (((number)) | ((null)));
+  "carried_column_ids"?: (Array<(number)>);
+  "organization"?: ("keep_documents" | "pages" | "split_documents") & (string);
 });
 
 type ImportPdfParams_FileSource = ({

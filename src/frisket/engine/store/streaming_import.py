@@ -706,6 +706,7 @@ class StreamingSheetWriter:
                     column_ids=self._column_ids,
                     op_id=self._op_id,
                     receipt_id=self._receipt_id,
+                    import_writer_authority=self._writer_authority,
                 )
             updated = db.execute(
                 "UPDATE import_sessions SET cursor=?,committed_rows=committed_rows+?,"
