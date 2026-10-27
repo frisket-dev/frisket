@@ -99,7 +99,9 @@ class SheetGridService:
             scoped_row_ids = _parse_row_ids_param(scope_row_ids)
             if explicit_row_ids is not None:
                 cols = projected_columns
-                ordered_ids = _visible_ranked_row_ids(project, sheet_id, explicit_row_ids)
+                ordered_ids = _visible_ranked_row_ids(
+                    project, sheet_id, explicit_row_ids
+                )
                 # Lens views provide their own ranked row order. The grid keeps that
                 # exact order and intentionally ignores filter/sort scope here.
                 window_ids = ordered_ids[offset : offset + limit]

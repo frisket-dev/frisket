@@ -36,7 +36,9 @@ def test_grid_read_keeps_membership_and_values_in_one_snapshot(tmp_path, monkeyp
     first = service.sheet_data("p", sheet, value_mode="bounded")
     assert [(r["id"], r["cells"][str(column)]) for r in first["rows"]] == [(old, "old")]
     second = service.sheet_data("p", sheet, value_mode="bounded")
-    assert [(r["id"], r["cells"][str(column)]) for r in second["rows"]] == [(new, "new")]
+    assert [(r["id"], r["cells"][str(column)]) for r in second["rows"]] == [
+        (new, "new")
+    ]
     writer.close()
     project.close()
 
@@ -51,7 +53,9 @@ def test_grid_read_preserves_caller_transaction_and_filtered_scope(tmp_path):
     project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (old,))
     [new] = project.add_rows(sheet, [{"body": "new"}], {"body": column}, commit=False)
     result = service.sheet_data(
-        "p", sheet, value_mode="bounded",
+        "p",
+        sheet,
+        value_mode="bounded",
         filter_=json.dumps({"body": {"contains": "new"}}),
     )
     assert [row["id"] for row in result["rows"]] == [new]
