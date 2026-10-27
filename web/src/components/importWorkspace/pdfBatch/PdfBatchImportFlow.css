@@ -437,10 +437,7 @@
 .pdf-batch-organization > div { margin-left: 112px; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .pdf-batch-organization label { grid-template-columns: auto minmax(0, 1fr); cursor: pointer; }
 .pdf-batch-organization label:has(input:disabled) { opacity: .6; cursor: default; }
-.pdf-batch-organization input { margin: 2px 0 0; accent-color: #4B4DDB; }
 .pdf-batch-organization label span { min-width: 0; }
-.pdf-batch-organization strong { font-size: 12px; font-weight: 600; }
-.pdf-batch-organization small { color: var(--text-light); font-size: 11px; line-height: 1.35; }
 .pdf-batch-destination-table [role='cell']:nth-child(3),
 .pdf-batch-destination-table [role='columnheader']:nth-child(3) { text-align: right; padding-right: 16px; }
 @media (max-width: 760px) {

@@ -3,6 +3,7 @@ import { Button } from '../../Button';
 import { ProgressBar } from '../../ActivityProgress';
 import { WindowCloseButton } from '../../WindowCloseButton';
 import { DiscardImportConfirm } from '../pdfBatch/DiscardImportConfirm';
+import { count } from '../pdfBatch/model';
 import {
   cancelPdfPacketOcr, getPdfPacketSplit, matchPdfPacketCandidates, setPdfPacketTextSource,
   type PdfPacketSplitSnapshot,
@@ -119,7 +120,7 @@ export function PdfPacketReview({ projectId, snapshot: initial, onReviewed, onBa
     </div>}
     {state.error && <p role="alert">{state.error}</p>}
     {discardTarget && <DiscardImportConfirm title="Discard this split?" testId="pdf-split-discard-dialog" confirmLabel="Discard"
-      message={`${state.confirmedStarts.length - state.fixedStarts.length + state.rejected.length + state.examplePages.filter((page) => state.fixedStarts.includes(page) && !initialExamplePages.includes(page)).length} starts you marked or answered will be lost. ${discardText ?? 'Text read so far stays in this import.'}`}
+      message={`${count(state.confirmedStarts.length - state.fixedStarts.length + state.rejected.length + state.examplePages.filter((page) => state.fixedStarts.includes(page) && !initialExamplePages.includes(page)).length, 'start')} you marked or answered will be lost. ${discardText ?? 'Text read so far stays in this import.'}`}
       onKeep={() => { setDiscardTarget(null); window.requestAnimationFrame(() => closeButtonRef.current?.focus()); }}
       onConfirm={() => {
         const target = discardTarget;

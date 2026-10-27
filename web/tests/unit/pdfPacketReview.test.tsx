@@ -50,6 +50,7 @@ describe('combined PDF review', () => {
     fireEvent.click(screen.getByRole('button', { name: /Page 5/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Back' }));
     expect(screen.getByRole('dialog', { name: 'Discard this split?' })).toBeTruthy();
+    expect(screen.getByText(/1 start you marked or answered will be lost/)).toBeTruthy();
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Keep working' }));
     expect(onBack).toHaveBeenCalledTimes(1);
   });
