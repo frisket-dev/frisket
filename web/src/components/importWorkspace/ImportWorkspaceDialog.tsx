@@ -893,7 +893,7 @@ function OpenImportWorkspaceSession({
             <X size={16} />
           </button>
         </header>
-        <div className={`import-workspace-main${pdfBatchActive ? ' pdf-packet-workspace-main' : ''}${showPreparation ? ' import-workspace-main-preparation' : ''}`}>
+        <div className={`import-workspace-main${pdfBatchActive || showPreparation ? ' import-workspace-main-preparation' : ''}`}>
           {!pdfBatchActive && (!tableImportActive || tableImportChoosingSource) && !showPreparation ? (
             <aside className="import-workspace-sidebar">
               <ImportModeRail modes={IMPORT_MODES} mode={railMode} onSelectMode={selectMode} />

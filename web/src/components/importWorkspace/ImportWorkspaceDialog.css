@@ -89,10 +89,6 @@ dialog.import-workspace-layer::backdrop {
   display: grid;
   grid-template-columns: 230px minmax(0, 1fr);
 }
-/* The PDF batch flow hides the mode rail, so its content occupies the full grid. */
-.import-workspace-main.pdf-packet-workspace-main {
-  grid-template-columns: minmax(0, 1fr);
-}
 .import-workspace-main-preparation {
   grid-template-columns: minmax(0, 1fr);
 }

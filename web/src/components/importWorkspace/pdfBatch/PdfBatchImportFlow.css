@@ -444,10 +444,3 @@
   .pdf-batch-organization legend { float: none; width: auto; margin-bottom: 8px; }
   .pdf-batch-organization > div { margin-left: 0; grid-template-columns: 1fr; }
 }
-
-.pdf-batch-review { display: flex; flex: 1 1 auto; min-height: 0; }
-.pdf-batch-review[hidden] { display: none; }
-.pdf-batch-review > section { flex: 1 1 auto; min-height: 0; }
-
-.pdf-batch-warnings { padding: 8px 20px; border-bottom: 1px solid var(--border); background: #fff7e8; color: #9A5B06; font-size: 12px; }
-.pdf-batch-warnings p { margin: 0; }

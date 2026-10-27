@@ -1,3 +1,4 @@
+import { PanelNotice } from '../../PanelPrimitives';
 import { Button } from '../../Button';
 import { LoaderCircle } from 'lucide-react';
 import {
@@ -973,7 +974,7 @@ export function PdfBatchImportFlow({
   return (
     <>
       <div className="pdf-batch-flow" data-stage={stage} data-testid="pdf-batch-flow">
-        {warnings.length > 0 && <div className="pdf-batch-warnings" role="status">{warnings.map((warning) => <p key={warning}>{warning}</p>)}</div>}
+        {warnings.length > 0 && <PanelNotice tone="warning">{warnings.map((warning) => <div key={warning}>{warning}</div>)}</PanelNotice>}
         {stage === 'add' && (
           <AddFilesStep
             snapshot={snapshot}
@@ -1038,7 +1039,7 @@ export function PdfBatchImportFlow({
           />
         )}
         {reviewSnapshot && (
-          <div className="pdf-batch-review" hidden={stage !== 'find'}>
+          <div className={stage === 'find' ? 'pdf-batch-flow' : undefined} hidden={stage !== 'find'}>
             <PdfPacketReview key={reviewSnapshot.split_id} projectId={projectId} snapshot={reviewSnapshot}
               onReviewed={completeReview} onBack={() => setStage('check')} />
           </div>
