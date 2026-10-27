@@ -1,7 +1,7 @@
 .modal-card.pdf-split-modal { width:min(1180px, calc(100vw - 48px)); height:min(800px, calc(100vh - 48px)); max-width:none; max-height:none; padding:0; overflow:hidden; }
 .pdf-split-setup { flex:1; min-height:0; background:white; display:flex; flex-direction:column; }
-.pdf-split-setup header,.pdf-split-setup footer { display:flex; align-items:center; gap:12px; padding:16px; border-bottom:1px solid #eee; }
-.pdf-split-setup header button { margin-left:auto; }.pdf-split-setup footer span { flex:1; }
+.pdf-split-setup > header,.pdf-split-setup > footer { display:flex; align-items:center; gap:12px; padding:16px; border-bottom:1px solid #eee; }
+.pdf-split-setup > header button { margin-left:auto; }.pdf-split-setup > footer span { flex:1; }
 .pdf-split-setup-body { display:grid; grid-template-columns:400px 1fr; min-height:0; flex:1; }
 .pdf-split-setup-body > section { padding:20px; overflow:auto; }.pdf-split-setup-body label { display:block; margin:8px 0; }.pdf-split-preview { border-left:1px solid #eee; }
 .pdf-split-check { padding:20px; overflow:auto; flex:1; }.pdf-split-check fieldset { display:flex; gap:12px; margin:20px 0; }.pdf-split-check fieldset label { flex:1; }

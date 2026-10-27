@@ -312,7 +312,7 @@
 }
 .packet-review-card[data-review-tone='suggested'] { border-color: #c9cbf5; }
 .packet-review-card:focus-visible { box-shadow: 0 0 0 2px rgba(52, 54, 184, 0.18); }
-.packet-find-step .packet-review-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0; border: 0; }
+.packet-review-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .packet-review-source { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .packet-review-heading strong { color: #9a5b06; font-size: 12px; }
 .packet-review-card[data-review-tone='suggested'] .packet-review-heading strong { color: #3436b8; }
