@@ -336,7 +336,7 @@ class PdfSplitPreparationStore:
 
     def cached_ref(self, target: PdfSplitPageTarget) -> int | None:
         row = self.db.execute(
-            "SELECT prepared_ref_id FROM pdf_split_page_work WHERE work_key=? AND status='completed' "
+            "SELECT prepared_ref_id FROM pdf_split_page_work WHERE work_key=? AND status IN ('completed','cancelled') "
             "AND prepared_ref_id IS NOT NULL ORDER BY rowid DESC LIMIT 1",
             (target.work_key,),
         ).fetchone()
@@ -398,7 +398,7 @@ class PdfSplitPreparationStore:
         if prepared_ref_id is not None and prepared_ref_id < 1:
             raise ValueError("source page preparation requires a prepared reference")
         with self.db:
-            return (
+            completed = (
                 self.db.execute(
                     "UPDATE pdf_split_page_work SET status='completed',prepared_ref_id=? "
                     "WHERE work_key=? AND generation=? AND status='running'",
@@ -406,6 +406,15 @@ class PdfSplitPreparationStore:
                 ).rowcount
                 == 1
             )
+            if not completed:
+                # Stop fences publication, but successful attempted OCR remains
+                # reusable without representing this generation as completed.
+                self.db.execute(
+                    "UPDATE pdf_split_page_work SET status='cancelled',prepared_ref_id=? "
+                    "WHERE work_key=? AND generation=? AND status='stopping'",
+                    (prepared_ref_id, work_key, generation),
+                )
+            return completed
 
     def cancel_generation(self, generation: str) -> None:
         with self.db:
@@ -811,19 +820,22 @@ class PdfSplitPreparationAdapter:
         self._source(work.target)
         # Provider call/accounting already belongs to the ordinary scratch
         # receipt. The split operation owns only the published page reference.
-        with PdfSplitPreparationStore(self.inventory_path) as store:
+        with self._lock, PdfSplitPreparationStore(self.inventory_path) as store:
             current = store.db.execute(
                 "SELECT status FROM pdf_split_page_work WHERE work_key=? AND generation=?",
                 (work.work_key, work.generation),
             ).fetchone()
-            if current is None or current[0] != "running":
+            if current is None or current[0] not in {"running", "stopping"}:
+                return
+            stopping = current[0] == "stopping"
+            if stopping and work.target.source_artifact_id is None:
                 return
             sample = (
                 store.db.execute(
                     "SELECT capture_json FROM pdf_split_original_samples WHERE generation=?",
                     (work.generation,),
                 ).fetchone()
-                if explicit_preview
+                if explicit_preview and not stopping
                 else None
             )
             if sample is not None:
@@ -883,7 +895,7 @@ class PdfSplitPreparationAdapter:
                 return
             with project.db:
                 project.db.execute("BEGIN IMMEDIATE")
-                if not self._generation_current(
+                if not stopping and not self._generation_current(
                     store, work, explicit_preview=explicit_preview
                 ):
                     store.cancel_generation(work.generation)

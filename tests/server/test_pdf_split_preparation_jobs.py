@@ -152,6 +152,18 @@ def test_actual_queue_worker_prepares_original_page_and_publishes_child_under_sp
             assert bool(summary.error) is (outcome == "provider_failure")
             directory = import_intake_dir(project.path, import_ref)
             with PdfSplitPreparationStore(directory / "inventory.db") as store:
+                source_work = store.db.execute(
+                    "SELECT status,prepared_ref_id FROM pdf_split_page_work"
+                ).fetchone()
+                if outcome == "stop":
+                    assert source_work["status"] == "cancelled"
+                    cached = PreparedContentStore(project).resolve(
+                        source_work["prepared_ref_id"]
+                    )
+                    assert cached.text == "Read page"
+                    assert cached.covered_pages == (2,)
+                else:
+                    assert source_work["prepared_ref_id"] is None
                 assert (
                     store.db.execute(
                         "SELECT COUNT(*) FROM pdf_split_page_bindings WHERE published=0"

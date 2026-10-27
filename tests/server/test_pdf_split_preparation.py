@@ -472,6 +472,94 @@ def test_undo_redo_while_provider_runs_never_revives_worker_or_refunds_call(
         project.close()
 
 
+def test_paid_page_finishing_after_stop_is_cached_without_publishing_or_rebilling(
+    tmp_path, monkeypatch
+):
+    import threading
+    from frisket.engine.store.prepared_content import PreparedContentStore
+
+    adapter, preview, project, provider, read, op, _source = _runtime(
+        tmp_path, monkeypatch
+    )
+    entered, release = threading.Event(), threading.Event()
+    complete = provider.complete
+
+    async def blocked(request, client):
+        entered.set()
+        assert release.wait(10)
+        return await complete(request, client)
+
+    provider.complete = blocked
+    try:
+        published = []
+        adapter.publish_child_page = lambda binding, ref: (
+            published.append((binding, ref)) or True
+        )
+        quoted = adapter.quote(targets=[read], plan_token="admitted-plan")
+        _admit_split(adapter, project, read, quoted)
+        operations = project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
+        cells = [tuple(row) for row in project.db.execute("SELECT * FROM cells")]
+        jobs = adapter.start_pending(generation="generation-one")
+        assert entered.wait(5)
+        adapter.stop(generation="generation-one")
+        assert adapter.progress(generation="generation-one")["stopping"] == 1
+        release.set()
+        assert _wait_preview(preview, jobs)[0]["status"] == "cancelled"
+        progress = adapter.progress(generation="generation-one")
+        assert progress["cancelled"] == 1
+        assert progress["completed"] == 0
+        assert progress["pending_bindings"] == 0
+        with PdfSplitPreparationStore(adapter.inventory_path) as store:
+            row = store.db.execute(
+                "SELECT status,prepared_ref_id FROM pdf_split_page_work"
+            ).fetchone()
+            assert row["status"] == "cancelled"
+            ref_id = store.cached_ref(read)
+            assert ref_id is not None
+            assert row["prepared_ref_id"] == ref_id
+        content = PreparedContentStore(project).resolve(ref_id)
+        assert content.text == "Read page"
+        assert content.covered_pages == (2,)
+        assert content.pins[0].positions["ocr_action_params"] == dict(
+            read.ocr_action_params
+        )
+        assert published == []
+        assert [
+            tuple(row) for row in project.db.execute("SELECT * FROM cells")
+        ] == cells
+        assert (
+            project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == operations
+        )
+        assert (
+            project.db.execute(
+                "SELECT status FROM receipts WHERE id!='split-receipt'"
+            ).fetchone()[0]
+            == "cancelled"
+        )
+        assert project.db.execute("SELECT COUNT(*) FROM model_calls").fetchone()[0] == 1
+        assert adapter.start_pending(generation="generation-one") == ()
+        # A later review can reuse both the inventory cache and the durable
+        # original-page reference after that inventory has been discarded.
+        assert adapter.quote(targets=[read], plan_token="later-review")["pages"] == 0
+        adapter.inventory_path = tmp_path / "later-inventory.db"
+        assert adapter.cached_reference(read) == ref_id
+        assert (
+            adapter.start_preview(
+                targets=[read],
+                plan_token="later-review",
+                operation_id=op,
+                generation="later-generation",
+                confirmation=None,
+            )
+            == ()
+        )
+        assert provider.calls == 1
+    finally:
+        release.set()
+        preview._registry.shutdown()
+        project.close()
+
+
 def test_successfully_read_empty_upload_page_is_never_retried_as_missing(
     tmp_path, monkeypatch
 ):
