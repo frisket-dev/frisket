@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import sqlite3
 
+from .current_cells import backfill_short_text_values
 from .schema import (
     NUMERIC_CURRENT_INDEX_SQL,
-    SCALAR_CURRENT_CELL_VALUES_SQL,
     SCHEMA_DIGEST_META_KEY,
 )
 
@@ -23,20 +23,7 @@ def migrate_short_text_cache(db: sqlite3.Connection) -> None:
     try:
         row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
         if row is not None and row[0] == SHORT_TEXT_CACHE_FROM_DIGEST:
-            # This pinned scalar view returns raw refs, not expanded document
-            # text. Prepared documents must keep both their locator and citation.
-            raw_values = "SELECT" + SCALAR_CURRENT_CELL_VALUES_SQL.split("SELECT", 1)[1]
-            db.execute(
-                f"WITH raw_values AS ({raw_values}), eligible AS ("
-                "SELECT live.column_id,live.row_id,live.value_kind,live.value "
-                "FROM raw_values live JOIN columns descriptor ON descriptor.id=live.column_id "
-                "WHERE live.value_kind='text' AND descriptor.type IN ('text','category','date') "
-                "AND length(CAST(live.value AS BLOB))<=512) "
-                "UPDATE current_cells AS head SET inline_value_kind=eligible.value_kind,"
-                "inline_value=eligible.value FROM eligible "
-                "WHERE head.column_id=eligible.column_id AND head.row_id=eligible.row_id "
-                "AND head.inline_value_kind IS NULL"
-            )
+            backfill_short_text_values(db)
             db.execute(NUMERIC_CURRENT_INDEX_SQL)
             db.execute(
                 "UPDATE meta SET value=? WHERE key=?",
