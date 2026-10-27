@@ -319,6 +319,7 @@ def paid_ocr_scratch_plan(
                     on_page(
                         {
                             "page": page.page,
+                            "receipt_id": context.receipt_id,
                             "text": text,
                             "blocks": blocks,
                             "width": frame_width,

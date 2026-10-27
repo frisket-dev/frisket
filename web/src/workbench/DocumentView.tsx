@@ -41,6 +41,7 @@ interface DocumentViewProps {
   onChangeState(next: DocumentViewState): void;
   /** Keep an already-open Detail reader aligned with the focused document. */
   onDocumentFocus(rowId: string): void;
+  onSplitPdf?(rowId: string, columnId: string): void;
   /** Open the resident Detail column for a row (openRowById): selects + docks. */
   onOpenDetail(rowId: string): void;
   onFindSimilar?(anchor: {
@@ -84,6 +85,7 @@ export function DocumentView({
   state,
   onChangeState,
   onDocumentFocus,
+  onSplitPdf,
   onOpenDetail,
   onFindSimilar,
   queryDocuments,
@@ -381,6 +383,7 @@ export function DocumentView({
         </section>
       ) : (
         <DocumentReader
+          onSplitPdf={activeRowId && sourceColumn && onSplitPdf ? () => onSplitPdf(activeRowId, String(sourceColumn.id)) : undefined}
           key={`reader-${activeRowId ?? 'none'}-${state.readerLocationKey ?? ''}`}
           media={activeMedia}
           mediaKind={activeMediaKind}

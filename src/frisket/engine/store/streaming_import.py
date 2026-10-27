@@ -26,6 +26,7 @@ from frisket.engine.store.import_blobs import (
     publish_import_blobs,
 )
 from frisket.engine.store.import_sessions import (
+    ImportInProgress,
     ImportSession,
     ImportSessionConflict,
     ImportSessionStore,
@@ -205,6 +206,7 @@ class StreamingSheetWriter:
         action_id: str,
         receipt_id: str,
         source_ref: Mapping[str, Any],
+        operation_kind: str | None = None,
     ) -> Self:
         """Create one visible, resumable sheet under a running receipt."""
 
@@ -273,7 +275,7 @@ class StreamingSheetWriter:
                 column_ids[name] = int(cursor.lastrowid)
             op_id = op_log.append_op(
                 project,
-                action_kind,
+                operation_kind or action_kind,
                 spec={
                     "schema_version": "frisket.action.v2",
                     "kind": action_kind,
@@ -374,6 +376,7 @@ class StreamingSheetWriter:
         action_id: str,
         receipt_id: str,
         source_ref: Mapping[str, Any],
+        operation_kind: str | None = None,
     ) -> Self:
         """Start one resumable import that appends into an existing sheet.
 
@@ -403,6 +406,15 @@ class StreamingSheetWriter:
             ).fetchone()
             if sheet is None:
                 raise ValueError("append destination sheet is unavailable")
+            active = db.execute(
+                "SELECT id FROM import_sessions WHERE sheet_id=? "
+                "AND state IN ('active','paused','cancelled')",
+                (int(sheet_id),),
+            ).fetchone()
+            if active is not None:
+                session = ImportSessionStore(project).get(str(active["id"]))
+                if session is not None:
+                    raise ImportInProgress(session)
             column_ids = {
                 str(row["name"]): int(row["id"])
                 for row in db.execute(
@@ -469,7 +481,7 @@ class StreamingSheetWriter:
             requested_name = str(sheet["name"])
             op_id = op_log.append_op(
                 project,
-                action_kind,
+                operation_kind or action_kind,
                 spec={
                     "schema_version": "frisket.action.v2",
                     "kind": action_kind,

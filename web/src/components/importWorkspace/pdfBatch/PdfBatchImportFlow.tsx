@@ -35,6 +35,8 @@ import {
 } from '../../importProgressSession';
 import {
   PDF_BATCH_STAGES,
+  pdfBatchStages,
+  importOutputRows,
   PDF_CHECK_CATEGORY_ORDER,
   canHandlePdfBatch,
   count,
@@ -48,6 +50,8 @@ import {
 import { AddFilesStep, CheckTextStep, DestinationStep, SearchSetupStep } from './PdfBatchSteps';
 import { usePdfBatchIntake } from './usePdfBatchIntake';
 import { usePdfBatchPreview } from './usePdfBatchPreview';
+import { createPdfPacketSplitFromDraft, type PdfPacketSplitSnapshot } from '../../../api/pdfPacketSplits';
+import { PdfPacketReview } from '../pdfPacket/PdfPacketReview';
 import './PdfBatchImportFlow.css';
 
 export interface PdfBatchDestinationSheet {
@@ -58,7 +62,7 @@ export interface PdfBatchDestinationSheet {
 export interface PdfBatchShellContext {
   active: true;
   stage: PdfBatchStage;
-  stages: typeof PDF_BATCH_STAGES;
+  stages: ReadonlyArray<(typeof PDF_BATCH_STAGES)[number]>;
   subtitle: string;
   busy: boolean;
 }
@@ -67,6 +71,9 @@ export interface PdfBatchImportFlowProps {
   projectId: string;
   files?: readonly File[];
   resumeDraftId?: string | null;
+  newlyAdmittedDraft?: boolean;
+  warnings?: readonly string[];
+  initialOrganization?: PdfImportChoices['organization'];
   destinationSheets: readonly PdfBatchDestinationSheet[];
   initialDestinationSheetId?: number | null;
   api?: PdfImportsApi;
@@ -122,6 +129,9 @@ export function PdfBatchImportFlow({
   projectId,
   files = [],
   resumeDraftId = null,
+  newlyAdmittedDraft = false,
+  warnings = [],
+  initialOrganization = 'keep_documents',
   destinationSheets,
   api = pdfImportsApi,
   onContextChange,
@@ -132,6 +142,10 @@ export function PdfBatchImportFlow({
 }: PdfBatchImportFlowProps) {
   const [snapshot, setSnapshot] = useState<PdfImportSnapshot | null>(null);
   const [stage, setStage] = useState<PdfBatchStage>('add');
+  const [reviewSnapshot, setReviewSnapshot] = useState<PdfPacketSplitSnapshot | null>(null);
+  const organizationChosen = useRef(false);
+  const organizationInitialized = useRef(false);
+  const entryOrganization = useRef(initialOrganization);
   const [error, setError] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<PdfImportCategory>('suspicious');
   const [sampleFiles, setSampleFiles] = useState<PdfImportFileSummary[]>([]);
@@ -166,6 +180,7 @@ export function PdfBatchImportFlow({
   const currentDraft = useRef<string | null>(null);
   const generation = useRef(0);
   const sampleRequestEpoch = useRef(0);
+  const sampleCountKey = useRef<string | null>(null);
   const importedSheet = useRef<number | null>(null);
   const registeredUpload = useRef<{
     importRef: string;
@@ -181,10 +196,11 @@ export function PdfBatchImportFlow({
 
   useEffect(() => {
     filesProp.current = files;
+    entryOrganization.current = initialOrganization;
     onErrorRef.current = onError;
     onImportedRef.current = onImported;
     onDiscardedRef.current = onDiscarded;
-  }, [files, onDiscarded, onError, onImported]);
+  }, [files, initialOrganization, onDiscarded, onError, onImported]);
 
   const publish = useCallback((next: PdfImportSnapshot) => {
     if (currentDraft.current && next.draft_id !== currentDraft.current) return;
@@ -292,6 +308,9 @@ export function PdfBatchImportFlow({
       if (controller.signal.aborted || generation.current !== epoch) return;
       setSnapshot(null);
       setStage('add');
+      setReviewSnapshot(null);
+      organizationChosen.current = false;
+      organizationInitialized.current = Boolean(resumeDraftId && !newlyAdmittedDraft);
       setError(null);
       setSelectedCategory('suspicious');
       setSampleFiles([]);
@@ -313,9 +332,9 @@ export function PdfBatchImportFlow({
       setReportedOcrChoice(null);
       if (!resumeDraftId) {
         const invalid = !canHandlePdfBatch(intakeSelection.files);
-        if (invalid) throw new Error('Choose at least two PDFs for this import.');
+        if (invalid) throw new Error('Choose at least one PDF for this import.');
       }
-      const created = resumeDraftId
+      let created = resumeDraftId
         ? await api.get(projectId, resumeDraftId, { signal: controller.signal })
         : await api.create(
           projectId,
@@ -325,6 +344,14 @@ export function PdfBatchImportFlow({
           { signal: controller.signal },
         );
       if (controller.signal.aborted || generation.current !== epoch) return;
+      if ((!resumeDraftId || newlyAdmittedDraft) && entryOrganization.current === 'split_documents'
+        && (!resumeDraftId || created.organization_summary?.split_supported !== false)
+        && created.choices.organization !== 'split_documents') {
+        created = await api.updateChoices(projectId, created.draft_id, {
+          ...created.choices, organization: 'split_documents', expected_revision: created.revision,
+        }, { signal: controller.signal });
+        if (controller.signal.aborted || generation.current !== epoch) return;
+      }
       if (resumeDraftId) setDestination(created.choices.destination);
       publish(created);
       if (!resumeDraftId) {
@@ -342,7 +369,7 @@ export function PdfBatchImportFlow({
       if (generation.current === epoch) generation.current += 1;
       if (!committed.current) abortIntake();
     };
-  }, [abortIntake, api, clearPreview, configureIntake, projectId, publish, reportError, resumeDraftId, runFreshIntake]);
+  }, [abortIntake, api, clearPreview, configureIntake, projectId, publish, reportError, resumeDraftId, newlyAdmittedDraft, runFreshIntake]);
 
   const registerCommittedUpload = useCallback(async (
     importRef: string | null | undefined,
@@ -447,7 +474,7 @@ export function PdfBatchImportFlow({
     onContextChange({
       active: true,
       stage,
-      stages: PDF_BATCH_STAGES,
+      stages: pdfBatchStages(snapshot.choices.organization ?? 'keep_documents'),
       subtitle: subtitle(snapshot, intakeFiles()),
       busy: mutationBusy || snapshot.state === 'committing' || snapshot.state === 'cancelling',
     });
@@ -514,9 +541,87 @@ export function PdfBatchImportFlow({
     }
   };
 
+  useEffect(() => {
+    if (!snapshot || organizationInitialized.current || organizationChosen.current
+      || mutationBusy || !snapshot.manifest.sealed
+      || snapshot.analysis.files_done < snapshot.analysis.files_total) return;
+    const summary = snapshot.organization_summary;
+    if (!summary) return;
+    organizationInitialized.current = true;
+    const largeSinglePdf = summary.pdf_count === 1 && summary.page_count > 1_000;
+    const initial = summary.split_supported && (entryOrganization.current === 'split_documents' || largeSinglePdf)
+      ? 'split_documents' : 'keep_documents';
+    if ((snapshot.choices.organization ?? 'keep_documents') === initial) return;
+    const epoch = generation.current;
+    setMutationBusy(true);
+    void api.updateChoices(projectId, snapshot.draft_id, {
+      ...snapshot.choices, organization: initial, expected_revision: snapshot.revision,
+    }, { signal: lifecycleController.current?.signal }).then((next) => {
+      if (generation.current === epoch) publish(next);
+    }).catch((problem: unknown) => {
+      if (generation.current !== epoch) return;
+      if (problem instanceof PdfImportResponseError && problem.status === 409) {
+        organizationInitialized.current = false;
+        void api.get(projectId, snapshot.draft_id).then((next) => {
+          if (generation.current === epoch) publish(next);
+        }).catch(reportError);
+      } else reportError(problem);
+    }).finally(() => { if (generation.current === epoch) setMutationBusy(false); });
+  }, [api, snapshot, mutationBusy, projectId, publish, reportError]);
+
+  const continueFromCheck = async () => {
+    if (!snapshot || mutationBusy) return;
+    if (snapshot.choices.organization !== 'split_documents') {
+      setStage('destination');
+      if (destination.kind === 'existing') void compareDestination(destination);
+      return;
+    }
+    if (reviewSnapshot) {
+      setStage('find');
+      return;
+    }
+    const epoch = generation.current;
+    setMutationBusy(true);
+    setError(null);
+    try {
+      const saved = await updateChoicesWithRetry({});
+      if (generation.current !== epoch) return;
+      publish(saved);
+      const prepared = await createPdfPacketSplitFromDraft(projectId, {
+        draft_id: saved.draft_id, expected_revision: saved.revision, organization: 'split_documents',
+      }, { signal: lifecycleController.current?.signal });
+      if (generation.current !== epoch) return;
+      setReviewSnapshot(prepared);
+      setStage('find');
+    } catch (problem) {
+      if (generation.current === epoch) reportError(problem);
+    } finally {
+      if (generation.current === epoch) setMutationBusy(false);
+    }
+  };
+
+  const completeReview = async (starts: Record<string, number[]>) => {
+    if (!snapshot || mutationBusy) return;
+    const epoch = generation.current;
+    setMutationBusy(true);
+    setError(null);
+    try {
+      const saved = await updateChoicesWithRetry({ split_starts: starts });
+      if (generation.current !== epoch) return;
+      publish(saved);
+      setStage('destination');
+      if (destination.kind === 'existing') await compareDestination(destination);
+    } catch (problem) {
+      if (generation.current === epoch) reportError(problem);
+    } finally {
+      if (generation.current === epoch) setMutationBusy(false);
+    }
+  };
+
   const loadSamples = useCallback(async (category: PdfImportCategory, cursor?: string) => {
     if (!snapshot) return;
     const requestEpoch = ++sampleRequestEpoch.current;
+    sampleCountKey.current = `${snapshot.draft_id}:${category}:${Math.min(6, snapshot.category_counts[category] ?? 0)}`;
     setSamplesLoading(true);
     try {
       const result = await api.samples(projectId, snapshot.draft_id, category, cursor);
@@ -525,13 +630,21 @@ export function PdfBatchImportFlow({
       setSampleExtensions(result.extension_counts ?? []);
       setUnlistedExtensionCount(result.unlisted_extension_count ?? 0);
       setSampleCursor(result.next_cursor);
-      await selectPreview(result.items[0] ?? null);
+      if (!result.items.some((file) => file.occurrence_id === selectedFileId)) {
+        await selectPreview(result.items[0] ?? null);
+      }
     } catch (problem) {
       if (requestEpoch === sampleRequestEpoch.current) reportError(problem);
     } finally {
       if (requestEpoch === sampleRequestEpoch.current) setSamplesLoading(false);
     }
-  }, [api, projectId, reportError, selectPreview, snapshot]);
+  }, [api, projectId, reportError, selectPreview, selectedFileId, snapshot]);
+
+  useEffect(() => {
+    if (stage !== 'check' || !snapshot) return;
+    const key = `${snapshot.draft_id}:${selectedCategory}:${Math.min(6, snapshot.category_counts[selectedCategory] ?? 0)}`;
+    if (sampleCountKey.current !== key) void loadSamples(selectedCategory);
+  }, [loadSamples, selectedCategory, snapshot, stage]);
 
   const chooseCategory = (category: PdfImportCategory) => {
     setSelectedCategory(category);
@@ -828,6 +941,9 @@ export function PdfBatchImportFlow({
   const samples = sampleFiles;
   const checkRunning = snapshot.analysis.files_done < (snapshot.analysis.files_total ?? Infinity);
   const totalFiles = snapshot.upload.files_total ?? files.length;
+  const outputRows = importOutputRows(snapshot);
+  const importingFiles = destination.kind === 'existing' && snapshot.match.state === 'ready'
+    ? snapshot.match.new_count : totalFiles;
   const semanticSearch = semanticEnabled ?? snapshot.choices.semantic_search;
   const semanticNeedsConsent = semanticSearch && snapshot.semantic_setup.needs_confirmation;
   const semanticAuthorized = !semanticNeedsConsent || (
@@ -844,6 +960,7 @@ export function PdfBatchImportFlow({
     ? batchOcrConsent
     : null;
   const canCommit = destinationIsReady(snapshot, destination)
+    && outputRows !== null
     && !snapshot.paused && !matching && semanticAuthorized
     && snapshot.analysis.files_done >= snapshot.upload.files_done
     && (ocrPolicyCount(snapshot, snapshot.choices.ocr_policy) === 0
@@ -856,6 +973,7 @@ export function PdfBatchImportFlow({
   return (
     <>
       <div className="pdf-batch-flow" data-stage={stage} data-testid="pdf-batch-flow">
+        {warnings.length > 0 && <div className="pdf-batch-warnings" role="status">{warnings.map((warning) => <p key={warning}>{warning}</p>)}</div>}
         {stage === 'add' && (
           <AddFilesStep
             snapshot={snapshot}
@@ -906,16 +1024,24 @@ export function PdfBatchImportFlow({
               setReportedOcrChoice(null);
               void mutateChoices({ ocr_selection: ocrSelection });
             }}
+            onOrganization={(organization) => {
+              organizationChosen.current = true;
+              setReviewSnapshot(null);
+              void mutateChoices({ organization, split_starts: {} });
+            }}
             onPolicy={(ocrPolicy) => {
               setBatchEstimateError(null);
               void mutateChoices({ ocr_policy: ocrPolicy });
             }}
             onBack={() => setStage('add')}
-            onContinue={() => {
-              setStage('destination');
-              if (destination.kind === 'existing') void compareDestination(destination);
-            }}
+            onContinue={() => void continueFromCheck()}
           />
+        )}
+        {reviewSnapshot && (
+          <div className="pdf-batch-review" hidden={stage !== 'find'}>
+            <PdfPacketReview key={reviewSnapshot.split_id} projectId={projectId} snapshot={reviewSnapshot}
+              onReviewed={completeReview} onBack={() => setStage('check')} />
+          </div>
         )}
         {stage === 'destination' && (
           <DestinationStep
@@ -928,7 +1054,7 @@ export function PdfBatchImportFlow({
               else setDestination(next);
             }}
             projectId={projectId}
-            onBack={() => setStage('check')}
+            onBack={() => setStage(snapshot.choices.organization === 'split_documents' && reviewSnapshot ? 'find' : 'check')}
             onContinue={() => void continueToSearch()}
           />
         )}
@@ -939,11 +1065,7 @@ export function PdfBatchImportFlow({
             consent={Boolean(snapshot.semantic_setup.confirmation_hash)
               && snapshot.choices.semantic_setup_confirmation === snapshot.semantic_setup.confirmation_hash}
             busy={mutationBusy}
-            importLabel={nothingNew ? 'Nothing new to import' : matching ? 'Comparing…' : `Import ${count(
-              destination.kind === 'existing' && snapshot.match.state === 'ready'
-                ? snapshot.match.new_count : totalFiles,
-              'file', 'files',
-            )}`}
+            importLabel={nothingNew ? 'Nothing new to import' : matching ? 'Comparing…' : outputRows === null ? 'Calculating rows…' : `Import ${count(outputRows, outputRows === importingFiles ? 'file' : 'row')}`}
             canImport={canCommit}
             batchEstimateBusy={batchEstimateBusy}
             batchEstimateWaiting={!batchEstimateInputsReady}

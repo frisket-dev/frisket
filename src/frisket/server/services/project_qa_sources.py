@@ -10,6 +10,7 @@ from contextlib import closing, contextmanager
 from typing import Any
 
 from frisket.engine.store import Project
+from frisket.engine.store.prepared_content import prepared_coverage_warnings
 from frisket.engine.store.document_text import (
     DocumentTextUnavailable,
     resolve_document_text_selection,
@@ -104,7 +105,13 @@ def _metadata(
             else {}
         ),
     }
+    warnings = (
+        prepared_coverage_warnings(db, [text_meta.prepared_ref_id])
+        if text_meta is not None and text_meta.prepared_ref_id is not None
+        else {}
+    )
     return {
+        **({"warnings": list(warnings.values())} if warnings else {}),
         "length": text_meta.total_characters if text_meta is not None else 0,
         "column_type": row["column_type"],
         "value_ref": ref,

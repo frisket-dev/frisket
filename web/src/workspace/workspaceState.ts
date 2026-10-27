@@ -8,6 +8,7 @@ export interface SelectedGridRows {
   sheetId: string;
   rowIds: string[];
   rowIndexes: number[];
+  cachedAnchors?: Array<{ index: number; rowId: string }>;
 }
 
 export interface ChildFilter {

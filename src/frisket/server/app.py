@@ -94,6 +94,7 @@ from frisket.server.routes.search_preparation import register_search_preparation
 from frisket.server.routes.document_priority import register_document_priority_route
 from frisket.server.services.document_priority import DocumentPriorityService
 from frisket.server.routes.pdf_packet_splits import register_pdf_packet_split_routes
+from frisket.server.routes.pdf_packet_sources import register_pdf_packet_source_routes
 from frisket.server.routes.pdf_imports import register_pdf_import_routes
 from frisket.server.routes.table_imports import register_table_import_routes
 from frisket.server.services.table_imports import FrozenTableImport, TableImportService
@@ -206,8 +207,10 @@ from frisket.server.services.import_files import ImportFilesUploadService
 from frisket.server.services.import_followthemoney import FollowTheMoneyUploadService
 from frisket.server.services.import_pdf import ImportPdfUploadService
 from frisket.server.services.import_urls import ImportUrlsService
+from frisket.server.services.import_urls_prepare import ImportUrlsPrepareService
 from frisket.server.services.import_xlsx import ImportXlsxUploadService
 from frisket.server.services.pdf_packet_splits import PdfPacketSplitService
+from frisket.server.services.pdf_packet_scope import PdfPacketScopeService
 from frisket.server.services.map_points import MapPointsService
 from frisket.server.services.notifications import NotificationService
 from frisket.server.services.project_actions import ProjectActionUtilityService
@@ -769,7 +772,9 @@ def create_app(
     pdf_packet_preview_run_service = ActionPreviewRunService(
         ws, registry=pdf_packet_job_registry
     )
-    search_preparation_service = SearchPreparationService(ws)
+    search_preparation_service = SearchPreparationService(
+        ws, preview_runs=action_preview_run_service
+    )
 
     def enqueue_pdf_import_continuation(
         project_id: str, draft_id: str, idempotency_key: str, revision: int
@@ -794,15 +799,22 @@ def create_app(
         frozen: FrozenPdfImport, _request: Request
     ) -> dict[str, Any]:
         result = await await_thread_worker(
-            pdf_import_commit_service.commit_frozen, frozen.project_id, frozen
+            pdf_import_commit_service.commit_frozen,
+            frozen.project_id,
+            frozen,
+            request_context=_request,
         )
         return asdict(result)
 
+    pdf_packet_scope_service = PdfPacketScopeService(ws)
     pdf_packet_split_service = PdfPacketSplitService(
         ws,
         registry=pdf_packet_job_registry,
         preview_runs=pdf_packet_preview_run_service,
         search_preparation=search_preparation_service,
+        reviewed_sources=pdf_import_service.reviewed_sources,
+        sheet_sources=pdf_packet_scope_service.admit,
+        sheet_scope_token=pdf_packet_scope_service.order_token,
     )
     app.state.pdf_packet_split_service = pdf_packet_split_service
 
@@ -972,6 +984,7 @@ def create_app(
         service=pdf_packet_split_service,
         limits=bulk_limits,
     )
+    register_pdf_packet_source_routes(app, service=pdf_packet_split_service)
     register_pdf_import_routes(
         app,
         service=pdf_import_service,
@@ -1029,6 +1042,9 @@ def create_app(
     register_import_urls_routes(
         app,
         service=ImportUrlsService(ws, search_preparation=search_preparation_service),
+        prepare_service=ImportUrlsPrepareService(
+            ws, pdf_import_service=pdf_import_service
+        ),
     )
 
     # ---------- recipes / runs ----------

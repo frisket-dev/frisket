@@ -3,7 +3,7 @@
 import { createStore } from '../core/store/createStore';
 import type { Store } from '../core/store/types';
 import type { WorkbenchProjectionStatus } from '../workbench/WorkbenchBottomDock';
-import type { ProjectInfo } from '../api/types';
+import type { EvidenceViewerPayload, ProjectInfo } from '../api/types';
 import {
   createScopedChromePreferenceOwner,
   type HydratedChromePreferences,
@@ -19,6 +19,8 @@ const BOTTOM_DOCK_FALLBACK_TAB_PLACEMENT_ID = 'jobs';
 export type EvidenceViewerHost = 'modalOrPeek' | 'mainView';
 
 export interface EvidenceViewerFocus {
+  initialPayload?: EvidenceViewerPayload;
+  initialPage?: number;
   scopeSpanId?: string;
   scopeSpanIds?: readonly string[];
   highlight?: boolean;

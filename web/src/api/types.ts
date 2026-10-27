@@ -951,6 +951,7 @@ export interface Row {
   index: number;
   cells: Record<string, CellValue>; // columnId -> exact value
   boundedValues?: Record<string, BoundedCellValue>;
+  sourceLinks?: Record<string, { label: string }>;
   /** Present only on a projected row; missing columns are unloaded, not empty. */
   loadedColumnIds?: string[];
   provenance: Record<string, CellProvenance>; // columnId -> current value refs/provenance

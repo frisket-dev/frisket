@@ -823,6 +823,7 @@ def _supports_typed_action_job(bound: Any) -> bool:
     from frisket.actions.core import CreateSheet, _ProjectAction
     from frisket.actions.document_extract import PositionedDocumentReader
     from frisket.actions.import_inventory_types import FileInventoryReader
+    from frisket.actions.pdf_packet_import_types import PacketSplitReader
     from frisket.actions.temporal_types import TemporalMediaReader
     from frisket.actions.transcript_types import TranscriptReader
 
@@ -848,6 +849,7 @@ def _supports_typed_action_job(bound: Any) -> bool:
             TranscriptReader,
             TemporalMediaReader,
             FileInventoryReader,
+            PacketSplitReader,
             PositionedDocumentReader,
         )
     )

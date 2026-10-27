@@ -27,6 +27,7 @@ from frisket.engine.executor.action_jobs import (
 from frisket.engine.jobs.queue import IMPORT_FILES_PAGE_KIND
 from frisket.engine.jobs.import_table import table_import_dedupe_key
 from frisket.engine.jobs.queue import IMPORT_TABLE_STREAM_KIND
+from frisket.engine.jobs.queue import PDF_SPLIT_APPLY_KIND
 from frisket.engine.store.import_intake import (
     ImportIntakeHeader,
     append_inventory_batch,
@@ -45,6 +46,13 @@ from frisket.engine.store.import_inventory import ImportInventory
 from frisket.engine.store.import_sessions import ImportSessionStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.streaming_import import StreamingSheetWriter
+from frisket.engine.store.pdf_split import PdfSplitWriter
+from frisket.engine.store.pdf_split_intake import (
+    PDF_SPLIT_PLAN_FILE,
+    pdf_split_status,
+    read_pdf_split_plan,
+    split_plan_hash,
+)
 from frisket.engine.store.table_import_intake import (
     FrozenTableImport,
     advance_table_progress,
@@ -321,6 +329,8 @@ class ImportSessionService:
         if not uploads or len(uploads) > _MAX_CHUNK_FILES:
             raise ImportBulkRouteError(413, "upload chunk must contain 1..256 files")
         project, directory, header = self._open(project_id, ref)
+        if self._is_split(header, directory):
+            raise ValueError("PDF split source inventory is already frozen")
         with import_admit_lock(directory):
             header = self._validated_header(project, project_id, directory)
             if header.cancel_requested:
@@ -386,6 +396,8 @@ class ImportSessionService:
 
     async def seal(self, project_id: str, ref: str) -> ImportSessionStatus:
         project, directory, _header = self._open(project_id, ref)
+        if self._is_split(_header, directory):
+            return self._split_status(project, ref, directory, _header)
         with import_admit_lock(directory):
             header = self._validated_header(project, project_id, directory)
             with ImportInventory(directory / "inventory.db") as inventory:
@@ -397,6 +409,8 @@ class ImportSessionService:
 
     def status(self, project_id: str, ref: str) -> ImportSessionStatus:
         project, directory, header = self._open(project_id, ref)
+        if self._is_split(header, directory):
+            return self._split_status(project, ref, directory, header)
         if header.intake_kind == "table":
             return self._status(project, ref, directory, header)
         with ImportInventory(directory / "inventory.db") as inventory:
@@ -404,6 +418,8 @@ class ImportSessionService:
 
     def cancel(self, project_id: str, ref: str) -> ImportSessionStatus:
         project, directory, _header = self._open(project_id, ref)
+        if self._is_split(_header, directory):
+            return self._cancel_split(project, project_id, ref, directory)
         with import_admit_lock(directory):
             header = self._validated_header(project, project_id, directory)
             header = request_import_cancel(directory)
@@ -501,6 +517,17 @@ class ImportSessionService:
         if decision not in {"keep", "remove"}:
             raise ValueError("decision must be keep or remove")
         project, directory, header = self._open(project_id, ref)
+        if self._is_split(header, directory):
+            if decision == "remove":
+                raise ValueError(
+                    "PDF split rows are removed with split Undo; Stop remaining first"
+                )
+            session = ImportSessionStore(project).get(ref)
+            if session is None or session.state in ("active", "paused", "cancelled"):
+                raise ValueError("Stop remaining before keeping PDF split rows")
+            with import_admit_lock(directory):
+                header = set_import_resolution(directory, "kept")
+            return self._split_status(project, ref, directory, header)
         cleanup_failed = False
         with import_worker_lock(directory, timeout=0):
             with import_admit_lock(directory):
@@ -567,6 +594,24 @@ class ImportSessionService:
             raise ValueError("import session cannot be resumed")
         if header.cancel_requested:
             raise ValueError("cancelled import requires keep or remove")
+        if self._is_split(header, directory):
+            plan = read_pdf_split_plan(directory)
+            payload_extra = getattr(self._workspace, "queue_payload_extra", {})
+            plan_hash = split_plan_hash(plan)
+            self._workspace.queue.enqueue(
+                PDF_SPLIT_APPLY_KIND,
+                {
+                    **payload_extra,
+                    "project_id": project_id,
+                    "workspace_root": str(self._workspace.root),
+                    "import_ref": ref,
+                    "plan_hash": plan_hash,
+                    "receipt_id": str(header.envelope["receipt_id"]),
+                    "action_kind": str(header.envelope["action_kind"]),
+                    "dedupe_key": f"pdf-split:{project_id}:{ref}:{plan_hash}",
+                },
+            )
+            return self._split_status(project, ref, directory, header)
         if header.intake_kind == "table":
             status = self._status(project, ref, directory, header)
             await self._enqueue_table(project_id, ref)
@@ -606,17 +651,28 @@ class ImportSessionService:
                     ref = directory.name
                     header = self._validated_header(project, project_id, directory)
                     db_state = db_states.get(ref)
+                    split = self._is_split(header, directory)
                     if db_state == "removed" or (
                         db_state in {"completed", "kept"} and ref not in recent_terminal
                     ):
                         continue
-                    if db_state == "kept" and header.intake_kind != "table":
-                        continue
-                    if header.resolution == "removed" or (
-                        header.resolution == "kept" and header.intake_kind != "table"
+                    if (
+                        db_state == "kept"
+                        and header.intake_kind != "table"
+                        and not split
                     ):
                         continue
-                    if header.intake_kind == "table":
+                    if header.resolution == "removed" or (
+                        header.resolution == "kept"
+                        and header.intake_kind != "table"
+                        and not split
+                    ):
+                        continue
+                    if split:
+                        sessions.append(
+                            self._split_status(project, ref, directory, header)
+                        )
+                    elif header.intake_kind == "table":
                         sessions.append(self._status(project, ref, directory, header))
                     else:
                         with ImportInventory(directory / "inventory.db") as inventory:
@@ -644,6 +700,167 @@ class ImportSessionService:
             )
         )
         return ImportSessionList(sessions=sessions)
+
+    @staticmethod
+    def _is_split(header: ImportIntakeHeader, directory: Path) -> bool:
+        return (header.provider_state or {}).get("kind") == "pdf_split" or (
+            header.envelope.get("action_kind") == "import.packet_split"
+            and (directory / PDF_SPLIT_PLAN_FILE).is_file()
+        )
+
+    def _cancel_split(
+        self, project, project_id: str, ref: str, directory: Path
+    ) -> ImportSessionStatus:
+        with import_admit_lock(directory):
+            self._validated_header(project, project_id, directory)
+            header = request_import_cancel(directory)
+        job_id = (header.provider_state or {}).get("job_id")
+        if isinstance(job_id, int):
+            self._workspace.queue.cancel(job_id)
+        try:
+            with import_worker_lock(directory, timeout=0):
+                session = ImportSessionStore(project).get(ref)
+                if session is not None and session.state in (
+                    "active",
+                    "paused",
+                    "cancelled",
+                ):
+                    PdfSplitWriter._from_session(project, session).finalize(
+                        expected_cursor=session.cursor,
+                        stopped=True,
+                    )
+        except Timeout:
+            pass  # The claimed writer observes the durable Stop between chunks.
+        session = ImportSessionStore(project).get(ref)
+        if (
+            header.pdf_preparation is not None
+            and self._search_preparation is not None
+            and session is not None
+            and session.state in ("kept", "completed")
+        ):
+            self._search_preparation.stop_pdf_import(project_id, ref)
+        return self._split_status(
+            project, ref, directory, read_import_header(directory)
+        )
+
+    def _split_status(
+        self, project, ref: str, directory: Path, header: ImportIntakeHeader
+    ) -> ImportSessionStatus:
+        progress = pdf_split_status(project, ref)
+        session = ImportSessionStore(project).get(ref)
+        job_id = (header.provider_state or {}).get("job_id")
+        job = self._workspace.queue.get(job_id) if isinstance(job_id, int) else None
+        if session is None:
+            state = "paused" if progress["status"] == "failed" else "admitting"
+        elif session.state in ("active", "paused", "cancelled"):
+            state = (
+                "cancelling"
+                if header.cancel_requested
+                else "paused"
+                if job is not None and job.status == "failed"
+                else "running"
+            )
+        elif session.state == "removed":
+            state = "removed"
+        elif progress["status"] == "cancelled" and header.resolution != "kept":
+            state = "cancelled"
+        elif progress["status"] == "completed" and not progress["source_failed"]:
+            state = "completed"
+        else:
+            state = "kept"
+        summary = None
+        preparation_error = None
+        if self._search_preparation is not None:
+            if (
+                header.pdf_preparation is not None
+                and session is not None
+                and session.state in ("kept", "completed")
+            ):
+                try:
+                    self._search_preparation.progress_pdf_import(header.project_id, ref)
+                    summary = self._search_preparation.pdf_import_summary(
+                        header.project_id, ref
+                    )
+                except Exception:
+                    logger.warning("split_preparation_recovery_pending")
+                    preparation_error = "Text preparation could not be resumed yet."
+            preparation_status, preparation_batch_id = (
+                self._search_preparation.handoff_for_receipt(
+                    header.project_id, str(header.envelope["receipt_id"])
+                )
+            )
+        else:
+            preparation_status, preparation_batch_id = "none", None
+        errors = progress["source_error_groups"]
+        error = (
+            errors[0]["message"]
+            if errors
+            else "Split processing paused. Resume to continue."
+            if state == "paused"
+            else None
+        )
+        error = (
+            error or (None if summary is None else summary.error) or preparation_error
+        )
+        child_fields = {
+            "action_id",
+            "row_count",
+            "completed_rows",
+            "status",
+            "receipt_id",
+            "run_id",
+            "job_id",
+        }
+        return ImportSessionStatus(
+            import_ref=ref,
+            intake_kind="files",
+            state=state,
+            admitted_files=progress["selected_total"],
+            admitted_bytes=progress["admitted_bytes"],
+            through=progress["source_attempted"] + progress["skipped_duplicates"],
+            committed_rows=progress["document_count"],
+            committed_bytes=progress["committed_bytes"],
+            sheet_id=progress["sheet_id"],
+            sheet_name=progress["sheet_name"],
+            cancel_requested=header.cancel_requested,
+            sealed=True,
+            error=error,
+            search_preparation_status=preparation_status,
+            search_preparation_batch_id=preparation_batch_id,
+            selected_total=progress["selected_total"],
+            estimated_rows=progress["expected_rows"],
+            processed_rows=progress["source_attempted"]
+            + progress["skipped_duplicates"],
+            skipped_duplicates=progress["skipped_duplicates"],
+            problem_count=progress["source_failed"],
+            source_label="PDF split",
+            source_error_groups=errors,
+            preparation_completed=0
+            if summary is None
+            else summary.native_completed + summary.ocr_completed,
+            preparation_total=0
+            if summary is None
+            else summary.native_total + summary.ocr_total,
+            ocr_completed=0 if summary is None else summary.ocr_completed,
+            ocr_total=0 if summary is None else summary.ocr_total,
+            unreadable_total=progress["source_failed"]
+            if summary is None
+            else progress["source_failed"] + summary.unreadable_total,
+            preparation_stopped=False if summary is None else summary.stopped,
+            preparation_pending_confirmation=None
+            if summary is None
+            else summary.pending_confirmation,
+            semantic_preparation_error=preparation_error
+            if summary is None
+            else summary.semantic_error,
+            row_error_summary=None if summary is None else summary.row_error_summary,
+            preparation_children=[]
+            if summary is None
+            else [
+                {key: value for key, value in child.items() if key in child_fields}
+                for child in summary.children
+            ],
+        )
 
     def _open(self, project_id: str, ref: str):
         project = self._workspace.get(project_id)

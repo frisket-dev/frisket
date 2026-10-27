@@ -167,12 +167,15 @@ it preserves existing destination data.
 Queue claims own publication authority. Upload batches and worker claims are
 bounded independently; neither carries the full corpus in a request or receipt.
 
-Multi-PDF review stages files outside the project until final Import. Text and
-OCR then use ordinary queued actions writing the shared document-text column,
-with separate Undo steps. Paid OCR is quoted against the staged file inventory
-and confirmed at final Import; each queued child must still satisfy ordinary
-action admission and the approved allocation. A display label must never alter
-the action identity or its queued execution parameters.
+Multi-PDF review stages files outside the project until final Import. Ordinary
+text/OCR actions have their own Undo steps. Splitting documents or creating
+page rows publishes through one protected import operation;
+its automatic text preparation belongs to that operation, so one Undo removes
+the split and its prepared text. Explicit preview OCR on existing originals and
+later user-run OCR remain separate actions. Paid OCR is quoted against admitted
+source pages and confirmed before dispatch; each queued page must still satisfy
+ordinary action admission and the approved allocation. A display label must
+never alter the action identity or its queued execution parameters.
 
 CSV, XLSX and paste build their existing typed Params and use
 `run_tabular_action` for create, append and update. The browser sends raw paste

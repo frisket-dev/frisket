@@ -1,4 +1,4 @@
-"""Durable project-external intake for two-or-more-PDF imports."""
+"""Durable project-external intake for PDF organization."""
 
 from __future__ import annotations
 
@@ -69,7 +69,7 @@ OCCURRENCE_ID_RE = re.compile(PDF_IMPORT_OCCURRENCE_ID_PATTERN)
 class FrozenPdfOccurrence:
     ordinal: int
     selected_ordinal: int
-    inventory_ordinal: int
+    inventory_ordinal: int | None
     occurrence_id: str
     logical_path: str
     filename: str
@@ -82,6 +82,9 @@ class FrozenPdfOccurrence:
     error: str | None
     matched: bool
     ocr_selected: bool
+    source_url: str | None = None
+    provider: str | None = None
+    metadata: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -109,6 +112,12 @@ class FrozenPdfImport:
     uploads_complete: bool
     sealed: bool
     commit_result: Mapping[str, Any] | None
+    organization: str = "keep_documents"
+    split_starts: Mapping[str, Sequence[int]] | None = None
+    packet_publication: bool = False
+    pdf_preparation: Mapping[str, Any] | None = None
+    native_pages: Mapping[str, Mapping[int, Path]] | None = None
+    cached_pages: Mapping[str, Mapping[int, Any]] | None = None
 
     def page_occurrences(
         self, *, after: int = 0, limit: int = 256
@@ -124,7 +133,11 @@ class FrozenPdfImport:
             FrozenPdfOccurrence(
                 ordinal=int(row["commit_ordinal"]),
                 selected_ordinal=int(row["selected_ordinal"]),
-                inventory_ordinal=int(row["staged_ordinal"]),
+                inventory_ordinal=(
+                    int(row["staged_ordinal"])
+                    if row["staged_ordinal"] is not None
+                    else None
+                ),
                 occurrence_id=str(row["occurrence_id"]),
                 logical_path=str(row["logical_path"]),
                 filename=str(row["filename"]),
@@ -141,6 +154,9 @@ class FrozenPdfImport:
                 error=str(row["error"]) if row.get("error") else None,
                 matched=bool(row.get("matched")),
                 ocr_selected=pdf_ocr_selected(self.ocr_policy, str(row["category"])),
+                source_url=row.get("source_url"),
+                provider=row.get("provider"),
+                metadata=row.get("metadata"),
             )
             for row in rows
         ]
@@ -195,10 +211,8 @@ class PdfImportService:
         expected_bytes: int,
         source_label: str | None,
     ) -> dict[str, Any]:
-        if type(expected_files) is not int or expected_files < 2:
-            raise PdfImportDraftError(
-                422, "multi-PDF import requires at least two PDFs"
-            )
+        if type(expected_files) is not int or expected_files < 1:
+            raise PdfImportDraftError(422, "PDF import requires at least one file")
         if type(expected_bytes) is not int or expected_bytes < 0:
             raise PdfImportDraftError(422, "expected PDF bytes must be nonnegative")
         project = self._workspace.get(project_id)
@@ -220,6 +234,19 @@ class PdfImportService:
             raise
         return self._snapshot(header, self._stats(directory))
 
+    def reviewed_sources(
+        self,
+        project_id: str,
+        draft_id: str,
+        expected_revision: int,
+        organization: str | None = None,
+    ):
+        from .organization import reviewed_sources
+
+        return reviewed_sources(
+            self, project_id, draft_id, expected_revision, organization
+        )
+
     def adopt_staged(
         self,
         project_id: str,
@@ -232,15 +259,15 @@ class PdfImportService:
 
         staging_dir = Path(staging_dir)
         project = self._workspace.get(project_id)
-        if len(entries) < 2:
+        if len(entries) < 1:
             shutil.rmtree(staging_dir, ignore_errors=True)
-            raise PdfImportDraftError(
-                422, "multi-PDF import requires at least two PDFs"
-            )
+            raise PdfImportDraftError(422, "PDF import requires at least one file")
 
         uploads: list[AdmittedUpload] = []
         manifest_items: list[dict[str, Any]] = []
         facts: list[dict[str, Any]] = []
+        acquisitions: list[dict[str, Any]] = []
+        acquisition_errors: list[dict[str, Any]] = []
         logical_paths: set[str] = set()
         expected_bytes = 0
         try:
@@ -252,6 +279,38 @@ class PdfImportService:
                     )
                 logical_paths.add(logical_path)
                 filename = str(raw.get("filename") or PurePosixPath(logical_path).name)
+                acquisition_error = raw.get("acquisition_error")
+                if acquisition_error is not None:
+                    if (
+                        not isinstance(acquisition_error, str)
+                        or not acquisition_error
+                        or raw.get("size") != 0
+                        or raw.get("sha256") is not None
+                    ):
+                        raise PdfImportDraftError(
+                            422, "invalid acquisition error occurrence"
+                        )
+                    occurrence_id = f"staged-{ordinal}-acquisition-error"
+                    manifest_items.append(
+                        {
+                            "occurrence_id": occurrence_id,
+                            "logical_path": logical_path,
+                            "filename": filename,
+                            "size": 0,
+                        }
+                    )
+                    acquisitions.append(
+                        {
+                            "occurrence_id": occurrence_id,
+                            "source_url": raw.get("source_url"),
+                            "provider": raw.get("provider"),
+                            "metadata": raw.get("metadata") or {},
+                        }
+                    )
+                    acquisition_errors.append(
+                        {"occurrence_id": occurrence_id, "error": acquisition_error}
+                    )
+                    continue
                 digest = str(raw.get("sha256") or "")
                 size = raw.get("size")
                 mime = str(raw.get("mime") or "application/octet-stream")
@@ -298,6 +357,15 @@ class PdfImportService:
                         "media_kind": media_kind,
                     }
                 )
+                if raw.get("source_url") is not None:
+                    acquisitions.append(
+                        {
+                            "occurrence_id": occurrence_id,
+                            "source_url": raw.get("source_url"),
+                            "provider": raw.get("provider"),
+                            "metadata": raw.get("metadata") or {},
+                        }
+                    )
                 expected_bytes += size
         except BaseException:
             shutil.rmtree(staging_dir, ignore_errors=True)
@@ -332,6 +400,8 @@ class PdfImportService:
                         f"staged-upload-{offset // MAX_UPLOAD_BATCH}",
                         facts[offset : offset + MAX_UPLOAD_BATCH],
                     )
+                inventory.record_acquisitions(acquisitions)
+                inventory.stage_acquisition_errors(acquisition_errors)
                 stats = inventory.stats()
             header["preflight"] = {
                 "state": "ready",
@@ -823,7 +893,11 @@ class PdfImportService:
         semantic_search: bool,
         semantic_setup_confirmation: str | None,
         destination: Mapping[str, Any],
+        organization: str = "keep_documents",
+        split_starts: dict[str, list[int]] | None = None,
     ) -> dict[str, Any]:
+        if organization not in {"keep_documents", "pages", "split_documents"}:
+            raise PdfImportDraftError(422, "invalid PDF organization")
         if ocr_policy not in {"missing", "missing_or_suspicious", "all", "none"}:
             raise PdfImportDraftError(422, "invalid PDF OCR policy")
         normalized_selection = self._ocr_selection(ocr_selection)
@@ -836,18 +910,26 @@ class PdfImportService:
             header = self._header(project_id, directory)
             self._require_state(header, "open")
             self._revision(header, expected_revision)
+            from .organization import validate_split_starts
+
+            normalized_starts = validate_split_starts(
+                inventory, organization, split_starts or {}
+            )
             old = header["choices"]
             if old["destination"] != normalized_destination:
                 inventory.clear_matches()
                 header["match"] = self._empty_match()
                 self._clear_batch_ocr(header)
             if (
-                old["ocr_policy"] != ocr_policy
+                old.get("organization", "keep_documents") != organization
+                or old["ocr_policy"] != ocr_policy
                 or old["ocr_selection"] != normalized_selection
             ):
                 self._clear_batch_ocr(header)
             old.update(
                 {
+                    "organization": organization,
+                    "split_starts": normalized_starts,
                     "ocr_policy": ocr_policy,
                     "ocr_selection": normalized_selection,
                     "semantic_search": semantic_search,
@@ -1004,6 +1086,21 @@ class PdfImportService:
             ):
                 raise PdfImportDraftError(
                     409, "paid or remote OCR estimate requires every selected PDF"
+                )
+            from .organized import estimate_pages, uses_packet_publication
+
+            if uses_packet_publication(header, inventory):
+                if stats["staged_count"] != stats["selected_count"]:
+                    raise PdfImportDraftError(
+                        409, "Wait for every file before estimating source pages"
+                    )
+                return estimate_pages(
+                    self,
+                    project_id,
+                    directory,
+                    header,
+                    inventory,
+                    request_context=request_context,
                 )
             binding = self._batch_ocr_binding(
                 header, inventory, action_params=action_params, ocr_policy=ocr_policy
@@ -1202,56 +1299,90 @@ class PdfImportService:
                 and header["match"]["state"] != "ready"
             ):
                 raise PdfImportDraftError(409, "existing sheet comparison is not ready")
-            batch_ocr = header["batch_ocr"]
-            action_params = self._ocr_action_params(header["choices"]["ocr_selection"])
-            remote_ocr = header["choices"][
-                "ocr_policy"
-            ] != "none" and not self._is_rapidocr(action_params)
-            if remote_ocr and stats["staged_count"] != stats["selected_count"]:
-                raise PdfImportDraftError(
-                    409, "paid or remote OCR requires every selected PDF"
-                )
-            current_binding = self._batch_ocr_binding(
-                header,
-                inventory,
-                action_params=action_params,
-                ocr_policy=header["choices"]["ocr_policy"],
-            )
-            remote_work = remote_ocr and int(current_binding["selected_count"]) > 0
-            if remote_work and batch_ocr["state"] != "ready":
-                raise PdfImportDraftError(
-                    409, "paid or remote OCR requires an exact frozen quote"
-                )
-            ocr_authorization = None
-            if batch_ocr["state"] == "ready":
-                if (
-                    batch_ocr.get("ocr_action_params") != action_params
-                    or batch_ocr["ocr_policy"] != header["choices"]["ocr_policy"]
-                    or batch_ocr.get("manifest_hash")
-                    != current_binding["manifest_hash"]
-                ):
+            from .organized import approve_pages, uses_packet_publication
+
+            packet_publication = uses_packet_publication(header, inventory)
+            page_preparation = None
+            native_pages = {}
+            cached_pages = {}
+            if packet_publication:
+                if stats["staged_count"] != stats["selected_count"]:
                     raise PdfImportDraftError(
-                        409, "batch OCR quote no longer matches the selected PDFs"
+                        409, "Wait for every file before organizing PDFs"
                     )
-                if remote_work:
-                    current_estimate, current_authorization = self._quote_batch_ocr(
-                        project_id,
-                        current_binding,
-                        request_context=request_context,
+                if header["choices"]["organization"] == "split_documents":
+                    from .organization import validate_complete_starts
+
+                    validate_complete_starts(
+                        inventory, header["choices"]["split_starts"]
                     )
-                    if current_estimate != batch_ocr.get(
-                        "estimate"
-                    ) or current_authorization != header.get("ocr_approval"):
+                page_preparation, native_pages, cached_pages = approve_pages(
+                    self,
+                    project_id,
+                    directory,
+                    header,
+                    inventory,
+                    confirmation=ocr_confirmation,
+                    request_context=request_context,
+                )
+                ocr_authorization = None
+                batch_ocr = header["batch_ocr"]
+            else:
+                batch_ocr = header["batch_ocr"]
+                action_params = self._ocr_action_params(
+                    header["choices"]["ocr_selection"]
+                )
+                remote_ocr = header["choices"][
+                    "ocr_policy"
+                ] != "none" and not self._is_rapidocr(action_params)
+                if remote_ocr and stats["staged_count"] != stats["selected_count"]:
+                    raise PdfImportDraftError(
+                        409, "paid or remote OCR requires every selected PDF"
+                    )
+                current_binding = self._batch_ocr_binding(
+                    header,
+                    inventory,
+                    action_params=action_params,
+                    ocr_policy=header["choices"]["ocr_policy"],
+                )
+                remote_work = remote_ocr and int(current_binding["selected_count"]) > 0
+                if remote_work and batch_ocr["state"] != "ready":
+                    raise PdfImportDraftError(
+                        409, "paid or remote OCR requires an exact frozen quote"
+                    )
+                ocr_authorization = None
+                if batch_ocr["state"] == "ready":
+                    if (
+                        batch_ocr.get("ocr_action_params") != action_params
+                        or batch_ocr["ocr_policy"] != header["choices"]["ocr_policy"]
+                        or batch_ocr.get("manifest_hash")
+                        != current_binding["manifest_hash"]
+                    ):
                         raise PdfImportDraftError(
-                            409, "PDF OCR quote changed; review the current price"
+                            409, "batch OCR quote no longer matches the selected PDFs"
                         )
-                    if current_estimate.get("requires_confirmation"):
-                        expected_confirmation = current_estimate.get("promise_set_hash")
-                        if ocr_confirmation != expected_confirmation:
+                    if remote_work:
+                        current_estimate, current_authorization = self._quote_batch_ocr(
+                            project_id,
+                            current_binding,
+                            request_context=request_context,
+                        )
+                        if current_estimate != batch_ocr.get(
+                            "estimate"
+                        ) or current_authorization != header.get("ocr_approval"):
                             raise PdfImportDraftError(
-                                409, "PDF OCR approval does not match the exact quote"
+                                409, "PDF OCR quote changed; review the current price"
                             )
-                    ocr_authorization = current_authorization
+                        if current_estimate.get("requires_confirmation"):
+                            expected_confirmation = current_estimate.get(
+                                "promise_set_hash"
+                            )
+                            if ocr_confirmation != expected_confirmation:
+                                raise PdfImportDraftError(
+                                    409,
+                                    "PDF OCR approval does not match the exact quote",
+                                )
+                        ocr_authorization = current_authorization
             current_semantic = self._resolve_semantic_setup(project_id, request_context)
             if header["semantic_setup"] != current_semantic:
                 header["semantic_setup"] = current_semantic
@@ -1297,11 +1428,24 @@ class PdfImportService:
                 "commit_inventory_path": str(directory / "commit-inventory.db"),
                 "source_files_root": str(directory / "files"),
                 "promotion_target": None,
+                "packet_publication": packet_publication,
+                "pdf_preparation": page_preparation,
+                "native_pages": {
+                    key: {
+                        str(page): str(path.relative_to(directory))
+                        for page, path in pages.items()
+                    }
+                    for key, pages in native_pages.items()
+                },
+                "cached_page_numbers": {
+                    key: list(pages) for key, pages in cached_pages.items()
+                },
             }
             try:
                 committed_total = inventory.initialize_commit_projection()
                 header["commit"]["committed_total"] = committed_total
-                self._advance_commit_inventory(directory, inventory, header)
+                if not packet_publication:
+                    self._advance_commit_inventory(directory, inventory, header)
                 self._save(directory, header)
             except BaseException:
                 with contextlib.suppress(Exception):
@@ -1465,8 +1609,11 @@ class PdfImportService:
         directory, _ = self._open(project_id, draft_id)
         with self._lock(directory):
             header = self._header(project_id, directory)
-            self._require_state(header, "committing")
             commit = header.get("commit") or {}
+            if not (
+                commit.get("packet_publication") and header["state"] == "committed"
+            ):
+                self._require_state(header, "committing")
             if commit.get("idempotency_key") != idempotency_key:
                 raise PdfImportDraftError(409, "PDF import commit identity changed")
             value = dict(result)
@@ -1474,6 +1621,9 @@ class PdfImportService:
                 raise PdfImportDraftError(409, "PDF import handoff result changed")
             if commit.get("result") is None:
                 commit["result"] = value
+                if commit.get("packet_publication"):
+                    commit["promoted"] = True
+                    header["state"] = "committed"
                 self._save(directory, header)
             return self._snapshot(header, self._stats(directory))
 
@@ -1795,6 +1945,8 @@ class PdfImportService:
             "expected_bytes": expected_bytes,
             "preflight": {"state": "waiting", "free_bytes": None},
             "choices": {
+                "organization": "keep_documents",
+                "split_starts": {},
                 "ocr_policy": "missing_or_suspicious",
                 "ocr_selection": {"kind": "engine", "engine": "rapidocr"},
                 "semantic_search": True,
@@ -2166,6 +2318,7 @@ class PdfImportService:
     def _clear_batch_ocr(header: dict[str, Any]) -> None:
         header["batch_ocr"] = PdfImportService._empty_batch_ocr()
         header["ocr_approval"] = None
+        header.pop("page_ocr_quote", None)
 
     @staticmethod
     def _empty_batch_ocr() -> dict[str, Any]:
@@ -2212,10 +2365,11 @@ class PdfImportService:
             "error": item.get("error") if item["category"] == "unreadable" else None,
         }
 
-    @staticmethod
     def _snapshot(
-        header: Mapping[str, Any], stats: Mapping[str, int]
+        self, header: Mapping[str, Any], stats: Mapping[str, int]
     ) -> dict[str, Any]:
+        from .organization import organization_summary
+
         categories = {
             "text": stats["text_count"],
             "suspicious": stats["suspicious_count"],
@@ -2264,6 +2418,9 @@ class PdfImportService:
             "sample_ready_counts": ready,
             "can_review_text": stats["analyzed_count"] > 0,
             "choices": dict(header["choices"]),
+            "organization_summary": organization_summary(
+                self._root / str(header["draft_id"]), header["choices"]
+            ),
             "match": dict(header["match"]),
             "batch_ocr": dict(header["batch_ocr"]),
             "semantic_setup": dict(header["semantic_setup"]),
@@ -2305,6 +2462,19 @@ class PdfImportService:
             available_through = 0
             sealed = False
         stats = inventory.stats()
+        if commit.get("packet_publication"):
+            available_through = int(commit["committed_total"])
+            sealed = stats["staged_count"] == stats["selected_count"]
+        restored_cache = {}
+        if commit.get("packet_publication") and commit.get("result") is None:
+            from .organized import cached_pages, draft_sources
+
+            restored_cache = cached_pages(
+                directory,
+                draft_sources(self, header["project_id"], directory, header, inventory),
+                header["choices"]["ocr_selection"],
+                page_numbers=commit.get("cached_page_numbers", {}),
+            )
         return FrozenPdfImport(
             commit_id=str(commit["commit_id"]),
             draft_id=str(header["draft_id"]),
@@ -2339,6 +2509,17 @@ class PdfImportService:
             commit_result=(
                 dict(commit["result"]) if commit.get("result") is not None else None
             ),
+            organization=str(header["choices"].get("organization", "keep_documents")),
+            split_starts=dict(header["choices"].get("split_starts", {})),
+            packet_publication=bool(commit.get("packet_publication")),
+            pdf_preparation=commit.get("pdf_preparation"),
+            native_pages={
+                key: {
+                    int(page): directory / relative for page, relative in pages.items()
+                }
+                for key, pages in commit.get("native_pages", {}).items()
+            },
+            cached_pages=restored_cache,
         )
 
     def _resolve_semantic_setup(

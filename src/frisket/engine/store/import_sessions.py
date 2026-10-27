@@ -190,9 +190,11 @@ def active_import_session(db: Any, sheet_id: int) -> ImportSession | None:
     # do not lock unrelated sheet mutations; ``created_rows`` marks that narrow
     # scope while import_session_rows carries its durable membership.
     operation = db.execute(
-        "SELECT undo_info FROM ops WHERE id=?", (int(row["op_id"]),)
+        "SELECT kind,undo_info FROM ops WHERE id=?", (int(row["op_id"]),)
     ).fetchone()
     if operation is not None:
+        if operation["kind"] == "pdf.split":
+            return ImportSession.from_row(row)
         undo_info = json.loads(operation["undo_info"] or "{}")
         if "created_rows" in undo_info and "created_sheets" not in undo_info:
             return None
@@ -243,6 +245,73 @@ def set_import_session_rows_hidden(
     if updated_rows != int(session["committed_rows"]):
         raise ImportSessionConflict("import operation row membership is incomplete")
     return updated_rows
+
+
+def set_import_session_replaced_rows_hidden(
+    db: Any, *, op_id: int, session_id: str, hidden: bool
+) -> int:
+    """Toggle only originals whose source publication committed successfully."""
+    session = db.execute(
+        "SELECT committed_rows FROM import_sessions WHERE id=? AND op_id=?",
+        (session_id, int(op_id)),
+    ).fetchone()
+    if session is None:
+        raise ImportSessionConflict("split operation membership is unavailable")
+    membership = db.execute(
+        "SELECT COALESCE(SUM(CASE WHEN state='published' THEN child_count ELSE 0 END),0),"
+        "SUM(state='published'),SUM(replaced=1) FROM import_session_pdf_sources "
+        "WHERE session_id=?",
+        (session_id,),
+    ).fetchone()
+    if int(membership[0]) != int(session["committed_rows"]) or int(
+        membership[1] or 0
+    ) != int(membership[2] or 0):
+        raise ImportSessionConflict("split operation membership is incomplete")
+    expected = int(membership[2] or 0)
+    updated = db.execute(
+        "UPDATE rows SET hidden=? WHERE id IN ("
+        "SELECT row_id FROM import_session_pdf_sources "
+        "WHERE session_id=? AND replaced=1)",
+        (int(hidden), session_id),
+    )
+    if updated.rowcount != expected:
+        raise ImportSessionConflict("split operation membership is incomplete")
+    return int(updated.rowcount)
+
+
+def import_session_generation_is_applied(
+    db: Any, *, session_id: str, writer_authority: str, op_id: int
+) -> bool:
+    """Check admitted PDF preparation against its terminal publication owner.
+
+    Recheck inside the prepared-content publication transaction. A completed
+    split's writer token is its preparation generation; Undo rotates that
+    token, and Redo restores saved rows without admitting the old worker again.
+    """
+    return (
+        db.execute(
+            "SELECT 1 FROM import_sessions AS session JOIN ops ON ops.id=session.op_id "
+            "WHERE session.id=? AND session.writer_authority=? AND session.op_id=? "
+            "AND session.state IN ('kept','completed') "
+            "AND ops.kind='pdf.split' AND ops.status='applied'",
+            (session_id, writer_authority, int(op_id)),
+        ).fetchone()
+        is not None
+    )
+
+
+def invalidate_pdf_split_generation(db: Any, *, op_id: int) -> None:
+    """Invalidate queued preparation in the same transaction as split Undo."""
+    if not db.in_transaction:
+        raise RuntimeError(
+            "split generation invalidation requires a history transaction"
+        )
+    db.execute(
+        "UPDATE import_sessions SET writer_authority='undone:' || lower(hex(randomblob(16))),"
+        "updated_at=datetime('now') WHERE op_id=? "
+        "AND EXISTS(SELECT 1 FROM ops WHERE id=? AND kind='pdf.split')",
+        (int(op_id), int(op_id)),
+    )
 
 
 def require_import_sheet_write(
@@ -296,4 +365,7 @@ __all__ = [
     "require_cancelled_import_removal",
     "require_import_sheet_write",
     "set_import_session_rows_hidden",
+    "set_import_session_replaced_rows_hidden",
+    "import_session_generation_is_applied",
+    "invalidate_pdf_split_generation",
 ]

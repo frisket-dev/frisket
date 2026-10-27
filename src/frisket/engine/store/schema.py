@@ -18,6 +18,7 @@ from pathlib import Path
 
 from .citation_text import CITATION_TEXT_SCHEMA_SQL
 from .extraction_layouts import EXTRACTION_LAYOUTS_SCHEMA_SQL
+from .pdf_split_schema import PDF_SPLIT_SCHEMA_SQL
 from .document_text import (
     DOCUMENT_TEXT_SCHEMA_SQL,
     DOCUMENT_TEXT_SELECTION_VIEW_SQL,
@@ -2492,6 +2493,7 @@ SCHEMA += "\n" + CITATION_TEXT_SCHEMA_SQL + "\n"
 SCHEMA += "\n" + EXTRACTION_LAYOUTS_SCHEMA_SQL + "\n"
 SCHEMA += "\n" + DOCUMENT_TEXT_SCHEMA_SQL + "\n"
 SCHEMA += "\n" + DOCUMENT_TEXT_SELECTION_VIEW_SQL + "\n"
+SCHEMA += "\n" + PDF_SPLIT_SCHEMA_SQL + "\n"
 # This durable bootstrap row gives the data-only OCR role repair an exact
 # schema endpoint. Fresh bundles start repaired; the known prior revision is
 # upgraded once during open and never needs a Review read-time compatibility

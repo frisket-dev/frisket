@@ -6,7 +6,7 @@ import type {
   PdfImportSnapshot,
 } from '../../../api/pdfImports';
 
-export type PdfBatchStage = 'add' | 'check' | 'destination' | 'search';
+export type PdfBatchStage = 'add' | 'check' | 'find' | 'destination' | 'search';
 
 function isPdf(file: File): boolean {
   return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
@@ -29,13 +29,14 @@ export function filterPdfBatchFiles(files: readonly File[]): File[] {
 }
 
 export function canHandlePdfBatch(files: readonly File[]): boolean {
-  return filterPdfBatchFiles(files).filter(isPdf).length >= 2;
+  return filterPdfBatchFiles(files).some(isPdf);
 }
 
 export const PDF_BATCH_STAGES: ReadonlyArray<{ id: PdfBatchStage; label: string; testId: string }> = [
   { id: 'add', label: 'Add files', testId: 'pdf-batch-stage-add' },
   { id: 'check', label: 'Check text', testId: 'pdf-batch-stage-check' },
-  { id: 'destination', label: 'Destination', testId: 'pdf-batch-stage-destination' },
+  { id: 'find', label: 'Find documents', testId: 'pdf-batch-stage-find' },
+  { id: 'destination', label: 'Import', testId: 'pdf-batch-stage-destination' },
   { id: 'search', label: 'Search setup', testId: 'pdf-batch-stage-search' },
 ];
 
@@ -134,4 +135,16 @@ export function newerSnapshot(
 
 export function count(value: number, singular: string, plural = `${singular}s`): string {
   return `${value.toLocaleString()} ${value === 1 ? singular : plural}`;
+}
+
+export function pdfBatchStages(organization: PdfImportSnapshot['choices']['organization']) {
+  return PDF_BATCH_STAGES.filter((item) => item.id !== 'find' || organization === 'split_documents');
+}
+
+export function importOutputRows(snapshot: PdfImportSnapshot): number | null {
+  const summary = snapshot.organization_summary;
+  const existing = snapshot.choices.destination.kind === 'existing' && snapshot.match.state === 'ready';
+  if (summary) return existing ? summary.new_output_rows : summary.output_rows;
+  return snapshot.choices.organization === 'pages' || snapshot.choices.organization === 'split_documents'
+    ? null : existing ? snapshot.match.new_count : snapshot.upload.files_total;
 }

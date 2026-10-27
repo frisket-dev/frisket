@@ -258,6 +258,7 @@ interface ContextualGroupSpec {
   caption: string;
   primary?: string;
   actions?: readonly string[];
+  commands?: readonly RibbonCommandSpec[];
 }
 
 interface ContextualTabSpec {
@@ -275,6 +276,7 @@ const CONTEXTUAL_TAB_SPECS: readonly ContextualTabSpec[] = [
     accent: 'file',
     requirement: { kind: 'sheetHasColumnType', columnType: 'file' },
     groups: [
+      { caption: 'SPLIT', commands: [{ command: 'split-pdfs', label: 'Split PDFs…', icon: Scissors, primary: true }] },
       { caption: 'PDF TOOLS', primary: 'media.ocr', actions: ['media.ocr', 'media.to_markdown', 'media.extract_pdf_tables', 'media.extract_metadata'] },
     ],
   },
@@ -348,6 +350,7 @@ const CONTEXTUAL_TAB_SPECS: readonly ContextualTabSpec[] = [
 // and the ⌘K palette.
 export type ActMenuCommand =
   | 'import'
+  | 'split-pdfs'
   | 'sources'
   | 'export-csv'
   | 'export-google-sheets'
@@ -444,7 +447,7 @@ function resolveContextualGroup(
   group: ContextualGroupSpec,
   byKind: Map<string, ActionTemplate>,
 ): ResolvedActGroup | null {
-  const items: ResolvedActItem[] = [];
+  const items: ResolvedActItem[] = (group.commands ?? []).map((command) => ({ kind: 'command', command: command.command, label: command.label, Icon: command.icon, primary: Boolean(command.primary) }));
   for (const kind of group.actions ?? []) {
     const template = byKind.get(kind);
     if (!template) continue; // absent kinds simply not rendered

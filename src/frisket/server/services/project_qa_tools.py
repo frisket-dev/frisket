@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlsplit
 
 from frisket.engine.store import Project
+from frisket.engine.store.prepared_content import prepared_coverage_warnings
 from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.retrieval.contracts import (
     LocatedHit,
@@ -282,6 +283,7 @@ class ProjectQATools:
             int(column["id"]): column for column in self.project.columns(sheet_id)
         }
         rows: list[dict[str, Any]] = []
+        coverage_cells: list[tuple[dict[str, Any], int]] = []
         remaining = MAX_OBSERVATION_CHARS
         observation_truncated = False
         for row_id in selected_rows:
@@ -338,9 +340,18 @@ class ProjectQATools:
                         "truncated": truncated,
                     }
                 )
+                prepared_ref_id = (refs.get(row_id) or {}).get("prepared_ref_id")
+                if prepared_ref_id is not None:
+                    coverage_cells.append((cells[-1], int(prepared_ref_id)))
             rows.append({"row_id": row_id, "cells": cells})
             if observation_truncated:
                 break
+        coverage = prepared_coverage_warnings(
+            self.project.db, [ref_id for _, ref_id in coverage_cells]
+        )
+        for cell, ref_id in coverage_cells:
+            if ref_id in coverage:
+                cell["warnings"] = [coverage[ref_id]]
         return {
             "sheet_id": sheet_id,
             "rows": rows,
@@ -1245,6 +1256,7 @@ class ProjectQATools:
             "citation_id": current["id"],
             "available": True,
             "passages": passages,
+            **({"warnings": observed["warnings"]} if observed.get("warnings") else {}),
             "range": observed["range"],
             "next_cursor": observed["next_cursor"],
             "truncated": not observed["reached_end"],
@@ -1319,6 +1331,7 @@ class ProjectQATools:
             call_chars += len(match["text"])
         return {
             "matches": matches,
+            **({"warnings": result["warnings"]} if result.get("warnings") else {}),
             "scanned_range": result["scanned_range"],
             "reached_end": result["reached_end"],
             "next_cursor": result["next_cursor"],

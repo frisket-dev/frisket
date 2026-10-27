@@ -326,6 +326,7 @@ class SearchPreparationService:
         *,
         action_runs: ActionRunService | None = None,
         setup_start: Callable[[str, str | None], int] | None = None,
+        preview_runs: Any | None = None,
     ) -> None:
         self.workspace = workspace
         self.store = SearchPreparationStore(
@@ -333,6 +334,8 @@ class SearchPreparationService:
         )
         self.action_runs = action_runs or ActionRunService(workspace)
         self.setup_start = setup_start or self._start_setup
+        self._split_preview_runs = preview_runs
+        self._split_jobs_service = None
 
     def automatic_enabled(self, project_id: str) -> bool:
         project = self.workspace.get(project_id)
@@ -479,23 +482,90 @@ class SearchPreparationService:
             )
         self.setup_start(_SEMANTIC_REF, f"pdf-import:{import_receipt_id}")
 
+    def _split_jobs(self, project_id: str, import_ref: str):
+        try:
+            header = read_import_header(
+                import_intake_dir(self.workspace.get(project_id).path, import_ref)
+            )
+        except (OSError, ValueError):
+            return None
+        if (header.pdf_preparation or {}).get("kind") != "pdf_split_source_pages":
+            return None
+        if self._split_jobs_service is None:
+            from frisket.server.services.action_preview_runs import (
+                ActionPreviewRunService,
+            )
+            from frisket.server.services.pdf_split_preparation_jobs import (
+                PdfSplitPreparationJobs,
+            )
+
+            if self._split_preview_runs is None:
+                self._split_preview_runs = ActionPreviewRunService(self.workspace)
+            self._split_jobs_service = PdfSplitPreparationJobs(
+                self.workspace, preview_runs=self._split_preview_runs
+            )
+        return self._split_jobs_service
+
     def progress_pdf_import(self, project_id: str, import_ref: str) -> int:
         # One recovery tick admits at most one bounded inventory page. The
         # durable cursor lets the normal recovery scheduler continue later.
+        split = self._split_jobs(project_id, import_ref)
+        if split is not None:
+            project = self.workspace.get(project_id)
+            session = ImportSessionStore(project).get(import_ref)
+            header = read_import_header(import_intake_dir(project.path, import_ref))
+            facts = header.pdf_preparation or {}
+            if (
+                session is not None
+                and session.state in {"kept", "completed"}
+                and not header.cancel_requested
+            ):
+                pending = self.store.for_receipt(
+                    storage_org_id=self.workspace.queue_storage_org_id,
+                    project_id=project_id,
+                    receipt_id=str(header.envelope["receipt_id"]),
+                    include_pending=True,
+                )
+                if pending is None:
+                    self.reserve_pdf_import(
+                        project_id,
+                        receipt_id=str(header.envelope["receipt_id"]),
+                        import_ref=import_ref,
+                    )
+            if (
+                session is not None
+                and session.state in {"kept", "completed"}
+                and not header.cancel_requested
+            ):
+                try:
+                    self._ensure_pdf_semantic_setup(
+                        project_id,
+                        import_receipt_id=str(header.envelope["receipt_id"]),
+                        enabled=bool(facts.get("semantic_search")),
+                        confirmation=facts.get("semantic_setup_confirmation"),
+                    )
+                except Exception as exc:  # noqa: BLE001 - independent semantic setup must not discard OCR
+                    split.record_semantic_error(project_id, import_ref, str(exc))
+                else:
+                    split.record_semantic_error(project_id, import_ref, None)
+            return split.progress(project_id, import_ref)
         return self._pdf_imports().progress(project_id, import_ref)
 
     def pdf_import_summary(self, project_id: str, import_ref: str) -> Any:
-        return self._pdf_imports().summary(project_id, import_ref)
+        split = self._split_jobs(project_id, import_ref)
+        return (split or self._pdf_imports()).summary(project_id, import_ref)
 
     def pdf_import_child_page(
         self, project_id: str, import_ref: str, *, after: int, limit: int = 100
     ) -> Any:
-        return self._pdf_imports().child_page(
+        split = self._split_jobs(project_id, import_ref)
+        return (split or self._pdf_imports()).child_page(
             project_id, import_ref, after=after, limit=limit
         )
 
     def stop_pdf_import(self, project_id: str, import_ref: str) -> Any:
-        return self._pdf_imports().stop(project_id, import_ref)
+        split = self._split_jobs(project_id, import_ref)
+        return (split or self._pdf_imports()).stop(project_id, import_ref)
 
     def create_after_import(
         self,
@@ -511,6 +581,24 @@ class SearchPreparationService:
             receipt_id=receipt_id,
             include_pending=True,
         )
+        if existing is None:
+            project = self.workspace.get(project_id)
+            imported = project.db.execute(
+                "SELECT id FROM import_sessions WHERE receipt_id=?", (receipt_id,)
+            ).fetchone()
+            if (
+                imported is not None
+                and self._split_jobs(project_id, str(imported[0])) is not None
+            ):
+                self.reserve_pdf_import(
+                    project_id, receipt_id=receipt_id, import_ref=str(imported[0])
+                )
+                existing = self.store.for_receipt(
+                    storage_org_id=self.workspace.queue_storage_org_id,
+                    project_id=project_id,
+                    receipt_id=receipt_id,
+                    include_pending=True,
+                )
         if existing is not None and existing.import_ref is not None:
             project = self.workspace.get(project_id)
             try:

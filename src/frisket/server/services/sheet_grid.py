@@ -32,6 +32,7 @@ from frisket.engine.store.current_value_windows import (
     read_current_value_window,
 )
 from frisket.engine.store.document_text import document_text_role_for_text_column
+from frisket.engine.store.prepared_content import prepared_coverage_warnings
 from frisket.engine.store.result_generations import (
     ResultGenerationStore,
     decode_result_warnings,
@@ -1053,6 +1054,20 @@ def _sheet_data_payload(
                         "run_id": pending["run_id"],
                         "generated_value_hash": pending["generated_value_hash"],
                     }
+    refs = {
+        int(ref_id)
+        for row_meta in meta.values()
+        for cell_meta in row_meta.values()
+        if (ref_id := cell_meta.get("current_value_ref", {}).get("prepared_ref_id"))
+        is not None
+    }
+    coverage_warnings = prepared_coverage_warnings(project.db, sorted(refs))
+    for row_meta in meta.values():
+        for cell_meta in row_meta.values():
+            ref_id = cell_meta.get("current_value_ref", {}).get("prepared_ref_id")
+            warning = coverage_warnings.get(ref_id)
+            if warning is not None:
+                cell_meta.setdefault("warnings", []).append(warning)
     # Full-column pending count feeds the header chip. Mixed columns are
     # intentionally gated until replay acceptance carries an exact head ref.
     if value_mode == "bounded":
@@ -1084,6 +1099,9 @@ def _sheet_data_payload(
         row_ids,
         enabled_plugin_ids=enabled_workbench_plugin_ids(project),
     )
+    from frisket.server.services.source_link_labels import add_source_link_labels
+
+    add_source_link_labels(project, cols, data, meta)
     return {
         "columns": [
             {

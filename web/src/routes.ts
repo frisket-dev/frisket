@@ -60,6 +60,7 @@ export type RoutePanel =
   | { kind: 'column'; columnId: string }
   | { kind: 'map'; columnId: string }
   | { kind: 'graph' }
+  | { kind: 'evidence'; evidenceLinkId: string }
   | { kind: 'sourceHealth'; sourceId: string };
 
 interface ParsedRoute {
@@ -124,6 +125,10 @@ function parseParts(parts: string[]): ParsedRoute {
     }
     if (parts[cursor] === 'settings') {
       return parseProjectSettings(parts[1], parts, cursor);
+    }
+    if (parts[cursor] === 'evidence' && parts[cursor + 1] && parts.length === cursor + 2) {
+      return { route: { kind: 'project', projectId: parts[1], sheetId,
+        panel: { kind: 'evidence', evidenceLinkId: parts[cursor + 1] } } };
     }
     if (parts[cursor] === 'action' && parts[cursor + 1]) {
       return {

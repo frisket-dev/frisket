@@ -20,6 +20,7 @@ import { useSelector } from '../bind/useSelector';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import type { ChromeHandle } from '../core/route/projectRouteState';
 import { routeStateToRoute, type RouteState } from '../core/route/RouteState';
+import { activateSourceLink, openSourceLink, parseSourceLink } from '../components/evidence/sourceLink';
 import { requestGridCellReveal } from '../grid/gridCellReveal';
 import { navigate, replaceRoute, type RoutePanel } from '../routes';
 import type { EvidenceViewerFocus, EvidenceViewerHost } from '../state/chromeStore';
@@ -84,17 +85,6 @@ export function useWorkspaceNavigationController({
   // deliberately transient: it is an inspection affordance, not a saved view.
   const [reviewRunId, setReviewRunId] = useState<string | null>(null);
 
-  useEffect(() => {
-    const onOpenEvidence = (event: Event) => {
-      const detail = (event as CustomEvent<{ evidenceLinkId?: unknown }>).detail;
-      const evidenceLinkId = detail?.evidenceLinkId;
-      if (typeof evidenceLinkId === 'string' || typeof evidenceLinkId === 'number') {
-        openEvidenceViewer(evidenceLinkId);
-      }
-    };
-    window.addEventListener('frisket:open-evidence', onOpenEvidence);
-    return () => window.removeEventListener('frisket:open-evidence', onOpenEvidence);
-  }, [openEvidenceViewer]);
 
   const selectSheet = useCallback(
     (id: string) => {
@@ -687,6 +677,37 @@ export function useWorkspaceNavigationController({
     },
     [selectSheet, selection, setDocumentView, setOpenSplit],
   );
+  const sourceNavigationEpoch = useRef(0);
+  useEffect(() => {
+    const onOpenEvidence = (event: Event) => {
+      const detail = (event as CustomEvent<{ evidenceLinkId?: unknown; sourceLink?: boolean; page?: number }>).detail;
+      const evidenceLinkId = detail?.evidenceLinkId;
+      if (typeof evidenceLinkId !== 'string' && typeof evidenceLinkId !== 'number') return;
+      const epoch = ++sourceNavigationEpoch.current;
+      if (!detail.sourceLink) {
+        openEvidenceViewerForWorkspace(evidenceLinkId);
+        return;
+      }
+      void openSourceLink({ projectId: project.id, evidenceLinkId: String(evidenceLinkId), page: detail.page }, projectApi, {
+        isCurrent: () => sourceNavigationEpoch.current === epoch,
+        openOriginal: openDocumentRef,
+        openEvidence: (initialPayload, initialPage) => openEvidenceViewerForWorkspace(evidenceLinkId, 'modalOrPeek', { initialPayload, initialPage }),
+      }).catch((error: Error) => { if (sourceNavigationEpoch.current === epoch) showError(error.message); });
+    };
+    window.addEventListener('frisket:open-evidence', onOpenEvidence);
+    return () => {
+      sourceNavigationEpoch.current += 1;
+      window.removeEventListener('frisket:open-evidence', onOpenEvidence);
+    };
+  }, [openDocumentRef, openEvidenceViewerForWorkspace, project.id, projectApi, showError]);
+  useEffect(() => {
+    if (externalPanel?.kind !== 'evidence') return;
+    const href = `/p/${encodeURIComponent(project.id)}/evidence/${encodeURIComponent(externalPanel.evidenceLinkId)}${window.location.search}`;
+    const source = parseSourceLink(href);
+    if (!source) return;
+    activateSourceLink(href, project.id);
+    route.normalize({ projectId: project.id, sheetId: routeSheetId ?? null, actionKind: null, review: false, panel: null });
+  }, [externalPanel, project.id, route, routeSheetId]);
   const setDocumentPriorityLabel = useCallback((rowId: string, label: string) => {
     setDocumentPriority((current) => current?.rowId === rowId ? { ...current, label } : current);
   }, []);

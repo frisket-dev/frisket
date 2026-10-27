@@ -44,6 +44,7 @@ from .execution_metadata_migration import (
     migrate_execution_metadata as _migrate_execution_metadata,
 )
 from .document_text_migration import migrate_document_text as _migrate_document_text
+from .pdf_split_schema import PDF_SPLIT_SCHEMA_SQL
 
 # v0.1.1a62 (907a324c) -> v0.1.1a64's receipt-owned execution attempts.
 # Fixed endpoints cannot accidentally stamp a future schema edit as current.
@@ -118,6 +119,8 @@ _IMPORT_SESSION_ROWS_TO_DIGEST = "frisket.schema.v1:ce1bc34b85c900fad11f0fdc948a
 # repair an exact endpoint without a per-read legacy check.
 _OCR_REVIEW_ROLES_FROM_DIGEST = _IMPORT_SESSION_ROWS_TO_DIGEST
 _OCR_REVIEW_ROLES_TO_DIGEST = "frisket.schema.v1:887874773c58ac58982913e6604d9ec9"
+_PDF_SPLIT_FROM_DIGEST = _OCR_REVIEW_ROLES_TO_DIGEST
+_PDF_SPLIT_TO_DIGEST = "frisket.schema.v1:bd1859c234b8d13f81e7c64a694579a2"
 
 # The frontend fires hot read endpoints (/sheets, /review/queue) concurrently,
 # so two threads can open the same per-project DB at once. Both open-time
@@ -172,11 +175,35 @@ def open_bundle(project: Any) -> None:
         _migrate_document_text(project.db, bundle_path=project.db_path)
         _migrate_import_session_rows(project.db)
         _migrate_ocr_review_roles(project.db)
+        _migrate_pdf_split(project.db)
         require_current_schema(project.db, bundle_path=project.path)
         _reconcile_open_time_policy(project)
         from frisket.retrieval.upgrade import prepare_retrieval_on_open
 
         prepare_retrieval_on_open(project)
+
+
+def _migrate_pdf_split(db: sqlite3.Connection) -> None:
+    query = "SELECT value FROM meta WHERE key=?"
+    try:
+        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
+    except sqlite3.DatabaseError:
+        return
+    if row is None or row[0] != _PDF_SPLIT_FROM_DIGEST:
+        return
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
+        if row is not None and row[0] == _PDF_SPLIT_FROM_DIGEST:
+            db.execute(PDF_SPLIT_SCHEMA_SQL)
+            db.execute(
+                "UPDATE meta SET value=? WHERE key=?",
+                (_PDF_SPLIT_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
+            )
+        db.commit()
+    except BaseException:
+        db.rollback()
+        raise
 
 
 def _migrate_import_session_rows(db: sqlite3.Connection) -> None:

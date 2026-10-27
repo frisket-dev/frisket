@@ -14,6 +14,7 @@ import {
   snapshotImportFiles,
   executeBulkImport,
   prepareImportFiles,
+  prepareImportUrls,
   type ImportSessionStatus,
   type BulkImportFailedOutput,
   type BulkImportPlan,
@@ -29,11 +30,6 @@ import { SegmentedToggle } from '../PanelPrimitives';
 import { ImportSessionProgress } from './ImportSessionProgress';
 import { ImportModeRail } from './ImportModeRail';
 import { StageStepper } from '../StageStepper';
-import {
-  PdfPacketImportFlow,
-  type PdfPacketShellContext,
-} from './pdfPacket/PdfPacketImportFlow';
-import { PDF_PACKET_STAGES } from './pdfPacket/model';
 import {
   DiscardImportConfirm,
   PdfBatchImportFlow,
@@ -146,13 +142,11 @@ function OpenImportWorkspaceSession({
     busy: uploadBusy,
     sessionBusy,
     uploadFiles,
-    uploadUrls,
   } = useImportUpload({ onError, onSessionStatus: setImportSessionStatus });
   const inputRef = useRef<HTMLInputElement | null>(null);
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const onCloseRef = useRef(onClose);
   const onModeChangeRef = useRef(onModeChange);
-  const pdfPacketCloseGuardRef = useRef<(() => boolean) | null>(null);
   const pdfBatchCloseGuardRef = useRef<(() => boolean) | null>(null);
   const tableImportCloseGuardRef = useRef<(() => boolean) | null>(null);
   const [tableImportContext, setTableImportContext] = useState<TableImportShellContext | null>(null);
@@ -160,28 +154,18 @@ function OpenImportWorkspaceSession({
     tableImportCloseGuardRef.current = guard;
   }, []);
   const [pdfBatchFiles, setPdfBatchFiles] = useState<File[] | null>(null);
+  const [pdfBatchOrganization, setPdfBatchOrganization] = useState<'keep_documents' | 'split_documents'>(initialMode === 'pdf_split' ? 'split_documents' : 'keep_documents');
   const [initialDestinationSheetId] = useState(() => {
     const id = Number(route.store.get().sheetId);
     return Number.isSafeInteger(id) && id > 0 ? id : null;
   });
   const [pdfBatchResumeId, setPdfBatchResumeId] = useState<string | null>(null);
+  const [pdfBatchNewlyAdmitted, setPdfBatchNewlyAdmitted] = useState(false);
+  const [pdfBatchWarnings, setPdfBatchWarnings] = useState<string[]>([]);
   const pdfBatchActive = pdfBatchFiles !== null || pdfBatchResumeId !== null;
   const [pdfBatchContext, setPdfBatchContext] = useState<PdfBatchShellContext | null>(null);
   const registerPdfBatchCloseGuard = useCallback((guard: (() => boolean) | null) => {
     pdfBatchCloseGuardRef.current = guard;
-  }, []);
-  const [pdfPacketContext, setPdfPacketContext] = useState<PdfPacketShellContext>({
-    active: false,
-    stage: 'check',
-    subtitle: null,
-    busy: false,
-  });
-  const [pdfPacketInitialFile, setPdfPacketInitialFile] = useState<File | null>(null);
-  const updatePdfPacketContext = useCallback((context: PdfPacketShellContext) => {
-    setPdfPacketContext(context);
-  }, []);
-  const registerPdfPacketCloseGuard = useCallback((guard: (() => boolean) | null) => {
-    pdfPacketCloseGuardRef.current = guard;
   }, []);
   const [state, dispatch] = useReducer(
     importWorkspaceReducer,
@@ -336,10 +320,9 @@ function OpenImportWorkspaceSession({
       }
       return;
     }
-    if (selectionPreparing || (busy && !sessionBusy) || bulkBusy || pdfPacketContext.busy) return;
-    if (mode === 'pdf_split' && pdfPacketCloseGuardRef.current && !pdfPacketCloseGuardRef.current()) return;
+    if (selectionPreparing || (busy && !sessionBusy) || bulkBusy) return;
     closeWorkspace();
-  }, [bulkBusy, bulkPreparing, busy, closeWorkspace, mode, pdfBatchActive, pdfPacketContext.busy, selectionPreparing, sessionBusy, tableImportSelected]);
+  }, [bulkBusy, bulkPreparing, busy, closeWorkspace, pdfBatchActive, selectionPreparing, sessionBusy, tableImportSelected]);
 
   // The ONE shared success
   // handler replacing the three independent close-on-success calls
@@ -455,13 +438,11 @@ function OpenImportWorkspaceSession({
     selectionPreparationGeneration.current += 1;
     setSelectionPreparing(false);
     resetBulkPlan();
-    setPdfPacketContext({ active: false, stage: 'check', subtitle: null, busy: false });
-    pdfPacketCloseGuardRef.current = null;
+    setPdfBatchOrganization(nextMode === 'pdf_split' ? 'split_documents' : 'keep_documents');
     if (nextMode !== 'csv') {
       setSingleFileFormat('csv');
       setFtmDatasetName('');
     }
-    if (nextMode !== 'pdf_split') setPdfPacketInitialFile(null);
     onSessionModeChange(nextMode);
     dispatch({ type: 'selectMode', mode: nextMode });
   };
@@ -571,9 +552,11 @@ function OpenImportWorkspaceSession({
     });
   }, [closeWorkspace, invalidateBulkRequests, onImported, projectId]);
 
-  const acceptPreparedImport = useCallback((prepared: PreparedImportFiles) => {
+  const acceptPreparedImport = useCallback((prepared: PreparedImportFiles & { warnings?: string[] }) => {
     if (prepared.kind === 'pdf_import') {
+      setPdfBatchWarnings(prepared.warnings ?? []);
       setPdfBatchFiles(null);
+      setPdfBatchNewlyAdmitted(true);
       setPdfBatchResumeId(prepared.draft.draft_id);
       return;
     }
@@ -595,16 +578,13 @@ function OpenImportWorkspaceSession({
     setBulkDecisions(decisions);
   }, [executeBulkPlan]);
 
-  const startBulkPlan = useCallback((files: File[], expandArchive: boolean) => {
-    if (busy || !files.length) return;
-    const expandsArchives = expandArchive || selectionExpandsArchives(files);
-    if (!expandsArchives && canHandlePdfBatch(files)) {
-      setPdfBatchResumeId(null);
-      setPdfBatchFiles(files);
-      return;
-    }
+  const startAdmittedPreparation = useCallback((
+    summary: { names: string[]; count: number },
+    prepare: (signal: AbortSignal) => Promise<PreparedImportFiles & { warnings?: string[] }>,
+  ) => {
+    if (busy || bulkBusy) return;
     setImportSessionStatus(null);
-    setFileSummary({ names: files.slice(0, 20).map(logicalPathForImport), count: files.length });
+    setFileSummary(summary);
     setPreparationStep('summary');
     invalidateBulkRequests();
     const generation = bulkGenerationRef.current;
@@ -619,13 +599,7 @@ function OpenImportWorkspaceSession({
     setBulkFailuresOmitted(0);
     setBulkBusy(true);
     setBulkPreparing(true);
-    void prepareImportFiles(
-      projectId,
-      files,
-      files.map(logicalPathForImport),
-      expandsArchives,
-      { signal: controller.signal },
-    ).then((prepared) => {
+    void prepare(controller.signal).then((prepared) => {
       if (controller.signal.aborted || bulkGenerationRef.current !== generation) return;
       if (bulkPrepareDiscardPromptRef.current) {
         heldPreparedImport.current = prepared;
@@ -642,7 +616,30 @@ function OpenImportWorkspaceSession({
         setBulkBusy(false);
       }
     });
-  }, [acceptPreparedImport, busy, invalidateBulkRequests, projectId]);
+  }, [acceptPreparedImport, busy, bulkBusy, invalidateBulkRequests]);
+
+  const startBulkPlan = useCallback((files: File[], expandArchive: boolean) => {
+    if (busy || !files.length) return;
+    const expandsArchives = expandArchive || selectionExpandsArchives(files);
+    if (!expandsArchives && canHandlePdfBatch(files)) {
+      setPdfBatchResumeId(null);
+      setPdfBatchFiles(files);
+      return;
+    }
+    startAdmittedPreparation(
+      { names: files.slice(0, 20).map(logicalPathForImport), count: files.length },
+      (signal) => prepareImportFiles(projectId, files, files.map(logicalPathForImport), expandsArchives, { signal }),
+    );
+  }, [busy, projectId, startAdmittedPreparation]);
+
+  const startUrlPreparation = () => {
+    const urls = urlText.split(/\r?\n/).map((url) => url.trim()).filter(Boolean);
+    if (!urls.length) { onError('Import failed: enter at least one URL'); return; }
+    startAdmittedPreparation(
+      { names: urls.slice(0, 20), count: urls.length },
+      (signal) => prepareImportUrls(projectId, urls, { signal }),
+    );
+  };
 
   const keepPreparingImport = () => {
     bulkPrepareDiscardPromptRef.current = false;
@@ -749,11 +746,11 @@ function OpenImportWorkspaceSession({
     && !bulkPlan);
   const showPreparation = preparationReceipt !== null || importInProgress;
   const tableImportActive = tableImportSelected && !showPreparation;
-  const fileEntry = railMode === 'files' && !showPreparation && !pdfBatchActive && !downloadPrompt && !nerPrompt;
+  const fileEntry = (railMode === 'files' || railMode === 'pdf_split') && !showPreparation && !pdfBatchActive && !downloadPrompt && !nerPrompt;
   const EntryStep = fileEntry ? PanelFrame : Fragment;
   const EntryBody = fileEntry ? PanelBody : Fragment;
   const closeDisabled = !pdfBatchActive && (
-    selectionPreparing || (busy && !sessionBusy) || (bulkBusy && !bulkPreparing) || pdfPacketContext.busy
+    selectionPreparing || (busy && !sessionBusy) || (bulkBusy && !bulkPreparing)
   );
   const tableImportChoosingSource = tableImportActive
     && (tableImportContext?.canChangeMode ?? true)
@@ -785,10 +782,14 @@ function OpenImportWorkspaceSession({
       data-testid="import-workspace-dialog"
       aria-label="Import"
       onCancel={(event) => {
+        if (event.target !== event.currentTarget) return;
         event.preventDefault();
+        event.stopPropagation();
         closeWorkspaceFromUser();
       }}
-      onClose={() => {
+      onClose={(event) => {
+        if (event.target !== event.currentTarget) return;
+        event.stopPropagation();
         closeWorkspaceFromUser();
       }}
     >
@@ -799,7 +800,7 @@ function OpenImportWorkspaceSession({
         onMouseDown={closeWorkspaceFromUser}
       />
       <section
-        className={`import-workspace${pdfPacketContext.active || pdfBatchActive ? ' pdf-packet-workspace' : ''}${pdfBatchActive ? ' pdf-batch-workspace' : ''}${tableImportActive ? ' table-import-workspace' : ''}${tableImportChoosingSource ? ' table-import-workspace-mode-selection' : ''}`}
+        className={`import-workspace${pdfBatchActive ? ' pdf-packet-workspace' : ''}${pdfBatchActive ? ' pdf-batch-workspace' : ''}${tableImportActive ? ' table-import-workspace' : ''}${tableImportChoosingSource ? ' table-import-workspace-mode-selection' : ''}`}
         data-testid="import-workspace"
         aria-label="Import"
         tabIndex={-1}
@@ -808,8 +809,8 @@ function OpenImportWorkspaceSession({
           aria-label="Choose import file"
           ref={inputRef}
           type="file"
-          accept={singleFileFormat === 'ftm' ? FTM_ACCEPT : ACCEPTS[fileMode]}
-          multiple={railMode === 'files'}
+          accept={mode === 'pdf_split' ? '.pdf,application/pdf' : singleFileFormat === 'ftm' ? FTM_ACCEPT : ACCEPTS[fileMode]}
+          multiple={railMode === 'files' || railMode === 'pdf_split'}
           style={{ display: 'none' }}
           data-testid={mode === 'csv' ? 'import-csv-input' : 'import-file-input'}
           onChange={(e) => {
@@ -872,8 +873,7 @@ function OpenImportWorkspaceSession({
           <div>
             <div className="import-workspace-title">Import</div>
             <div className="import-workspace-kicker">
-              {tableImportContext ? tableImportContext.subtitle : pdfBatchContext ? pdfBatchContext.subtitle : pdfPacketContext.active
-                ? pdfPacketContext.subtitle
+              {tableImportContext ? tableImportContext.subtitle : pdfBatchContext ? pdfBatchContext.subtitle
                 : showPreparation ? (showSummary ? 'Imported files' : 'Review text and search setup') : 'Project data intake'}
             </div>
           </div>
@@ -881,8 +881,6 @@ function OpenImportWorkspaceSession({
             <StageStepper label="Import stages" stages={[...tableImportContext.stages]} stage={tableImportContext.stage} />
           ) : pdfBatchContext ? (
             <StageStepper label="Import stages" stages={[...pdfBatchContext.stages]} stage={pdfBatchContext.stage} />
-          ) : pdfPacketContext.active && !preparationReceipt ? (
-            <StageStepper label="Import stages" stages={[...PDF_PACKET_STAGES]} stage={pdfPacketContext.stage} />
           ) : null}
           <button
             type="button"
@@ -895,8 +893,8 @@ function OpenImportWorkspaceSession({
             <X size={16} />
           </button>
         </header>
-        <div className={`import-workspace-main${pdfPacketContext.active || pdfBatchActive ? ' pdf-packet-workspace-main' : ''}${showPreparation ? ' import-workspace-main-preparation' : ''}`}>
-          {!pdfPacketContext.active && !pdfBatchActive && (!tableImportActive || tableImportChoosingSource) && !showPreparation ? (
+        <div className={`import-workspace-main${pdfBatchActive ? ' pdf-packet-workspace-main' : ''}${showPreparation ? ' import-workspace-main-preparation' : ''}`}>
+          {!pdfBatchActive && (!tableImportActive || tableImportChoosingSource) && !showPreparation ? (
             <aside className="import-workspace-sidebar">
               <ImportModeRail modes={IMPORT_MODES} mode={railMode} onSelectMode={selectMode} />
             </aside>
@@ -927,8 +925,9 @@ function OpenImportWorkspaceSession({
                     if (files?.length) startBulkPlan(files, selectionExpandsArchives(files));
                   }}
                   onUsePdfSplit={(file) => {
-                    setPdfPacketInitialFile(file);
                     selectMode('pdf_split');
+                    setPdfBatchResumeId(null);
+                    setPdfBatchFiles([file]);
                   }}
                   onUseFollowTheMoney={(file) => {
                     setFtmFile(file);
@@ -941,6 +940,9 @@ function OpenImportWorkspaceSession({
                   projectId={projectId}
                   files={pdfBatchFiles ?? undefined}
                   resumeDraftId={pdfBatchResumeId}
+                  newlyAdmittedDraft={pdfBatchNewlyAdmitted}
+                  warnings={pdfBatchWarnings}
+                  initialOrganization={pdfBatchOrganization}
                   initialDestinationSheetId={destinationSheets.some((sheet) => sheet.parent === undefined && Number(sheet.id) === initialDestinationSheetId) ? initialDestinationSheetId : null}
                   destinationSheets={destinationSheets.filter((sheet) => sheet.parent === undefined).map((sheet) => ({ id: Number(sheet.id), name: sheet.name }))}
                   onContextChange={setPdfBatchContext}
@@ -950,7 +952,7 @@ function OpenImportWorkspaceSession({
                   onError={onError}
                 />
               ) : <EntryStep {...(fileEntry ? { fill: true } : {})}><EntryBody {...(fileEntry ? { className: 'import-entry-body' } : {})}>
-              {railMode === 'files' && !showPreparation && <PdfBatchDrafts projectId={projectId} onResume={setPdfBatchResumeId} />}
+              {railMode === 'files' && !showPreparation && <PdfBatchDrafts projectId={projectId} onResume={(draftId) => { setPdfBatchNewlyAdmitted(false); setPdfBatchResumeId(draftId); }} />}
               {railMode === 'files' && !showPreparation ? (
                 <SegmentedToggle
                   fullWidth={false}
@@ -1072,19 +1074,6 @@ function OpenImportWorkspaceSession({
                     }}>{busy ? 'Importing…' : 'Import'}</Button>
                   </div>
                 </section>
-              ) : mode === 'pdf_split' ? (
-                <PdfPacketImportFlow
-                  initialFile={pdfPacketInitialFile}
-                  projectId={projectId}
-                  onContextChange={updatePdfPacketContext}
-                  registerCloseGuard={registerPdfPacketCloseGuard}
-                  onImported={(sheetId) => {
-                    onImported(sheetId);
-                    closeWorkspace();
-                  }}
-                  onError={onError}
-                  onCancel={closeWorkspaceFromUser}
-                />
               ) : mode === 'urls' ? (
                 <>
                   <label className="import-field-label" htmlFor="import-url-list">
@@ -1104,10 +1093,11 @@ function OpenImportWorkspaceSession({
                 <FeedSourceForm onCreated={onClose} onImported={onImported} onError={onError} onCancel={closeWorkspaceFromUser} />
               ) : (
                 <>
-                  <ImportDropArea title="Drop files here" description="Drop files or a ZIP archive here, or choose a folder."
+                  <ImportDropArea title={mode === 'pdf_split' ? 'Drop PDFs here' : 'Drop files here'}
+                    description={mode === 'pdf_split' ? 'Mark where documents start, or make one row per page. The originals are never changed.' : 'Drop files or a ZIP archive here, or choose a folder.'}
                     testId="import-files-chooser" disabled={busy || bulkBusy || selectionPreparing} onFiles={handlePickedFiles}>
                     <div className="import-files-chooser-actions">
-                      <Button type="button" className="btn-primary" data-testid="import-file-picker" disabled={busy || bulkBusy || selectionPreparing} onClick={() => inputRef.current?.click()}>Pick files</Button>
+                      <Button type="button" className="btn-primary" data-testid="import-file-picker" disabled={busy || bulkBusy || selectionPreparing} onClick={() => inputRef.current?.click()}>{mode === 'pdf_split' ? 'Choose PDFs' : 'Pick files'}</Button>
                       <Button type="button" disabled={busy || bulkBusy || selectionPreparing} onClick={() => folderInputRef.current?.click()}>Choose folder</Button>
                       <Button type="button" disabled={busy || bulkBusy || selectionPreparing} onClick={() => zipInputRef.current?.click()}>Upload ZIP</Button>
                     </div>
@@ -1133,13 +1123,9 @@ function OpenImportWorkspaceSession({
               </EntryBody>
               {fileEntry && <PanelFooter>
                 <Button type="button" disabled={closeDisabled} onClick={closeWorkspaceFromUser}>Cancel</Button>
-                <span>{mode === 'urls' ? 'Enter URLs to import their contents.' : 'Choose or drop files to start preparing the import.'}</span>
+                <span>{mode === 'urls' ? 'Enter URLs to import their contents.' : mode === 'pdf_split' ? 'Choose or drop PDFs to start checking their pages.' : 'Choose or drop files to start preparing the import.'}</span>
                 {mode === 'urls' && <Button type="button" className="btn-primary" data-testid="import-url-submit"
-                  disabled={busy} onClick={() => {
-                    void uploadUrls(urlText).then((sheetId) => {
-                      if (sheetId != null) void finishImport(sheetId);
-                    });
-                  }}><Link2 size={13} /> Import URLs</Button>}
+                  disabled={busy || bulkBusy} onClick={startUrlPreparation}><Link2 size={13} /> Import URLs</Button>}
               </PanelFooter>}
               </EntryStep>}
             </div>

@@ -14,6 +14,8 @@ import { pdfPacketSourceCardData } from './evidence/pdfPacketSourceCardModel';
 
 export interface EvidenceViewerProps {
   evidenceLinkId: string | number;
+  initialPayload?: EvidenceViewerPayload;
+  initialPage?: number;
   mode?: 'peek' | 'pane';
   onClose(): void;
   onOpenCompanion?(): void;
@@ -33,6 +35,8 @@ type ViewerState =
 
 export function EvidenceViewer({
   evidenceLinkId,
+  initialPayload,
+  initialPage,
   mode = 'peek',
   onClose,
   onOpenCompanion,
@@ -43,7 +47,9 @@ export function EvidenceViewer({
   defaultShowDetails = false,
 }: EvidenceViewerProps) {
   const { projectApi, route } = useWorkspaceStores();
-  const [state, setState] = useState<ViewerState>({ phase: 'loading' });
+  const [readState, setState] = useState<ViewerState>({ phase: 'loading' });
+  const state: ViewerState = readState.phase === 'loading' && initialPayload
+    ? { phase: 'done', payload: initialPayload } : readState;
   const [recovery, setRecovery] = useState<RecoveryState>({ phase: 'idle' });
   const requestEpoch = useRef(0);
   const mounted = useRef(true);
@@ -59,6 +65,7 @@ export function EvidenceViewer({
 
   useEffect(() => {
     const epoch = ++requestEpoch.current;
+    if (initialPayload) return;
     let alive = true;
     projectApi
       .getEvidenceViewer(evidenceLinkId)
@@ -77,7 +84,7 @@ export function EvidenceViewer({
     return () => {
       alive = false;
     };
-  }, [evidenceLinkId, projectApi]);
+  }, [evidenceLinkId, initialPayload, projectApi]);
 
   const locateCurrentPassage = () => {
     if (state.phase !== 'done' || recovery.phase === 'loading') return;
@@ -128,6 +135,7 @@ export function EvidenceViewer({
       {state.phase === 'done' && (
         <EvidencePayloadView
           payload={state.payload}
+          initialPage={initialPage}
           scopeRowId={scopeRowId}
           scopeSpanId={scopeSpanId}
           scopeSpanIds={scopeSpanIds}
@@ -218,6 +226,7 @@ function EvidenceViewerHeader({
 
 function EvidencePayloadView({
   payload,
+  initialPage,
   scopeRowId = null,
   scopeSpanId,
   scopeSpanIds,
@@ -228,6 +237,7 @@ function EvidencePayloadView({
   onOpenSiblingSheet,
 }: {
   payload: EvidenceViewerPayload;
+  initialPage?: number;
   scopeRowId?: string | null;
   scopeSpanId?: string;
   /** Matching spans to highlight alongside the primary focused span. */
@@ -297,6 +307,7 @@ function EvidencePayloadView({
               <ArtifactSource
                 key={`${artifact.stable_id}:${scopeSpanId ?? ''}:${highlight}`}
                 artifact={artifact}
+                initialPage={initialPage}
                 scopeSpanId={scopeSpanId}
                 scopeSpanIds={scopeSpanIds}
                 highlight={highlight}

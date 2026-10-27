@@ -57,6 +57,12 @@ class PdfDraftInventory:
               error TEXT,
               matched INTEGER NOT NULL DEFAULT 0 CHECK(matched IN (0,1))
             );
+            CREATE TABLE IF NOT EXISTS pdf_source_acquisition (
+              occurrence_id TEXT PRIMARY KEY REFERENCES pdf_selected(occurrence_id),
+              source_url TEXT,
+              provider TEXT,
+              metadata TEXT NOT NULL DEFAULT '{}'
+            );
             CREATE TABLE IF NOT EXISTS pdf_manifest_batches (
               batch_id TEXT PRIMARY KEY,
               payload_hash TEXT NOT NULL,
@@ -252,8 +258,9 @@ class PdfDraftInventory:
         row = self.db.execute(
             "SELECT s.*,st.upload_state,st.analysis_state,st.staged_ordinal,st.sha256,"
             "st.mime,st.media_kind,st.page_count,st.category,st.sample_pages,"
-            "st.error,st.matched "
+            "st.error,st.matched,a.source_url,a.provider,a.metadata "
             "FROM pdf_selected s JOIN pdf_selected_state st USING(occurrence_id) "
+            "LEFT JOIN pdf_source_acquisition a USING(occurrence_id) "
             "WHERE s.occurrence_id=?",
             (occurrence_id,),
         ).fetchone()
@@ -382,6 +389,90 @@ class PdfDraftInventory:
             self.db.rollback()
             raise
 
+    def record_acquisitions(self, facts: list[Mapping[str, Any]]) -> None:
+        """Retain trusted acquisition facts independently of shared blob bytes."""
+
+        with self.db:
+            for fact in facts:
+                occurrence_id = str(fact["occurrence_id"])
+                if (
+                    self.db.execute(
+                        "SELECT 1 FROM pdf_selected WHERE occurrence_id=?",
+                        (occurrence_id,),
+                    ).fetchone()
+                    is None
+                ):
+                    raise ValueError("acquisition occurrence is not selected")
+                source_url, provider = fact.get("source_url"), fact.get("provider")
+                if any(
+                    value is not None and not isinstance(value, str)
+                    for value in (source_url, provider)
+                ):
+                    raise ValueError("invalid acquisition source facts")
+                metadata = fact.get("metadata") or {}
+                if not isinstance(metadata, Mapping):
+                    raise ValueError("invalid acquisition metadata")
+                encoded = json.dumps(
+                    dict(metadata),
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    allow_nan=False,
+                )
+                existing = self.db.execute(
+                    "SELECT source_url,provider,metadata FROM pdf_source_acquisition WHERE occurrence_id=?",
+                    (occurrence_id,),
+                ).fetchone()
+                values = (source_url, provider, encoded)
+                if existing is not None:
+                    if tuple(existing) != values:
+                        raise ValueError("acquisition facts changed after admission")
+                    continue
+                self.db.execute(
+                    "INSERT INTO pdf_source_acquisition(occurrence_id,source_url,provider,metadata) VALUES(?,?,?,?)",
+                    (occurrence_id, *values),
+                )
+
+    def stage_acquisition_errors(self, facts: list[Mapping[str, Any]]) -> None:
+        """Admit error-only URL occurrences without inventing file bytes."""
+
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            added = 0
+            for fact in facts:
+                occurrence_id, error = str(fact["occurrence_id"]), fact.get("error")
+                if not isinstance(error, str) or not error:
+                    raise ValueError("acquisition error requires a message")
+                selected = self.db.execute(
+                    "SELECT s.size,st.upload_state,st.analysis_state,st.error FROM pdf_selected s "
+                    "JOIN pdf_selected_state st USING(occurrence_id) WHERE occurrence_id=?",
+                    (occurrence_id,),
+                ).fetchone()
+                if selected is None or int(selected["size"]) != 0:
+                    raise ValueError("acquisition error occurrence is not selected")
+                if (
+                    selected["upload_state"] == "staged"
+                    and selected["analysis_state"] == "error"
+                    and selected["error"] == error
+                ):
+                    continue
+                if selected["upload_state"] != "pending":
+                    raise ValueError("acquisition occurrence was already uploaded")
+                self.db.execute(
+                    "UPDATE pdf_selected_state SET upload_state='staged',analysis_state='error',"
+                    "mime='application/octet-stream',media_kind='other',category='unreadable',error=? WHERE occurrence_id=?",
+                    (error, occurrence_id),
+                )
+                added += 1
+            self.db.execute(
+                "UPDATE pdf_stats SET staged_count=staged_count+?,analyzed_count=analyzed_count+?,"
+                "unreadable_count=unreadable_count+? WHERE singleton=1",
+                (added, added, added),
+            )
+            self.db.commit()
+        except BaseException:
+            self.db.rollback()
+            raise
+
     def complete_analysis(
         self, occurrence_id: str, analysis: Mapping[str, Any]
     ) -> bool:
@@ -451,8 +542,9 @@ class PdfDraftInventory:
         rows = list(
             self.db.execute(
                 "SELECT s.*,st.analysis_state,st.mime,st.media_kind,st.page_count,"
-                "st.category,st.sample_pages,st.error "
+                "st.category,st.sample_pages,st.error,a.source_url,a.provider,a.metadata "
                 "FROM pdf_selected s JOIN pdf_selected_state st USING(occurrence_id) "
+                "LEFT JOIN pdf_source_acquisition a USING(occurrence_id) "
                 "WHERE st.category=? AND s.sample_key>? ORDER BY s.sample_key LIMIT ?",
                 (category, after, limit + 1),
             )
@@ -489,8 +581,9 @@ class PdfDraftInventory:
         rows = self.db.execute(
             "SELECT s.*,st.upload_state,st.analysis_state,st.staged_ordinal,st.sha256,"
             "st.mime,st.media_kind,st.page_count,st.category,st.sample_pages,"
-            "st.error,st.matched "
+            "st.error,st.matched,a.source_url,a.provider,a.metadata "
             "FROM pdf_selected s JOIN pdf_selected_state st USING(occurrence_id) "
+            "LEFT JOIN pdf_source_acquisition a USING(occurrence_id) "
             "WHERE s.ordinal>? ORDER BY s.ordinal LIMIT ?",
             (after, limit),
         )
@@ -535,10 +628,11 @@ class PdfDraftInventory:
         rows = self.db.execute(
             "SELECT p.commit_ordinal,p.selected_ordinal,s.*,st.upload_state,"
             "st.analysis_state,st.staged_ordinal,st.sha256,st.mime,st.media_kind,"
-            "st.page_count,st.category,st.sample_pages,st.error,st.matched "
+            "st.page_count,st.category,st.sample_pages,st.error,st.matched,a.source_url,a.provider,a.metadata "
             "FROM pdf_commit_projection p "
             "JOIN pdf_selected s ON s.ordinal=p.selected_ordinal "
             "JOIN pdf_selected_state st USING(occurrence_id) "
+            "LEFT JOIN pdf_source_acquisition a USING(occurrence_id) "
             "WHERE p.commit_ordinal>? ORDER BY p.commit_ordinal LIMIT ?",
             (after, limit),
         )
@@ -735,6 +829,10 @@ class PdfDraftInventory:
     @staticmethod
     def _row(row) -> dict[str, Any]:
         value = {key: row[key] for key in row.keys()}
+        if "metadata" in value:
+            value["metadata"] = (
+                json.loads(value["metadata"]) if value["metadata"] else {}
+            )
         if "sample_pages" in value:
             value["sample_pages"] = json.loads(value["sample_pages"])
         for key in ("matched",):

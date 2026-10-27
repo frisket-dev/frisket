@@ -465,6 +465,7 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
         ): "tenant.rerun_table_import_worksheet.post",
         ("tenant", "create_pdf_import", "POST"): "tenant.create_pdf_import.post",
         ("tenant", "prepare_import_files", "POST"): "tenant.prepare_import_files.post",
+        ("tenant", "prepare_import_urls", "POST"): "tenant.prepare_import_urls.post",
         (
             "tenant",
             "analyze_staged_pdf_import",
@@ -547,7 +548,32 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
             "create_pdf_packet_split",
             "POST",
         ): "tenant.create_pdf_packet_split.post",
+        (
+            "tenant",
+            "create_pdf_packet_split_from_draft",
+            "POST",
+        ): "tenant.create_pdf_packet_split_from_draft.post",
+        (
+            "tenant",
+            "create_pdf_packet_split_from_sheet",
+            "POST",
+        ): "tenant.create_pdf_packet_split_from_sheet.post",
         ("tenant", "get_pdf_packet_split", "GET"): "tenant.get_pdf_packet_split.get",
+        (
+            "tenant",
+            "get_pdf_packet_source_file",
+            "GET",
+        ): "tenant.get_pdf_packet_source_file.get",
+        (
+            "tenant",
+            "get_pdf_packet_sheet_scope_token",
+            "POST",
+        ): "tenant.get_pdf_packet_sheet_scope_token.post",
+        (
+            "tenant",
+            "estimate_pdf_packet_split_batch_ocr",
+            "POST",
+        ): "tenant.estimate_pdf_packet_split_batch_ocr.post",
         (
             "tenant",
             "get_pdf_packet_split_page",

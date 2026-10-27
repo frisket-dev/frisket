@@ -402,3 +402,15 @@ describe('search evidence locations', () => {
     expect(screen.getAllByTestId('evidence-region-highlight')).toHaveLength(1);
   });
 });
+
+it('opens a retained source at its requested original page without fetching its supplied payload again', async () => {
+  const payload = structuredClone(jsonLeafPayload);
+  payload.link.role = 'source_provenance';
+  payload.artifacts = [
+    { ...payload.artifacts[0], page_count: 8, source_cell: null,
+      artifact_ref: { ...payload.artifacts[0].artifact_ref, blob: blobRef('/api/original.pdf') } },
+  ];
+  render(<EvidenceViewer evidenceLinkId="evidence-link:1" initialPayload={payload} initialPage={3} mode="pane" onClose={vi.fn()} />);
+  expect(await screen.findByTestId('native-pdf-viewer')).toHaveAttribute('data-current-page', '3');
+  expect(getEvidenceViewer).not.toHaveBeenCalled();
+});

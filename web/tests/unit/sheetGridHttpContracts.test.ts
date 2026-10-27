@@ -97,6 +97,20 @@ describe('sheet and grid HTTP contracts', () => {
     expect(page.rows[0].cellErrors?.['9']).toBeUndefined();
   });
 
+  it('keeps bounded source labels separate from their ordinary link values', async () => {
+    const href = '/p/test-project/evidence/link%3Aone?page=3';
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
+      total: 1, columns: [{ ...sheetColumnWire, type: 'link' }],
+      rows: [{ id: 11, cells: { 9: href }, meta: { 9: {
+        source_link: { label: 'Original.pdf · p 3' },
+        current_value_ref: { kind: 'source_cell', row_id: 11, column_id: 9, run_id: null, op_id: null },
+      } }, parent_row_id: null, child_count: 0 }],
+    })));
+    const page = await realApi.getSheetData('7', 0, 25);
+    expect(page.rows[0].sourceLinks).toEqual({ 9: { label: 'Original.pdf · p 3' } });
+    expect(page.rows[0].cells['9']).toBe(href);
+  });
+
   it('preserves bounded descriptors separately from exact cells and projects display reads', async () => {
     const descriptor = { preview: 'A display excerpt', value_kind: 'text', total_characters: 100000,
       total_bytes: 100001, retrieval_revision: 3, truncated: true, manual_editable: false, manual_edit_byte_limit: 65536 };

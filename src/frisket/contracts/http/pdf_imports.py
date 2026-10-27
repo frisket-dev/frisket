@@ -22,6 +22,7 @@ PdfImportState = Literal[
 PdfTextCategory = Literal[
     "text", "suspicious", "missing", "image", "other", "unreadable", "unchecked"
 ]
+PdfOrganization = Literal["keep_documents", "pages", "split_documents"]
 PdfOcrPolicy = Literal["missing", "missing_or_suspicious", "all", "none"]
 PdfImportOcrSelection = Annotated[
     EngineSelection | EngineModelSelection, Field(discriminator="kind")
@@ -39,7 +40,7 @@ class PdfImportCategoryCounts(WireModel):
 
 
 class PdfImportCreateRequest(WireModel):
-    expected_files: int = Field(ge=2)
+    expected_files: int = Field(ge=1)
     expected_bytes: int = Field(ge=0)
     source_label: str | None = Field(default=None, max_length=512)
 
@@ -112,6 +113,8 @@ PdfImportDestination = Annotated[
 
 
 class PdfImportChoices(WireModel):
+    organization: PdfOrganization = "keep_documents"
+    split_starts: dict[str, list[int]] = Field(default_factory=dict)
     ocr_policy: PdfOcrPolicy
     ocr_selection: PdfImportOcrSelection
     semantic_search: bool
@@ -183,6 +186,19 @@ class PdfImportCleanup(WireModel):
     bytes_total: int = Field(ge=0)
 
 
+class PdfImportOrganizationSummary(WireModel):
+    pdf_count: int = Field(ge=0)
+    eligible_pdf_count: int = Field(ge=0)
+    page_count: int = Field(ge=0)
+    output_rows: int | None = Field(ge=0)
+    new_output_rows: int | None = Field(ge=0)
+    category_rows: dict[str, int | None]
+    new_category_rows: dict[str, int | None]
+    max_interactive_pages: int = Field(gt=0)
+    split_supported: bool
+    split_limit_reason: str | None
+
+
 class PdfImportStatus(WireModel):
     schema_version: Literal[PDF_IMPORT_SCHEMA_VERSION]
     id: str
@@ -202,6 +218,7 @@ class PdfImportStatus(WireModel):
     sample_ready_counts: PdfImportCategoryCounts
     can_review_text: bool
     choices: PdfImportChoices
+    organization_summary: PdfImportOrganizationSummary
     match: PdfImportMatch
     batch_ocr: PdfImportBatchOcrState
     semantic_setup: PdfImportSemanticSetup

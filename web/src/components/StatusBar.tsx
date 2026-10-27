@@ -129,6 +129,7 @@ function formatProjectionPointCount(count: number): string {
 
 const IDLE_IMPORT_PROGRESS: ImportProgressController = {
   activities: [],
+  async refresh() {},
   message: null,
   busyRef: null,
   preparingRef: null,

@@ -16,6 +16,7 @@ from frisket.engine.runner.validation import _bind_rated_quote, confirmation_est
 from frisket.engine.store.cells import replay_generated_value_hash
 from frisket.execution.consent_coverage import effective_consent_coverage
 from frisket.execution.pricing_policy import default_pricing_policy
+from frisket.execution.promises import promise_rows_hash
 from frisket.execution.resolve_for_action import (
     BoundedScratchInput,
     consented_set_hash,
@@ -31,6 +32,8 @@ from frisket.server.services.scratch_action_preview import (
     scratch_estimate,
 )
 
+
+PDF_SOURCE_PAGE_OCR_SCOPE_SCHEMA = "frisket.pdf_source_page_ocr_scope.v1"
 
 PDF_IMPORT_OCR_APPROVAL_SCHEMA = "frisket.pdf_import_ocr_approval.v1"
 PDF_IMPORT_OCR_SCOPE_SCHEMA = "frisket.pdf_import_ocr_scope.v1"
@@ -91,6 +94,9 @@ class PdfImportOcrGrant:
                 or any(char not in "0123456789abcdef" for char in value)
             ):
                 raise ValueError(f"PDF import OCR grant {name} is invalid")
+        if self.scope.get("schema_version") == PDF_SOURCE_PAGE_OCR_SCOPE_SCHEMA:
+            _validate_source_page_grant(self)
+            return
         if self.allocation.get("schema_version") != PDF_IMPORT_OCR_ALLOCATION_SCHEMA:
             raise ValueError("PDF import OCR grant allocation schema is invalid")
         if self.allocation.get("currency") != "USD":
@@ -488,3 +494,206 @@ __all__ = [
     "PdfImportOcrApprovalQuoter",
     "PdfImportOcrGrant",
 ]
+
+
+def _source_page_hash(value: Mapping[str, Any]) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            dict(value), sort_keys=True, separators=(",", ":"), allow_nan=False
+        ).encode()
+    ).hexdigest()
+
+
+def source_page_ocr_grant(
+    *,
+    project_id: str,
+    plan_token: str,
+    project: Any,
+    composition: Any,
+    consent_coverage: Any,
+    targets: list[dict[str, Any]],
+    children: list[dict[str, Any]],
+    ocr_action_params: Mapping[str, Any],
+) -> PdfImportOcrApprovalQuote:
+    """Freeze exact scratch page authorities into the existing import grant.
+
+    Each child is one distinct original byte/page/settings target. Occurrence
+    identities remain in the parent roster, independently of execution dedup.
+    The reviewed parent quote is the sum of the actual per-page reservations.
+    """
+    if not children or not targets:
+        raise ValueError("source-page OCR grant has no missing pages")
+    policies = {child["quote"]["policy_id"] for child in children}
+    if len(policies) != 1:
+        raise ValueError("source-page OCR pricing policy changed")
+    scope = {
+        "schema_version": PDF_SOURCE_PAGE_OCR_SCOPE_SCHEMA,
+        "project_id": project_id,
+        "plan_token": plan_token,
+        "targets": targets,
+        "page_count": len(children),
+        "source_count": len({target["occurrence_key"] for target in targets}),
+        "ocr_params_hash": replay_generated_value_hash(dict(ocr_action_params)),
+    }
+    cost = sum(Decimal(str(child["quote"]["cost"])) for child in children)
+    spec = dict(children[0]["spec"])
+    recipe = ScratchActionRecipe("media.ocr", "ocr")
+    resolved = resolve_for_action(
+        project,
+        spec,
+        recipe,
+        composition=composition,
+        bounded_scratch_input=BoundedScratchInput(len(children), scope),
+    )
+    if isinstance(resolved, Refusal):
+        raise PdfImportOcrApprovalError(resolved.remedy)
+    if not isinstance(resolved, ResolvedExecution):
+        raise PdfImportOcrApprovalError("OCR route is unavailable")
+    rated = scratch_estimate(resolved, quantity_name=None, quantity=len(children))
+    rated.update(
+        cost=float(cost),
+        billed_cost=sum(child["quote"]["billed_cost"] for child in children),
+        policy_id=next(iter(policies)),
+        rows=scope["source_count"],
+    )
+    bound = _bind_rated_quote(resolved, rated)
+    effective = effective_consent_coverage(project, consent_coverage)
+    uncovered = project_uncovered_user_claims(
+        project, bound.promise_set, spec=spec, consent_coverage=effective
+    )
+    payload = {**rated, "requires_confirmation": bool(uncovered)}
+    approval_hash = consented_set_hash(bound.promise_set)
+    if uncovered:
+        payload["claims"] = gate_claims_payload(
+            uncovered,
+            bound.resolution.facts,
+            bound.presentation,
+            has_cost_claim=any(p.field == "cost" for p in bound.promise_set.promises),
+        )
+        payload["promise_set_hash"] = approval_hash
+    estimate = ActionEstimate.model_validate(payload).model_dump(
+        mode="json", exclude_unset=True
+    )
+    quote = ConsentQuote.from_estimate(rated).model_dump(mode="json")
+    allocation = {
+        "schema_version": PDF_IMPORT_OCR_ALLOCATION_SCHEMA,
+        "row_quote_authority": "admitted_source_pages",
+        "currency": "USD",
+        "policy_id": next(iter(policies)),
+        "approved_billed_cost": quote["billed_cost"],
+        "children": children,
+        "requires_confirmation": bool(uncovered),
+    }
+    grant = PdfImportOcrGrant.from_mapping(
+        {
+            "schema_version": PDF_IMPORT_OCR_APPROVAL_SCHEMA,
+            "actor": effective.principal,
+            "promise_set_hash": approval_hash,
+            "scope_hash": _source_page_hash(scope),
+            "scope": scope,
+            "ocr_action_params": dict(ocr_action_params),
+            "target": target_snapshot(bound.resolution),
+            "route": _route_snapshot(bound),
+            "promises": promise_rows(bound.promise_set),
+            "quote": quote,
+            "allocation": allocation,
+        }
+    )
+    return PdfImportOcrApprovalQuote(estimate, grant.as_mapping())
+
+
+def _validate_source_page_grant(grant: PdfImportOcrGrant) -> None:
+    scope = grant.scope
+    children = grant.allocation.get("children")
+    targets = scope.get("targets")
+    if (
+        not scope.get("project_id")
+        or not scope.get("plan_token")
+        or not isinstance(targets, list)
+        or not targets
+        or not isinstance(children, list)
+        or not children
+        or grant.allocation.get("row_quote_authority") != "admitted_source_pages"
+        or grant.allocation.get("schema_version") != PDF_IMPORT_OCR_ALLOCATION_SCHEMA
+        or grant.allocation.get("currency") != "USD"
+    ):
+        raise ValueError("source-page OCR grant scope is incomplete")
+    keys = [child.get("child_key") for child in children]
+    if None in keys or len(set(keys)) != len(keys):
+        raise ValueError("source-page OCR grant work identities changed")
+    if set(keys) != {target.get("work_key") for target in targets}:
+        raise ValueError("source-page OCR grant targets changed")
+    if len(children) != scope.get("page_count"):
+        raise ValueError("source-page OCR grant page count changed")
+    if scope.get("ocr_params_hash") != replay_generated_value_hash(
+        dict(grant.ocr_action_params)
+    ):
+        raise ValueError("source-page OCR grant settings changed")
+    if grant.scope_hash != _source_page_hash(scope):
+        raise ValueError("source-page OCR grant scope hash changed")
+    if grant.quote.get("billed_cost") != sum(
+        child["quote"]["billed_cost"] for child in children
+    ) or grant.allocation.get("approved_billed_cost") != grant.quote.get("billed_cost"):
+        raise ValueError("source-page OCR grant quote changed")
+    if promise_rows_hash(grant.promises) != grant.promise_set_hash:
+        raise ValueError("source-page OCR grant promise set changed")
+
+
+def source_page_ocr_authorizer(
+    grant: PdfImportOcrGrant,
+    *,
+    project_id: str,
+    plan_token: str,
+    target: Mapping[str, Any],
+    work_key: str,
+):
+    """Derive authority only for the exact frozen page, route and rated quote."""
+    from frisket.engine.runner.validation import (
+        TrustedConsentApproval,
+        TrustedConsentRefusal,
+    )
+    from frisket.execution.resolve_for_action import SCRATCH_PREVIEW_UNIT_ID
+
+    grant._validate()
+    if grant.scope.get("schema_version") != PDF_SOURCE_PAGE_OCR_SCOPE_SCHEMA or any(
+        (
+            grant.scope.get("project_id") != project_id,
+            grant.scope.get("plan_token") != plan_token,
+        )
+    ):
+        raise ValueError("source-page OCR approval belongs to another split")
+    if {"work_key": work_key, **dict(target)} not in grant.scope["targets"]:
+        raise ValueError("source page identity is outside the approved work set")
+    child = next(
+        (
+            item
+            for item in grant.allocation["children"]
+            if item["child_key"] == work_key
+        ),
+        None,
+    )
+    if child is None:
+        raise ValueError("source page is outside the approved work set")
+
+    def authorize(context):
+        if context.principal != grant.actor:
+            return TrustedConsentRefusal(
+                "source-page OCR approval belongs to another principal"
+            )
+        if context.row_ids != (SCRATCH_PREVIEW_UNIT_ID,):
+            return TrustedConsentRefusal("source-page OCR runtime scope changed")
+        resolved = context.resolved_execution
+        if (
+            dict(context.spec) != child["spec"]
+            or target_snapshot(resolved.resolution) != child["target"]
+            or _route_snapshot(resolved) != child["route"]
+            or promise_rows(resolved.promise_set) != child["promises"]
+            or ConsentQuote.from_estimate(context.estimate).model_dump(mode="json")
+            != child["quote"]
+        ):
+            return TrustedConsentRefusal(
+                "source-page OCR page, settings, route or quote changed"
+            )
+        return TrustedConsentApproval("pdf_source_page_grant_derived")
+
+    return authorize

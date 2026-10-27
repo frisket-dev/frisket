@@ -104,6 +104,7 @@ interface DocumentReaderProps {
   rowKey: string;
   onOpenDetail(): void;
   canOpenDetail: boolean;
+  onSplitPdf?(): void;
   onShowAlongside?(): void;
   alongsideTriggerRef?: RefObject<HTMLButtonElement>;
   optionsOpen: boolean;
@@ -158,6 +159,7 @@ export function DocumentReader({
   rowKey,
   onOpenDetail,
   canOpenDetail,
+  onSplitPdf,
   onShowAlongside,
   alongsideTriggerRef,
   optionsOpen,
@@ -320,6 +322,7 @@ export function DocumentReader({
             <span className="document-reader-spacer" />
             {onShowAlongside && <Button ref={alongsideTriggerRef} type="button" data-testid="document-show-alongside"
               onClick={onShowAlongside}>Show alongside</Button>}
+            {isPdf && onSplitPdf && <Button type="button" onClick={onSplitPdf}>Split PDF…</Button>}
             {isPdf && (
               <div className="document-page-controls" role="group" aria-label="Page navigation">
                 <button

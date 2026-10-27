@@ -31,6 +31,7 @@ import {
   type Theme,
 } from '@glideapps/glide-data-grid';
 import { GridViewport } from './GridViewport';
+import { activateSourceLink } from '../components/evidence/sourceLink';
 import {
   type SavedViewColumnGroup,
   type CellValue,
@@ -354,7 +355,8 @@ export interface SheetGridProps {
   loadActionRunEntry?(anchor: ActionRunAnchor): Promise<ActionRunEntryDetails | null>;
   onCompareActionRun?(anchor: ActionRunAnchor): void;
   onColumnGroupsChange?(groups: ColumnGroupViewSpec[]): void;
-  onSelectedRowsChange?(selection: { sheetId: string; rowIds: string[]; rowIndexes: number[] }): void;
+  onSelectedRowsChange?(selection: { sheetId: string; rowIds: string[]; rowIndexes: number[]; cachedAnchors: Array<{ index: number; rowId: string }> }): void;
+  onRowContextMenu?(request: { rowId: string; rowIndex: number; columnId: string | null; bounds: Rectangle; selected: boolean; copy(): Promise<void> }): void;
   onColumnOrderChange?(columns: string[]): void;
   onCellEdit(row: Row, col: ColumnDef, value: CellValue): Promise<void>;
   /** Registry-declared facet cell click → the same exact-value filter
@@ -918,12 +920,13 @@ function useRunColumnsAnnotation(
 function selectedRowsPayload(sheetId: string, cache: RowCache, rows: CompactSelection) {
   const rowIndexes: number[] = [];
   const rowIds: string[] = [];
+  const cachedAnchors: Array<{ index: number; rowId: string }> = [];
   for (const rowIndex of rows) {
     rowIndexes.push(rowIndex);
     const rowId = cache.getRow(rowIndex)?.id;
-    if (rowId !== undefined) rowIds.push(rowId);
+    if (rowId !== undefined) { rowIds.push(rowId); cachedAnchors.push({ index: rowIndex, rowId }); }
   }
-  return { sheetId, rowIds, rowIndexes };
+  return { sheetId, rowIds, rowIndexes, cachedAnchors };
 }
 
 function realRowSelection(selection: GridSelection, realRowCount: number): GridSelection {
@@ -1302,6 +1305,8 @@ interface SheetGridController {
   onAddColumnAtEnd?(anchor: { x: number; y: number }): void;
   onCellActivated(item: Item): void;
   onCellClicked(item: Item, event: CellClickedEventArgs): void;
+  onCellContextMenu(item: Item, event: CellClickedEventArgs): void;
+  onContextKeyDown(event: React.KeyboardEvent<HTMLDivElement>): void;
   onCellEdited(item: Item, newValue: EditableGridCell): void;
   onColumnMoved(startIndex: number, endIndex: number): void;
   onColumnResize: ColumnModel['onColumnResize'];
@@ -1323,7 +1328,7 @@ function useSheetGridController({
   rowDrawerOpen = false, frozenColumnCount = 1, columnGroupsStorageScope, columnGroupsVersion,
   hiddenColumnNames = EMPTY_COLUMN_NAMES, userHiddenColumnNames = EMPTY_COLUMN_NAMES,
   onRevealColumns, onAddColumnAtEnd,
-  onRowOpen, onColumnOpen, onHeaderSort, onSelectedRowsChange,
+  onRowOpen, onColumnOpen, onHeaderSort, onSelectedRowsChange, onRowContextMenu,
   onColumnHeaderMenu, loadActionRunEntry,
   onCompareActionRun,
   onColumnGroupsChange, onColumnOrderChange, onCellEdit,
@@ -2048,6 +2053,7 @@ function useSheetGridController({
         return;
       }
       const displayedCell = getCellContent(item);
+      if (displayedCell.kind === GridCellKind.Uri && activateSourceLink(displayedCell.data, projectId)) return;
       if (toggleGridAudio(item, displayedCell)) {
         return;
       }
@@ -2055,10 +2061,22 @@ function useSheetGridController({
       if (isOverlayEditable(displayedCell)) return;
       openCell(item);
     },
-    [openCell, getCellContent, toggleGridAudio, toggleEntityMentionExpansion, previewAt],
+    [openCell, getCellContent, toggleGridAudio, toggleEntityMentionExpansion, previewAt, projectId],
   );
 
   useEffect(() => {
+    const onSourceKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      if (isTypingTarget(event.target) || !hostRef.current?.contains(document.activeElement)) return;
+      const item = selectedItem.current;
+      if (!item) return;
+      const cell = getCellContent(item);
+      if (cell.kind === GridCellKind.Uri && activateSourceLink(cell.data, projectId)) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
       if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -2080,14 +2098,50 @@ function useSheetGridController({
       event.preventDefault();
       openCell(item);
     };
+    window.addEventListener('keydown', onSourceKeyDown, true);
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [openCell, getCellContent, toggleEntityMentionExpansion, previewAt]);
+    return () => {
+      window.removeEventListener('keydown', onSourceKeyDown, true);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [openCell, getCellContent, toggleEntityMentionExpansion, previewAt, projectId]);
 
   const openSelectedCell = useCallback(() => {
     const item = selectedItem.current;
     if (item) openCell(item);
   }, [openCell]);
+
+  const onCellContextMenu = useCallback((item: Item, event: CellClickedEventArgs) => {
+    const row = cache.getRow(item[1]);
+    if (!onRowContextMenu || !row || item[1] >= realRowCount) return;
+    event.preventDefault();
+    const selected = gridSelection.rows.hasIndex(item[1]);
+    if (!selected) {
+      const rows = CompactSelection.empty().add(item[1]);
+      setGridSelection({ columns: CompactSelection.empty(), rows });
+      onSelectedRowsChange?.(selectedRowsPayload(sheet.id, cache, rows));
+    }
+    onRowContextMenu({ rowId: row.id, rowIndex: item[1], columnId: gridColumns[item[0]]?.type === 'file' ? gridColumns[item[0]].id : null, bounds: event.bounds, selected, copy: () => gridRef.current?.emit('copy') ?? Promise.resolve() });
+  }, [cache, gridColumns, gridSelection.rows, onRowContextMenu, onSelectedRowsChange, realRowCount, sheet.id]);
+
+  const onContextKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
+    const target = event.target as HTMLElement;
+    if (target.closest('input, textarea, [contenteditable=true]')) return;
+    const item = selectedItem.current;
+    if (!item || !onRowContextMenu) return;
+    const row = cache.getRow(item[1]);
+    const bounds = gridRef.current?.getBounds(item[0], item[1]);
+    if (!row || !bounds) return;
+    event.preventDefault();
+    const selected = gridSelection.rows.hasIndex(item[1]);
+    if (!selected) {
+      const rows = CompactSelection.empty().add(item[1]);
+      setGridSelection({ columns: CompactSelection.empty(), rows });
+      onSelectedRowsChange?.(selectedRowsPayload(sheet.id, cache, rows));
+    }
+    onRowContextMenu({ rowId: row.id, rowIndex: item[1], columnId: gridColumns[item[0]]?.type === 'file' ? gridColumns[item[0]].id : null, bounds, selected, copy: () => gridRef.current?.emit('copy') ?? Promise.resolve() });
+  }, [cache, gridColumns, gridSelection.rows, onRowContextMenu, onSelectedRowsChange, sheet.id]);
 
   const onGridSelectionChange = useCallback(
     (selection: GridSelection) => {
@@ -2171,6 +2225,8 @@ function useSheetGridController({
       onAddColumnAtEnd,
       onCellActivated,
       onCellClicked,
+      onCellContextMenu,
+      onContextKeyDown,
       onCellEdited,
       onColumnMoved,
       onColumnResize,
@@ -2204,6 +2260,8 @@ function useSheetGridController({
       onAddColumnAtEnd,
       onCellActivated,
       onCellClicked,
+      onCellContextMenu,
+      onContextKeyDown,
       onCellEdited,
       onColumnMoved,
       onColumnResize,
@@ -2241,6 +2299,8 @@ function SheetGridSurface({ controller }: { controller: SheetGridController }) {
     onAddColumnAtEnd,
     onCellActivated,
     onCellClicked,
+    onCellContextMenu,
+    onContextKeyDown,
     onCellEdited,
     onColumnMoved,
     onColumnResize,
@@ -2363,6 +2423,7 @@ function SheetGridSurface({ controller }: { controller: SheetGridController }) {
       data-visible-column-names={gridColumns.map((column) => column.name).join(',')}
       data-frozen-columns={String(Math.max(0, Math.min(frozenColumnCount, gridColumns.length)))}
       ref={hostRef}
+      onKeyDown={onContextKeyDown}
     >
         {/* Do not key on theme colors; remounting Glide loses its internal scroll position. */}
       <GridViewport
@@ -2382,6 +2443,7 @@ function SheetGridSurface({ controller }: { controller: SheetGridController }) {
         onColumnResizeEnd={onColumnResizeEnd}
         onVisibleRegionChanged={onVisibleRegionChanged}
         onCellClicked={onCellClicked}
+        onCellContextMenu={onCellContextMenu}
         onCellActivated={onCellActivated}
         onCellEdited={onCellEdited}
         onHeaderClicked={headerHandlers.onHeaderClicked}

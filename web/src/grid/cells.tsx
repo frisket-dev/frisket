@@ -4,6 +4,7 @@
 
 import { coerceFiniteNumber, countLabel, formatNumberDisplay } from '../format';
 import { textDisplayValue } from '../displayText';
+import { activateSourceLink, parseSourceLink } from '../components/evidence/sourceLink';
 import {
   GridCellKind,
   type CustomCell,
@@ -1285,6 +1286,17 @@ export function buildCell(col: ColumnDef, row: Row | undefined, opts: BuildCellO
         allowOverlay: false,
       };
     }
+  }
+  if (pres.renderer === 'link' && opts.projectId && typeof v === 'string') {
+    const source = parseSourceLink(v);
+    if (source?.projectId === opts.projectId) return {
+      kind: GridCellKind.Uri,
+      data: v,
+      displayData: row.sourceLinks?.[col.id]?.label ?? 'original PDF ↗',
+      allowOverlay: false,
+      hoverEffect: true,
+      onClickUri: (event) => { event.preventDefault(); activateSourceLink(v, opts.projectId!); },
+    };
   }
   const build = CELL_BUILDERS[pres.renderer ?? 'text'] ?? textBuilder;
   return withEditableOverlay(build(col, v, opts, pres), opts.editable);

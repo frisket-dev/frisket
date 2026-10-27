@@ -14,8 +14,11 @@ from typing import Any, Literal, Mapping
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.import_sessions import (
     ImportInProgress,
+    ImportSessionConflict,
     active_import_session,
+    invalidate_pdf_split_generation,
     set_import_session_rows_hidden,
+    set_import_session_replaced_rows_hidden,
 )
 from frisket.engine.store.current_cells import refresh_current_cell_pairs
 from frisket.engine.store.result_generations import ResultGenerationStore
@@ -239,7 +242,10 @@ def step_operation(
                 if (row := project.get_column(column_id)) is not None
             }
             set_undo_info(project, target_op_id, undo_info, commit=False)
-        project._unapply(target)
+        try:
+            project._unapply(target)
+        except ImportSessionConflict as exc:
+            raise CorruptOperation(target_op_id, str(exc)) from exc
         status_after = "undone"
         project.db.execute("UPDATE ops SET status='undone' WHERE id=?", (target_op_id,))
         cursor_after = int(
@@ -249,7 +255,10 @@ def step_operation(
             ).fetchone()[0]
         )
     else:
-        project._reapply(target)
+        try:
+            project._reapply(target)
+        except ImportSessionConflict as exc:
+            raise CorruptOperation(target_op_id, str(exc)) from exc
         status_after = "applied"
         project.db.execute(
             "UPDATE ops SET status='applied' WHERE id=?", (target_op_id,)
@@ -576,14 +585,12 @@ def validate_operation_undo_info(undo_info: Any) -> str | None:
             "Target operation undo_info.evidence_links_staled must be a list of "
             "stable-id/reason objects"
         )
-    import_session_id = undo_info.get("created_rows_import_session_id")
-    if import_session_id is not None and (
-        not isinstance(import_session_id, str) or not import_session_id
-    ):
-        return (
-            "Target operation undo_info.created_rows_import_session_id must be "
-            "a non-empty string"
-        )
+    for field in ("created_rows_import_session_id", "replaced_rows_import_session_id"):
+        import_session_id = undo_info.get(field)
+        if import_session_id is not None and (
+            not isinstance(import_session_id, str) or not import_session_id
+        ):
+            return f"Target operation undo_info.{field} must be a non-empty string"
     return None
 
 
@@ -601,6 +608,18 @@ def operation_affected_refs(undo_info: Mapping[str, Any]) -> list[dict[str, Any]
     deleted_row_ids = [int(row_id) for row_id in undo_info.get("deleted_rows", [])]
     if deleted_row_ids:
         refs.append({"kind": "rows", "row_ids": deleted_row_ids})
+    for field, membership in (
+        ("created_rows_import_session_id", "created"),
+        ("replaced_rows_import_session_id", "replaced"),
+    ):
+        if undo_info.get(field):
+            refs.append(
+                {
+                    "kind": "import_session_rows",
+                    "session_id": undo_info[field],
+                    "membership": membership,
+                }
+            )
     pointer_after = undo_info.get("column_pointers_after") or {}
     for column_id, before_run_id in undo_info.get("column_pointers", {}).items():
         refs.append(
@@ -647,6 +666,8 @@ def _is_review_state_key(value: Any) -> bool:
 def _unapply(project: Any, op: sqlite3.Row) -> None:
     """Restore pointer state captured in undo_info. Never deletes data."""
     info = json.loads(op["undo_info"] or "{}")
+    if op["kind"] == "pdf.split":
+        invalidate_pdf_split_generation(project.db, op_id=int(op["id"]))
     for col_id, prev_run in info.get("column_pointers", {}).items():
         project.db.execute(
             "UPDATE columns SET current_run_id=? WHERE id=?",
@@ -687,6 +708,13 @@ def _unapply(project: Any, op: sqlite3.Row) -> None:
     for row_id in info.get("deleted_rows", []):
         # undo of a row delete restores the soft-deleted row
         project.db.execute("UPDATE rows SET hidden=0 WHERE id=?", (row_id,))
+    if info.get("replaced_rows_import_session_id") is not None:
+        set_import_session_replaced_rows_hidden(
+            project.db,
+            op_id=int(op["id"]),
+            session_id=info["replaced_rows_import_session_id"],
+            hidden=False,
+        )
     for key, previous_state in info.get("review_states", {}).items():
         run_id, row_id, column_id = _parse_review_state_key(key)
         updated = RunResultStore(project).set_result_review_state(
@@ -755,6 +783,13 @@ def _reapply(project: Any, op: sqlite3.Row) -> None:
     for row_id in info.get("deleted_rows", []):
         # redo of a row delete re-hides the row
         project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (row_id,))
+    if info.get("replaced_rows_import_session_id") is not None:
+        set_import_session_replaced_rows_hidden(
+            project.db,
+            op_id=int(op["id"]),
+            session_id=info["replaced_rows_import_session_id"],
+            hidden=True,
+        )
     for key, next_state in info.get("review_states_after", {}).items():
         run_id, row_id, column_id = _parse_review_state_key(key)
         updated = RunResultStore(project).set_result_review_state(

@@ -9,6 +9,7 @@ import { isTextRenderableMediaType, jsonRecord, textCitedSpans } from './evidenc
 
 export function ArtifactSource({
   artifact,
+  initialPage,
   textPassageTargets,
   playFocusedPassage,
   scopeSpanId,
@@ -19,6 +20,7 @@ export function ArtifactSource({
   onLocateCurrent,
 }: {
   artifact: EvidenceArtifact;
+  initialPage?: number;
   textPassageTargets?: readonly EvidenceTextPassageTarget[];
   playFocusedPassage?: boolean;
   scopeSpanId?: string;
@@ -51,7 +53,7 @@ export function ArtifactSource({
         onLocateCurrent={onLocateCurrent}
       />
       {(artifact.media_type === 'application/pdf' && blob) || artifact.pages.length > 0 ? (
-        <EvidenceDocumentSource artifact={artifact} scopeSpanId={scopeSpanId} emphasizedSpanIds={emphasizedSpanIds} />
+        <EvidenceDocumentSource artifact={artifact} initialPage={initialPage} scopeSpanId={scopeSpanId} emphasizedSpanIds={emphasizedSpanIds} />
       ) : isTextRenderableMediaType(artifact.media_type) && (artifact.text_context != null || textCitedSpans(artifact).length > 0) ? (
         <TextArtifactSource key={artifact.stable_id} artifact={artifact} textPassageTargets={textPassageTargets} playFocusedPassage={playFocusedPassage} scopeSpanId={scopeSpanId} scopeSpanIds={scopeSpanIds} highlight={highlight} emphasizedSpanIds={emphasizedSpanIds} />
       ) : artifact.media_type.startsWith('image/') && blob ? (

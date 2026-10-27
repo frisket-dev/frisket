@@ -393,7 +393,9 @@ def replace_base_cells(
             columns,
         )
     ]
-    _require_cell_targets_mutable(db, [(row_id, columns[0]) for row_id in target_rows])
+    _require_cell_targets_mutable(
+        db, [(row_id, columns[0]) for row_id in target_rows], producer_id=producer_id
+    )
 
     params: list[int] = list(columns)
     where = f"column_id IN ({','.join('?' for _ in columns)})"

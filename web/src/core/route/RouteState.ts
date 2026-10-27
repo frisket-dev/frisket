@@ -39,6 +39,7 @@ export function narrowPanel(panel: RoutePanel | undefined): RouteStatePanel {
       return { kind: 'column', columnId: panel.columnId };
     case 'sourceHealth':
       return { kind: 'sourceHealth', sourceId: panel.sourceId };
+    case 'evidence':
     case 'map':
     case 'graph':
       return null;

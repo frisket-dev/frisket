@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import io
 from contextlib import contextmanager
-from types import SimpleNamespace
 
 import pytest
 
@@ -22,7 +21,7 @@ class _Stager:
         self.files = {}
         self.roles = {}
         self.names = {}
-        self.page_references = {}
+        self.associations = {}
 
     def stage(self, stream, *, filename, mime, role=None):
         data = b"".join(iter(lambda: stream.read(64 * 1024), b""))
@@ -34,16 +33,11 @@ class _Stager:
 
     @contextmanager
     def open_binary(self, file):
-        document = self.page_references.get(file, (file, None, None))[0]
-        with io.BytesIO(self.files[document]) as stream:
+        with io.BytesIO(self.files[file]) as stream:
             yield stream
 
-    def reference_pdf_page(self, document, *, page, text=None):
-        file = StagedFile(size=document.size)
-        self.page_references[file] = (document, page, text)
-        self.roles[file] = PdfPage(document=document, page=page)
-        self.names[file] = self.names[document]
-        return file
+    def associate_packet_split(self, document, child, **facts):
+        self.associations[child] = (document, facts)
 
 
 class _Renderer:
@@ -133,24 +127,28 @@ def test_files_open_and_stage_only_rows_consumed(tmp_path):
         reader.close()
 
 
+def _pdf_bytes(*widths):
+    pypdf = pytest.importorskip("pypdf")
+    writer = pypdf.PdfWriter()
+    for width in widths:
+        writer.add_blank_page(width=width, height=300)
+    output = io.BytesIO()
+    writer.write(output)
+    return output.getvalue()
+
+
 def test_pdf_extraction_failure_keeps_row_and_original_document(tmp_path, monkeypatch):
     pypdf = pytest.importorskip("pypdf")
     source = tmp_path / "document.pdf"
-    source.write_bytes(b"test PDF input")
+    raw = _pdf_bytes(101, 202)
+    source.write_bytes(raw)
 
-    def broken_text():
-        raise ValueError("unsupported page text")
+    def extract_text(page, *args, **kwargs):
+        if int(page.mediabox.width) == 202:
+            raise ValueError("unsupported page text")
+        return "first page"
 
-    monkeypatch.setattr(
-        pypdf,
-        "PdfReader",
-        lambda stream: SimpleNamespace(
-            pages=[
-                SimpleNamespace(extract_text=lambda: "first page"),
-                SimpleNamespace(extract_text=broken_text),
-            ]
-        ),
-    )
+    monkeypatch.setattr(pypdf._page.PageObject, "extract_text", extract_text)
     params = ImportPdfParams(source={"kind": "file", "path": str(source)})
     reader, blobs = AdmittedLocalFileReader(), _Stager()
     try:
@@ -170,31 +168,31 @@ def test_pdf_extraction_failure_keeps_row_and_original_document(tmp_path, monkey
             {"page": 2, "text": "", "page_image": None},
         ]
         assert len(table.warnings) == 1
-        assert len(blobs.files) == 1
+        assert len(blobs.files) == 3
         document = next(iter(blobs.files))
         assert isinstance(blobs.roles[document], PdfDocument)
-        assert blobs.files[document] == b"test PDF input"
-        assert [blobs.page_references[row["source"]] for row in rows] == [
-            (document, 1, "first page"),
-            (document, 2, None),
+        assert blobs.files[document] == raw
+        for row, width in zip(rows, (101, 202), strict=True):
+            child = row["source"]
+            pages = pypdf.PdfReader(io.BytesIO(blobs.files[child])).pages
+            assert len(pages) == 1 and int(pages[0].mediabox.width) == width
+            original, facts = blobs.associations[child]
+            assert original is document
+            assert facts["source_page_count"] == facts["sibling_count"] == 2
+            assert facts["page_start"] == facts["page_end"] == row["page"]
+            assert facts["prepared_column_name"] == "text"
+        prepared = blobs.associations[rows[0]["source"]][1]["ocr_pages"]
+        assert [(page.page, page.text, page.engine) for page in prepared] == [
+            (1, "first page", "native")
         ]
+        assert blobs.associations[rows[1]["source"]][1]["ocr_pages"] == ()
     finally:
         reader.close()
 
 
-def test_pdf_identical_page_bytes_keep_distinct_document_page_roles(
-    tmp_path, monkeypatch
-):
-    pypdf = pytest.importorskip("pypdf")
+def test_pdf_identical_page_bytes_keep_distinct_document_page_roles(tmp_path):
     source = tmp_path / "document.pdf"
-    source.write_bytes(b"test PDF input")
-    monkeypatch.setattr(
-        pypdf,
-        "PdfReader",
-        lambda stream: SimpleNamespace(
-            pages=[SimpleNamespace(extract_text=lambda: "")] * 2
-        ),
-    )
+    source.write_bytes(_pdf_bytes(100, 100))
 
     reader, blobs = AdmittedLocalFileReader(), _Stager()
     try:
@@ -221,11 +219,9 @@ def test_pdf_identical_page_bytes_keep_distinct_document_page_roles(
         reader.close()
 
 
-def test_pdf_without_pages_refuses(tmp_path, monkeypatch):
-    pypdf = pytest.importorskip("pypdf")
+def test_pdf_without_pages_refuses(tmp_path):
     source = tmp_path / "empty.pdf"
-    source.write_bytes(b"empty PDF input")
-    monkeypatch.setattr(pypdf, "PdfReader", lambda stream: SimpleNamespace(pages=[]))
+    source.write_bytes(_pdf_bytes())
     reader = AdmittedLocalFileReader()
     blobs = _Stager()
     try:

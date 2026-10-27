@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from filelock import FileLock
+from filelock import FileLock, Timeout
 
 from frisket.server.route_errors import RouteError
 from frisket.server.services.import_bulk_sources import fsync_directory
@@ -112,6 +112,15 @@ class PdfDraftStore:
                 if stat.S_ISDIR(metadata.st_mode) and metadata.st_mtime <= cutoff:
                     shutil.rmtree(directory, ignore_errors=True)
             except OSError:
+                continue
+        for directory in self.root.glob(".pdf-reader-*"):
+            try:
+                metadata = directory.lstat()
+                if not stat.S_ISDIR(metadata.st_mode) or metadata.st_mtime > cutoff:
+                    continue
+                with FileLock(str(directory / ".reader.lock"), timeout=0):
+                    shutil.rmtree(directory, ignore_errors=True)
+            except (OSError, Timeout):
                 continue
         terminal = {"open", "committed", "cancelling", "cancelled", "error"}
         for path in self.root.glob("pdf-*/manifest.json"):

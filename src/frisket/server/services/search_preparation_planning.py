@@ -132,6 +132,15 @@ def build_plan(
             for _column, selected_row, _value, source in bindings
             if source.mime_type.lower() == "application/pdf"
         }
+        for _column, selected_row, _value, source in bindings:
+            if (
+                source.mime_type.lower() != "application/pdf"
+                or source.page_number is not None
+            ):
+                continue
+            original_page = _imported_pdf_child_page_source(project, source)
+            if original_page is not None:
+                pdf_pages.add((selected_row, *original_page))
         for column, selected_row, value, source in bindings:
             mime = source.mime_type.lower()
             kind: str | None = None
@@ -268,6 +277,38 @@ def _pdf_sample(
     return sample
 
 
+def _imported_pdf_child_page_source(
+    project: Any, source: Any
+) -> tuple[str, int] | None:
+    """Recognize a physical one-page child beside its original's page image."""
+    row = project.db.execute(
+        "SELECT original.blob_hash, span.page_start "
+        "FROM evidence_links link "
+        "JOIN evidence_link_spans linked ON linked.link_id=link.id "
+        "JOIN source_spans span ON span.id=linked.span_id "
+        "JOIN source_artifacts original ON original.id=span.artifact_id "
+        "WHERE link.status='active' AND link.link_role='source_provenance' "
+        "AND link.subject_kind='cell_value' AND link.sheet_id=? "
+        "AND link.row_id=? AND link.column_id=? "
+        "AND original.media_type='application/pdf' AND span.span_kind='page_range' "
+        "AND span.page_start=span.page_end "
+        "AND EXISTS (SELECT 1 FROM source_artifacts child "
+        "WHERE child.blob_hash=? AND child.media_type='application/pdf' "
+        "AND child.page_count=1 AND child.source_sheet_id=link.sheet_id "
+        "AND child.source_row_id=link.row_id AND child.source_column_id=link.column_id) "
+        "ORDER BY link.id DESC LIMIT 1",
+        (
+            source.sheet_id,
+            source.binding.row_id,
+            source.binding.column_id,
+            source.blob_hash,
+        ),
+    ).fetchone()
+    if row is None or row["blob_hash"] is None or row["page_start"] is None:
+        return None
+    return str(row["blob_hash"]), int(row["page_start"])
+
+
 def _imported_pdf_page_source(project: Any, source: Any) -> tuple[str, int] | None:
     row = project.db.execute(
         "SELECT artifact.blob_hash, span.page_start "
@@ -303,7 +344,7 @@ def _has_current_result(project: Any, source: Any, kind: str) -> bool:
         blob_hash=source.blob_hash,
         page_number=source.page_number,
     )
-    if prepared is not None:
+    if prepared is not None and prepared["has_text"] and prepared["coverage_complete"]:
         return True
     if kind != "transcribe":
         return False
@@ -352,10 +393,10 @@ def _current_prepared_result(
     return project.db.execute(
         "WITH prepared_readiness_scope(sheet_id,row_id) AS (VALUES (?,?)), "
         f"{prepared_source_readiness_ctes(scope_relation='prepared_readiness_scope')} "
-        "SELECT prepared_ref_id,page_count FROM current_prepared_sources "
+        "SELECT prepared_ref_id,page_count,has_text,coverage_complete FROM current_prepared_sources "
         "WHERE source_sheet_id=? AND source_row_id=? AND source_column_id=? "
         "AND blob_hash=? AND page_number IS ? "
-        "ORDER BY prepared_ref_id DESC LIMIT 1",
+        "ORDER BY (has_text AND coverage_complete) DESC, prepared_ref_id DESC LIMIT 1",
         (
             sheet_id,
             row_id,

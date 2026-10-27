@@ -327,6 +327,10 @@ class SheetDataBoundedValue(WireModel):
     manual_edit_byte_limit: Literal[65_536]
 
 
+class SheetDataSourceLink(WireModel):
+    label: str = Field(max_length=300)
+
+
 class SheetDataCellMeta(WireModel):
     current_value_ref: SheetDataValueRef
     warnings: list[str] = Field(default_factory=list)
@@ -343,6 +347,7 @@ class SheetDataCellMeta(WireModel):
     invalid: bool = False
     bounded_value: SheetDataBoundedValue | None = None
     replay_comparison_unavailable: bool = False
+    source_link: SheetDataSourceLink | None = None
 
 
 class SheetDataRow(WireModel):

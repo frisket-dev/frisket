@@ -146,7 +146,45 @@ def test_prepare_routes_direct_and_mixed_zip_pdf_selections_without_copying(
     assert _private_directories(client, project_id) == []
 
 
-def test_prepare_with_fewer_than_two_pdfs_publishes_existing_bulk_plan(
+def test_prepare_one_pdf_in_zip_admits_all_companions_without_publishing(
+    tmp_path: Path,
+) -> None:
+    writer = pytest.importorskip("pypdf").PdfWriter()
+    writer.add_blank_page(width=72, height=72)
+    pdf = io.BytesIO()
+    writer.write(pdf)
+    client = TestClient(create_app(tmp_path / "workspace"))
+    project_id = _project(client)
+
+    response = _prepare(
+        client,
+        project_id,
+        [
+            (
+                "bundle.zip",
+                _zip({"one.pdf": pdf.getvalue(), "photo.png": b"image"}),
+                "application/zip",
+                "bundle.zip",
+            ),
+            ("notes.txt", b"notes", "text/plain", "notes.txt"),
+        ],
+        expand_archive=True,
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["kind"] == "pdf_import"
+    draft = body["draft"]
+    assert draft["manifest"]["files_total"] == 3
+    assert draft["upload"]["files_done"] == 3
+    assert draft["upload"]["sealed"] is True
+    assert draft["analysis"] == {"files_done": 0, "files_total": 3}
+    project = client.app.state.workspace.get(project_id)
+    assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 0
+    assert _private_directories(client, project_id) == []
+
+
+def test_prepare_without_pdfs_publishes_existing_bulk_plan(
     tmp_path: Path,
 ) -> None:
     client = TestClient(create_app(tmp_path / "workspace"))
@@ -158,7 +196,7 @@ def test_prepare_with_fewer_than_two_pdfs_publishes_existing_bulk_plan(
         [
             (
                 "bundle.zip",
-                _zip({"one.pdf": b"%PDF-one", "rows.csv": b"name\nAda\n"}),
+                _zip({"photo.png": b"image", "rows.csv": b"name\nAda\n"}),
                 "application/zip",
                 "bundle.zip",
             ),

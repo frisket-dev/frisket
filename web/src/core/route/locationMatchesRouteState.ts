@@ -39,7 +39,7 @@ export type ParsePathname = (pathname: string) => Route;
  *  projection uses (projectRouteState). */
 export function routeToRouteState(route: Route): RouteState | null {
   if (route.kind !== 'project') return null;
-  if (route.panel?.kind === 'map' || route.panel?.kind === 'graph') return null;
+  if (route.panel?.kind === 'map' || route.panel?.kind === 'graph' || route.panel?.kind === 'evidence') return null;
   return {
     projectId: route.projectId,
     sheetId: route.sheetId ?? null,
@@ -77,6 +77,8 @@ export function routePanelsEqual(
       return b.kind === 'column' && a.columnId === b.columnId;
     case 'map':
       return b.kind === 'map' && a.columnId === b.columnId;
+    case 'evidence':
+      return b.kind === 'evidence' && a.evidenceLinkId === b.evidenceLinkId;
     case 'graph':
       return b.kind === 'graph';
     case 'sourceHealth':

@@ -191,6 +191,7 @@ export function importActivity(session: ImportSessionStatus): ImportActivity | n
 
 export interface ImportProgressController {
   activities: ImportActivity[];
+  refresh(): Promise<void>;
   message: string | null;
   busyRef: string | null;
   preparingRef: string | null;
@@ -386,6 +387,7 @@ export function useImportProgress({ projectId, onChanged, onError }: {
 
   return useMemo<ImportProgressController>(() => ({
     activities,
+    refresh,
     message,
     busyRef,
     preparingRef,
@@ -420,7 +422,7 @@ export function useImportProgress({ projectId, onChanged, onError }: {
           ))
       ));
     },
-  }), [activities, message, busyRef, preparingRef, command, requestReselect, projectId]);
+  }), [activities, message, busyRef, preparingRef, command, requestReselect, projectId, refresh]);
 }
 
 export interface ImportSearchActivityLine {

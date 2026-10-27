@@ -34,6 +34,8 @@ from frisket.contracts.http.onboarding_imports import (
     ImportPdfResponse,
     ImportUrlsBody,
     ImportUrlsResponse,
+    PrepareImportUrlsBody,
+    PrepareImportUrlsResponse,
     ImportXlsxResponse,
 )
 from frisket.server.route_errors import http_error_responses
@@ -56,6 +58,7 @@ from frisket.server.services.import_uploads import (
     admit_uploads,
 )
 from frisket.server.services.import_urls import ImportUrlsService
+from frisket.server.services.import_urls_prepare import ImportUrlsPrepareService
 from frisket.server.services.import_xlsx import ImportXlsxUploadService
 from frisket.server.transport import (
     V1_IMPORT_CSV_UPLOAD_BRIDGE_TASK,
@@ -690,7 +693,37 @@ def register_import_urls_routes(
     app: FastAPI,
     *,
     service: ImportUrlsService,
+    prepare_service: ImportUrlsPrepareService | None = None,
 ) -> None:
+    @app.post(
+        "/api/projects/{pid}/import/urls/prepare",
+        operation_id="prepareImportUrls",
+        response_model=PrepareImportUrlsResponse,
+        responses=http_error_responses(400, 401, 403, 404, 413, 422, 499, 503),
+    )
+    async def prepare_import_urls(
+        pid: str,
+        body: PrepareImportUrlsBody,
+        request: Request,
+    ) -> dict[str, Any] | Response:
+        if prepare_service is None:
+            raise HTTPException(503, "URL preparation is unavailable")
+        prepared: dict[str, Any] | None = None
+        try:
+            if await request.is_disconnected():
+                return Response(status_code=499)
+            prepared = await prepare_service.prepare(
+                pid, request=request, urls=body.urls
+            )
+            if await request.is_disconnected():
+                await prepare_service.discard(pid, prepared)
+                return Response(status_code=499)
+            return prepared
+        except asyncio.CancelledError:
+            if prepared is not None:
+                await prepare_service.discard(pid, prepared)
+            raise
+
     @app.post(
         "/api/projects/{pid}/import/urls",
         response_model=ImportUrlsResponse,

@@ -1,0 +1,17 @@
+.modal-card.pdf-split-modal { width:min(1180px, calc(100vw - 48px)); height:min(800px, calc(100vh - 48px)); max-width:none; max-height:none; padding:0; overflow:hidden; }
+.pdf-split-setup { flex:1; min-height:0; background:white; display:flex; flex-direction:column; }
+.pdf-split-setup header,.pdf-split-setup footer { display:flex; align-items:center; gap:12px; padding:16px; border-bottom:1px solid #eee; }
+.pdf-split-setup header button { margin-left:auto; }.pdf-split-setup footer span { flex:1; }
+.pdf-split-setup-body { display:grid; grid-template-columns:400px 1fr; min-height:0; flex:1; }
+.pdf-split-setup-body > section { padding:20px; overflow:auto; }.pdf-split-setup-body label { display:block; margin:8px 0; }.pdf-split-preview { border-left:1px solid #eee; }
+.pdf-split-check { padding:20px; overflow:auto; flex:1; }.pdf-split-check fieldset { display:flex; gap:12px; margin:20px 0; }.pdf-split-check fieldset label { flex:1; }
+.pdf-split-radio-card { display:flex !important; align-items:flex-start; gap:8px; border:1px solid #ddd5cd; border-radius:6px; padding:10px; }
+.pdf-split-radio-card[data-selected] { border-color:#4b4ddb; background:#f4f4fe; }
+.pdf-split-radio-card span { display:grid; gap:3px; }
+.pdf-split-radio-card small { color:#756c66; }
+.pdf-split-excluded { color:#756c66; background:#f3f1ee; }
+.pdf-split-preview td { max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pdf-split-preview table { width:100%; border-collapse:collapse; table-layout:fixed; font-size:12px; }
+.pdf-split-preview th { color:#756c66; font-weight:600; text-align:left; border-bottom:1px solid #ddd5cd; padding:8px; }
+.pdf-split-preview td { padding:8px; border-bottom:1px solid #eeeae5; }
+.pdf-split-preview td:last-child span + span { margin-left:8px; }

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { createImportSession, importFiles, importFollowTheMoney, importCsv, importUrls, importXlsx, uploadFilesToImportSession, type ImportSessionStatus, type BulkImportPlan } from '../../api/open';
+import { createImportSession, importFiles, importFollowTheMoney, importCsv, importXlsx, uploadFilesToImportSession, type ImportSessionStatus, type BulkImportPlan } from '../../api/open';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
 import { notifyImportSessionChanged, rememberImportSessionFiles, setImportSessionBrowserUploading } from '../importProgressSession';
 import { byteBucket, columnBucket, durationBucket, failureCategory, rowBucket, sendProductTelemetry, type ImportFormat } from '../../telemetry/productTelemetry';
@@ -138,7 +138,7 @@ export const inferDroppedFileMode = (
   return 'files';
 };
 
-// uploadFiles/uploadUrls resolve to the
+// uploadFiles resolves to the
 // sheet's id (or null on failure/no-op) instead of a bare success boolean —
 // the caller decides whether to call onImported directly (the bare
 // ImportDropzone drop path) or route through the shared finishImport
@@ -329,47 +329,5 @@ export function useImportUpload({
     }
   };
 
-  const uploadUrls = async (raw: string): Promise<number | null> => {
-    if (busy) return null;
-    const urls: string[] = [];
-    for (const line of raw.split(/\r?\n/)) {
-      const url = line.trim();
-      if (url) urls.push(url);
-    }
-    if (!urls.length) {
-      onError('Import failed: enter at least one URL');
-      return null;
-    }
-    setBusy(true);
-    const startedAt = performance.now();
-    sendProductTelemetry({ type: 'Import.started', properties: { importKind: 'url', format: 'unknown', bytes: 'unknown' } }, projectId);
-    try {
-      const result = await importUrls(projectId, urls);
-      sendProductTelemetry({
-        type: 'Import.finished',
-        properties: {
-          importKind: 'url', format: 'unknown', bytes: 'unknown',
-          rows: rowBucket(result.rows), columns: 'unknown',
-          requestDuration: durationBucket(performance.now() - startedAt),
-          result: 'success', failureCategory: 'none',
-        },
-      }, projectId);
-      return result.sheet_id;
-    } catch (e) {
-      sendProductTelemetry({
-        type: 'Import.finished',
-        properties: {
-          importKind: 'url', format: 'unknown', bytes: 'unknown', rows: 'unknown', columns: 'unknown',
-          requestDuration: durationBucket(performance.now() - startedAt),
-          result: 'failed', failureCategory: failureCategory(e),
-        },
-      }, projectId);
-      onError(`Import failed: ${e instanceof Error ? e.message : String(e)}`);
-      return null;
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return { busy, sessionBusy, uploadFiles, uploadUrls };
+  return { busy, sessionBusy, uploadFiles };
 }

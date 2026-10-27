@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pydantic import Field
+from typing import Literal
 
 from frisket.actions.core import ActionCategory, action, create_sheet
 from frisket.actions.pdf_packet_import_types import PacketSplitReader
@@ -20,6 +21,13 @@ from frisket.actions.types import (
 class ImportPdfPacketParams(ActionParams):
     source_ref: str = Field(min_length=1)
     keep_ocr_text: bool = False
+    plan_hash: str | None = None
+    destination: Literal["new_sheet", "append", "replace"] = "new_sheet"
+    destination_sheet_id: int | None = Field(default=None, gt=0)
+    carried_column_ids: list[int] = Field(default_factory=list)
+    organization: Literal["keep_documents", "pages", "split_documents"] = (
+        "split_documents"
+    )
 
 
 def packet_columns(params: ImportPdfPacketParams) -> tuple[TableColumn, ...]:

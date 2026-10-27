@@ -308,6 +308,7 @@ _RUNLESS_ACTION_KINDS: frozenset[str] = frozenset(
         "replay.dismiss",
         "map.find",
         "map.formula",
+        "import.packet_split",
         "resolve.combine",
         "resolve.entities",
         "resolve.fill_missing",
@@ -542,10 +543,6 @@ _INLINE_KINDS: Mapping[str, str] = MappingProxyType(
         "import.ndjson": (
             "NDJSON import parses an already-uploaded file synchronously; "
             "bounded, no network."
-        ),
-        "import.packet_split": (
-            "Packet split import publishes preprocessed child PDFs atomically "
-            "inside its coordinating preview job; no second queue."
         ),
         "import.pdf": "PDF import parses an already-uploaded file synchronously; bounded, no network.",
         "import.rows": (

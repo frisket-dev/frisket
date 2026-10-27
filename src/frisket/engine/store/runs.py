@@ -2304,11 +2304,15 @@ class RunResultStore:
             "WHEN NOT (SUM(provider_cost_usd) <= ?) THEN NULL "
             "ELSE ROUND(SUM(provider_cost_usd), 8) END "
             "FROM model_calls "
-            "WHERE run_id=? AND credential_source != 'cache'"
+            "WHERE (run_id=? OR id IN (SELECT linked.id FROM receipts receipt "
+            "JOIN execution_attempts attempt ON attempt.receipt_id=receipt.id "
+            "JOIN model_calls linked ON linked.attempt_id=attempt.id WHERE receipt.run_id=? AND linked.run_id IS NULL)) "
+            "AND credential_source != 'cache'"
             ") WHERE id=?",
             (
                 PROVIDER_COST_MAX_USD,
                 PROVIDER_COST_TOTAL_MAX_USD,
+                run_id,
                 run_id,
                 run_id,
             ),
@@ -3120,13 +3124,20 @@ class RunResultStore:
                 "SELECT * FROM model_calls ORDER BY created_at, id"
             ).fetchall()
         return self.db.execute(
-            "SELECT * FROM model_calls WHERE run_id=? ORDER BY created_at, id",
-            (run_id,),
+            "SELECT call.* FROM model_calls call WHERE call.run_id=? OR call.id IN ("
+            "SELECT linked.id FROM receipts receipt JOIN execution_attempts attempt ON attempt.receipt_id=receipt.id "
+            "JOIN model_calls linked ON linked.attempt_id=attempt.id WHERE receipt.run_id=? AND linked.run_id IS NULL) "
+            "ORDER BY call.created_at,call.id",
+            (run_id, run_id),
         ).fetchall()
 
     def finish_run(
         self, run_id: int, status: str = "completed", *, commit: bool = True
     ) -> None:
+        # Whole-action previews may bind their running receipt to a published
+        # run after provider accounting. Keep fact ownership immutable and
+        # project its recorded cost through that explicit receipt link.
+        self._project_cost_actual(run_id)
         self.db.execute(
             "UPDATE runs SET status=?, finished_at=datetime('now') WHERE id=?",
             (status, run_id),

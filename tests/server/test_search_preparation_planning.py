@@ -699,3 +699,219 @@ def test_prepared_pdf_preview_reads_bounded_exact_page_with_nul(
         )
     finally:
         project.close()
+
+
+@pytest.mark.parametrize("selected_page", [None, 1, 2])
+def test_sparse_prepared_text_keeps_search_gap_and_cached_blank_page(
+    tmp_path, monkeypatch, selected_page
+):
+    from frisket.engine.store.document_text import ensure_document_text_role
+    from frisket.retrieval.contracts import (
+        RankingPolicy,
+        RetrievalScope,
+        SearchRequest,
+        SheetScope,
+        TextQuery,
+    )
+    from frisket.retrieval.query import search
+    from frisket.search import drain_index
+
+    project = Project.create(tmp_path / "sparse-readiness.frisket")
+    try:
+        sheet = project.add_sheet("Documents")
+        document = project.add_column(sheet, "document", type="file")
+        output = project.add_column(sheet, "text", type="text")
+        digest = project.add_blob(_pdf_bytes("source"), mime="application/pdf")
+        value = {"blob": digest, "mime": "application/pdf"}
+        if selected_page:
+            value["page"] = selected_page
+        row = project.add_rows(sheet, [{"document": value}], {"document": document})[0]
+        ensure_document_text_role(
+            project, source_column_id=document, text_column_id=output, commit=True
+        )
+        project.db.execute("BEGIN IMMEDIATE")
+        op = project.append_op("media.read_pdf_text", commit=False)
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="document",
+            media_type="application/pdf",
+            blob_hash=digest,
+            page_count=3,
+            source_sheet_id=sheet,
+            source_row_id=row,
+            source_column_id=document,
+        )
+        store = PreparedContentStore(project)
+        ref = store.stage_reference(
+            source_artifact_id=artifact["id"],
+            producing_op_id=op,
+            pages=[
+                PreparedPageDraft(1, "searchable sparse content"),
+                PreparedPageDraft(2, ""),
+            ],
+            page_number=selected_page,
+            allow_partial=True,
+        )
+        project.db.commit()
+        project.apply_edits([{"row_id": row, "column_id": output, "value": ref}])
+        source = resolve_cell_blob_source(
+            project, sheet_id=sheet, row_id=row, column_id=document
+        )
+        assert source is not None
+        assert planning._has_current_result(project, source, "native_pdf") is (
+            selected_page == 1
+        )
+        prepared = planning._current_prepared_result(
+            project,
+            sheet_id=sheet,
+            row_id=row,
+            column_id=document,
+            blob_hash=digest,
+            page_number=selected_page,
+        )
+        assert bool(prepared["coverage_complete"]) is (selected_page is not None)
+        assert bool(prepared["has_text"]) is (selected_page != 2)
+
+        async def forbidden_extract(*_args, **_kwargs):
+            raise AssertionError("a cached blank page must not be re-extracted")
+
+        monkeypatch.setattr(planning, "sample_pdf_text", forbidden_extract)
+        item = {
+            "row_id": row,
+            "column_id": document,
+            "blob_hash": digest,
+            "page_number": selected_page,
+            "page_count": 3,
+        }
+        sample_page = selected_page or 2
+        expected = "searchable sparse content" if sample_page == 1 else ""
+        assert planning.sample_pdf(project, sheet, item, sample_page)[:3] == (
+            expected,
+            3,
+            "prepared",
+        )
+        drain_index(project)
+        response = search(
+            project,
+            SearchRequest(
+                scope=RetrievalScope(
+                    sheets=(SheetScope(sheet, column_ids=(document,)),)
+                ),
+                query=TextQuery("absent"),
+                mode="lexical",
+                ranking=RankingPolicy(rerank="off"),
+            ),
+        )
+        gap = next(
+            c for c in response.coverage.channels if c.channel == "search_preparation"
+        )
+        assert (gap.eligible_count, gap.prepared_count) == (1, int(selected_page == 1))
+        if selected_page is None:
+            matches = search(
+                project,
+                SearchRequest(
+                    scope=RetrievalScope(
+                        sheets=(SheetScope(sheet, column_ids=(output,)),)
+                    ),
+                    query=TextQuery("searchable"),
+                    mode="lexical",
+                    ranking=RankingPolicy(rerank="off"),
+                ),
+            )
+            assert [item.primary.binding.row_id for item in matches.results] == [row]
+    finally:
+        project.close()
+
+
+@pytest.mark.parametrize("newer_pages", [[(1, ""), (2, "")], [(1, "partial")]])
+def test_legacy_ready_text_not_shadowed_by_newer_unready_result(
+    tmp_path, monkeypatch, newer_pages
+):
+    from frisket.engine.store.document_text import ensure_document_text_role
+
+    project = Project.create(tmp_path / "prepared-shadow.frisket")
+    try:
+        sheet = project.add_sheet("Documents")
+        document = project.add_column(sheet, "document", type="file")
+        older_column = project.add_column(sheet, "native", type="text")
+        newer_column = project.add_column(sheet, "ocr", type="text")
+        digest = project.add_blob(_pdf_bytes("source"), mime="application/pdf")
+        [row] = project.add_rows(
+            sheet,
+            [{"document": {"blob": digest, "mime": "application/pdf"}}],
+            {"document": document},
+        )
+        project.db.execute("BEGIN IMMEDIATE")
+        op = project.append_op("media.read_pdf_text", commit=False)
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="document",
+            media_type="application/pdf",
+            blob_hash=digest,
+            page_count=2,
+            source_sheet_id=sheet,
+            source_row_id=row,
+            source_column_id=document,
+        )
+        store = PreparedContentStore(project)
+        older = store.stage_reference(
+            source_artifact_id=artifact["id"],
+            producing_op_id=op,
+            pages=[
+                PreparedPageDraft(1, "hello one"),
+                PreparedPageDraft(2, "hello two"),
+            ],
+        )
+        newer = store.stage_reference(
+            source_artifact_id=artifact["id"],
+            producing_op_id=op,
+            pages=[PreparedPageDraft(n, text) for n, text in newer_pages],
+            allow_partial=True,
+        )
+        project.db.commit()
+        project.apply_edits(
+            [
+                {"row_id": row, "column_id": older_column, "value": older},
+                {"row_id": row, "column_id": newer_column, "value": newer},
+            ]
+        )
+        source = resolve_cell_blob_source(
+            project, sheet_id=sheet, row_id=row, column_id=document
+        )
+        assert source is not None
+        assert planning._has_current_result(project, source, "native_pdf")
+
+        async def forbidden_sample(*_args, **_kwargs):
+            raise AssertionError("a ready document must not be resampled")
+
+        monkeypatch.setattr(planning, "sample_pdf_text", forbidden_sample)
+        assert (
+            planning.build_plan(
+                project,
+                sheet_id=sheet,
+                row_ids=[row],
+                force_ocr=False,
+                requirements=(),
+                requirement_dict=lambda *_args, **_kwargs: {},
+            )["items"]
+            == []
+        )
+        item = {
+            "row_id": row,
+            "column_id": document,
+            "blob_hash": digest,
+            "page_number": None,
+        }
+        assert planning.sample_pdf(project, sheet, item, 1)[:3] == (
+            "hello one",
+            2,
+            "prepared",
+        )
+
+        ensure_document_text_role(
+            project, source_column_id=document, text_column_id=newer_column, commit=True
+        )
+        assert not planning._has_current_result(project, source, "native_pdf")
+        assert planning.sample_pdf(project, sheet, item, 1)[0] == newer_pages[0][1]
+    finally:
+        project.close()
