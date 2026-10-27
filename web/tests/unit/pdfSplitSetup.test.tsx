@@ -173,3 +173,13 @@ it('shows bounded document text provenance and friendly exclusions', async () =>
   expect(screen.getByText('Unavailable page · stays as it is')).toBeTruthy();
   expect(screen.queryByText(/invalid_page|Row 99/)).toBeNull();
 });
+it('uses singular counts for one PDF and one page', async () => {
+  api.create.mockResolvedValueOnce({ ...base, sources: [{ ...base.sources[0], page_end: 1 }] });
+  api.remove.mockResolvedValue(undefined);
+  render(<PdfSplitSetup projectId="p" sheet={{ id: '1', name: 'Sheet', rowCount: 1, columns: [{ id: '2', name: 'media', type: 'file' }, { id: '3', name: 'case', type: 'text' }] }} selection={{ sheetId: '1', rowIds: [], rowIndexes: [] }} getSheetRows={vi.fn().mockResolvedValue({ rows: [] })} view={{}} onClose={() => {}} onApply={async () => {}} />);
+  expect(await screen.findByRole('heading', { name: '1 row' })).toBeTruthy();
+  expect(screen.getByText('from 1 PDF')).toBeTruthy();
+  expect(screen.getByText('1 row · can be undone')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Create 1 row' })).toBeTruthy();
+  expect(screen.getByRole('checkbox', { name: 'case' })).toHaveProperty('checked', false);
+});

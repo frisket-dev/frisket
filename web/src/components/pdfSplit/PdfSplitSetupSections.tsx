@@ -1,3 +1,4 @@
+import { count } from '../importWorkspace/pdfBatch/model';
 import type { Row, SheetMeta } from '../../api/types';
 import { Button } from '../Button';
 import { TextInput } from '../FormControls';
@@ -39,23 +40,23 @@ export function SplitSetupSettings({
     <h3>PDFs</h3>
     {scopeOptions.map((value) => <RadioCard key={value} name="pdf-split-scope" checked={scope === value} onSelect={() => onScope(value)}
       title={value === 'selected' ? 'Selected rows' : value === 'filtered' ? 'Filtered rows' : `All rows in ${sheet.name}`}
-      detail={scope === value ? `${sourceCount} PDFs · ${pageCount} pages` : undefined} />)}
+      detail={scope === value ? `${count(sourceCount, 'PDF')} · ${count(pageCount, 'page')}` : undefined} />)}
     <h3>Make</h3>
     <RadioCard name="pdf-split-make" checked={organization === 'pages'} onSelect={() => onOrganization('pages')}
-      title="One row per page" detail={`${pageCount} rows`} />
+      title="One row per page" detail={count(pageCount, 'row')} />
     <RadioCard name="pdf-split-make" checked={organization === 'split_documents'} onSelect={() => onOrganization('split_documents')}
       title="Split into documents" detail="Find where they start" />
     <h3>Put results in</h3>
     <RadioCard name="pdf-split-destination" checked={destination === 'new_sheet'} onSelect={() => onDestination('new_sheet')} title="New sheet" />
     <TextInput aria-label="New sheet name" value={name} disabled={destination !== 'new_sheet'} onChange={(event) => onName(event.target.value)} />
     <RadioCard name="pdf-split-destination" checked={destination === 'replace'} onSelect={() => onDestination('replace')}
-      title="Replace original rows" detail={`${sourceCount} rows · can be undone`} />
+      title="Replace original rows" detail={`${count(sourceCount, 'row')} · can be undone`} />
     <h3>Carry over columns · {carried.length ? `${carried.length} ticked` : 'none'}</h3>
-    <p>filename, media, page, source and text are always included. Text comes from each page’s text layer or OCR.</p>
+    <p>filename, media, page, source and text are always included. text comes from each page’s text layer or OCR.</p>
     {[false, true].map((derived) => <div key={String(derived)}>
       {derived && <h4>Results for the whole PDF</h4>}
       {sheet.columns.filter((column) => column.id !== fileColumnId && Boolean(column.ai) === derived).map((column) => (
-        <label className="import-check-inline" key={column.id}>
+        <label className="form-check" key={column.id}>
           <input type="checkbox" checked={carried.includes(column.id)} onChange={(event) => onCarried(
             event.target.checked ? [...carried, column.id] : carried.filter((id) => id !== column.id),
           )} />
@@ -79,8 +80,8 @@ export function SplitSetupPreview({ sheet, organization, sources, carried, rows,
     if (preview.length === 9) break;
   }
   return <section className="pdf-split-preview">
-    <h3>{organization === 'pages' ? `${pageCount} rows` : `${sources.length} PDFs · ${pageCount} pages`}</h3>
-    <p>{organization === 'pages' ? `from ${sources.length} PDFs` : 'Each file’s first page starts a document'}</p>
+    <h3>{organization === 'pages' ? count(pageCount, 'row') : `${count(sources.length, 'PDF')} · ${count(pageCount, 'page')}`}</h3>
+    <p>{organization === 'pages' ? `from ${count(sources.length, 'PDF')}` : 'Each file’s first page starts a document'}</p>
     {organization === 'pages' ? <>
       <table><thead><tr><th>filename</th><th>page</th>
         {carried.map((id) => <th key={id}>{sheet.columns.find((column) => column.id === id)?.name}</th>)}<th>text</th>

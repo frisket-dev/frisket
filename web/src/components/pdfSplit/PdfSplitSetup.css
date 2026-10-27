@@ -15,3 +15,6 @@
 .pdf-split-preview th { color:#756c66; font-weight:600; text-align:left; border-bottom:1px solid #ddd5cd; padding:8px; }
 .pdf-split-preview td { padding:8px; border-bottom:1px solid #eeeae5; }
 .pdf-split-preview td:last-child span + span { margin-left:8px; }
+
+.pdf-split-settings label.form-check { display:flex; align-items:center; gap:7px; }
+.pdf-split-settings .form-check input { accent-color:var(--accent); }

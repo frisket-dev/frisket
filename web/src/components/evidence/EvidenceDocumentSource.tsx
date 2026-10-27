@@ -241,7 +241,7 @@ export function PdfPacketSourceCard({
         <span className="pdf-packet-source-kicker">Source packet</span>
         <strong>{data.filename}</strong>
         <span>
-          Pages {data.pageStart}–{data.pageEnd} of {data.pageCount}
+          {data.pageStart === data.pageEnd ? `Page ${data.pageStart}` : `Pages ${data.pageStart}–${data.pageEnd}`} of {data.pageCount}
           {dateLabel ? ` · split on ${dateLabel}` : ''}
         </span>
         <div className="pdf-packet-source-strip" aria-label={`Pages ${data.pageStart} through ${data.pageEnd} selected from ${data.pageCount}`}>

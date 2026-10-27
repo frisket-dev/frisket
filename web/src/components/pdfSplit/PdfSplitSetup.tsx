@@ -1,3 +1,4 @@
+import { count } from '../importWorkspace/pdfBatch/model';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Row, SheetMeta } from '../../api/types';
 import type { GridApiPort } from '../../api/ports';
@@ -301,7 +302,7 @@ export function PdfSplitSetup({ projectId, sheet, fileColumnId, selection, view,
     textSource={sampleTextSource} selection={ocrSelection} policy={policy} busy={busy} sampleJob={sampleJob}
     sampleConsent={sampleConsent} quote={ocrQuote} error={error}
     primaryLabel={organization === 'split_documents' ? 'Find documents →' : destination === 'replace'
-      ? `Replace ${sources.length} rows with ${pageCount}` : `Create ${pageCount} rows`}
+      ? `Replace ${count(sources.length, 'row')} with ${pageCount}` : `Create ${count(pageCount, 'row')}`}
     onSource={(key) => { setSampleSourceKey(key); setSampleTextSource('native'); }}
     onTextSource={setSampleTextSource}
     onPreview={() => ocrSelection.kind === 'engine' && samplePage?.ocr_text != null && samplePage.ocr_engine === ocrSelection.engine
@@ -321,11 +322,11 @@ export function PdfSplitSetup({ projectId, sheet, fileColumnId, selection, view,
     <PdfPacketReview projectId={projectId} snapshot={session} onClose={onClose} registerCloseRequest={registerReviewClose}
       headerContent={stages.length > 1 ? <StageStepper label="Split stages" stages={stages} stage="find" /> : null} onSnapshotChange={onReviewSnapshot}
       discardText="Text read so far stays on the original rows."
-      primaryLabel={(documents) => destination === 'replace' ? `Replace ${sources.length} rows with ${documents}` : `Create ${documents} rows`}
+      primaryLabel={(documents) => destination === 'replace' ? `Replace ${count(sources.length, 'row')} with ${documents}` : `Create ${count(documents, 'row')}`}
       onBack={() => setReviewing(false)} onReviewed={apply} />
   </div></Modal>;
   const primaryLabel = needsText ? 'Check text →' : organization === 'split_documents' ? 'Find documents →'
-    : destination === 'replace' ? `Replace ${sources.length} rows with ${pageCount}` : `Create ${pageCount} rows`;
+    : destination === 'replace' ? `Replace ${count(sources.length, 'row')} with ${pageCount}` : `Create ${count(pageCount, 'row')}`;
   return <Modal title="Split PDFs" hideHeader className="pdf-split-modal" onClose={closeModal}><div className="pdf-split-setup">
     <SplitSetupHeader title="Split PDFs" subtitle={sheet.name} onClose={onClose} />
     {stages.length > 1 && <StageStepper label="Split stages" stages={stages} stage="setup" />}

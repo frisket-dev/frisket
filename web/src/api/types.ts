@@ -2240,6 +2240,7 @@ export interface DocumentListItem {
   sourcePresent: boolean;
   sourceLabel: string | null;
   sourceLabelTruncated: boolean;
+  sourcePageRange?: { start: number; end: number } | null;
   characterCount: number | null;
 }
 

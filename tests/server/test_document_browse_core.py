@@ -322,3 +322,55 @@ def test_runtime_filter_retains_full_project_read_api_and_outer_transaction(
         assert project.db.in_transaction
     finally:
         project.db.rollback()
+
+
+def test_split_source_range_is_bounded_to_current_cell(docs):
+    from frisket.engine.store.evidence import (
+        record_evidence_link,
+        record_source_artifact,
+        record_source_span,
+    )
+
+    project, sheet, source, _, rows = docs
+    artifact = record_source_artifact(
+        project,
+        artifact_kind="file",
+        media_type="application/pdf",
+        filename="original.pdf",
+        metadata={},
+    )
+    span = record_source_span(
+        project,
+        artifact_id=artifact["id"],
+        span_kind="page_range",
+        page_start=3,
+        page_end=3,
+    )
+    _, refs = project.get_values_with_refs(sheet, source, [rows[0]])
+    record_evidence_link(
+        project,
+        subject_kind="cell_value",
+        subject_ref=refs[rows[0]],
+        sheet_id=sheet,
+        row_id=rows[0],
+        column_id=source,
+        link_role="source_provenance",
+        spans=[{"span_id": span["id"]}],
+    )
+    result = page(docs, limit=2)
+    assert result["items"][0]["source_page_range"] == {"start": 3, "end": 3}
+    assert result["items"][1]["source_page_range"] is None
+    project.apply_edits(
+        [
+            {
+                "row_id": rows[0],
+                "column_id": source,
+                "value": {
+                    "blob": "other",
+                    "filename": "other.pdf",
+                    "mime": "application/pdf",
+                },
+            }
+        ]
+    )
+    assert page(docs, limit=2)["items"][0]["source_page_range"] is None

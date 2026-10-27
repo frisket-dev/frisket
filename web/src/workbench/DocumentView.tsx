@@ -331,7 +331,11 @@ export function DocumentView({
           const characterCount = item.sourceKind === 'annotated_text'
             ? item.characterCount ?? 0
             : item.characterCount;
-          const secondary = characterCount !== null
+          const secondary = item.sourcePageRange
+            ? item.sourcePageRange.start === item.sourcePageRange.end
+              ? `Page ${item.sourcePageRange.start}`
+              : `Pages ${item.sourcePageRange.start}–${item.sourcePageRange.end}`
+            : characterCount !== null
             ? characterCount > 0
               ? `${characterCount.toLocaleString()} characters`
               : 'Empty'

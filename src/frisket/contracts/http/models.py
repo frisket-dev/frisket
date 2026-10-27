@@ -387,6 +387,11 @@ class CellTextWindow(WireModel):
     reached_end: bool
 
 
+class DocumentSourcePageRange(WireModel):
+    start: int = Field(ge=1)
+    end: int = Field(ge=1)
+
+
 class DocumentDescriptor(WireModel):
     row_id: int
     ordinal: int = Field(ge=1)
@@ -398,6 +403,7 @@ class DocumentDescriptor(WireModel):
     source_present: bool
     source_label: str | None = Field(max_length=256)
     source_label_truncated: bool
+    source_page_range: DocumentSourcePageRange | None = None
     character_count: int | None = Field(ge=0)
 
 
