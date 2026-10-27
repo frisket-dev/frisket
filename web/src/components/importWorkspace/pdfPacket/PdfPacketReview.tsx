@@ -121,7 +121,13 @@ export function PdfPacketReview({ projectId, snapshot: initial, onReviewed, onBa
     {discardTarget && <DiscardImportConfirm title="Discard this split?" testId="pdf-split-discard-dialog" confirmLabel="Discard"
       message={`${state.confirmedStarts.length - state.fixedStarts.length + state.rejected.length + state.examplePages.filter((page) => state.fixedStarts.includes(page) && !initialExamplePages.includes(page)).length} starts you marked or answered will be lost. ${discardText ?? 'Text read so far stays in this import.'}`}
       onKeep={() => { setDiscardTarget(null); window.requestAnimationFrame(() => closeButtonRef.current?.focus()); }}
-      onConfirm={() => discardTarget === 'close' ? onClose?.() : onBack()} />}
+      onConfirm={() => {
+        const target = discardTarget;
+        setDiscardTarget(null);
+        dispatch({ type: 'prepared', snapshot });
+        if (target === 'close') onClose?.();
+        else onBack();
+      }} />}
 
   </div>;
 }

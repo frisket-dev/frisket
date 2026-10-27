@@ -53,6 +53,21 @@ describe('combined PDF review', () => {
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Keep working' }));
     expect(onBack).toHaveBeenCalledTimes(1);
   });
+  it('clears a discarded review in a retained hidden panel', async () => {
+    const onBack = vi.fn();
+    const onReviewed = vi.fn();
+    const panel = (hidden: boolean) => <div hidden={hidden}><PdfPacketReview projectId="p" snapshot={snapshot} onReviewed={onReviewed} onBack={onBack} /></div>;
+    const view = render(panel(false));
+    fireEvent.click(screen.getByRole('button', { name: /Page 5/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+    expect(onBack).toHaveBeenCalledOnce();
+    view.rerender(panel(true));
+    expect(screen.queryByRole('dialog', { name: 'Discard this split?' })).toBeNull();
+    view.rerender(panel(false));
+    fireEvent.click(screen.getByRole('button', { name: /Continue to import/ }));
+    await waitFor(() => expect(onReviewed).toHaveBeenCalledWith({ a: [1], b: [4] }));
+  });
   it('registers the same discard guard for the enclosing modal', () => {
     const onClose = vi.fn();
     let requestClose = () => {};
