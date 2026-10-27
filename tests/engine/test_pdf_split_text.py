@@ -249,3 +249,97 @@ def test_concurrent_page_completions_merge_against_current_immutable_set(
     finally:
         preview._registry.shutdown()
         project.close()
+
+
+def test_merged_original_cache_is_narrowed_before_real_child_fanout(
+    tmp_path, monkeypatch
+):
+    from frisket.server.services.pdf_split_preparation import (
+        PdfSplitPageTarget,
+        PdfSplitPreparationStore,
+    )
+
+    adapter, preview, project, binding, _refs = _child(tmp_path, monkeypatch)
+    artifact = int(binding.expected_source_value["original_artifact_id"])
+    digest = project.db.execute(
+        "SELECT blob_hash FROM source_artifacts WHERE id=?", (artifact,)
+    ).fetchone()[0]
+    target = PdfSplitPageTarget(
+        "first",
+        artifact,
+        digest,
+        None,
+        2,
+        {"engine": "anthropic/claude-haiku-4-5", "keep_text_position": False},
+    )
+    queued = replace(
+        binding,
+        work_key=target.work_key,
+        page_number=2,
+        expected_source_value={
+            **binding.expected_source_value,
+            "original_page_number": 2,
+        },
+    )
+    try:
+        quoted = adapter.quote(targets=[target], plan_token="late-original-cache")
+        adapter.approve(quoted, confirmation=quoted["estimate"]["promise_set_hash"])
+        with PdfSplitPreparationStore(adapter.inventory_path) as store:
+            store.admit(
+                operation_id=binding.operation_id,
+                generation=binding.generation,
+                session_id=binding.session_id,
+                targets=[target],
+                bindings=[queued],
+                approved_plan_token="late-original-cache",
+            )
+        with project.transaction_scope():
+            merged = PreparedContentStore(project).stage_reference(
+                source_artifact_id=artifact,
+                producing_op_id=1,
+                pages=[
+                    PreparedPageDraft(
+                        page,
+                        f"Original {page}",
+                        {
+                            "engine": target.ocr_action_params["engine"],
+                            "ocr_action_params": dict(target.ocr_action_params),
+                        },
+                    )
+                    for page in (1, 2)
+                ],
+                allow_partial=True,
+            )
+        assert len(PreparedContentStore(project).resolve(merged.ref_id).pins) == 2
+        versions = project.db.execute(
+            "SELECT COUNT(*) FROM prepared_page_versions WHERE source_artifact_id=?",
+            (artifact,),
+        ).fetchone()[0]
+        adapter.publish_child_page = lambda current, ref: publish_pdf_split_page(
+            project, current, ref
+        )
+        assert adapter.start_pending(generation=binding.generation) == ()
+        sheet = project.db.execute(
+            "SELECT sheet_id FROM rows WHERE id=?", (binding.row_id,)
+        ).fetchone()[0]
+        selection = resolve_document_text_selection(
+            project, (sheet, binding.row_id, binding.source_column_id)
+        )
+        child = PreparedContentStore(project).resolve(selection.prepared_ref_id)
+        assert child.text == "Original 2"
+        assert child.covered_pages == (2,)
+        with PdfSplitPreparationStore(adapter.inventory_path) as store:
+            selected = PreparedContentStore(project).resolve(store.cached_ref(target))
+            assert selected.covered_pages == (2,)
+            assert len(selected.pins) == 1
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM prepared_page_versions WHERE source_artifact_id=?",
+                (artifact,),
+            ).fetchone()[0]
+            == versions
+        )
+        assert project.db.execute("SELECT COUNT(*) FROM model_calls").fetchone()[0] == 0
+    finally:
+        preview._registry.shutdown()
+        project.close()

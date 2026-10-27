@@ -780,6 +780,24 @@ class PdfSplitPreparationAdapter:
             op_id=work.operation_id,
         )
 
+    def _page_reference(self, ref_id: int, page_number: int) -> int:
+        """Normalize reusable document caches at the one-source-page boundary."""
+        project = self.workspace.get(self.project_id)
+        with project.transaction_scope():
+            ref = project.db.execute(
+                "SELECT set_id,page_number FROM prepared_content_refs WHERE id=?",
+                (ref_id,),
+            ).fetchone()
+            if ref is None or (ref[1] is not None and int(ref[1]) != page_number):
+                raise ValueError(
+                    "cached preparation does not select the requested original page"
+                )
+            return (
+                PreparedContentStore(project)
+                .stage_selector(set_id=int(ref[0]), page_number=page_number)
+                .ref_id
+            )
+
     def _complete(
         self,
         work: PdfSplitPageWork,
@@ -823,7 +841,9 @@ class PdfSplitPreparationAdapter:
                     store.finish(
                         work.work_key,
                         generation=work.generation,
-                        prepared_ref_id=int(published["prepared_ref_id"]),
+                        prepared_ref_id=self._page_reference(
+                            int(published["prepared_ref_id"]), work.target.page_number
+                        ),
                     )
                 else:
                     store.release(
@@ -1065,6 +1085,9 @@ class PdfSplitPreparationAdapter:
                             project_id=self.project_id,
                         )
                         cached_ref = int(copied["prepared_ref_id"])
+                    cached_ref = self._page_reference(
+                        cached_ref, work.target.page_number
+                    )
                     with PdfSplitPreparationStore(self.inventory_path) as store:
                         store.finish(
                             work.work_key,
