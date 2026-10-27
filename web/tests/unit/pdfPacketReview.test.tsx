@@ -102,7 +102,7 @@ describe('combined PDF review', () => {
     const { container } = render(<PdfPacketReview projectId="p" snapshot={snapshot} onReviewed={() => {}} onBack={() => {}} />);
     const fileStart = container.querySelector('[data-packet-page="3"]');
     expect(fileStart?.hasAttribute('data-fixed')).toBe(true);
-    expect(fileStart?.querySelector('.pdf-packet-doc-label')?.textContent).not.toContain('b.pdf');
+    expect(fileStart?.querySelector('.pdf-packet-doc-label')).toBeNull();
   });
   it('explains that visual suggestions have not started without examples', () => {
     render(<PdfPacketReview projectId="p" snapshot={snapshot} onReviewed={() => {}} onBack={() => {}} />);
