@@ -118,7 +118,7 @@ export function SplitSetupPreview({ sheet, organization, sources, carried, rows,
 
 export function SplitSetupHeader({ title, subtitle, onClose }: { title: string; subtitle: string; onClose(): void }) {
   return <header className="import-workspace-header"><div><div className="import-workspace-title" role="heading" aria-level={2}>{title}</div><div className="import-workspace-kicker">{subtitle}</div></div>
-    <WindowCloseButton className="icon-btn" label={`Close ${title}`} onClick={onClose} />
+    <WindowCloseButton label={`Close ${title}`} onClick={onClose} />
   </header>;
 }
 
