@@ -168,6 +168,15 @@ def test_durable_apply_materializes_three_plus_five_pages_and_replaces_once(
         )
     ]
     assert all(row not in children for row in originals)
+    filename_column = next(
+        column["id"]
+        for column in project.columns(sheet)
+        if column["name"] == "filename"
+    )
+    filenames = project.get_values(sheet, filename_column, children)
+    assert [filenames[row] for row in children] == ["source-0.pdf"] * 3 + [
+        "source-1.pdf"
+    ] * 5
     case_values = project.get_values(sheet, case_column, children)
     assert [case_values[row] for row in children] == ["case-0"] * 3 + ["case-1"] * 5
     source_cards = project.db.execute(

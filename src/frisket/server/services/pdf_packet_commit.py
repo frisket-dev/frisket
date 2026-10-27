@@ -474,7 +474,7 @@ class PdfPacketCommitter:
                                 name_pattern, source.filename, index, start, end
                             )
                         )
-                        if preserve_originals:
+                        if preserve_originals or organization == "pages":
                             name = source.filename
                         if (
                             not name

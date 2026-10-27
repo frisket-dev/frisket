@@ -32,7 +32,7 @@ it('routes missing text through Check text and applies the explicit none policy'
   expect(screen.getByLabelText('Split stages')).toBeTruthy();
   fireEvent.click(screen.getByRole('radio', { name: /^None/ }));
   fireEvent.click(screen.getByRole('button', { name: 'Create 3 rows' }));
-  await waitFor(() => expect(apply).toHaveBeenCalledWith(expect.objectContaining({ ocrPolicy: 'none', ocrConfirmation: null, starts: { r: [1] } })));
+  await waitFor(() => expect(apply).toHaveBeenCalledWith(expect.objectContaining({ ocrPolicy: 'none', ocrConfirmation: null, starts: {} })));
 });
 
 it('passes the exact approved quote hash with OCR policy and engine', async () => {
@@ -130,7 +130,7 @@ it('does not schedule OCR when pages have usable text and Check text is skipped'
   const { fireEvent } = await import('@testing-library/react');
   render(<PdfSplitSetup projectId="p" sheet={{ id: '1', name: 'Sheet', rowCount: 1, columns: [{ id: '2', name: 'media', type: 'file' }] }} selection={{ sheetId: '1', rowIds: [], rowIndexes: [] }} getSheetRows={vi.fn().mockResolvedValue({ rows: [] })} view={{}} onClose={() => {}} onApply={apply} />);
   fireEvent.click(await screen.findByRole('button', { name: 'Create 3 rows' }));
-  await waitFor(() => expect(apply).toHaveBeenCalledWith(expect.objectContaining({ ocrPolicy: 'none', ocrConfirmation: null })));
+  await waitFor(() => expect(apply).toHaveBeenCalledWith(expect.objectContaining({ ocrPolicy: 'none', ocrConfirmation: null, starts: {} })));
   expect(api.quote).not.toHaveBeenCalled();
 });
 

@@ -273,8 +273,7 @@ export function PdfSplitSetup({ projectId, sheet, fileColumnId, selection, view,
     if (organization === 'split_documents') {
       setReviewing(true);
     } else {
-      const starts = Object.fromEntries(sources.map((source) => [source.key, [source.page_start]]));
-      await apply(starts, { policy, confirmation }).catch(() => undefined);
+      await apply({}, { policy, confirmation }).catch(() => undefined);
     }
   };
   const quoteOcr = async () => {
@@ -347,7 +346,7 @@ export function PdfSplitSetup({ projectId, sheet, fileColumnId, selection, view,
       onPrimary={() => {
         if (needsText) { setCheckRequired(true); setCheckingText(true); }
         else if (organization === 'split_documents') setReviewing(true);
-        else void apply(Object.fromEntries(sources.map((source) => [source.key, [source.page_start]]))).catch(() => undefined);
+        else void apply({}).catch(() => undefined);
       }} />
   </div></Modal>;
 }
