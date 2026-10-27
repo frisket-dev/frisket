@@ -18,7 +18,7 @@ from frisket.engine.store.value_codec import decode_stored_value
 
 _SQLITE_BIND_LIMIT = 900
 _MAX_SEARCH_ROW_RANGES = 128
-INLINE_TEXT_BYTE_LIMIT = 128
+INLINE_TEXT_BYTE_LIMIT = 512
 
 
 def stamp_retrieval_revision(
@@ -54,8 +54,8 @@ def inline_scalar_eligibility_sql(
     """Return the bounded scalar-copy policy for the current projection.
 
     Native null, integer, real, and boolean values are always compact. Big integers
-    stay bounded text, while category/date strings have a small byte ceiling. Other
-    text and every structured value remain authority-table references.
+    stay bounded text, while text/category/date strings share a small byte ceiling.
+    Longer text and every structured value remain authority-table references.
     """
 
     return (
@@ -64,7 +64,7 @@ def inline_scalar_eligibility_sql(
         f"AND {descriptor_alias}.type IN ('integer','number') "
         f"AND length(CAST({value_sql} AS BLOB))<={INLINE_TEXT_BYTE_LIMIT}) "
         f"OR ({value_kind_sql}='text' "
-        f"AND {descriptor_alias}.type IN ('category','date') "
+        f"AND {descriptor_alias}.type IN ('text','category','date') "
         f"AND length(CAST({value_sql} AS BLOB))<={INLINE_TEXT_BYTE_LIMIT}))"
     )
 
