@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 
 import pytest
 
@@ -118,6 +119,46 @@ def test_upgrade_preserves_prepared_refs_and_reopens(tmp_path):
         assert p.db.execute("PRAGMA foreign_key_check").fetchall() == []
     finally:
         p.close()
+
+
+def test_a102_upgrade_chains_pdf_split_and_short_text_cache(tmp_path):
+    path = tmp_path / "a102"
+    with closing(Project.create(path)) as p:
+        sheet = p.add_sheet("Data")
+        column = p.add_column(sheet, "body", type="text")
+        rows = p.add_rows(sheet, [{"body": "short"}], {"body": column})
+        old_cache(p)
+        p.db.execute("DROP TABLE import_session_pdf_sources")
+        p.db.execute(
+            "UPDATE meta SET value=? WHERE key=?",
+            (
+                "frisket.schema.v1:887874773c58ac58982913e6604d9ec9",
+                SCHEMA_DIGEST_META_KEY,
+            ),
+        )
+        p.db.commit()
+    with closing(Project(path)) as p:
+        assert p.get_meta(SCHEMA_DIGEST_META_KEY) == SCHEMA_DIGEST
+        assert p.get_values(sheet, column) == {rows[0]: "short"}
+        assert (
+            p.db.execute("SELECT COUNT(*) FROM import_session_pdf_sources").fetchone()[
+                0
+            ]
+            == 0
+        )
+        assert (
+            p.db.execute(
+                "SELECT inline_value FROM current_cells WHERE column_id=? AND row_id=?",
+                (column, rows[0]),
+            ).fetchone()[0]
+            == "short"
+        )
+        assert (
+            p.db.execute(
+                "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_current_cells_numeric_value'"
+            ).fetchone()
+            is not None
+        )
 
 
 def test_upgrade_rolls_back_cache_and_stamp_on_index_failure(tmp_path):

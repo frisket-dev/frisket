@@ -10,8 +10,8 @@ from .schema import (
     SCHEMA_DIGEST_META_KEY,
 )
 
-SHORT_TEXT_CACHE_FROM_DIGEST = "frisket.schema.v1:887874773c58ac58982913e6604d9ec9"
-SHORT_TEXT_CACHE_TO_DIGEST = "frisket.schema.v1:b8cb89527b0bf56f254ad46ec9966727"
+SHORT_TEXT_CACHE_FROM_DIGEST = "frisket.schema.v1:bd1859c234b8d13f81e7c64a694579a2"
+SHORT_TEXT_CACHE_TO_DIGEST = "frisket.schema.v1:bba6b2017e73276ec859d32dc995b59a"
 
 
 def migrate_short_text_cache(db: sqlite3.Connection) -> None:
