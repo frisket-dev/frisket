@@ -7,6 +7,7 @@ from pathlib import Path
 
 from frisket.engine.store import Project
 from frisket.engine.store.cell_writes import EditCellWrite, insert_edits
+from frisket.engine.store.current_cells import INLINE_TEXT_BYTE_LIMIT
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.querysets import resolve_sheet_filter_rows
@@ -163,7 +164,7 @@ def test_generation_undo_redo_restores_and_clears_inline_scalars(
     replacement = None
     initial_released = False
     replacement_released = False
-    oversized_text = "é" * 65
+    oversized_text = "é" * (INLINE_TEXT_BYTE_LIMIT // 2 + 1)
     try:
         _declare(generations, initial, column_id, write_mode="create")
         _write(
@@ -314,7 +315,7 @@ def test_inline_scalar_eligibility_and_type_reclassification(tmp_path: Path) -> 
             "bigint": 2**70,
             "text": "short",
             "json": {"a": 1},
-            "long_category": "é" * 65,
+            "long_category": "é" * (INLINE_TEXT_BYTE_LIMIT // 2 + 1),
         }
         row_id = project.add_rows(sheet_id, [values], columns)[0]
 
@@ -331,7 +332,7 @@ def test_inline_scalar_eligibility_and_type_reclassification(tmp_path: Path) -> 
             "category": ("text", "alpha"),
             "date": ("text", "2026-10-05"),
             "bigint": ("bigint", str(2**70)),
-            "text": (None, None),
+            "text": ("text", "short"),
             "json": (None, None),
             "long_category": (None, None),
         }
@@ -340,6 +341,6 @@ def test_inline_scalar_eligibility_and_type_reclassification(tmp_path: Path) -> 
         assert project.get_values(sheet_id, columns["category"], [row_id]) == {
             row_id: "alpha"
         }
-        assert _inline_value(project, row_id, columns["category"]) == (None, None)
+        assert _inline_value(project, row_id, columns["category"]) == ("text", "alpha")
     finally:
         project.close()

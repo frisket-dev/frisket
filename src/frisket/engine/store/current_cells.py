@@ -18,7 +18,7 @@ from frisket.engine.store.value_codec import decode_stored_value
 
 _SQLITE_BIND_LIMIT = 900
 _MAX_SEARCH_ROW_RANGES = 128
-INLINE_TEXT_BYTE_LIMIT = 128
+INLINE_TEXT_BYTE_LIMIT = 512
 
 
 def stamp_retrieval_revision(
@@ -54,8 +54,8 @@ def inline_scalar_eligibility_sql(
     """Return the bounded scalar-copy policy for the current projection.
 
     Native null, integer, real, and boolean values are always compact. Big integers
-    stay bounded text, while category/date strings have a small byte ceiling. Other
-    text and every structured value remain authority-table references.
+    stay bounded text, while text/category/date strings share a small byte ceiling.
+    Longer text and every structured value remain authority-table references.
     """
 
     return (
@@ -64,7 +64,7 @@ def inline_scalar_eligibility_sql(
         f"AND {descriptor_alias}.type IN ('integer','number') "
         f"AND length(CAST({value_sql} AS BLOB))<={INLINE_TEXT_BYTE_LIMIT}) "
         f"OR ({value_kind_sql}='text' "
-        f"AND {descriptor_alias}.type IN ('category','date') "
+        f"AND {descriptor_alias}.type IN ('text','category','date') "
         f"AND length(CAST({value_sql} AS BLOB))<={INLINE_TEXT_BYTE_LIMIT}))"
     )
 
@@ -88,6 +88,28 @@ def backfill_inline_scalar_values(db: sqlite3.Connection) -> None:
         "inline_value_kind=eligible.value_kind,inline_value=eligible.value "
         "FROM eligible WHERE head.column_id=eligible.column_id "
         "AND head.row_id=eligible.row_id"
+    )
+
+
+def backfill_short_text_values(db: sqlite3.Connection) -> None:
+    """Backfill the 512-byte text cache during its data-preserving migration."""
+
+    from .schema import SCALAR_CURRENT_CELL_VALUES_SQL
+
+    _require_transaction(db)
+    # This pinned scalar view returns raw refs, not expanded document
+    # text. Prepared documents must keep both their locator and citation.
+    raw_values = "SELECT" + SCALAR_CURRENT_CELL_VALUES_SQL.split("SELECT", 1)[1]
+    db.execute(
+        f"WITH raw_values AS ({raw_values}), eligible AS ("
+        "SELECT live.column_id,live.row_id,live.value_kind,live.value "
+        "FROM raw_values live JOIN columns descriptor ON descriptor.id=live.column_id "
+        "WHERE live.value_kind='text' AND descriptor.type IN ('text','category','date') "
+        "AND length(CAST(live.value AS BLOB))<=512) "
+        "UPDATE current_cells AS head SET inline_value_kind=eligible.value_kind,"
+        "inline_value=eligible.value FROM eligible "
+        "WHERE head.column_id=eligible.column_id AND head.row_id=eligible.row_id "
+        "AND head.inline_value_kind IS NULL"
     )
 
 

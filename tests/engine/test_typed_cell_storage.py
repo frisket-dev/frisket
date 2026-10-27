@@ -88,6 +88,8 @@ def test_value_codec_preserves_legacy_invalid_bytes_and_failure_contract() -> No
 
 
 def test_unicode_repair_changes_only_malformed_surrogates() -> None:
+    for ascii_text in ("", "already valid ASCII", "x" * 1_000_000):
+        assert repair_unicode_text(ascii_text) is ascii_text
     ordinary = "already valid: café 😀"
     assert repair_unicode_text(ordinary) is ordinary
     assert repair_unicode_text("pair: \ud83d\ude00") == "pair: 😀"

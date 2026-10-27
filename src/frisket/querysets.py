@@ -191,7 +191,6 @@ class SheetRowScopePlan:
     filter_join_params: tuple[Any, ...] = ()
     joins: tuple[str, ...] = ()
     join_params: tuple[Any, ...] = ()
-    use_window_count_page: bool = False
 
     @property
     def filter_from_sql(self) -> str:
@@ -331,9 +330,18 @@ def _sheet_row_scope_plan(
                 required_numeric_columns | required_comparison_columns
             )
             join = "JOIN" if required else "LEFT JOIN"
+            numeric = column_id in required_numeric_columns
+            relation = "current_cells" if numeric else "current_cell_values"
+            numeric_scope = (
+                f" AND {alias}.validity='valid' "
+                f"AND {alias}.inline_value_kind IN ('integer','real')"
+                if numeric
+                else ""
+            )
             joins.append(
-                f"{join} current_cell_values AS {alias} "
+                f"{join} {relation} AS {alias} "
                 f"ON {alias}.column_id=? AND {alias}.row_id={row_alias}.id"
+                + numeric_scope
             )
             join_params.append(column_id)
         return alias
@@ -349,6 +357,10 @@ def _sheet_row_scope_plan(
                 row_alias, column, preserve_invalid=preserve_invalid
             )
         alias = scope_live_alias(row_alias, column)
+        if int(column["id"]) in required_numeric_columns:
+            # The required numeric join already excludes missing/invalid kinds.
+            # A bare value lets SQLite use the numeric partial range index.
+            return f"{alias}.inline_value", []
         value = (
             f"{alias}.value"
             if preserve_invalid
@@ -359,7 +371,13 @@ def _sheet_row_scope_plan(
     def scope_live_value_kind_sql(row_alias: str, column: Any) -> tuple[str, list[Any]]:
         if not join_live_values:
             return sheet_live_value_kind_sql(row_alias, column)
-        return f"{scope_live_alias(row_alias, column)}.value_kind", []
+        alias = scope_live_alias(row_alias, column)
+        field = (
+            "inline_value_kind"
+            if int(column["id"]) in required_numeric_columns
+            else "value_kind"
+        )
+        return f"{alias}.{field}", []
 
     where = ["r.sheet_id=?", "r.hidden=0"]
     where_params: list[Any] = [sheet_id]
@@ -537,6 +555,11 @@ def _sheet_row_scope_plan(
         if use_boolean_literal:
             filter_value = f"CASE WHEN {value_kind_sql}='boolean' THEN {value_sql} END"
             filter_value_params = [*value_kind_params, *value_params]
+        elif is_numeric_range and join_live_values:
+            filter_value, filter_value_params = value_sql, value_params
+            if range_value_kind == "integer":
+                where.append(f"{value_kind_sql}='integer'")
+                where_params.extend(value_kind_params)
         elif is_numeric_range:
             filter_value = (
                 f"CASE WHEN {value_kind_sql}='integer' THEN {value_sql} END"
@@ -674,12 +697,6 @@ def _sheet_row_scope_plan(
         filter_join_params=filter_join_params,
         joins=tuple(joins),
         join_params=tuple(join_params),
-        use_window_count_page=(
-            join_live_values
-            and bool(required_numeric_columns)
-            and bool(sorts)
-            and row_ids is None
-        ),
     )
 
 
@@ -743,35 +760,8 @@ def execute_sheet_row_page(
     offset: int,
 ) -> tuple[list[Any], int]:
     """Return one fixed ``id``/``parent_row_id`` page and its exact total."""
-    order_clause = ", ".join(plan.order_parts) or "r.position ASC"
-    if plan.use_window_count_page:
-        rows = project.db.execute(
-            f"""
-            SELECT r.id, r.parent_row_id, COUNT(*) OVER() AS total
-            FROM {plan.from_sql}
-            WHERE {plan.where_sql}
-            ORDER BY {order_clause}
-            LIMIT ? OFFSET ?
-            """,
-            [*plan.select_params, limit, offset],
-        ).fetchall()
-        if rows:
-            return rows, int(rows[0]["total"])
-
-        # LIMIT 0, an offset past the end, and an empty result produce no row
-        # from which to read the window count. The ordinary count is the only
-        # extra work in those boundary cases; the requested page is known empty.
-        total = int(
-            project.db.execute(
-                f"SELECT COUNT(*) FROM {plan.filter_from_sql} WHERE {plan.where_sql}",
-                plan.filter_params,
-            ).fetchone()[0]
-            or 0
-        )
-        return [], total
-
-    # Keep unfiltered and other row browsing on its cheap bounded page query;
-    # applying a window there would force SQLite to visit the entire scope.
+    # Count through the indexed filter, then let the page query stop at LIMIT.
+    # A window count would materialize all matches before returning any page.
     total = int(
         project.db.execute(
             f"SELECT COUNT(*) FROM {plan.filter_from_sql} WHERE {plan.where_sql}",

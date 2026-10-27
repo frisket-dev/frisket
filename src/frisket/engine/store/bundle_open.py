@@ -45,6 +45,7 @@ from .execution_metadata_migration import (
 )
 from .document_text_migration import migrate_document_text as _migrate_document_text
 from .pdf_split_schema import PDF_SPLIT_SCHEMA_SQL
+from .short_text_cache_migration import migrate_short_text_cache
 
 # v0.1.1a62 (907a324c) -> v0.1.1a64's receipt-owned execution attempts.
 # Fixed endpoints cannot accidentally stamp a future schema edit as current.
@@ -176,6 +177,7 @@ def open_bundle(project: Any) -> None:
         _migrate_import_session_rows(project.db)
         _migrate_ocr_review_roles(project.db)
         _migrate_pdf_split(project.db)
+        migrate_short_text_cache(project.db)
         require_current_schema(project.db, bundle_path=project.path)
         _reconcile_open_time_policy(project)
         from frisket.retrieval.upgrade import prepare_retrieval_on_open

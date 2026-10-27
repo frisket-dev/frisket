@@ -274,9 +274,9 @@ def test_scalar_migration_preserves_authority_values_history_and_reopen(
         (output_column_id,),
     ).fetchall()
     assert [tuple(row) for row in projected] == [
-        (row_ids[0], None, None),
+        (row_ids[0], "text", "generated"),
         (row_ids[1], "null", None),
-        (row_ids[2], None, None),
+        (row_ids[2], "text", "manual"),
     ]
     source_projection = project.db.execute(
         "SELECT inline_value_kind,inline_value FROM current_cells "
@@ -367,7 +367,7 @@ def test_supported_older_bundle_chains_through_scalar_migration(tmp_path: Path) 
         "WHERE column_id=10 ORDER BY row_id"
     ).fetchall()
     assert [tuple(row) for row in projected] == [
-        (100, None, None),
+        (100, "text", "edited"),
         (101, "null", None),
     ]
     assert _current_values(project, 10) == [
