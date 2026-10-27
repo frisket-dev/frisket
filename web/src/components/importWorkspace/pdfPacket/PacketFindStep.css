@@ -312,12 +312,13 @@
 }
 .packet-review-card[data-review-tone='suggested'] { border-color: #c9cbf5; }
 .packet-review-card:focus-visible { box-shadow: 0 0 0 2px rgba(52, 54, 184, 0.18); }
-.packet-review-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.packet-find-step .packet-review-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0; border: 0; }
+.packet-review-source { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .packet-review-heading strong { color: #9a5b06; font-size: 12px; }
 .packet-review-card[data-review-tone='suggested'] .packet-review-heading strong { color: #3436b8; }
 .packet-review-heading span { color: #756c66; font-size: 10px; }
 .packet-review-pages {
-  min-height: 278px;
+  min-height: 0;
   display: flex;
   align-items: flex-end;
   justify-content: center;
@@ -360,9 +361,10 @@
 }
 .packet-review-candidate img {
   display: block;
-  width: 200px;
+  width: auto;
+  max-width: 200px;
   height: auto;
-  max-height: 244px;
+  max-height: clamp(100px, calc(100vh - 475px), 244px);
   object-fit: contain;
   border: 1px solid #ddd5cd;
   outline: 1.5px dashed #c27c12;
@@ -397,7 +399,7 @@
   font-weight: 600;
 }
 .packet-review-empty {
-  min-height: 255px;
+  min-height: clamp(100px, calc(100vh - 475px), 255px);
   display: grid;
   place-items: center;
   margin: 0;
