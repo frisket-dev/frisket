@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { count } from '../importWorkspace/pdfBatch/model';
 import type { Row, SheetMeta } from '../../api/types';
 import { Button } from '../Button';
@@ -19,13 +20,14 @@ export type SplitScope = 'selected' | 'filtered' | 'all';
 export type SplitOrganization = 'pages' | 'split_documents';
 export type SplitDestination = 'new_sheet' | 'replace';
 
-function RadioCard({ name, checked, onSelect, title, detail }: {
-  name: string; checked: boolean; onSelect(): void; title: string; detail?: string;
+function RadioCard({ name, checked, onSelect, title, detail, children }: {
+  name: string; checked: boolean; onSelect(): void; title: string; detail?: string; children?: ReactNode;
 }) {
   return <div className={`import-destination-choice${checked ? ' active' : ''}`}>
     <label><input type="radio" name={name} checked={checked} onChange={onSelect} />
       <span><strong>{title}</strong>{detail && <div className="muted">{detail}</div>}</span>
     </label>
+    {children && <div className="import-destination-choice-field">{children}</div>}
   </div>;
 }
 
@@ -40,19 +42,20 @@ export function SplitSetupSettings({
 }) {
   return <section className="pdf-batch-check-sidebar">
     <h3>PDFs</h3>
-    {scopeOptions.map((value) => <RadioCard key={value} name="pdf-split-scope" checked={scope === value} onSelect={() => onScope(value)}
+    <div className="form-stack">{scopeOptions.map((value) => <RadioCard key={value} name="pdf-split-scope" checked={scope === value} onSelect={() => onScope(value)}
       title={value === 'selected' ? 'Selected rows' : value === 'filtered' ? 'Filtered rows' : `All rows in ${sheet.name}`}
-      detail={scope === value ? `${count(sourceCount, 'PDF')} · ${count(pageCount, 'page')}` : undefined} />)}
+      detail={scope === value ? `${count(sourceCount, 'PDF')} · ${count(pageCount, 'page')}` : undefined} />)}</div>
     <fieldset className="import-destination-options"><legend>Make</legend>
     <RadioCard name="pdf-split-make" checked={organization === 'pages'} onSelect={() => onOrganization('pages')}
       title="One row per page" detail={count(pageCount, 'row')} />
     <RadioCard name="pdf-split-make" checked={organization === 'split_documents'} onSelect={() => onOrganization('split_documents')}
       title="Split into documents" detail="Find where they start" /></fieldset>
     <h3>Put results in</h3>
-    <RadioCard name="pdf-split-destination" checked={destination === 'new_sheet'} onSelect={() => onDestination('new_sheet')} title="New sheet" />
-    <TextInput aria-label="New sheet name" value={name} disabled={destination !== 'new_sheet'} onChange={(event) => onName(event.target.value)} />
+    <div className="form-stack"><RadioCard name="pdf-split-destination" checked={destination === 'new_sheet'} onSelect={() => onDestination('new_sheet')} title="New sheet">
+      <TextInput aria-label="New sheet name" value={name} disabled={destination !== 'new_sheet'} onChange={(event) => onName(event.target.value)} />
+    </RadioCard>
     <RadioCard name="pdf-split-destination" checked={destination === 'replace'} onSelect={() => onDestination('replace')}
-      title="Replace original rows" detail={`${count(sourceCount, 'row')} · can be undone`} />
+      title="Replace original rows" detail={`${count(sourceCount, 'row')} · can be undone`} /></div>
     <h3>Carry over columns · {carried.length ? `${carried.length} ticked` : 'none'}</h3>
     <p>filename, media, page, source and text are always included. text comes from each page’s text layer or OCR.</p>
     {[false, true].map((derived) => <div key={String(derived)}>

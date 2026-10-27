@@ -183,7 +183,7 @@ export function PacketFindStep({
     ? Array.from({ length: pageCount }, (_, index) => index + 1)
     : startPages;
 
-  const rowHeight = Math.ceil(GRID_SIZES[gridSizeIndex] * 1.55 + 42);
+  const rowHeight = Math.ceil(GRID_SIZES[gridSizeIndex] * 1.55 + 26);
   const columns = viewport.width ? Math.max(1, Math.floor(viewport.width / (GRID_SIZES[gridSizeIndex] + 18))) : 8;
   const firstRow = Math.max(0, Math.floor(viewport.scrollTop / rowHeight) - 2);
   const rowCount = Math.ceil(displayedPages.length / columns);
@@ -309,7 +309,6 @@ export function PacketFindStep({
               const fixed = state.fixedStarts.includes(page);
               const example = state.examplePages.includes(page);
               const localPage = address?.localPage ?? page;
-              const localIndex = address ? [...state.confirmedStarts, ...suggested].filter((start) => start >= address.display_start && start <= page).length : document.index;
               const confirmed = state.confirmedStarts.includes(page);
               const rejected = state.rejected.includes(page);
               const candidate = matchForPage(effectiveMatches, page);
@@ -339,9 +338,6 @@ export function PacketFindStep({
                     title={fixed ? example ? 'Don’t use as example' : 'Use as example' : `Page ${localPage}${matchDescription ? `. ${matchDescription}.` : '.'} Click to toggle document start.`}
                     onClick={() => dispatch({ type: 'toggleStart', page })}
                   >
-                    <span className="pdf-packet-doc-label">
-                      {fixed ? '\u00a0' : confirmed ? `Doc ${localIndex}` : isSuggested ? `Doc ${localIndex}?` : '\u00a0'}
-                    </span>
                     <span className="pdf-packet-page-row">
                       {!confirmed && <i className="pdf-packet-connector" />}
                       <PacketThumbnail projectId={projectId} splitId={splitId} page={page} />
