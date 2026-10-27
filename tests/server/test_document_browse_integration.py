@@ -130,8 +130,10 @@ def test_document_browse_is_bounded_projection_and_searches_beyond_first_page(
         "source_label",
         "source_label_truncated",
         "source_present",
+        "source_page_range",
         "character_count",
     }
+    assert all(item["source_page_range"] is None for item in payload["items"])
 
     found = _browse(client, project_id, sheet_id, columns, q="Needle 221").json()
     assert [item["title"] for item in found["items"]] == ["Needle 221"]
