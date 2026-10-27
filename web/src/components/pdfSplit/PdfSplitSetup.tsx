@@ -12,7 +12,11 @@ import type { PdfImportOcrSelection } from '../../api/pdfImports';
 import type { RunEstimate } from '../../api/open';
 import { PdfPacketReview } from '../importWorkspace/pdfPacket/PdfPacketReview';
 import { selectionScope } from './selectionScope';
-import './PdfSplitSetup.css';
+import '../importWorkspace/ImportWorkspaceDialog.css';
+import '../importWorkspace/ImportWorkspaceShared.css';
+import '../importWorkspace/pdfBatch/PdfBatchImportFlow.css';
+import '../importWorkspace/tableImport/TableImportFlow.css';
+import '../FriendlyFiltersPanel.css';
 
 type Source = SplitSource & { prepared_complete: boolean };
 type ScopeSnapshot = PdfPacketSplitSnapshot & { sources: Source[]; sheet_scope: { order_hash: string; excluded: Array<{ row_id: number; reason: string }> } | null };
@@ -292,11 +296,11 @@ export function PdfSplitSetup({ projectId, sheet, fileColumnId, selection, view,
       } else await advanceFromCheck(null);
     } catch (e) { if (!signal?.aborted) setError(e instanceof Error ? e.message : String(e)); } finally { if (!signal?.aborted) setBusy(false); }
   };
-  if (!fileColumn) return <Modal title="Split PDFs" hideHeader className="pdf-split-modal" onClose={closeModal}><div className="pdf-split-setup">
+  if (!fileColumn) return <Modal title="Split PDFs" hideHeader className="import-workspace import-workspace-panel-flush" onClose={closeModal}><div className="pdf-batch-flow">
     <SplitSetupHeader title="Split PDFs" subtitle={sheet.name} onClose={onClose} />
     <p role="alert">This sheet has no file column.</p>
   </div></Modal>;
-  if (checkingText && session && sample) return <Modal title="Check text" hideHeader className="pdf-split-modal" onClose={closeModal}><PdfSplitCheckText
+  if (checkingText && session && sample) return <Modal title="Check text" hideHeader className="import-workspace import-workspace-panel-flush" onClose={closeModal}><PdfSplitCheckText
     projectId={projectId} stages={stages} sources={needsTextSources} totalSourceCount={sources.length} sample={sample} samplePage={samplePage?.page === sample.display_start ? samplePage : null}
     thumbnailUrl={pdfPacketThumbnailUrl(projectId, session.split_id, sample.display_start)}
     textSource={sampleTextSource} selection={ocrSelection} policy={policy} busy={busy} sampleJob={sampleJob}
@@ -318,8 +322,9 @@ export function PdfSplitSetup({ projectId, sheet, fileColumnId, selection, view,
     onCancelQuote={() => setOcrQuote(null)}
     onConfirmQuote={() => { const hash = ocrQuote?.estimate.promise_set_hash; setOcrQuote(null); if (hash) void advanceFromCheck(hash); }}
     onBack={() => setCheckingText(false)} onClose={onClose} onContinue={() => void quoteOcr()} /></Modal>;
-  if (reviewing && session) return <Modal title="Split PDFs" hideHeader className="pdf-split-modal" onClose={closeModal}><div className="pdf-split-setup">
+  if (reviewing && session) return <Modal title="Split PDFs" hideHeader className="import-workspace import-workspace-panel-flush" onClose={closeModal}><div className="pdf-batch-flow">
     <PdfPacketReview projectId={projectId} snapshot={session} onClose={onClose} registerCloseRequest={registerReviewClose}
+      headerSubtitle={`${sheet.name} · ${count(sources.length, 'PDF')} · ${count(pageCount, 'page')}`}
       headerContent={stages.length > 1 ? <StageStepper label="Split stages" stages={stages} stage="find" /> : null} onSnapshotChange={onReviewSnapshot}
       discardText="Text read so far stays on the original rows."
       primaryLabel={(documents) => destination === 'replace' ? `Replace ${count(sources.length, 'row')} with ${documents}` : `Create ${count(documents, 'row')}`}
@@ -327,10 +332,10 @@ export function PdfSplitSetup({ projectId, sheet, fileColumnId, selection, view,
   </div></Modal>;
   const primaryLabel = needsText ? 'Check text →' : organization === 'split_documents' ? 'Find documents →'
     : destination === 'replace' ? `Replace ${count(sources.length, 'row')} with ${pageCount}` : `Create ${count(pageCount, 'row')}`;
-  return <Modal title="Split PDFs" hideHeader className="pdf-split-modal" onClose={closeModal}><div className="pdf-split-setup">
+  return <Modal title="Split PDFs" hideHeader className="import-workspace import-workspace-panel-flush" onClose={closeModal}><div className="pdf-batch-flow">
     <SplitSetupHeader title="Split PDFs" subtitle={sheet.name} onClose={onClose} />
     {stages.length > 1 && <StageStepper label="Split stages" stages={stages} stage="setup" />}
-    <div className="pdf-split-setup-body">
+    <div className="pdf-batch-check-body">
       <SplitSetupSettings sheet={sheet} fileColumnId={fileColumn.id} scopeOptions={scopeOptions} scope={scope}
         onScope={setScope} organization={organization} onOrganization={(value) => {
           setOrganization(value); setName(`${sheet.name} · ${value === 'pages' ? 'pages' : 'documents'}`);

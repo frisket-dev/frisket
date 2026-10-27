@@ -8,10 +8,6 @@ import { resolveAnchoredPosition } from '../hooks/useAnchoredPosition';
 import {
   ArrowUpDown,
   Columns3,
-  Copy,
-  ScanText,
-  Scissors,
-  Trash2,
   Eye,
   EyeOff,
   FileDown,
@@ -442,11 +438,11 @@ export function GridRowMenu({
       items[next].focus();
     }}>
     <div className="grid-header-menu-title">{rowCount > 1 ? `${rowCount} rows selected` : `Row ${rowIndex + 1}`}</div>
-    <button type="button" role="menuitem" className="menu-item" onClick={onOpen}><Eye size={14} aria-hidden />Open in Document view</button>
+    <button type="button" role="menuitem" className="menu-item" onClick={onOpen}>Open in Document view</button>
     <div className="menu-sep" role="separator" />
-    <button type="button" role="menuitem" className="menu-item" disabled={!canSplit} onClick={onSplit}><Scissors size={14} aria-hidden />Split PDF{rowCount > 1 ? 's' : ''}…</button>
-    <button type="button" role="menuitem" className="menu-item" disabled={!selectionLoaded} title={unavailable} onClick={onOcr}><ScanText size={14} aria-hidden />OCR {rows}</button>
-    <button type="button" role="menuitem" className="menu-item" disabled={!selectionLoaded} title={unavailable} onClick={onCopy}><Copy size={14} aria-hidden />Copy {rows}</button>
-    <button type="button" role="menuitem" className="menu-item menu-item-danger" disabled={!selectionLoaded} title={unavailable} onClick={onDelete}><Trash2 size={14} aria-hidden />Delete {rows}</button>
+    <button type="button" role="menuitem" className="menu-item" disabled={!canSplit} onClick={onSplit}>Split PDF{rowCount > 1 ? 's' : ''}…</button>
+    <button type="button" role="menuitem" className="menu-item" disabled={!selectionLoaded} title={unavailable} onClick={onOcr}>OCR {rows}</button>
+    <button type="button" role="menuitem" className="menu-item" disabled={!selectionLoaded} title={unavailable} onClick={onCopy}>Copy {rows}</button>
+    <button type="button" role="menuitem" className="menu-item menu-item-danger" disabled={!selectionLoaded} title={unavailable} onClick={onDelete}>Delete {rows}</button>
   </MenuPop>;
 }

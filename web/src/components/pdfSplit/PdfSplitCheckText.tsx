@@ -7,6 +7,8 @@ import { StageStepper } from '../StageStepper';
 import { CostGateModal } from '../CostGateModal';
 import '../importWorkspace/pdfBatch/PdfBatchImportFlow.css';
 import { PdfTextPagePreview } from '../importWorkspace/pdfPacket/PdfTextPagePreview';
+import { PanelFooter } from '../PanelLayout';
+import { SegmentedToggle } from '../PanelPrimitives';
 import { SplitSetupHeader, type SplitSource } from './PdfSplitSetupSections';
 
 export function PdfSplitCheckText({
@@ -26,21 +28,20 @@ export function PdfSplitCheckText({
   onBack(): void; onClose(): void; onContinue(): void;
 }) {
   const working = busy || Boolean(sampleJob);
-  return <div className="pdf-split-setup">
+  return <div className="pdf-batch-flow">
     <SplitSetupHeader title="Check text" subtitle={sample.filename} onClose={onClose} />
     {stages.length > 1 && <StageStepper label="Split stages" stages={stages} stage="check" />}
-    <div className="pdf-split-check">
+    <div className="panel-body">
       <nav aria-label="Files needing text">
         {sources.map((source) => <Button type="button" key={source.key} disabled={working}
           aria-pressed={source.key === sample.key} onClick={() => onSource(source.key)}>
           {source.filename} · {source.text_category === 'suspicious' ? 'Text may be garbled' : 'No text'}
         </Button>)}
       </nav>
-      <div className="pdf-split-text-tabs">
-        <Button type="button" aria-pressed={textSource === 'native'} onClick={() => onTextSource('native')}>Text layer</Button>
-        <Button type="button" aria-pressed={textSource === 'ocr'} disabled={working} onClick={onPreview}>OCR preview</Button>
-        {samplePage?.ocr_text != null && <Button type="button" disabled={working} onClick={onRescan}>Re-scan</Button>}
-      </div>
+      <SegmentedToggle ariaLabel="Text preview" value={textSource} disabled={working}
+        options={[{ value: 'native', label: 'Text layer' }, { value: 'ocr', label: 'OCR preview' }]}
+        onValueChange={(value) => value === 'native' ? onTextSource('native') : onPreview()} />
+      {samplePage?.ocr_text != null && <Button type="button" disabled={working} onClick={onRescan}>Re-scan</Button>}
       <PdfTextPagePreview page={sample.page_start} thumbnailUrl={samplePage?.thumbnail_url ?? thumbnailUrl}
         text={textSource === 'ocr' ? samplePage?.ocr_text ?? '' : samplePage?.preview_text ?? ''}
         truncated={samplePage?.preview_truncated} loading={!samplePage || Boolean(sampleJob)} />
@@ -57,8 +58,8 @@ export function PdfSplitCheckText({
       {sampleConsent && <CostGateModal estimate={sampleConsent} message="Apply OCR to this sample page?" onCancel={onCancelSampleConsent} onConfirm={onConfirmSampleConsent} />}
       {quote && <CostGateModal estimate={quote.estimate} message={`Run OCR on ${quote.pages} pages after applying?`} onCancel={onCancelQuote} onConfirm={onConfirmQuote} />}
     </div>
-    <footer><Button type="button" disabled={working} onClick={onBack}>Back</Button><span />
+    <PanelFooter><Button type="button" disabled={working} onClick={onBack}>Back</Button><span />
       <Button type="button" className="btn-primary" disabled={working} onClick={onContinue}>{primaryLabel}</Button>
-    </footer>
+    </PanelFooter>
   </div>;
 }

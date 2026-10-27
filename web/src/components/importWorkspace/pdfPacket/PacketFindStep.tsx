@@ -307,10 +307,6 @@ export function PacketFindStep({
               const document = pageToDocument.get(page) ?? { index: 1, start: 1, end: pageCount, pages: pageCount };
               const address = sources ? pageAddress(sources, page) : null;
               const fixed = state.fixedStarts.includes(page);
-              const position = displayedPages.indexOf(page);
-              const nextFile = displayedPages.findIndex((candidate, index) => index > position && state.fixedStarts.includes(candidate));
-              const cellsUntilNextFile = nextFile < 0 ? columns : nextFile - position;
-              const fileLabelCells = Math.max(1, Math.min(columns - position % columns, cellsUntilNextFile));
               const example = state.examplePages.includes(page);
               const localPage = address?.localPage ?? page;
               const localIndex = address ? [...state.confirmedStarts, ...suggested].filter((start) => start >= address.display_start && start <= page).length : document.index;
@@ -343,10 +339,8 @@ export function PacketFindStep({
                     title={fixed ? example ? 'Don’t use as example' : 'Use as example' : `Page ${localPage}${matchDescription ? `. ${matchDescription}.` : '.'} Click to toggle document start.`}
                     onClick={() => dispatch({ type: 'toggleStart', page })}
                   >
-                    <span className="pdf-packet-doc-label" data-file-label={fixed && Boolean(address) || undefined}
-                      style={fixed && address ? { width: `calc(${fileLabelCells * 100}% + ${(fileLabelCells - 1) * 2}px)` } : undefined}>
-                      {fixed && address ? <><span>{address.filename}</span><small> · {address.page_end - address.page_start + 1} pp</small></>
-                        : confirmed ? `Doc ${localIndex}` : isSuggested ? `Doc ${localIndex}?` : '\u00a0'}
+                    <span className="pdf-packet-doc-label">
+                      {fixed ? '\u00a0' : confirmed ? `Doc ${localIndex}` : isSuggested ? `Doc ${localIndex}?` : '\u00a0'}
                     </span>
                     <span className="pdf-packet-page-row">
                       {!confirmed && <i className="pdf-packet-connector" />}
@@ -518,8 +512,6 @@ export function PacketFindStep({
           onIndex={setReviewIndex}
           onAccept={confirmPage}
           onReject={rejectPage}
-          onAcceptAll={acceptAllSuggestions}
-          canAcceptAll={state.matches != null}
           onOpenLarge={setLargeViewPage}
         />
         {state.method !== 'manual' && state.matching && !state.error ? <span className="packet-match-pending" role="status">Updating suggestions…</span> : null}

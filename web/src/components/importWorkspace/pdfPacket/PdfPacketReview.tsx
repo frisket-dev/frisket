@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, u
 import { Button } from '../../Button';
 import { ProgressBar } from '../../ActivityProgress';
 import { WindowCloseButton } from '../../WindowCloseButton';
+import { DiscardImportConfirm } from '../pdfBatch/DiscardImportConfirm';
 import {
   cancelPdfPacketOcr, getPdfPacketSplit, matchPdfPacketCandidates, setPdfPacketTextSource,
   type PdfPacketSplitSnapshot,
@@ -13,7 +14,7 @@ import { createReviewSources, reviewedStarts, type ReviewSource } from './review
 type CombinedSnapshot = PdfPacketSplitSnapshot & { sources: ReviewSource[]; fixed_starts: number[]; example_pages: number[] };
 
 /** Shared review for an admitted draft or sheet scope; publication remains with the caller. */
-export function PdfPacketReview({ projectId, snapshot: initial, onReviewed, onBack, onClose, registerCloseRequest, headerContent, primaryLabel, discardText, onSnapshotChange }: {
+export function PdfPacketReview({ projectId, snapshot: initial, onReviewed, onBack, onClose, registerCloseRequest, headerContent, headerSubtitle, primaryLabel, discardText, onSnapshotChange }: {
   projectId: string;
   snapshot: PdfPacketSplitSnapshot;
   onReviewed(starts: Record<string, number[]>): void | Promise<void>;
@@ -21,6 +22,7 @@ export function PdfPacketReview({ projectId, snapshot: initial, onReviewed, onBa
   onClose?(): void;
   registerCloseRequest?(handler: () => void): () => void;
   headerContent?: ReactNode;
+  headerSubtitle?: string;
   primaryLabel?: string | ((documents: number) => string);
   discardText?: string;
   onSnapshotChange?(snapshot: PdfPacketSplitSnapshot): void;
@@ -35,7 +37,6 @@ export function PdfPacketReview({ projectId, snapshot: initial, onReviewed, onBa
   useEffect(() => { revisionRef.current = snapshot.analysis_revision; }, [snapshot.analysis_revision]);
   const [busy, setBusy] = useState(false);
   const initialExamplePages = (initial as CombinedSnapshot).example_pages ?? [];
-  const keepWorkingRef = useRef<HTMLButtonElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const [discardTarget, setDiscardTarget] = useState<'back' | 'close' | null>(null);
 
@@ -98,13 +99,13 @@ export function PdfPacketReview({ projectId, snapshot: initial, onReviewed, onBa
     else onBack();
   }, [discardTarget, state.dirty, onClose, onBack]);
   useLayoutEffect(() => registerCloseRequest?.(() => requestExit('close')), [registerCloseRequest, requestExit]);
-  useEffect(() => { if (discardTarget) keepWorkingRef.current?.focus(); }, [discardTarget]);
-  return <div className="pdf-packet-review-host">
-    {onClose && <header className="pdf-packet-review-header"><h2>Find documents</h2>
+  return <div className="pdf-batch-flow pdf-packet-review-host">
+    {onClose && <header className="import-workspace-header"><div><div className="import-workspace-title" role="heading" aria-level={2}>Split PDFs</div>{headerSubtitle && <div className="import-workspace-kicker">{headerSubtitle}</div>}</div>
+      {headerContent}
       <WindowCloseButton ref={closeButtonRef} label="Close split PDFs" onClick={() => requestExit('close')} />
     </header>}
-    {headerContent}
-    {snapshot.status === 'preparing' ? <div className="pdf-packet-review-preparing" role="status">
+    {!onClose && headerContent}
+    {snapshot.status === 'preparing' ? <div className="pdf-batch-loading" role="status">
       <strong>Preparing pages</strong>
       <span>{snapshot.prepare.progress.done} of {snapshot.prepare.progress.total ?? pageCount} pages</span>
       <ProgressBar label="Preparing pages" completed={snapshot.prepare.progress.done} total={snapshot.prepare.progress.total ?? pageCount} state="active" />
@@ -112,11 +113,15 @@ export function PdfPacketReview({ projectId, snapshot: initial, onReviewed, onBa
     </div> : snapshot.status === 'ready' ? <PacketFindStep
       projectId={projectId} splitId={snapshot.split_id} state={state} pageCount={pageCount} dispatch={dispatch} sources={sources}
       onCancelOcr={cancelOcr} onBack={() => requestExit('back')} onContinue={() => void continueReview()}
-      primaryLabel={primaryLabel} continueDisabled={busy} /> : <div className="pdf-packet-review-preparing">
+      primaryLabel={primaryLabel} continueDisabled={busy} /> : <div className="pdf-batch-loading">
       <p role="alert">{snapshot.prepare.progress.error ?? 'Could not prepare these PDFs.'}</p>
       <Button type="button" onClick={() => requestExit('back')}>Back</Button>
     </div>}
     {state.error && <p role="alert">{state.error}</p>}
-    {discardTarget && <div role="dialog" aria-label="Discard this split?" className="pdf-packet-review-discard"><strong>Discard this split?</strong><p>{state.confirmedStarts.length - state.fixedStarts.length + state.rejected.length + state.examplePages.filter((page) => state.fixedStarts.includes(page) && !initialExamplePages.includes(page)).length} starts you marked or answered will be lost. {discardText ?? 'Text read so far stays in this import.'}</p><Button ref={keepWorkingRef} type="button" onClick={() => { setDiscardTarget(null); window.requestAnimationFrame(() => closeButtonRef.current?.focus()); }}>Keep working</Button><Button type="button" onClick={() => discardTarget === 'close' ? onClose?.() : onBack()}>Discard</Button></div>}
+    {discardTarget && <DiscardImportConfirm title="Discard this split?" testId="pdf-split-discard-dialog" confirmLabel="Discard"
+      message={`${state.confirmedStarts.length - state.fixedStarts.length + state.rejected.length + state.examplePages.filter((page) => state.fixedStarts.includes(page) && !initialExamplePages.includes(page)).length} starts you marked or answered will be lost. ${discardText ?? 'Text read so far stays in this import.'}`}
+      onKeep={() => { setDiscardTarget(null); window.requestAnimationFrame(() => closeButtonRef.current?.focus()); }}
+      onConfirm={() => discardTarget === 'close' ? onClose?.() : onBack()} />}
+
   </div>;
 }

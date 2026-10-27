@@ -77,7 +77,7 @@ it('bounds the visible exclusion list', async () => {
   api.remove.mockResolvedValue(undefined);
   render(<PdfSplitSetup projectId="p" sheet={{ id: '1', name: 'Sheet', rowCount: 40, columns: [{ id: '2', name: 'media', type: 'file' }] }} selection={{ sheetId: '1', rowIds: [], rowIndexes: [] }} getSheetRows={vi.fn().mockResolvedValue({ rows: [] })} view={{}} onClose={() => {}} onApply={async () => {}} />);
   await screen.findByRole('heading', { name: '3 rows' });
-  expect(document.body.querySelectorAll('.pdf-split-excluded')).toHaveLength(9);
+  expect(screen.getAllByText('Not a PDF · stays as it is')).toHaveLength(9);
   expect(screen.getByText('+ 21 more excluded rows')).toBeTruthy();
 });
 it('finishes a sample even if OCR changes its source text category', async () => {

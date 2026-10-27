@@ -27,8 +27,6 @@ export function PacketReviewCard({
   onIndex,
   onAccept,
   onReject,
-  onAcceptAll,
-  canAcceptAll,
   onOpenLarge,
   sources,
   emptyMessage,
@@ -46,8 +44,6 @@ export function PacketReviewCard({
   onIndex(index: number): void;
   onAccept(page: number): void;
   onReject(page: number): void;
-  onAcceptAll(): void;
-  canAcceptAll: boolean;
   onOpenLarge(page: number): void;
 }) {
   const [referenceSeen, setReferenceSeen] = useState(Boolean(sources && sources.length > 1));
@@ -164,11 +160,7 @@ export function PacketReviewCard({
           )}
         </>
       )}
-      {!showingReference && tab === 'suggested' && suggested.length > 0 ? (
-        <button type="button" className="packet-review-accept-all" disabled={!canAcceptAll} onClick={onAcceptAll}>
-          Accept all {suggested.length} suggestions
-        </button>
-      ) : null}
+
     </section>
   );
 }

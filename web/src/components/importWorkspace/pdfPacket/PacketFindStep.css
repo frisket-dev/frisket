@@ -389,15 +389,6 @@
   background: white;
   color: #4a433e;
 }
-.packet-review-accept-all {
-  justify-self: center;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: #3436b8;
-  font-size: 11px;
-  font-weight: 600;
-}
 .packet-review-empty {
   min-height: clamp(100px, calc(100vh - 475px), 255px);
   display: grid;
@@ -593,27 +584,5 @@
 .pdf-packet-minimap-map > i[data-state='confirmed'] { background:#4b4ddb; }
 .pdf-packet-minimap-map > i[data-state='suggested'] { background:#aaaaf0; }
 .pdf-packet-minimap-map > i[data-state='unsure'] { background:#c27c12; }
-.pdf-packet-review-host { position:relative; display:flex; flex:1; min-height:0; }
-.pdf-packet-review-discard { position:absolute; left:12px; bottom:55px; width:270px; padding:14px; background:white; box-shadow:0 4px 20px #0003; z-index:4; }
 .packet-find-step .pdf-packet-page-cell[data-fixed][data-packet-page='1'] { box-shadow:none; }
-.pdf-packet-review-host { flex-direction:column; }
-.pdf-packet-review-header { display:flex; align-items:center; justify-content:space-between; padding:12px 18px; border-bottom:1px solid #eee; }
-.pdf-packet-review-header h2 { margin:0; }
-.pdf-packet-review-host:has(.pdf-packet-review-header) .pdf-packet-review-discard { left:auto; right:12px; top:48px; bottom:auto; }
-.pdf-packet-review-preparing { flex:1; min-height:0; display:flex; flex-direction:column; justify-content:center; align-items:center; gap:12px; padding:32px; }
-.pdf-packet-review-preparing .activity-progress-bar { width:min(360px, 90%); }
-.packet-find-step .pdf-packet-page-row img {
-  height: calc(var(--packet-thumb-width) * 1.414);
-  aspect-ratio: 1 / 1.414;
-}
-.packet-find-step .pdf-packet-doc-label[data-file-label] {
-  position:relative;
-  z-index:2;
-  display:flex;
-  min-width:0;
-  color:#292420;
-  pointer-events:none;
-}
-.packet-find-step .pdf-packet-doc-label[data-file-label] > span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.packet-find-step .pdf-packet-doc-label[data-file-label] > small { flex:none; color:#756c66; font:inherit; font-weight:400; }
 .packet-find-step .pdf-packet-minimap > span { display:block; white-space:normal; overflow-wrap:anywhere; line-height:1.3; }

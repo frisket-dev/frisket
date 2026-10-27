@@ -4,6 +4,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PdfPacketReview } from '../../src/components/importWorkspace/pdfPacket/PdfPacketReview';
 import type { PdfPacketSplitSnapshot } from '../../src/api/pdfPacketSplits';
 
+Object.defineProperty(HTMLDialogElement.prototype, 'showModal', { configurable: true, value() { this.setAttribute('open', ''); } });
+Object.defineProperty(HTMLDialogElement.prototype, 'close', { configurable: true, value() { this.removeAttribute('open'); } });
+
 const matcher = vi.hoisted(() => vi.fn(async () => ({ analysis_revision: 1, pages: [], suggested_pages: [], unsure_pages: [], phrase_counts: {} })));
 vi.mock('../../src/components/importWorkspace/pdfPacket/PacketLargePageView', () => ({ PacketLargePageView: () => null }));
 vi.mock('../../src/api/pdfPacketSplits', () => ({
@@ -79,11 +82,11 @@ describe('combined PDF review', () => {
     fireEvent.click(screen.getByRole('button', { name: /Continue to import/ }));
     await waitFor(() => expect(onReviewed).toHaveBeenCalledWith({ a: [1], b: [4, 5] }));
   });
-  it('limits each file label to the next file start', () => {
+  it('marks file boundaries without adding filename labels above the grid', () => {
     const { container } = render(<PdfPacketReview projectId="p" snapshot={snapshot} onReviewed={() => {}} onBack={() => {}} />);
-    const label = container.querySelector<HTMLElement>('[data-packet-page="1"] [data-file-label]');
-    expect(label?.style.width).toContain('200%');
-    expect(label?.textContent).toContain('a.pdf · 2 pp');
+    const fileStart = container.querySelector('[data-packet-page="3"]');
+    expect(fileStart?.hasAttribute('data-fixed')).toBe(true);
+    expect(fileStart?.querySelector('.pdf-packet-doc-label')?.textContent).not.toContain('b.pdf');
   });
   it('explains that visual suggestions have not started without examples', () => {
     render(<PdfPacketReview projectId="p" snapshot={snapshot} onReviewed={() => {}} onBack={() => {}} />);
