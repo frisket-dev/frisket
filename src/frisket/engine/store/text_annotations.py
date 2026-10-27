@@ -19,10 +19,10 @@ excluded by construction — the feature is opt-in and fails closed at read.
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 from typing import Any
 
 from frisket.engine.store.evidence import _json_dumps, _json_loads
+from frisket.engine.store.transactions import read_transaction
 from frisket.engine.store.current_value_windows import (
     CurrentValueChanged,
     CurrentValueNotTextual,
@@ -65,19 +65,6 @@ def _visible_cell(project: Any, sheet_id: int, row_id: int, column_id: int) -> b
         ).fetchone()
         is not None
     )
-
-
-@contextmanager
-def _read_snapshot(project: Any):
-    """Keep value refs, hashes, and inverse evidence on one SQLite snapshot."""
-    owns_transaction = not project.db.in_transaction
-    if owns_transaction:
-        project.db.execute("BEGIN")
-    try:
-        yield
-    finally:
-        if owns_transaction:
-            project.db.rollback()
 
 
 def _normalize_producer(producer_json: str | None) -> dict[str, Any]:
@@ -154,7 +141,7 @@ def resolve_text_annotations(
     Returns the current cell text/hash and a list of layers. A positioned layer
     carries UTF-16 span geometry; a content-hash mismatch yields an unpositioned
     summary (D4). Nothing leaks from a hidden sheet/row/column."""
-    with _read_snapshot(project):
+    with read_transaction(project.db):
         return _resolve_text_annotations(
             project,
             sheet_id=sheet_id,
@@ -550,7 +537,7 @@ def annotated_text_column_ids(project: Any, sheet_id: int) -> list[int]:
     hash freshness is deliberately NOT required here: a same-cell revision-stale
     layer still keeps its source column available because the reader can show an
     unpositioned summary (D4)."""
-    with _read_snapshot(project):
+    with read_transaction(project.db):
         return _annotated_text_column_ids(project, sheet_id)
 
 

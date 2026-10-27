@@ -41,6 +41,7 @@ from frisket.engine.store.media_download_candidates import (
     compute_media_download_candidates,
 )
 from frisket.engine.store.transcript_status import compute_transcript_statuses
+from frisket.engine.store.transactions import read_transaction
 from frisket.server.route_errors import RouteError
 from frisket.server.services.document_browse import document_browse
 
@@ -89,57 +90,58 @@ class SheetGridService:
         value_mode: str = "exact",
     ) -> dict:
         project = self._workspace.get(project_id)
-        visible_columns = _visible_sheet_columns(project, sheet_id)
-        projected_columns = _projected_columns(
-            visible_columns, _parse_column_ids_param(column_ids)
-        )
-        explicit_row_ids = _parse_row_ids_param(row_ids)
-        scoped_row_ids = _parse_row_ids_param(scope_row_ids)
-        if explicit_row_ids is not None:
+        with read_transaction(project.db):
+            visible_columns = _visible_sheet_columns(project, sheet_id)
+            projected_columns = _projected_columns(
+                visible_columns, _parse_column_ids_param(column_ids)
+            )
+            explicit_row_ids = _parse_row_ids_param(row_ids)
+            scoped_row_ids = _parse_row_ids_param(scope_row_ids)
+            if explicit_row_ids is not None:
+                cols = projected_columns
+                ordered_ids = _visible_ranked_row_ids(project, sheet_id, explicit_row_ids)
+                # Lens views provide their own ranked row order. The grid keeps that
+                # exact order and intentionally ignores filter/sort scope here.
+                window_ids = ordered_ids[offset : offset + limit]
+                return _sheet_data_payload(
+                    project,
+                    sheet_id,
+                    cols,
+                    window_ids,
+                    total=len(ordered_ids) if include_scope_metadata else None,
+                    cell_projection=column_ids is not None,
+                    include_scope_metadata=include_scope_metadata,
+                    value_mode=value_mode,
+                )
+
+            plan = _sheet_row_scope_plan(
+                project,
+                sheet_id,
+                parent_row_id=parent_row_id,
+                filter_=filter_,
+                sort=sort,
+                row_ids=scoped_row_ids,
+            )
             cols = projected_columns
-            ordered_ids = _visible_ranked_row_ids(project, sheet_id, explicit_row_ids)
-            # Lens views provide their own ranked row order. The grid keeps that
-            # exact order and intentionally ignores filter/sort scope here.
-            window_ids = ordered_ids[offset : offset + limit]
+            if include_scope_metadata:
+                rows, total = execute_sheet_row_page(
+                    project, plan, limit=limit, offset=offset
+                )
+            else:
+                rows = execute_sheet_row_page_without_total(
+                    project, plan, limit=limit, offset=offset
+                )
+                total = None
             return _sheet_data_payload(
                 project,
                 sheet_id,
                 cols,
-                window_ids,
-                total=len(ordered_ids) if include_scope_metadata else None,
+                [r["id"] for r in rows],
+                total=total,
                 cell_projection=column_ids is not None,
                 include_scope_metadata=include_scope_metadata,
                 value_mode=value_mode,
             )
-
-        plan = _sheet_row_scope_plan(
-            project,
-            sheet_id,
-            parent_row_id=parent_row_id,
-            filter_=filter_,
-            sort=sort,
-            row_ids=scoped_row_ids,
-        )
-        cols = projected_columns
-        if include_scope_metadata:
-            rows, total = execute_sheet_row_page(
-                project, plan, limit=limit, offset=offset
-            )
-        else:
-            rows = execute_sheet_row_page_without_total(
-                project, plan, limit=limit, offset=offset
-            )
-            total = None
-        return _sheet_data_payload(
-            project,
-            sheet_id,
-            cols,
-            [r["id"] for r in rows],
-            total=total,
-            cell_projection=column_ids is not None,
-            include_scope_metadata=include_scope_metadata,
-            value_mode=value_mode,
-        )
 
     def cell_text_window(
         self,
@@ -924,14 +926,13 @@ def _sheet_data_payload(
         column_id = int(c["id"])
         generation_managed = is_generation_managed(column_id)
         if value_mode == "bounded":
-            with project.read_snapshot() as snapshot:
-                reads = read_current_column(
-                    snapshot.db,
-                    sheet_id=sheet_id,
-                    column_id=column_id,
-                    row_ids=row_ids,
-                    bounded=True,
-                )
+            reads = read_current_column(
+                project.db,
+                sheet_id=sheet_id,
+                column_id=column_id,
+                row_ids=row_ids,
+                bounded=True,
+            )
             present_value_rows = {
                 row_id
                 for row_id, read in reads.items()
