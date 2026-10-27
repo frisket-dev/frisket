@@ -18,7 +18,10 @@ def prepared_source_readiness_ctes(*, scope_relation: str, schema: str = "") -> 
              live.column_id AS output_column_id,
              ref.id AS prepared_ref_id,ref.page_number,
              artifact.id AS artifact_id,artifact.blob_hash,
-             artifact.page_count,artifact.source_sheet_id,
+             artifact.page_count,
+             (live.prepared_ref_id IS NULL) AS is_manual,
+             length(trim(live.value,{_SQL_WHITESPACE}))>0 AS has_text,
+             artifact.source_sheet_id,
              artifact.source_row_id,artifact.source_column_id
       FROM {scope_relation} AS readiness_scope
       JOIN {prefix}columns AS output_column
@@ -53,10 +56,11 @@ def prepared_source_readiness_ctes(*, scope_relation: str, schema: str = "") -> 
            OR role.source_column_id=artifact.source_column_id
       )
         AND live.value_kind='text'
-        AND length(trim(live.value,{_SQL_WHITESPACE}))>0
+        AND (live.prepared_ref_id IS NOT NULL
+             OR length(trim(live.value,{_SQL_WHITESPACE}))>0)
     ), legacy_prepared_sources AS MATERIALIZED (
       SELECT prepared_ref_id,page_number,artifact_id,blob_hash,page_count,
-             output_column_id,source_sheet_id,source_row_id,source_column_id
+             is_manual,has_text,output_column_id,source_sheet_id,source_row_id,source_column_id
       FROM current_prepared_outputs
       WHERE source_sheet_id IS NOT NULL
         AND source_row_id IS NOT NULL
@@ -66,7 +70,7 @@ def prepared_source_readiness_ctes(*, scope_relation: str, schema: str = "") -> 
       UNION
       SELECT prepared.prepared_ref_id,prepared.page_number,
              prepared.artifact_id,prepared.blob_hash,prepared.page_count,
-             prepared.output_column_id,source_link.sheet_id,
+             prepared.is_manual,prepared.has_text,prepared.output_column_id,source_link.sheet_id,
              source_link.row_id,source_link.column_id
       FROM current_prepared_outputs AS prepared
       JOIN {prefix}source_spans AS source_span
@@ -86,7 +90,7 @@ def prepared_source_readiness_ctes(*, scope_relation: str, schema: str = "") -> 
        AND source_link.sheet_id IS NOT NULL
        AND source_link.row_id IS NOT NULL
        AND source_link.column_id IS NOT NULL
-    ), current_prepared_sources AS MATERIALIZED (
+    ), prepared_candidates AS MATERIALIZED (
       SELECT legacy.* FROM legacy_prepared_sources legacy
       WHERE NOT EXISTS (
         SELECT 1 FROM {prefix}document_text_column_roles role
@@ -95,29 +99,38 @@ def prepared_source_readiness_ctes(*, scope_relation: str, schema: str = "") -> 
       UNION
       SELECT selected.prepared_ref_id,selected.source_page_number,
              selected.source_artifact_id,selected.source_blob_hash,
-             selected.page_count,selected.text_column_id,
+             selected.page_count,selected.prepared_ref_id IS NULL AS is_manual,
+             EXISTS (SELECT 1 FROM {prefix}current_cell_values text
+                     WHERE text.row_id=selected.row_id
+                       AND text.column_id=selected.text_column_id
+                       AND length(trim(text.value,{_SQL_WHITESPACE}))>0) AS has_text,
+             selected.text_column_id,
              selected.source_sheet_id,selected.row_id,selected.source_column_id
       FROM {scope_relation} readiness_scope
       JOIN {prefix}current_document_text_selections selected
         ON selected.source_sheet_id=readiness_scope.sheet_id
        AND selected.row_id=readiness_scope.row_id
       WHERE selected.text_hidden=0
-        AND (
-          (selected.prepared_ref_id IS NOT NULL AND EXISTS (
-            SELECT 1 FROM {prefix}prepared_content_set_pages member
-            JOIN {prefix}prepared_page_versions page ON page.id=member.version_id
-            WHERE member.set_id=selected.set_id
-              AND (selected.ref_page_number IS NULL
-                   OR member.page_number=selected.ref_page_number)
-              AND length(trim(page.prepared_text,{_SQL_WHITESPACE}))>0
-          ))
-          OR (selected.prepared_ref_id IS NULL AND EXISTS (
-            SELECT 1 FROM {prefix}current_cell_values text
-            WHERE text.row_id=selected.row_id
-              AND text.column_id=selected.text_column_id
-              AND length(trim(text.value,{_SQL_WHITESPACE}))>0
-          ))
-        )
+        AND (selected.prepared_ref_id IS NOT NULL OR EXISTS (
+          SELECT 1 FROM {prefix}current_cell_values text
+          WHERE text.row_id=selected.row_id
+            AND text.column_id=selected.text_column_id
+            AND length(trim(text.value,{_SQL_WHITESPACE}))>0
+        ))
+    ), current_prepared_sources AS MATERIALIZED (
+      SELECT candidate.*,
+             CASE WHEN candidate.is_manual THEN 1
+                  WHEN candidate.page_number IS NOT NULL THEN EXISTS (
+                    SELECT 1 FROM {prefix}prepared_content_set_pages member
+                    WHERE member.set_id=ref.set_id
+                      AND member.page_number=candidate.page_number
+                  )
+                  ELSE candidate.page_count IS NOT NULL AND (
+                    SELECT count(*) FROM {prefix}prepared_content_set_pages member
+                    WHERE member.set_id=ref.set_id
+                  )=candidate.page_count END AS coverage_complete
+      FROM prepared_candidates candidate
+      LEFT JOIN {prefix}prepared_content_refs ref ON ref.id=candidate.prepared_ref_id
     )"""
 
 

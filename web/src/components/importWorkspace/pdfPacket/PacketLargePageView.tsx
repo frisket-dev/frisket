@@ -3,11 +3,12 @@ import './PacketFindStep.css';
 import { Button } from '../../Button';
 import { useCallback, useEffect, useRef, type KeyboardEvent } from 'react';
 import { Check, ChevronLeft, ChevronRight, X } from 'lucide-react';
-import type { PdfPacketMatchResult, PdfPacketPageMatch } from '../../../api/pdfPacketSplits';
+import { pdfPacketSourceUrl, type PdfPacketMatchResult, type PdfPacketPageMatch } from '../../../api/pdfPacketSplits';
 import { projectBlobUrl } from '../../../api/raw/projectResources';
 import { PdfViewer } from '../../../media/PdfViewer';
 import { matchForPage } from './model';
 import { PacketThumbnail } from './PacketThumbnail';
+import { pageAddress, type ReviewSource } from './reviewSources';
 
 const ignorePdfLoaded = () => undefined;
 
@@ -52,8 +53,12 @@ export function PacketLargePageView({
   onReject,
   onRemove,
   onClose,
+  sources, examples = [], onExample,
 }: {
   projectId: string;
+  sources?: readonly ReviewSource[];
+  examples?: readonly number[];
+  onExample?(page: number): void;
   blobHash: string;
   splitId: string;
   page: number;
@@ -70,8 +75,11 @@ export function PacketLargePageView({
   onClose(): void;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const address = sources ? pageAddress(sources, page) : null;
+  const fixed = address?.sourcePage === 1;
+  const localPage = address?.localPage ?? page;
   const match = matchForPage(matches, page);
-  const status = pageStatus(page, confirmed, rejected, unsure, suggested, match);
+  const status = fixed ? { kind: 'other' as const, label: examples.includes(page) ? 'First page of file · example' : 'First page of file' } : pageStatus(page, confirmed, rejected, unsure, suggested, match);
   const isConfirmed = confirmed.includes(page);
   const canReject = suggested.includes(page) || unsure.includes(page);
   const go = useCallback((delta: number) => {
@@ -112,6 +120,7 @@ export function PacketLargePageView({
     }
     if (event.key === 'ArrowLeft') go(-1);
     else if (event.key === 'ArrowRight') go(1);
+    else if (key === 's' && fixed) onExample?.(page);
     else if (key === 's' && !isConfirmed) onConfirm(page);
     else if (key === 'x') secondaryAction();
     else if (event.key === 'Escape') close();
@@ -136,7 +145,7 @@ export function PacketLargePageView({
     >
       <section className="packet-large-card">
         <header>
-          <h2>Page {page}</h2>
+          <h2>Page {localPage}{address ? ` of ${address.page_count ?? address.page_end} · ${address.filename}` : ''}</h2>
           <span className="packet-page-status" data-status={status.kind}>{status.label}</span>
           <button type="button" className="icon-btn" aria-label="Close large page view" onClick={close}>
             <X size={17} />
@@ -146,25 +155,25 @@ export function PacketLargePageView({
           <button type="button" aria-label="Previous page" disabled={page === 1} onClick={() => go(-1)}>
             <ChevronLeft size={18} />
           </button>
-          {page > 1 ? (
+          {page > 1 && !fixed ? (
             <figure className="packet-large-before">
               <PacketThumbnail projectId={projectId} splitId={splitId} page={page - 1} alt={`Page ${page - 1}`} eager />
-              <figcaption>p {page - 1} · before</figcaption>
+              <figcaption>p {localPage - 1} · before</figcaption>
             </figure>
-          ) : <span className="packet-large-first">First page</span>}
+          ) : <span className="packet-large-first">{address ? `Start of ${address.filename}` : 'First page'}</span>}
           <div className="packet-large-current">
             <PdfViewer
-              url={projectBlobUrl(projectId, blobHash)}
+              url={address ? pdfPacketSourceUrl(projectId, splitId, address.key) : projectBlobUrl(projectId, blobHash)}
               layout="single"
               fit="page"
               zoom={1}
               textLayer={false}
-              currentPage={page}
+              currentPage={localPage}
               onLoaded={ignorePdfLoaded}
-              onCurrentPageChange={onPage}
+              onCurrentPageChange={(next) => onPage(address ? address.display_start + Math.max(address.page_start, Math.min(address.page_end, next)) - address.page_start : next)}
               className="packet-large-pdf"
             />
-            <span>Page {page}</span>
+            <span>Page {localPage}</span>
           </div>
           <button type="button" aria-label="Next page" disabled={page === pageCount} onClick={() => go(1)}>
             <ChevronRight size={18} />
@@ -172,16 +181,16 @@ export function PacketLargePageView({
         </div>
         <footer>
           <div className="packet-large-actions">
-            {!isConfirmed ? (
+            {fixed ? <><Button type="button" onClick={() => onExample?.(page)}>{examples.includes(page) ? 'Stop using as example' : 'Use as example'}</Button><span>A file’s first page always starts a document.</span></> : !isConfirmed ? (
               <Button type="button" className="btn-primary" onClick={() => onConfirm(page)}>
                 <Check size={13} /> Starts a document <kbd>S</kbd>
               </Button>
             ) : null}
-            {isConfirmed && page !== 1 ? (
+            {!fixed && isConfirmed && page !== 1 ? (
               <Button type="button" onClick={() => onRemove(page)}>
                 <X size={13} /> Remove start <kbd>X</kbd>
               </Button>
-            ) : canReject ? (
+            ) : !fixed && canReject ? (
               <Button type="button" onClick={() => onReject(page)}>
                 <X size={13} /> Not a start <kbd>X</kbd>
               </Button>

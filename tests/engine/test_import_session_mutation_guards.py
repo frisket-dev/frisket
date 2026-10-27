@@ -8,6 +8,7 @@ import pytest
 
 from frisket.engine.store import Project
 from frisket.engine.store.cell_writes import (
+    BaseCellWrite,
     EditCellWrite,
     insert_edits,
     remove_base_cells,
@@ -86,6 +87,42 @@ def test_session_producer_can_append_but_base_removal_and_edits_are_blocked(
             )
         project.db.rollback()
         assert project.get_values(writer.sheet_id, column_id)[row_id] == "one"
+    finally:
+        project.close()
+
+
+@pytest.mark.parametrize("token", ["claim:stale", "claim:guard"])
+def test_import_replacement_requires_current_writer_token(tmp_path, token):
+    project = Project.create(tmp_path / "writer.frisket", name="writer")
+    try:
+        writer = _session(project)
+        row_id = writer.append_page(
+            [{"value": "one"}], expected_cursor=0, next_cursor=1
+        )[0]
+        session = ImportSessionStore(project).get("import:guard")
+        column_id = int(project.columns(writer.sheet_id)[0]["id"])
+        project.db.execute("BEGIN IMMEDIATE")
+
+        def replace():
+            return replace_base_cells(
+                project.db,
+                producer_id=session.producer_id,
+                column_ids=[column_id],
+                row_ids=[row_id],
+                cells=[BaseCellWrite(row_id, column_id, "prepared")],
+                import_writer_authority=token,
+            )
+
+        if token == "claim:stale":
+            with pytest.raises(ImportInProgress):
+                replace()
+            project.db.rollback()
+            assert project.get_values(writer.sheet_id, column_id)[row_id] == "one"
+        else:
+            assert replace() == 1
+            project.db.commit()
+            assert project.get_values(writer.sheet_id, column_id)[row_id] == "prepared"
+
     finally:
         project.close()
 

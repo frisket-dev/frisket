@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import quote
 
 from frisket.engine.store.evidence import (
     record_evidence_link,
@@ -51,6 +52,14 @@ class ImportBlob:
     prepared_pages: tuple[PreparedPageDraft, ...] = ()
     prepared_engine: str | None = None
     prepared_token_granularity: str | None = None
+    source_sheet_id: int | None = None
+    source_row_id: int | None = None
+    source_column_id: int | None = None
+    original_source: bool = False
+    prepared_source_ref_id: int | None = None
+    source_link_column_name: str | None = None
+    source_link_project_id: str | None = None
+    preserve_original: bool = False
 
 
 @dataclass(frozen=True)
@@ -160,6 +169,7 @@ def publish_import_blobs(
     column_ids: Mapping[str, int],
     op_id: int,
     receipt_id: str,
+    import_writer_authority: str | None = None,
 ) -> tuple[dict[str, Any], ...]:
     """Bind prepared bytes and evidence without committing the caller transaction.
 
@@ -224,7 +234,13 @@ def publish_import_blobs(
                     if blob.occurrence_id in document_pages
                     else None
                 ),
-                source_sheet_id=sheet_id,
+                source_sheet_id=blob.source_sheet_id
+                if blob.original_source
+                else sheet_id,
+                source_row_id=blob.source_row_id,
+                source_column_id=blob.source_column_id,
+                source_url=blob.source_url,
+                metadata=blob.metadata if blob.original_source else None,
                 external_ref=blob.occurrence_ref,
             )
 
@@ -296,16 +312,55 @@ def publish_import_blobs(
                 page_number=int(blob.page),
             )
     for blob in plan.blobs:
-        if not blob.prepared_pages:
+        if not blob.prepared_pages and blob.prepared_source_ref_id is None:
             continue
         artifact = packet_artifacts.get(blob.occurrence_id)
         if artifact is None:
             raise ValueError("prepared packet OCR has no child artifact")
-        prepared_refs[blob.occurrence_id] = prepared_store.stage_reference(
-            source_artifact_id=int(artifact["id"]),
-            producing_op_id=op_id,
-            pages=blob.prepared_pages,
-        )
+        if blob.prepared_source_ref_id is not None:
+            source = records[blob.packet_source_id]
+            original = project.db.execute(
+                "SELECT artifact.blob_hash FROM prepared_content_refs ref "
+                "JOIN prepared_content_sets content ON content.id=ref.set_id "
+                "JOIN source_artifacts artifact ON artifact.id=content.source_artifact_id "
+                "WHERE ref.id=?",
+                (blob.prepared_source_ref_id,),
+            ).fetchone()
+            if original is None or original[0] != source.digest:
+                raise ValueError(
+                    "prepared split text does not belong to its original PDF"
+                )
+            rebased = prepared_store.stage_rebased(
+                base_ref_id=blob.prepared_source_ref_id,
+                source_artifact_id=int(artifact["id"]),
+                producing_op_id=op_id,
+                first_page=int(blob.packet_page_start),
+                last_page=int(blob.packet_page_end),
+                allow_partial=True,
+            )
+            if rebased is not None:
+                if blob.prepared_pages:
+                    rebased = prepared_store.stage_replacement(
+                        base_ref_id=rebased.ref_id,
+                        producing_op_id=op_id,
+                        replacements=blob.prepared_pages,
+                        allow_partial=True,
+                    )
+                prepared_refs[blob.occurrence_id] = rebased
+            elif blob.prepared_pages:
+                prepared_refs[blob.occurrence_id] = prepared_store.stage_reference(
+                    source_artifact_id=int(artifact["id"]),
+                    producing_op_id=op_id,
+                    pages=blob.prepared_pages,
+                    allow_partial=True,
+                )
+        elif blob.prepared_pages:
+            prepared_refs[blob.occurrence_id] = prepared_store.stage_reference(
+                source_artifact_id=int(artifact["id"]),
+                producing_op_id=op_id,
+                pages=blob.prepared_pages,
+                allow_partial=True,
+            )
 
     replacements: dict[tuple[int, int], list[BaseCellWrite]] = {}
     for cell in plan.cells:
@@ -334,6 +389,7 @@ def publish_import_blobs(
             column_ids=[column_id],
             cells=cells,
             row_ids=[cell.row_id for cell in cells],
+            import_writer_authority=import_writer_authority,
         )
 
     refs: list[dict[str, Any]] = []
@@ -378,13 +434,14 @@ def publish_import_blobs(
             source_artifact = artifacts[blob.packet_source_id]
             page_start = int(blob.packet_page_start)
             page_end = int(blob.packet_page_end)
-            project.record_blob_derivation(
-                derived_hash=blob.digest,
-                source_hash=records[blob.packet_source_id].digest,
-                op="pdf_packet_split",
-                params={"page_start": page_start, "page_end": page_end},
-                commit=False,
-            )
+            if not blob.preserve_original:
+                project.record_blob_derivation(
+                    derived_hash=blob.digest,
+                    source_hash=records[blob.packet_source_id].digest,
+                    op="pdf_packet_split",
+                    params={"page_start": page_start, "page_end": page_end},
+                    commit=False,
+                )
             span = record_source_span(
                 project,
                 artifact_id=int(source_artifact["id"]),
@@ -421,6 +478,30 @@ def publish_import_blobs(
                 source_artifact_id=source_artifact["id"],
                 evidence_link_id=link["id"],
             )
+            if blob.source_link_column_name is not None:
+                if (
+                    blob.source_link_column_name not in column_ids
+                    or not blob.source_link_project_id
+                ):
+                    raise ValueError(
+                        "source link requires an admitted destination and project"
+                    )
+                source_column_id = int(column_ids[blob.source_link_column_name])
+                producer = project.db.execute(
+                    "SELECT producer_id FROM cells WHERE row_id=? AND column_id=?",
+                    (cell.row_id, column_id),
+                ).fetchone()
+                if producer is None:
+                    raise ValueError("source link has no owning imported cell")
+                href = f"/p/{quote(blob.source_link_project_id, safe='')}/evidence/{quote(str(link['stable_id']), safe='')}?page={page_start}"
+                replace_base_cells(
+                    project.db,
+                    producer_id=int(producer[0]),
+                    column_ids=[source_column_id],
+                    row_ids=[cell.row_id],
+                    import_writer_authority=import_writer_authority,
+                    cells=[BaseCellWrite(cell.row_id, source_column_id, href)],
+                )
             prepared_ref = prepared_refs.get(blob.occurrence_id)
             if prepared_ref is not None:
                 _publish_packet_ocr_evidence(
@@ -571,6 +652,13 @@ def _publish_packet_ocr_evidence(
         column_id=column_id,
         op_id=op_id,
         receipt_id=receipt_id,
-        link_role="media_ocr_grounding",
-        producer={"action_kind": "media.ocr", "engine": blob.prepared_engine},
+        link_role="media_ocr_grounding"
+        if blob.prepared_engine not in (None, "native")
+        else "extraction_text",
+        producer={
+            "action_kind": "media.ocr"
+            if blob.prepared_engine not in (None, "native")
+            else "media.read_pdf_text",
+            "engine": blob.prepared_engine,
+        },
     )

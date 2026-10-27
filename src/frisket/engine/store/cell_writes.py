@@ -16,6 +16,7 @@ from typing import Any
 
 from .current_cells import refresh_current_cell_pairs, refresh_current_cells
 from .import_sessions import (
+    ImportInProgress,
     active_import_session,
     require_cancelled_import_removal,
     require_import_sheet_write,
@@ -240,6 +241,7 @@ def _require_cell_targets_mutable(
     pairs: Collection[tuple[int, int]],
     *,
     producer_id: int | None = None,
+    import_writer_authority: str | None = None,
 ) -> None:
     if not pairs:
         return
@@ -252,6 +254,14 @@ def _require_cell_targets_mutable(
         )
     }
     for sheet_id in sheet_ids:
+        if import_writer_authority is not None:
+            session = active_import_session(db, sheet_id)
+            if session is not None and (
+                session.state != "active"
+                or session.producer_id != producer_id
+                or session.writer_authority != import_writer_authority
+            ):
+                raise ImportInProgress(session)
         require_import_sheet_write(db, sheet_id, producer_id=producer_id)
 
 
@@ -361,6 +371,7 @@ def replace_base_cells(
     column_ids: Collection[int],
     cells: Iterable[BaseCellWrite],
     row_ids: Collection[int] | None = None,
+    import_writer_authority: str | None = None,
 ) -> int:
     """Replace exactly one declared base-cell region with a new sparse set."""
 
@@ -393,7 +404,12 @@ def replace_base_cells(
             columns,
         )
     ]
-    _require_cell_targets_mutable(db, [(row_id, columns[0]) for row_id in target_rows])
+    _require_cell_targets_mutable(
+        db,
+        [(row_id, columns[0]) for row_id in target_rows],
+        producer_id=producer_id if import_writer_authority is not None else None,
+        import_writer_authority=import_writer_authority,
+    )
 
     params: list[int] = list(columns)
     where = f"column_id IN ({','.join('?' for _ in columns)})"

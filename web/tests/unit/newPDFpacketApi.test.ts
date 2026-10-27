@@ -1,11 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  applyPdfPacketSheetSplit,
+  createPdfPacketSplitFromDraft,
+  getPdfPacketSheetScopeToken,
   commitPdfPacketSplit,
   createPdfPacketSplit,
   estimatePdfPacketOcr,
   matchPdfPacketCandidates,
   pdfPacketThumbnailUrl,
+  pdfPacketSourceUrl,
   startPdfPacketOcr,
 } from '../../src/api/pdfPacketSplits';
 
@@ -15,7 +19,29 @@ const response = (body: unknown) => new Response(JSON.stringify(body), {
 });
 
 describe('PDF packet split API', () => {
+  it('addresses admitted source files without relying on a published blob', () => {
+    expect(pdfPacketSourceUrl('project 1', 'split/1', 'row:1/2')).toBe('/api/projects/project%201/import/pdf-packet-splits/split%2F1/source-file?source_key=row%3A1%2F2');
+  });
+
   afterEach(() => vi.unstubAllGlobals());
+
+  it('sends typed draft and view-token requests through the contract routes', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(response({ split_id: 's' })).mockResolvedValueOnce(response({ order_hash: 'h' }));
+    vi.stubGlobal('fetch', fetchMock);
+    await createPdfPacketSplitFromDraft('p', { draft_id: 'd', expected_revision: 3, organization: 'split_documents' });
+    await getPdfPacketSheetScopeToken('p', { sheet_id: 1, scope: 'selected', filter_: '{}', sort: null });
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/projects/p/import/pdf-packet-splits/from-draft');
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1].body))).toEqual({ sheet_id: 1, scope: 'selected', filter_: '{}', sort: null });
+  });
+
+  it('requires a durable import job for sheet split application', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({ job_id: 7, import_ref: 'i', sheet_id: 3 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(applyPdfPacketSheetSplit('p', 's', { idempotency_key: 'key', destination: { kind: 'replace', sheet_id: 3 } }))
+      .resolves.toEqual({ job_id: 7, import_ref: 'i', sheet_id: 3 });
+    fetchMock.mockResolvedValueOnce(response({ job_id: 'preview' }));
+    await expect(applyPdfPacketSheetSplit('p', 's', { idempotency_key: 'key', destination: { kind: 'replace', sheet_id: 3 } })).rejects.toThrow(/durable import job/);
+  });
 
   it('uploads multipart data without overriding its content type', async () => {
     const fetchMock = vi.fn().mockResolvedValue(response({ split_id: 'split-1' }));
@@ -37,6 +63,7 @@ describe('PDF packet split API', () => {
     const fetchMock = vi.fn().mockResolvedValue(response({ suggested_pages: [] }));
     vi.stubGlobal('fetch', fetchMock);
     const input = {
+      expected_analysis_revision: 2,
       confirmed_starts: [1, 9],
       rejected: [4],
       threshold_pct: 83,

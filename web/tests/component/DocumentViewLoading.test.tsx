@@ -177,6 +177,21 @@ describe('DocumentView loading state', () => {
       .every((node) => node.dataset.hasMedia === 'false')).toBe(true);
   });
 
+  it('distinguishes split children by their original page range', async () => {
+    render(<DocumentView projectId="project-1" sheet={sheet} state={state}
+      onChangeState={() => undefined} onDocumentFocus={() => undefined} onOpenDetail={() => undefined}
+      queryDocuments={async () => ({ items: [
+        { rowId: '1', ordinal: 1, title: 'same.pdf', titleTruncated: false, sourceKind: 'pdf', sourcePresent: true, sourceLabel: 'same.pdf', sourceLabelTruncated: false, characterCount: null, sourcePageRange: { start: 3, end: 3 } },
+        { rowId: '2', ordinal: 2, title: 'same.pdf', titleTruncated: false, sourceKind: 'pdf', sourcePresent: true, sourceLabel: 'same.pdf', sourceLabelTruncated: false, characterCount: null, sourcePageRange: { start: 4, end: 5 } },
+        { rowId: '3', ordinal: 3, title: 'original.pdf', titleTruncated: false, sourceKind: 'pdf', sourcePresent: true, sourceLabel: 'original.pdf', sourceLabelTruncated: false, characterCount: null },
+      ], nextCursor: null, previousCursor: null })}
+      hydrateRow={async () => null} onListSort={() => undefined} orderKey="none"
+      listSortDir={null} annotatedTextColumnIds={[]} disabledToggleKeys={[]} onSetDisabledToggleKeys={() => undefined} />);
+    expect(await screen.findByText('Page 3')).toBeVisible();
+    expect(screen.getByText('Pages 4–5')).toBeVisible();
+    expect(screen.getAllByText('original.pdf')).toHaveLength(2);
+  });
+
   it('shows active media hydration progress instead of an empty-document flash', async () => {
     let resolveHydration!: (row: Row | null) => void;
     const hydration = new Promise<Row | null>((resolve) => { resolveHydration = resolve; });

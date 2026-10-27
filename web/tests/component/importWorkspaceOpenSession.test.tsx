@@ -5,6 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const prepareImportFiles = vi.hoisted(() => vi.fn());
+const prepareImportUrls = vi.hoisted(() => vi.fn());
 const executeBulkImport = vi.hoisted(() => vi.fn());
 const importFollowTheMoney = vi.hoisted(() => vi.fn());
 const importCsv = vi.hoisted(() => vi.fn());
@@ -29,6 +30,7 @@ vi.mock('../../src/api/open', async (importOriginal) => {
   return {
     ...actual,
     prepareImportFiles,
+    prepareImportUrls,
     executeBulkImport,
     importFollowTheMoney,
     importCsv,
@@ -118,6 +120,7 @@ function renderDialog(open: boolean, onImported = vi.fn(), onClose = vi.fn()) {
 }
 
 beforeEach(() => {
+  prepareImportUrls.mockReset();
   listPdfImportDrafts.mockReset();
   listPdfImportDrafts.mockResolvedValue([]);
   createPdfImport.mockReset();
@@ -192,6 +195,17 @@ afterEach(() => {
 });
 
 describe('ImportWorkspaceDialog controlled open session', () => {
+  it('ignores close and cancel events from a nested dialog', () => {
+    const onClose = vi.fn();
+    renderDialog(true, vi.fn(), onClose);
+    const outer = screen.getByTestId('import-workspace-dialog');
+    const nested = document.createElement('dialog');
+    outer.appendChild(nested);
+    fireEvent(nested, new Event('close', { bubbles: true }));
+    fireEvent(nested, new Event('cancel', { bubbles: true, cancelable: true }));
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it('shows all import kinds while choosing table data, then gives row review the full workspace', async () => {
     render(
       <ImportWorkspaceDialog
@@ -311,6 +325,42 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     ));
   });
 
+  it('acquires URLs into the shared admitted inventory before any final import', async () => {
+    prepareImportUrls.mockResolvedValue({ kind: 'pdf_import', draft: { draft_id: 'url-draft' },
+      downloaded: 1, failed: 1, warnings: ['One download failed.'] });
+    renderDialog(true);
+    fireEvent.click(screen.getByTestId('import-source-urls'));
+    fireEvent.change(screen.getByTestId('import-url-list'), { target: { value: ' https://example.test/report.pdf \n\nnot-a-url' } });
+    fireEvent.click(screen.getByTestId('import-url-submit'));
+    await waitFor(() => expect(prepareImportUrls).toHaveBeenCalledWith(
+      'open-session-project', ['https://example.test/report.pdf', 'not-a-url'],
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    ));
+    await waitFor(() => expect(getPdfImport).toHaveBeenCalledWith(
+      'open-session-project', 'url-draft', expect.anything(),
+    ));
+    expect(createPdfImport).not.toHaveBeenCalled();
+    expect(importFiles).not.toHaveBeenCalled();
+  });
+
+  it('discards URL acquisition that finishes while its cancellation prompt is open', async () => {
+    let resolvePreparation!: (value: { kind: 'pdf_import'; draft: { draft_id: string }; warnings: string[] }) => void;
+    prepareImportUrls.mockReturnValue(new Promise((resolve) => { resolvePreparation = resolve; }));
+    const onClose = vi.fn();
+    renderDialog(true, vi.fn(), onClose);
+    fireEvent.click(screen.getByTestId('import-source-urls'));
+    fireEvent.change(screen.getByTestId('import-url-list'), { target: { value: 'https://example.test/report.pdf' } });
+    fireEvent.click(screen.getByTestId('import-url-submit'));
+    await waitFor(() => expect(prepareImportUrls).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByTestId('import-workspace-close'));
+    expect(screen.getByTestId('bulk-prepare-discard-dialog')).toBeVisible();
+    await act(async () => resolvePreparation({ kind: 'pdf_import', draft: { draft_id: 'cancelled-url-draft' }, warnings: [] }));
+    expect(getPdfImport).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel import' }));
+    await waitFor(() => expect(discardPdfImport).toHaveBeenCalledWith('open-session-project', 'cancelled-url-draft'));
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+  });
+
   it('routes two PDFs with companion files into one staged batch without dropping companions', async () => {
     renderDialog(true);
     fireEvent.click(screen.getByTestId('import-mode-files'));
@@ -329,6 +379,26 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     expect(await screen.findByText('Preparing file import…')).toBeInTheDocument();
     expect(createImportSession).not.toHaveBeenCalled();
     expect(prepareImportFiles).not.toHaveBeenCalled();
+  });
+
+  it('accepts several PDFs from the Split PDFs chooser through the shared inventory', async () => {
+    render(<ImportWorkspaceDialog open entryMode="pdf_split" onClose={vi.fn()} onImported={vi.fn()}
+      onError={vi.fn()} onLaunchDownload={vi.fn()} />);
+    expect(screen.getByRole('tab', { name: /Split PDFs/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('button', { name: 'Choose PDFs' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Choose folder' })).toBeVisible();
+    expect(screen.getByText('Drop PDFs here')).toBeVisible();
+    const picker = screen.getByTestId('import-file-input');
+    expect(picker).toHaveAttribute('multiple');
+    const selected = [
+      new File(['one'], 'one.pdf', { type: 'application/pdf' }),
+      new File(['two'], 'two.pdf', { type: 'application/pdf' }),
+    ];
+    fireEvent.change(picker, { target: { files: selected } });
+    await waitFor(() => expect(createPdfImport).toHaveBeenCalledWith(
+      'open-session-project', 2, 6, '2 files', expect.anything(),
+    ));
+    expect(importFiles).not.toHaveBeenCalled();
   });
 
   it('prepares ZIP selections before routing even when direct siblings include two PDFs', async () => {
@@ -418,7 +488,7 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     ));
   });
 
-  it('keeps mixed selections with fewer than two PDFs on the existing file-import path', async () => {
+  it('routes one PDF with companion files into the admitted batch inventory', async () => {
     renderDialog(true);
     fireEvent.click(screen.getByTestId('import-mode-files'));
     const selected = [
@@ -429,27 +499,24 @@ describe('ImportWorkspaceDialog controlled open session', () => {
 
     fireEvent.change(screen.getByTestId('import-file-input'), { target: { files: selected } });
 
-    await waitFor(() => expect(createImportSession).toHaveBeenCalledWith(
-      'open-session-project', { sheetName: 'files' },
+    await waitFor(() => expect(createPdfImport).toHaveBeenCalledWith(
+      'open-session-project', 3, 9, '3 files', expect.anything(),
     ));
-    await waitFor(() => expect(uploadFilesToImportSession).toHaveBeenCalledWith(
-      'open-session-project', expect.objectContaining({ import_ref: 'large-selection' }), selected,
-      expect.objectContaining({ onStatus: expect.any(Function) }),
-    ));
-    expect(createPdfImport).not.toHaveBeenCalled();
+    expect(createImportSession).not.toHaveBeenCalled();
+    expect(importFiles).not.toHaveBeenCalled();
   });
 
-  it('keeps filenames and finishing progress in the upload window until Next opens review', async () => {
+  it('keeps non-PDF filenames and finishing progress in the upload window until Next opens review', async () => {
     let finishUpload!: (value: unknown) => void;
     importFiles.mockReturnValue(new Promise((resolve) => { finishUpload = resolve; }));
     const onClose = vi.fn();
     renderDialog(true, vi.fn(), onClose);
     fireEvent.click(screen.getByTestId('import-mode-files'));
     fireEvent.change(screen.getByTestId('import-file-input'), {
-      target: { files: [new File(['pdf'], 'report.pdf', { type: 'application/pdf' })] },
+      target: { files: [new File(['image'], 'report.png', { type: 'image/png' })] },
     });
     const summary = await screen.findByTestId('import-files-summary');
-    expect(summary).toHaveTextContent('report.pdf');
+    expect(summary).toHaveTextContent('report.png');
     expect(summary).toHaveTextContent('1 file');
     expect(summary).toHaveTextContent('Importing files…');
     expect(screen.queryByRole('button', { name: 'Next' })).not.toBeInTheDocument();

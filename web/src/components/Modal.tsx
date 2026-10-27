@@ -6,7 +6,7 @@ import './Modal.css';
 import { WindowCloseButton } from './WindowCloseButton';
 
 /** Shared modal lifecycle and framing. Omit onClose for a required step. */
-export function Modal({ title, children, onClose, busy = false, testId, role = 'dialog', descriptionId, size = 'standard', closeLabel }: {
+export function Modal({ title, children, onClose, busy = false, testId, role = 'dialog', descriptionId, size = 'standard', closeLabel, className, hideHeader = false }: {
   title: ReactNode;
   children: ReactNode;
   onClose?: () => void;
@@ -16,6 +16,8 @@ export function Modal({ title, children, onClose, busy = false, testId, role = '
   descriptionId?: string;
   size?: 'standard' | 'wide';
   closeLabel?: string;
+  className?: string;
+  hideHeader?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const mounted = useRef(false);
@@ -28,7 +30,7 @@ export function Modal({ title, children, onClose, busy = false, testId, role = '
     return () => { mounted.current = false; if (dialog?.open) dialog.close(); };
   }, []);
   // A modal must escape hidden keepalive panes as well as their layout styles.
-  return createPortal(<dialog ref={ref} className="modal-card" data-size={size} role={role} aria-labelledby={titleId} aria-describedby={descriptionId} aria-busy={busy || undefined}
+  return createPortal(<dialog ref={ref} className={['modal-card', className].filter(Boolean).join(' ')} data-size={size} role={role} aria-labelledby={titleId} aria-describedby={descriptionId} aria-busy={busy || undefined}
     data-testid={testId} onCancel={event => {
       if (event.target !== event.currentTarget) return;
       event.preventDefault(); event.stopPropagation();
@@ -42,10 +44,10 @@ export function Modal({ title, children, onClose, busy = false, testId, role = '
       if (busy || !onClose) { if (!event.currentTarget.open) event.currentTarget.showModal(); }
       else onClose();
     }}>
-    <div className="modal-header">
+    {hideHeader ? <span className="sr-only" id={titleId}>{title}</span> : <div className="modal-header">
       <div className="modal-title" id={titleId}>{title}</div>
       {onClose && closeLabel && <WindowCloseButton label={closeLabel} disabled={busy} onClick={onClose} />}
-    </div>
+    </div>}
     {children}
   </dialog>, document.body);
 }

@@ -14,6 +14,7 @@ from frisket.engine.executor.pdf_page_read import AdmittedPdfPageRenderer
 from frisket.server.app import create_app
 from frisket.server.services import import_pdf as pdf_service
 from frisket.server.services import search_preparation as preparation_service
+from frisket.server.services import search_preparation_planning as planning
 from frisket.server.services.import_uploads import AdmittedUpload
 
 
@@ -193,6 +194,39 @@ def test_import_pdf_creates_one_ocr_item_for_pdf_page_and_rendered_image(
     assert batches[0]["jobs"] == []
     assert batches[0]["groups"] == [
         {"kind": "ocr", "count": 1, "status": "needs_consent"}
+    ]
+    project = client.app.state.workspace.get(pid)
+    sheet_id = response.json()["sheet_id"]
+    columns = {
+        column["name"]: int(column["id"]) for column in project.columns(sheet_id)
+    }
+    [row_id] = project.visible_row_ids(sheet_id)
+    child = project.get_values(sheet_id, columns["source"])[row_id]
+    planned = planning.build_plan(
+        project,
+        sheet_id=sheet_id,
+        row_ids=[row_id],
+        force_ocr=False,
+        requirements=(),
+        requirement_dict=lambda *_args, **_kwargs: {},
+    )
+    [item] = planned["items"]
+    assert (item["column_id"], item["blob_hash"], item["page_number"]) == (
+        columns["source"],
+        child["blob"],
+        None,
+    )
+    image_only = planning.build_plan(
+        project,
+        sheet_id=sheet_id,
+        row_ids=[row_id],
+        force_ocr=False,
+        requirements=(),
+        requirement_dict=lambda *_args, **_kwargs: {},
+        source_cells=frozenset({(row_id, columns["page_image"])}),
+    )
+    assert [item["column_id"] for item in image_only["items"]] == [
+        columns["page_image"]
     ]
 
 

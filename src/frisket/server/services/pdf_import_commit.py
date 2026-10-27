@@ -106,6 +106,7 @@ class PdfImportCommitResult:
     selected_total: int
     available_files: int
     uploads_complete: bool
+    job_id: int | None = None
 
 
 class PdfImportCommitService:
@@ -168,7 +169,9 @@ class PdfImportCommitService:
         )
         return self.commit_frozen(project_id, frozen)
 
-    def commit_frozen(self, project_id: str, frozen: Any) -> PdfImportCommitResult:
+    def commit_frozen(
+        self, project_id: str, frozen: Any, *, request_context: Any = None
+    ) -> PdfImportCommitResult:
         """Commit a snapshot already frozen by the request-authority route."""
 
         draft_id = str(frozen.draft_id)
@@ -178,6 +181,47 @@ class PdfImportCommitService:
         project = self._workspace.get(project_id)
         if frozen.storage_identity != project.storage_identity:
             raise ValueError("frozen PDF import storage identity changed")
+
+        if getattr(frozen, "packet_publication", False):
+            from frisket.server.services.pdf_imports.organized import start_publication
+            from frisket.server.services.pdf_packet_commit import PdfPacketCommitter
+
+            try:
+                result = start_publication(
+                    self._workspace,
+                    self._intake,
+                    project_id,
+                    frozen,
+                    request_context=request_context,
+                )
+            except Exception:
+
+                def restore_draft() -> None:
+                    self._intake.reconcile_commit(
+                        project_id,
+                        draft_id,
+                        idempotency_key=idempotency_key,
+                        committed=False,
+                    )
+
+                PdfPacketCommitter(self._workspace).rollback_before_plan(
+                    project_id,
+                    idempotency_key=f"pdf-import:{frozen.commit_id}",
+                    restore_draft=restore_draft,
+                )
+                raise
+            return PdfImportCommitResult(
+                commit_id=frozen.commit_id,
+                import_ref=result["import_ref"],
+                receipt_id=result["receipt_id"],
+                sheet_id=result["sheet_id"],
+                state=result["status"],
+                committed_rows=result.get("document_count", 0),
+                selected_total=frozen.committed_total,
+                available_files=frozen.available_through,
+                uploads_complete=frozen.uploads_complete,
+                job_id=result.get("job_id"),
+            )
 
         ref, directory, header = self._ensure_intake(project_id, frozen)
         try:

@@ -5,12 +5,14 @@ from __future__ import annotations
 import mimetypes
 from itertools import chain
 from pathlib import Path
+from tempfile import SpooledTemporaryFile
 
 from pydantic import Field, field_validator, model_validator
 
 from frisket.actions.core import ActionCategory, action, create_sheet
 from frisket.actions.imports import FileSource
 from frisket.actions.import_inventory_types import FileInventoryReader
+from frisket.actions.pdf_packet_import_types import PacketOcrPage
 from frisket.actions.types import (
     ActionParams,
     DynamicOutput,
@@ -163,8 +165,10 @@ def import_pdf(
         with blobs.open_binary(document) as stream:
             try:
                 from pypdf import PdfReader
+                from frisket.pdf_packets.materialize import write_pdf_range
 
-                pages = iter(PdfReader(stream).pages)
+                pdf = PdfReader(stream)
+                pages = iter(pdf.pages)
                 first = next(pages, None)
             except Exception as exc:  # noqa: BLE001 - PDF parsing is an input boundary
                 raise TableError(
@@ -181,14 +185,32 @@ def import_pdf(
                 except Exception:  # noqa: BLE001 - text extraction is best effort per page
                     prepared_text = None
                 text = prepared_text or ""
+                with SpooledTemporaryFile(
+                    max_size=8 * 1024 * 1024, mode="w+b"
+                ) as child:
+                    write_pdf_range(pdf, child, index, index)
+                    child.seek(0)
+                    staged = blobs.stage(
+                        child, filename=filename, mime="application/pdf"
+                    )
+                blobs.associate_packet_split(
+                    document,
+                    staged,
+                    source_page_count=len(pdf.pages),
+                    sibling_count=len(pdf.pages),
+                    page_start=index,
+                    page_end=index,
+                    ocr_pages=(
+                        (PacketOcrPage(1, prepared_text, (), "native", "block"),)
+                        if prepared_text is not None
+                        else ()
+                    ),
+                    prepared_column_name="text",
+                )
                 values = {
                     "page": index,
                     "text": text,
-                    "source": blobs.reference_pdf_page(
-                        document,
-                        page=index,
-                        text=prepared_text,
-                    ),
+                    "source": staged,
                 }
                 if params.render_pages:
                     values["page_image"] = images.get(index)

@@ -155,6 +155,7 @@ export type SampleProjectSeedWire =
 export type ImportPasteDraftWire =
   HttpContractSuccessResponse<'tenant.import_paste_draft.post'>;
 export type ImportUrlsWire = HttpContractSuccessResponse<'tenant.import_urls.post'>;
+export type PreparedImportUrls = HttpContractSuccessResponse<'tenant.prepare_import_urls.post'>;
 export type ImportCsvWire = HttpContractSuccessResponse<'tenant.import_csv.post'>;
 export type ImportCsvPreviewWire =
   HttpContractSuccessResponse<'tenant.import_csv_preview.post'>;
@@ -1015,6 +1016,18 @@ export function executeBulkImport(
 ): Promise<BulkImportExecution> {
   return createOnboardingImportsApi(actionLaunchErrorFromContract, projectId)
     .executeBulkImport(planId, decisions, options);
+}
+
+export function prepareImportUrls(
+  projectId: string,
+  urls: string[],
+  options: OnboardingImportOptions = {},
+): Promise<PreparedImportUrls> {
+  return httpContract('tenant.prepare_import_urls.post', {
+    pathParams: { pid: projectId }, query: {}, body: { urls },
+    signal: options.signal, headers: options.headers,
+    errorFactory: actionLaunchErrorFromContract,
+  });
 }
 
 export function importUrls(projectId: string, urls: string[]): Promise<ImportUrlsWire> {

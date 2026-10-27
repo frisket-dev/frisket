@@ -81,7 +81,7 @@ class ImportBulkService:
                 or PurePosixPath(item["filename"]).suffix.casefold() == ".pdf"
                 for item in staging.staged
             )
-            if pdf_count >= 2:
+            if pdf_count >= 1:
                 if self.pdf_import_service is None:
                     raise RuntimeError("PDF import service is unavailable")
                 adopted: dict[str, Any] | None = None

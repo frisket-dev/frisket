@@ -2,6 +2,10 @@ import type { RunEstimate } from './open';
 import { runEstimateFromV1Wire } from './actionEstimateValidation';
 import { httpContract } from './httpContract';
 import type {
+  HttpPdfPacketBatchOcrEstimateRequest,
+  HttpPdfPacketDraftCreateRequest,
+  HttpPdfPacketSheetCreateRequest,
+  HttpPdfPacketSheetScopeRequest,
   HttpPdfPacketCandidatesRequest,
   HttpPdfPacketCandidatesResponse,
   HttpPdfPacketCommitRequest,
@@ -76,6 +80,11 @@ export function getPdfPacketPage(
     query: {},
     signal: options.signal,
   });
+}
+
+export function pdfPacketSourceUrl(projectId: string, splitId: string, sourceKey: string): string {
+  const query = new URLSearchParams({ source_key: sourceKey });
+  return `${prefix(projectId)}/${encodeURIComponent(splitId)}/source-file?${query.toString()}`;
 }
 
 export function pdfPacketThumbnailUrl(projectId: string, splitId: string, page: number): string {
@@ -181,5 +190,52 @@ export function deletePdfPacketSplit(
     pathParams: { pid: projectId, split_id: splitId },
     query: {},
     signal: options.signal,
+  });
+}
+
+/** Admit the already-uploaded draft; the import draft remains the publication owner. */
+export function createPdfPacketSplitFromDraft(
+  projectId: string, input: HttpPdfPacketDraftCreateRequest, options: PdfPacketRequestOptions = {},
+): Promise<PdfPacketSplitSnapshot> {
+  return httpContract('tenant.create_pdf_packet_split_from_draft.post', {
+    pathParams: { pid: projectId }, query: {}, body: input, signal: options.signal,
+  });
+}
+
+export type PdfPacketSheetScopeRequest = HttpPdfPacketSheetCreateRequest;
+
+/** Admit a sheet view before reviewing it, freezing source identity and order. */
+export function createPdfPacketSplitFromSheet(
+  projectId: string, input: PdfPacketSheetScopeRequest, options: PdfPacketRequestOptions = {},
+): Promise<PdfPacketSplitSnapshot> {
+  return httpContract('tenant.create_pdf_packet_split_from_sheet.post', {
+    pathParams: { pid: projectId }, query: {}, body: input, signal: options.signal,
+  });
+}
+
+export async function applyPdfPacketSheetSplit(
+  projectId: string, splitId: string, input: HttpPdfPacketCommitRequest, options: PdfPacketRequestOptions = {},
+): Promise<{ sheet_id: number; import_ref: string; job_id: number }> {
+  const result = await commitPdfPacketSplit(projectId, splitId, input, options);
+  if (typeof result.sheet_id !== 'number' || typeof result.import_ref !== 'string' || typeof result.job_id !== 'number') {
+    throw new Error('The split did not return a durable import job.');
+  }
+  return { sheet_id: result.sheet_id, import_ref: result.import_ref, job_id: result.job_id };
+}
+
+export function estimatePdfPacketBatchOcr(
+  projectId: string, splitId: string, input: HttpPdfPacketBatchOcrEstimateRequest, options: PdfPacketRequestOptions = {},
+): Promise<{ pages: number; estimate: RunEstimate | null }> {
+  return httpContract('tenant.estimate_pdf_packet_split_batch_ocr.post', {
+    pathParams: { pid: projectId, split_id: splitId }, query: {}, body: input, signal: options.signal,
+  }, (wire) => ({ pages: wire.pages, estimate: wire.estimate ? runEstimateFromV1Wire(wire.estimate) : null }));
+}
+
+/** Snapshot only the ordered view membership; this does not prepare PDFs. */
+export function getPdfPacketSheetScopeToken(
+  projectId: string, input: HttpPdfPacketSheetScopeRequest, options: PdfPacketRequestOptions = {},
+): Promise<{ order_hash: string }> {
+  return httpContract('tenant.get_pdf_packet_sheet_scope_token.post', {
+    pathParams: { pid: projectId }, query: {}, body: input, signal: options.signal,
   });
 }

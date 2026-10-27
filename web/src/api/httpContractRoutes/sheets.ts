@@ -181,8 +181,10 @@ function mapSheetRows(wire: SheetDataWire): SheetRowsContractPage {
       const invalidCells: Record<string, true> = {};
       const replayPending: Record<string, ReplayPendingValue> = {};
       const boundedValues: Record<string, BoundedCellValue> = {};
+      const sourceLinks: Record<string, { label: string }> = {};
       const replayComparisonUnavailable: Record<string, true> = {};
       for (const [columnId, meta] of Object.entries(row.meta)) {
+        if (meta.source_link) sourceLinks[columnId] = meta.source_link;
         if (meta.replay_comparison_unavailable) replayComparisonUnavailable[columnId] = true;
         if (meta.bounded_value) boundedValues[columnId] = meta.bounded_value;
         if (meta.state) cellStates[columnId] = meta.state;
@@ -224,6 +226,7 @@ function mapSheetRows(wire: SheetDataWire): SheetRowsContractPage {
         id: String(row.id),
         index,
         cells,
+        ...(Object.keys(sourceLinks).length > 0 ? { sourceLinks } : {}),
         ...(Object.keys(boundedValues).length > 0 ? { boundedValues } : {}),
         ...(Object.keys(replayComparisonUnavailable).length > 0 ? { replayComparisonUnavailable } : {}),
         provenance,

@@ -9,11 +9,12 @@ import type { SelectorChoice } from '../../../api/selectorChoices';
 import { SelectorField } from '../../../engine-selector/SelectorField';
 import { SegmentedToggle } from '../../PanelPrimitives';
 import { PdfTextPagePreview } from '../pdfPacket/PdfTextPagePreview';
+import { PdfOcrPolicy, TextSourceBadge } from './PdfOcrPolicy';
 import { routePath } from '../../../routes';
 import { ActivityProgressCard, ProgressBar } from '../../ActivityProgress';
 import { ImportDestinationPicker } from '../ImportDestinationPicker';
 import type { PdfBatchDestinationSheet } from './PdfBatchImportFlow';
-import { PDF_CATEGORY_LABEL, PDF_CATEGORY_ORDER, PDF_CATEGORY_TONE, PDF_CHECK_CATEGORY_ORDER, canOpenCheckText, count, destinationIsReady, ocrPolicyCount } from './model';
+import { PDF_CATEGORY_LABEL, PDF_CATEGORY_ORDER, PDF_CATEGORY_TONE, PDF_CHECK_CATEGORY_ORDER, canOpenCheckText, count, destinationIsReady, importOutputRows, ocrPolicyCount } from './model';
 import { formatBytes } from '../../../format';
 
 function ocrSelectionOf(choice: SelectorChoice): PdfImportOcrSelection | null {
@@ -164,7 +165,7 @@ export function CheckTextStep({
   projectId, snapshot, categories, selectedCategory, samples, selectedFileId, chosenFile,
   extensionCounts, unlistedExtensionCount, samplesLoading, page, pageLoading, textSource,
   previewRunning, checkRunning, onCategory, onSample,
-  busy, onResample, onTextSource, onPreview, onOcrChoice, onOcrSelection, onPolicy, onBack, onContinue,
+  busy, onResample, onTextSource, onPreview, onOcrChoice, onOcrSelection, onPolicy, onOrganization, onBack, onContinue,
 }: {
   projectId: string;
   snapshot: PdfImportSnapshot;
@@ -190,6 +191,7 @@ export function CheckTextStep({
   onOcrChoice(choice: SelectorChoice | null): void;
   onOcrSelection(selection: PdfImportOcrSelection): void;
   onPolicy(policy: PdfImportChoices['ocr_policy']): void;
+  onOrganization(organization: PdfImportChoices['organization']): void;
   onBack(): void;
   onContinue(): void;
 }) {
@@ -269,7 +271,8 @@ export function CheckTextStep({
         </section>
         <div className="pdf-batch-ocr-controls">
           <div className="pdf-batch-ocr-controls-head"><strong>Apply OCR to</strong></div>
-          <OcrPolicy snapshot={snapshot} checking={checkRunning} busy={busy} onPolicy={onPolicy} />
+          <PdfOcrPolicy value={snapshot.choices.ocr_policy} checking={checkRunning} busy={busy} onChange={onPolicy}
+            counts={{ missing: ocrPolicyCount(snapshot, 'missing'), missing_or_suspicious: ocrPolicyCount(snapshot, 'missing_or_suspicious'), all: ocrPolicyCount(snapshot, 'all'), none: 0 }} />
           <div className="pdf-batch-engine">
             <span>OCR engine</span>
             <SelectorField
@@ -288,27 +291,45 @@ export function CheckTextStep({
               allowChoice={(choice) => ocrSelectionOf(choice) !== null}
             />
           </div>
+          <PdfOrganizationChoice snapshot={snapshot} busy={busy} onOrganization={onOrganization} />
         </div>
       </div>
     </div>
-    <PanelFooter><Button type="button" disabled={busy} onClick={onBack}>Back</Button><span>{checkRunning ? 'You can continue now. Files checked later follow your choice.' : `OCR will apply to ${count(ocrPolicyCount(snapshot, snapshot.choices.ocr_policy), 'file')}${unreadableCount > 0 ? ` · ${unreadableCount.toLocaleString()} couldn't be read` : ''}.`}</span><Button type="button" className="btn-primary" disabled={busy} onClick={onContinue}>{busy ? 'Saving…' : 'Continue →'}</Button></PanelFooter>
+    <PanelFooter><Button type="button" disabled={busy} onClick={onBack}>Back</Button><span>{snapshot.organization_summary?.pdf_count
+      ? snapshot.choices.organization === 'split_documents'
+        ? `Find documents in ${count(snapshot.organization_summary.pdf_count, 'PDF')} next`
+        : `${count(snapshot.upload.files_total, 'file')} → ${snapshot.organization_summary.output_rows == null ? '… rows' : count(snapshot.organization_summary.output_rows, 'row')}`
+      : checkRunning ? 'You can continue now. Files checked later follow your choice.' : `OCR will apply to ${count(ocrPolicyCount(snapshot, snapshot.choices.ocr_policy), 'file')}${unreadableCount > 0 ? ` · ${unreadableCount.toLocaleString()} couldn't be read` : ''}.`}</span><Button type="button" className="btn-primary" disabled={busy} onClick={onContinue}>{busy ? 'Saving…' : snapshot.choices.organization === 'split_documents' ? 'Find documents →' : 'Continue →'}</Button></PanelFooter>
   </PanelFrame>;
 }
 
-function OcrPolicy({ snapshot, checking, busy, onPolicy }: { snapshot: PdfImportSnapshot; checking: boolean; busy: boolean; onPolicy(policy: PdfImportChoices['ocr_policy']): void }) {
-  const options: Array<{ value: PdfImportChoices['ocr_policy']; label: string; detail: string }> = [
-    { value: 'missing', label: 'Missing text', detail: 'PDFs without text and all images' },
-    { value: 'missing_or_suspicious', label: 'Missing or suspicious text', detail: 'Scans, images, and text that may be garbled' },
-    { value: 'all', label: 'All PDFs and images', detail: 'Read every PDF and image with OCR' },
-    { value: 'none', label: 'None', detail: 'Use text layers only' },
-  ];
-  return <fieldset className="pdf-batch-ocr-policy" aria-label="Apply OCR to">
-    {options.map((option) => <label key={option.value} className={snapshot.choices.ocr_policy === option.value ? 'active' : ''}>
-      <input type="radio" name="pdf-batch-ocr-policy" value={option.value} disabled={busy} checked={snapshot.choices.ocr_policy === option.value} onChange={() => onPolicy(option.value)} />
-      <span><strong>{option.label}</strong><small>{option.detail}</small></span>
-      <b>{count(ocrPolicyCount(snapshot, option.value), 'file')}{checking ? ' so far' : ''}</b>
-    </label>)}
-    {snapshot.choices.ocr_policy === 'none' && <p><AlertTriangle size={13} /> Files without a text layer won't be searchable until you run OCR on them.</p>}
+function PdfOrganizationChoice({ snapshot, busy, onOrganization }: {
+  snapshot: PdfImportSnapshot;
+  busy: boolean;
+  onOrganization(value: PdfImportChoices['organization']): void;
+}) {
+  const summary = snapshot.organization_summary;
+  const pdfCount = summary?.pdf_count ?? (snapshot.category_counts.text ?? 0)
+    + (snapshot.category_counts.suspicious ?? 0) + (snapshot.category_counts.missing ?? 0);
+  if (pdfCount === 0) return null;
+  const organization = snapshot.choices.organization ?? 'keep_documents';
+  const total = snapshot.upload.files_total;
+  const options = [
+    { value: 'keep_documents', label: 'Keep documents', detail: `${count(pdfCount, 'row')}, one per PDF` },
+    { value: 'pages', label: 'One row per page', detail: summary ? count(summary.page_count, 'row') : 'Each PDF page becomes a row' },
+    { value: 'split_documents', label: 'Split into documents', detail: 'Find where documents start' },
+  ] as const;
+  return <fieldset className="pdf-batch-organization" aria-label="PDFs">
+    <legend>PDFs <span>{pdfCount} of {total} files</span></legend>
+    <div className="pdf-batch-ocr-policy">{options.map((option) => <label key={option.value} className={organization === option.value ? 'active' : ''}>
+      <input type="radio" name="pdf-batch-organization" value={option.value}
+        checked={organization === option.value}
+        disabled={busy || (option.value === 'split_documents' && summary?.split_supported === false)}
+        onChange={() => onOrganization(option.value)} />
+      <span><strong>{option.label}</strong><small>{option.detail}</small>
+        {option.value === 'split_documents' && summary?.split_limit_reason && <small>{summary.split_limit_reason}</small>}
+      </span>
+    </label>)}</div>
   </fieldset>;
 }
 
@@ -364,6 +385,8 @@ export function DestinationStep({ projectId, snapshot, destination, sheets, busy
   const matching = destination.kind === 'existing' && (busy || snapshot.match.state === 'running');
   const matched = destination.kind === 'existing' ? snapshot.match.matched_count : 0;
   const importing = destination.kind === 'existing' && snapshot.match.state === 'ready' ? snapshot.match.new_count : total;
+  const outputRows = importOutputRows(snapshot);
+  const expanded = outputRows !== null && outputRows !== importing;
   const sheetName = destination.kind === 'existing'
     ? sheets.find((sheet) => sheet.id === destination.sheet_id)?.name ?? 'this sheet'
     : destination.sheet_name.trim() || 'the new sheet';
@@ -376,17 +399,19 @@ export function DestinationStep({ projectId, snapshot, destination, sheets, busy
         defaultSheetName="Imported files" busy={busy} onDestination={onDestination} />
       {destination.kind === 'existing' && <p className="form-hint">Skip matching file names and sizes.</p>}
       {matching && <div className="pdf-batch-matching" role="status"><LoaderCircle className="spin" size={16} /> <span>Comparing with {sheets.find((sheet) => destination.kind === 'existing' && sheet.id === destination.sheet_id)?.name ?? 'sheet'} · {snapshot.match.checked.toLocaleString()} of {snapshot.match.total.toLocaleString()} checked</span><ProgressBar label="Comparing existing rows" completed={snapshot.match.checked} total={snapshot.match.total} state="active" /></div>}
-      <p className="pdf-batch-destination-summary"><strong>{count(importing, destination.kind === 'existing' ? 'new file' : 'file')}</strong>{destination.kind === 'existing' && matched > 0 && <span>{count(matched, 'file')} already in {sheetName} and left as is</span>}</p>
+      <p className="pdf-batch-destination-summary"><strong>{outputRows === null ? 'Calculating rows…' : expanded ? `${count(outputRows, 'row')} from ${count(importing, 'file')}` : count(importing, destination.kind === 'existing' ? 'new file' : 'file')}</strong>{destination.kind === 'existing' && matched > 0 && <span>{count(matched, 'file')} already in {sheetName} and left as is</span>}</p>
       <div className="pdf-batch-destination-table" role="table" aria-label="File import review">
-        <div role="row" className="pdf-batch-destination-heading"><strong role="columnheader">Type</strong><strong role="columnheader">Files</strong><strong role="columnheader">Text</strong></div>
+        <div role="row" className="pdf-batch-destination-heading"><strong role="columnheader">Type</strong><strong role="columnheader">Files</strong><strong role="columnheader">Rows</strong><strong role="columnheader">Text</strong></div>
         {destination.kind === 'existing' && matched > 0 && <div role="row" className="pdf-batch-existing-row">
           <span role="cell"><strong>Already in {sheetName}</strong><small>Same file name and size</small></span>
           <b role="cell">{matched.toLocaleString()}</b>
+          <span role="cell">—</span>
           <span role="cell"><i className="pdf-batch-text-badge neutral">Not imported</i><a className="link-btn" href={routePath({ kind: 'project', projectId, sheetId: String(destination.sheet_id) })} target="_blank" rel="noopener noreferrer" title="Open sheet in a new tab">View sheet <ExternalLink size={11} /></a></span>
         </div>}
         {PDF_CATEGORY_ORDER.filter((category) => category !== 'unchecked' && (reviewCounts[category] ?? 0) > 0).map((category) => <div role="row" key={category}>
           <span role="cell">{PDF_CATEGORY_LABEL[category]}</span>
           <b role="cell">{(reviewCounts[category] ?? 0).toLocaleString()}</b>
+          <CategoryRows snapshot={snapshot} category={category} files={reviewCounts[category] ?? 0} />
           <TextSourceBadge category={category} policy={snapshot.choices.ocr_policy} />
         </div>)}
       </div>
@@ -397,16 +422,14 @@ export function DestinationStep({ projectId, snapshot, destination, sheets, busy
   </PanelFrame>;
 }
 
-function TextSourceBadge({ category, policy }: { category: PdfImportCategory; policy: PdfImportChoices['ocr_policy'] }) {
-  const canUseOcr = category === 'text' || category === 'suspicious' || category === 'missing' || category === 'image';
-  const useOcr = canUseOcr && (policy === 'all'
-    || ((policy === 'missing' || policy === 'missing_or_suspicious')
-      && (category === 'missing' || category === 'image'))
-    || (policy === 'missing_or_suspicious' && category === 'suspicious'));
-  if (useOcr) return <span role="cell"><i className="pdf-batch-text-badge ocr">OCR</i></span>;
-  if (category === 'text' || category === 'suspicious') return <span role="cell"><i className="pdf-batch-text-badge native">Text layer</i></span>;
-  if (category === 'missing' || category === 'image') return <span role="cell"><i className="pdf-batch-text-badge neutral">No text</i></span>;
-  return <span role="cell">—</span>;
+function CategoryRows({ snapshot, category, files }: { snapshot: PdfImportSnapshot; category: PdfImportCategory; files: number }) {
+  const pdf = category === 'text' || category === 'suspicious' || category === 'missing';
+  const summary = snapshot.organization_summary;
+  const categoryRows = snapshot.choices.destination.kind === 'existing' && snapshot.match.state === 'ready'
+    ? summary?.new_category_rows : summary?.category_rows;
+  const rows = categoryRows?.[category]
+    ?? (pdf && snapshot.choices.organization !== 'keep_documents' && snapshot.choices.organization != null ? null : files);
+  return <span role="cell">{rows == null ? '…' : pdf ? count(rows, snapshot.choices.organization === 'pages' ? 'page' : 'document') : rows.toLocaleString()}</span>;
 }
 
 export function SearchSetupStep({ snapshot, semanticEnabled, consent, busy, importLabel, canImport, batchEstimateBusy, batchEstimateWaiting, batchEstimateError, ocrAvailabilityChecking, ocrAvailable, ocrProblem, onEstimateOcr, onSemantic, onConsent, onBack, onReviewOcr, onImport }: {

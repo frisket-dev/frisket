@@ -202,3 +202,163 @@ def test_sql_view_plan_stays_scoped_to_the_requested_reference(tmp_path: Path) -
         )
     finally:
         project.close()
+
+
+def test_partial_coverage_successors_and_child_rebase(tmp_path: Path) -> None:
+    project = Project.create(tmp_path / "partial.frisket", name="Partial")
+    try:
+        parent_id = _artifact(project, pages=5)
+        child_id = _artifact(project, pages=3)
+        store = PreparedContentStore(project)
+        project.db.execute("BEGIN IMMEDIATE")
+        op_id = project.append_op("media.ocr", commit=False)
+        first = store.stage_reference(
+            source_artifact_id=parent_id,
+            producing_op_id=op_id,
+            pages=[PreparedPageDraft(2, "", positions=[{"x": 1}])],
+            allow_partial=True,
+        )
+        original = store.resolve(first.ref_id)
+        assert original.covered_pages == (2,)
+        assert original.complete is False
+        assert original.text == ""
+        with pytest.raises(ValueError, match="does not contain page 3"):
+            store.stage_selector(set_id=original.set_id, page_number=3)
+        second = store.stage_replacement(
+            base_ref_id=first.ref_id,
+            producing_op_id=op_id,
+            replacements=[PreparedPageDraft(4, "four")],
+            allow_partial=True,
+        )
+        third = store.stage_replacement(
+            base_ref_id=second.ref_id,
+            producing_op_id=op_id,
+            replacements=[PreparedPageDraft(2, "two"), PreparedPageDraft(3, "three")],
+            allow_partial=True,
+        )
+        assert store.resolve(first.ref_id).covered_pages == (2,)
+        assert store.resolve(second.ref_id).text == "\n\nfour"
+        assert store.resolve(third.ref_id).covered_pages == (2, 3, 4)
+        completed = store.stage_replacement(
+            base_ref_id=third.ref_id,
+            producing_op_id=op_id,
+            replacements=[PreparedPageDraft(1, "one"), PreparedPageDraft(5, "")],
+            allow_partial=True,
+        )
+        assert store.resolve(completed.ref_id).complete is True
+        assert (
+            store.resolve(third.ref_id).pins[-1].version_id
+            == store.resolve(second.ref_id).pins[-1].version_id
+        )
+        child = store.stage_rebased(
+            base_ref_id=second.ref_id,
+            source_artifact_id=child_id,
+            producing_op_id=op_id,
+            first_page=2,
+            last_page=4,
+            allow_partial=True,
+        )
+        result = store.resolve(child.ref_id)
+        assert result.source_artifact_id == child_id
+        assert result.covered_pages == (1, 3)
+        assert result.complete is False
+        assert result.pins[0].positions == [{"x": 1}]
+        assert result.text == "\n\nfour"
+        selected_ref = store.stage_selector(
+            set_id=store.resolve(second.ref_id).set_id, page_number=4
+        )
+        selected = store.resolve(selected_ref.ref_id)
+        assert selected.covered_pages == (4,)
+        assert selected.complete is True
+        selected_child = store.stage_rebased(
+            base_ref_id=selected_ref.ref_id,
+            source_artifact_id=child_id,
+            producing_op_id=op_id,
+            first_page=2,
+            last_page=4,
+            allow_partial=True,
+        )
+        assert selected_child is not None
+        assert store.resolve(selected_child.ref_id).covered_pages == (3,)
+        with pytest.raises(ValueError, match="every artifact page"):
+            store.stage_replacement(
+                base_ref_id=second.ref_id,
+                producing_op_id=op_id,
+                replacements=[PreparedPageDraft(2, "two")],
+            )
+        project.db.rollback()
+    finally:
+        project.close()
+
+
+def test_partial_rebase_without_available_pages_has_no_reference(
+    tmp_path: Path,
+) -> None:
+    project = Project.create(tmp_path / "empty-rebase.frisket", name="Empty")
+    try:
+        parent_id = _artifact(project, pages=5)
+        child_id = _artifact(project, pages=2)
+        store = PreparedContentStore(project)
+        project.db.execute("BEGIN IMMEDIATE")
+        op_id = project.append_op("media.ocr", commit=False)
+        parent = store.stage_reference(
+            source_artifact_id=parent_id,
+            producing_op_id=op_id,
+            pages=[PreparedPageDraft(1, "known")],
+            allow_partial=True,
+        )
+        assert (
+            store.stage_rebased(
+                base_ref_id=parent.ref_id,
+                source_artifact_id=child_id,
+                producing_op_id=op_id,
+                first_page=3,
+                last_page=4,
+                allow_partial=True,
+            )
+            is None
+        )
+        project.db.rollback()
+    finally:
+        project.close()
+
+
+def test_rebase_and_page_resolution_do_not_load_unselected_text(tmp_path: Path) -> None:
+    import tracemalloc
+
+    project = Project.create(tmp_path / "bounded-rebase.frisket", name="Bounded")
+    try:
+        parent_id = _artifact(project, pages=128)
+        child_id = _artifact(project, pages=1)
+        store = PreparedContentStore(project)
+        project.db.execute("BEGIN IMMEDIATE")
+        op_id = project.append_op("media.ocr", commit=False)
+        parent = store.stage_reference(
+            source_artifact_id=parent_id,
+            producing_op_id=op_id,
+            pages=[PreparedPageDraft(i, "x" * 65536) for i in range(1, 129)],
+        )
+        page = store.stage_selector(
+            set_id=store.resolve(parent.ref_id).set_id, page_number=64
+        )
+        tracemalloc.start()
+        try:
+            rebased = store.stage_rebased(
+                base_ref_id=parent.ref_id,
+                source_artifact_id=child_id,
+                producing_op_id=op_id,
+                first_page=64,
+                last_page=64,
+            )
+            selected = store.resolve(page.ref_id)
+            _, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+        assert rebased is not None
+        assert store.resolve(rebased.ref_id).text == "x" * 65536
+        assert selected.covered_pages == (64,)
+        assert selected.complete is True
+        assert peak < 2_000_000
+        project.db.rollback()
+    finally:
+        project.close()

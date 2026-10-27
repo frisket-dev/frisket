@@ -15,6 +15,7 @@ function mapPage(page: DocumentPageWire): DocumentListPage {
       sourcePresent: item.source_present,
       sourceLabel: item.source_label,
       sourceLabelTruncated: item.source_label_truncated,
+      sourcePageRange: item.source_page_range ?? null,
       characterCount: item.character_count ?? null,
     })),
     nextCursor: page.next_cursor,

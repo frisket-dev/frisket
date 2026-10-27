@@ -493,7 +493,7 @@ export function RowField({
       )}
       {prov?.warnings?.length ? (
         <aside className="form-hint" role="note" aria-label={`${col.name} run warnings`} data-testid="cell-warnings">
-          <strong><AlertTriangle size={14} className="run-warning-icon" aria-hidden /> Run warnings</strong>
+          <strong><AlertTriangle size={14} className="run-warning-icon" aria-hidden /> Warnings</strong>
           <ul>{prov.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
         </aside>
       ) : null}

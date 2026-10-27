@@ -1399,9 +1399,9 @@ def test_upload_preserves_full_roster_destination_match(
 
 def test_manifest_scope_and_preflight_are_enforced(tmp_path: Path, monkeypatch) -> None:
     _workspace, project_id, service = _service(tmp_path, monkeypatch)
-    with pytest.raises(PdfImportDraftError, match="at least two"):
+    with pytest.raises(PdfImportDraftError, match="at least one"):
         service.create(
-            project_id, expected_files=1, expected_bytes=1, source_label=None
+            project_id, expected_files=0, expected_bytes=0, source_label=None
         )
     created = service.create(
         project_id, expected_files=2, expected_bytes=2, source_label=None
@@ -1791,3 +1791,193 @@ def test_reselection_preserves_duplicate_occurrences(
         ],
     )
     assert [item["occurrence_id"] for item in reconciled["items"]] == ["one", "two"]
+
+
+def test_single_pdf_uses_shared_organization_choices(tmp_path, monkeypatch):
+    workspace, project_id, service = _service(tmp_path, monkeypatch)
+    status = service.create(
+        project_id, expected_files=1, expected_bytes=len(PDF), source_label="One PDF"
+    )
+    assert status["choices"]["organization"] == "keep_documents"
+    changed = service.update_choices(
+        project_id,
+        status["draft_id"],
+        expected_revision=status["revision"],
+        **{**status["choices"], "organization": "pages"},
+    )
+    assert changed["choices"]["organization"] == "pages"
+    assert workspace.get(project_id).sheets() == []
+    with pytest.raises(PdfImportDraftError, match="organization"):
+        service.update_choices(
+            project_id,
+            status["draft_id"],
+            expected_revision=changed["revision"],
+            **{**changed["choices"], "organization": "merge_everything"},
+        )
+
+
+def test_reviewed_pdf_sources_borrow_staging_until_discard(tmp_path, monkeypatch):
+    _workspace, project_id, service = _service(tmp_path, monkeypatch)
+    status = service.create(
+        project_id, expected_files=1, expected_bytes=len(PDF), source_label=None
+    )
+    draft_id = status["draft_id"]
+    service.append_manifest(
+        project_id,
+        draft_id,
+        batch_id="one",
+        files=[
+            {
+                "client_file_id": "one",
+                "logical_path": "one.pdf",
+                "filename": "one.pdf",
+                "size": len(PDF),
+            }
+        ],
+    )
+    service.seal_manifest(project_id, draft_id)
+    status = service.upload(
+        project_id,
+        draft_id,
+        [_upload()],
+        file_ids=["one"],
+        logical_paths=["one.pdf"],
+        batch_id="one",
+    )
+    status = service.analyze_staged(project_id, draft_id)
+    sources = service.reviewed_sources(project_id, draft_id, status["revision"])
+    assert [(s.key, s.filename, s.page_start, s.page_end) for s in sources] == [
+        ("one", "one.pdf", 1, 4)
+    ]
+    with sources[0].open_source() as path:
+        assert path.read_bytes() == PDF
+    with pytest.raises(PdfImportDraftError, match="changed"):
+        service.reviewed_sources(project_id, draft_id, status["revision"] - 1)
+    with sources[0].open_source() as pinned:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            discarded = pool.submit(service.discard, project_id, draft_id).result(
+                timeout=2
+            )
+        assert discarded["state"] == "cancelled"
+        assert pinned.read_bytes() == PDF
+    assert not pinned.exists()
+    with pytest.raises(PdfImportDraftError, match="available"):
+        with sources[0].open_source():
+            pytest.fail("discarded staging should not open")
+
+
+def test_organization_summary_counts_child_rows_and_omits_matched_sources(
+    tmp_path, monkeypatch
+):
+    workspace, project_id, service = _service(tmp_path, monkeypatch)
+    draft_id, _ = _declared(service, project_id)
+    service.upload(
+        project_id,
+        draft_id,
+        [_upload(), _upload("two.pdf")],
+        file_ids=["one", "two"],
+        logical_paths=["north/one.pdf", "south/two.pdf"],
+        batch_id="summary",
+    )
+    status = service.analyze_staged(project_id, draft_id)
+    status = service.update_choices(
+        project_id,
+        draft_id,
+        expected_revision=status["revision"],
+        **{**status["choices"], "organization": "pages"},
+    )
+    summary = status["organization_summary"]
+    assert (summary["pdf_count"], summary["page_count"], summary["output_rows"]) == (
+        2,
+        8,
+        8,
+    )
+    directory = workspace.root / ".pdf_import_drafts" / draft_id
+    with PdfDraftInventory(directory / "inventory.db") as inventory:
+        inventory.mark_matches(["one"])
+    summary = service.status(project_id, draft_id)["organization_summary"]
+    assert summary["category_rows"] == {"missing": 8}
+    assert summary["new_category_rows"] == {"missing": 4}
+    assert summary["new_output_rows"] == 4
+    with pytest.raises(PdfImportDraftError, match="organization changed"):
+        service.reviewed_sources(
+            project_id, draft_id, status["revision"], "split_documents"
+        )
+    status = service.update_choices(
+        project_id,
+        draft_id,
+        expected_revision=status["revision"],
+        **{
+            **status["choices"],
+            "organization": "split_documents",
+            "split_starts": {"one": [1, 3], "two": [1]},
+        },
+    )
+    assert status["organization_summary"]["output_rows"] == 3
+    assert status["organization_summary"]["new_output_rows"] == 1
+    with pytest.raises(PdfImportDraftError, match="page order"):
+        service.update_choices(
+            project_id,
+            draft_id,
+            expected_revision=status["revision"],
+            **{**status["choices"], "split_starts": {"one": [2]}},
+        )
+
+
+def test_matched_pdfs_do_not_use_interactive_review_capacity(tmp_path, monkeypatch):
+    workspace, project_id, service = _service(tmp_path, monkeypatch)
+    staged, entries = _staged_selection(
+        tmp_path,
+        [
+            ("matched.pdf", PDF, "application/pdf"),
+            ("new.pdf", PDF + b"new", "application/pdf"),
+        ],
+    )
+    monkeypatch.setattr(
+        service,
+        "_analyze",
+        lambda path: {
+            "analysis_state": "done",
+            "page_count": 1999 if path.read_bytes() == PDF else 2,
+            "category": "missing",
+            "sample_pages": [1],
+            "error": None,
+        },
+    )
+    status = service.adopt_staged(project_id, staged, entries)
+    draft_id = status["draft_id"]
+    status = service.analyze_staged(project_id, draft_id)
+    with PdfDraftInventory(
+        workspace.root / ".pdf_import_drafts" / draft_id / "inventory.db"
+    ) as inventory:
+        first = inventory.staged_page(after=0, limit=1)[0]["occurrence_id"]
+        inventory.mark_matches([first])
+    status = service.status(project_id, draft_id)
+    assert status["organization_summary"]["page_count"] == 2001
+    assert status["organization_summary"]["split_supported"] is True
+    sources = service.reviewed_sources(project_id, draft_id, status["revision"])
+    assert [(source.filename, source.page_count) for source in sources] == [
+        ("new.pdf", 2)
+    ]
+
+
+def test_expired_reader_pins_are_reclaimed_without_removing_active_reader(
+    tmp_path, monkeypatch
+):
+    from filelock import FileLock
+
+    workspace, _project_id, service = _service(tmp_path, monkeypatch)
+    root = workspace.root / ".pdf_import_drafts"
+    active, abandoned = root / ".pdf-reader-active", root / ".pdf-reader-abandoned"
+    for directory in (active, abandoned):
+        directory.mkdir()
+        (directory / "source.pdf").write_bytes(PDF)
+    with FileLock(str(active / ".reader.lock")):
+        for directory in (active, abandoned):
+            os.utime(directory, (1, 1))
+        service._purge_expired()
+        assert (active / "source.pdf").read_bytes() == PDF
+        assert not abandoned.exists()
+    os.utime(active, (1, 1))
+    service._purge_expired()
+    assert not active.exists()

@@ -3,6 +3,9 @@ import { Suspense, useCallback, useEffect, useMemo, useState, useSyncExternalSto
 import type { CellValue, ColumnDef, HistoryState, ProjectInfo, Row } from '../api/open';
 import { subscribeMapPointsMeta } from '../api/mapPointsMeta';
 import { PreviewTable } from '../components/PreviewTable';
+import { PdfSplitSetup, type PdfSplitApply } from '../components/pdfSplit/PdfSplitSetup';
+import { applyPdfPacketSheetSplit } from '../api/pdfPacketSplits';
+import { displayStarts, type ReviewSource } from '../components/importWorkspace/pdfPacket/reviewSources';
 import { PanelLoading } from '../components/PanelPrimitives';
 import { gridReadColumnIds } from '../components/fieldValueDependencies';
 import {
@@ -43,6 +46,7 @@ import type { WorkbenchResolvedLayoutContribution } from '../workbench/layout';
 import { pluginViewDescriptorsFromRuntimeIndex } from '../workbench/pluginRuntimeDescriptors';
 import { GRAPH_NEIGHBORHOOD_CONTRIBUTION_ID } from './contributionIds';
 import { AddColumnPopover } from './popovers';
+import { GridRowMenu } from './gridMenus';
 import { LazySheetGrid } from './lazyGridView';
 import { useAskNavigation } from './useAskNavigation';
 import { useWorkbenchContributionVisibility } from './useWorkbenchContributionVisibility';
@@ -797,9 +801,22 @@ export function useWorkspaceModel({
     },
     [runActionFromSurface, selectedColumnName],
   );
+  const [pdfSplitOpen, setPdfSplitOpen] = useState(false);
+  const [pdfSplitFileColumn, setPdfSplitFileColumn] = useState<string | null>(null);
+  const [pdfRowMenu, setPdfRowMenu] = useState<{ rowId: string; rowIndex: number; columnId: string | null; bounds: { x: number; y: number; width: number; height: number }; copy(): Promise<void> } | null>(null);
+  const openPdfSplitForRow = useCallback((rowId: string, columnId: string) => {
+    if (!sheet) return;
+    selection.setSelectedRows({ sheetId: sheet.id, rowIds: [rowId], rowIndexes: [] });
+    setPdfSplitFileColumn(columnId);
+    setPdfSplitOpen(true);
+  }, [selection, sheet]);
   const runActCommand = useCallback(
     (command: ActMenuCommand) => {
       switch (command) {
+        case 'split-pdfs':
+          setPdfSplitFileColumn(null);
+          setPdfSplitOpen(true);
+          return;
         case 'import':
           dispatchCommand({ type: 'import.open' });
           return;
@@ -859,6 +876,46 @@ export function useWorkspaceModel({
     sampleOptions: comparisonSampleOptions, runActionFromSurface, closeActionRoute, setOpenSplit, showError,
   });
 
+  const pdfSplitView = useMemo(() => ({
+    filter_: activeGridFilter ? JSON.stringify(activeGridFilter) : null,
+    sort: activeGridSort ? JSON.stringify(activeGridSort) : null,
+    parent_row_id: activeChildFilter ? Number(activeChildFilter.parentRowId) : null,
+    scope_row_ids: scopeRowIds?.map(Number) ?? null,
+    ranked_row_ids: activeGridLensRowIds?.map(Number) ?? null,
+  }), [activeGridFilter, activeGridSort, activeChildFilter, scopeRowIds, activeGridLensRowIds]);
+  const applyExistingPdfSplit = useCallback(async (input: PdfSplitApply) => {
+    const sources = (input.snapshot as typeof input.snapshot & { sources: ReviewSource[] }).sources;
+    const result = await applyPdfPacketSheetSplit(project.id, input.snapshot.split_id, {
+      idempotency_key: input.idempotencyKey, analysis_revision: input.snapshot.analysis_revision,
+      confirmed_starts: displayStarts(sources, input.starts), destination: input.destination,
+      carried_column_ids: input.carriedColumnIds, ocr_policy: input.ocrPolicy, ocr_selection: input.ocrSelection, ocr_confirmation: input.ocrConfirmation,
+    });
+    setPdfSplitOpen(false);
+    await importProgress.refresh();
+    onImported(result.sheet_id);
+  }, [project.id, importProgress, onImported]);
+  const getPdfSplitRows = useCallback<typeof projectApi.getSheetRows>((sheetId, offset, limit, options) => projectApi.getSheetRows(sheetId, offset, limit, options), [projectApi]);
+  const pdfSplitSelection = useMemo(() => selectedRows.sheetId === sheet?.id ? selectedRows : { sheetId: sheet?.id ?? '', rowIds: [], rowIndexes: [] }, [selectedRows, sheet?.id]);
+  const pdfRowMenuElement = pdfRowMenu && sheet ? <GridRowMenu
+    bounds={pdfRowMenu.bounds} rowIndex={pdfRowMenu.rowIndex}
+    rowCount={Math.max(1, pdfSplitSelection.rowIndexes.length, pdfSplitSelection.rowIds.length)}
+    canSplit={sheet.columns.some((column) => column.type === 'file')}
+    selectionLoaded={pdfSplitSelection.rowIndexes.length <= pdfSplitSelection.rowIds.length}
+    onClose={() => setPdfRowMenu(null)}
+    onOpen={() => {
+      const column = sheet.columns.find((c) => c.id === pdfRowMenu.columnId) ?? sheet.columns.find((c) => c.type === 'file');
+      if (column) openRowInDocumentView(pdfRowMenu.rowId, column.id);
+      setPdfRowMenu(null);
+    }}
+    onSplit={() => { setPdfSplitFileColumn(pdfRowMenu.columnId); setPdfRowMenu(null); setPdfSplitOpen(true); }}
+    onOcr={() => { setPdfRowMenu(null); runActionFromSurface('media.ocr'); }}
+    onCopy={() => { void pdfRowMenu.copy().catch((error: Error) => showError(error.message)); setPdfRowMenu(null); }}
+    onDelete={() => { setPdfRowMenu(null); if (pdfSplitSelection.rowIds.length) setDeleteRowsConfirm({ sheetId: sheet.id, rowIds: pdfSplitSelection.rowIds }); }}
+  /> : null;
+  const pdfSplitDialog = pdfSplitOpen && sheet ? <PdfSplitSetup projectId={project.id} sheet={sheet} fileColumnId={pdfSplitFileColumn}
+    selection={pdfSplitSelection}
+    view={pdfSplitView} getSheetRows={getPdfSplitRows} onClose={() => setPdfSplitOpen(false)} onApply={applyExistingPdfSplit} /> : null;
+
   const gridContribution = useMemo(() => activePreviewView?.result?.kind === 'table'
     ? <PreviewTable result={activePreviewView.result} /> : sheet ? (
     <GridWorkbenchViewFrame>
@@ -915,6 +972,7 @@ export function useWorkspaceModel({
           onColumnGroupsChange={(columnGroupSpecs) => {
             gridView.setColumnGroupSpecs(columnGroupSpecs);
           }}
+          onRowContextMenu={({ rowId, rowIndex, columnId, bounds, copy }) => setPdfRowMenu({ rowId, rowIndex, columnId, bounds, copy })}
           onSelectedRowsChange={(selectedRows) => {
             selection.setSelectedRows(selectedRows);
           }}
@@ -1009,6 +1067,7 @@ export function useWorkspaceModel({
       refreshSheets,
       invalidateProjectData: projectData.invalidate,
       appendRow,
+      openPdfSplitForRow,
       requestDeleteRows,
       selectedRowIdsForSheet,
       visibleRowCount,
@@ -1058,6 +1117,7 @@ export function useWorkspaceModel({
       refreshSheets,
       projectData,
       appendRow,
+      openPdfSplitForRow,
       requestDeleteRows,
       selectedRowIdsForSheet,
       visibleRowCount,
@@ -1157,6 +1217,8 @@ export function useWorkspaceModel({
     askNavigation,
     project,
     projectApi,
+    pdfSplitDialog,
+    pdfRowMenuElement,
     runActCommand,
     revealPluginLauncher,
     onImported,

@@ -21,6 +21,7 @@ export type PdfImportCategory = HttpPdfImportSamplesResponse['category'];
 export type PdfImportOcrPolicy = HttpPdfImportChoicesRequest['ocr_policy'];
 export type PdfImportOcrSelection = HttpPdfImportChoicesRequest['ocr_selection'];
 export type PdfImportDestination = HttpPdfImportChoicesRequest['destination'];
+export type PdfImportOrganization = HttpPdfImportChoicesRequest['organization'];
 export type PdfImportChoices = Omit<HttpPdfImportChoicesRequest, 'expected_revision'>;
 export type PdfImportBatchOcr = Omit<HttpPdfImportBatchOcrState, 'estimate'> & {
   estimate: RunEstimate | null;

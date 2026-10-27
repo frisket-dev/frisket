@@ -232,3 +232,24 @@ def test_invalid_match_inputs_are_rejected(overrides, message):
 
     with pytest.raises(ValueError, match=message):
         match_packet_pages(**inputs)
+
+
+def test_explicit_examples_are_independent_of_fixed_and_confirmed_starts():
+    inputs = dict(page_count=4, signatures={1: 0, 2: 0, 3: 0, 4: 0}, confirmed={1, 3})
+    untrained = match_packet_pages(**inputs, examples=set(), fixed_starts={1, 3})
+    assert untrained.suggested_pages == ()
+    assert untrained.kinds == ()
+    trained = match_packet_pages(**inputs, examples={3}, fixed_starts={1, 3})
+    assert trained.suggested_pages == (2, 4)
+    assert trained.pages[1].closest_confirmed_page == 3
+    assert trained.kinds[0].confirmed_pages == (3,)
+
+
+def test_explicit_examples_allow_no_page_one_and_reject_inconsistent_labels():
+    inputs = dict(page_count=3, signatures={1: 0, 2: 0, 3: 0}, confirmed={2})
+    result = match_packet_pages(**inputs, examples={2}, fixed_starts={1})
+    assert result.suggested_pages == (3,)
+    with pytest.raises(ValueError):
+        match_packet_pages(**inputs, examples={3}, fixed_starts={1})
+    with pytest.raises(ValueError):
+        match_packet_pages(**inputs, examples=set(), fixed_starts={1}, rejected={1})

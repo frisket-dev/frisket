@@ -1,4 +1,8 @@
 import './gridMenus.css';
+import { useEffect, useRef } from 'react';
+import { MenuPop } from '../components/MenuPop';
+import { useNativePopover } from '../hooks/useNativePopover';
+import { resolveAnchoredPosition } from '../hooks/useAnchoredPosition';
 // Grid header/filter/sort menus: pure presentational components + saved-view
 // spec normalizers/labels.
 import {
@@ -395,4 +399,50 @@ export function GridColumnHeaderMenu({
       )}
     </div>
   );
+}
+
+
+export function GridRowMenu({
+  bounds, rowIndex, rowCount, canSplit, selectionLoaded,
+  onOpen, onSplit, onOcr, onCopy, onDelete, onClose,
+}: {
+  bounds: { x: number; y: number; width: number; height: number };
+  rowIndex: number;
+  rowCount: number;
+  canSplit: boolean;
+  selectionLoaded: boolean;
+  onOpen(): void;
+  onSplit(): void;
+  onOcr(): void;
+  onCopy(): void;
+  onDelete(): void;
+  onClose(): void;
+}) {
+  const menuRef = useRef<HTMLDivElement>(null);
+  useNativePopover(menuRef, onClose, { focusRestore: true });
+  useEffect(() => {
+    menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)')?.focus();
+  }, []);
+  const position = resolveAnchoredPosition(new DOMRect(bounds.x, bounds.y, bounds.width, bounds.height), { width: 280, gap: 4 });
+  const rows = rowCount > 1 ? `${rowCount} rows` : 'row';
+  const unavailable = selectionLoaded ? undefined : 'Load and reselect these rows first.';
+  return <MenuPop ref={menuRef} sizing="anchored" aria-label="Row actions"
+    style={{ position: 'fixed', inset: 'auto', margin: 0, ...position }}
+    onKeyDown={(event) => {
+      if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+      const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)'));
+      if (!items.length) return;
+      event.preventDefault();
+      const current = items.indexOf(document.activeElement as HTMLButtonElement);
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+      items[next].focus();
+    }}>
+    <div className="grid-header-menu-title">{rowCount > 1 ? `${rowCount} rows selected` : `Row ${rowIndex + 1}`}</div>
+    <button type="button" role="menuitem" className="menu-item" onClick={onOpen}>Open in Document view</button>
+    <div className="menu-sep" role="separator" />
+    <button type="button" role="menuitem" className="menu-item" disabled={!canSplit} onClick={onSplit}>Split PDF{rowCount > 1 ? 's' : ''}…</button>
+    <button type="button" role="menuitem" className="menu-item" disabled={!selectionLoaded} title={unavailable} onClick={onOcr}>OCR {rows}</button>
+    <button type="button" role="menuitem" className="menu-item" disabled={!selectionLoaded} title={unavailable} onClick={onCopy}>Copy {rows}</button>
+    <button type="button" role="menuitem" className="menu-item menu-item-danger" disabled={!selectionLoaded} title={unavailable} onClick={onDelete}>Delete {rows}</button>
+  </MenuPop>;
 }

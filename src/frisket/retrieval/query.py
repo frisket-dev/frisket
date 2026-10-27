@@ -918,6 +918,7 @@ def _material_preparation_coverage(
                      AND prepared.source_column_id=eligible.column_id
                      AND prepared.blob_hash=eligible.blob_hash
                      AND prepared.page_number IS eligible.page_number
+                     AND prepared.has_text AND prepared.coverage_complete
                    LIMIT 1
                  ) OR EXISTS (
                    SELECT 1

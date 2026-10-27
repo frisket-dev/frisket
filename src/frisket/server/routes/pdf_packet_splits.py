@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from typing import Annotated
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
@@ -10,13 +11,19 @@ from starlette.background import BackgroundTask
 
 from frisket.contracts.http.pdf_packet_splits import (
     PdfPacketCandidatesRequest,
+    PdfPacketBatchOcrEstimateRequest,
+    PdfPacketBatchOcrEstimateResponse,
     PdfPacketCandidatesResponse,
     PdfPacketCommitRequest,
+    PdfPacketDraftCreateRequest,
     PdfPacketJobStartResponse,
     PdfPacketOcrEstimateRequest,
     PdfPacketOcrEstimateResponse,
     PdfPacketOcrJobRequest,
     PdfPacketPageResponse,
+    PdfPacketSheetCreateRequest,
+    PdfPacketSheetScopeRequest,
+    PdfPacketSheetScopeResponse,
     PdfPacketSplitStatus,
     PdfPacketTextSourceRequest,
 )
@@ -55,6 +62,54 @@ def register_pdf_packet_split_routes(
             pid,
             upload,
             request_id=request_id,
+            admission_lease=import_admission_lease(request.scope),
+        )
+
+    @app.post(
+        f"{base}/from-draft",
+        status_code=202,
+        response_model=PdfPacketSplitStatus,
+        responses=responses,
+    )
+    async def create_pdf_packet_split_from_draft(
+        request: Request,
+        pid: str,
+        body: PdfPacketDraftCreateRequest,
+    ) -> PdfPacketSplitStatus:
+        return await await_thread_worker(
+            service.create_from_draft,
+            pid,
+            body.draft_id,
+            body.expected_revision,
+            organization=body.organization,
+            admission_lease=import_admission_lease(request.scope),
+        )
+
+    @app.post(
+        f"{base}/sheet-scope-token",
+        response_model=PdfPacketSheetScopeResponse,
+        responses=responses,
+    )
+    async def get_pdf_packet_sheet_scope_token(
+        pid: str, body: PdfPacketSheetScopeRequest
+    ) -> PdfPacketSheetScopeResponse:
+        return await await_thread_worker(service.sheet_scope_token, pid, body)
+
+    @app.post(
+        f"{base}/from-sheet",
+        status_code=202,
+        response_model=PdfPacketSplitStatus,
+        responses=responses,
+    )
+    async def create_pdf_packet_split_from_sheet(
+        request: Request,
+        pid: str,
+        body: PdfPacketSheetCreateRequest,
+    ) -> PdfPacketSplitStatus:
+        return await await_thread_worker(
+            service.create_from_sheet,
+            pid,
+            body,
             admission_lease=import_admission_lease(request.scope),
         )
 
@@ -105,6 +160,28 @@ def register_pdf_packet_split_routes(
             split_id,
             body,
             request_context=request,
+        )
+
+    @app.post(
+        f"{base}/{{split_id}}/ocr/batch-estimate",
+        response_model=PdfPacketBatchOcrEstimateResponse,
+        responses=responses,
+    )
+    async def estimate_pdf_packet_split_batch_ocr(
+        request: Request,
+        pid: str,
+        split_id: str,
+        body: PdfPacketBatchOcrEstimateRequest,
+    ) -> PdfPacketBatchOcrEstimateResponse:
+        cancel_event = threading.Event()
+        return await await_thread_worker(
+            service.estimate_batch_ocr,
+            pid,
+            split_id,
+            body,
+            request_context=request,
+            cancel_event=cancel_event,
+            on_cancel=cancel_event.set,
         )
 
     @app.post(

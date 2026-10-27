@@ -361,6 +361,8 @@ export const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
             <LazyEvidenceViewer
               key={`${String(evidenceViewerState.linkId)}:${evidenceViewerState.scopeSpanId ?? ''}`}
               evidenceLinkId={evidenceViewerState.linkId}
+              initialPayload={evidenceViewerState.initialPayload}
+              initialPage={evidenceViewerState.initialPage}
               scopeSpanId={evidenceViewerState.scopeSpanId}
               scopeSpanIds={evidenceViewerState.scopeSpanIds}
               highlight={evidenceViewerState.highlight}
@@ -368,6 +370,8 @@ export const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
               onOpenCompanion={() => {
                 closeRowDrawer();
                 openEvidenceViewer(evidenceViewerState.linkId, 'mainView', {
+                  initialPayload: evidenceViewerState.initialPayload,
+                  initialPage: evidenceViewerState.initialPage,
                   scopeSpanId: evidenceViewerState.scopeSpanId,
                   scopeSpanIds: evidenceViewerState.scopeSpanIds,
                   highlight: evidenceViewerState.highlight,

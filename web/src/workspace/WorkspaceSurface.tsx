@@ -158,6 +158,7 @@ export function WorkspacePrimarySurface() {
     mapSplitShowing,
     mapViewDescriptor,
     openRowById,
+    openPdfSplitForRow,
     openRowRef,
     openDocumentSimilarity,
     project,
@@ -308,6 +309,7 @@ export function WorkspacePrimarySurface() {
         onChangeState={setDocumentView}
         onDocumentFocus={selectDocumentRow}
         onOpenDetail={openRowById}
+        onSplitPdf={openPdfSplitForRow}
         onFindSimilar={openDocumentSimilarity}
         queryDocuments={queryDocuments}
         hydrateRow={hydrateDocumentRow}
@@ -397,6 +399,8 @@ export function WorkspacePrimarySurface() {
             <LazyEvidenceViewer
               key={`${String(evidenceViewerState.linkId)}:${evidenceViewerState.scopeSpanId ?? ''}`}
               evidenceLinkId={evidenceViewerState.linkId}
+              initialPayload={evidenceViewerState.initialPayload}
+              initialPage={evidenceViewerState.initialPage}
               scopeSpanId={evidenceViewerState.scopeSpanId}
               scopeSpanIds={evidenceViewerState.scopeSpanIds}
               highlight={evidenceViewerState.highlight}

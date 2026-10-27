@@ -12,6 +12,7 @@ from frisket.contracts.action import Receipt
 from frisket.engine.executor import run_action_spec
 from frisket.engine.executor.pdf_page_read import AdmittedPdfPageRenderer
 from frisket.engine.store import Project
+from frisket.engine.store.prepared_content import PreparedContentStore
 
 pypdf = pytest.importorskip("pypdf")
 
@@ -123,15 +124,19 @@ def test_pdf_publication_retains_pages_original_and_replays_without_source(
             for value in project.get_values(sheet_id, columns["text"]).values()
         ] == ["First page", "Second page"]
         digest = hashlib.sha256(raw).hexdigest()
-        assert list(project.get_values(sheet_id, columns["source"]).values()) == [
-            {
-                "blob": digest,
-                "filename": "docket.pdf",
-                "mime": "application/pdf",
-                "page": page,
-            }
-            for page in (1, 2)
-        ]
+        children = list(project.get_values(sheet_id, columns["source"]).values())
+        assert len({child["blob"] for child in children}) == 2
+        for child, expected in zip(
+            children, ("First page", "Second page"), strict=True
+        ):
+            assert set(child) == {"blob", "filename", "mime"}
+            assert child["filename"] == "docket.pdf"
+            assert child["mime"] == "application/pdf"
+            assert child["blob"] != digest
+            with project.materialize_blob(child["blob"]) as stored:
+                pages = pypdf.PdfReader(stored).pages
+                assert len(pages) == 1
+                assert pages[0].extract_text().strip() == expected
         assert calls == ([] if render == "disabled" else [200])
         if render == "fallback":
             assert list(
@@ -165,12 +170,24 @@ def test_pdf_publication_retains_pages_original_and_replays_without_source(
         native_pages = [
             item.ref
             for item in receipt.evidence
-            if item.ref["kind"] == "imported_pdf_page"
+            if item.ref["kind"] == "imported_blob"
+            and item.ref.get("source_artifact_id") == artifact["id"]
         ]
-        assert [ref["page"] for ref in native_pages] == [1, 2]
-        assert all(ref["hash"] == digest for ref in native_pages)
-        assert all(ref["artifact_id"] == artifact["id"] for ref in native_pages)
-        assert len({ref["evidence_link_id"] for ref in native_pages}) == 2
+        assert [ref["hash"] for ref in native_pages] == [
+            child["blob"] for child in children
+        ]
+        assert len({ref["artifact_id"] for ref in native_pages}) == 2
+        provenance = project.db.execute(
+            "SELECT span.artifact_id,span.page_start,span.page_end "
+            "FROM evidence_links link JOIN evidence_link_spans membership "
+            "ON membership.link_id=link.id "
+            "JOIN source_spans span ON span.id=membership.span_id "
+            "WHERE link.link_role='source_provenance' ORDER BY link.row_id"
+        ).fetchall()
+        assert [tuple(row) for row in provenance] == [
+            (artifact["id"], 1, 1),
+            (artifact["id"], 2, 2),
+        ]
         stored_text = project.db.execute(
             "SELECT cell.value_kind,cell.value FROM cells AS cell "
             "JOIN rows AS row ON row.id=cell.row_id "
@@ -185,7 +202,7 @@ def test_pdf_publication_retains_pages_original_and_replays_without_source(
             project.db.execute("SELECT COUNT(*) FROM prepared_content_sets").fetchone()[
                 0
             ]
-            == 1
+            == 2
         )
         prepared_pages = project.db.execute(
             "SELECT page_number,prepared_text FROM prepared_page_versions "
@@ -193,8 +210,16 @@ def test_pdf_publication_retains_pages_original_and_replays_without_source(
         ).fetchall()
         assert [tuple(row) for row in prepared_pages] == [
             (1, "First page"),
-            (2, "Second page"),
+            (1, "Second page"),
         ]
+        for row, child in zip(stored_text, children, strict=True):
+            prepared = PreparedContentStore(project).resolve(int(row["value"]))
+            assert [pin.page_number for pin in prepared.pins] == [1]
+            owner = project.db.execute(
+                "SELECT blob_hash FROM source_artifacts WHERE id=?",
+                (prepared.source_artifact_id,),
+            ).fetchone()
+            assert owner[0] == child["blob"]
         file_read = next(
             item.ref for item in receipt.inputs if item.ref["kind"] == "local_file_read"
         )
@@ -356,10 +381,10 @@ def test_pdf_page_text_failure_keeps_empty_cell_without_prepared_version(
             ).fetchone()[0]
             == 1
         )
-        assert [
-            value["page"]
+        assert all(
+            "page" not in value
             for value in project.get_values(sheet_id, columns["source"]).values()
-        ] == [1, 2]
+        )
     finally:
         project.close()
 
@@ -391,7 +416,7 @@ def test_pdf_replay_refuses_damaged_document_or_page_blob(
         assert first.status == "completed", first.errors
         digest = hashlib.sha256(raw if target == "document" else PNG).hexdigest()
         if damage == "metadata":
-            project.db.execute("DELETE FROM blobs WHERE hash=?", (digest,))
+            project.db.execute("UPDATE blobs SET size=size+1 WHERE hash=?", (digest,))
             project.db.commit()
         else:
             with project.materialize_blob(digest) as stored:

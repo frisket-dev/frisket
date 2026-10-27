@@ -2,7 +2,8 @@
 
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { createPdfPacketSplitFromDraft } from '../../src/api/pdfPacketSplits';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type {
@@ -13,9 +14,30 @@ import type {
 } from '../../src/api/pdfImports';
 import { PdfImportResponseError } from '../../src/api/pdfImports';
 import { PdfBatchImportFlow } from '../../src/components/importWorkspace/pdfBatch/PdfBatchImportFlow';
+import { DestinationStep } from '../../src/components/importWorkspace/pdfBatch/PdfBatchSteps';
 import { canHandlePdfBatch } from '../../src/components/importWorkspace/pdfBatch/model';
 import { formatBytes } from '../../src/format';
 import { subscribeImportSessions } from '../../src/components/importProgressSession';
+
+vi.mock('../../src/api/pdfPacketSplits', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../src/api/pdfPacketSplits')>(),
+  createPdfPacketSplitFromDraft: vi.fn(),
+}));
+
+vi.mock('../../src/components/importWorkspace/pdfPacket/PdfPacketReview', () => ({
+  PdfPacketReview: ({ onReviewed, onBack }: {
+    onReviewed(starts: Record<string, number[]>): void | Promise<void>;
+    onBack(): void;
+  }) => {
+    const [marked, setMarked] = useState(false);
+    return <section aria-label="Find documents">
+      <button type="button" onClick={() => setMarked(true)}>Mark a start</button>
+      {marked && <span>Interior start marked</span>}
+      <button type="button" onClick={onBack}>Back</button>
+      <button type="button" onClick={() => void onReviewed({ first: [1, 2], second: [1] })}>Continue to import →</button>
+    </section>;
+  },
+}));
 
 const selectorState = vi.hoisted(() => ({
   canRun: true,
@@ -132,11 +154,17 @@ function snapshot(revision = 1, patch: Partial<PdfImportSnapshot> = {}): PdfImpo
     sample_ready_counts: { text: 1, suspicious: 1 },
     can_review_text: true,
     choices: {
+      organization: 'keep_documents',
+      split_starts: {},
       ocr_policy: 'missing_or_suspicious',
       ocr_selection: { kind: 'engine', engine: 'rapidocr' },
       semantic_search: true,
       semantic_setup_confirmation: null,
       destination: { kind: 'new', sheet_name: 'Imported PDFs' },
+    },
+    organization_summary: {
+      pdf_count: 2, page_count: 4, output_rows: 2, new_output_rows: 2,
+      category_rows: categories, new_category_rows: categories, split_supported: true, max_interactive_pages: 2_000, split_limit_reason: null,
     },
     destination: null,
     match: { state: 'idle', checked: 0, total: 0, matched_count: 0, new_count: 2 },
@@ -215,7 +243,10 @@ function createApi(initial = snapshot()) {
       return current;
     }),
     updateChoices: vi.fn(async (_projectId, _draftId, choices) => {
-      current = { ...current, revision: current.revision + 1, choices };
+      const rowCount = choices.organization === 'pages' ? current.organization_summary.page_count : 2;
+      current = { ...current, revision: current.revision + 1, choices,
+        organization_summary: { ...current.organization_summary, output_rows: rowCount, new_output_rows: rowCount },
+      };
       return current;
     }),
     refreshSemanticSetup: vi.fn(async () => current),
@@ -326,16 +357,16 @@ afterEach(() => {
 });
 
 describe('PDF batch import flow', () => {
-  it('only intercepts selections containing two or more PDFs', () => {
+  it('organizes every admitted selection containing a PDF', () => {
     expect(canHandlePdfBatch(files())).toBe(true);
-    expect(canHandlePdfBatch(files().slice(0, 1))).toBe(false);
+    expect(canHandlePdfBatch(files().slice(0, 1))).toBe(true);
     expect(canHandlePdfBatch(mixedFiles())).toBe(true);
-    expect(canHandlePdfBatch([files()[0], ...junkFiles()])).toBe(false);
+    expect(canHandlePdfBatch([files()[0], ...junkFiles()])).toBe(true);
     expect(canHandlePdfBatch([
       files()[0],
       new File(['img'], 'scan.png', { type: 'image/png' }),
       new File(['txt'], 'notes.txt', { type: 'text/plain' }),
-    ])).toBe(false);
+    ])).toBe(true);
     expect(canHandlePdfBatch(mixedFiles().slice(2))).toBe(false);
     expect(formatBytes(0)).toBe('0 B');
   });
@@ -560,6 +591,205 @@ describe('PDF batch import flow', () => {
     )).toEqual(['new-one.pdf', 'new-two.pdf']);
   });
 
+  it('keeps page organization through destination review and commits only from Search setup', async () => {
+    const { api } = createApi();
+    render(<PdfBatchImportFlow
+      projectId="project-1" files={files()} destinationSheets={[]} api={api}
+      onContextChange={vi.fn()} registerCloseGuard={vi.fn()} onImported={vi.fn()}
+      onDiscarded={vi.fn()} onError={vi.fn()}
+    />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Check text →' }));
+    expect(await screen.findByRole('radio', { name: /Keep documents/ })).toBeChecked();
+    fireEvent.click(screen.getByRole('radio', { name: /One row per page/ }));
+    await waitFor(() => expect(api.updateChoices).toHaveBeenCalledWith(
+      'project-1', 'draft-1', expect.objectContaining({ organization: 'pages' }),
+    ));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue →' }));
+    expect(screen.getByRole('table', { name: 'File import review' })).toBeInTheDocument();
+    expect(api.commit).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expect(screen.getByRole('radio', { name: /One row per page/ })).toBeChecked();
+    fireEvent.click(screen.getByRole('button', { name: 'Continue →' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Search setup →' }));
+    expect(await screen.findByRole('heading', { name: 'Search setup' })).toBeInTheDocument();
+    expect(api.commit).not.toHaveBeenCalled();
+    const importButton = screen.getByRole('button', { name: 'Import 4 rows' });
+    fireEvent.click(screen.getByRole('checkbox', { name: /Download this model/ }));
+    await waitFor(() => expect(importButton).toBeEnabled());
+    fireEvent.click(importButton);
+    await waitFor(() => expect(api.commit).toHaveBeenCalledTimes(1));
+  });
+
+  it('reviews an admitted draft and saves local starts before the single final import', async () => {
+    const initial = snapshot(1, { choices: { ...snapshot().choices, organization: 'split_documents' } });
+    const { api } = createApi(initial);
+    const reviewed = {
+      schema_version: 'frisket.pdf_packet_split.v1' as const,
+      split_id: 'review-1', status: 'ready' as const,
+      packet: { blob_hash: 'a'.repeat(64), filename: 'PDFs', mime: 'application/pdf' as const, size: 6, page_count: 4 },
+      organization: 'split_documents' as const,
+      sources: [
+        { key: 'first', blob_hash: 'a'.repeat(64), filename: 'one.pdf', size: 3, page_count: 2, page_start: 1, page_end: 2, display_start: 1, source_url: null },
+        { key: 'second', blob_hash: 'b'.repeat(64), filename: 'two.pdf', size: 3, page_count: 2, page_start: 1, page_end: 2, display_start: 3, source_url: null },
+      ],
+      fixed_starts: [1, 3], example_pages: [], sheet_scope: null,
+      prepare: { job_id: 'prepare-1', progress: { status: 'done' as const, done: 4, total: 4, error: null }, pages_ready: [1, 2, 3, 4], native_text_pages: [1, 2, 3, 4], visual_pages_ready: 4 },
+      text_source: 'native' as const, ocr_engine: null, ocr_pages: [], jobs: [], analysis_revision: 1,
+      expires_at: '2026-10-28T00:00:00Z', commit_result: null,
+    };
+    vi.mocked(createPdfPacketSplitFromDraft).mockResolvedValue(reviewed);
+    render(<PdfBatchImportFlow
+      projectId="project-1" resumeDraftId="draft-1" destinationSheets={[]} api={api}
+      onContextChange={vi.fn()} registerCloseGuard={vi.fn()} onImported={vi.fn()}
+      onDiscarded={vi.fn()} onError={vi.fn()}
+    />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Check text →' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Find documents →' }));
+    expect(await screen.findByRole('region', { name: 'Find documents' })).toBeVisible();
+    expect(createPdfPacketSplitFromDraft).toHaveBeenCalledWith('project-1', {
+      draft_id: 'draft-1', expected_revision: expect.any(Number), organization: 'split_documents',
+    }, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    fireEvent.click(screen.getByRole('button', { name: 'Mark a start' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue to import →' }));
+    expect(await screen.findByRole('table', { name: 'File import review' })).toBeVisible();
+    expect(api.updateChoices).toHaveBeenLastCalledWith('project-1', 'draft-1', expect.objectContaining({
+      split_starts: { first: [1, 2], second: [1] },
+    }));
+    expect(api.commit).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expect(screen.getByText('Interior start marked')).toBeVisible();
+    expect(createPdfPacketSplitFromDraft).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Continue to import →' }));
+    await screen.findByRole('table', { name: 'File import review' });
+    fireEvent.click(screen.getByRole('button', { name: 'Search setup →' }));
+    const importButton = await screen.findByRole('button', { name: 'Import 2 files' });
+    fireEvent.click(screen.getByRole('checkbox', { name: /Download this model/ }));
+    await waitFor(() => expect(importButton).toBeEnabled());
+    fireEvent.click(importButton);
+    await waitFor(() => expect(api.commit).toHaveBeenCalledTimes(1));
+  });
+
+  it('offers ordinary import for an admitted URL batch containing no PDFs', async () => {
+    const initial = snapshot(1, {
+      category_counts: { ...categories, text: 0, suspicious: 0, image: 1, other: 1 },
+      sample_ready_counts: { image: 1, other: 1 },
+      choices: { ...snapshot().choices, ocr_policy: 'none' },
+      organization_summary: { ...snapshot().organization_summary, pdf_count: 0, page_count: 0,
+        category_rows: { ...categories, text: 0, suspicious: 0, image: 1, other: 1 } },
+    });
+    const { api } = createApi(initial);
+    render(<PdfBatchImportFlow
+      projectId="project-1" resumeDraftId="draft-1" newlyAdmittedDraft warnings={['One URL could not be downloaded.']}
+      destinationSheets={[]} api={api} onContextChange={vi.fn()} registerCloseGuard={vi.fn()}
+      onImported={vi.fn()} onDiscarded={vi.fn()} onError={vi.fn()}
+    />);
+    expect(await screen.findByText('One URL could not be downloaded.')).toBeVisible();
+    fireEvent.click(await screen.findByRole('button', { name: 'Check text →' }));
+    expect(screen.queryByRole('radio', { name: /Keep documents/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Find documents →' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Continue →' }));
+    expect(screen.getByRole('table', { name: 'File import review' })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Search setup →' }));
+    const importButton = await screen.findByRole('button', { name: 'Import 2 files' });
+    fireEvent.click(screen.getByRole('checkbox', { name: /Download this model/ }));
+    await waitFor(() => expect(importButton).toBeEnabled());
+    fireEvent.click(importButton);
+    await waitFor(() => expect(api.commit).toHaveBeenCalledOnce());
+  });
+
+  it('shows only new output rows when original occurrences already match the destination', () => {
+    const destination = { kind: 'existing' as const, sheet_id: 17 };
+    const initial = snapshot(3, {
+      choices: { ...snapshot().choices, organization: 'pages', destination },
+      category_counts: { ...categories, text: 2, suspicious: 0 },
+      match: { state: 'ready', checked: 2, total: 2, matched_count: 1, new_count: 1,
+        new_category_counts: { ...categories, text: 1, suspicious: 0 } },
+      organization_summary: { ...snapshot().organization_summary,
+        output_rows: 8, new_output_rows: 3,
+        category_rows: { ...categories, text: 8, suspicious: 0 },
+        new_category_rows: { ...categories, text: 3, suspicious: 0 } },
+    });
+    render(<DestinationStep projectId="project-1" snapshot={initial} destination={destination}
+      sheets={[{ id: 17, name: 'Archive' }]} busy={false} onDestination={vi.fn()}
+      onBack={vi.fn()} onContinue={vi.fn()} />);
+    expect(screen.getByText('3 rows from 1 file')).toBeVisible();
+    const pdfRow = screen.getByRole('row', { name: /PDFs with a text layer/ });
+    expect(within(pdfRow).getByRole('cell', { name: '1', exact: true })).toBeVisible();
+    expect(within(pdfRow).getByRole('cell', { name: '3 pages', exact: true })).toBeVisible();
+    expect(screen.queryByText('8 pages')).not.toBeInTheDocument();
+    expect(screen.getByText('1 file already in Archive and left as is')).toBeVisible();
+  });
+
+  it('preselects Split PDFs while admitted files are still being checked', async () => {
+    const initial = snapshot(1, {
+      analysis: { files_done: 1, files_total: 2, sealed: true },
+      category_counts: { ...categories, suspicious: 0, unchecked: 1 },
+    });
+    const { api } = createApi(initial);
+    render(<PdfBatchImportFlow
+      projectId="project-1" files={files()} initialOrganization="split_documents"
+      destinationSheets={[]} api={api} onContextChange={vi.fn()} registerCloseGuard={vi.fn()}
+      onImported={vi.fn()} onDiscarded={vi.fn()} onError={vi.fn()}
+    />);
+    const check = await screen.findByRole('button', { name: 'Check text →' });
+    await waitFor(() => expect(check).toBeEnabled());
+    fireEvent.click(check);
+    expect(await screen.findByRole('radio', { name: /Split into documents/ })).toBeChecked();
+  });
+
+  it('applies Split PDFs entry defaults to a newly admitted archive draft', async () => {
+    const { api } = createApi();
+    render(<PdfBatchImportFlow
+      projectId="project-1" resumeDraftId="draft-1" newlyAdmittedDraft initialOrganization="split_documents"
+      destinationSheets={[]} api={api} onContextChange={vi.fn()} registerCloseGuard={vi.fn()}
+      onImported={vi.fn()} onDiscarded={vi.fn()} onError={vi.fn()}
+    />);
+    const check = await screen.findByRole('button', { name: 'Check text →' });
+    await waitFor(() => expect(check).toBeEnabled());
+    fireEvent.click(check);
+    expect(await screen.findByRole('radio', { name: /Split into documents/ })).toBeChecked();
+    expect(api.create).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { pages: 1_000, supported: true, selected: 'Keep documents' },
+    { pages: 1_001, supported: true, selected: 'Split into documents' },
+    { pages: 2_001, supported: false, selected: 'Keep documents' },
+  ])('defaults a single $pages-page PDF using the admitted review limit', async ({ pages, supported, selected }) => {
+    const initial = snapshot(1, {
+      manifest: { files_done: 1, files_total: 1, bytes_done: 3, bytes_total: 3, sealed: true },
+      upload: { files_done: 1, files_total: 1, bytes_done: 3, bytes_total: 3, sealed: true },
+      analysis: { files_done: 1, files_total: 1, sealed: true },
+      category_counts: { ...categories, text: 1, suspicious: 0 },
+      organization_summary: {
+        ...snapshot().organization_summary, pdf_count: 1, page_count: pages,
+        output_rows: 1, new_output_rows: 1, split_supported: supported,
+        split_limit_reason: supported ? null : 'Review supports up to 2,000 pages.',
+      },
+    });
+    const { api } = createApi(initial);
+    render(<PdfBatchImportFlow
+      projectId="project-1" files={files().slice(0, 1)} destinationSheets={[]} api={api}
+      onContextChange={vi.fn()} registerCloseGuard={vi.fn()} onImported={vi.fn()}
+      onDiscarded={vi.fn()} onError={vi.fn()}
+    />);
+    const check = await screen.findByRole('button', { name: 'Check text →' });
+    await waitFor(() => expect(check).toBeEnabled());
+    fireEvent.click(check);
+    expect(await screen.findByRole('radio', { name: new RegExp(selected) })).toBeChecked();
+    if (!supported) {
+      expect(screen.getByRole('radio', { name: /Split into documents/ })).toBeDisabled();
+      expect(screen.getByText('Review supports up to 2,000 pages.')).toBeInTheDocument();
+    } else if (pages > 1_000) {
+      fireEvent.click(screen.getByRole('radio', { name: /Keep documents/ }));
+      await waitFor(() => expect(screen.getByRole('radio', { name: /Keep documents/ })).toBeChecked());
+      fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Check text →' }));
+      expect(screen.getByRole('radio', { name: /Keep documents/ })).toBeChecked();
+    }
+  });
+
   it('preserves choices on Back and commits only after semantic download consent', async () => {
     const { api } = createApi();
     const imported = vi.fn();
@@ -747,7 +977,7 @@ describe('PDF batch import flow', () => {
     expect(await screen.findByText('damaged.pdf')).toBeInTheDocument();
     expect(screen.getByText('Couldn’t read this file. It will be imported without text.')).toBeInTheDocument();
     expect(screen.queryByText('Could not read PDF.')).not.toBeInTheDocument();
-    expect(screen.getByText("OCR will apply to 1 file · 1 couldn't be read.")).toBeInTheDocument();
+    expect(screen.getByText('2 files → 2 rows')).toBeInTheDocument();
     expect(api.getPage).not.toHaveBeenCalledWith(
       'project-1', 'draft-1', 'damaged-1', 1, expect.anything(),
     );
@@ -1542,4 +1772,35 @@ describe('PDF batch import flow', () => {
     expect(screen.queryByText('Setup required', { exact: false })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Import 2 files' })).toBeDisabled();
   });
+});
+
+
+it('refreshes files as text checking finishes without changing the selected sample', async () => {
+  let finished = false;
+  const initial = snapshot(1, {
+    analysis: { files_done: 1, files_total: 2, sealed: false },
+    category_counts: { ...categories, text: 0, suspicious: 1, unchecked: 1 },
+  });
+  const { api } = createApi(initial);
+  vi.mocked(api.analyze).mockImplementation(async () => finished ? snapshot(5, {
+    category_counts: { ...categories, text: 0, suspicious: 2, unchecked: 0 },
+  }) : initial);
+  vi.mocked(api.samples).mockImplementation(async () => ({
+    items: (finished ? ['first', 'second'] : ['first']).map((name) => ({
+      occurrence_id: name, logical_path: `folder/${name}.pdf`, filename: `${name}.pdf`,
+      size: 3, page_count: 2, category: 'suspicious', analysis_state: 'ready',
+      sample_pages: [1], thumbnail_url: '/thumbnail', error: null,
+    })), next_cursor: null,
+  }));
+  render(<PdfBatchImportFlow projectId="project-1" files={files()} destinationSheets={[]}
+    api={api} onContextChange={vi.fn()} registerCloseGuard={vi.fn()} onImported={vi.fn()}
+    onDiscarded={vi.fn()} onError={vi.fn()} />);
+  const check = await screen.findByRole('button', { name: 'Check text →' });
+  await waitFor(() => expect(check).toBeEnabled());
+  fireEvent.click(check);
+  expect(await screen.findByTitle('folder/first.pdf')).toHaveClass('active');
+  finished = true;
+  await waitFor(() => expect(screen.getByTitle('folder/second.pdf')).toBeVisible(), { timeout: 4000 });
+  expect(screen.getByTitle('folder/first.pdf')).toHaveClass('active');
+  expect(api.startOcrPreview).not.toHaveBeenCalled();
 });

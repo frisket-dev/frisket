@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { PdfPacketMatchResult, PdfPacketPageMatch } from '../../../api/pdfPacketSplits';
 import { matchForPage } from './model';
 import { PacketThumbnail } from './PacketThumbnail';
+import { pageAddress, type ReviewSource } from './reviewSources';
 
 export type ReviewTab = 'unsure' | 'suggested';
 
@@ -26,12 +27,14 @@ export function PacketReviewCard({
   onIndex,
   onAccept,
   onReject,
-  onAcceptAll,
-  canAcceptAll,
   onOpenLarge,
+  sources,
+  emptyMessage,
 }: {
   projectId: string;
   splitId: string;
+  sources?: readonly ReviewSource[];
+  emptyMessage?: string;
   tab: ReviewTab;
   index: number;
   unsure: readonly number[];
@@ -41,16 +44,16 @@ export function PacketReviewCard({
   onIndex(index: number): void;
   onAccept(page: number): void;
   onReject(page: number): void;
-  onAcceptAll(): void;
-  canAcceptAll: boolean;
   onOpenLarge(page: number): void;
 }) {
-  const [referenceSeen, setReferenceSeen] = useState(false);
+  const [referenceSeen, setReferenceSeen] = useState(Boolean(sources && sources.length > 1));
   const showingReference = !referenceSeen;
   const queue = tab === 'unsure' ? unsure : suggested;
   const currentIndex = Math.min(index, Math.max(0, queue.length - 1));
   const page = showingReference ? 1 : queue[currentIndex] ?? null;
   const match = page == null ? null : matchForPage(matches, page);
+  const address = page == null || !sources ? null : pageAddress(sources, page);
+  const localPage = address?.localPage ?? page;
   const reviewTone = !showingReference && page != null && suggested.includes(page)
     ? 'suggested'
     : tab;
@@ -93,7 +96,7 @@ export function PacketReviewCard({
         options={[{ value: 'unsure', label: `Unsure ${unsure.length}` }, { value: 'suggested', label: `Suggested ${suggested.length}` }]} />
       {page == null ? (
         <p className="packet-review-empty">
-          {tab === 'unsure' ? 'No unsure pages left.' : 'No suggestions left.'}
+          {emptyMessage ?? (tab === 'unsure' ? 'No unsure pages left.' : 'No suggestions left.')}
         </p>
       ) : (
         <>
@@ -105,11 +108,12 @@ export function PacketReviewCard({
             </strong>
             <span>{showingReference ? 'Baseline' : `${currentIndex + 1} of ${queue.length}`}</span>
           </header>
+          {address && <p className="packet-review-source">{address.filename}</p>}
           <div className="packet-review-pages">
-            {page > 1 ? (
+            {page > 1 && (!address || address.sourcePage > 1) ? (
               <figure className="packet-review-before">
                 <PacketThumbnail projectId={projectId} splitId={splitId} page={page - 1} alt={`Page ${page - 1}`} />
-                <figcaption>p {page - 1} · before</figcaption>
+                <figcaption>p {(localPage ?? page) - 1} · before</figcaption>
               </figure>
             ) : <span className="packet-review-no-before">First page</span>}
             <button
@@ -119,7 +123,7 @@ export function PacketReviewCard({
               onClick={() => onOpenLarge(page)}
             >
               <PacketThumbnail projectId={projectId} splitId={splitId} page={page} alt={`Page ${page}`} eager />
-              <span>{showingReference ? `Page ${page} · reference` : candidateCaption(page, match)}</span>
+              <span>{showingReference ? `Page ${page} · reference` : candidateCaption(localPage ?? page, match)}</span>
             </button>
           </div>
           {showingReference ? (
@@ -156,11 +160,7 @@ export function PacketReviewCard({
           )}
         </>
       )}
-      {!showingReference && tab === 'suggested' && suggested.length > 0 ? (
-        <button type="button" className="packet-review-accept-all" disabled={!canAcceptAll} onClick={onAcceptAll}>
-          Accept all {suggested.length} suggestions
-        </button>
-      ) : null}
+
     </section>
   );
 }

@@ -384,3 +384,92 @@ def test_delete_sheet_keeps_running_operation_applied(tmp_path: Path) -> None:
         )
     finally:
         project.close()
+
+
+def test_delete_source_sheet_retains_split_original_for_surviving_children(tmp_path):
+    from io import BytesIO
+
+    from pypdf import PdfReader, PdfWriter
+
+    from frisket.engine.store.evidence import (
+        record_evidence_link,
+        record_source_artifact,
+        record_source_span,
+        resolve_evidence_viewer,
+    )
+
+    project = Project.create(tmp_path / "split-source-delete.frisket", "Retained")
+    try:
+        original = project.add_sheet("Originals")
+        original_column = project.add_column(original, "media", "file")
+        writer = PdfWriter()
+        for _ in range(8):
+            writer.add_blank_page(width=100, height=100)
+        source_pdf = BytesIO()
+        writer.write(source_pdf)
+        digest = project.add_blob(
+            source_pdf.getvalue(), filename="Original.pdf", mime="application/pdf"
+        )
+        original_row = project.add_rows(
+            original, [{"media": media_cell(digest)}], {"media": original_column}
+        )[0]
+        children = project.add_sheet("Pages")
+        source_column = project.add_column(children, "source", "link")
+        child = project.add_rows(
+            children,
+            [{"source": "/p/project/evidence/split%3Aone?page=3"}],
+            {"source": source_column},
+        )[0]
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="file",
+            media_type="application/pdf",
+            blob_hash=digest,
+            filename="Original.pdf",
+            page_count=8,
+            source_sheet_id=original,
+            source_row_id=original_row,
+            source_column_id=original_column,
+            external_ref={"kind": "pdf_split_source"},
+        )
+        span = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="page_range",
+            page_start=3,
+            page_end=3,
+            selector={"kind": "page_range", "page_start": 3, "page_end": 3},
+        )
+        record_evidence_link(
+            project,
+            stable_id="split:one",
+            subject_kind="cell_value",
+            subject_ref={
+                "kind": "source_cell",
+                "row_id": child,
+                "column_id": source_column,
+            },
+            spans=[{"span_id": span["id"]}],
+            sheet_id=children,
+            row_id=child,
+            column_id=source_column,
+            link_role="source_provenance",
+        )
+        project.delete_sheet(original)
+        payload = resolve_evidence_viewer(project, "split:one", project_id="project")
+        retained = payload["artifacts"][0]
+        assert retained["artifact_ref"]["blob"]["hash"] == digest
+        assert retained["source_cell"] is None
+        assert retained["external_ref"]["original_source_cell"] == {
+            "sheet_id": original,
+            "row_id": original_row,
+            "column_id": original_column,
+        }
+        assert retained["spans"][0]["selector"]["page_start"] == 3
+        assert project.db.execute(
+            "SELECT 1 FROM blobs WHERE hash=?", (digest,)
+        ).fetchone()
+        with project.blob_store.materialize(digest) as path:
+            assert len(PdfReader(path).pages) == 8
+    finally:
+        project.close()

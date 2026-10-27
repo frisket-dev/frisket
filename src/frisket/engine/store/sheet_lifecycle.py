@@ -123,6 +123,35 @@ def delete_sheet(project: Any, sheet_id: int) -> dict[str, Any]:
         )
 
     with project.db:
+        # Split children keep immutable originals even after the source sheet
+        # is removed. Detach ownership, retaining historical navigation facts.
+        retained = project.db.execute(
+            "SELECT artifact.id,artifact.source_sheet_id,artifact.source_row_id,"
+            "artifact.source_column_id,artifact.external_ref_json "
+            "FROM source_artifacts artifact WHERE artifact.source_sheet_id=? "
+            "AND artifact.media_type='application/pdf' "
+            "AND json_extract(artifact.external_ref_json,'$.kind') "
+            "IN ('pdf_split_source','pdf_packet_split_source') AND EXISTS ("
+            "SELECT 1 FROM source_spans span "
+            "JOIN evidence_link_spans member ON member.span_id=span.id "
+            "JOIN evidence_links link ON link.id=member.link_id "
+            "JOIN sheets survivor ON survivor.id=link.sheet_id "
+            "WHERE span.artifact_id=artifact.id AND survivor.id<>? "
+            "AND link.link_role='source_provenance')",
+            (sheet_id, sheet_id),
+        ).fetchall()
+        for artifact in retained:
+            external = json.loads(artifact["external_ref_json"] or "{}")
+            external["original_source_cell"] = {
+                "sheet_id": artifact["source_sheet_id"],
+                "row_id": artifact["source_row_id"],
+                "column_id": artifact["source_column_id"],
+            }
+            project.db.execute(
+                "UPDATE source_artifacts SET source_sheet_id=NULL,source_row_id=NULL,"
+                "source_column_id=NULL,external_ref_json=? WHERE id=?",
+                (json.dumps(external), artifact["id"]),
+            )
         project.db.execute(
             "DELETE FROM artifact_timeline_segments WHERE "
             "derived_artifact_id IN ("

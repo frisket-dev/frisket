@@ -153,6 +153,7 @@ describe('preview grid interactions', () => {
       sheetId: '1',
       rowIds: ['1', '2'],
       rowIndexes: [0, 1],
+      cachedAnchors: [{ index: 0, rowId: '1' }, { index: 1, rowId: '2' }],
     });
     expect(editor.props?.gridSelection.rows.toArray()).toEqual([0, 1]);
     expect(editor.props?.gridSelection.current).toBeUndefined();

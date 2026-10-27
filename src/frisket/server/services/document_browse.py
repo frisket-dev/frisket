@@ -373,6 +373,41 @@ def _document_browse(
     start = max(1, ordinal - len(rows)) if back else ordinal + (1 if decoded else 0)
     if back:
         rows.reverse()
+    # Source ranges are metadata on the current file cell, bounded to this
+    # document page. Match the complete value ref so edits cannot inherit an
+    # older split's provenance.
+    ranges = {}
+    if rows and source["type"] == "file":
+        row_ids = [int(row["id"]) for row in rows]
+        placeholders = ",".join("?" for _ in row_ids)
+        for provenance in project.db.execute(
+            "SELECT link.row_id, span.page_start, span.page_end "
+            "FROM current_cell_values cell JOIN evidence_links link "
+            "ON link.row_id=cell.row_id AND link.column_id=cell.column_id "
+            "JOIN evidence_link_spans member ON member.link_id=link.id "
+            "JOIN source_spans span ON span.id=member.span_id "
+            "JOIN source_artifacts artifact ON artifact.id=span.artifact_id "
+            f"WHERE cell.column_id=? AND cell.row_id IN ({placeholders}) "
+            "AND link.sheet_id=? AND link.status='active' "
+            "AND link.subject_kind='cell_value' AND link.link_role='source_provenance' "
+            "AND json_extract(link.subject_ref_json,'$.kind') IS cell.origin_kind "
+            "AND json_extract(link.subject_ref_json,'$.op_id') IS cell.origin_op_id "
+            "AND json_extract(link.subject_ref_json,'$.run_id') IS cell.origin_run_id "
+            "AND json_extract(link.subject_ref_json,'$.row_id') IS cell.row_id "
+            "AND json_extract(link.subject_ref_json,'$.column_id') IS cell.column_id "
+            "AND json_extract(link.subject_ref_json,'$.prepared_ref_id') IS cell.prepared_ref_id "
+            "AND artifact.media_type='application/pdf' AND span.span_kind='page_range' "
+            "AND span.page_start IS NOT NULL AND span.page_end IS NOT NULL "
+            "ORDER BY link.id DESC, span.id",
+            (int(source["id"]), *row_ids, sheet_id),
+        ):
+            ranges.setdefault(
+                int(provenance["row_id"]),
+                {
+                    "start": int(provenance["page_start"]),
+                    "end": int(provenance["page_end"]),
+                },
+            )
     items = []
     for index, row in enumerate(rows):
         detail_params: list[Any] | dict[str, Any]
@@ -416,6 +451,7 @@ def _document_browse(
                 source_present=bool(detail["source_present"]),
                 source_label=label,
                 source_label_truncated=bool(detail["label_truncated"]),
+                source_page_range=ranges.get(int(row["id"])),
                 character_count=detail["character_count"]
                 if kind == "annotated_text"
                 else None,

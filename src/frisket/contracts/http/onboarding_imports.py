@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from frisket.contracts.action import ActionResult
 from frisket.contracts.http.models import HttpError, WireModel
+from frisket.contracts.http.pdf_imports import PdfImportStatus
 
 
 class ImportPasteDraftBody(BaseModel):
@@ -80,6 +81,18 @@ class ImportUrlsBody(BaseModel):
     urls: list[str]
     sheet_name: str | None = None
     column: str = "media"
+
+
+class PrepareImportUrlsBody(BaseModel):
+    urls: list[str]
+
+
+class PrepareImportUrlsResponse(WireModel):
+    kind: Literal["pdf_import"]
+    draft: PdfImportStatus
+    downloaded: int = Field(ge=0)
+    failed: int = Field(ge=0)
+    warnings: list[str]
 
 
 class SampleProjectSeedResponse(WireModel):
@@ -237,6 +250,8 @@ __all__ = [
     "ImportPasteDraftSource",
     "ImportUrlsBody",
     "ImportUrlsResponse",
+    "PrepareImportUrlsBody",
+    "PrepareImportUrlsResponse",
     "ImportPdfResponse",
     "ImportXlsxResponse",
     "SampleProjectSeedResponse",

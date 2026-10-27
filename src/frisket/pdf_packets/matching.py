@@ -223,6 +223,8 @@ def match_packet_pages(
     signatures: Mapping[int, int],
     confirmed: Collection[int],
     rejected: Collection[int] = (),
+    examples: Collection[int] | None = None,
+    fixed_starts: Collection[int] = (),
     threshold: float = 80.0,
     ocr_text: Mapping[int, str] | None = None,
     phrases: Sequence[PhraseRule] = (),
@@ -232,7 +234,9 @@ def match_packet_pages(
     Pages are 1-based. ``signatures`` and ``ocr_text`` may be partial while their
     background jobs are running. Visual scores and ``threshold`` use the same
     0..100 scale. Text phrase matches and visual matches are OR inputs, while
-    explicit labels always remain authoritative.
+    explicit labels always remain authoritative. With explicit ``examples``, only
+    those confirmed or fixed starts teach visual similarity. Omitting examples
+    preserves the single-packet page-1 baseline.
     """
 
     if type(page_count) is not int or page_count < 1:
@@ -245,16 +249,23 @@ def match_packet_pages(
 
     confirmed_pages = _page_set(confirmed, page_count=page_count, label="confirmed")
     rejected_pages = _page_set(rejected, page_count=page_count, label="rejected")
-    if 1 not in confirmed_pages:
-        raise ValueError("confirmed must include page 1")
-    if confirmed_pages & rejected_pages:
+    fixed_pages = _page_set(fixed_starts, page_count=page_count, label="fixed_starts")
+    if examples is None:
+        if 1 not in confirmed_pages:
+            raise ValueError("confirmed must include page 1")
+        example_pages = confirmed_pages
+    else:
+        example_pages = _page_set(examples, page_count=page_count, label="examples")
+        if not example_pages <= confirmed_pages | fixed_pages:
+            raise ValueError("examples must be confirmed or fixed starts")
+    if (confirmed_pages | fixed_pages) & rejected_pages:
         raise ValueError("confirmed and rejected pages must be disjoint")
 
     checked_signatures = _page_signatures(signatures, page_count=page_count)
-    kinds, kind_by_confirmed_page = _start_kinds(confirmed_pages, checked_signatures)
+    kinds, kind_by_confirmed_page = _start_kinds(example_pages, checked_signatures)
     confirmed_signatures = tuple(
         (page, checked_signatures[page])
-        for page in sorted(confirmed_pages)
+        for page in sorted(example_pages)
         if page in checked_signatures
     )
     rejected_signatures = tuple(
@@ -281,7 +292,9 @@ def match_packet_pages(
             kind_by_confirmed_page=kind_by_confirmed_page,
         )
         matched_phrases = _phrase_matches(texts.get(page, ""), prepared_phrases)
-        labeled = page in confirmed_pages or page in rejected_pages
+        labeled = (
+            page in confirmed_pages or page in fixed_pages or page in rejected_pages
+        )
         suggested = (
             not labeled
             and not vetoed
@@ -306,6 +319,7 @@ def match_packet_pages(
         for match in page_matches
         if match.page not in confirmed_pages
         and match.page not in rejected_pages
+        and match.page not in fixed_pages
         and not match.suggested
         # A strong match vetoed by a negative example still needs a human
         # decision. Ordinary above-threshold matches are already suggestions.

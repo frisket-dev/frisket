@@ -8,7 +8,7 @@ vi.mock('pluralize', () => ({
   }),
 }));
 
-import { ApiError, cancelImportSession, chunkImportFiles, confirmImportRowsDraft, createImportSession, detectPastedRowsDraft, importCsv, importFiles, importPdf, importXlsx, importUrls, listImportSessions, prepareImportFiles, previewCsv, previewImportRowUpdates, resolveImportSession, resumeImportSession, sealImportSession, seedSampleProject, snapshotImportFiles, uploadFilesToImportSession, uploadImportSessionFiles } from '../../src/api/open';
+import { ApiError, cancelImportSession, chunkImportFiles, confirmImportRowsDraft, createImportSession, detectPastedRowsDraft, importCsv, importFiles, importPdf, importXlsx, importUrls, listImportSessions, prepareImportFiles, prepareImportUrls, previewCsv, previewImportRowUpdates, resolveImportSession, resumeImportSession, sealImportSession, seedSampleProject, snapshotImportFiles, uploadFilesToImportSession, uploadImportSessionFiles } from '../../src/api/open';
 import {
   createOnboardingImportsApi,
   type OnboardingImportOptions,
@@ -63,6 +63,22 @@ afterEach(() => {
 });
 
 describe('onboarding/import generated HTTP contracts', () => {
+  it('prepares URL inventory without invoking the publishing URL import route', async () => {
+    const prepared = { kind: 'pdf_import', draft: { draft_id: 'url-draft' }, downloaded: 1,
+      failed: 1, warnings: ['One URL failed.'] };
+    const fetch = vi.fn(async () => jsonResponse(prepared));
+    vi.stubGlobal('fetch', fetch);
+    const controller = new AbortController();
+    await expect(prepareImportUrls('project/one', ['https://example.test/report.pdf', 'not-a-url'],
+      { signal: controller.signal })).resolves.toEqual(prepared);
+    expect(fetch).toHaveBeenCalledOnce();
+    const [path, init] = fetch.mock.calls[0];
+    expect(path).toBe('/api/projects/project%2Fone/import/urls/prepare');
+    expect(init?.method).toBe('POST');
+    expect(init?.signal).toBe(controller.signal);
+    expect(JSON.parse(String(init?.body))).toEqual({ urls: ['https://example.test/report.pdf', 'not-a-url'] });
+  });
+
   it('chunks resumable file admission by count and byte budget while allowing one oversized file', () => {
     const oversized = new File(['x'], 'oversized.bin');
     Object.defineProperty(oversized, 'size', { value: 65 * 1024 * 1024 });

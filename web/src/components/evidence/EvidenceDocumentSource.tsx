@@ -16,13 +16,16 @@ const ignorePdfPageCount = () => undefined;
 const ignorePdfPageChange = () => undefined;
 
 // Document sources share page anchors across native PDFs, rendered images, and detail links.
-export function EvidenceDocumentSource({ artifact, scopeSpanId, emphasizedSpanIds }: {
+export function EvidenceDocumentSource({ artifact, initialPage, scopeSpanId, emphasizedSpanIds }: {
   artifact: EvidenceArtifact;
+  initialPage?: number;
   scopeSpanId?: string;
   emphasizedSpanIds: readonly string[];
 }) {
   const blob = artifact.artifact_ref.blob;
-  const selectedPdfPage = evidencePdfPage(artifact, scopeSpanId, emphasizedSpanIds);
+  const selectedPdfPage = initialPage !== undefined && initialPage >= 1
+    && (artifact.page_count === null || initialPage <= artifact.page_count)
+    ? initialPage : evidencePdfPage(artifact, scopeSpanId, emphasizedSpanIds);
   if (artifact.media_type === 'application/pdf' && blob) {
     return (
       <div
@@ -238,7 +241,7 @@ export function PdfPacketSourceCard({
         <span className="pdf-packet-source-kicker">Source packet</span>
         <strong>{data.filename}</strong>
         <span>
-          Pages {data.pageStart}–{data.pageEnd} of {data.pageCount}
+          {data.pageStart === data.pageEnd ? `Page ${data.pageStart}` : `Pages ${data.pageStart}–${data.pageEnd}`} of {data.pageCount}
           {dateLabel ? ` · split on ${dateLabel}` : ''}
         </span>
         <div className="pdf-packet-source-strip" aria-label={`Pages ${data.pageStart} through ${data.pageEnd} selected from ${data.pageCount}`}>

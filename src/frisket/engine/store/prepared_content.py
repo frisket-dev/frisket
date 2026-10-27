@@ -43,6 +43,8 @@ class PreparedText:
     ref_id: int
     set_id: int
     page_number: int | None
+    covered_pages: tuple[int, ...]
+    complete: bool | None
 
 
 def _positive_int(value: object, name: str) -> int:
@@ -180,6 +182,7 @@ class PreparedContentStore:
         producing_op_id: int,
         pages: Sequence[PreparedPageDraft],
         page_number: int | None = None,
+        allow_partial: bool = False,
     ) -> PreparedContentRef:
         """Create one immutable set and selector without owning the transaction."""
 
@@ -192,7 +195,7 @@ class PreparedContentStore:
         )
         numbers = {page[0] for page in prepared}
         if selected is None:
-            if numbers != set(range(1, page_count + 1)):
+            if not allow_partial and numbers != set(range(1, page_count + 1)):
                 raise ValueError(
                     "document prepared content must contain every artifact page"
                 )
@@ -251,8 +254,13 @@ class PreparedContentStore:
         producing_op_id: int,
         replacements: Sequence[PreparedPageDraft],
         page_number: int | None = None,
+        allow_partial: bool = False,
     ) -> PreparedContentRef:
-        """Create a new set, reusing every page version not replaced."""
+        """Create a successor, reusing every page version not replaced.
+
+        For concurrent publication, read the current base reference after taking
+        the caller's write transaction and check the owning cell's identity.
+        """
 
         self._require_transaction()
         op_id = self._operation(producing_op_id)
@@ -281,14 +289,23 @@ class PreparedContentStore:
         }
         prepared = _page_drafts(replacements)
         replacement_numbers = {page[0] for page in prepared}
-        if not replacement_numbers <= members.keys():
+        if any(number > page_count for number in replacement_numbers):
+            raise ValueError("prepared page exceeds the source artifact page count")
+        if not allow_partial and not replacement_numbers <= members.keys():
             raise ValueError("replacement pages must already belong to the content set")
         selected = (
             None if page_number is None else _positive_int(page_number, "page_number")
         )
-        if selected is not None and selected not in members:
+        if (
+            selected is not None
+            and selected not in members.keys() | replacement_numbers
+        ):
             raise ValueError(f"prepared content does not contain page {selected}")
-        if selected is None and set(members) != set(range(1, page_count + 1)):
+        if (
+            selected is None
+            and not allow_partial
+            and set(members) != set(range(1, page_count + 1))
+        ):
             raise ValueError(
                 "document prepared content must contain every artifact page"
             )
@@ -314,6 +331,67 @@ class PreparedContentStore:
             self.db.execute("RELEASE prepared_content_stage")
             raise
 
+    def stage_rebased(
+        self,
+        *,
+        base_ref_id: int,
+        source_artifact_id: int,
+        producing_op_id: int,
+        first_page: int,
+        last_page: int,
+        allow_partial: bool = False,
+    ) -> PreparedContentRef | None:
+        """Copy available pages into a child artifact with local page numbers."""
+        self._require_transaction()
+        self._operation(producing_op_id)
+        first = _positive_int(first_page, "first_page")
+        last = _positive_int(last_page, "last_page")
+        if last < first:
+            raise ValueError("last_page must not precede first_page")
+        _, child_count = self._artifact(source_artifact_id)
+        if child_count != last - first + 1:
+            raise ValueError("child artifact page count does not match page range")
+        base_id = _positive_int(base_ref_id, "base_ref_id")
+        base = self.db.execute(
+            "SELECT ref.set_id,content.source_artifact_id,ref.page_number "
+            "FROM prepared_content_refs ref "
+            "JOIN prepared_content_sets content ON content.id=ref.set_id "
+            "WHERE ref.id=?",
+            (base_id,),
+        ).fetchone()
+        if base is None:
+            raise KeyError(f"prepared content reference not found: {base_id}")
+        if base[1] is None:
+            raise ValueError(
+                "cannot derive new content after its source artifact was deleted"
+            )
+        _, parent_count = self._artifact(int(base[1]))
+        if last > parent_count:
+            raise ValueError("page range exceeds the source artifact page count")
+        pages = [
+            PreparedPageDraft(
+                int(row[0]) - first + 1,
+                str(row[1]),
+                json.loads(str(row[2])) if row[2] is not None else None,
+            )
+            for row in self.db.execute(
+                "SELECT member.page_number,version.prepared_text,version.positions_json "
+                "FROM prepared_content_set_pages member "
+                "JOIN prepared_page_versions version ON version.id=member.version_id "
+                "WHERE member.set_id=? AND member.page_number BETWEEN ? AND ? "
+                "AND (? IS NULL OR member.page_number=?) ORDER BY member.page_number",
+                (int(base[0]), first, last, base[2], base[2]),
+            )
+        ]
+        if not pages:
+            return None
+        return self.stage_reference(
+            source_artifact_id=source_artifact_id,
+            producing_op_id=producing_op_id,
+            pages=pages,
+            allow_partial=allow_partial,
+        )
+
     def resolve(self, ref_id: int) -> PreparedText:
         return self.resolve_many([ref_id])[_positive_int(ref_id, "ref_id")]
 
@@ -325,12 +403,13 @@ class PreparedContentStore:
         rows = self.db.execute(
             "SELECT ref.id,ref.set_id,set_record.source_artifact_id,ref.page_number,"
             "member.page_number,version.id,version.prepared_text,version.content_hash,"
-            "version.positions_json "
+            "version.positions_json,artifact.page_count "
             "FROM prepared_content_refs AS ref "
             "JOIN prepared_content_sets AS set_record ON set_record.id=ref.set_id "
             "JOIN prepared_content_set_pages AS member ON member.set_id=ref.set_id "
             "AND (ref.page_number IS NULL OR member.page_number=ref.page_number) "
             "JOIN prepared_page_versions AS version ON version.id=member.version_id "
+            "LEFT JOIN source_artifacts AS artifact ON artifact.id=set_record.source_artifact_id "
             f"WHERE ref.id IN ({placeholders}) ORDER BY ref.id,member.page_number",
             ids,
         ).fetchall()
@@ -374,8 +453,43 @@ class PreparedContentStore:
                 ref_id=ref_id,
                 set_id=int(first[1]),
                 page_number=(int(first[3]) if first[3] is not None else None),
+                covered_pages=tuple(pin.page_number for pin in pins),
+                complete=(
+                    True
+                    if first[3] is not None
+                    else len(pins) == int(first[9])
+                    if first[9] is not None
+                    else None
+                ),
             )
         return resolved
+
+
+def prepared_coverage_warnings(
+    db: sqlite3.Connection, ref_ids: Sequence[int]
+) -> dict[int, str]:
+    """Project incomplete selector coverage without reading prepared text bodies."""
+    ids = list(dict.fromkeys(_positive_int(ref_id, "ref_id") for ref_id in ref_ids))
+    warnings: dict[int, str] = {}
+    for offset in range(0, len(ids), 400):
+        chunk = ids[offset : offset + 400]
+        placeholders = ",".join("?" for _ in chunk)
+        for ref_id, selected, page_count, covered in db.execute(
+            "SELECT ref.id,ref.page_number,artifact.page_count,count(member.page_number) "
+            "FROM prepared_content_refs ref "
+            "JOIN prepared_content_sets content ON content.id=ref.set_id "
+            "LEFT JOIN source_artifacts artifact ON artifact.id=content.source_artifact_id "
+            "LEFT JOIN prepared_content_set_pages member ON member.set_id=ref.set_id "
+            "AND (ref.page_number IS NULL OR member.page_number=ref.page_number) "
+            f"WHERE ref.id IN ({placeholders}) GROUP BY ref.id",
+            chunk,
+        ):
+            expected = 1 if selected is not None else page_count
+            if expected is not None and covered < expected:
+                warnings[int(ref_id)] = (
+                    f"Prepared text is incomplete: {covered} of {expected} pages are available."
+                )
+    return warnings
 
 
 def decode_logical_value(
@@ -409,4 +523,5 @@ __all__ = [
     "PreparedPagePin",
     "PreparedText",
     "decode_logical_value",
+    "prepared_coverage_warnings",
 ]

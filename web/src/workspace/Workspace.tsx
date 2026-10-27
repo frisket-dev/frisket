@@ -156,7 +156,7 @@ function WorkspaceView({ model }: { model: WorkspaceViewModel }) {
             <WorkspaceHostContextContext.Provider value={model.workbenchHostContext}>
               <WorkspaceMainViewModelContext.Provider value={model.mainViewModel}>
                 <WorkspaceOverlayModelContext.Provider value={model.overlayModel}>
-                  <WorkspaceViewContent />
+                  <WorkspaceViewContent pdfSplitDialog={model.pdfSplitDialog} pdfRowMenuElement={model.pdfRowMenuElement} />
                 </WorkspaceOverlayModelContext.Provider>
               </WorkspaceMainViewModelContext.Provider>
             </WorkspaceHostContextContext.Provider>
@@ -168,7 +168,7 @@ function WorkspaceView({ model }: { model: WorkspaceViewModel }) {
   );
 }
 
-function WorkspaceViewContent() {
+function WorkspaceViewContent({ pdfSplitDialog, pdfRowMenuElement }: { pdfSplitDialog: WorkspaceViewModel['pdfSplitDialog']; pdfRowMenuElement: WorkspaceViewModel['pdfRowMenuElement'] }) {
   return (
     <div className="app">
       <div className="workbench-shell" data-testid="workbench-shell">
@@ -190,6 +190,8 @@ function WorkspaceViewContent() {
         <WorkspaceActionDrawerRegion />
       </div>
       <WorkspaceOverlayRegion />
+      {pdfRowMenuElement}
+      {pdfSplitDialog}
     </div>
   );
 }

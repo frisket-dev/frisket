@@ -19,6 +19,32 @@ def _status() -> dict[str, Any]:
         "schema_version": "frisket.pdf_packet_split.v1",
         "split_id": "split-1",
         "status": "preparing",
+        "organization": "split_documents",
+        "text_categories": {},
+        "sources": [
+            {
+                "key": "source-1",
+                "blob_hash": "a" * 64,
+                "filename": "packet.pdf",
+                "size": 17,
+                "page_count": 4,
+                "page_start": 1,
+                "page_end": 4,
+                "display_start": 1,
+                "source_url": None,
+                "source_sheet_id": None,
+                "source_row_id": None,
+                "source_column_id": None,
+                "prepared_page_count": 0,
+                "has_prepared": False,
+                "prepared_complete": False,
+                "text_category": None,
+                "manual_text_preview": None,
+            }
+        ],
+        "fixed_starts": [1],
+        "example_pages": [],
+        "sheet_scope": None,
         "packet": {
             "blob_hash": "a" * 64,
             "filename": "packet.pdf",
@@ -31,6 +57,7 @@ def _status() -> dict[str, Any]:
             "progress": _progress(),
             "pages_ready": [1],
             "native_text_pages": [1, 2],
+            "text_pages_read": [],
             "visual_pages_ready": 1,
         },
         "text_source": "unconfirmed",
@@ -54,6 +81,22 @@ class _Service:
         self.calls.append(("create", pid, upload.filename, upload.sha256, request_id))
         return _status()
 
+    def sheet_scope_token(self, pid, body):
+        self.calls.append(("scope_token", pid, body.sheet_id, body.scope))
+        return {"schema_version": "frisket.pdf_packet_split.v1", "order_hash": "a" * 64}
+
+    def create_from_sheet(self, pid, body, *, admission_lease=None):
+        self.calls.append(
+            ("sheet", pid, body.sheet_id, body.file_column_id, body.scope)
+        )
+        return _status()
+
+    def create_from_draft(
+        self, pid, draft_id, expected_revision, *, organization, admission_lease=None
+    ):
+        self.calls.append(("draft", pid, draft_id, expected_revision, organization))
+        return _status()
+
     def status(self, pid, split_id):
         return _status()
 
@@ -62,6 +105,8 @@ class _Service:
             "schema_version": "frisket.pdf_packet_split.v1",
             "split_id": split_id,
             "page": page,
+            "source_key": "source-1",
+            "local_page": page,
             "thumbnail_ready": True,
             "thumbnail_url": f"/thumb/{page}",
             "native_text": "native",
@@ -184,14 +229,14 @@ def test_pdf_packet_split_http_contract(tmp_path: Path) -> None:
 
     estimate = client.post(
         "/api/projects/p/import/pdf-packet-splits/split-1/ocr/estimate",
-        json={"engine": "rapidocr", "scope": "sample", "pages": [1, 3]},
+        json={"engine": "rapidocr", "scope": "sample", "pages": [1]},
     )
     assert estimate.status_code == 200, estimate.text
-    assert estimate.json()["pages"] == [1, 3]
+    assert estimate.json()["pages"] == [1]
 
     started = client.post(
         "/api/projects/p/import/pdf-packet-splits/split-1/ocr/jobs",
-        json={"engine": "rapidocr", "scope": "sample", "pages": [1, 3]},
+        json={"engine": "rapidocr", "scope": "sample", "pages": [1]},
     )
     assert started.status_code == 202
     assert started.json()["kind"] == "ocr_sample"
@@ -207,6 +252,7 @@ def test_pdf_packet_split_http_contract(tmp_path: Path) -> None:
     candidates = client.post(
         "/api/projects/p/import/pdf-packet-splits/split-1/candidates",
         json={
+            "expected_analysis_revision": 1,
             "confirmed_starts": [1],
             "rejected": [4],
             "threshold_pct": 80,
@@ -258,3 +304,65 @@ def test_pdf_packet_split_rejects_incoherent_ocr_and_text_source_bodies(
         422,
     )
     assert service.calls == []
+
+
+def test_draft_session_route_uses_revision_and_organization(tmp_path):
+    client, service = _client(tmp_path)
+    response = client.post(
+        "/api/projects/p/import/pdf-packet-splits/from-draft",
+        json={"draft_id": "draft-1", "expected_revision": 4, "organization": "pages"},
+    )
+    assert response.status_code == 202
+    assert ("draft", "p", "draft-1", 4, "pages") in service.calls
+    invalid = client.post(
+        "/api/projects/p/import/pdf-packet-splits/from-draft",
+        json={"draft_id": "draft-1", "expected_revision": 0, "organization": "pages"},
+    )
+    assert invalid.status_code == 422
+
+
+def test_sheet_session_route_uses_typed_scope(tmp_path):
+    client, service = _client(tmp_path)
+    response = client.post(
+        "/api/projects/p/import/pdf-packet-splits/from-sheet",
+        json={
+            "sheet_id": 2,
+            "file_column_id": 3,
+            "organization": "pages",
+            "scope": "selected",
+            "selected_row_ids": [7],
+        },
+    )
+    assert response.status_code == 202
+    assert ("sheet", "p", 2, 3, "selected") in service.calls
+    invalid = client.post(
+        "/api/projects/p/import/pdf-packet-splits/from-sheet",
+        json={
+            "sheet_id": 2,
+            "file_column_id": 3,
+            "organization": "pages",
+            "scope": "selected",
+            "selected_index_ranges": [{"start": 0, "end": 1}],
+        },
+    )
+    assert invalid.status_code == 422
+
+
+def test_scope_token_route_is_metadata_only(tmp_path):
+    client, service = _client(tmp_path)
+    response = client.post(
+        "/api/projects/p/import/pdf-packet-splits/sheet-scope-token",
+        json={"sheet_id": 2, "scope": "selected"},
+    )
+    assert response.status_code == 200
+    assert response.json()["order_hash"] == "a" * 64
+    assert ("scope_token", "p", 2, "selected") in service.calls
+
+
+def test_packet_destination_uses_normal_sheet_name_limit():
+    from frisket.contracts.http.pdf_packet_splits import PdfPacketDestination
+    import pytest
+
+    assert PdfPacketDestination(kind="new_sheet", name="x" * 512).name == "x" * 512
+    with pytest.raises(ValueError):
+        PdfPacketDestination(kind="new_sheet", name="x" * 513)

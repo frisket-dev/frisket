@@ -246,11 +246,62 @@ class ActionPreviewRunService:
         execution_context: Any,
         replacement_key: str | None = None,
         total: int = 1,
+        trusted_consent_authorizer: validation.TrustedConsentAuthorizer | None = None,
+        require_receipt: bool = False,
+        trusted_consent_principal: str | None = None,
     ) -> ActionPreviewRunResponse:
         project = self._workspace.get(project_id)
+        if trusted_consent_principal is not None:
+            from decimal import Decimal
+            from frisket.execution.consent_coverage import ConsentCoverage
+
+            if (
+                trusted_consent_authorizer is None
+                or not trusted_consent_principal.strip()
+            ):
+                raise ValueError(
+                    "trusted consent principal requires its internal authorizer"
+                )
+            if (
+                plan.consent_coverage is not None
+                and plan.consent_coverage.principal != trusted_consent_principal
+            ):
+                raise ValueError("trusted consent principal changed during admission")
+            plan = replace(
+                plan,
+                consent_coverage=ConsentCoverage(
+                    trusted_consent_principal,
+                    plan.consent_coverage.threshold_usd
+                    if plan.consent_coverage is not None
+                    else Decimal("0"),
+                ),
+            )
         resolved, estimate, uncovered = _scratch_claims(project, plan)
         expected_hash = consented_set_hash(resolved.promise_set)
-        if uncovered:
+        trusted_decision = None
+        if trusted_consent_authorizer is not None:
+            from frisket.execution.consent_coverage import effective_consent_coverage
+
+            trusted_decision = trusted_consent_authorizer(
+                validation.TrustedConsentContext(
+                    spec=plan.spec,
+                    row_ids=(SCRATCH_PREVIEW_UNIT_ID,),
+                    resolved_execution=resolved,
+                    estimate=estimate,
+                    principal=effective_consent_coverage(
+                        project, plan.consent_coverage
+                    ).principal,
+                )
+            )
+            if isinstance(trusted_decision, validation.TrustedConsentRefusal):
+                raise validation.TrustedConsentRefused(trusted_decision.reason)
+            if not isinstance(trusted_decision, validation.TrustedConsentApproval):
+                raise TypeError(
+                    "trusted consent authorizer returned an invalid decision"
+                )
+            if not trusted_decision.grant_basis.strip():
+                raise ValueError("trusted consent grant basis must not be empty")
+        if uncovered and trusted_decision is None:
             refusal = refuse_unless_exact_echo(
                 confirmed=confirmation is not None,
                 echoed_hash=confirmation,
@@ -279,7 +330,9 @@ class ActionPreviewRunService:
         from frisket.engine.store.execution_routes import CONSENT_BASIS_PREAPPROVED
 
         consent_basis = (
-            None
+            trusted_decision.grant_basis
+            if trusted_decision is not None
+            else None
             if uncovered
             else CONSENT_BASIS_EXACT_MATCH
             if exact_match_consent_covers(
@@ -291,7 +344,7 @@ class ActionPreviewRunService:
             else CONSENT_BASIS_PREAPPROVED
         )
         receipt = None
-        if has_user_claims:
+        if has_user_claims or require_receipt:
             receipt = Receipt(
                 receipt_id=_new_id("receipt"),
                 project_id=project_id,
@@ -421,8 +474,15 @@ class ActionPreviewRunService:
             for capability in sorted({call["capability"] for call in calls})
             for item in _routed_call_provider_use(calls, capability=capability)
         ]
+        current_receipt = ReceiptStore(project).parsed_by_id(receipt.receipt_id)
         finished = receipt.model_copy(
-            update={"status": status, "provider_use": provider_use}
+            update={
+                "status": status,
+                "provider_use": provider_use,
+                "run_id": current_receipt.run_id
+                if current_receipt is not None
+                else receipt.run_id,
+            }
         )
         with project.db:
             if attempt is not None and stamp_scratch_unit:
@@ -461,6 +521,7 @@ class ActionPreviewRunService:
             ):
                 raise RuntimeError("preview lost its running receipt")
         receipt.status = finished.status
+        receipt.run_id = finished.run_id
         receipt.provider_use = finished.provider_use
         port = self._workspace.direct_action_receipt_settlement_port
         if port is not None:

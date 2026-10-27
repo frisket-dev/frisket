@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import hashlib
 import json
 from contextlib import closing
 from pathlib import Path
@@ -8,7 +9,7 @@ from typing import Any
 
 import pytest
 from PIL import Image, ImageDraw, ImageFont
-from pypdf import PdfWriter
+from pypdf import PdfReader, PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
 from frisket.actions.system import typed_action_for_request
@@ -164,10 +165,13 @@ def test_native_pages_real_conversion_and_ordinary_consumers(tmp_path: Path) -> 
             rows[1]: "boundary-right OMEGATWO",
         }
         source_values = project.get_values(sheet_id, columns["source"], rows)
-        digest = source_values[rows[0]]["blob"]
-        assert source_values[rows[1]]["blob"] == digest
-        assert [source_values[row]["page"] for row in rows] == [1, 2]
-        assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 1
+        digest = hashlib.sha256(raw).hexdigest()
+        assert len({value["blob"] for value in source_values.values()}) == 2
+        for value in source_values.values():
+            assert "page" not in value
+            with project.materialize_blob(value["blob"]) as path:
+                assert len(PdfReader(path).pages) == 1
+        assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 3
         assert (
             project.db.execute(
                 "SELECT COUNT(*) FROM prepared_page_versions"
@@ -309,6 +313,41 @@ def test_native_pages_real_conversion_and_ordinary_consumers(tmp_path: Path) -> 
         project.close()
 
 
+def test_existing_parent_page_selector_still_reads_only_selected_page(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "legacy.pdf"
+    raw = _text_pdf()
+    source.write_bytes(raw)
+    with closing(Project.create(tmp_path / "legacy.frisket")) as project:
+        imported = _import_pdf(project, source, key="legacy-original")
+        assert imported.status == "completed", imported.errors
+        sheet_id = project.add_sheet("Saved page selectors")
+        source_column = project.add_column(sheet_id, "source", type="file")
+        legacy = {
+            "blob": hashlib.sha256(raw).hexdigest(),
+            "filename": "legacy.pdf",
+            "mime": "application/pdf",
+            "page": 2,
+        }
+        [row_id] = project.add_rows(
+            sheet_id, [{"source": legacy}], {"source": source_column}
+        )
+        converted = _convert(
+            project,
+            sheet_id,
+            source="source",
+            output="markdown",
+            key="legacy-page-read",
+        )
+        assert converted.status == "completed", converted.errors
+        text = project.get_values(sheet_id, _column_id(project, sheet_id, "markdown"))[
+            row_id
+        ]
+        assert "OMEGATWO" in text and "ALPHAONE" not in text
+        assert project.get_values(sheet_id, source_column)[row_id] == legacy
+
+
 def test_ocr_checkpoint_crash_replays_compact_prepared_page(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -390,7 +429,8 @@ def test_ocr_checkpoint_crash_replays_compact_prepared_page(
             text_payload["prepared_ref_id"]
         )
         assert prepared.text == "CHECKPOINT OCR"
-        assert prepared.page_number == 1
+        assert prepared.page_number is None
+        assert [pin.page_number for pin in prepared.pins] == [1]
         assert project.db.execute("SELECT COUNT(*) FROM results").fetchone()[0] == 0
 
         monkeypatch.setattr(
@@ -430,8 +470,8 @@ def test_ocr_checkpoint_crash_replays_compact_prepared_page(
         ).fetchone()
         assert raw_result["value_kind"] == "prepared_content_ref"
         assert type(raw_result["value"]) is int
-        assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 1
-        assert project.get_values(sheet_id, columns["source"])[row_id]["page"] == 1
+        assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 2
+        assert "page" not in project.get_values(sheet_id, columns["source"])[row_id]
     finally:
         project.close()
 
