@@ -994,6 +994,42 @@ class PdfImportService:
                         )
                     else:
                         inventory.clear_matches()
+                    # Split children carry an evidence link to their original source
+                    # occurrence. Match only while that child is still visible and
+                    # its current file is the one described by the child artifact.
+                    inventory.db.execute(
+                        "ATTACH DATABASE ? AS pdf_import_project",
+                        (str(project.db_path),),
+                    )
+                    try:
+                        with inventory.db:
+                            inventory.db.execute(
+                                "UPDATE pdf_selected_state AS state SET matched=1 "
+                                "WHERE state.occurrence_id IN ("
+                                "SELECT selected.occurrence_id "
+                                "FROM pdf_import_project.rows AS row "
+                                "JOIN pdf_import_project.evidence_links AS link "
+                                "ON link.row_id=row.id AND link.sheet_id=row.sheet_id "
+                                "AND link.link_role='source_provenance' AND link.status='active' "
+                                "JOIN pdf_import_project.current_cell_values AS cell "
+                                "ON cell.row_id=row.id AND cell.column_id=link.column_id "
+                                "AND cell.validity='valid' AND cell.value_kind='json' "
+                                "JOIN pdf_import_project.source_artifacts AS child "
+                                "ON child.source_sheet_id=row.sheet_id AND child.source_row_id=row.id "
+                                "AND child.source_column_id=link.column_id "
+                                "AND child.blob_hash=CASE WHEN json_valid(cell.value) "
+                                "THEN json_extract(cell.value,'$.blob') END "
+                                "JOIN pdf_import_project.evidence_link_spans AS linked ON linked.link_id=link.id "
+                                "JOIN pdf_import_project.source_spans AS span ON span.id=linked.span_id "
+                                "JOIN pdf_import_project.source_artifacts AS source ON source.id=span.artifact_id "
+                                "JOIN pdf_import_project.blobs AS blob ON blob.hash=source.blob_hash "
+                                "JOIN pdf_selected AS selected ON selected.filename=source.filename "
+                                "AND selected.size=blob.size "
+                                "WHERE row.sheet_id=? AND row.hidden=0)",
+                                (sheet_id,),
+                            )
+                    finally:
+                        inventory.db.execute("DETACH DATABASE pdf_import_project")
                     matched_count, counted_categories = inventory.match_summary()
                     new_categories.update(counted_categories)
                     checked = inventory.stats()["selected_count"]
@@ -1306,6 +1342,11 @@ class PdfImportService:
             native_pages = {}
             cached_pages = {}
             if packet_publication:
+                if (
+                    destination["kind"] == "existing"
+                    and header["match"]["new_count"] == 0
+                ):
+                    raise PdfImportDraftError(409, "Nothing new to import")
                 if stats["staged_count"] != stats["selected_count"]:
                     raise PdfImportDraftError(
                         409, "Wait for every file before organizing PDFs"
