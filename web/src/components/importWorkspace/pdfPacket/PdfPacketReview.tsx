@@ -102,7 +102,7 @@ export function PdfPacketReview({ projectId, snapshot: initial, onReviewed, onBa
   return <div className="pdf-batch-flow pdf-packet-review-host">
     {onClose && <header className="import-workspace-header"><div><div className="import-workspace-title" role="heading" aria-level={2}>Split PDFs</div>{headerSubtitle && <div className="import-workspace-kicker">{headerSubtitle}</div>}</div>
       {headerContent}
-      <WindowCloseButton ref={closeButtonRef} label="Close split PDFs" onClick={() => requestExit('close')} />
+      <WindowCloseButton className="icon-btn" ref={closeButtonRef} label="Close split PDFs" onClick={() => requestExit('close')} />
     </header>}
     {!onClose && headerContent}
     {snapshot.status === 'preparing' ? <div className="pdf-batch-loading" role="status">
