@@ -94,9 +94,11 @@ def structured_output_fields(params: StructuredResearchParams):
     outputs = extraction_output_fields(
         params.fields, include_confidence=params.include_confidence
     )
+    if "sources" in outputs:
+        raise ValueError(
+            "Sources is reserved for research citations; choose another field name"
+        )
     if params.include_sources:
-        if "sources" in outputs:
-            raise ValueError("Rename the sources field or turn off Include sources")
         outputs["sources"] = OutputField(
             key="sources",
             column_type="json",

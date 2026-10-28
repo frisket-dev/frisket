@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import json
-from types import MappingProxyType
 
 import pytest
 from pydantic import ValidationError
 
 from executor_harness import run_action_with_confirmation
-from frisket.actions.core import RegisteredAction
 from frisket.actions.extraction_types import ExtractField, extraction_output_fields
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.actions.row_research import EXTRACT, StructuredResearchParams
@@ -51,14 +49,12 @@ def test_structured_research_output_types_and_optional_companions():
 
 
 def test_structured_research_refuses_source_and_generated_confidence_collisions():
-    with pytest.raises(ValidationError, match="Rename the sources field"):
-        params(fields=[{"name": "sources", "type": "text"}])
-    assert (
-        params(fields=[{"name": "sources", "type": "text"}], include_sources=False)
-        .fields[0]
-        .name
-        == "sources"
-    )
+    for include_sources in (False, True):
+        with pytest.raises(ValidationError, match="reserved for research citations"):
+            params(
+                fields=[{"name": "sources", "type": "text"}],
+                include_sources=include_sources,
+            )
     with pytest.raises(ValueError, match="invalid_params"):
         extraction_output_fields(
             [
@@ -124,18 +120,7 @@ def test_structured_research_runs_once_then_validates_and_accounts(
     invalid,
     include_sources,
 ):
-    # Exercise this declaration through the production host; the coordinator
-    # registers it in the shared namespace as part of integration.
-    monkeypatch.setattr(
-        ACTION_REGISTRY,
-        "_actions",
-        MappingProxyType(
-            {
-                **ACTION_REGISTRY._actions,
-                "research.extract": RegisteredAction("research.extract", EXTRACT),
-            }
-        ),
-    )
+    assert ACTION_REGISTRY.get("research.extract").definition is EXTRACT
     searches = []
 
     async def search(_bound, query):
@@ -170,8 +155,8 @@ def test_structured_research_runs_once_then_validates_and_accounts(
         assert "https://example.test/filing" in json.dumps(adapter.requests[2].messages)
         assert all(request.tools is None for request in adapter.requests[2:])
         columns = {column["name"]: column for column in project.columns(sheet)}
-        assert ("sources" in columns) is include_sources
         if not invalid:
+            assert ("sources" in columns) is include_sources
             assert list(
                 project.get_values(sheet, columns["headquarters"]["id"]).values()
             ) == ["Paris"]
@@ -186,6 +171,7 @@ def test_structured_research_runs_once_then_validates_and_accounts(
                     project.get_values(sheet, columns["sources"]["id"]).values()
                 ) == [["https://example.test/filing"]]
         else:
+            assert list(columns) == ["company"]
             assert (
                 project.db.execute(
                     "SELECT count(*) FROM results WHERE error IS NOT NULL"
