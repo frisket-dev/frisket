@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from quick_search_helpers import patch_quick_search_model
+
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 
 import asyncio
@@ -1124,6 +1126,7 @@ def _web_search_action(
         "action_id": "research.web_search",
         "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
         "params": {
+            "model": "anthropic/claude-haiku-4-5",
             "query": {"text": "US tariff impacts on {{country}} economy 2026"},
             "max_results": 2,
         },
@@ -2300,6 +2303,8 @@ def test_v1_action_run_queues_research_web_search_and_worker_finalizes_receipt(
 ) -> None:
     import ddgs
 
+    patch_quick_search_model(monkeypatch)
+    monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
     _FakeDDGS.seen = []
     monkeypatch.setattr(ddgs, "DDGS", _FakeDDGS)
     client = TestClient(create_app(tmp_path / "ws", run_status_grace_seconds=3600.0))
@@ -2327,7 +2332,10 @@ def test_v1_action_run_queues_research_web_search_and_worker_finalizes_receipt(
     assert job.payload["run_id"] == result.run_id
     assert job.payload["spec"]["action_kind"] == "research.web_search"
     assert "recipe" not in job.payload["spec"]
-    assert job.payload["spec"]["output_names"] == {"search_results": "search_results"}
+    assert job.payload["spec"]["output_names"] == {
+        "answer": "answer",
+        "search_results": "search_results",
+    }
     assert job.payload["v1_receipt_id"] == result.receipt_id
     assert job.payload["action_kind"] == "research.web_search"
     assert set(job.payload["v1_input_column_ids"]) == {"country"}
@@ -2390,6 +2398,7 @@ def test_v1_action_run_queues_research_web_search_and_worker_finalizes_receipt(
         "typed_action_request",
         "map_rows_run_counts",
         "web_search_call",
+        "model_rows_model_calls",
     }
 
     project = client.app.state.workspace.get(project_id)
@@ -2430,9 +2439,8 @@ def test_v1_action_run_queues_research_web_search_and_worker_finalizes_receipt(
         action=backfill,
     )
     backfill_challenge = ActionResult.model_validate(backfill_gate.json())
-    assert backfill_challenge.errors[0].code == "external_cost_requires_confirmation"
+    assert backfill_challenge.errors[0].code == "model_cost_requires_confirmation"
     assert backfill_challenge.errors[0].field == "confirmation"
-    assert backfill_challenge.errors[0].details["reason"] == "external_metered"
     assert backfill_response.status_code == 200, backfill_response.text
     backfill_result = ActionResult.model_validate(backfill_response.json())
     assert backfill_result.status == "completed", backfill_result.errors
@@ -2441,7 +2449,9 @@ def test_v1_action_run_queues_research_web_search_and_worker_finalizes_receipt(
             "SELECT body FROM receipts WHERE id=?", (backfill_result.receipt_id,)
         ).fetchone()[0]
     )
-    assert backfill_receipt["provider_use"] == [
+    assert [
+        item for item in backfill_receipt["provider_use"] if item["provider"] == "ddgs"
+    ] == [
         {
             "provider": "ddgs",
             "service": "ddgs.text",
@@ -2503,6 +2513,7 @@ def test_queued_web_search_records_partial_and_all_failed_provider_facts(
 ) -> None:
     import ddgs
 
+    patch_quick_search_model(monkeypatch)
     calls: list[str] = []
 
     class SelectiveDDGS:
@@ -2543,7 +2554,7 @@ def test_queued_web_search_records_partial_and_all_failed_provider_facts(
     assert row["status"] == expected_status
     receipt = json.loads(row["body"])
     assert len(calls) == expected_calls
-    assert receipt["provider_use"] == [
+    assert [item for item in receipt["provider_use"] if item["provider"] == "ddgs"] == [
         {
             "provider": "ddgs",
             "service": "ddgs.text",

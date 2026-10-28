@@ -275,6 +275,10 @@ def _preview_validated(
             f"PREVIEW_MAX_ROWS={PREVIEW_MAX_ROWS}"
         )
     recipe = program if program is not None else validation.recipe_for_spec(spec)
+    # Agent programs own their model/tool loop. The preview path renders one
+    # model call instead, which would bypass that loop and fabricate its result.
+    if hasattr(recipe, "run_agent"):
+        raise PreviewEffectRequiresRun()
     effectful = row_effect_spends_or_meters(recipe, spec, router)
     try:
         validated = validation.validate_spec(

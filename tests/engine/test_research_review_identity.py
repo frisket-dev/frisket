@@ -95,3 +95,41 @@ def test_unmanaged_review_items_have_no_logical_output_key(tmp_path: Path) -> No
         assert ReviewBundleItem.model_validate(without_key).output_key is None
     finally:
         project.close()
+
+
+def test_structured_research_reviews_authored_fields_not_name_heuristics(tmp_path):
+    project = Project.create(tmp_path / "structured-review")
+    try:
+        sheet = project.add_sheet("Research")
+        names = {
+            "source": "source",
+            "evidence": "evidence",
+            "source_confidence": "Quality",
+            "sources": "Web pages",
+        }
+        columns = [
+            project.add_column(sheet, name, ai_generated=True)
+            for name in names.values()
+        ]
+        rows = project.add_rows(sheet, [{}], {})
+        run = _managed_run(
+            project,
+            sheet_id=sheet,
+            columns=columns,
+            row_ids=rows,
+            action_kind="research.extract",
+            params={"output_names": names},
+        )
+        assert [_field(project, run, column)["is_primary"] for column in columns] == [
+            1,
+            1,
+            0,
+            0,
+        ]
+        bundle = review_bundle_page(project, run_id=run)["bundles"][0]
+        assert {item["output_key"] for item in bundle["fields"]} == {
+            "source",
+            "evidence",
+        }
+    finally:
+        project.close()

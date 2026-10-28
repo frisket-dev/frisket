@@ -76,7 +76,7 @@ def register_typed_action(monkeypatch, namespace: str, declared) -> str:
     return registered.action_id
 
 
-CODE_IDS = ["map.mcp_extract", "map.python", "research.answer"]
+CODE_IDS = ["map.mcp_extract", "map.python", "research.answer", "research.extract"]
 # benign kinds a code-disabled server must still allow. research.web_search is
 # the load-bearing one: it declares external:web_search exactly like
 # research.answer does, and it must stay PERMITTED — which is why the gating
@@ -295,11 +295,16 @@ class TestGatedCapabilityClosure:
     # product change: it makes actions that work today start failing.
     EXPECTED_GATED_RULES = {
         frozenset({"unsafe:local_code"}),
-        frozenset({"model:complete", "external:web_search"}),
+        frozenset({"model:complete", "external:web_search", "external:http_fetch"}),
     }
     # The kinds those rules refuse today. Unchanged from the hand-written
     # CODE_ACTION_KINDS set this derivation replaced.
-    EXPECTED_GATED_KINDS = {"map.mcp_extract", "map.python", "research.answer"}
+    EXPECTED_GATED_KINDS = {
+        "map.mcp_extract",
+        "map.python",
+        "research.answer",
+        "research.extract",
+    }
 
     # Every external:* capability declared anywhere, and why it is NOT gated
     # on its own. A new external:* capability must be added here with a
@@ -346,7 +351,7 @@ class TestGatedCapabilityClosure:
             "NOT gated: a fixed-shape lookup against one public dataset."
         ),
         "external:web_search": (
-            "GATED ONLY IN PAIR with model:complete. research.web_search runs a "
+            "GATED with model:complete + external:http_fetch. research.web_search runs a "
             "caller-supplied query and stays permitted; research.answer lets "
             "the MODEL choose what to fetch, which is what the flag refuses."
         ),

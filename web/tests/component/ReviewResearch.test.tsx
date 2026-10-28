@@ -67,3 +67,13 @@ it('does not treat a bounded Review excerpt as an empty exact-run answer', async
   expect(screen.getByRole('dialog')).toHaveTextContent('The exact-run answer is available here.');
   expect(screen.queryByText('No result recorded for this cell.')).not.toBeInTheDocument();
 });
+
+it('shows the shared source list alongside an arbitrary structured research field', async () => {
+  getRunTraceRow.mockRejectedValue(new Error('unavailable'));
+  const founded = { ...answer, outputKey: 'founded', columnName: 'Founded', columnType: 'integer', value: 1984 };
+  render(<ReviewResearch bundle={{ ...bundle, actionKind: 'research.extract', fields: [founded],
+    items: [founded, source] }} field={founded} />);
+  expect(screen.getByRole('link')).toHaveAttribute('href', 'https://example.org/source');
+  expect(await screen.findByText('Research activity could not be loaded.')).toBeVisible();
+  expect(getRunTraceRow).toHaveBeenCalledWith('7', '1', '4');
+});

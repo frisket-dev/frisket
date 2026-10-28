@@ -296,6 +296,7 @@ def test_core_llm_kinds_are_fenced_at_the_row_effect_site() -> None:
         "media.transcribe",
         "media.to_markdown",
         "research.answer",
+        "research.extract",
         "research.web_search",
         "map.api_call",
         "web.capture_screenshot",

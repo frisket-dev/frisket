@@ -104,6 +104,19 @@ describe('resolveRibbonTabs placement invariants', () => {
       .not.toContainEqual(expect.objectContaining({ launcherKind: retired }));
   });
 
+  it('keeps Quick Search and both research variants together with distinct icons', () => {
+    const kinds = ['research.web_search', 'research.answer', 'research.extract'];
+    const catalog = completeMappedActionCatalog({
+      stockEntries: kinds.map(kind => syntheticActionCatalogEntry(kind)),
+    });
+    const research = resolveRibbonTabs(actionTemplatesFromCatalog(catalog), EMPTY_CONTEXT)
+      .find(tab => tab.id === 'research')?.groups.find(group => group.caption === 'RESEARCH');
+    const actions = research?.items.filter(item => item.kind === 'action' && kinds.includes(item.launcherKind));
+    expect(actions?.map(item => item.launcherKind)).toEqual(kinds);
+    expect(actions?.map(item => item.label)).toEqual(['Quick search', 'Agent Research', 'Structured research']);
+    expect(new Set(kinds.map(kind => ACTION_ICON_BY_KIND[kind])).size).toBe(3);
+  });
+
   it('resolves a valid tab/group placement into that group', () => {
     const baselineTab = resolveRibbonTabs([], EMPTY_CONTEXT)[0]!;
     const baselineGroup = baselineTab.groups[0]!;

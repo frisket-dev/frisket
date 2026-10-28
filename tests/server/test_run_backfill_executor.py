@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from quick_search_helpers import patch_quick_search_model
+
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -94,7 +96,11 @@ def _web_search_spec(sheet_id: int) -> dict:
     return {
         "action_id": "research.web_search",
         "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
-        "params": {"query": {"text": "Background on {{story}}"}, "max_results": 1},
+        "params": {
+            "model": "anthropic/claude-haiku-4-5",
+            "query": {"text": "Background on {{story}}"},
+            "max_results": 1,
+        },
         "output_names": {"search_results": "sources"},
         "idempotency_key": "backfill-source-web-search",
     }
@@ -103,6 +109,7 @@ def _web_search_spec(sheet_id: int) -> dict:
 def test_web_search_backfill_reuses_configured_search_provider(
     tmp_path: Path, monkeypatch
 ) -> None:
+    patch_quick_search_model(monkeypatch)
     client = TestClient(create_app(tmp_path / "workspace"))
     provider_config.save_local_provider_key(
         client.app.state.workspace.root, "exa", "exa-local-test-key"
@@ -175,7 +182,10 @@ def test_web_search_backfill_reuses_configured_search_provider(
         .fetchone()
     )
     assert receipt is not None
-    assert json.loads(receipt["body"])["provider_use"][0]["provider"] == "exa"
+    assert any(
+        item["provider"] == "exa"
+        for item in json.loads(receipt["body"])["provider_use"]
+    )
 
 
 def test_run_backfill_action_creates_fresh_generation_for_missing_cells(

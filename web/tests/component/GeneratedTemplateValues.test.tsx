@@ -19,7 +19,7 @@ const MODEL = 'anthropic/claude-haiku-4-5';
 const TEMPLATE = { text: 'Literal text and {{body}}' };
 const cases: Array<{ kind: string; field: string; params: CanonicalActionDraft }> = [
   { kind: 'map.template', field: 'template', params: { template: TEMPLATE } },
-  { kind: 'research.web_search', field: 'query', params: { query: TEMPLATE, max_results: 3 } },
+  { kind: 'research.web_search', field: 'query', params: { query: TEMPLATE, model: MODEL, max_results: 3 } },
   { kind: 'map.ask', field: 'source', params: { source: TEMPLATE, model: MODEL,
     question: 'What changed?', context: 'Saved context' } },
   { kind: 'map.summarize', field: 'source', params: { source: TEMPLATE, model: MODEL,

@@ -132,6 +132,7 @@ def test_queued_placement_is_source_and_registry_is_invariant() -> None:
         "media.read_pdf_text",
         "media.transcribe",
         "research.answer",
+        "research.extract",
         "research.web_search",
         "web.capture_screenshot",
     }

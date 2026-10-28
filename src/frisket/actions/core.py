@@ -39,7 +39,7 @@ from frisket.actions.group_summary_types import (
 )
 from frisket.actions.find_types import FindScanner, PreparedFind, FindOutput
 from frisket.actions.ner_types import NerExtractor
-from frisket.actions.research_types import Researcher, WebSearcher
+from frisket.actions.research_types import Researcher, SearchAnswerer, WebSearcher
 from frisket.actions.mcp_types import McpExtractor
 from frisket.actions.translate_types import Translator, TranslationOptions
 from frisket.actions.cluster_types import (
@@ -2331,6 +2331,7 @@ def _handler_hints(
             Classifier,
             NerExtractor,
             Researcher,
+            SearchAnswerer,
             WebSearcher,
             McpExtractor,
             NativePdfTextReader,
@@ -2363,6 +2364,7 @@ def _handler_hints(
             FrameExtractor,
             FaceExtractor,
             WebSearcher,
+            SearchAnswerer,
             NativePdfTextReader,
         )
         for cap in capabilities
@@ -3472,7 +3474,9 @@ class RegisteredAction:
             )
         capabilities = getattr(terminal, "capabilities", ())
         routed = routed_capability(terminal)
-        agent_backed = any(cap in capabilities for cap in (Researcher, McpExtractor))
+        agent_backed = any(
+            cap in capabilities for cap in (Researcher, SearchAnswerer, McpExtractor)
+        )
         return (
             "project:write",
             *(["external:media_download"] if UrlImporter in capabilities else []),
@@ -3497,7 +3501,11 @@ class RegisteredAction:
                 else []
             ),
             *(["model:embed"] if isinstance(terminal, SemanticJoin) else []),
-            *(["external:web_search"] if WebSearcher in capabilities else []),
+            *(
+                ["external:web_search"]
+                if any(cap in capabilities for cap in (WebSearcher, SearchAnswerer))
+                else []
+            ),
             *(["external:api_call"] if HttpRequester in capabilities else []),
             *(["external:opencorporates"] if OpenCorporates in capabilities else []),
             *(
@@ -3753,7 +3761,7 @@ class RegisteredAction:
         model_backed = isinstance(definition.run, ModelRows)
         agent_backed = any(
             capability in getattr(definition.run, "capabilities", ())
-            for capability in (Researcher, McpExtractor)
+            for capability in (Researcher, SearchAnswerer, McpExtractor)
         )
         semantic = isinstance(definition.run, SemanticJoin)
         external = WebSearcher in getattr(definition.run, "capabilities", ())
@@ -4141,7 +4149,10 @@ class RegisteredAction:
                         or http
                         or opencorporates
                         or fetch
-                        or Researcher in getattr(definition.run, "capabilities", ())
+                        or any(
+                            cap in getattr(definition.run, "capabilities", ())
+                            for cap in (Researcher, SearchAnswerer)
+                        )
                         else []
                     ),
                     "create_generated_columns",

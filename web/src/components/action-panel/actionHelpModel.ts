@@ -53,7 +53,7 @@ export const BUILTIN_ACTION_HELP: Partial<Record<string, { how: string; goodFor:
     goodFor: 'Making multilingual records searchable and reviewable while preserving the original column.',
   },
   'research.web_search': {
-    how: 'Builds a search query for each row and saves the provider’s result titles, snippets, and links.',
+    how: 'Searches once for each row, then answers from the result titles and snippets. Keeps the search results and links alongside the answer.',
     goodFor: 'Finding public context or leads for a list of people, organizations, places, or claims.',
   },
   'media.transcribe': {
@@ -127,6 +127,10 @@ export const BUILTIN_ACTION_HELP: Partial<Record<string, { how: string; goodFor:
   'map.columns_from_json': {
     how: 'Reads object-shaped JSON values and expands selected properties into ordinary sheet columns.',
     goodFor: 'Flattening API responses or other nested results so they can be filtered and exported.',
+  },
+  'research.extract': {
+    how: 'Searches and reads sources for each row, then fills the typed columns you define using the gathered evidence.',
+    goodFor: 'Researching several facts about every person, organization, or place in a dataset.',
   },
   'research.answer': {
     how: 'Lets the configured research agent plan and use its available tools to answer a broader task for each row.',

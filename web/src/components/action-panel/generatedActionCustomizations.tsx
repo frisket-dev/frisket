@@ -27,7 +27,7 @@ import { ClusterParamsBody } from './ClusterParamsBody';
 import { PageCaptureParamsBody } from './PageCaptureParamsBody';
 import { NerParamsBody } from './NerParamsBody';
 import { ClassifyParamsBody } from './ClassifyParamsBody';
-import { ExtractParamsBody, FindParamsBody, McpExtractParamsBody } from './ExtractParamsBody';
+import { ExtractParamsBody, FindParamsBody, McpExtractParamsBody, ResearchExtractParamsBody } from './ExtractParamsBody';
 import { TranslateParamsBody } from './TranslateParamsBody';
 import { RECOMMENDED_SPACY_TYPES } from './nerLabelModel';
 import { extractFieldFromQuestion } from './outputFieldModel';
@@ -336,6 +336,16 @@ const EXACT_CUSTOMIZATIONS = {
     inlineDiagnosticFields: ['source', 'engine', 'language'],
     initialParams: { engine: 'llm', target_language: 'English' },
     defaultOutputName: (key) => key === 'detected_language' ? 'translation_detected_language' : undefined,
+  },
+  'research.web_search': {
+    fieldOrder: ['query', 'model', 'max_results'],
+    outputLabel: (key) => key === 'answer' ? 'Answer' : 'Search results',
+  },
+  'research.extract': {
+    body: ResearchExtractParamsBody,
+    inlineDiagnosticFields: ['source', 'question', 'fields', 'model', 'include_confidence', 'include_sources'],
+    initialParams: { fields: [{ name: 'value', type: 'text', description: '' }] },
+    defaultOutputName: (key) => key === 'sources' ? 'answer_sources' : undefined,
   },
   'research.answer': {
     fieldOrder: ['source', 'question', 'model', 'include_sources'],

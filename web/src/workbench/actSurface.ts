@@ -41,6 +41,7 @@ import {
   GitMerge,
   Languages,
   ListTree,
+  ListChecks,
   LocateFixed,
   MapPin,
   Network,
@@ -94,6 +95,7 @@ export const ACTION_ICON_BY_KIND: Record<string, LucideIcon> = {
   'derive.join': TableCellsMerge,
   'enrich.census_demographics': Users,
   'research.answer': Bot,
+  'research.extract': ListChecks,
   'media.transcribe': AudioLines,
   'media.video_frames': Film,
   'media.extract_faces': ScanFace,
@@ -139,6 +141,7 @@ const ACTION_LABEL_BY_KIND: Record<string, string> = {
   // Display names, not launcher-kind ids.
   'research.web_search': 'Quick search',
   'research.answer': 'Agent Research',
+  'research.extract': 'Structured research',
   'join.semantic': 'Semantic join',
   'derive.join': 'Join sheets (by key)',
   'enrich.census_demographics': 'Census',

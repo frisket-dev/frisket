@@ -124,7 +124,10 @@ def test_typed_web_search_preflight_uses_its_params_model():
     service = ActionParamValidationService(SimpleNamespace(edition="solo"))
     invalid = service.validate_params(
         "pid-ignored",
-        {"action_id": "research.web_search", "params": {"query": {"text": "   "}}},
+        {
+            "action_id": "research.web_search",
+            "params": {"model": "anthropic/claude-haiku-4-5", "query": {"text": "   "}},
+        },
     )
     assert invalid["diagnostics"] == {
         "query": {
@@ -139,12 +142,16 @@ def test_typed_web_search_preflight_uses_its_params_model():
         "pid-ignored",
         {
             "action_id": "research.web_search",
-            "params": {"query": {"text": "tariffs {{country}}"}},
+            "params": {
+                "model": "anthropic/claude-haiku-4-5",
+                "query": {"text": "tariffs {{country}}"},
+            },
         },
     )
     assert valid["diagnostics"] == {}
     assert valid["logical_outputs"] == [
-        {"key": "search_results", "column_type": "json"}
+        {"key": "answer", "column_type": "text"},
+        {"key": "search_results", "column_type": "json"},
     ]
 
 

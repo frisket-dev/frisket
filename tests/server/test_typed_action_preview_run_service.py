@@ -232,9 +232,32 @@ def test_opus_preview_derives_first_use_hint_until_normal_row_progress(
     assert "preparation" not in result.payload["progress"]
 
 
-def test_web_search_preview_refuses_before_provider_egress(
+@pytest.mark.parametrize(
+    ("action_id", "params"),
+    [
+        (
+            "research.web_search",
+            {"query": {"text": "{{first}} {{last}}"}, "max_results": 2},
+        ),
+        (
+            "research.answer",
+            {"source": ["first"], "question": {"text": "Who is {{first}}?"}},
+        ),
+        (
+            "research.extract",
+            {
+                "source": ["first"],
+                "question": {"text": "Research {{first}}"},
+                "fields": [{"name": "occupation", "type": "text"}],
+            },
+        ),
+    ],
+)
+def test_agent_preview_refuses_before_job_or_provider_egress(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    action_id: str,
+    params: dict,
 ) -> None:
     workspace, sheet_id, _row_ids = _seed(tmp_path / "web-search")
     service = ActionPreviewRunService(workspace)
@@ -251,20 +274,18 @@ def test_web_search_preview_refuses_before_provider_egress(
     response = service.start_preview(
         "typed-preview",
         {
-            "action_id": "research.web_search",
+            "action_id": action_id,
             "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
-            "params": {"query": {"text": "{{first}} {{last}}"}, "max_results": 2},
-            "output_names": {"search_results": "search_results"},
+            "params": {**params, "model": "anthropic/claude-haiku-4-5"},
             "idempotency_key": "preview-web-search@1",
         },
     )
 
-    assert response.status_code == 402
+    assert response.status_code == 400
     error = response.payload["error"]
-    assert error["code"] == "cost_gate"
-    assert error["action_kind"] == "research.web_search"
-    assert error["needs_confirmation"] is True
-    assert error["details"]["promise_set_hash"]
+    assert error["code"] == "preview_effect_requires_run"
+    assert error["action_kind"] == action_id
+    assert error["details"]["requires_durable_run"] is True
 
 
 @pytest.mark.parametrize("selection_size", [None, 21])

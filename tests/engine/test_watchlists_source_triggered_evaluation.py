@@ -306,6 +306,24 @@ def test_source_poll_selects_sheet_filter_watch_from_owned_query(
         project.close()
 
 
+def _finish_source_poll_job(client: TestClient, body: dict[str, Any]):
+    assert body["status"] == "queued"
+    workspace = client.app.state.workspace
+    queue = workspace.queue
+    job_id = body["job_id"]
+    assert queue.get(job_id).kind == "source.poll"
+    worker = Worker(queue, workspace.registry)
+    for _ in range(20):
+        job = queue.get(job_id)
+        if job.status in {"done", "failed", "cancelled"}:
+            break
+        assert worker.run_once()
+    job = queue.get(job_id)
+    assert job.status == "done", job.error
+    assert job.result["receipt_id"]
+    return job
+
+
 def test_v1_source_poll_action_triggers_watch_run(
     tmp_path: Path,
     monkeypatch: Any,
@@ -351,8 +369,9 @@ def test_v1_source_poll_action_triggers_watch_run(
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["status"] == "completed"
+    assert body["status"] == "queued"
     assert project.watch_latest_run(watch_id) is None
+    _finish_source_poll_job(client, body)
     worker = Worker(
         client.app.state.workspace.queue, client.app.state.workspace.registry
     )
@@ -444,12 +463,12 @@ def test_noop_and_failed_source_polls_do_not_trigger_watch_runs(tmp_path: Path) 
         project.close()
 
 
-def test_v1_source_poll_inline_enqueues_embedding_refresh(
+def test_v1_source_poll_job_enqueues_embedding_refresh(
     tmp_path: Path,
     monkeypatch: Any,
 ) -> None:
-    # The inline v1 source.poll path mirrors the queued worker path: appends enqueue
-    # an embedding refresh so embedding_similarity watches evaluate after refresh.
+    # HTTP admission queues source.poll; its worker must still enqueue the
+    # refresh needed by embedding_similarity watches after appending source rows.
     from frisket import ingest
 
     client = TestClient(create_app(tmp_path / "ws"))
@@ -478,9 +497,10 @@ def test_v1_source_poll_inline_enqueues_embedding_refresh(
     r1 = client.post(
         f"/api/projects/{pid}/actions/v1/run", json=_source_poll_action(source_id, "f1")
     )
-    assert r1.json()["status"] == "completed", r1.text
+    assert r1.status_code == 200, r1.text
+    first_job = _finish_source_poll_job(client, r1.json())
     mat = source_poll_materialization_from_receipt(
-        project, project_id=pid, receipt_id=r1.json()["receipt_id"]
+        project, project_id=pid, receipt_id=first_job.result["receipt_id"]
     )
     assert mat is not None
     sheet_id = int(mat["sheet_id"])
@@ -510,7 +530,7 @@ def test_v1_source_poll_inline_enqueues_embedding_refresh(
     assert create.status == "completed", create.errors
     index_id = create.outputs[0].ref["index_id"]
 
-    # second fetch appends a new row -> inline path enqueues the embedding refresh
+    # A second queued poll appends one row and enqueues its embedding refresh.
     monkeypatch.setattr(
         ingest,
         "fetch_feed_text",
@@ -519,9 +539,15 @@ def test_v1_source_poll_inline_enqueues_embedding_refresh(
     r2 = client.post(
         f"/api/projects/{pid}/actions/v1/run", json=_source_poll_action(source_id, "f2")
     )
-    assert r2.json()["status"] == "completed", r2.text
+    assert r2.status_code == 200, r2.text
+    second_job = _finish_source_poll_job(client, r2.json())
+    assert second_job.result["new_rows"] == 1
 
     jobs = client.app.state.workspace.queue.list_project_jobs(
         pid, kind=EMBEDDING_REFRESH_KIND
     )
-    assert any((j.payload or {}).get("index_id") == index_id for j in jobs)
+    refresh = next(j for j in jobs if j.payload.get("index_id") == index_id)
+    assert refresh.status == "queued"
+    assert (
+        refresh.payload["trigger_ref"]["source_run_id"] == second_job.result["run_id"]
+    )

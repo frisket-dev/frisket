@@ -84,7 +84,7 @@ from frisket.actions.classify import CLASSIFY
 from frisket.actions.ner import NER
 from frisket.actions.translate import TRANSLATE
 from frisket.actions.mcp_extract import MCP_EXTRACT
-from frisket.actions.row_research import ANSWER
+from frisket.actions.row_research import ANSWER, EXTRACT as RESEARCH_EXTRACT
 from frisket.actions.group_summary import GROUP_SUMMARY
 from frisket.actions.find import FIND
 from frisket.actions.operations import REDO, UNDO
@@ -160,7 +160,9 @@ REVIEW_ACTIONS = ActionNamespace("review", actions=(REVIEW_DECISION, REVIEW_NOTE
 REPLAY_ACTIONS = ActionNamespace(
     "replay", actions=(REPLAY_ACCEPT, REPLAY_ACCEPT_COLUMN, REPLAY_DISMISS)
 )
-RESEARCH_ACTIONS = ActionNamespace("research", actions=(WEB_SEARCH, ANSWER))
+RESEARCH_ACTIONS = ActionNamespace(
+    "research", actions=(WEB_SEARCH, ANSWER, RESEARCH_EXTRACT)
+)
 REDUCE_ACTIONS = ActionNamespace("reduce", actions=(GROUP_SUMMARY,))
 QUERY_ACTIONS = ActionNamespace("query", actions=(PREVIEW,))
 EXPORT_ACTIONS = ActionNamespace(

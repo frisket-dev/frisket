@@ -1,3 +1,4 @@
+import { isResearchAction } from '../research/researchAction';
 import { Button } from '../Button';
 import { TextArea } from '../FormControls';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
@@ -87,7 +88,7 @@ function FieldDecision({ field, controller: c, onSelectItem, selectableItemIndic
     {selected && (field.boundedJustification
       ? <div className={styles.justification} aria-label="Reason excerpt"><ReviewExcerpt excerpt={field.boundedJustification} /></div>
       : field.justification && <p className={styles.justification}>{field.justification}</p>)}
-    {selected && c.bundle?.actionKind === 'research.answer' && field.outputKey !== 'sources' &&
+    {selected && c.bundle && isResearchAction(c.bundle.actionKind) && field.outputKey !== 'sources' &&
       <ReviewResearch key={`${field.runId}:${field.rowId}:${field.columnId}`} bundle={c.bundle} field={field} />}
   </section>;
 }

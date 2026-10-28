@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from frisket.engine.store import Project
+from frisket.engine.store.current_cells import (
+    INLINE_TEXT_BYTE_LIMIT,
+    refresh_current_cell_pairs,
+)
 from frisket.querysets import resolve_sheet_filter_rows
 from frisket.server.services.document_browse import document_browse
 from frisket.server.services.project_qa_query import evaluate_analytics
@@ -178,7 +184,10 @@ def test_document_media_accepts_a_json_encoded_object_string(tmp_path):
         project.close()
 
 
-def test_document_title_hides_malformed_legacy_json(tmp_path):
+@pytest.mark.parametrize(
+    "initial_title", ["visible", "x" * (INLINE_TEXT_BYTE_LIMIT + 1)]
+)
+def test_document_title_hides_malformed_legacy_json(tmp_path, initial_title):
     project = Project.create(tmp_path / "legacy-title.frisket")
     try:
         sheet = project.add_sheet("documents")
@@ -186,7 +195,7 @@ def test_document_title_hides_malformed_legacy_json(tmp_path):
         title = project.add_column(sheet, "title")
         row = project.add_rows(
             sheet,
-            [{"file": "https://example.test/fallback.pdf", "title": "visible"}],
+            [{"file": "https://example.test/fallback.pdf", "title": initial_title}],
             {"file": source, "title": title},
         )[0]
         project.db.execute(
@@ -194,7 +203,17 @@ def test_document_title_hides_malformed_legacy_json(tmp_path):
             "WHERE row_id=? AND column_id=?",
             ("malformed legacy bytes", row, title),
         )
+        # This deliberately bypasses the value writer to seed legacy corruption.
+        # Keep its derived projection consistent, as the real migration does.
+        refresh_current_cell_pairs(project.db, {(row, title)})
         project.db.commit()
+
+        current = project.db.execute(
+            "SELECT value_kind,validity FROM current_cell_values "
+            "WHERE row_id=? AND column_id=?",
+            (row, title),
+        ).fetchone()
+        assert tuple(current) == ("legacy_invalid", "invalid")
 
         result = document_browse(
             project,
