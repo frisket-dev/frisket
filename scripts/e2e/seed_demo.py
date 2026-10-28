@@ -222,6 +222,7 @@ def seed_tariff(client: httpx.Client) -> None:
             sheet_id=sheet,
             params={
                 "query": {"text": "US tariff impacts on {{country}} economy 2026"},
+                "model": MODEL,
                 "max_results": 8,
             },
             output_names={"search_results": "search_results"},
