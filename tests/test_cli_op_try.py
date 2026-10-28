@@ -110,18 +110,17 @@ def test_try_judge_template_keeps_source_and_input_named_answer(capsys) -> None:
     assert "Private" not in rendered
 
 
-def test_try_executes_web_search_through_host_capability_without_model_routing(
+def test_try_refuses_model_backed_search_without_unadmitted_egress(
     capsys: pytest.CaptureFixture,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import ddgs
 
-    class FakeDDGS:
-        def text(self, query: str, max_results: int):
-            assert (query, max_results) == ("tariffs Canada", 1)
-            return [{"title": "Result", "href": "https://example.test", "body": "Body"}]
+    class RefuseDDGS:
+        def text(self, *args, **kwargs):
+            pytest.fail("op try must not search before admitting the model call")
 
-    monkeypatch.setattr(ddgs, "DDGS", FakeDDGS)
+    monkeypatch.setattr(ddgs, "DDGS", RefuseDDGS)
     code = op(
         [
             "try",
@@ -132,28 +131,15 @@ def test_try_executes_web_search_through_host_capability_without_model_routing(
                     "row": {"country": "Canada"},
                     "params": {
                         "query": {"text": "tariffs {{country}}"},
+                        "model": "anthropic/claude-haiku-4-5",
                         "max_results": 1,
                     },
                 }
             ),
         ]
     )
-
-    assert code == 0
-    out = _capture(capsys)
-    assert out == {
-        "op": "research.web_search",
-        "mode": "executed_external_row",
-        "outputs": {
-            "search_results": [
-                {
-                    "title": "Result",
-                    "url": "https://example.test",
-                    "snippet": "Body",
-                }
-            ]
-        },
-    }
+    assert code == 2
+    assert "not supported by op try" in capsys.readouterr().err
 
 
 def test_try_unknown_op_lists_known_kinds(capsys: pytest.CaptureFixture) -> None:

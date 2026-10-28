@@ -111,6 +111,7 @@ def _web_search_action(key: str) -> dict[str, Any]:
         "action_id": "research.web_search",
         "scope": {"kind": "sheet_rows", "sheet_id": 1},
         "params": {
+            "model": "anthropic/claude-haiku-4-5",
             "query": {"text": "US tariff impacts on {{country}} economy 2026"},
             "max_results": 2,
         },

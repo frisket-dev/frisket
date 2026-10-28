@@ -549,7 +549,7 @@ CASES = [
         ("map.ask", {"call_model_router"}),
         ("map.summarize", {"call_model_router"}),
         ("map.mcp_extract", {"call_model_router"}),
-        ("research.web_search", {"call_external_provider"}),
+        ("research.web_search", {"call_model_router", "call_external_provider"}),
         ("media.ytdlp_download", {"call_external_provider"}),
         ("research.answer", {"call_model_router", "call_external_provider"}),
     ],

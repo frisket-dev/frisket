@@ -52,20 +52,29 @@ def test_golden_tariff_chain(tmp_path):
         async def sleep(n):
             await asyncio.sleep(n)
 
-        # step 1: web search per row (non-LLM, {{column}} substitution)
+        # step 1: web search and snippet-based answer per row ({{column}} substitution)
         search_request = {
             "action_id": "research.web_search",
             "scope": {"kind": "sheet_rows", "sheet_id": sheet},
             "params": {
+                "model": MODEL,
                 "query": {"text": "US tariff impacts on {{country}} economy 2026"},
                 "max_results": 8,
             },
             "output_names": {"search_results": "search_results"},
             "idempotency_key": "golden-tariff-web-search",
         }
-        challenge = run_typed_map_request(p, search_request, project_id="golden-tariff")
-        search_request["confirmation"] = challenge.errors[0].details["promise_set_hash"]
-        prog1 = run_typed_map_request(p, search_request, project_id="golden-tariff")
+        challenge = run_typed_map_request(
+            p, search_request, project_id="golden-tariff", router=router
+        )
+        prog1 = challenge
+        if challenge.status == "needs_confirmation":
+            search_request["confirmation"] = challenge.errors[0].details[
+                "promise_set_hash"
+            ]
+            prog1 = run_typed_map_request(
+                p, search_request, project_id="golden-tariff", router=router
+            )
         assert prog1.status in {"completed", "partial"}, prog1.errors
         failed_search_rows = p.db.execute(
             "SELECT failed_rows FROM runs WHERE id=?", (prog1.run_id,)
@@ -159,7 +168,7 @@ def test_golden_tariff_chain(tmp_path):
         # full chain visible in history
         stage_labels = [o["label"] for o in p.history() if o["kind"] == "map"]
         assert list(dict.fromkeys(stage_labels)) == [
-            "web_search: search_results",
+            "web_search: answer, search_results",
             "summarize: summary",
             "classify: tariff_impact, tariff_impact_justification",
         ]

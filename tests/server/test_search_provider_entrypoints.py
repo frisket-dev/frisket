@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from quick_search_helpers import patch_quick_search_model
+
 import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
@@ -28,7 +30,11 @@ def _web_search_spec(sheet_id: int) -> dict:
     return {
         "action_id": "research.web_search",
         "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
-        "params": {"query": {"text": "Background on {{story}}"}, "max_results": 1},
+        "params": {
+            "model": "anthropic/claude-haiku-4-5",
+            "query": {"text": "Background on {{story}}"},
+            "max_results": 1,
+        },
         "output_names": {"search_results": "sources"},
         "idempotency_key": "search-provider-entrypoint",
     }
@@ -38,6 +44,8 @@ def _web_search_spec(sheet_id: int) -> dict:
 def test_local_mcp_backfill_uses_the_workspace_search_provider(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, provider: str
 ) -> None:
+    patch_quick_search_model(monkeypatch)
+    monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
     root = tmp_path / "workspace"
     monkeypatch.delenv("EXA_API_KEY", raising=False)
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)

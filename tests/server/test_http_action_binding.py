@@ -14,7 +14,9 @@ def _client(tmp_path) -> TestClient:
     return TestClient(
         create_app(
             tmp_path / "workspace",
-            router=ModelRouter(cache=None, cache_mode="off"),
+            router=ModelRouter(
+                keys={"anthropic": "test-key"}, cache=None, cache_mode="off"
+            ),
         )
     )
 
@@ -61,7 +63,10 @@ def _table_count(client: TestClient, project_id: str, table: str) -> int:
     return int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
 
 
-def test_http_v1_action_catalog_and_import_rows_executor_binding(tmp_path) -> None:
+def test_http_v1_action_catalog_and_import_rows_executor_binding(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
     client = _client(tmp_path)
     project_id = client.post("/api/projects", json={"name": "HTTP v1"}).json()["id"]
 
@@ -113,6 +118,7 @@ def test_http_v1_action_catalog_and_import_rows_executor_binding(tmp_path) -> No
             "action_id": "research.web_search",
             "scope": {"kind": "sheet_rows", "sheet_id": int(sheet["id"])},
             "params": {
+                "model": "anthropic/claude-haiku-4-5",
                 "query": {"text": "background on {{headline}}"},
                 "max_results": 2,
             },
@@ -124,7 +130,7 @@ def test_http_v1_action_catalog_and_import_rows_executor_binding(tmp_path) -> No
     needs_confirmation = ActionResult.model_validate(needs_confirmation_response.json())
     assert needs_confirmation.status == "needs_confirmation"
     assert needs_confirmation.errors[0].schema_version == "frisket.action_error.v1"
-    assert needs_confirmation.errors[0].code == "external_cost_requires_confirmation"
+    assert needs_confirmation.errors[0].code == "model_cost_requires_confirmation"
 
     before = {
         "sheets": _table_count(client, project_id, "sheets"),

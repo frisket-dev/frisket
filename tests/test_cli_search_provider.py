@@ -30,7 +30,11 @@ def _search_action(sheet_id: int) -> dict[str, Any]:
     return {
         "action_id": "research.web_search",
         "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
-        "params": {"query": {"text": "Background on {{story}}"}, "max_results": 1},
+        "params": {
+            "model": "anthropic/claude-haiku-4-5",
+            "query": {"text": "Background on {{story}}"},
+            "max_results": 1,
+        },
         "output_names": {"search_results": "sources"},
         "idempotency_key": "cli-search-provider",
     }
