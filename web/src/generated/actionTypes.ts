@@ -1380,12 +1380,50 @@ export type ResearchParams = ({
   "include_sources"?: (boolean);
 });
 
+type StructuredResearchParams_ExtractField = ({
+  "name": (string);
+  "type": ("score" | "integer" | "number" | "boolean" | "text" | "category" | "date" | "list" | "json") & (string);
+  "description"?: (string);
+  "labels"?: (Array<(string)>);
+  "items"?: ((({
+  [key: string]: JsonValue;
+})) | ((null)));
+  "properties"?: ((({
+  [key: string]: JsonValue;
+})) | ((null)));
+  "required"?: (boolean);
+});
+
+type StructuredResearchParams_ModelRef = (string);
+
+type StructuredResearchParams_RichColumn = (string);
+
+type StructuredResearchParams_RichTemplate = ({
+  "text": (string);
+});
+
+type StructuredResearchParams_Template_Any_ = ({
+  "text": (string);
+});
+
+export type StructuredResearchParams = ({
+  "source": (((Array<(StructuredResearchParams_RichColumn)>)) | ((StructuredResearchParams_RichTemplate)));
+  "model": (StructuredResearchParams_ModelRef);
+  "question": (StructuredResearchParams_Template_Any_);
+  "include_sources"?: (boolean);
+  "fields": (Array<(StructuredResearchParams_ExtractField)>);
+  "include_confidence"?: (boolean);
+});
+
+type WebSearchParams_ModelRef = (string);
+
 type WebSearchParams_Template_str_ = ({
   "text": (string);
 });
 
 export type WebSearchParams = ({
   "query": (WebSearchParams_Template_str_);
+  "model": (WebSearchParams_ModelRef);
   "max_results"?: (number);
 });
 
@@ -1685,6 +1723,7 @@ export interface GeneratedActionParams {
   'replay.accept_column': ReplayAcceptColumnParams;
   'replay.dismiss': ReplayDismissParams;
   'research.answer': ResearchParams;
+  'research.extract': StructuredResearchParams;
   'research.web_search': WebSearchParams;
   'resolve.combine': CombineParams;
   'resolve.entities': ResolveEntitiesParams;
