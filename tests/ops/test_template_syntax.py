@@ -175,32 +175,44 @@ def test_source_column_discovery_for_recipe_templates_and_search():
     assert [
         ref.column
         for ref in discover_references(
-            WebSearchParams(query={"text": "{{city}} {{topic}}"})
+            WebSearchParams(
+                query={"text": "{{city}} {{topic}}"}, model="anthropic/claude-haiku-4-5"
+            )
         )
     ] == ["city", "topic"]
 
 
-def test_web_search_execute_renders_query_without_network(monkeypatch):
-    from frisket.actions.research_types import SearchResult
+def test_web_search_execute_renders_query_without_network():
+    from frisket.actions.research_types import QuickSearchAnswer, SearchResult
 
     seen: dict[str, object] = {}
 
+    row = Row({"city": "Paris", "topic": "tariffs"})
+
     class Searcher:
-        async def search(self, query: str, *, max_results: int):
+        async def quick_search(self, source_row: Row, *, query: str, max_results: int):
+            assert source_row is row
             seen["query"] = query
             seen["max_results"] = max_results
-            return [
-                SearchResult(
-                    title="Paris tariffs",
-                    url="https://example.com/paris",
-                    snippet="Result snippet",
-                )
-            ]
+            return QuickSearchAnswer(
+                answer="An answer from the result snippet.",
+                search_results=[
+                    SearchResult(
+                        title="Paris tariffs",
+                        url="https://example.com/paris",
+                        snippet="Result snippet",
+                    )
+                ],
+            )
 
     result = asyncio.run(
         web_search(
-            WebSearchParams(query={"text": "{{city}} {{topic}}"}, max_results=3),
-            Row({"city": "Paris", "topic": "tariffs"}),
+            WebSearchParams(
+                query={"text": "{{city}} {{topic}}"},
+                model="anthropic/claude-haiku-4-5",
+                max_results=3,
+            ),
+            row,
             Searcher(),
         )
     )
@@ -208,12 +220,13 @@ def test_web_search_execute_renders_query_without_network(monkeypatch):
     assert seen == {"query": "Paris tariffs", "max_results": 3}
     assert result.model_dump(mode="json") == {
         "output": {
+            "answer": "An answer from the result snippet.",
             "search_results": [
                 {
                     "title": "Paris tariffs",
                     "url": "https://example.com/paris",
                     "snippet": "Result snippet",
                 }
-            ]
+            ],
         }
     }
