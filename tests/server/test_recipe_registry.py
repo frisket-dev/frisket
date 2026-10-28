@@ -165,6 +165,7 @@ def test_action_registry_publish_import_round_trip_is_content_addressed(
         "map.mcp_extract",
         "map.python",
         "research.answer",
+        "research.extract",
     }
 
     imported = client.post(
