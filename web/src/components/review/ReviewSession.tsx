@@ -88,7 +88,7 @@ function FieldDecision({ field, controller: c, onSelectItem, selectableItemIndic
     {selected && (field.boundedJustification
       ? <div className={styles.justification} aria-label="Reason excerpt"><ReviewExcerpt excerpt={field.boundedJustification} /></div>
       : field.justification && <p className={styles.justification}>{field.justification}</p>)}
-    {selected && isResearchAction(c.bundle?.actionKind) && field.outputKey !== 'sources' &&
+    {selected && c.bundle && isResearchAction(c.bundle.actionKind) && field.outputKey !== 'sources' &&
       <ReviewResearch key={`${field.runId}:${field.rowId}:${field.columnId}`} bundle={c.bundle} field={field} />}
   </section>;
 }

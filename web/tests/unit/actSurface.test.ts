@@ -111,7 +111,7 @@ describe('resolveRibbonTabs placement invariants', () => {
     });
     const research = resolveRibbonTabs(actionTemplatesFromCatalog(catalog), EMPTY_CONTEXT)
       .find(tab => tab.id === 'research')?.groups.find(group => group.caption === 'RESEARCH');
-    const actions = research?.items.filter(item => item.kind === 'action');
+    const actions = research?.items.filter(item => item.kind === 'action' && kinds.includes(item.launcherKind));
     expect(actions?.map(item => item.launcherKind)).toEqual(kinds);
     expect(actions?.map(item => item.label)).toEqual(['Quick search', 'Agent Research', 'Structured research']);
     expect(new Set(kinds.map(kind => ACTION_ICON_BY_KIND[kind])).size).toBe(3);

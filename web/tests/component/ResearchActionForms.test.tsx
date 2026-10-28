@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, screen } from '@testing-library/react';
+import { cleanup, fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { sheetMeta } from '../support/actionFormFixtures';
@@ -16,6 +16,7 @@ it('runs Quick Search with the selected model and names both answer and search r
   const mounted = mountTypedForm({ kind: 'research.web_search', sheet: sheet(), initialDraft: {
     action_id: 'research.web_search', scope: { kind: 'sheet_rows', sheet_id: 7 },
     params: { query: { text: '{{company}} headquarters' }, model: 'test/model', max_results: 5 },
+    output_names: {},
   } });
   dispose = mounted.dispose;
   expect(screen.getByTestId('field-query')).toHaveValue('{{company}} headquarters');
@@ -34,6 +35,7 @@ it('uses the extraction field editor to author multiple structured research colu
     params: { source: ['company'], model: 'test/model', question: { text: 'Research {{company}}.' },
       fields: [{ name: 'headquarters', type: 'text', description: 'Headquarters city' }],
       include_sources: true, include_confidence: false },
+    output_names: { headquarters: 'headquarters', sources: 'answer_sources' },
   }, resolveParams: async ({ params }) => ({ diagnostics: {}, logical_outputs: [
     ...(params.fields as Array<{ name: string; type: string }>).map(field => ({ key: field.name, column_type: field.type })),
     ...(params.include_sources ? [{ key: 'sources', column_type: 'json' }] : []),
@@ -44,7 +46,7 @@ it('uses the extraction field editor to author multiple structured research colu
   await user.click(screen.getByRole('button', { name: 'Add column' }));
   fireEvent.change(screen.getAllByTestId('output-field-name')[1], { target: { value: 'founded' } });
   await user.click(screen.getAllByTestId('output-field-type')[1]);
-  await user.click(screen.getByRole('option', { name: 'integer' }));
+  await user.click(within(screen.getByTestId('output-field-type-menu')).getByRole('option', { name: 'integer' }));
   await pressRun();
   expect(lastExecutedRequest(mounted.onExecute)).toMatchObject({
     action_id: 'research.extract',
