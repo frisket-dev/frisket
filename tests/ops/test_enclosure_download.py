@@ -479,19 +479,26 @@ def test_source_config_queued_downloads_new_enclosures(tmp_path, monkeypatch):
     )
     assert response.status_code == 200, response.text
     body = response.json()
-    source_run = next(
-        output["ref"] for output in body["outputs"] if output["kind"] == "source_run"
+    assert body["status"] == "queued"
+    sheet_id = next(
+        output["sheet_id"] for output in body["outputs"] if output["kind"] == "sheet"
     )
-    sheet_id = source_run["sheet_id"]
-
     ws = client.app.state.workspace
+    source_job_id = body["job_id"]
+    assert ws.queue.get(source_job_id).kind == "source.poll"
+    worker = Worker(ws.queue, ws.registry, worker_id="test-worker", poll_interval=0.01)
+    assert worker.run_once()
+    source_job = ws.queue.get(source_job_id)
+    assert source_job.status == "done", source_job.error
+    assert source_job.result["new_rows"] == 1
+    assert source_job.result["sheet_id"] == sheet_id
     queued_enclosures = [
         job
         for job in ws.queue.list_jobs(status="queued")
         if job.kind == enclosures.ENCLOSURE_DOWNLOAD_KIND
     ]
     assert len(queued_enclosures) == 1
-    worker = Worker(ws.queue, ws.registry, worker_id="test-worker", poll_interval=0.01)
+    assert queued_enclosures[0].payload["sheet_id"] == sheet_id
     while worker.run_once():
         pass
 
