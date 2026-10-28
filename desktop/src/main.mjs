@@ -1,12 +1,13 @@
-import { mkdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { app, BrowserWindow, Menu, dialog, session, shell, protocol } from 'electron';
+import { app, BrowserWindow, Menu, dialog, session, shell, protocol, clipboard } from 'electron';
 import electronUpdater from 'electron-updater';
 import { prepareRuntime } from './provision.mjs';
 import { appUrl, installProtocol, APP_ORIGIN, APP_SCHEME } from './protocol.mjs';
 import { startBackend } from './backend.mjs';
+import { startupDiagnostics } from './startup-diagnostics.mjs';
 import { CleanupError } from './errors.mjs';
 import { createUpdater } from './updater.mjs';
 import { createUpdateProgress } from './update-progress.mjs';
@@ -16,6 +17,7 @@ import { createBackendStopper, shutdownDesktop } from './shutdown.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const desktopRoot = path.resolve(here, '..');
 if (process.platform === 'win32') app.setAppUserModelId('dev.frisket.desktop');
+const startupLog = startupDiagnostics({ version: app.getVersion(), platform: process.platform, arch: process.arch });
 let mainWindow;
 let backend;
 let startupTask;
@@ -130,10 +132,23 @@ async function showStartup(window) {
 
 /** @param {{phase: string, message: string}} progress */
 function setStartupStatus(progress) {
+  startupLog.record(progress.message);
   if (!mainWindow || mainWindow.isDestroyed()) return;
   void mainWindow.webContents.executeJavaScript(
     `window.updateStartup(${JSON.stringify(progress)})`,
   ).catch(() => {});
+}
+
+function setupActivity(message) {
+  const line = startupLog.record(message);
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  void mainWindow.webContents.executeJavaScript(
+    `window.updateStartupActivity(${JSON.stringify(line)})`,
+  ).catch(() => {});
+}
+
+async function saveStartupDiagnostics() {
+  await writeFile(path.join(app.getPath('userData'), 'startup-diagnostics.txt'), startupLog.report(), { mode: 0o600 }).catch(() => {});
 }
 
 async function launch() {
@@ -142,13 +157,13 @@ async function launch() {
   await mkdir(workspace, { recursive: true });
   provisioningController = new AbortController();
   const runtime = await prepareRuntime({
-    resourcesPath: resourcesPath(), dataPath, signal: provisioningController.signal, onProgress: setStartupStatus,
+    resourcesPath: resourcesPath(), dataPath, signal: provisioningController.signal, onProgress: setStartupStatus, onActivity: setupActivity,
   });
   if (quitting) return;
   setStartupStatus({ phase: 'workspace', message: 'Opening your workspace…' });
   backend = await startBackend({
     runtime, resourcesPath: resourcesPath(), workspace, profileDir: dataPath,
-    onFailure: (error) => void recover(error),
+    onFailure: (error) => void recover(error), onActivity: setupActivity,
   });
   if (quitting) {
     await stopBackend();
@@ -156,6 +171,7 @@ async function launch() {
   }
   installProtocol({ protocol }, backend);
   setStartupStatus({ phase: 'ready', message: 'Your workspace is ready.' });
+  await saveStartupDiagnostics();
   await mainWindow.loadURL(`${APP_ORIGIN}/`);
 }
 
@@ -170,14 +186,21 @@ async function recover(error) {
       }
     }
     cleanupFailed ||= error instanceof CleanupError;
-    const choice = await dialog.showMessageBox(mainWindow, {
-      type: 'error', buttons: cleanupFailed ? ['Quit'] : ['Retry', 'Quit'],
-      defaultId: 0, cancelId: cleanupFailed ? 0 : 1,
-      title: 'Frisket Desktop encountered a problem',
-      message: 'Frisket Desktop could not continue.',
-      detail: error instanceof Error ? error.message : 'Please try again.',
-    });
-    if (!cleanupFailed && choice.response === 0) setTimeout(() => { void startAttempt(); }, 0);
+    startupLog.record(`Failed: ${error instanceof Error ? error.message : String(error)}`);
+    await saveStartupDiagnostics();
+    let response;
+    const buttons = cleanupFailed ? ['Quit', 'Copy diagnostics'] : ['Retry', 'Quit', 'Copy diagnostics'];
+    do {
+      ({ response } = await dialog.showMessageBox(mainWindow, {
+        type: 'error', buttons,
+        defaultId: 0, cancelId: cleanupFailed ? 0 : 1,
+        title: 'Frisket Desktop encountered a problem',
+        message: 'Frisket Desktop could not continue.',
+        detail: error instanceof Error ? error.message : 'Please try again.',
+      }));
+      if (buttons[response] === 'Copy diagnostics') clipboard.writeText(startupLog.report());
+    } while (buttons[response] === 'Copy diagnostics' && !quitting);
+    if (!cleanupFailed && response === 0) setTimeout(() => { void startAttempt(); }, 0);
     else void requestQuit();
   })();
   try { await recoveryTask; } finally { recoveryTask = undefined; }
@@ -187,6 +210,7 @@ function startAttempt() {
   if (startupTask) return startupTask;
   startupTask = (async () => {
     try {
+      startupLog.begin();
       await showStartup(mainWindow);
       if (!quitting) await launch();
     } catch (error) {
@@ -242,6 +266,8 @@ function installMenu() {
     { label: 'File', submenu: [{ label: 'Open Data Folder', click: () => void shell.openPath(app.getPath('userData')) }, { type: 'separator' }, { label: 'Quit', accelerator: 'CmdOrCtrl+Q', click: () => void requestQuit() }] },
     { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
     { role: 'help', submenu: [{
+      label: 'Copy Startup Diagnostics', click: () => clipboard.writeText(startupLog.report()),
+    }, {
       id: 'desktop-update', label: 'Check for Updates…', enabled: Boolean(updates),
       click: () => void updates?.check({ manual: true }),
     }, {

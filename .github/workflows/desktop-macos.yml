@@ -161,6 +161,8 @@ jobs:
           trap 'hdiutil detach "$mount_path"' EXIT
           ditto "$mount_path/Frisket Desktop.app" "$FRISKET_DESKTOP_APP"
           codesign --verify --deep --strict "$FRISKET_DESKTOP_APP"
+      - name: First launch with an empty profile and cache (no Retry)
+        run: node desktop/scripts/check-cold-start.mjs
       - name: Prepare download caches (networked setup)
         run: node desktop/scripts/prewarm.mjs
       - name: Installed app and native engines (no new external connections)
@@ -311,6 +313,8 @@ jobs:
           spctl --assess --type execute --verbose=4 "$extracted/Frisket Desktop.app"
           rm -rf "$extracted"
           node desktop/scripts/stage-update.mjs prepare mac desktop/dist desktop/resources/build.json
+      - name: First launch with an empty profile and cache (no Retry)
+        run: node desktop/scripts/check-cold-start.mjs
       - name: Prepare download caches (networked setup)
         run: node desktop/scripts/prewarm.mjs
       - name: Installed signed app and native engines (no new external connections)

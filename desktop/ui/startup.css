@@ -13,7 +13,7 @@ body {
   margin: 0;
   display: grid;
   place-items: center;
-  overflow: hidden;
+  overflow: auto;
   background:
     radial-gradient(circle at 18% 14%, rgba(171, 121, 255, .16), transparent 28rem),
     radial-gradient(circle at 84% 82%, rgba(118, 67, 210, .12), transparent 26rem),
@@ -217,3 +217,9 @@ body[data-ready="true"] .progress-active { opacity: 0; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+.activity, .elapsed, .setup-details { color: #625679; font-size: .8rem; line-height: 1.45; }
+.activity { margin: 1.25rem 0 .25rem; overflow-wrap: anywhere; }
+.elapsed { margin: 0 0 .75rem; }
+.setup-details summary { cursor: pointer; }
+.setup-details pre { max-height: 9rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .75rem; }

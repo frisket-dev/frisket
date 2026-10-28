@@ -92,3 +92,49 @@ test('oversized readiness output is rejected instead of accepting a truncated su
   });
   await assert.rejects(started, /too much readiness output/);
 });
+
+
+test('slow backend startup remains alive after 20 seconds and reports real readiness', { skip: process.platform === 'win32' }, async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const messages = [];
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
+  child.stdin = { end() {} }; child.exitCode = null;
+  let killed = false;
+  child.kill = () => { killed = true; child.exitCode = 0; queueMicrotask(() => child.emit('close', 0, null)); };
+  const result = startBackend({
+    runtime: { python: '/private/python', env: {} }, resourcesPath: '/app/resources', workspace: '/data/workspace', profileDir: '/data/profile',
+    spawnProcess: () => child, onActivity: message => messages.push(message),
+    fetchImpl: async () => new Response(null, { status: 204 }),
+  });
+  child.stderr.emit('data', Buffer.from('ordinary server log\nfrisket-startup: Opening workspace databases…\n'));
+  assert.equal(messages.at(-1), 'Opening workspace databases…');
+  assert.equal(messages.some(line => line.includes('ordinary server log')), false);
+  t.mock.timers.tick(21000);
+  assert.equal(killed, false);
+  assert.match(messages.at(-1), /still starting/);
+  child.stdout.emit('data', Buffer.from('{"schema":1,"type":"ready","host":"127.0.0.1","port":8123,"pid":9}\n'));
+  const backend = await result;
+  assert.match(messages.at(-1), /health check passed/);
+  await backend.stop();
+});
+
+test('startup deadline reports that downloads finished and preserves failure output', { skip: process.platform === 'win32' }, async () => {
+  const messages = [];
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
+  child.stdin = { end() {} }; child.exitCode = null;
+  child.kill = () => { child.exitCode = 0; queueMicrotask(() => child.emit('close', 0, null)); };
+  const keepAlive = setInterval(() => {}, 1000);
+  try {
+    const result = startBackend({
+      runtime: { python: '/private/python', env: {} }, resourcesPath: '/app/resources', workspace: '/data/workspace', profileDir: '/data/profile', readyTimeoutMs: 20,
+      spawnProcess: () => child, onActivity: message => messages.push(message),
+      fetchImpl: async () => { throw new Error('must not call health before ready'); },
+    });
+    child.stderr.emit('data', Buffer.from('Importing local server; token=private\n'));
+    await assert.rejects(result, /ready signal within 0.02 seconds.*downloads have finished/);
+    assert.match(messages.at(-1), /Importing local server; token=\[redacted\]/);
+    assert.equal(child.exitCode, 0);
+  } finally { clearInterval(keepAlive); }
+});

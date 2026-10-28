@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { constants as fsConstants, promises as fs } from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { redactSetup, setupOutput } from './startup-diagnostics.mjs';
 import { CleanupError } from './errors.mjs';
 import { executablePath, privatePythonPath, assertSupportedPlatform } from './platform.mjs';
 import { spawnWindowsOwned, requestWindowsStop } from './windows-owned.mjs';
@@ -18,10 +19,10 @@ const FORCE_CANCEL_MS = 5_000;
  * without the completion marker is deliberately treated as repairable; a
  * marked directory is immutable from this module's point of view.
  *
- * @param {{resourcesPath: string, dataPath: string, onProgress?: (progress: {phase: string, message: string}) => void, signal?: AbortSignal}} options
+ * @param {{resourcesPath: string, dataPath: string, onProgress?: (progress: {phase: string, message: string}) => void, onActivity?: (message: string) => void, signal?: AbortSignal}} options
  * @returns {Promise<{python: string, env: Record<string, string>}>}
  */
-export async function prepareRuntime({ resourcesPath, dataPath, onProgress = () => {}, signal }) {
+export async function prepareRuntime({ resourcesPath, dataPath, onProgress = () => {}, onActivity = () => {}, signal }) {
   throwIfAborted(signal);
   const resources = path.resolve(resourcesPath);
   const data = path.resolve(dataPath);
@@ -58,19 +59,19 @@ export async function prepareRuntime({ resourcesPath, dataPath, onProgress = () 
 
   onProgress({ phase: 'runtime', message: 'Downloading the app runtime…' });
   await run(uv, ['python', 'install', manifest.pythonVersion, '--managed-python', '--no-bin', '--no-config'], {
-    label: 'installing private Python', env, signal, resourcesPath: resources,
+    label: 'installing private Python', env, signal, resourcesPath: resources, onActivity,
   });
 
   onProgress({ phase: 'runtime', message: wasIncomplete ? 'Resuming setup…' : 'Preparing the app runtime…' });
   const venvArgs = ['venv', environmentPath, '--python', manifest.pythonVersion, '--managed-python', '--no-config'];
   if (wasIncomplete) venvArgs.push('--clear');
-  await run(uv, venvArgs, { label: 'creating private Python environment', env, signal, resourcesPath: resources });
+  await run(uv, venvArgs, { label: 'creating private Python environment', env, signal, resourcesPath: resources, onActivity });
   await assertFile(python, 'private Python');
 
   // Once a venv exists, the bundled guardian owns each child process group.
   const guarded = (command, args, label) => process.platform === 'win32'
-    ? run(command, args, { label, env, signal, resourcesPath: resources })
-    : run(python, ['-I', guard, String(process.pid), GUARD_GRACE_SECONDS, command, ...args], { label, env, signal });
+    ? run(command, args, { label, env, signal, resourcesPath: resources, onActivity })
+    : run(python, ['-I', guard, String(process.pid), GUARD_GRACE_SECONDS, command, ...args], { label, env, signal, onActivity });
   onProgress({ phase: 'dependencies', message: 'Setting up included local models…' });
   await seedBundledModelCaches(resources, data, signal);
   onProgress({ phase: 'dependencies', message: 'Installing app components…' });
@@ -341,18 +342,15 @@ function abortError() {
   return error;
 }
 
-function redact(value) {
-  return value
-    .replace(/((?:x-)?(?:access[-_])?(?:token|secret|password|authorization|api[_-]?key))\s*[=:][^\r\n]*/gi, '$1=[redacted]')
-    .replace(/:\/\/[^\s/@]+@/g, '://[redacted]@');
-}
 
 function appendTail(current, chunk) {
   const next = `${current}${chunk}`;
   return next.length > TAIL_LIMIT ? next.slice(-TAIL_LIMIT) : next;
 }
 
-async function run(command, args, { label, env, signal, resourcesPath }) {
+async function run(command, args, { label, env, signal, resourcesPath, onActivity }) {
+  const started = Date.now();
+  onActivity(`Starting: ${label}`);
   throwIfAborted(signal);
   const windows = process.platform === 'win32';
   const child = windows
@@ -402,10 +400,17 @@ async function run(command, args, { label, env, signal, resourcesPath }) {
       signal?.removeEventListener('abort', cancel);
       reject(error);
     };
-    child.stdout.on('data', (chunk) => { output = appendTail(output, chunk); });
-    child.stderr.on('data', (chunk) => { output = appendTail(output, chunk); });
-    child.once('error', (error) => rejectOnce(new Error(`Private runtime failed while ${label}: ${redact(error.message)}`)));
+    const stdout = setupOutput(onActivity);
+    const stderr = setupOutput(onActivity);
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => { output = appendTail(output, chunk); stdout.write(chunk); });
+    child.stderr.on('data', (chunk) => { output = appendTail(output, chunk); stderr.write(chunk); });
+    child.once('error', (error) => rejectOnce(new Error(`Private runtime failed while ${label}: ${redactSetup(error.message)}`)));
     child.once('close', async (code, childSignal) => {
+      stdout.end();
+      stderr.end();
+      onActivity(`${label}: exit ${code ?? childSignal} after ${((Date.now() - started) / 1000).toFixed(1)}s`);
       if (settled) return;
       settled = true;
       clearForceTimer();
@@ -416,7 +421,7 @@ async function run(command, args, { label, env, signal, resourcesPath }) {
         return reject(abortError());
       }
       if (code === 0) return resolve();
-      const tail = redact(output.trim());
+      const tail = redactSetup(output.trim());
       const detail = tail ? ` ${tail}` : childSignal ? ` (${childSignal})` : '';
       reject(new Error(`Private runtime failed while ${label}.${detail}`));
     });

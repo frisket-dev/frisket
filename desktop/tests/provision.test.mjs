@@ -255,3 +255,17 @@ test('the bundled guardian reaps a TERM-ignoring descendant before cancellation 
     await subject.cleanup();
   }
 });
+
+
+test('setup reports the failing command, real output, and exit status without leaking secrets', async () => {
+  const subject = await fixture();
+  const activity = [];
+  try {
+    await fs.writeFile(path.join(subject.root, 'fail-sync-once'), 'yes');
+    await assert.rejects(prepareRuntime({ resourcesPath: subject.resources, dataPath: subject.data, onActivity: line => activity.push(line) }), /installing private Python dependencies/);
+    assert.ok(activity.some(line => line === 'Starting: installing private Python dependencies'));
+    assert.ok(activity.some(line => line === 'token=[redacted]'));
+    assert.match(activity.at(-1), /installing private Python dependencies: exit 17 after/);
+    assert.equal(activity.join('\n').includes('should-not-escape'), false);
+  } finally { await subject.cleanup(); }
+});
