@@ -282,6 +282,29 @@ def _run_with_confirmation(
     return run_typed_map_request(project, confirmed, project_id=project_id)
 
 
+def test_search_without_selected_model_refuses_without_provider_calls(
+    tmp_path, monkeypatch
+):
+    _patch_provider(monkeypatch)
+    calls = patch_quick_search_model(monkeypatch)
+    project = Project.create(tmp_path / "missing-model")
+    try:
+        seeded = _seed(project, tmp_path)
+        action = _action(seeded["sheet_id"])
+        del action["params"]["model"]
+        result = run_typed_map_request(project, action, project_id="missing-model")
+        assert result.status == "failed"
+        assert any("model" in error.message.lower() for error in result.errors)
+        assert _FakeDDGS.seen == []
+        assert calls == []
+        assert {column["name"] for column in project.columns(seeded["sheet_id"])} == {
+            "country",
+            "region",
+        }
+    finally:
+        project.close()
+
+
 def test_above_preapproval_requires_exact_confirmation_before_egress(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

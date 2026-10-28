@@ -89,6 +89,10 @@ def is_support_column(
         return False
     if output_role in SUPPORT_OUTPUT_ROLES.get(action_kind or "", ()):
         return True
+    if action_kind == "research.extract" and output_role:
+        # Authored fields remain results even when named "source" or "evidence".
+        # The field validator reserves this suffix for generated confidence.
+        return output_role.endswith("_confidence")
     # Every declared map.find output is authored result data.  A caller may
     # legitimately name a detail "source" or "confidence"; the generic
     # name convention must not silently remove it from Review.
