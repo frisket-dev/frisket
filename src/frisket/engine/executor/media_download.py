@@ -28,7 +28,7 @@ def download_max_concurrency():
     from frisket.ops.media_proxy import resolve_media_proxy
 
     if resolve_media_proxy() is None:
-        return None
+        return 2
     try:
         return max(1, int(os.environ.get("FRISKET_MEDIA_PROXY_MAX_CONCURRENCY") or "1"))
     except ValueError:

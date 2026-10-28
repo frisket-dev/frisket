@@ -120,14 +120,14 @@ def test_unaccepted_download_never_backfills_channels(tmp_path, monkeypatch, dis
 @pytest.mark.parametrize(
     ("proxy", "override", "expected"),
     [
-        (None, None, None),
+        (None, None, 2),
         ("https://proxy.test", None, 1),
         ("https://proxy.test", "3", 3),
         ("https://proxy.test", "bad", 1),
         ("https://proxy.test", "0", 1),
     ],
 )
-def test_proxy_concurrency_policy(monkeypatch, proxy, override, expected):
+def test_download_concurrency_policy(monkeypatch, proxy, override, expected):
     from frisket.engine.executor.media_download import download_max_concurrency
 
     monkeypatch.setattr("frisket.ops.media_proxy.resolve_media_proxy", lambda: proxy)
@@ -419,4 +419,66 @@ def test_cancelled_worker_settles_before_scope_closes(tmp_path, monkeypatch):
         asyncio.run(run())
     finally:
         stager.close()
+        project.close()
+
+
+def test_download_batch_uses_two_row_slots(tmp_path, monkeypatch):
+    import time
+    from frisket.engine.executor.action_inventory import ExecutorDeps
+    from frisket.engine.executor.actions import _default_map_runner_factory
+
+    def factory(project, router):
+        runner = _default_map_runner_factory(project, router)
+        runner.concurrency = 8
+        return runner
+
+    deps = ExecutorDeps(map_runner_factory=factory)
+
+    active = peak = calls = 0
+    lock = threading.Lock()
+
+    def download(url, **kwargs):
+        nonlocal active, peak, calls
+        with lock:
+            active += 1
+            calls += 1
+            peak = max(peak, active)
+        try:
+            # Leave transport work in flight while the runner admits other rows.
+            time.sleep(0.02)
+            return DownloadedMedia(b"video", "video/mp4", "clip.mp4")
+        finally:
+            with lock:
+                active -= 1
+
+    monkeypatch.setattr("frisket.ops.ytdlp.download_media", download)
+    monkeypatch.setattr("frisket.ops.media_proxy.resolve_media_proxy", lambda: None)
+    project = Project.create(tmp_path / "bounded-downloads")
+    try:
+        sheet = project.add_sheet("Videos")
+        col = project.add_column(sheet, "url", type="text")
+        project.add_rows(
+            sheet,
+            [{"url": f"https://example.test/video/{i}"} for i in range(8)],
+            {"url": col},
+        )
+        body = {
+            "action_id": "media.ytdlp_download",
+            "scope": {"kind": "sheet_rows", "sheet_id": sheet},
+            "params": {"source": "url", "media_type": "video"},
+            "idempotency_key": "bounded-downloads",
+        }
+        router = ModelRouter()
+        quote = run_action_spec(
+            project, body, project_id="bounded", router=router, deps=deps
+        )
+        assert quote.status == "needs_confirmation"
+        body["confirmation"] = quote.errors[0].details["promise_set_hash"]
+        result = run_action_spec(
+            project, body, project_id="bounded", router=router, deps=deps
+        )
+        assert result.status == "completed", result.errors
+        assert calls == 8
+        assert peak == 2
+    finally:
         project.close()

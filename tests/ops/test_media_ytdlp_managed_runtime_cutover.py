@@ -571,3 +571,17 @@ def test_ytdlp_unrelated_cli_failure_keeps_existing_diagnostic(
         "yt-dlp runtime failed: synthetic failure -- argv capture only, "
         "no real yt-dlp run"
     )
+
+
+def test_runtime_uses_yt_dlp_bounded_exponential_retry_policy(monkeypatch):
+    import yt_dlp
+
+    monkeypatch.setattr(ytdlp, "_admin_ytdlp_config_paths", tuple)
+    argv = _capture_extractor_argv(monkeypatch)
+    prefix = guarded_argv(worker_argv("yt-dlp"))
+    options = yt_dlp.parse_options(argv[len(prefix) :]).ydl_opts
+    for field in ("retries", "fragment_retries", "extractor_retries"):
+        assert options[field] == 3
+    for kind in ("http", "fragment", "extractor"):
+        delay = options["retry_sleep_functions"][kind]
+        assert [delay(attempt) for attempt in range(3)] == [5, 10, 20]
