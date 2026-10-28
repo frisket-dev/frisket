@@ -435,11 +435,11 @@ def list_youtube_playlist_with_ytdlp(
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(playlist_url, download=False)
+            entries = [entry for entry in info["entries"] if isinstance(entry, dict)]
     except Exception as exc:  # noqa: BLE001 - provider message is redacted upstream
         raise YouTubeProviderError(
             f"yt-dlp playlist listing failed: {_redact_provider_message(exc)}"
         ) from exc
-    entries = [entry for entry in info["entries"] if isinstance(entry, dict)]
     facts = {
         "service": "yt-dlp",
         "extractor": info.get("extractor_key") or info.get("extractor"),
@@ -519,11 +519,11 @@ def list_youtube_channel_with_ytdlp(
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(channel_url, download=False)
+            entries = [entry for entry in info["entries"] if isinstance(entry, dict)]
     except Exception as exc:  # noqa: BLE001 - provider message is redacted upstream
         raise YouTubeProviderError(
             f"yt-dlp channel listing failed: {_redact_provider_message(exc)}"
         ) from exc
-    entries = [entry for entry in info["entries"] if isinstance(entry, dict)]
     resolved_channel_id = (
         info.get("channel_id") or info.get("uploader_id") or channel_id
     )
