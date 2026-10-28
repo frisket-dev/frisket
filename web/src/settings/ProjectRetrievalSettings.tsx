@@ -85,8 +85,25 @@ export function ProjectRetrievalSettings({
         <span>
           Prepare new files automatically
           <small className="form-hint">
-            Read PDFs and images and transcribe recordings after import. Missing local models
-            are downloaded only after you approve them.
+            Read PDFs and images after import. Missing local models are downloaded only
+            after you approve them.
+          </small>
+        </span>
+      </label>
+      <label className="settings-check">
+        <input
+          type="checkbox"
+          checked={settings.transcribe_new_files_automatically}
+          disabled={!canMutate || !automaticPreparation}
+          onChange={(event) => void onPatch({
+            retrieval: { transcribe_new_files_automatically: event.currentTarget.checked },
+          })}
+        />
+        <span>
+          Transcribe new recordings automatically
+          <small className="form-hint">
+            Create transcripts for imported or downloaded audio and video. Off by default;
+            you can still run Transcribe yourself.
           </small>
         </span>
       </label>

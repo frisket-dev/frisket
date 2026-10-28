@@ -125,6 +125,9 @@ def _project_settings_response(project: Any) -> dict[str, Any]:
         "media_allow_private_hosts_locked": private_hosts_locked(),
         "retrieval": _retrieval_settings_response(
             read_preparation_policy(project),
+            transcribe_new_files_automatically=(
+                read_project_settings(project).transcribe_new_files_automatically
+            ),
             prepare_new_files_automatically=(
                 read_project_settings(project).prepare_new_files_automatically
             ),
@@ -133,7 +136,10 @@ def _project_settings_response(project: Any) -> dict[str, Any]:
 
 
 def _retrieval_settings_response(
-    policy: PreparationPolicy, *, prepare_new_files_automatically: bool
+    policy: PreparationPolicy,
+    *,
+    prepare_new_files_automatically: bool,
+    transcribe_new_files_automatically: bool,
 ) -> dict[str, Any]:
     recipe = policy.video_recipe
     video: dict[str, Any] = {
@@ -166,6 +172,7 @@ def _retrieval_settings_response(
         "video": video,
         "audio_enabled": policy.audio_recipe is not None,
         "prepare_new_files_automatically": prepare_new_files_automatically,
+        "transcribe_new_files_automatically": transcribe_new_files_automatically,
     }
 
 
@@ -640,9 +647,13 @@ class ProjectLifecycleService:
         retrieval_patch = patch.pop("retrieval", None)
         if retrieval_patch is not None:
             retrieval_patch = dict(retrieval_patch)
-            automatic = retrieval_patch.pop("prepare_new_files_automatically", None)
-            if automatic is not None:
-                patch["prepare_new_files_automatically"] = automatic
+            for setting in (
+                "prepare_new_files_automatically",
+                "transcribe_new_files_automatically",
+            ):
+                automatic = retrieval_patch.pop(setting, None)
+                if automatic is not None:
+                    patch[setting] = automatic
         retrieval_policy = None
         try:
             with project.transaction_scope():

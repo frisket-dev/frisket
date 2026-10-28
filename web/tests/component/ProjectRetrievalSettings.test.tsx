@@ -21,6 +21,8 @@ const SETTINGS: ProjectRetrievalSettingsValue = {
     sample_fps: 1,
   },
   audio_enabled: false,
+  prepare_new_files_automatically: true,
+  transcribe_new_files_automatically: false,
 };
 
 afterEach(cleanup);
@@ -29,6 +31,7 @@ describe('ProjectRetrievalSettings', () => {
   it('renders the saved modalities and every supported video strategy', () => {
     render(<ProjectRetrievalSettings settings={SETTINGS} canMutate onPatch={vi.fn()} />);
 
+    expect(screen.getByRole('checkbox', { name: /Transcribe new recordings automatically/ })).not.toBeChecked();
     expect(screen.getByRole('checkbox', { name: 'Text cells' })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: 'Existing transcripts' })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: 'Images' })).toBeChecked();
@@ -51,11 +54,13 @@ describe('ProjectRetrievalSettings', () => {
     const user = userEvent.setup();
     render(<ProjectRetrievalSettings settings={SETTINGS} canMutate onPatch={onPatch} />);
 
+    await user.click(screen.getByRole('checkbox', { name: /Transcribe new recordings automatically/ }));
     await user.click(screen.getByRole('checkbox', { name: 'Text cells' }));
     await user.click(screen.getByRole('checkbox', { name: /Raw audio/ }));
     await user.selectOptions(screen.getByTestId('project-retrieval-video-strategy'), 'fixed_clips');
 
     expect(onPatch.mock.calls).toEqual([
+      [{ retrieval: { transcribe_new_files_automatically: true } }],
       [{ retrieval: { text_enabled: false } }],
       [{ retrieval: { audio_enabled: true } }],
       [{ retrieval: { video: { strategy: 'fixed_clips' } } }],

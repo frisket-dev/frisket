@@ -114,6 +114,7 @@ class ProjectRetrievalSettingsRequest(CoerciveProjectConfigRequest):
     video: ProjectRetrievalVideoRequest | None = None
     audio_enabled: bool | None = None
     prepare_new_files_automatically: bool | None = None
+    transcribe_new_files_automatically: bool | None = None
 
 
 class ProjectProviderKeyRequest(CoerciveProjectConfigRequest):
@@ -176,6 +177,7 @@ class ProjectRetrievalSettingsResponse(WireModel):
     video: ProjectRetrievalVideoResponse
     audio_enabled: bool
     prepare_new_files_automatically: bool
+    transcribe_new_files_automatically: bool
 
 
 class ProjectCompactResponse(WireModel):
