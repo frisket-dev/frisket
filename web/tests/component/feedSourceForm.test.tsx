@@ -5,8 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FeedSourceForm } from '../../src/components/importWorkspace/FeedSourceForm';
 
 const api = vi.hoisted(() => ({ createSource: vi.fn(), fetchSource: vi.fn() }));
+const refresh = vi.hoisted(() => vi.fn());
 vi.mock('../../src/bind/useWorkspaceStores', () => ({
-  useWorkspaceStores: () => ({ projectApi: api, chromePreferences: { projectId: 'feed-test' } }),
+  useWorkspaceStores: () => ({ projectApi: api, job: { refresh }, chromePreferences: { projectId: 'feed-test' } }),
 }));
 vi.mock('../../src/telemetry/productTelemetry', async (original) => ({
   ...await original<typeof import('../../src/telemetry/productTelemetry')>(),
@@ -31,6 +32,7 @@ describe('feed setup independent of the import workspace', () => {
     ['rss', 'https://example.test/feed.xml', { merge_strategy: 'append-new' }],
     ['youtube_playlist', 'https://www.youtube.com/playlist?list=PL123', { playlist_url: 'https://www.youtube.com/playlist?list=PL123' }],
     ['youtube_channel', '@frisket', { channel_url: '@frisket' }],
+    ['tiktok_profile', 'https://www.tiktok.com/@frisket', { profile_url: 'https://www.tiktok.com/@frisket' }],
     ['api_list_dicts', 'https://example.test/api/items', { method: 'GET', list_path: '/', schema_policy: 'additive' }],
     ['courtlistener_docket', '123', { docket_id: 123, include_parties: true, include_documents: true }],
   ])('creates %s without automatically polling it', async (kind, url, config) => {
@@ -46,6 +48,21 @@ describe('feed setup independent of the import workspace', () => {
     fireEvent.click(screen.getByTestId('feed-populate-dismiss'));
     expect(props.onCreated).toHaveBeenCalledOnce();
     expect(props.onImported).not.toHaveBeenCalled();
+  });
+
+  it('supports TikTok handles, limits and the existing populate flow', async () => {
+    const props = setup();
+    fireEvent.change(screen.getByTestId('source-kind'), { target: { value: 'tiktok_profile' } });
+    fireEvent.change(screen.getByTestId('source-url'), { target: { value: '@example' } });
+    fireEvent.change(screen.getByTestId('source-tiktok-max-items'), { target: { value: '25' } });
+    expect(screen.queryByTestId('source-youtube-max-pages')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('source-create'));
+    await screen.findByTestId('feed-populate-prompt');
+    expect(api.createSource).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'tiktok_profile', config: { profile_url: '@example', max_items_per_poll: 25 },
+    }));
+    fireEvent.click(screen.getByTestId('feed-populate-run'));
+    await waitFor(() => expect(props.onImported).toHaveBeenCalledWith(42));
   });
 
   it('keeps an explicit type selection and validates API inputs before submission', () => {

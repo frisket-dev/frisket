@@ -63,10 +63,19 @@ class _PollRefused(Exception):
 
 
 class _SourcePoller:
-    def __init__(self, project: Project, action: _TypedProjectEnvelope, fetcher: Any):
+    def __init__(
+        self,
+        project: Project,
+        action: _TypedProjectEnvelope,
+        fetcher: Any,
+        on_progress=None,
+        should_cancel=None,
+    ):
         self._project = project
         self._action = action
         self._fetcher = fetcher
+        self._on_progress = on_progress
+        self._should_cancel = should_cancel
         self._called = False
         self.resolved: dict[str, Any] | None = None
 
@@ -77,7 +86,12 @@ class _SourcePoller:
         source = TypeAdapter(SourcePollSelector).validate_python(source)
         ensure_rss_poller()
         resolved = _resolve_and_poll_source(
-            self._project, self._action, source, rss_fetcher=self._fetcher
+            self._project,
+            self._action,
+            source,
+            rss_fetcher=self._fetcher,
+            on_progress=self._on_progress,
+            should_cancel=self._should_cancel,
         )
         if isinstance(resolved, ActionError):
             raise _PollRefused(resolved)
@@ -100,6 +114,8 @@ def run_typed_source_poll_action(
     bound: BoundTypedActionRequest,
     *,
     rss_fetcher: Any = None,
+    on_progress=None,
+    should_cancel=None,
 ) -> ActionResult:
     terminal = bound.action.definition.run
     if not supports_typed_source_poll_action(terminal):
@@ -111,7 +127,9 @@ def run_typed_source_poll_action(
     )
 
     def resolve(project_: Project, params: Any) -> Any:
-        capability = _SourcePoller(project_, envelope, rss_fetcher)
+        capability = _SourcePoller(
+            project_, envelope, rss_fetcher, on_progress, should_cancel
+        )
         try:
             returned = terminal.handler(params, capability)
             if capability.resolved is None or not isinstance(returned, PolledSource):
@@ -173,6 +191,8 @@ def _resolve_and_poll_source(
     source: SourcePollSelector,
     *,
     rss_fetcher: Any | None,
+    on_progress=None,
+    should_cancel=None,
 ) -> dict[str, Any] | ActionError:
     """The source.poll pre-txn resolve (`plain_resolve_fn`): resolve/create the source,
     select the poller, validate config, then run the whole-source `poller.poll(...)` network
@@ -223,8 +243,12 @@ def _resolve_and_poll_source(
             SourcePollContext(
                 source=source_for_poller,
                 cursor_before=cursor_before_text,
+                on_progress=on_progress,
+                should_cancel=should_cancel,
             )
         )
+        if should_cancel and should_cancel():
+            raise RuntimeError("Feed import cancelled")
         if not isinstance(candidate, SourcePollResult):
             raise TypeError("poller returned a non-SourcePollResult value")
         poll_result = copy.deepcopy(candidate)
@@ -496,7 +520,7 @@ def _materialize_registered_source_poll_in_txn(
     source_id = int(source_before["id"])
     source_store = SourceStore(project)
     sheet_id = _source_poll_sheet_id_in_txn(project, cur, source_before)
-    _rename_default_youtube_source_in_txn(
+    _rename_default_media_source_in_txn(
         cur,
         source_store=source_store,
         source_before=source_before,
@@ -615,7 +639,7 @@ def _collapse_duplicate_dedupe_keys(
     return list(collapsed.values()), len(items) - len(collapsed)
 
 
-def _rename_default_youtube_source_in_txn(
+def _rename_default_media_source_in_txn(
     cur: Any,
     *,
     source_store: SourceStore,
@@ -623,20 +647,20 @@ def _rename_default_youtube_source_in_txn(
     sheet_id: int,
     poll_summary: dict[str, Any],
 ) -> None:
-    """Replace only the generated YouTube placeholder with provider identity.
+    """Replace only the generated media-feed placeholder with provider identity.
 
     The source and its bound sheet share the resolved name. An explicit user
     name is never touched, including on later polls after an automatic rename.
     """
     kind = str(source_before.get("kind") or "")
-    if kind not in {"youtube_playlist", "youtube_channel"}:
+    if kind not in {"youtube_playlist", "youtube_channel", "tiktok_profile"}:
         return
     current_name = str(source_before.get("name") or "")
     if current_name != _default_source_name(kind, source_before.get("url")):
         return
 
     channel_title = _nonempty_text(poll_summary.get("channel_title"))
-    if kind == "youtube_channel":
+    if kind in {"youtube_channel", "tiktok_profile"}:
         resolved_name = channel_title
     else:
         playlist_title = _nonempty_text(poll_summary.get("playlist_title"))
@@ -660,6 +684,7 @@ def _default_source_name(kind: str, url: Any) -> str:
     label = {
         "youtube_playlist": "YouTube playlist",
         "youtube_channel": "YouTube channel",
+        "tiktok_profile": "TikTok profile",
     }[kind]
     compact = str(url or "").strip()
     compact = re.sub(r"^https?://", "", compact, flags=re.IGNORECASE)
@@ -758,15 +783,17 @@ def _insert_source_poll_column_in_txn(
     return int(cur.lastrowid)
 
 
-_YOUTUBE_VISIBLE_SOURCE_COLUMNS = frozenset(
+_MEDIA_VISIBLE_SOURCE_COLUMNS = frozenset(
     {"title", "source_url", "published_at", "channel_title", "description"}
 )
 
 
 def _source_poll_column_default_hidden(source_kind: str, name: str) -> bool:
-    return source_kind in {"youtube_channel", "youtube_playlist"} and name not in (
-        _YOUTUBE_VISIBLE_SOURCE_COLUMNS
-    )
+    return source_kind in {
+        "youtube_channel",
+        "youtube_playlist",
+        "tiktok_profile",
+    } and name not in (_MEDIA_VISIBLE_SOURCE_COLUMNS)
 
 
 def _append_source_poll_op_in_txn(cur: Any, spec: dict[str, Any], *, label: str) -> int:

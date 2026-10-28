@@ -3987,6 +3987,7 @@ export type SourceKind =
   | 'rss'
   | 'youtube_playlist'
   | 'youtube_channel'
+  | 'tiktok_profile'
   | 'api_list_dicts'
   | 'courtlistener_docket'
   | (string & {});
@@ -4052,7 +4053,8 @@ export interface SourceInput {
 
 /** Outcome of a manual "Fetch now". */
 export interface SourceFetchResult {
-  runId: number;
+  jobId?: number;
+  runId: number | null;
   newRows: number;
   revisions: number;
   skippedRows: number;

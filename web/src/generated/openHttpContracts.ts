@@ -11535,6 +11535,7 @@ type HttpProjectSettingsRequest_ProjectRetrievalSettingsRequest = ({
   "pdf_pages_enabled"?: (boolean);
   "prepare_new_files_automatically"?: (boolean);
   "text_enabled"?: (boolean);
+  "transcribe_new_files_automatically"?: (boolean);
   "transcript_enabled"?: (boolean);
   "video"?: (HttpProjectSettingsRequest_ProjectRetrievalVideoRequest);
 });
@@ -11558,6 +11559,7 @@ type HttpProjectSettingsResponse_ProjectRetrievalSettingsResponse = ({
   "pdf_pages_enabled": (boolean);
   "prepare_new_files_automatically": (boolean);
   "text_enabled": (boolean);
+  "transcribe_new_files_automatically": (boolean);
   "transcript_enabled": (boolean);
   "video": (HttpProjectSettingsResponse_ProjectRetrievalVideoResponse);
 });

@@ -686,6 +686,9 @@ class SearchPreparationService:
                 row_ids=pending.row_ids,
                 force_ocr=False,
                 intersect_visible_rows=True,
+                include_transcription=read_project_settings(
+                    project
+                ).transcribe_new_files_automatically,
                 source_cells=frozenset(
                     (int(item["row_id"]), int(item["column_id"]))
                     for item in pending.captured_sources
@@ -1486,6 +1489,7 @@ class SearchPreparationService:
         force_ocr: bool,
         intersect_visible_rows: bool = False,
         source_cells: frozenset[tuple[int, int]] | None = None,
+        include_transcription: bool = True,
     ) -> dict[str, Any]:
         return build_plan(
             project,
@@ -1496,6 +1500,26 @@ class SearchPreparationService:
             requirement_dict=_requirement_dict,
             intersect_visible_rows=intersect_visible_rows,
             source_cells=source_cells,
+            include_transcription=include_transcription,
+        )
+
+    def _automatic_transcription_disabled(self, row: SearchPreparationBatchRow) -> bool:
+        # Explicitly reviewed preparation retains the user's transcription choice.
+        if row.decision is not None or not row.plan:
+            return False
+        policy = row.plan.get("admission_policy")
+        automatic = policy == "automatic_local" or (
+            policy is None
+            and (
+                row.trigger_receipt_id is not None
+                or row.materialization_job_id is not None
+            )
+        )
+        return (
+            automatic
+            and not read_project_settings(
+                self.workspace.get(row.project_id)
+            ).transcribe_new_files_automatically
         )
 
     def _awaiting_decision(
@@ -1563,8 +1587,11 @@ class SearchPreparationService:
             children = {child.child_key: child for child in self.store.children(row.id)}
             if self._awaiting_decision(row, tuple(children.values())):
                 return
+        transcription_disabled = self._automatic_transcription_disabled(row)
         for planned_child in _planned_children(row.plan):
             kind = planned_child.kind
+            if kind == "transcribe" and transcription_disabled:
+                continue
             capability = planned_child.specification.capability
             requirement = readiness.get(capability) if capability is not None else None
             if row.decision == "not_now" and capability is not None:
@@ -1787,7 +1814,10 @@ class SearchPreparationService:
         setup = setup or self._setup_snapshot()
         live = setup.requirements_by_ref
         latest = self._latest_pulls(row, setup)
+        transcription_disabled = self._automatic_transcription_disabled(row)
         for planned in row.plan["models"]:
+            if planned["capability"] == "transcription" and transcription_disabled:
+                continue
             requirement = live.get(planned["setup_ref"])
             if requirement is None:
                 if planned["required"]:
@@ -1832,6 +1862,8 @@ class SearchPreparationService:
         }
         expected = set()
         for planned_child in _planned_children(row.plan):
+            if planned_child.kind == "transcribe" and transcription_disabled:
+                continue
             capability = planned_child.specification.capability
             if capability is not None and not capability_ready.get(capability, False):
                 continue

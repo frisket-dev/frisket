@@ -12,10 +12,17 @@ import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from frisket.server.sources.media_metadata import (
+    entry_published_at as _entry_published_at,
+    thumbnail_url as _thumbnail_url,
+    string_value as _string_value,
+    redact_provider_message as _redact_provider_message,
+    redact_warning as _redact_warning,
+)
+from frisket.server.sources.progress import listing_progress_options
 from frisket.server.sources.runtime import (
     SourcePollContext,
     SourcePollItem,
@@ -53,10 +60,6 @@ _PLAYLIST_ID_RE = re.compile(r"^[A-Za-z0-9_-]{2,}$")
 _CHANNEL_ID_RE = re.compile(r"^UC[A-Za-z0-9_-]{6,}$")
 _CHANNEL_HANDLE_RE = re.compile(r"^@[A-Za-z0-9._-]{3,30}$")
 _VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{6,}$")
-_SENSITIVE_RE = re.compile(
-    r"(?i)(api[_-]?key|authorization|cookie|token|password|secret)"
-    r"(\s*[:=]\s*(?:bearer\s+)?)?[^\s,;]+"
-)
 
 
 class YouTubeProviderError(RuntimeError):
@@ -119,6 +122,7 @@ class YouTubePlaylistPoller:
         provider: Callable[..., YouTubePlaylistListing] | None = None,
     ) -> None:
         self._provider = provider or list_youtube_playlist_with_ytdlp
+        self._uses_default_provider = provider is None
 
     def validate_config(self, source: dict[str, Any]) -> str | None:
         _config, error = _resolve_playlist_config(source)
@@ -136,6 +140,11 @@ class YouTubePlaylistPoller:
                 playlist_id=config.playlist_id,
                 max_pages=config.max_pages_per_poll,
                 item_cap=config.item_cap,
+                **(
+                    {"on_progress": ctx.on_progress, "should_cancel": ctx.should_cancel}
+                    if self._uses_default_provider
+                    else {}
+                ),
             )
         except Exception as exc:  # noqa: BLE001 - source.poll records provider errors
             raise YouTubeProviderError(
@@ -255,6 +264,7 @@ class YouTubeChannelPoller:
         provider: Callable[..., YouTubeChannelListing] | None = None,
     ) -> None:
         self._provider = provider or list_youtube_channel_with_ytdlp
+        self._uses_default_provider = provider is None
 
     def validate_config(self, source: dict[str, Any]) -> str | None:
         _config, error = _resolve_channel_config(source)
@@ -273,6 +283,11 @@ class YouTubeChannelPoller:
                 channel_handle=config.channel_handle,
                 max_pages=config.max_pages_per_poll,
                 item_cap=config.item_cap,
+                **(
+                    {"on_progress": ctx.on_progress, "should_cancel": ctx.should_cancel}
+                    if self._uses_default_provider
+                    else {}
+                ),
             )
         except Exception as exc:  # noqa: BLE001 - source.poll records provider errors
             raise YouTubeProviderError(
@@ -393,6 +408,8 @@ def list_youtube_playlist_with_ytdlp(
     playlist_id: str,
     max_pages: int | None,
     item_cap: int | None,
+    on_progress=None,
+    should_cancel=None,
 ) -> YouTubePlaylistListing:
     """List playlist entries with yt-dlp metadata extraction only."""
     try:
@@ -412,16 +429,17 @@ def list_youtube_playlist_with_ytdlp(
         "quiet": True,
         "skip_download": True,
     }
+    opts.update(listing_progress_options(on_progress, should_cancel, bounded_cap))
     if bounded_cap is not None:
         opts["playlistend"] = bounded_cap
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(playlist_url, download=False)
+            entries = [entry for entry in info["entries"] if isinstance(entry, dict)]
     except Exception as exc:  # noqa: BLE001 - provider message is redacted upstream
         raise YouTubeProviderError(
             f"yt-dlp playlist listing failed: {_redact_provider_message(exc)}"
         ) from exc
-    entries = [entry for entry in info["entries"] if isinstance(entry, dict)]
     facts = {
         "service": "yt-dlp",
         "extractor": info.get("extractor_key") or info.get("extractor"),
@@ -470,6 +488,8 @@ def list_youtube_channel_with_ytdlp(
     channel_handle: str | None,
     max_pages: int | None,
     item_cap: int | None,
+    on_progress=None,
+    should_cancel=None,
 ) -> YouTubeChannelListing:
     """List channel uploads with yt-dlp metadata extraction only."""
     try:
@@ -493,16 +513,17 @@ def list_youtube_channel_with_ytdlp(
         "quiet": True,
         "skip_download": True,
     }
+    opts.update(listing_progress_options(on_progress, should_cancel, bounded_cap))
     if bounded_cap is not None:
         opts["playlistend"] = bounded_cap
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(channel_url, download=False)
+            entries = [entry for entry in info["entries"] if isinstance(entry, dict)]
     except Exception as exc:  # noqa: BLE001 - provider message is redacted upstream
         raise YouTubeProviderError(
             f"yt-dlp channel listing failed: {_redact_provider_message(exc)}"
         ) from exc
-    entries = [entry for entry in info["entries"] if isinstance(entry, dict)]
     resolved_channel_id = (
         info.get("channel_id") or info.get("uploader_id") or channel_id
     )
@@ -1006,63 +1027,6 @@ def _entry_unavailable(entry: dict[str, Any]) -> bool:
     )
 
 
-def _entry_published_at(entry: dict[str, Any]) -> str | None:
-    for key in ("timestamp", "release_timestamp", "modified_timestamp"):
-        value = entry.get(key)
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
-            return _iso_from_timestamp(float(value))
-    for key in ("upload_date", "release_date", "published_at", "timestamp"):
-        normalized = _date_or_iso(entry.get(key))
-        if normalized:
-            return normalized
-    return None
-
-
-def _date_or_iso(value: Any) -> str | None:
-    if not isinstance(value, str) or not value.strip():
-        return None
-    text = value.strip()
-    if re.fullmatch(r"\d{8}", text):
-        return (
-            datetime(
-                int(text[0:4]),
-                int(text[4:6]),
-                int(text[6:8]),
-                tzinfo=UTC,
-            )
-            .isoformat()
-            .replace("+00:00", "Z")
-        )
-    if "T" in text:
-        return text
-    return None
-
-
-def _iso_from_timestamp(value: float) -> str:
-    return datetime.fromtimestamp(value, tz=UTC).isoformat().replace("+00:00", "Z")
-
-
-def _thumbnail_url(entry: dict[str, Any]) -> str | None:
-    direct = _string_value(entry.get("thumbnail"))
-    if direct:
-        return direct
-    thumbnails = entry.get("thumbnails")
-    if isinstance(thumbnails, list):
-        for item in reversed(thumbnails):
-            if isinstance(item, dict):
-                url = _string_value(item.get("url"))
-                if url:
-                    return url
-    return None
-
-
-def _string_value(value: Any) -> str | None:
-    if isinstance(value, str):
-        stripped = value.strip()
-        return stripped or None
-    return None
-
-
 def _playlist_url(playlist_id: str) -> str:
     return f"https://www.youtube.com/playlist?list={playlist_id}"
 
@@ -1120,15 +1084,6 @@ def _hash_json(value: Any) -> str:
 
 def _text_hash(value: str) -> str:
     return "sha256:" + hashlib.sha256(value.encode("utf-8")).hexdigest()
-
-
-def _redact_provider_message(exc: BaseException) -> str:
-    message = str(exc) or exc.__class__.__name__
-    return _SENSITIVE_RE.sub(r"\1=<redacted>", message)
-
-
-def _redact_warning(warning: Any) -> str:
-    return _SENSITIVE_RE.sub(r"\1=<redacted>", str(warning))
 
 
 register_youtube_playlist_poller()

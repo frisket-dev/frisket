@@ -2344,3 +2344,97 @@ def test_pdf_sample_selection_is_bound_to_column_before_sampling(
         workspace.queue.list_project_jobs(project_id, kind="project.run", limit=20)
         == []
     )
+
+
+@pytest.mark.parametrize("origin", ["import", "materialization"])
+@pytest.mark.parametrize("media_type", ["audio", "video", "image"])
+@pytest.mark.parametrize("enabled", [False, True])
+def test_automatic_transcription_is_opt_in(
+    tmp_path, monkeypatch, origin, media_type, enabled
+):
+    from frisket.project_settings import patch_project_settings, read_project_settings
+
+    monkeypatch.setattr(
+        "frisket.execution.definitions.parakeet_runtime_present", lambda: True
+    )
+    monkeypatch.setattr(
+        "frisket.execution.definitions.parakeet_artifacts_present", lambda: True
+    )
+    capability = "ocr" if media_type == "image" else "transcription"
+    monkeypatch.setattr(
+        preparation_module,
+        "_requirements",
+        lambda: (replace(_Requirement(), capability=capability, weights_ready=True),),
+    )
+    workspace = Workspace(tmp_path / "workspace")
+    pid = workspace.create("Automatic transcription")["id"]
+    project = workspace.get(pid)
+    # An existing settings document without the new field also defaults off.
+    project.set_meta("project_settings_v1", '{"prepare_new_files_automatically":true}')
+    assert read_project_settings(project).transcribe_new_files_automatically is False
+    if enabled:
+        patch_project_settings(project, {"transcribe_new_files_automatically": True})
+    sheet = project.add_sheet("Files")
+    column = project.add_column(sheet, "Media", type=media_type)
+    mime = {"audio": "audio/wav", "video": "video/mp4", "image": "image/png"}[
+        media_type
+    ]
+    blob = project.add_blob(b"media", mime=mime)
+    rows = project.add_rows(
+        sheet, [{"Media": {"blob": blob, "mime": mime}}], {"Media": column}
+    )
+    service = SearchPreparationService(workspace)
+    if origin == "import":
+        batch_id = service.create_after_import(
+            pid, receipt_id="receipt:media", sheet_id=sheet
+        )
+    else:
+        batch_id = service.create_after_materialization(
+            pid, sheet_id=sheet, row_ids=rows
+        )
+    service.recover()
+    jobs = workspace.queue.list_project_jobs(pid, kind="project.run", limit=20)
+    if enabled or media_type == "image":
+        assert batch_id is not None
+        assert len(jobs) == 1
+    else:
+        assert batch_id is None
+        assert jobs == []
+
+
+def test_turning_off_automatic_transcription_retires_unadmitted_work(
+    tmp_path, monkeypatch
+):
+    from frisket.project_settings import patch_project_settings
+
+    requirement = replace(
+        _Requirement(), capability="transcription", weights_ready=False
+    )
+    monkeypatch.setattr(preparation_module, "_requirements", lambda: (requirement,))
+    workspace = Workspace(tmp_path / "workspace")
+    pid = workspace.create("Waiting transcription")["id"]
+    project = workspace.get(pid)
+    patch_project_settings(project, {"transcribe_new_files_automatically": True})
+    sheet = project.add_sheet("Files")
+    column = project.add_column(sheet, "Audio", type="audio")
+    blob = project.add_blob(b"audio", mime="audio/wav")
+    project.add_rows(
+        sheet, [{"Audio": {"blob": blob, "mime": "audio/wav"}}], {"Audio": column}
+    )
+    service = SearchPreparationService(workspace)
+    batch_id = service.create_after_import(
+        pid, receipt_id="receipt:waiting", sheet_id=sheet
+    )
+    assert batch_id is not None
+    assert (
+        service.store.get(batch_id, project_id=pid, storage_org_id=None).settled_at
+        is None
+    )
+    patch_project_settings(project, {"transcribe_new_files_automatically": False})
+    service.recover()
+    assert (
+        service.store.get(batch_id, project_id=pid, storage_org_id=None).settled_at
+        is not None
+    )
+    assert service.store.children(batch_id) == []
+    assert workspace.queue.list_project_jobs(pid, kind="project.run", limit=20) == []

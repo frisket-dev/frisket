@@ -1,5 +1,6 @@
 import './PanelPrimitives.css';
 import './StatusBar.css';
+import { FeedProgressNotice } from './FeedProgressNotice';
 import { Button } from './Button';
 import { useEffect, useReducer, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { Activity, AlertTriangle, ChevronUp, Inbox, Redo2, Square, Undo2, X } from 'lucide-react';
@@ -228,8 +229,8 @@ export function StatusBar({
 
   return (
     <>
-    {(runNoticeOpen || searchNoticeOpen) && (
-      <div className="status-notice-stack" data-testid="status-notice-stack">
+    <div className="status-notice-stack" data-testid="status-notice-stack">
+        <FeedProgressNotice />
         {run && runNoticeOpen && (
           <ActionProgressNotice
             run={run}
@@ -271,7 +272,6 @@ export function StatusBar({
           />
         )}
       </div>
-    )}
     <footer className="status-bar">
       <div className="status-left" data-testid="run-progress">
         {run ? (

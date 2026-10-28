@@ -79,6 +79,7 @@ def build_plan(
     requirement_dict: Callable[..., dict[str, Any]],
     intersect_visible_rows: bool = False,
     source_cells: frozenset[tuple[int, int]] | None = None,
+    include_transcription: bool = True,
 ) -> dict[str, Any]:
     columns = [
         column
@@ -203,6 +204,8 @@ def build_plan(
                     continue
                 kind = "ocr"
             elif mime.startswith("audio/") or mime.startswith("video/"):
+                if not include_transcription:
+                    continue
                 kind = "transcribe"
             if kind is None:
                 continue

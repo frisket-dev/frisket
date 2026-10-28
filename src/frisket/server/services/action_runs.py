@@ -889,7 +889,12 @@ class ActionRunService:
         project = self._workspace.get(project_id)
         now = datetime.now(UTC)
         jobs = []
-        for kind in (RUN_PROJECT_KIND, ACTION_RUN_KIND, IMPORT_TABLE_STREAM_KIND):
+        for kind in (
+            RUN_PROJECT_KIND,
+            ACTION_RUN_KIND,
+            IMPORT_TABLE_STREAM_KIND,
+            "source.poll",
+        ):
             jobs.extend(
                 self._workspace.queue.list_project_jobs(
                     project_id,
@@ -967,7 +972,12 @@ class ActionRunService:
         if (
             job is None
             or job.kind
-            not in {RUN_PROJECT_KIND, ACTION_RUN_KIND, IMPORT_TABLE_STREAM_KIND}
+            not in {
+                RUN_PROJECT_KIND,
+                ACTION_RUN_KIND,
+                IMPORT_TABLE_STREAM_KIND,
+                "source.poll",
+            }
             or job_project_id(job) != project_id
             or (
                 self._storage_org_id() is not None
@@ -991,7 +1001,7 @@ class ActionRunService:
         job = self._workspace.queue.get(job_id)
         if (
             job is None
-            or job.kind != ACTION_RUN_KIND
+            or job.kind not in {ACTION_RUN_KIND, "source.poll"}
             or job_project_id(job) != project_id
             or (
                 self._storage_org_id() is not None
@@ -1008,7 +1018,11 @@ class ActionRunService:
         # once claimed, they finish rather than leaving a cancelled queue row
         # beside committed Project state. Row actions use project.run's ordinary
         # cancellation and claim machinery, including installed actions.
-        cancelled = self._workspace.queue.cancel_queued(job_id)
+        cancelled = (
+            self._workspace.queue.cancel(job_id)
+            if job.kind == "source.poll"
+            else self._workspace.queue.cancel_queued(job_id)
+        )
         if not cancelled:
             refreshed = self._workspace.queue.get(job_id)
             if refreshed is not None and refreshed.status == "running":
@@ -1027,7 +1041,7 @@ class ActionRunService:
             "project_id": project_id,
             "job_id": job_id,
             "status": "cancelled",
-            "kind": ACTION_RUN_KIND,
+            "kind": job.kind,
             "action_kind": job.action_kind,
             "receipt_id": job.receipt_id,
             "queue_cancelled": True,

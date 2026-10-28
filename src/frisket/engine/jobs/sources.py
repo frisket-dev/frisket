@@ -2,8 +2,8 @@
 
 ``source.poll`` is the worker-owned version of a source check/scheduled poll:
 it reopens the project bundle, checks the source is still enabled, and runs the
-public typed ``source.poll`` action. Job ids stay internal, and
-sources/source_runs remain the public monitoring surface.
+public typed ``source.poll`` action. Manual imports also use this worker,
+with progress exposed through the ordinary Jobs surface.
 """
 
 import hashlib
@@ -106,6 +106,34 @@ def register_source_poll_handler(
                     "reason": f"unsupported_kind:{src['kind']}",
                 }
             identity = _source_poll_job_identity(queue, payload)
+            from frisket.engine.executor.action_inventory import ExecutorDeps
+
+            def cancelled():
+                if queue is None or _context.job_id is None:
+                    return False
+                job = queue.get(_context.job_id)
+                return (
+                    job is None
+                    or job.status != "running"
+                    or job.attempts != _context.job_attempt
+                )
+
+            def progress(completed, total):
+                if cancelled():
+                    raise RuntimeError("Feed import cancelled")
+                if queue is not None and _context.job_id is not None:
+                    queue.report_progress(
+                        _context.job_id,
+                        _context.job_attempt,
+                        {
+                            "completed_items": completed,
+                            "total_items": total,
+                            "sheet_id": src.get("sheet_id"),
+                            "source_name": src["name"],
+                        },
+                    )
+
+            progress(0, src["config"].get("max_items_per_poll"))
             result = run_action_spec(
                 project,
                 _source_poll_action(
@@ -115,6 +143,9 @@ def register_source_poll_handler(
                 ),
                 project_id=project_id,
                 rss_fetcher=fetch,
+                deps=ExecutorDeps(
+                    source_poll_progress=progress, source_poll_cancelled=cancelled
+                ),
             )
             if result.status != "completed":
                 _emit_source_health_notification(

@@ -6,12 +6,13 @@ describe('the source definition shared by import and editing', () => {
     ['rss', 'https://example.test/feed', { merge_strategy: 'append-new' }],
     ['youtube_playlist', 'https://youtube.com/playlist?list=123', { schema_version: 'frisket.source.youtube.v1', playlist_url: 'https://youtube.com/playlist?list=123', max_pages_per_poll: 2, max_items_per_poll: 3 }],
     ['youtube_channel', '@example', { schema_version: 'frisket.source.youtube.v1', channel_url: '@example', max_pages_per_poll: 2, max_items_per_poll: 3 }],
+    ['tiktok_profile', '@example', { profile_url: '@example', max_items_per_poll: 3 }],
     ['api_list_dicts', 'https://example.test/api', { schema_version: 'frisket.source.api_list_dicts.v1', method: 'GET', url: 'https://example.test/api', list_path: '/items', item_id_path: '/id', updated_at_path: '/updated', schema_policy: 'additive', max_items: 4 }],
     ['courtlistener_docket', '123', { schema_version: 'frisket.source.courtlistener_docket.v1', docket_id: 123, keywords: ['injunction', 'settlement'], include_parties: false, include_documents: true, recap_pdf_policy: 'link_only', max_entries_per_poll: 5 }],
   ])('round trips %s config through create/edit without changing fields', (kind, url, config) => {
     const created = buildSourceInput({ ...emptySourceDefinition(''), name: ' Records ', kind, url,
       apiListPath: '/items', apiItemIdPath: '/id', apiUpdatedAtPath: '/updated', apiMaxItems: '4',
-      youtubeMaxPages: '2', youtubeMaxItems: '3', courtKeywords: 'injunction, settlement',
+      youtubeMaxPages: '2', mediaMaxItems: '3', courtKeywords: 'injunction, settlement',
       courtIncludeParties: false, courtMaxEntries: '5' });
     expect(created.config).toEqual(config);
     expect(created.schedule).toBeNull();

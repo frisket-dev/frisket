@@ -745,7 +745,7 @@ function useNativeColumnGroups(
           const label =
             typeof run?.spec?.group_label === 'string' && run.spec.group_label.trim()
               ? run.spec.group_label.trim()
-              : run?.actionKind || group.fallbackLabel;
+              : run?.actionName || group.fallbackLabel;
           if (label === group.fallbackLabel) {
             retryLabel();
             return;

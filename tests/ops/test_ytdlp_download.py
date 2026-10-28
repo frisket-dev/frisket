@@ -417,7 +417,7 @@ def test_cancel_aware_wait_returns_normally_when_the_child_finishes():
     assert proc.returncode == 0
 
 
-def test_media_download_serializes_only_when_a_proxy_is_configured(monkeypatch):
+def test_media_download_limits_desktop_and_preserves_proxy_policy(monkeypatch):
     from frisket.engine.executor.media_download import download_max_concurrency
 
     monkeypatch.delenv("FRISKET_MEDIA_PROXY_MAX_CONCURRENCY", raising=False)
@@ -425,7 +425,7 @@ def test_media_download_serializes_only_when_a_proxy_is_configured(monkeypatch):
     import frisket.ops.media_proxy as media_proxy_mod
 
     monkeypatch.setattr(media_proxy_mod, "resolve_media_proxy", lambda: None)
-    assert download_max_concurrency() is None
+    assert download_max_concurrency() == 2
 
     monkeypatch.setattr(
         media_proxy_mod, "resolve_media_proxy", lambda: "socks5h://127.0.0.1:1080"

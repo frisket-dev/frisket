@@ -130,12 +130,14 @@ def test_project_settings_round_trip_typed_retrieval_policy(tmp_path) -> None:
         },
         "audio_enabled": False,
         "prepare_new_files_automatically": True,
+        "transcribe_new_files_automatically": False,
     }
 
     updated = client.patch(
         f"/api/projects/{pid}/settings",
         json={
             "retrieval": {
+                "transcribe_new_files_automatically": True,
                 "text_enabled": False,
                 "audio_enabled": True,
                 "video": {
@@ -149,6 +151,7 @@ def test_project_settings_round_trip_typed_retrieval_policy(tmp_path) -> None:
     )
     assert updated.status_code == 200, updated.text
     retrieval = updated.json()["retrieval"]
+    assert retrieval["transcribe_new_files_automatically"] is True
     assert retrieval["text_enabled"] is False
     assert retrieval["transcript_enabled"] is True
     assert retrieval["audio_enabled"] is True
