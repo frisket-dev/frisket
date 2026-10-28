@@ -199,14 +199,18 @@ describe('preview grid interactions', () => {
     });
   });
 
-  it('labels only the authoritative document text group neutrally', async () => {
+  it.each([
+    ['map.summarize', 'Summarize', {}, 'Summarize'],
+    ['media.transcribe', 'Transcribe', {}, 'Transcribe'],
+    ['media.transcribe', 'Transcribe', { group_label: 'Interview transcript' }, 'Interview transcript'],
+  ])('labels document text neutrally and %s with its public title or explicit label', async (actionKind, actionName, spec, expectedLabel) => {
     const ordinaryRun: ColumnRun = {
       runId: '43',
-      actionKind: 'map.summarize',
-      actionName: 'Summarize',
+      actionKind,
+      actionName,
       model: 'local',
       status: 'completed',
-      spec: {},
+      spec,
       totalRows: 2,
       completedRows: 2,
       failedRows: 0,
@@ -247,8 +251,8 @@ describe('preview grid interactions', () => {
       columns: [
         columnDef({ id: 'text', name: 'Text', ai: aiMeta(), latestRunId: '42' }),
         columnDef({ id: 'blocks', name: 'Search positions', ai: aiMeta(), latestRunId: '42' }),
-        columnDef({ id: 'summary', name: 'Summary', ai: aiMeta(), latestRunId: '43' }),
-        columnDef({ id: 'summary-confidence', name: 'summary_confidence', ai: aiMeta(), latestRunId: '43' }),
+        columnDef({ id: 'summary', name: 'Summary', ai: aiMeta({ actionName: 'AI run' }), latestRunId: '43' }),
+        columnDef({ id: 'summary-confidence', name: 'summary_confidence', ai: aiMeta({ actionName: 'AI run' }), latestRunId: '43' }),
       ],
     };
     await act(async () => {
@@ -266,7 +270,7 @@ describe('preview grid interactions', () => {
     await waitFor(() => expect(getColumnRuns).toHaveBeenCalledTimes(1));
     expect(getColumnRuns).toHaveBeenCalledWith('summary');
     await waitFor(() => expect(editor.props!.getGroupDetails?.(ordinaryGroup)).toMatchObject({
-      name: 'map.summarize',
+      name: expectedLabel,
     }));
     expect(editor.props!.getGroupDetails?.(documentGroup)).toMatchObject({
       name: 'Document text',
