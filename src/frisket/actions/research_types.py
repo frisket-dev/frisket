@@ -32,10 +32,6 @@ class Researcher(Protocol):
         self, row: Row, *, goal: str, context: dict[str, Any]
     ) -> ResearchAnswer: ...
 
-    async def quick_search(
-        self, row: Row, *, query: str, max_results: int
-    ) -> QuickSearchAnswer: ...
-
     async def extract(
         self,
         row: Row,
@@ -46,6 +42,12 @@ class Researcher(Protocol):
         include_confidence: bool = False,
         include_sources: bool = True,
     ) -> DynamicOutput: ...
+
+
+class SearchAnswerer(Protocol):
+    async def quick_search(
+        self, row: Row, *, query: str, max_results: int
+    ) -> QuickSearchAnswer: ...
 
 
 class WebSearcher(Protocol):

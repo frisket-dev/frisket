@@ -56,25 +56,20 @@ class GatedCapabilityRule:
 # of the contract registry, so a new action declaring unsafe:local_code is
 # gated the day it lands with no list for anyone to remember to update.
 #
-# Why the second rule is a PAIR and not bare ``external:web_search``:
-# ``research.web_search`` also declares ``external:web_search`` and is NOT
-# gated today (a bounded, caller-directed query). What distinguishes
-# ``research.answer`` is that it declares model completion AND live web
-# access on the same action — i.e. the MODEL chooses what to fetch. That
-# conjunction is the property the flag actually gates; widening the rule to
-# bare ``external:web_search`` would newly refuse research.web_search, and
-# widening it to ``external:*`` would newly refuse geocoding, Census
-# enrichment, API calls, media downloads, page capture, source polling and
-# Google Sheets export. Neither widening has been sanctioned.
+# Model-directed research can both search and fetch pages. A fixed Quick Search
+# also uses a model to summarize its snippets, but never opens pages or chooses
+# follow-up queries, so model completion + search alone does not imply an agent.
 CODE_RECIPE_GATED_CAPABILITY_RULES: tuple[GatedCapabilityRule, ...] = (
     GatedCapabilityRule(
         capabilities=frozenset({"unsafe:local_code"}),
         phrase="the unsafe:local_code capability (un-sandboxed local code execution)",
     ),
     GatedCapabilityRule(
-        capabilities=frozenset({"model:complete", "external:web_search"}),
+        capabilities=frozenset(
+            {"model:complete", "external:web_search", "external:http_fetch"}
+        ),
         phrase=(
-            "the model:complete + external:web_search capabilities "
+            "the model:complete + external:web_search + external:http_fetch capabilities "
             "(a model-directed web agent loop)"
         ),
     ),

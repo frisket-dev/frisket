@@ -39,10 +39,13 @@ SUPPORT_COLUMN_SUFFIXES = (
 PRIMARY_OUTPUT_ROLES = {
     "media.ocr": frozenset({"text"}),
     "research.answer": frozenset({"answer"}),
+    "research.web_search": frozenset({"answer"}),
 }
 SUPPORT_OUTPUT_ROLES = {
     "media.ocr": frozenset({"blocks", "pdf"}),
     "research.answer": frozenset({"sources"}),
+    "research.extract": frozenset({"sources"}),
+    "research.web_search": frozenset({"search_results"}),
 }
 
 

@@ -368,6 +368,7 @@ _QUEUED_PROJECT_RUN_KINDS: frozenset[str] = frozenset(
         "media.video_frames",
         "media.ytdlp_download",
         "research.answer",
+        "research.extract",
         "research.web_search",
     }
 )

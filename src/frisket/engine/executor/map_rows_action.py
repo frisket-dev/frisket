@@ -33,7 +33,7 @@ from frisket.actions.cluster_types import ValueClusterer
 from frisket.actions.classify_types import Classifier
 from frisket.actions.ner_types import NerExtractor
 from frisket.actions.translate_types import Translator
-from frisket.actions.research_types import Researcher, WebSearcher
+from frisket.actions.research_types import Researcher, SearchAnswerer, WebSearcher
 from frisket.actions.mcp_types import McpExtractor
 from frisket.actions.opencorporates_types import OpenCorporates
 from frisket.actions.core import (
@@ -187,7 +187,7 @@ def _capability_engine(terminal, params: BaseModel, capability: type) -> str | N
 def _model_backed_terminal(terminal) -> bool:
     return isinstance(terminal, ModelRows) or any(
         cap in getattr(terminal, "capabilities", ())
-        for cap in (Researcher, McpExtractor)
+        for cap in (Researcher, SearchAnswerer, McpExtractor)
     )
 
 
@@ -330,6 +330,7 @@ class _TypedMapRowsProgram(Recipe):
                 Transcriber,
                 NerExtractor,
                 Researcher,
+                SearchAnswerer,
                 McpExtractor,
                 *self._file_capabilities,
             )
@@ -623,8 +624,8 @@ class _TypedMapRowsProgram(Recipe):
                         options=resolved_engine_options(self._terminal, self._params)
                         or {},
                     )
-                elif capability in (Researcher, McpExtractor):
-                    if capability is Researcher:
+                elif capability in (Researcher, SearchAnswerer, McpExtractor):
+                    if capability in (Researcher, SearchAnswerer):
                         from frisket.engine.executor.research_read import (
                             AdmittedResearcher,
                         )
@@ -968,6 +969,7 @@ class _TypedMapRowsProgram(Recipe):
                     NerExtractor,
                     Translator,
                     Researcher,
+                    SearchAnswerer,
                     WebSearcher,
                     McpExtractor,
                 )
@@ -2477,7 +2479,7 @@ def _typed_map_rows_plan(
             spec["evaluation_context"] = evaluation_context.payload()
     agent_capabilities = any(
         cap in getattr(action.definition.run, "capabilities", ())
-        for cap in (Researcher, McpExtractor)
+        for cap in (Researcher, SearchAnswerer, McpExtractor)
     )
     if agent_capabilities:
         models = [
@@ -3280,7 +3282,7 @@ def _typed_receipt(
         )
     if any(
         capability in getattr(plan.action.definition.run, "capabilities", ())
-        for capability in (Researcher, WebSearcher)
+        for capability in (Researcher, SearchAnswerer, WebSearcher)
     ):
         from frisket.engine.executor.web_search_read import search_provider_use
         from frisket.engine.store.receipts import ReceiptStore

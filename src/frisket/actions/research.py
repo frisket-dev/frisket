@@ -3,7 +3,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from frisket.actions.core import ActionCategory, action, map_rows
-from frisket.actions.research_types import Researcher, SearchResult
+from frisket.actions.research_types import SearchAnswerer, SearchResult
 from frisket.actions.types import ActionParams, ModelRef, Row, RowResult, Template
 
 
@@ -21,7 +21,7 @@ class WebSearchOutput(BaseModel):
 async def web_search(
     params: WebSearchParams,
     row: Row,
-    researcher: Researcher,
+    researcher: SearchAnswerer,
 ) -> RowResult[WebSearchOutput]:
     query = params.query.render(row)
     if not query.strip():

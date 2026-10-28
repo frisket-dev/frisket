@@ -27,7 +27,12 @@ RECEIPT_SCHEMA_VERSION = "frisket.action_eval_receipt.v1"
 REGISTRY_SCHEMA_VERSION = "frisket.action_registry.v1"
 
 LOCAL_SPEC_KEYS = {"sheet_id", "row_ids", "confirmed", "overwrite"}
-UNSAFE_ACTION_KINDS = {"map.python", "map.mcp_extract", "research.answer"}
+UNSAFE_ACTION_KINDS = {
+    "map.python",
+    "map.mcp_extract",
+    "research.answer",
+    "research.extract",
+}
 ARTIFACT_TOP_LEVEL_KEYS = {
     "schema_version",
     "artifact_id",
