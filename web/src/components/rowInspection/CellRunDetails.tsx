@@ -1,3 +1,4 @@
+import { isResearchAction } from '../research/researchAction';
 import '../PanelPrimitives.css';
 import './CellRunDetails.css';
 import '../RowDrawer.css';
@@ -186,7 +187,7 @@ function ExplainTraceRow({ evidence, onResearchDetails }: {
 }) {
   const trace = evidence.trace;
   const rec = trace?.row ?? null;
-  const research = (trace?.actionKind ?? evidence.run?.actionKind) === 'research.answer';
+  const research = isResearchAction(trace?.actionKind ?? evidence.run?.actionKind);
   const researchEntry = research && <>
     <ResearchActivitySummary evidence={evidence} />
     <Button onClick={onResearchDetails}>Research details</Button>

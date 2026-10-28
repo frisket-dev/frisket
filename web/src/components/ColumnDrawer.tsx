@@ -54,9 +54,7 @@ const LOCAL_RUN_KINDS = new Set([
   'map.regex_extract',
   'map.template',
   'map.python',
-  'research.web_search',
   'regex_extract',
-  'web_search',
 ]);
 
 const COLUMN_RUN_HISTORY_PAGE_SIZE = 20;

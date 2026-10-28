@@ -152,3 +152,19 @@ export function McpExtractParamsBody({ params, setParams, errors, Field,
     <Field name="context" />
   </>;
 }
+
+export function ResearchExtractParamsBody({ params, setParams, errors, Field,
+  structureLocked, lockReason }:
+  GeneratedActionParamsBodyProps<'research.extract'>) {
+  return <>
+    <Field name="source" />
+    <Field name="question" />
+    <ExtractFieldsEditor fields={params.fields ?? []}
+      structureLocked={structureLocked} lockReason={lockReason}
+      onChange={(fields) => setParams({ ...params, fields })} />
+    {errors.fields?.message && <p className="panel-error" role="alert">{errors.fields.message}</p>}
+    <Field name="model" />
+    <Field name="include_confidence" />
+    <Field name="include_sources" />
+  </>;
+}

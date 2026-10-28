@@ -207,6 +207,7 @@ export function compatibleSourceColumns(
 
 const GENERATED_PROMPTS: Record<string, string> = {
   'research.answer': 'Research this row and report what you find. Cite the sources you used.',
+  'research.extract': 'Research this row and fill in the requested fields using the sources you find.',
 };
 
 function titleizeLauncherActionName(name: string): string {
@@ -590,7 +591,8 @@ export const ACTION_PLACEMENTS: Partial<Record<string, ActionPlacement>> = {
   'frisket.transliterate.transliterate': { tab: 'transform', group: 'LANGUAGE', order: 1 },
   'research.web_search': { tab: 'research', group: 'RESEARCH', order: 0, primary: true },
   'research.answer': { tab: 'research', group: 'RESEARCH', order: 1 },
-  'map.api_call': { tab: 'research', group: 'RESEARCH', order: 2 },
+  'research.extract': { tab: 'research', group: 'RESEARCH', order: 2 },
+  'map.api_call': { tab: 'research', group: 'RESEARCH', order: 3 },
   'enrich.geocode': { tab: 'research', group: 'LOCATION', order: 0, primary: true },
   'enrich.census_demographics': { tab: 'research', group: 'LOCATION', order: 1 },
   'map.to_geo_point': { tab: 'research', group: 'LOCATION', order: 2 },
@@ -600,7 +602,8 @@ export const ACTION_PLACEMENTS: Partial<Record<string, ActionPlacement>> = {
  * presentation metadata only: canonical Params and request construction stay
  * entirely catalog/host driven. */
 const ACTION_SEARCH_KEYWORDS: Partial<Record<string, string[]>> = {
-  'research.web_search': ['web search'],
+  'research.web_search': ['web search', 'quick answer'],
+  'research.extract': ['structured research', 'agent research', 'research fields'],
   'map.formula': ['formula', 'excel', 'calculate', 'arithmetic', 'calculated column'],
   'resolve.substitute': ['substitute', 'recode', 'map values', 'lookup', 'resolve', 'clean'],
   'resolve.replace': ['replace', 'rules', 'find and replace', 'regex', 'resolve', 'clean'],

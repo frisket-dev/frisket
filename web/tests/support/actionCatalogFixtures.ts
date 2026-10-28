@@ -29,7 +29,7 @@ export function syntheticActionCatalogEntry(
   overrides: Partial<ActionCatalogEntry> = {},
 ): ActionCatalogEntry {
   if (['web.capture_page', 'cluster.values', 'map.classify', 'map.extract', 'map.ner',
-    'map.translate', 'map.mcp_extract', 'map.find', 'research.answer',
+    'map.translate', 'map.mcp_extract', 'map.find', 'research.answer', 'research.extract', 'research.web_search',
     'reduce.group_summary', 'derive.table_from_list'].includes(kind)) {
     const entry = servedActionCatalog().actions.find((item) => item.kind === kind);
     if (!entry) throw new Error(`Missing served action ${kind}`);
@@ -301,39 +301,6 @@ export function syntheticActionCatalogEntry(
           },
         ],
         logical_outputs: [{ key: 'geo_point', column_type: 'geo_point' }],
-      },
-    };
-  } else if (kind === 'research.web_search') {
-    generated = {
-      title: 'Quick search',
-      input_schema: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['query'],
-        properties: {
-          query: { type: 'object', title: 'Query', additionalProperties: false,
-            required: ['text'], properties: { text: { type: 'string' } } },
-          max_results: { type: 'integer', default: 10, minimum: 1, maximum: 20 },
-        },
-      },
-      output_schema: {
-        type: 'object',
-        properties: { search_results: { type: 'array' } },
-      },
-      cost_policy: { kind: 'external_metered', requires_confirmation: true },
-      ui_hints: {
-        form: 'generated',
-        category: 'sources',
-        semantic_controls: { query: 'template' },
-        source_requirements: [{
-          id: 'query',
-          mode: 'template',
-          param: 'query',
-          label: 'Query',
-          min: 0,
-          template_columns: 'union',
-        }],
-        logical_outputs: [{ key: 'search_results', column_type: 'json' }],
       },
     };
   } else if (kind === 'map.columns_from_json') {
