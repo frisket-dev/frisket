@@ -399,3 +399,36 @@ def test_desktop_upgrade_keeps_existing_project_secrets_key(tmp_path, monkeypatc
         )
 
     assert not (profile_dir / "secrets" / "master.key").exists()
+
+
+def test_desktop_main_preserves_startup_error_reason_without_credentials(
+    monkeypatch, capsys
+):
+    from frisket.server import desktop
+
+    payload = json.dumps(
+        {
+            "schema": 2,
+            "workspace": "/workspace",
+            "profile_dir": "/profile",
+            "token": TOKEN,
+        }
+    ).encode()
+    monkeypatch.setattr(
+        desktop.sys, "stdin", SimpleNamespace(buffer=io.BytesIO(payload))
+    )
+    monkeypatch.setattr(desktop.sys, "argv", ["desktop-server"])
+
+    def fail(*_args, **_kwargs):
+        raise ImportError(
+            f"DLL load failed: dependency missing; api_key=private; {TOKEN}"
+        )
+
+    monkeypatch.setattr(desktop, "_serve", fail)
+    assert desktop.main() == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "ImportError" in captured.err
+    assert "DLL load failed" in captured.err
+    assert "private" not in captured.err
+    assert TOKEN not in captured.err

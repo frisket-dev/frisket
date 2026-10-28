@@ -1,10 +1,11 @@
 import { randomBytes } from 'node:crypto';
 import { spawn as nodeSpawn } from 'node:child_process';
 import path from 'node:path';
+import { setupOutput } from './startup-diagnostics.mjs';
 import { CleanupError } from './errors.mjs';
 import { spawnWindowsOwned, requestWindowsStop } from './windows-owned.mjs';
 
-const READY_TIMEOUT_MS = 20_000;
+const READY_TIMEOUT_MS = 120_000;
 const STOP_TIMEOUT_MS = 10_000;
 const OUTPUT_LIMIT = 8_192;
 
@@ -53,22 +54,24 @@ export function healthUrl(host, port) {
  * Start the private backend under the bundled guardian. The startup deadline
  * covers readiness and authenticated health, and every failed attempt awaits
  * the guardian's cleanup acknowledgement before a caller can retry.
- * @param {{ runtime: PreparedRuntime, resourcesPath: string, workspace: string, profileDir: string, electronPid?: number, spawnProcess?: typeof nodeSpawn, fetchImpl?: typeof fetch, onFailure?: (error: Error) => void, readyTimeoutMs?: number, stopTimeoutMs?: number }} options
+ * @param {{ runtime: PreparedRuntime, resourcesPath: string, workspace: string, profileDir: string, electronPid?: number, spawnProcess?: typeof nodeSpawn, fetchImpl?: typeof fetch, onFailure?: (error: Error) => void, onActivity?: (message: string) => void, signal?: AbortSignal, readyTimeoutMs?: number, stopTimeoutMs?: number }} options
  * @returns {Promise<DesktopBackend>}
  */
 export async function startBackend(options) {
   const {
     runtime, resourcesPath, workspace, profileDir, electronPid = process.pid,
     spawnProcess = nodeSpawn, fetchImpl = globalThis.fetch,
-    onFailure = () => {}, readyTimeoutMs = READY_TIMEOUT_MS, stopTimeoutMs = STOP_TIMEOUT_MS,
+    onFailure = () => {}, onActivity = () => {}, signal, readyTimeoutMs = READY_TIMEOUT_MS, stopTimeoutMs = STOP_TIMEOUT_MS,
   } = options;
   if (!runtime || !path.isAbsolute(runtime.python) || !runtime.env || !path.isAbsolute(resourcesPath) || !path.isAbsolute(workspace) || !path.isAbsolute(profileDir)) {
     throw new Error('invalid desktop backend configuration');
   }
   if (typeof fetchImpl !== 'function') throw new Error('desktop health check is unavailable');
+  if (signal?.aborted) throw new DOMException('Desktop startup was cancelled.', 'AbortError');
   const guard = path.join(resourcesPath, 'python', 'frisket', 'runtime', '_guard.py');
   const bootstrap = path.join(resourcesPath, 'python', 'frisket', 'runtime', '_bootstrap.py');
   const token = randomBytes(32).toString('hex');
+  onActivity('Starting the local server…');
   const child = process.platform === 'win32'
     ? await spawnWindowsOwned(runtime.python, ['-I', bootstrap, 'desktop-server'], {
       resourcesPath, parentPid: electronPid, env: runtime.env, stdio: ['pipe', 'pipe', 'pipe'],
@@ -77,6 +80,7 @@ export async function startBackend(options) {
     '-I', guard, String(electronPid), '8', runtime.python, '-I', bootstrap, 'desktop-server',
   ], { detached: true, env: runtime.env, stdio: ['pipe', 'pipe', 'pipe'] });
   const deadline = Date.now() + readyTimeoutMs;
+  const slowTimer = setTimeout(() => onActivity('The local server is still starting; waiting for its ready signal…'), 20_000).unref();
 
   let stopped = false;
   let started = false;
@@ -131,7 +135,14 @@ export async function startBackend(options) {
     })();
     return stopPromise;
   };
-  child.stderr?.on('data', (chunk) => { stderr = appendBounded(stderr, chunk); });
+  const startupOutput = setupOutput(line => {
+    if (!started && line.startsWith('frisket-startup: ')) onActivity(line.slice('frisket-startup: '.length));
+  });
+  child.stderr?.setEncoding?.('utf8');
+  child.stderr?.on('data', (chunk) => {
+    stderr = appendBounded(stderr, chunk);
+    if (!started) startupOutput.write(chunk);
+  });
   child.stdout?.on('data', (chunk) => {
     stdoutBytes += Buffer.byteLength(chunk);
     if (stdoutBytes > OUTPUT_LIMIT) return fail('Desktop backend sent too much readiness output.');
@@ -147,18 +158,31 @@ export async function startBackend(options) {
   });
   child.once('error', () => fail('Desktop backend could not be started.'));
   child.stdin?.once?.('error', () => fail('Desktop backend could not receive its startup configuration.'));
+  let rejectCancellation;
+  const cancellation = new Promise((_, reject) => { rejectCancellation = reject; });
+  const cancel = () => rejectCancellation(new DOMException('Desktop startup was cancelled.', 'AbortError'));
+  signal?.addEventListener('abort', cancel, { once: true });
+  if (signal?.aborted) cancel();
   try {
     child.stdin?.end(startupMessage(workspace, profileDir, token));
-    const announced = await within(readiness, remaining(deadline), new Error('Desktop backend did not become ready in time.'));
+    const announced = await within(Promise.race([readiness, cancellation]), remaining(deadline), new Error(`The local server did not send its ready signal within ${readyTimeoutMs / 1000} seconds. Setup downloads have finished.`));
+    clearTimeout(slowTimer);
     if (lifecycleError || closeOutcome || observedOutcome(child)) throw lifecycleError || new Error('Desktop backend exited before health verification.');
-    const healthSignal = timeoutSignal(remaining(deadline));
-    await within(verifyHealth(announced.host, announced.port, token, fetchImpl, healthSignal), remaining(deadline), new Error('Desktop backend health check timed out.'));
+    onActivity('Local server ready; checking its health…');
+    const timeout = timeoutSignal(remaining(deadline));
+    const healthSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
+    await within(Promise.race([verifyHealth(announced.host, announced.port, token, fetchImpl, healthSignal), cancellation]), remaining(deadline), new Error('Desktop backend health check timed out.'));
     if (lifecycleError || closeOutcome || observedOutcome(child)) throw lifecycleError || new Error('Desktop backend exited before health verification.');
+    onActivity('Local server health check passed.');
     started = true;
     return { host: announced.host, port: announced.port, pid: announced.pid, token, stop };
   } catch (error) {
     try { await stop(); } catch (cleanup) { throw cleanup; }
+    if (stderr.trim()) onActivity(redact(stderr.trim(), token));
     throw error instanceof Error ? error : new Error('Desktop backend failed to start.');
+  } finally {
+    clearTimeout(slowTimer);
+    signal?.removeEventListener('abort', cancel);
   }
 }
 

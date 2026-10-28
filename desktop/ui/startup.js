@@ -34,3 +34,24 @@ window.updateStartup = ({ phase = 'runtime', message } = {}) => {
 };
 
 window.updateStartup();
+
+const activity = document.querySelector('#activity');
+const elapsed = document.querySelector('#elapsed');
+const log = document.querySelector('#setup-log');
+const startedAt = Date.now();
+let lastActivityAt = startedAt;
+const lines = [];
+window.updateStartupActivity = (line) => {
+  lastActivityAt = Date.now();
+  activity.textContent = line.replace(/^\[[^\]]+\] /, '');
+  lines.push(line);
+  if (lines.length > 40) lines.shift();
+  log.textContent = lines.join('\n');
+  log.scrollTop = log.scrollHeight;
+};
+setInterval(() => {
+  if (document.body.dataset.ready === 'true') return;
+  const seconds = Math.floor((Date.now() - startedAt) / 1000);
+  const quiet = Math.floor((Date.now() - lastActivityAt) / 1000);
+  elapsed.textContent = `${Math.floor(seconds / 60)}m ${seconds % 60}s elapsed` + (quiet >= 10 ? ` · No new output for ${quiet}s` : '');
+}, 1000);

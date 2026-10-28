@@ -172,6 +172,7 @@ def _request_worker_stop(process: subprocess.Popen | None) -> None:
 
 def _serve(config: DesktopLaunchConfig, *, ready_stdout: TextIO) -> int:
     """Compose the Solo ASGI app, local worker, and owned loopback socket."""
+    print("frisket-startup: Loading server components…", file=sys.stderr, flush=True)
     import uvicorn
 
     from frisket.ai.llm.pricing_refresh import start_pricing_refresh
@@ -204,11 +205,19 @@ def _serve(config: DesktopLaunchConfig, *, ready_stdout: TextIO) -> int:
         from frisket.runtime.model_server import LocalModelServer
 
         model_server = LocalModelServer()
+        print(
+            "frisket-startup: Opening workspace databases…", file=sys.stderr, flush=True
+        )
         app = create_app(
             workspace, static_dir=static_dir, cloud_profile_dir=profile_dir
         )
         app.state.standalone_runtime = state
         gated_app = DesktopTokenGate(app, config.token)
+        print(
+            "frisket-startup: Starting background services…",
+            file=sys.stderr,
+            flush=True,
+        )
         worker = spawn_service(
             worker_argv("cli-worker", str(workspace)),
             stdin=subprocess.DEVNULL,
@@ -258,6 +267,11 @@ def _serve(config: DesktopLaunchConfig, *, ready_stdout: TextIO) -> int:
 
         watcher = threading.Thread(target=watch_worker, daemon=True)
         watcher.start()
+        print(
+            "frisket-startup: Starting the local HTTP server…",
+            file=sys.stderr,
+            flush=True,
+        )
         server.run(sockets=[sock])
         return 1 if state.worker_exited_unexpectedly else 0
     finally:
@@ -297,8 +311,11 @@ def main() -> int:
     except DesktopLaunchError as exc:
         print(f"desktop server: {exc}", file=sys.stderr)
         return 1
-    except Exception:  # noqa: BLE001 - desktop protocol intentionally reveals no details
-        print("desktop server: failed to start", file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001 - report startup failures to the owning app
+        from frisket.redaction import safe_error
+
+        error = safe_error("desktop_startup_failed", exc, secret_values=(config.token,))
+        print(f"{error.exception_type}: {error.text}", file=sys.stderr)
         return 1
     finally:
         sys.stdout = ready_stdout

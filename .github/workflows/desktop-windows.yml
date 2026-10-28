@@ -93,6 +93,8 @@ jobs:
           }
           "FRISKET_DESKTOP_APP=$app" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "FRISKET_DESKTOP_PROFILE=$env:RUNNER_TEMP\frisket-desktop-profile" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: First launch with an empty profile and cache (no Retry)
+        run: node desktop/scripts/check-cold-start.mjs
       - name: Prepare download caches (networked setup)
         run: node desktop/scripts/prewarm.mjs
       - name: Installed app and native engines (no new external connections)
@@ -320,6 +322,8 @@ jobs:
           if ($installedBuild.revision -ne $env:GITHUB_SHA) { throw 'Installed application revision does not match this dispatch.' }
           "FRISKET_DESKTOP_APP=$app" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "FRISKET_DESKTOP_PROFILE=$env:RUNNER_TEMP\frisket-desktop-profile" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: First launch with an empty profile and cache (no Retry)
+        run: node desktop/scripts/check-cold-start.mjs
       - name: Prepare download caches (networked setup)
         run: node desktop/scripts/prewarm.mjs
       - name: Installed signed app and native engines (no new external connections)
