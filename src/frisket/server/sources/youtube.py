@@ -22,6 +22,7 @@ from frisket.server.sources.media_metadata import (
     redact_provider_message as _redact_provider_message,
     redact_warning as _redact_warning,
 )
+from frisket.server.sources.progress import listing_progress_options
 from frisket.server.sources.runtime import (
     SourcePollContext,
     SourcePollItem,
@@ -121,6 +122,7 @@ class YouTubePlaylistPoller:
         provider: Callable[..., YouTubePlaylistListing] | None = None,
     ) -> None:
         self._provider = provider or list_youtube_playlist_with_ytdlp
+        self._uses_default_provider = provider is None
 
     def validate_config(self, source: dict[str, Any]) -> str | None:
         _config, error = _resolve_playlist_config(source)
@@ -138,6 +140,11 @@ class YouTubePlaylistPoller:
                 playlist_id=config.playlist_id,
                 max_pages=config.max_pages_per_poll,
                 item_cap=config.item_cap,
+                **(
+                    {"on_progress": ctx.on_progress, "should_cancel": ctx.should_cancel}
+                    if self._uses_default_provider
+                    else {}
+                ),
             )
         except Exception as exc:  # noqa: BLE001 - source.poll records provider errors
             raise YouTubeProviderError(
@@ -257,6 +264,7 @@ class YouTubeChannelPoller:
         provider: Callable[..., YouTubeChannelListing] | None = None,
     ) -> None:
         self._provider = provider or list_youtube_channel_with_ytdlp
+        self._uses_default_provider = provider is None
 
     def validate_config(self, source: dict[str, Any]) -> str | None:
         _config, error = _resolve_channel_config(source)
@@ -275,6 +283,11 @@ class YouTubeChannelPoller:
                 channel_handle=config.channel_handle,
                 max_pages=config.max_pages_per_poll,
                 item_cap=config.item_cap,
+                **(
+                    {"on_progress": ctx.on_progress, "should_cancel": ctx.should_cancel}
+                    if self._uses_default_provider
+                    else {}
+                ),
             )
         except Exception as exc:  # noqa: BLE001 - source.poll records provider errors
             raise YouTubeProviderError(
@@ -395,6 +408,8 @@ def list_youtube_playlist_with_ytdlp(
     playlist_id: str,
     max_pages: int | None,
     item_cap: int | None,
+    on_progress=None,
+    should_cancel=None,
 ) -> YouTubePlaylistListing:
     """List playlist entries with yt-dlp metadata extraction only."""
     try:
@@ -414,6 +429,7 @@ def list_youtube_playlist_with_ytdlp(
         "quiet": True,
         "skip_download": True,
     }
+    opts.update(listing_progress_options(on_progress, should_cancel, bounded_cap))
     if bounded_cap is not None:
         opts["playlistend"] = bounded_cap
     try:
@@ -472,6 +488,8 @@ def list_youtube_channel_with_ytdlp(
     channel_handle: str | None,
     max_pages: int | None,
     item_cap: int | None,
+    on_progress=None,
+    should_cancel=None,
 ) -> YouTubeChannelListing:
     """List channel uploads with yt-dlp metadata extraction only."""
     try:
@@ -495,6 +513,7 @@ def list_youtube_channel_with_ytdlp(
         "quiet": True,
         "skip_download": True,
     }
+    opts.update(listing_progress_options(on_progress, should_cancel, bounded_cap))
     if bounded_cap is not None:
         opts["playlistend"] = bounded_cap
     try:

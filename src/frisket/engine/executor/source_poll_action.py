@@ -63,10 +63,19 @@ class _PollRefused(Exception):
 
 
 class _SourcePoller:
-    def __init__(self, project: Project, action: _TypedProjectEnvelope, fetcher: Any):
+    def __init__(
+        self,
+        project: Project,
+        action: _TypedProjectEnvelope,
+        fetcher: Any,
+        on_progress=None,
+        should_cancel=None,
+    ):
         self._project = project
         self._action = action
         self._fetcher = fetcher
+        self._on_progress = on_progress
+        self._should_cancel = should_cancel
         self._called = False
         self.resolved: dict[str, Any] | None = None
 
@@ -77,7 +86,12 @@ class _SourcePoller:
         source = TypeAdapter(SourcePollSelector).validate_python(source)
         ensure_rss_poller()
         resolved = _resolve_and_poll_source(
-            self._project, self._action, source, rss_fetcher=self._fetcher
+            self._project,
+            self._action,
+            source,
+            rss_fetcher=self._fetcher,
+            on_progress=self._on_progress,
+            should_cancel=self._should_cancel,
         )
         if isinstance(resolved, ActionError):
             raise _PollRefused(resolved)
@@ -100,6 +114,8 @@ def run_typed_source_poll_action(
     bound: BoundTypedActionRequest,
     *,
     rss_fetcher: Any = None,
+    on_progress=None,
+    should_cancel=None,
 ) -> ActionResult:
     terminal = bound.action.definition.run
     if not supports_typed_source_poll_action(terminal):
@@ -111,7 +127,9 @@ def run_typed_source_poll_action(
     )
 
     def resolve(project_: Project, params: Any) -> Any:
-        capability = _SourcePoller(project_, envelope, rss_fetcher)
+        capability = _SourcePoller(
+            project_, envelope, rss_fetcher, on_progress, should_cancel
+        )
         try:
             returned = terminal.handler(params, capability)
             if capability.resolved is None or not isinstance(returned, PolledSource):
@@ -173,6 +191,8 @@ def _resolve_and_poll_source(
     source: SourcePollSelector,
     *,
     rss_fetcher: Any | None,
+    on_progress=None,
+    should_cancel=None,
 ) -> dict[str, Any] | ActionError:
     """The source.poll pre-txn resolve (`plain_resolve_fn`): resolve/create the source,
     select the poller, validate config, then run the whole-source `poller.poll(...)` network
@@ -223,8 +243,12 @@ def _resolve_and_poll_source(
             SourcePollContext(
                 source=source_for_poller,
                 cursor_before=cursor_before_text,
+                on_progress=on_progress,
+                should_cancel=should_cancel,
             )
         )
+        if should_cancel and should_cancel():
+            raise RuntimeError("Feed import cancelled")
         if not isinstance(candidate, SourcePollResult):
             raise TypeError("poller returned a non-SourcePollResult value")
         poll_result = copy.deepcopy(candidate)

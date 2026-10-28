@@ -81,6 +81,9 @@ JOB_RESULT_SUMMARY_KEYS_BY_KIND = {
         "receipt_id",
     ),
     SOURCE_POLL_KIND: (
+        "completed_items",
+        "total_items",
+        "source_name",
         "skipped",
         "reason",
         "action_kind",

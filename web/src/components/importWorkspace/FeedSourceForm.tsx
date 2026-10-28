@@ -115,7 +115,7 @@ export function FeedSourceForm({
   onError(message: string): void;
   onCancel(): void;
 }) {
-  const { projectApi: api, chromePreferences: { projectId } } = useWorkspaceStores();
+  const { projectApi: api, job, chromePreferences: { projectId } } = useWorkspaceStores();
   const [state, setState] = useState(() => ({
     ...emptySourceDefinition(''), busy: false, error: null as string | null,
   }));
@@ -187,6 +187,7 @@ export function FeedSourceForm({
       // The exact fetch a Sources-panel "Poll now" click makes
       // (SourcesPanel.tsx's fetchNow -> sourceApi.fetchSource).
       const result = await api.fetchSource(populate.source.id);
+      void job.refresh();
       if (result.sheetId != null) onImported(result.sheetId);
       onCreated?.();
     } catch (e) {
@@ -235,7 +236,7 @@ export function FeedSourceForm({
             onClick={() => void runPopulate()}
           >
             <RefreshCw size={13} className={populate.busy ? 'spin' : undefined} />
-            {populate.busy ? 'Running...' : 'Run'}
+            {populate.busy ? 'Starting...' : 'Import'}
           </Button>
       </PanelFooter>
       </PanelFrame>

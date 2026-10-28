@@ -224,7 +224,7 @@ interface ProjectSourcesActionSession {
   ): Record<string, unknown>;
   withV1ActionResult<T>(
     spec: Record<string, unknown>,
-    handler: (result: { outputs?: Array<{ kind: string; ref?: unknown }> }) => T | Promise<T>,
+    handler: (result: { status?: string; job_id?: number; outputs?: Array<{ kind: string; sheet_id?: number; ref?: unknown }> }) => T | Promise<T>,
     options?: { clearIdempotency?: 'finally' },
   ): Promise<T>;
 }
@@ -765,4 +765,23 @@ describe("project-source generated HTTP reads", () => {
     expect(health.source).not.toHaveProperty("cursor");
   });
 
+});
+
+
+it("returns a queued feed's empty destination without waiting for its rows", async () => {
+  const module = await projectSourcesModule();
+  expect(module).toBeDefined();
+  if (!module) return;
+  const session: ProjectSourcesActionSession = {
+    registeredProjectActionSpec: (action_id, params) => ({ action_id, params }),
+    v1ActionSpec: () => ({}),
+    withV1ActionResult: async (_spec, handler) => handler({
+      status: 'queued', job_id: 42, outputs: [{ kind: 'sheet', sheet_id: 3 }],
+    }),
+  };
+  const api = module.createProjectSourcesApi({
+    errorFactory: (status, payload) => new MappedContractError(status, payload),
+    v1ActionSession: session,
+  }, 'feed');
+  await expect(api.fetchSource(7)).resolves.toMatchObject({ jobId: 42, sheetId: 3, runId: null, newRows: 0 });
 });

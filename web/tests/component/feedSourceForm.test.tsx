@@ -5,8 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FeedSourceForm } from '../../src/components/importWorkspace/FeedSourceForm';
 
 const api = vi.hoisted(() => ({ createSource: vi.fn(), fetchSource: vi.fn() }));
+const refresh = vi.hoisted(() => vi.fn());
 vi.mock('../../src/bind/useWorkspaceStores', () => ({
-  useWorkspaceStores: () => ({ projectApi: api, chromePreferences: { projectId: 'feed-test' } }),
+  useWorkspaceStores: () => ({ projectApi: api, job: { refresh }, chromePreferences: { projectId: 'feed-test' } }),
 }));
 vi.mock('../../src/telemetry/productTelemetry', async (original) => ({
   ...await original<typeof import('../../src/telemetry/productTelemetry')>(),

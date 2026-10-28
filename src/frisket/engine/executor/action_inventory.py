@@ -140,6 +140,8 @@ class ExecutorDeps:
     # authenticated user; None retains local installation-owned coverage.
     consent_coverage: ConsentCoverage | None = None
     rss_fetcher: Any | None = None
+    source_poll_progress: Callable[[int, int | None], None] | None = None
+    source_poll_cancelled: Callable[[], bool] | None = None
     enclosure_fetcher: Any | None = None
     url_capture_fetcher: Any | None = None
     url_capture_browser: Any | None = None

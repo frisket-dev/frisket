@@ -76,6 +76,7 @@ COOPERATIVELY_CANCELLABLE_RUNNING_KINDS = frozenset(
         IMPORT_FILES_PAGE_KIND,
         IMPORT_TABLE_STREAM_KIND,
         PDF_SPLIT_APPLY_KIND,
+        "source.poll",
     }
 )
 
@@ -551,6 +552,10 @@ class JobQueue(ABC):
     ) -> bool:
         """Extend the lease on a job this worker holds. False = lost it
         (lease expired and someone recovered the job) — abandon the work."""
+
+    def report_progress(self, job_id: int, attempt: int, progress: dict) -> bool:
+        """Update nonterminal progress only for the currently claimed attempt."""
+        raise NotImplementedError
 
     @abstractmethod
     def complete(self, job_id: int, worker_id: str, result: dict | None = None) -> bool:
@@ -1407,6 +1412,20 @@ class SqlAlchemyJobQueue(JobQueue):
                 )
             )
         return res.rowcount > 0
+
+    def report_progress(self, job_id, attempt, progress):
+        c = jobs_table.c
+        with self._write_transaction() as cx:
+            result = cx.execute(
+                jobs_table.update()
+                .where(
+                    c.id == job_id,
+                    c.attempts == attempt,
+                    c.status == "running",
+                )
+                .values(result=json.dumps(progress))
+            )
+        return result.rowcount > 0
 
     def complete(self, job_id, worker_id, result=None):
         c = jobs_table.c

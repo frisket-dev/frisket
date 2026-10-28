@@ -11,12 +11,15 @@ import hashlib
 import json
 from dataclasses import dataclass, field
 from typing import Any, Protocol
+from collections.abc import Callable
 
 
 @dataclass(frozen=True)
 class SourcePollContext:
     source: dict[str, Any]
     cursor_before: str | None
+    on_progress: Callable[[int, int | None], None] | None = None
+    should_cancel: Callable[[], bool] | None = None
 
 
 @dataclass(frozen=True)

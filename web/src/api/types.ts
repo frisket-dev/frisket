@@ -4053,7 +4053,8 @@ export interface SourceInput {
 
 /** Outcome of a manual "Fetch now". */
 export interface SourceFetchResult {
-  runId: number;
+  jobId?: number;
+  runId: number | null;
   newRows: number;
   revisions: number;
   skippedRows: number;

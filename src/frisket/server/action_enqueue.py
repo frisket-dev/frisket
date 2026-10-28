@@ -781,6 +781,17 @@ def queue_v1_action_run(
             action_kind=kind,
             error=_typed_plan_error(kind, exc),
         )
+    if kind == "source.poll":
+        from frisket.server.source_enqueue import queue_source_poll
+
+        try:
+            return queue_source_poll(project, project_id, dict(action_body), ctx)
+        except (KeyError, TypeError, ValueError) as exc:
+            return _failed_result(
+                project_id=project_id,
+                action_kind=kind,
+                error=ActionError(code="source_poll_invalid", message=str(exc)),
+            )
     if installed is not None:
         from frisket.actions.core import CreateSheet
 

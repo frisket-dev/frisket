@@ -396,6 +396,12 @@ export function createProjectSourcesApi({
         'source.poll', { source: sourceId },
       );
       return v1ActionSession.withV1ActionResult(spec, (out) => {
+        if (out.status === 'queued' && out.job_id != null) {
+          const sheet = out.outputs?.find((output) => output.kind === 'sheet')?.sheet_id;
+          if (sheet == null) throw new ApiError(500, 'Queued source poll did not return its sheet');
+          return { jobId: out.job_id, sheetId: sheet, runId: null,
+            newRows: 0, revisions: 0, skippedRows: 0, changedRows: 0, warningCount: 0 };
+        }
         const sourceRun = (out.outputs ?? []).find((candidate) => (
           candidate.kind === 'source_run' && isRecord(candidate.ref)
         ))?.ref;

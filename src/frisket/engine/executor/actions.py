@@ -434,6 +434,8 @@ def _executor_deps_with_defaults(
         router=router if router is not None else base.router,
         execution_composition=execution_composition,
         rss_fetcher=rss_fetcher if rss_fetcher is not None else base.rss_fetcher,
+        source_poll_progress=base.source_poll_progress,
+        source_poll_cancelled=base.source_poll_cancelled,
         enclosure_fetcher=(
             enclosure_fetcher
             if enclosure_fetcher is not None
@@ -688,6 +690,8 @@ def run_action_spec(
                 project,
                 project_id,
                 typed,
+                on_progress=deps.source_poll_progress if deps else None,
+                should_cancel=deps.source_poll_cancelled if deps else None,
                 rss_fetcher=rss_fetcher
                 if rss_fetcher is not None
                 else (deps.rss_fetcher if deps is not None else None),
