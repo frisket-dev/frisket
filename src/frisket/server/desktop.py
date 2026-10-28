@@ -311,8 +311,11 @@ def main() -> int:
     except DesktopLaunchError as exc:
         print(f"desktop server: {exc}", file=sys.stderr)
         return 1
-    except Exception:  # noqa: BLE001 - desktop protocol intentionally reveals no details
-        print("desktop server: failed to start", file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001 - report startup failures to the owning app
+        from frisket.redaction import safe_error
+
+        error = safe_error("desktop_startup_failed", exc, secret_values=(config.token,))
+        print(f"{error.exception_type}: {error.text}", file=sys.stderr)
         return 1
     finally:
         sys.stdout = ready_stdout
