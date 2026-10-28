@@ -1076,9 +1076,10 @@ class _TypedMapRowsProgram(Recipe):
             call.get("kind") == "research_answer" and call.get("unverified_memory")
             for call in calls
         ):
-            answer = publication.cells.get(self._output_names["answer"])
-            if answer is not None and answer.get("error") is None:
-                answer["outcome"] = "unverified_memory"
+            for key, name in self._output_names.items():
+                cell = publication.cells.get(name)
+                if key != "sources" and cell is not None and cell.get("error") is None:
+                    cell["outcome"] = "unverified_memory"
         for binding in self._capability_bindings.get() or ():
             accounting = getattr(binding, "accounting_by_row", {}).get(row_id)
             if accounting is not None:
@@ -1484,11 +1485,17 @@ class _TypedAgentRowsProgram(_TypedMapRowsProgram):
         from frisket.actions.row_research import source_values
         from frisket.ai.message_content import render_input_block
 
+        from frisket.actions.research import WebSearchParams
+
         row = Row(row_values)
-        content = render_input_block(source_values(row, self._params.source))
-        if Researcher in self._terminal.capabilities:
+        if isinstance(self._params, WebSearchParams):
+            content = []
+            instruction = self._params.query.render(row)
+        elif Researcher in self._terminal.capabilities:
+            content = render_input_block(source_values(row, self._params.source))
             instruction = self._params.question.render(row)
         else:
+            content = render_input_block(source_values(row, self._params.source))
             instruction = self._params.instruction or "Extract the requested fields."
             if self._params.context:
                 instruction = (
