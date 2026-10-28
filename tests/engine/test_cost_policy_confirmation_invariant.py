@@ -478,7 +478,7 @@ def test_registered_metered_actions_publish_and_wire_the_request_confirmation(
     from frisket.actions.file_types import FileFetcher
     from frisket.actions.media_download_types import MediaDownloader
     from frisket.actions.mcp_types import McpExtractor
-    from frisket.actions.research_types import Researcher
+    from frisket.actions.research_types import Researcher, SearchAnswerer
     from frisket.actions.find_types import FindScanner
     from frisket.actions.group_summary_types import GroupSummarizer
     from frisket.actions.types import ActionRequest, RunBackfiller, SheetRefresher
@@ -563,7 +563,7 @@ def test_registered_metered_actions_publish_and_wire_the_request_confirmation(
         )
         agent = any(
             capability in getattr(terminal, "capabilities", ())
-            for capability in (McpExtractor, Researcher)
+            for capability in (McpExtractor, Researcher, SearchAnswerer)
         )
         assert (
             isinstance(terminal, ModelRows)
@@ -698,6 +698,8 @@ def test_unpriceable_actions_route_their_gate_to_an_explicit_consent():
     to a confirmation field their Params schema rejects.
     """
     from frisket.engine.runner.validation import CostGate
+    from frisket.actions.mcp_types import McpExtractor
+    from frisket.actions.research_types import Researcher, SearchAnswerer
     from frisket.actions.registry import ACTION_REGISTRY
     from frisket.actions.system import BoundTypedActionRequest
     from frisket.actions.types import ActionRequest
@@ -712,6 +714,9 @@ def test_unpriceable_actions_route_their_gate_to_an_explicit_consent():
         "map.api_call",
         "media.fetch_url",
         "media.ytdlp_download",
+        "research.answer",
+        "research.extract",
+        "research.web_search",
     }
 
     for kind, registered in sorted(typed_unpriceable.items()):
@@ -730,7 +735,10 @@ def test_unpriceable_actions_route_their_gate_to_an_explicit_consent():
         error = spec.cost_gate_error_fn(action, CostGate(None))
         assert error.code == (
             "model_cost_requires_confirmation"
-            if kind in {"map.mcp_extract", "research.answer"}
+            if any(
+                capability in registered.definition.run.capabilities
+                for capability in (McpExtractor, Researcher, SearchAnswerer)
+            )
             else "external_cost_requires_confirmation"
         ), kind
         assert error.field == "confirmation", kind
