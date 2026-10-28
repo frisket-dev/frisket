@@ -14,6 +14,7 @@ export type KnownSourceKind =
   | 'rss'
   | 'youtube_playlist'
   | 'youtube_channel'
+  | 'tiktok_profile'
   | 'api_list_dicts'
   | 'courtlistener_docket';
 
@@ -40,6 +41,12 @@ export const SOURCE_KINDS: Array<{
     label: 'YouTube channel',
     urlLabel: 'Channel URL, ID, or @handle',
     placeholder: 'https://www.youtube.com/@example',
+  },
+  {
+    value: 'tiktok_profile',
+    label: 'TikTok profile',
+    urlLabel: 'Profile URL or @handle',
+    placeholder: 'https://www.tiktok.com/@example',
   },
   {
     value: 'api_list_dicts',
@@ -69,7 +76,7 @@ export interface SourceDefinitionDraft {
   apiUpdatedAtPath: string;
   apiMaxItems: string;
   youtubeMaxPages: string;
-  youtubeMaxItems: string;
+  mediaMaxItems: string;
   courtKeywords: string;
   courtIncludeParties: boolean;
   courtIncludeDocuments: boolean;
@@ -91,7 +98,7 @@ export const emptySourceDefinition = (cadence: SourceInterval): SourceDefinition
   apiUpdatedAtPath: '',
   apiMaxItems: '',
   youtubeMaxPages: '',
-  youtubeMaxItems: '',
+  mediaMaxItems: '',
   courtKeywords: '',
   courtIncludeParties: true,
   courtIncludeDocuments: true,
@@ -170,7 +177,7 @@ export function sourceToForm(source: SourceInfo): SourceFormState {
     ? config.keywords.filter((item): item is string => typeof item === 'string').join(', ')
     : '';
   const sourceRef = source.url
-    ?? configString(config, ['playlist_id', 'playlist_url', 'channel_handle', 'channel_id', 'channel_url', 'docket_url', 'docket_id', 'url']);
+    ?? configString(config, ['playlist_id', 'playlist_url', 'channel_handle', 'channel_id', 'channel_url', 'profile_url', 'docket_url', 'docket_id', 'url']);
   const visibleRef = kind === 'rss' && urlHasSensitiveParts(sourceRef) ? '' : (sourceRef ?? '');
   return {
     ...emptyForm(),
@@ -185,7 +192,7 @@ export function sourceToForm(source: SourceInfo): SourceFormState {
     apiUpdatedAtPath: configString(config, ['updated_at_path']),
     apiMaxItems: configNumber(config, 'max_items'),
     youtubeMaxPages: configNumber(config, 'max_pages_per_poll'),
-    youtubeMaxItems: configNumber(config, 'max_items_per_poll'),
+    mediaMaxItems: configNumber(config, 'max_items_per_poll'),
     courtKeywords: keywords,
     courtIncludeParties: configBoolean(config, 'include_parties', true),
     courtIncludeDocuments: configBoolean(config, 'include_documents', true),
@@ -261,7 +268,7 @@ export function buildSourceInput(form: SourceDefinitionDraft): SourceInput {
         playlist_url: url,
       };
       const maxPages = optionalPositiveInt(form.youtubeMaxPages, 'Max pages');
-      const maxItems = optionalPositiveInt(form.youtubeMaxItems, 'Max items');
+      const maxItems = optionalPositiveInt(form.mediaMaxItems, 'Max items');
       if (maxPages !== undefined) config.max_pages_per_poll = maxPages;
       if (maxItems !== undefined) config.max_items_per_poll = maxItems;
       return { ...base, config };
@@ -272,8 +279,14 @@ export function buildSourceInput(form: SourceDefinitionDraft): SourceInput {
         channel_url: url,
       };
       const maxPages = optionalPositiveInt(form.youtubeMaxPages, 'Max pages');
-      const maxItems = optionalPositiveInt(form.youtubeMaxItems, 'Max items');
+      const maxItems = optionalPositiveInt(form.mediaMaxItems, 'Max items');
       if (maxPages !== undefined) config.max_pages_per_poll = maxPages;
+      if (maxItems !== undefined) config.max_items_per_poll = maxItems;
+      return { ...base, config };
+    }
+    case 'tiktok_profile': {
+      const config: Record<string, unknown> = { profile_url: url };
+      const maxItems = optionalPositiveInt(form.mediaMaxItems, 'Max items');
       if (maxItems !== undefined) config.max_items_per_poll = maxItems;
       return { ...base, config };
     }
@@ -324,6 +337,8 @@ export function sourceConfigSummary(source: SourceInfo): string {
       return `playlist ${configString(config, ['playlist_id', 'playlist_url']) || redactedUrl(source.url) || ''}`.trim();
     case 'youtube_channel':
       return `channel ${configString(config, ['channel_handle', 'channel_id', 'channel_url']) || redactedUrl(source.url) || ''}`.trim();
+    case 'tiktok_profile':
+      return `profile ${configString(config, ['profile_url']) || redactedUrl(source.url) || ''}`.trim();
     case 'api_list_dicts':
       return `list path ${configString(config, ['list_path']) || '/'}`;
     case 'courtlistener_docket': {

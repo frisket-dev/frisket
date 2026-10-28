@@ -12,10 +12,16 @@ import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from frisket.server.sources.media_metadata import (
+    entry_published_at as _entry_published_at,
+    thumbnail_url as _thumbnail_url,
+    string_value as _string_value,
+    redact_provider_message as _redact_provider_message,
+    redact_warning as _redact_warning,
+)
 from frisket.server.sources.runtime import (
     SourcePollContext,
     SourcePollItem,
@@ -53,10 +59,6 @@ _PLAYLIST_ID_RE = re.compile(r"^[A-Za-z0-9_-]{2,}$")
 _CHANNEL_ID_RE = re.compile(r"^UC[A-Za-z0-9_-]{6,}$")
 _CHANNEL_HANDLE_RE = re.compile(r"^@[A-Za-z0-9._-]{3,30}$")
 _VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{6,}$")
-_SENSITIVE_RE = re.compile(
-    r"(?i)(api[_-]?key|authorization|cookie|token|password|secret)"
-    r"(\s*[:=]\s*(?:bearer\s+)?)?[^\s,;]+"
-)
 
 
 class YouTubeProviderError(RuntimeError):
@@ -1006,63 +1008,6 @@ def _entry_unavailable(entry: dict[str, Any]) -> bool:
     )
 
 
-def _entry_published_at(entry: dict[str, Any]) -> str | None:
-    for key in ("timestamp", "release_timestamp", "modified_timestamp"):
-        value = entry.get(key)
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
-            return _iso_from_timestamp(float(value))
-    for key in ("upload_date", "release_date", "published_at", "timestamp"):
-        normalized = _date_or_iso(entry.get(key))
-        if normalized:
-            return normalized
-    return None
-
-
-def _date_or_iso(value: Any) -> str | None:
-    if not isinstance(value, str) or not value.strip():
-        return None
-    text = value.strip()
-    if re.fullmatch(r"\d{8}", text):
-        return (
-            datetime(
-                int(text[0:4]),
-                int(text[4:6]),
-                int(text[6:8]),
-                tzinfo=UTC,
-            )
-            .isoformat()
-            .replace("+00:00", "Z")
-        )
-    if "T" in text:
-        return text
-    return None
-
-
-def _iso_from_timestamp(value: float) -> str:
-    return datetime.fromtimestamp(value, tz=UTC).isoformat().replace("+00:00", "Z")
-
-
-def _thumbnail_url(entry: dict[str, Any]) -> str | None:
-    direct = _string_value(entry.get("thumbnail"))
-    if direct:
-        return direct
-    thumbnails = entry.get("thumbnails")
-    if isinstance(thumbnails, list):
-        for item in reversed(thumbnails):
-            if isinstance(item, dict):
-                url = _string_value(item.get("url"))
-                if url:
-                    return url
-    return None
-
-
-def _string_value(value: Any) -> str | None:
-    if isinstance(value, str):
-        stripped = value.strip()
-        return stripped or None
-    return None
-
-
 def _playlist_url(playlist_id: str) -> str:
     return f"https://www.youtube.com/playlist?list={playlist_id}"
 
@@ -1120,15 +1065,6 @@ def _hash_json(value: Any) -> str:
 
 def _text_hash(value: str) -> str:
     return "sha256:" + hashlib.sha256(value.encode("utf-8")).hexdigest()
-
-
-def _redact_provider_message(exc: BaseException) -> str:
-    message = str(exc) or exc.__class__.__name__
-    return _SENSITIVE_RE.sub(r"\1=<redacted>", message)
-
-
-def _redact_warning(warning: Any) -> str:
-    return _SENSITIVE_RE.sub(r"\1=<redacted>", str(warning))
 
 
 register_youtube_playlist_poller()

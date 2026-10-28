@@ -9,9 +9,9 @@ export function SourceConfigFields({ form, onChange }: {
 }) {
   return (
     <>
-      {(form.kind === 'youtube_playlist' || form.kind === 'youtube_channel') && (
+      {(form.kind === 'youtube_playlist' || form.kind === 'youtube_channel' || form.kind === 'tiktok_profile') && (
         <div className="sources-form-grid">
-          <FormField label="Max pages" >
+          {form.kind !== 'tiktok_profile' && <FormField label="Max pages" >
 
             <TextInput
               aria-label="YouTube max pages"
@@ -19,14 +19,14 @@ export function SourceConfigFields({ form, onChange }: {
               value={form.youtubeMaxPages}
               onChange={(e) => onChange({ youtubeMaxPages: e.target.value })}
             />
-          </FormField>
+          </FormField>}
           <FormField label="Max items" >
 
             <TextInput
-              aria-label="YouTube max items"
-              data-testid="source-youtube-max-items"
-              value={form.youtubeMaxItems}
-              onChange={(e) => onChange({ youtubeMaxItems: e.target.value })}
+              aria-label={form.kind === 'tiktok_profile' ? 'TikTok max items' : 'YouTube max items'}
+              data-testid={form.kind === 'tiktok_profile' ? 'source-tiktok-max-items' : 'source-youtube-max-items'}
+              value={form.mediaMaxItems}
+              onChange={(e) => onChange({ mediaMaxItems: e.target.value })}
             />
           </FormField>
         </div>

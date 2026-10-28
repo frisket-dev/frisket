@@ -18,6 +18,7 @@ import { buildSourceInput, emptySourceDefinition, INTERVALS, SOURCE_KINDS,
   selectedKind, sourceDefinitionError, sourceKindLabel, type KnownSourceKind as FeedSourceKind } from '../sources/sourceConfig';
 
 function telemetrySourceKind(kind: FeedSourceKind): SourceKind {
+  if (kind === 'tiktok_profile') return 'other';
   if (kind === 'api_list_dicts') return 'api';
   if (kind === 'courtlistener_docket') return 'courtlistener';
   return kind;
@@ -31,6 +32,7 @@ function feedKindIcon(kind: FeedSourceKind) {
   switch (kind) {
     case 'youtube_playlist':
     case 'youtube_channel':
+    case 'tiktok_profile':
       return <ListVideo size={14} aria-hidden />;
     case 'api_list_dicts':
       return <Globe2 size={14} aria-hidden />;
@@ -50,6 +52,7 @@ function detectFeedSourceKind(raw: string): FeedSourceKind {
     const parsed = new URL(value);
     const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
     const path = parsed.pathname.toLowerCase();
+    if (host === 'tiktok.com' || host === 'm.tiktok.com') return 'tiktok_profile';
     if (host === 'youtube.com' || host === 'youtu.be' || host.endsWith('.youtube.com')) {
       if (parsed.searchParams.has('list') || path.includes('/playlist')) return 'youtube_playlist';
       if (

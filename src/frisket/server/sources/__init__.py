@@ -24,6 +24,7 @@ from .courtlistener import (
     register_courtlistener_docket_poller,
 )
 from .rss import RSS_KIND, RssPoller, ensure_rss_poller, register_rss_poller
+from .tiktok import TIKTOK_PROFILE_KIND, TikTokProfilePoller
 from .youtube import (
     YOUTUBE_CHANNEL_KIND,
     YOUTUBE_PLAYLIST_KIND,
@@ -48,6 +49,8 @@ __all__ = [
     "CourtListenerDocketPoller",
     "RSS_KIND",
     "RssPoller",
+    "TIKTOK_PROFILE_KIND",
+    "TikTokProfilePoller",
     "YOUTUBE_CHANNEL_KIND",
     "YOUTUBE_PLAYLIST_KIND",
     "YouTubeChannelListing",
