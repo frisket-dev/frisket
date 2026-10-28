@@ -163,7 +163,7 @@ async function launch() {
   setStartupStatus({ phase: 'workspace', message: 'Opening your workspace…' });
   backend = await startBackend({
     runtime, resourcesPath: resourcesPath(), workspace, profileDir: dataPath,
-    onFailure: (error) => void recover(error), onActivity: setupActivity,
+    onFailure: (error) => void recover(error), onActivity: setupActivity, signal: provisioningController.signal,
   });
   if (quitting) {
     await stopBackend();

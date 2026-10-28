@@ -138,3 +138,23 @@ test('startup deadline reports that downloads finished and preserves failure out
     assert.equal(child.exitCode, 0);
   } finally { clearInterval(keepAlive); }
 });
+
+
+for (const phase of ['readiness', 'health']) {
+  test(`cancelling startup during ${phase} waits for child cleanup instead of its deadline`, { skip: process.platform === 'win32' }, async () => {
+    const controller = new AbortController();
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
+    child.stdin = { end() {} }; child.exitCode = null;
+    child.kill = () => { setTimeout(() => { child.exitCode = 0; child.emit('close', 0, null); }, 10); };
+    const started = startBackend({
+      runtime: { python: '/private/python', env: {} }, resourcesPath: '/app/resources', workspace: '/data/workspace', profileDir: '/data/profile', signal: controller.signal,
+      spawnProcess: () => child,
+      fetchImpl: async (_url, { signal }) => { controller.abort(); assert.equal(signal.aborted, true); return new Promise(() => {}); },
+    });
+    if (phase === 'readiness') controller.abort();
+    else child.stdout.emit('data', Buffer.from('{"schema":1,"type":"ready","host":"127.0.0.1","port":8123,"pid":9}\n'));
+    await assert.rejects(started, { name: 'AbortError' });
+    assert.equal(child.exitCode, 0);
+  });
+}

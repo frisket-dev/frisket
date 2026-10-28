@@ -4,7 +4,7 @@ import { access, readFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { installedExecutable } from '../e2e/installed-platform.mjs';
 
-const profile = process.env.FRISKET_DESKTOP_PROFILE;
+const profile = process.env.FRISKET_DESKTOP_PROFILE && `${process.env.FRISKET_DESKTOP_PROFILE}-cold-start`;
 const app = process.env.FRISKET_DESKTOP_APP;
 if (!profile || !path.isAbsolute(profile) || !app || !path.isAbsolute(app)) throw new Error('Absolute installed app and profile paths are required.');
 try {

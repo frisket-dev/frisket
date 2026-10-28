@@ -54,19 +54,20 @@ export function healthUrl(host, port) {
  * Start the private backend under the bundled guardian. The startup deadline
  * covers readiness and authenticated health, and every failed attempt awaits
  * the guardian's cleanup acknowledgement before a caller can retry.
- * @param {{ runtime: PreparedRuntime, resourcesPath: string, workspace: string, profileDir: string, electronPid?: number, spawnProcess?: typeof nodeSpawn, fetchImpl?: typeof fetch, onFailure?: (error: Error) => void, onActivity?: (message: string) => void, readyTimeoutMs?: number, stopTimeoutMs?: number }} options
+ * @param {{ runtime: PreparedRuntime, resourcesPath: string, workspace: string, profileDir: string, electronPid?: number, spawnProcess?: typeof nodeSpawn, fetchImpl?: typeof fetch, onFailure?: (error: Error) => void, onActivity?: (message: string) => void, signal?: AbortSignal, readyTimeoutMs?: number, stopTimeoutMs?: number }} options
  * @returns {Promise<DesktopBackend>}
  */
 export async function startBackend(options) {
   const {
     runtime, resourcesPath, workspace, profileDir, electronPid = process.pid,
     spawnProcess = nodeSpawn, fetchImpl = globalThis.fetch,
-    onFailure = () => {}, onActivity = () => {}, readyTimeoutMs = READY_TIMEOUT_MS, stopTimeoutMs = STOP_TIMEOUT_MS,
+    onFailure = () => {}, onActivity = () => {}, signal, readyTimeoutMs = READY_TIMEOUT_MS, stopTimeoutMs = STOP_TIMEOUT_MS,
   } = options;
   if (!runtime || !path.isAbsolute(runtime.python) || !runtime.env || !path.isAbsolute(resourcesPath) || !path.isAbsolute(workspace) || !path.isAbsolute(profileDir)) {
     throw new Error('invalid desktop backend configuration');
   }
   if (typeof fetchImpl !== 'function') throw new Error('desktop health check is unavailable');
+  if (signal?.aborted) throw new DOMException('Desktop startup was cancelled.', 'AbortError');
   const guard = path.join(resourcesPath, 'python', 'frisket', 'runtime', '_guard.py');
   const bootstrap = path.join(resourcesPath, 'python', 'frisket', 'runtime', '_bootstrap.py');
   const token = randomBytes(32).toString('hex');
@@ -157,13 +158,20 @@ export async function startBackend(options) {
   });
   child.once('error', () => fail('Desktop backend could not be started.'));
   child.stdin?.once?.('error', () => fail('Desktop backend could not receive its startup configuration.'));
+  let rejectCancellation;
+  const cancellation = new Promise((_, reject) => { rejectCancellation = reject; });
+  const cancel = () => rejectCancellation(new DOMException('Desktop startup was cancelled.', 'AbortError'));
+  signal?.addEventListener('abort', cancel, { once: true });
+  if (signal?.aborted) cancel();
   try {
     child.stdin?.end(startupMessage(workspace, profileDir, token));
-    const announced = await within(readiness, remaining(deadline), new Error(`The local server did not send its ready signal within ${readyTimeoutMs / 1000} seconds. Setup downloads have finished.`));
+    const announced = await within(Promise.race([readiness, cancellation]), remaining(deadline), new Error(`The local server did not send its ready signal within ${readyTimeoutMs / 1000} seconds. Setup downloads have finished.`));
+    clearTimeout(slowTimer);
     if (lifecycleError || closeOutcome || observedOutcome(child)) throw lifecycleError || new Error('Desktop backend exited before health verification.');
     onActivity('Local server ready; checking its health…');
-    const healthSignal = timeoutSignal(remaining(deadline));
-    await within(verifyHealth(announced.host, announced.port, token, fetchImpl, healthSignal), remaining(deadline), new Error('Desktop backend health check timed out.'));
+    const timeout = timeoutSignal(remaining(deadline));
+    const healthSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
+    await within(Promise.race([verifyHealth(announced.host, announced.port, token, fetchImpl, healthSignal), cancellation]), remaining(deadline), new Error('Desktop backend health check timed out.'));
     if (lifecycleError || closeOutcome || observedOutcome(child)) throw lifecycleError || new Error('Desktop backend exited before health verification.');
     onActivity('Local server health check passed.');
     started = true;
@@ -174,6 +182,7 @@ export async function startBackend(options) {
     throw error instanceof Error ? error : new Error('Desktop backend failed to start.');
   } finally {
     clearTimeout(slowTimer);
+    signal?.removeEventListener('abort', cancel);
   }
 }
 

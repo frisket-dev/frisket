@@ -205,13 +205,19 @@ def _serve(config: DesktopLaunchConfig, *, ready_stdout: TextIO) -> int:
         from frisket.runtime.model_server import LocalModelServer
 
         model_server = LocalModelServer()
-        print("frisket-startup: Opening workspace databases…", file=sys.stderr, flush=True)
+        print(
+            "frisket-startup: Opening workspace databases…", file=sys.stderr, flush=True
+        )
         app = create_app(
             workspace, static_dir=static_dir, cloud_profile_dir=profile_dir
         )
         app.state.standalone_runtime = state
         gated_app = DesktopTokenGate(app, config.token)
-        print("frisket-startup: Starting background services…", file=sys.stderr, flush=True)
+        print(
+            "frisket-startup: Starting background services…",
+            file=sys.stderr,
+            flush=True,
+        )
         worker = spawn_service(
             worker_argv("cli-worker", str(workspace)),
             stdin=subprocess.DEVNULL,
@@ -261,7 +267,11 @@ def _serve(config: DesktopLaunchConfig, *, ready_stdout: TextIO) -> int:
 
         watcher = threading.Thread(target=watch_worker, daemon=True)
         watcher.start()
-        print("frisket-startup: Starting the local HTTP server…", file=sys.stderr, flush=True)
+        print(
+            "frisket-startup: Starting the local HTTP server…",
+            file=sys.stderr,
+            flush=True,
+        )
         server.run(sockets=[sock])
         return 1 if state.worker_exited_unexpectedly else 0
     finally:
