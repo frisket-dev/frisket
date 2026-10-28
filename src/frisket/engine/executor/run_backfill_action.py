@@ -11,7 +11,7 @@ from typing import Any, Callable
 from frisket.actions.core import SemanticJoin, _ProjectAction
 from frisket.actions.python_types import PythonEvaluator
 from frisket.actions.http_types import HttpRequester
-from frisket.actions.research_types import Researcher, WebSearcher
+from frisket.actions.research_types import Researcher, SearchAnswerer, WebSearcher
 from frisket.actions.file_types import FileFetcher
 from frisket.actions.screenshot_types import Screenshotter
 from frisket.actions.row_media_types import FrameExtractor, FaceExtractor
@@ -235,6 +235,7 @@ def run_typed_backfill_action(
                 PythonEvaluator,
                 HttpRequester,
                 Researcher,
+                SearchAnswerer,
                 WebSearcher,
                 TopicSectionsReader,
                 PdfTablesReader,
