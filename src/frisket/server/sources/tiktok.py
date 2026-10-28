@@ -15,6 +15,7 @@ from .media_metadata import (
     string_value,
     thumbnail_url,
 )
+from .progress import listing_progress_options
 from .runtime import (
     SourcePollContext,
     SourcePollItem,
@@ -55,7 +56,13 @@ def _profile_config(source: dict[str, Any]) -> tuple[str, int | None]:
     return f"https://www.tiktok.com/{handle}", cap
 
 
-def list_tiktok_profile(profile_url: str, *, item_cap: int | None) -> dict[str, Any]:
+def list_tiktok_profile(
+    profile_url: str,
+    *,
+    item_cap: int | None,
+    on_progress: Callable[[int, int | None], None] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
+) -> dict[str, Any]:
     """Flat profile entries contain post metadata without fetching video bytes."""
     yt_dlp = importlib.import_module("yt_dlp")
     options = {
@@ -67,6 +74,7 @@ def list_tiktok_profile(profile_url: str, *, item_cap: int | None) -> dict[str, 
         "noprogress": True,
         "socket_timeout": 30,
     }
+    options.update(listing_progress_options(on_progress, should_cancel, item_cap))
     if item_cap is not None:
         options["playlistend"] = item_cap
     with yt_dlp.YoutubeDL(options) as ydl:
@@ -92,7 +100,12 @@ class TikTokProfilePoller:
     def poll(self, ctx: SourcePollContext) -> SourcePollResult:
         url, cap = _profile_config(ctx.source)
         try:
-            listing = self._provider(url, item_cap=cap)
+            progress = (
+                {"on_progress": ctx.on_progress, "should_cancel": ctx.should_cancel}
+                if self._provider is list_tiktok_profile
+                else {}
+            )
+            listing = self._provider(url, item_cap=cap, **progress)
             if not isinstance(listing, dict) or listing.get("entries") is None:
                 raise ValueError("TikTok did not return a profile listing")
             entries = list(islice(listing["entries"], cap))

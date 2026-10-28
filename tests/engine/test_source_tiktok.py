@@ -201,3 +201,45 @@ def test_poll_materializes_and_deduplicates_through_normal_source_host(tmp_path)
     finally:
         assert previous is not None
         register_source_poller(previous, replace=True)
+
+
+def test_flat_listing_reports_actual_item_progress_and_honors_stop(monkeypatch):
+    import yt_dlp
+
+    def extract_info(ydl, url, *, download):
+        # Exercise yt-dlp's real flat playlist processing with an offline listing.
+        return ydl.process_ie_result(
+            {
+                "_type": "playlist",
+                "id": "profile",
+                "title": "Example",
+                "extractor": "TikTokUser",
+                "extractor_key": "TikTokUser",
+                "webpage_url": url,
+                "entries": [
+                    {
+                        **entry(str(i)),
+                        "_type": "url",
+                        "ie_key": "TikTok",
+                        "url": f"https://www.tiktok.com/@example/video/{i}",
+                    }
+                    for i in range(100, 104)
+                ],
+            },
+            download=download,
+        )
+
+    monkeypatch.setattr(yt_dlp.YoutubeDL, "extract_info", extract_info)
+    progress = []
+    poller = TikTokProfilePoller()
+    result = poller.poll(
+        SourcePollContext(
+            source(max_items_per_poll=2),
+            None,
+            on_progress=lambda current, total: progress.append((current, total)),
+        )
+    )
+    assert progress == [(1, 2), (2, 2)]
+    assert len(result.items) == 2
+    with pytest.raises(RuntimeError, match="cancelled"):
+        poller.poll(SourcePollContext(source(), None, should_cancel=lambda: True))
