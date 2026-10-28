@@ -423,7 +423,6 @@ def test_cancelled_worker_settles_before_scope_closes(tmp_path, monkeypatch):
 
 
 def test_download_batch_uses_two_row_slots(tmp_path, monkeypatch):
-    import time
     from frisket.engine.executor.action_inventory import ExecutorDeps
     from frisket.engine.executor.actions import _default_map_runner_factory
 
@@ -436,6 +435,7 @@ def test_download_batch_uses_two_row_slots(tmp_path, monkeypatch):
 
     active = peak = calls = 0
     lock = threading.Lock()
+    pair = threading.Barrier(2)
 
     def download(url, **kwargs):
         nonlocal active, peak, calls
@@ -444,8 +444,8 @@ def test_download_batch_uses_two_row_slots(tmp_path, monkeypatch):
             calls += 1
             peak = max(peak, active)
         try:
-            # Leave transport work in flight while the runner admits other rows.
-            time.sleep(0.02)
+            # Both slots must be admitted before either transport completes.
+            pair.wait(timeout=5)
             return DownloadedMedia(b"video", "video/mp4", "clip.mp4")
         finally:
             with lock:
