@@ -252,10 +252,9 @@ path = "hatch_build.py"
 
 [tool.uv]
 exclude-newer = "1 week"
-# This matched release train is pinned above and landed inside the normal
-# one-week quarantine. Exact versions plus uv.lock hashes keep the exception
-# narrow while allowing the official Harness APIs this release introduces.
-exclude-newer-package = { pydantic-ai-harness = "2026-10-01", pydantic-ai-slim = "2026-10-01", pydantic-graph = "2026-10-01", genai-prices = "2026-10-01", indra-ocr = "2026-10-13", formualizer = "2026-10-26" }
+# Explicitly reviewed dependency refreshes may land inside the normal one-week
+# quarantine. Dated per-package exceptions and uv.lock hashes bound the refresh.
+exclude-newer-package = { pydantic-ai-harness = "2026-10-01", pydantic-ai-slim = "2026-10-01", pydantic-graph = "2026-10-01", genai-prices = "2026-10-01", indra-ocr = "2026-10-13", formualizer = "2026-10-26", yt-dlp = "2026-10-28" }
 
 [dependency-groups]
 dev = [
