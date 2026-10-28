@@ -452,6 +452,34 @@ def _drive_map_mcp_extract(
         project.close()
 
 
+@contextmanager
+def _drive_research_extract(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[tuple[Project, dict[str, Any], Callable[..., Any]]]:
+    from frisket.ai.llm import ModelRouter
+    from frisket.engine.executor import research_read
+
+    # Exercise the same real admission path as Agent Research, with dynamic
+    # typed outputs and the sources companion instead of its answer column.
+    with _harness_driver("research.answer", tmp_path, monkeypatch) as (
+        project,
+        action,
+        run,
+    ):
+        action["action_id"] = "research.extract"
+        action["params"]["fields"] = [{"name": "finding", "type": "text"}]
+        action["output_names"] = {"finding": "finding", "sources": "sources"}
+        action["idempotency_key"] = "research_extract@echo-closure"
+
+        async def never_called(*_args, **_kwargs):
+            pytest.fail("wrong-echo closure reached a research provider")
+
+        monkeypatch.setattr(ModelRouter, "complete", never_called)
+        monkeypatch.setattr(research_read._BoundResearcher, "_search", never_called)
+        monkeypatch.setattr(research_read, "fetch_page_result", never_called)
+        yield project, action, run
+
+
 def _model_rows_driver(kind: str) -> Driver:
     @contextmanager
     def drive(
@@ -903,6 +931,7 @@ def _geospatial_driver(kind: str) -> Driver:
 
 
 _BESPOKE_DRIVERS: dict[str, Driver] = {
+    "research.extract": _drive_research_extract,
     "enrich.geocode": _geospatial_driver("enrich.geocode"),
     "enrich.census_demographics": _geospatial_driver("enrich.census_demographics"),
     "map.ask": _model_rows_driver("map.ask"),
