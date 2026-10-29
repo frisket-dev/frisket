@@ -566,8 +566,12 @@ def _project_execution_composition_engines(
             if (
                 target_id == "models-gateway"
                 and not declared_gateway_fallback
-                and liveness_hint.get("available") is False
-            ):
+                or capability == "transcribe"
+                and engine_id == "faster_whisper"
+                and target_id == "local"
+            ) and liveness_hint.get("available") is False:
+                # The shared local target can be live for other engines while
+                # Whisper's optional runtime is still absent.
                 engine_error = liveness_hint.get("error")
                 return False, engine_error if isinstance(engine_error, str) else error
             return available, error
@@ -1229,8 +1233,7 @@ def _recipe_engines(
             None
             if parakeet_local_ok
             else (
-                "Install Frisket's standard tier in the environment that runs "
-                "the app (pip install 'frisket-data[standard]'), then restart Frisket."
+                "Download and set up the local Parakeet runtime and pinned models."
                 if not parakeet_runtime_ok
                 else "Download the pinned Parakeet + Silero models before "
                 "running local Parakeet transcription."
@@ -1266,10 +1269,7 @@ def _recipe_engines(
         faster_whisper_err = (
             None
             if faster_whisper_ok
-            else (
-                "Install Frisket's standard tier in the environment that runs "
-                "the app (pip install 'frisket-data[standard]'), then restart Frisket."
-            )
+            else "Download and set up the local Whisper runtime and base model."
         )
         faster_whisper_engine = _declared_engine(
             decl["faster_whisper"],
@@ -1294,7 +1294,10 @@ def _recipe_engines(
             per_target={MODELS_GATEWAY_TARGET_ID: {"models": turbo_models}},
         )
         from frisket.ai.models import artifact_manifest as _artifact_manifest
-        from frisket.engine.jobs.engine_setup import PARAKEET_TDT_SETUP_REF
+        from frisket.engine.jobs.engine_setup import (
+            FASTER_WHISPER_SETUP_REF,
+            PARAKEET_TDT_SETUP_REF,
+        )
 
         parakeet_downloadable = [
             {
@@ -1318,10 +1321,10 @@ def _recipe_engines(
         ]
         if parakeet_downloadable:
             parakeet_engine["downloadable_models"] = parakeet_downloadable
-            if parakeet_runtime_ok:
-                parakeet_engine["setup_ref"] = PARAKEET_TDT_SETUP_REF
+            parakeet_engine["setup_ref"] = PARAKEET_TDT_SETUP_REF
         whisper_entry = _artifact_manifest.whisper_base_artifact()
         if whisper_entry is not None and whisper_entry.hf_snapshot is not None:
+            faster_whisper_engine["setup_ref"] = FASTER_WHISPER_SETUP_REF
             faster_whisper_engine["downloadable_models"] = [
                 {
                     "ref": whisper_entry.ref,

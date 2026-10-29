@@ -69,6 +69,10 @@ def is_worker_argv(argv: list[str]) -> bool:
         from frisket.runtime.embeddinggemma_install import runtime_python
 
         interpreter = runtime_python()
+    elif argv[3] in {"parakeet-session", "parakeet-artifacts", "faster-whisper"}:
+        from frisket.runtime.speech_install import runtime_for_worker
+
+        interpreter = runtime_for_worker(argv[3]).executable
     return (
         Path(argv[0]) == interpreter
         and argv[1] == "-I"

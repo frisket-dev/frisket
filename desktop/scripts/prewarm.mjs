@@ -8,6 +8,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { startBackend } from '../src/backend.mjs';
 import { authenticatedHeaders } from '../src/protocol.mjs';
 import { prepareRuntime } from '../src/provision.mjs';
+import { checkSpeechActions } from './check-speech.mjs';
 import { installedResources } from '../e2e/installed-platform.mjs';
 
 const execFile = promisify(execFileCallback);
@@ -27,6 +28,10 @@ const runtime = await prepareRuntime({
   resourcesPath, dataPath,
   onProgress: ({ message }) => process.stdout.write(`${message}\n`),
 });
+const { stdout: initialLibraries } = await execFile(runtime.python, ['-I', '-c',
+  "import importlib.util; assert not any(importlib.util.find_spec(name) for name in ('faster_whisper', 'onnx_asr', 'av')); print('Initial runtime has no speech libraries.')",
+], { env: runtime.env, timeout: 30_000 });
+process.stdout.write(initialLibraries);
 if (stageModels) {
   const guard = path.join(resourcesPath, 'python', 'frisket', 'runtime', '_guard.py');
   const modelPrewarm = path.join(here, 'prewarm-models.py');
@@ -81,22 +86,18 @@ if (stageModels) {
     const request = async (endpoint, options = {}) => {
       const response = await fetch(`http://${backend.host}:${backend.port}${endpoint}`, {
         ...options,
-        headers: authenticatedHeaders({ 'Content-Type': 'application/json' }, backend.token),
+        headers: authenticatedHeaders(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }, backend.token),
         signal: AbortSignal.timeout(30_000),
       });
       if (!response.ok) throw new Error(`Engine preparation returned HTTP ${response.status}.`);
       return response.json();
     };
-    const { stdout: whisperRef } = await execFile(runtime.python, [
-      '-I', '-B', path.join(here, 'prewarm-models.py'),
-      path.join(resourcesPath, 'python'), '--whisper-ref',
-    ], { env: runtime.env, timeout: 30_000 });
     const setups = [
       ['Parakeet', '/api/providers/models/setup', {
         setup_ref: 'engine-setup:parakeet-tdt.local-onnx@1',
       }],
-      ['Whisper base', '/api/providers/models/pull', {
-        ref: whisperRef.trim(),
+      ['Whisper base', '/api/providers/models/setup', {
+        setup_ref: 'engine-setup:faster-whisper.local@1',
       }],
     ];
     if (stageBrowser) setups.push(['Chromium', '/api/providers/models/setup', {
@@ -118,6 +119,21 @@ if (stageModels) {
         pull = await request(`/api/providers/models/pulls/${pull.id}`);
       }
     }
+    const speech = path.join(dataPath, 'speech-setup-proof.wav');
+    await execFile(path.join(resourcesPath, 'bin', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'), [
+      '-hide_banner', '-loglevel', 'error', '-y', '-ss', '0', '-t', '12', '-i',
+      path.join(resourcesPath, 'python', 'frisket', 'sample_content', 'audio', 'ann-arbor-policy-committee-2022-04-19-excerpt.mp3'),
+      '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', speech,
+    ], { env: runtime.env, timeout: 30_000 });
+    await checkSpeechActions(request, speech);
+    await execFile(runtime.python, ['-I', '-c',
+      "import importlib.util; assert not any(importlib.util.find_spec(name) for name in ('faster_whisper', 'onnx_asr', 'av'))",
+    ], { env: runtime.env, timeout: 30_000 });
+    const { stdout: speechPython } = await execFile(runtime.python, ['-I', '-B', '-c',
+      "import sys; sys.path.insert(0, sys.argv[1]); from frisket.runtime.speech_install import runtime_python; print(runtime_python())",
+      path.join(resourcesPath, 'python'),
+    ], { env: runtime.env, timeout: 30_000 });
+    await writeFile(path.join(dataPath, '.frisket-prewarm-speech-python'), speechPython, { mode: 0o600 });
     if (stageBrowser) {
       const { stdout } = await execFile(runtime.python, [
         '-I', '-B', path.join(here, 'check-browser.py'),

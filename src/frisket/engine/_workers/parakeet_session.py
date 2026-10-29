@@ -13,6 +13,7 @@ from typing import Any, Callable
 from frisket.engine.sandbox import shim as sandbox_shim
 from frisket.engine.sandbox.shim import SandboxPolicy
 from frisket.runtime.launch import worker_argv
+from frisket.runtime.speech_install import runtime_for_worker
 
 from .parakeet_artifacts import (
     PARAKEET_MODEL,
@@ -389,7 +390,9 @@ class ParakeetProcessSession:
         startup_started = time.perf_counter()
         try:
             handle = await sandbox_shim.open_sandboxed_process(
-                worker_argv("parakeet-session"),
+                worker_argv(
+                    "parakeet-session", runtime=runtime_for_worker("parakeet-session")
+                ),
                 policy=parakeet_inference_policy(self.expected_rows),
                 extra_env=parakeet_inference_env(artifacts),
                 # SandboxedProcess uses the cancellation hook as its bounded

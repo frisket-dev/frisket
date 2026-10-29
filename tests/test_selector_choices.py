@@ -1605,16 +1605,18 @@ def test_chandra_selector_preserves_owned_restrictive_license(tmp_path: Path) ->
     } in chandra["facts"]
 
 
+@pytest.mark.parametrize("runtime_present", [False, True])
 @pytest.mark.parametrize("prepared", [False, True])
 @pytest.mark.parametrize("model_size", [None, "base", "small"])
 def test_whisper_base_selector_requires_durable_download(
-    tmp_path, monkeypatch, prepared, model_size
+    tmp_path, monkeypatch, prepared, model_size, runtime_present
 ):
     from frisket.ai.models import artifact_manifest
 
     monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "hub"))
     monkeypatch.setattr(
-        "frisket.execution.definitions.faster_whisper_runtime_present", lambda: True
+        "frisket.execution.definitions.faster_whisper_runtime_present",
+        lambda: runtime_present,
     )
     entry = artifact_manifest.whisper_base_artifact()
     assert entry is not None and entry.hf_snapshot is not None
@@ -1654,17 +1656,24 @@ def test_whisper_base_selector_requires_durable_download(
     current = next(
         choice for choice in _choices(response.json()) if choice["is_current"]
     )
-    needs_download = not prepared and model_size in (None, "base")
+    setup_ref = "engine-setup:faster-whisper.local@1"
+    needs_download = not runtime_present or (
+        not prepared and model_size in (None, "base")
+    )
     assert current["status"] == ("needs_setup" if needs_download else "ready")
     assert current["can_run"] is (not needs_download)
     if needs_download:
-        assert current["setup"]["kind"] == "artifact_download"
-        assert current["setup"]["setup_ref"] == entry.ref
+        assert current["can_author"] is True
+        assert current["setup"]["kind"] == "engine_setup"
+        assert current["setup"]["setup_ref"] == setup_ref
+        if model_size == "small":
+            assert "base model" in current["blocker"]["message"]
+            assert "Other model sizes" in current["blocker"]["message"]
         assert current["setup"]["can_start"] is True
         pull, _ = model_pull_store.create_or_get_active(
             workspace.queue.engine,
             workspace_root=str(workspace.root),
-            model_ref=entry.ref,
+            model_ref=setup_ref,
         )
         busy = client.post(f"/api/projects/{project_id}/selector-choices", json=query)
         choice = next(row for row in _choices(busy.json()) if row["is_current"])
@@ -1732,3 +1741,77 @@ def test_extract_preserves_explicit_clef_selection(tmp_path: Path) -> None:
         c for c in _choices(payload) if c["choice_id"] == payload["current_choice_id"]
     )
     assert current["authored_selection"]["engine"] == "clef-flash"
+
+
+@pytest.mark.parametrize("engine_id", ["parakeet-tdt", "faster_whisper"])
+@pytest.mark.parametrize("runtime_present", [False, True])
+def test_local_speech_setup_refreshes_runtime_and_weights_without_restart(
+    tmp_path, monkeypatch, engine_id, runtime_present
+):
+    state = {"runtime": runtime_present, "weights": False}
+    monkeypatch.setattr(
+        "frisket.execution.definitions.parakeet_runtime_present",
+        lambda: state["runtime"],
+    )
+    monkeypatch.setattr(
+        "frisket.execution.definitions.faster_whisper_runtime_present",
+        lambda: state["runtime"],
+    )
+    monkeypatch.setattr(
+        "frisket.execution.definitions.parakeet_artifacts_present",
+        lambda: state["weights"],
+    )
+    monkeypatch.setattr(
+        "frisket.server.services.selector_choices.parakeet_setup_ready",
+        lambda: state["weights"],
+    )
+    monkeypatch.setattr(
+        "frisket.server.services.selector_choices.whisper_setup_ready",
+        lambda: state["weights"],
+    )
+    client, workspace, pid = _app(
+        tmp_path / "speech-refresh",
+        capabilities_for=lambda _request, _pid: SelectorCapabilities(
+            may_author_actions=True,
+            may_run_actions=True,
+            manage_model_downloads=True,
+        ),
+    )
+    query = _query(
+        {
+            "kind": "action",
+            "action_id": "media.transcribe",
+            "field": "engine",
+            "params": {"engine": engine_id},
+        }
+    )
+
+    def current():
+        response = client.post(f"/api/projects/{pid}/selector-choices", json=query)
+        assert response.status_code == 200, response.text
+        return next(row for row in _choices(response.json()) if row["is_current"])
+
+    before = current()
+    assert before["status"] == "needs_setup"
+    assert before["can_author"] is True
+    assert before["can_run"] is False
+    assert before["setup"]["kind"] == "engine_setup"
+    assert before["setup"]["can_start"] is True
+    setup_ref = before["setup"]["setup_ref"]
+    pull, _ = model_pull_store.create_or_get_active(
+        workspace.queue.engine, workspace_root=str(workspace.root), model_ref=setup_ref
+    )
+    during = current()
+    assert during["status"] == "working"
+    assert during["active_operation"]["id"] == pull.id
+    assert during["can_run"] is False
+    state.update(runtime=True, weights=True)
+    # An installed marker does not authorize use until the durable operation finishes.
+    assert current()["status"] == "working"
+    model_pull_store.mark_done(workspace.queue.engine, pull.id)
+    after = current()
+    assert after["status"] == "ready"
+    assert after["can_run"] is True
+    assert after["setup"] is None
+    assert after["configuration_actions"] == []
+    assert after["authored_selection"] == before["authored_selection"]

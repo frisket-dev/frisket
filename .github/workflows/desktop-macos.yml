@@ -135,6 +135,7 @@ jobs:
         run: |
           echo "FRISKET_DESKTOP_APP=$RUNNER_TEMP/Applications/Frisket Desktop.app" >> "$GITHUB_ENV"
           echo "FRISKET_DESKTOP_PROFILE=$RUNNER_TEMP/frisket-desktop-profile" >> "$GITHUB_ENV"
+          echo "FRISKET_MODEL_RUNTIME_DIR=$RUNNER_TEMP/frisket-desktop-profile/model-runtimes" >> "$GITHUB_ENV"
           test "$(uname -m)" = arm64
           df -h .
       - name: Install build dependencies
@@ -233,6 +234,7 @@ jobs:
         run: |
           echo "FRISKET_DESKTOP_APP=$RUNNER_TEMP/Applications/Frisket Desktop.app" >> "$GITHUB_ENV"
           echo "FRISKET_DESKTOP_PROFILE=$RUNNER_TEMP/frisket-desktop-profile" >> "$GITHUB_ENV"
+          echo "FRISKET_MODEL_RUNTIME_DIR=$RUNNER_TEMP/frisket-desktop-profile/model-runtimes" >> "$GITHUB_ENV"
           test "$(uname -m)" = arm64
           df -h .
       - name: Install build dependencies

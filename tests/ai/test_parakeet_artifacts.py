@@ -13,6 +13,16 @@ from frisket.engine._workers import parakeet_artifacts as artifacts
 from frisket.engine.sandbox.shim import SandboxResult, SandboxTeardownError
 
 
+@pytest.fixture(autouse=True)
+def fake_runtime_for_mocked_downloads(monkeypatch):
+    from frisket.runtime import speech_install
+    from frisket.runtime.launch import PythonRuntime
+
+    monkeypatch.setattr(
+        speech_install, "runtime_for_worker", lambda _kind: PythonRuntime.current()
+    )
+
+
 def test_v3_int8_pin_is_shared_by_runtime_and_manifest() -> None:
     from frisket.ai.models import artifact_manifest
 
@@ -412,6 +422,7 @@ def test_whisper_setup_requires_complete_pinned_snapshot(tmp_path, monkeypatch):
 
     monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path))
     assert artifacts.whisper_setup_ready() is False
+    assert artifacts.cached_whisper_path() is None
     entry = artifact_manifest.whisper_base_artifact()
     assert entry is not None and entry.hf_snapshot is not None
     snap = entry.hf_snapshot
@@ -423,5 +434,6 @@ def test_whisper_setup_requires_complete_pinned_snapshot(tmp_path, monkeypatch):
         symlinks=True,
     )
     assert artifacts.whisper_setup_ready() is True
+    assert artifacts.cached_whisper_path() == snapshot
     (snapshot / snap.files[0]).unlink()
     assert artifacts.whisper_setup_ready() is False

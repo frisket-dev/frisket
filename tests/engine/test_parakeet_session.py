@@ -20,6 +20,15 @@ from frisket.engine.sandbox.shim import (
 )
 
 
+@pytest.fixture(autouse=True)
+def fake_runtime_for_mocked_sessions(monkeypatch):
+    from frisket.runtime.launch import PythonRuntime
+
+    monkeypatch.setattr(
+        session_mod, "runtime_for_worker", lambda _kind: PythonRuntime.current()
+    )
+
+
 def _frame(frame_type: str, **values: Any) -> bytes:
     return json.dumps(
         {

@@ -16,6 +16,7 @@ from frisket.contracts.transcription_sidecar import (
 from frisket.engine._workers.parakeet_artifacts import huggingface_hub_cache
 from frisket.engine.sandbox.shim import SandboxPolicy, run_sandboxed
 from frisket.runtime.launch import worker_argv
+from frisket.runtime.speech_install import runtime_for_worker
 
 from .common import (
     TranscribeCancelled,
@@ -118,7 +119,7 @@ class FasterWhisperAdapter:
             options=options,
         )
         sandbox_result = await run_sandboxed(
-            worker_argv("faster-whisper"),
+            worker_argv("faster-whisper", runtime=runtime_for_worker("faster-whisper")),
             policy=faster_whisper_policy(),
             extra_env=faster_whisper_env(),
             stdin_data=request.model_dump_json(exclude_none=True).encode(),

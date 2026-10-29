@@ -995,7 +995,7 @@ def test_local_onnx_refuses_when_the_asr_runtime_is_missing(monkeypatch, tmp_pat
 
     provider = StaticExecutionTargetProvider()
     assert provider.connection("local-onnx") is None
-    assert "pip install 'frisket-data[standard]'" in (
+    assert "Set up Parakeet from the engine selector" in (
         provider.liveness_remedy("local-onnx") or ""
     )
 

@@ -35,12 +35,6 @@ from frisket.ai.models.artifact_manifest import (
     PARAKEET_MODEL_HF_REPO as PARAKEET_MODEL_REPO,  # noqa: F401 - re-exported
     PARAKEET_VAD_HF_REPO as PARAKEET_VAD_REPO,  # noqa: F401 - re-exported
 )
-from frisket.engine.sandbox.shim import (
-    SandboxPolicy,
-    SandboxTeardownError,
-    run_sandboxed,
-)
-from frisket.runtime.launch import worker_argv
 
 from .parakeet_model import (
     MODEL as PARAKEET_MODEL,  # noqa: F401 - re-exported for importers
@@ -49,6 +43,15 @@ from .parakeet_model import (
     VAD_FILES as PARAKEET_VAD_FILES,  # noqa: F401 - re-exported for importers
     VAD_REVISION as PARAKEET_VAD_REVISION,  # noqa: F401 - re-exported for importers
 )
+
+
+async def run_sandboxed(*args, **kwargs):
+    # The artifact child also imports this module. Keep host-only dependencies
+    # outside its resolver import closure.
+    from frisket.engine.sandbox.shim import run_sandboxed as run
+
+    return await run(*args, **kwargs)
+
 
 PARAKEET_VAD_MODEL = "silero"
 
@@ -245,23 +248,25 @@ def _cached_snapshot(
         return None
 
 
-def whisper_setup_ready() -> bool:
-    """Whether the pinned Whisper base snapshot is locally verified, without downloads."""
+def cached_whisper_path() -> Path | None:
+    """Return the verified pinned Whisper base snapshot without downloads."""
     try:
         repo_id, revision, files = _manifest_snapshot_identity(
             artifact_manifest.whisper_base_artifact, "Whisper base"
         )
     except ParakeetArtifactUnavailable:
-        return False
-    return (
-        _cached_snapshot(
-            cache_dir=huggingface_hub_cache(),
-            repo_id=repo_id,
-            revision=revision,
-            files=files,
-        )
-        is not None
+        return None
+    return _cached_snapshot(
+        cache_dir=huggingface_hub_cache(),
+        repo_id=repo_id,
+        revision=revision,
+        files=files,
     )
+
+
+def whisper_setup_ready() -> bool:
+    """Whether the pinned Whisper base snapshot is locally verified, without downloads."""
+    return cached_whisper_path() is not None
 
 
 def parakeet_setup_ready() -> bool:
@@ -399,9 +404,15 @@ async def resolve_parakeet_artifacts(
             "the pinned Parakeet artifacts are not cached; run explicit setup"
         )
 
+    from frisket.engine.sandbox.shim import SandboxPolicy, SandboxTeardownError
+    from frisket.runtime.launch import worker_argv
+    from frisket.runtime.speech_install import runtime_for_worker
+
     try:
         result = await run_sandboxed(
-            worker_argv("parakeet-artifacts"),
+            worker_argv(
+                "parakeet-artifacts", runtime=runtime_for_worker("parakeet-artifacts")
+            ),
             policy=SandboxPolicy(
                 cpu_seconds=ARTIFACT_WALL_SECONDS,
                 wall_seconds=ARTIFACT_WALL_SECONDS,
