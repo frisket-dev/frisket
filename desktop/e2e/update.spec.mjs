@@ -6,6 +6,7 @@ import { handleFirstLaunchPrompts } from './onboarding.mjs';
 import {
   aliveProcesses, assertInstalledPlatform, descendants, installedExecutable, installedResources, listeningPorts, runningExecutable,
 } from './installed-platform.mjs';
+import { waitForStartup, observeWindows } from './startup.mjs';
 import { importTable } from './table-import.mjs';
 import { serveUpdateFeed } from './update-feed.mjs';
 
@@ -26,6 +27,8 @@ async function launch(feed, testInfo, automaticChoice = 'Check automatically') {
   });
   let stderr = '';
   electron.process().stderr.on('data', (chunk) => { stderr = `${stderr}${chunk}`.slice(-16_384); });
+  const rendererErrors = [];
+  observeWindows(electron, page => page.on('pageerror', error => rendererErrors.push(error.message)));
   try {
     await electron.evaluate(async ({ app, dialog }, { origin, automaticChoice }) => {
       const proof = globalThis.__frisketUpdateProof = {
@@ -73,10 +76,7 @@ async function launch(feed, testInfo, automaticChoice = 'Check automatically') {
         autoUpdater.on('error', (error) => proof.errors.push(error.message));
       }
     }, { origin: feed?.origin, automaticChoice });
-    const page = await electron.firstWindow();
-    const rendererErrors = [];
-    page.on('pageerror', (error) => rendererErrors.push(error.message));
-    await page.waitForURL('frisket://app/**', { waitUntil: 'commit', timeout: 300_000 });
+    const page = await waitForStartup(electron, { timeout: 300_000, diagnosticsPath: path.join(profile, 'startup-diagnostics.txt') });
     await expect(page.getByTestId('home-screen')).toBeVisible();
     await handleFirstLaunchPrompts(page);
     expect(await electron.evaluate(({ app }) => app.getPath('userData'))).toBe(profile);

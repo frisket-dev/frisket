@@ -40,6 +40,7 @@ assert loads==['/owned/model']
 sys.stdout.buffer.write(sink.getvalue())
 """
     result = subprocess.run(
+        # subprocess-boundary: prove cold worker imports without core dependencies loaded by pytest.
         [sys.executable, "-I", "-c", script, str(root)], capture_output=True, check=True
     )
     import io

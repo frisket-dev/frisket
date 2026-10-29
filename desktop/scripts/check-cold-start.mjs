@@ -2,6 +2,7 @@
 import { _electron } from '@playwright/test';
 import { access, readFile, readdir, mkdir } from 'node:fs/promises';
 import path from 'node:path';
+import { waitForStartup } from '../e2e/startup.mjs';
 import { installedExecutable } from '../e2e/installed-platform.mjs';
 
 const profile = process.env.FRISKET_DESKTOP_PROFILE && `${process.env.FRISKET_DESKTOP_PROFILE}-cold-start`;
@@ -31,7 +32,7 @@ await electron.evaluate(({ dialog }) => {
 let page;
 try {
   page = await electron.firstWindow();
-  await page.waitForURL('frisket://app/**', { timeout: 15 * 60000 });
+  page = await waitForStartup(electron, { timeout: 15 * 60000, diagnosticsPath: path.join(profile, 'startup-diagnostics.txt') });
   await page.getByTestId('home-screen').waitFor({ timeout: 30000 });
   if (process.env.FRISKET_MODEL_RUNTIME_DIR) {
     for (const runtimeProfile of ['speech-v1', 'spacy-v1', 'translation-v1']) {
@@ -49,7 +50,7 @@ try {
   console.log(`Cold first launch succeeded without Retry in ${((Date.now() - started) / 1000).toFixed(1)}s.`);
 } catch (error) {
   await mkdir('desktop/test-results', { recursive: true });
-  await page?.screenshot({ path: 'desktop/test-results/cold-start-failure.png' }).catch(() => {});
+  await (error.startupPage || page)?.screenshot({ path: 'desktop/test-results/cold-start-failure.png' }).catch(() => {});
   throw error;
 } finally {
   console.log(await readFile(path.join(profile, 'startup-diagnostics.txt'), 'utf8').catch(() => 'No startup diagnostics file; startup did not finish.'));
