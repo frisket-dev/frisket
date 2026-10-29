@@ -18,8 +18,10 @@ from frisket.engine.jobs import model_pull_store
 PARAKEET_TDT_SETUP_REF = "engine-setup:parakeet-tdt.local-onnx@1"
 RAPIDOCR_SETUP_REF = "engine-setup:rapidocr.local@1"
 DOCLING_SETUP_REF = "engine-setup:docling.local@1"
+CHROMIUM_SETUP_REF = "engine-setup:chromium.local@1"
 
 _SETUP_NAMES = {
+    CHROMIUM_SETUP_REF: "Browser tools (Chromium)",
     PARAKEET_TDT_SETUP_REF: "Parakeet TDT (local ONNX)",
     RAPIDOCR_SETUP_REF: "RapidOCR",
     DOCLING_SETUP_REF: "Docling",
@@ -183,6 +185,13 @@ def run_engine_setup(
     row = model_pull_store.get(engine, pull_id)
     if row is None:
         raise LookupError(f"engine setup row {pull_id} does not exist")
+    if row.model_ref == CHROMIUM_SETUP_REF:
+        return _run_chromium_setup(
+            engine=engine,
+            pull_id=pull_id,
+            should_cancel=should_cancel,
+            is_final_attempt=is_final_attempt,
+        )
     for engine_id, spec in LOCAL_CLASSIFIERS.items():
         if row.model_ref == spec.setup_ref:
             return _run_classifier_setup(
@@ -474,6 +483,42 @@ def _run_pinned_setup(
             is_final_attempt=is_final_attempt,
         )
     model_pull_store.mark_done(engine, pull_id, resolved_digest=pinned.composite_digest)
+    return {"status": "done"}
+
+
+def _run_chromium_setup(
+    *, engine, pull_id: int, should_cancel: Callable[[], bool], is_final_attempt: bool
+) -> dict[str, object]:
+    from frisket.engine.jobs.model_pull import _fail
+    from frisket.runtime.chromium import install_chromium
+    from frisket.runtime.model_install import ModelInstallCancelled
+
+    model_pull_store.set_artifact_metadata(
+        engine,
+        pull_id,
+        artifact_kind="engine_setup",
+        artifact_source_url=None,
+        artifact_license=None,
+        artifact_manifest_version=None,
+    )
+    model_pull_store.update_progress(
+        engine, pull_id, phase="provisioning", total_bytes=None, completed_bytes=0
+    )
+    try:
+        install_chromium(should_cancel=should_cancel, progress=lambda _: None)
+    except ModelInstallCancelled:
+        model_pull_store.mark_cancelled(engine, pull_id)
+        return {"status": "cancelled"}
+    except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+        raise _fail(
+            engine,
+            pull_id,
+            error_code="browser_setup_failed",
+            message="Browser tools could not be installed. Check your connection and available disk space, then retry setup.",
+            terminal=True,
+            is_final_attempt=is_final_attempt,
+        ) from exc
+    model_pull_store.mark_done(engine, pull_id)
     return {"status": "done"}
 
 

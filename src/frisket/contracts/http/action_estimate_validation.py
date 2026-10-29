@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, RootModel
 
 from frisket.contracts.action import ActionError, ActionResult
 from frisket.contracts.http.models import HttpError, WireModel
+from frisket.contracts.http.selector_choices import EngineSetup, InstructionsSetup
 
 
 class ActionEstimateValidationRequest(BaseModel):
@@ -91,6 +92,7 @@ class ActionParamValidationResult(WireModel):
     diagnostics: dict[str, ActionParamDiagnostic]
     logical_outputs: list[ActionLogicalOutput] = Field(default_factory=list)
     creates_sheet: bool | None = None
+    runtime_setup: EngineSetup | InstructionsSetup | None = None
 
 
 ACTION_PREFLIGHT_ERROR_RESPONSES = {

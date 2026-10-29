@@ -1,8 +1,7 @@
-const stages = ['runtime', 'dependencies', 'browser', 'workspace'];
+const stages = ['runtime', 'dependencies', 'workspace'];
 const defaults = {
   runtime: 'Setting up Frisket Desktop…',
   dependencies: 'Putting the finishing touches in place…',
-  browser: 'Preparing the tools you use in Frisket…',
   workspace: 'Opening your workspace…',
   ready: 'Frisket Desktop is ready.',
 };

@@ -1,5 +1,6 @@
 import './PanelPrimitives.css';
 import './StatusBar.css';
+import { RuntimeSetupNotice } from './RuntimeSetupNotice';
 import { FeedProgressNotice } from './FeedProgressNotice';
 import { Button } from './Button';
 import { useEffect, useReducer, useRef, useState, type ReactNode, type RefObject } from 'react';
@@ -231,6 +232,7 @@ export function StatusBar({
     <>
     <div className="status-notice-stack" data-testid="status-notice-stack">
         <FeedProgressNotice />
+        <RuntimeSetupNotice />
         {run && runNoticeOpen && (
           <ActionProgressNotice
             run={run}

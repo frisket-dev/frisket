@@ -117,14 +117,14 @@ h1 {
 }
 
 .progress-complete {
-  width: calc(var(--complete) * 25%);
+  width: calc(var(--complete) * 100% / 3);
   background: linear-gradient(90deg, #7440d4, #9d68ff);
   transition: width 420ms ease;
 }
 
 .progress-active {
-  left: calc(var(--complete) * 25%);
-  width: 25%;
+  left: calc(var(--complete) * 100% / 3);
+  width: calc(100% / 3);
   background: linear-gradient(90deg, rgba(142, 88, 239, .23), rgba(142, 88, 239, .72), rgba(142, 88, 239, .23));
   background-size: 200% 100%;
   animation: sweep 1.5s ease-in-out infinite;

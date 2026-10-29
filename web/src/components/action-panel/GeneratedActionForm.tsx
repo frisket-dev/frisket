@@ -29,6 +29,7 @@ import {
   type CanonicalDraft,
   type CanonicalFieldValue,
 } from './actionPresentation';
+import { RuntimeSetupGate } from './RuntimeSetupGate';
 import { RunScopeFooter } from './RunScopeFooter';
 import {
   SourceInputControl,
@@ -734,7 +735,10 @@ function GeneratedActionFormContents({
         : next;
     });
   }, [catalogEntry.ui_hints.logical_outputs, customization, draft, dynamicOutputs, initialDraft, columns]);
+  const [setupVersion, setSetupVersion] = useState(0);
+  const recheckRuntimeSetup = useCallback(() => setSetupVersion((version) => version + 1), []);
   const [resolved, setResolved] = useState<{
+    runtime_setup?: ActionParamResolution['runtime_setup'];
     outputs: ActionParamResolution['logical_outputs'];
     diagnostics: ActionParamResolution['diagnostics'];
     problem: string | null;
@@ -814,7 +818,7 @@ function GeneratedActionFormContents({
             }
           }
           setResolved({ outputs: (problem || diagnostic) && dynamicOutputs ? [] : nextOutputs,
-            diagnostics: resolution.diagnostics, problem });
+            diagnostics: resolution.diagnostics, runtime_setup: resolution.runtime_setup, problem });
           if (!problem && !diagnostic) setResolvedCreatesSheet(resolution.creates_sheet);
           if (!problem && !diagnostic && dynamicOutputs) {
             setOutputNames((names) => {
@@ -861,7 +865,7 @@ function GeneratedActionFormContents({
     };
   }, [actionTemplate, catalogEntry.kind, catalogEntry.ui_hints.logical_outputs, draft,
     staticCreatesSheet, requestScope, customization, dynamicOutputs, initialDraft, outputPrefix, paramsEdited, resolveParams,
-    columns, sheetId]);
+    columns, sheetId, setupVersion]);
 
   // All partial field writes invalidate the same authoritative resolution.
   // Served defaults use this path without marking an authored user edit.
@@ -1134,7 +1138,7 @@ function GeneratedActionFormContents({
   const staleOutputNames = createsSheet && dynamicOutputs && !resolutionProblem && outputs.length
     ? Object.keys(outputNames).filter((key) => !outputs.some((output) => output.key === key)) : [];
   const missingCredentials = actionTemplate.missingCredentials ?? [];
-  const canRun = catalogAccepted && missingCredentials.length === 0 && !resolutionProblem && !hasInvalidDiagnostic
+  const canRun = !resolved.runtime_setup && catalogAccepted && missingCredentials.length === 0 && !resolutionProblem && !hasInvalidDiagnostic
     && validIdentity && validParams && !outputNameProblem && !engineProblem && !editorProblem;
   const costSource = selectedEngine && selectedEngine !== 'auto'
     ? actionTemplate.costSourceOptions?.[selectedEngine] : actionTemplate.costSource;
@@ -1298,6 +1302,7 @@ function GeneratedActionFormContents({
       {!paramsOnly && sheet && onMaterializePdfTables && <PdfTablesReview actionKind={catalogEntry.kind}
         sheet={sheet} outputName={outputNames.pdf_tables ?? ''}
         onMaterialize={onMaterializePdfTables} onExport={onExportPdfTables} />}
+      {resolved.runtime_setup && <RuntimeSetupGate setup={resolved.runtime_setup} onChanged={recheckRuntimeSetup} />}
       {engineProblem && <p className="form-hint" role="alert">{engineProblem}</p>}
 
       {createsSheet && <div className="action-source-block">
@@ -1498,7 +1503,7 @@ function GeneratedActionFormContents({
         onBackfill={onBackfill}
         running={running} runningLabel={runningLabel}
         primaryTestId={customization?.primaryTestId}
-        disabledReason={!catalogAccepted ? 'The action catalog is refreshing.'
+        disabledReason={resolved.runtime_setup ? 'Set up browser tools before running.' : !catalogAccepted ? 'The action catalog is refreshing.'
           : missingCredentials.length ? `Configure ${missingCredentials.join(', ')} in Settings before running.`
           : editorProblem ?? engineProblem ?? resolutionProblem ?? outputNameProblem ?? (!validIdentity
           ? 'The selected rows are invalid.'

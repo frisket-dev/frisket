@@ -16,10 +16,11 @@ const app = process.env.FRISKET_DESKTOP_APP;
 const directResources = process.env.FRISKET_DESKTOP_RESOURCES;
 const dataPath = process.env.FRISKET_DESKTOP_PROFILE;
 const stageModels = process.argv.slice(2).includes('--stage-models');
+const stageBrowser = process.argv.slice(2).includes('--browser');
 if (!dataPath || !path.isAbsolute(dataPath) || Boolean(app) === Boolean(directResources)
   || (app && !path.isAbsolute(app)) || (directResources && !path.isAbsolute(directResources))
-  || (stageModels && !directResources)) {
-  throw new Error('Set either FRISKET_DESKTOP_APP or FRISKET_DESKTOP_RESOURCES and an absolute FRISKET_DESKTOP_PROFILE path. --stage-models requires FRISKET_DESKTOP_RESOURCES.');
+  || (stageModels && (!directResources || stageBrowser))) {
+  throw new Error('Set either FRISKET_DESKTOP_APP or FRISKET_DESKTOP_RESOURCES and an absolute FRISKET_DESKTOP_PROFILE path. --stage-models requires FRISKET_DESKTOP_RESOURCES and cannot be combined with --browser.');
 }
 const resourcesPath = directResources || installedResources(app);
 const runtime = await prepareRuntime({
@@ -83,22 +84,26 @@ if (stageModels) {
         headers: authenticatedHeaders({ 'Content-Type': 'application/json' }, backend.token),
         signal: AbortSignal.timeout(30_000),
       });
-      if (!response.ok) throw new Error(`Model preparation returned HTTP ${response.status}.`);
+      if (!response.ok) throw new Error(`Engine preparation returned HTTP ${response.status}.`);
       return response.json();
     };
     const { stdout: whisperRef } = await execFile(runtime.python, [
       '-I', '-B', path.join(here, 'prewarm-models.py'),
       path.join(resourcesPath, 'python'), '--whisper-ref',
     ], { env: runtime.env, timeout: 30_000 });
-    for (const [label, endpoint, payload] of [
+    const setups = [
       ['Parakeet', '/api/providers/models/setup', {
         setup_ref: 'engine-setup:parakeet-tdt.local-onnx@1',
       }],
       ['Whisper base', '/api/providers/models/pull', {
         ref: whisperRef.trim(),
       }],
-    ]) {
-      process.stdout.write(`Downloading ${label} into the test profile through model setup…\n`);
+    ];
+    if (stageBrowser) setups.push(['Chromium', '/api/providers/models/setup', {
+      setup_ref: 'engine-setup:chromium.local@1',
+    }]);
+    for (const [label, endpoint, payload] of setups) {
+      process.stdout.write(`Downloading ${label} into the test profile through engine setup…\n`);
       let { pull } = await request(endpoint, {
         method: 'POST', body: JSON.stringify(payload),
       });
@@ -113,7 +118,14 @@ if (stageModels) {
         pull = await request(`/api/providers/models/pulls/${pull.id}`);
       }
     }
-    process.stdout.write('Transcription weights downloaded; native checks will run offline.\n');
+    if (stageBrowser) {
+      const { stdout } = await execFile(runtime.python, [
+        '-I', '-B', path.join(here, 'check-browser.py'),
+        path.join(resourcesPath, 'python'), path.join(dataPath, 'browser-setup-proof.png'),
+      ], { env: runtime.env, timeout: 90_000, maxBuffer: 1024 * 1024 });
+      process.stdout.write(stdout);
+    }
+    process.stdout.write('Requested engines downloaded; native checks will run offline.\n');
   } finally {
     await backend.stop();
   }

@@ -32,6 +32,7 @@ interface ModelPullProgressProps {
    *  CANCELLED state — lets an embedder (the pair picker) clear
    *  back to a retryable state with the error surfaced. */
   onFailed?: (pull: ModelPullDto) => void;
+  onDismiss?: () => void;
   /** Injectable fetch/cancel, defaulting to the workspace-tier local pull
    *  route (getModelPull/cancelModelPull). The org/team settings card
    *  injects orgGetModelPull/orgCancelModelPull instead -- same ModelPullDto shape,
@@ -52,6 +53,7 @@ export function ModelPullProgress({
   pull: initialPull,
   onDone,
   onFailed,
+  onDismiss,
   fetchPull = getModelPull,
   cancelPull = cancelModelPull,
   uninstall = uninstallArtifact,
@@ -154,12 +156,13 @@ export function ModelPullProgress({
         : 'warning';
   const canCancel = active && !readOnly;
   const canUninstall = pull.status === 'done' && !readOnly && pull.capabilities.remove;
+  const setupOperation = pull.operation_kind === 'engine_setup';
   const cardDetail = pull.status === 'failed'
-    ? 'Download failed'
+    ? setupOperation ? 'Setup failed' : 'Download failed'
     : pull.status === 'cancelled'
-      ? 'Download cancelled'
+      ? setupOperation ? 'Setup cancelled' : 'Download cancelled'
       : pull.status === 'done'
-        ? 'Download complete'
+        ? setupOperation ? 'Setup complete' : 'Download complete'
         : pull.status === 'uninstalled'
           ? 'Model uninstalled'
           : pull.phase || undefined;
@@ -167,6 +170,7 @@ export function ModelPullProgress({
   return (
     <ActivityProgressCard
       state={presentationState}
+      onDismiss={onDismiss}
       title={pull.display_name}
       detail={cardDetail}
       className="model-pull-progress"
@@ -202,7 +206,7 @@ export function ModelPullProgress({
       {active && (
         <>
           <ProgressBar
-            label={`Downloading ${pull.display_name}`}
+            label={`${setupOperation ? 'Setting up' : 'Downloading'} ${pull.display_name}`}
             completed={completed}
             total={total}
             state="active"

@@ -31,6 +31,7 @@ import {
   type PluginAvailability,
   type PluginLayoutStoreHandle,
 } from './pluginLayoutStore';
+import { createRuntimeSetupStore, type RuntimeSetupStoreHandle } from './runtimeSetupStore';
 import { createAudioPlaybackStore, type AudioPlaybackStoreHandle } from './audioPlaybackStore';
 import {
   createExtractionLayoutStore,
@@ -117,6 +118,7 @@ export interface WorkspaceStores {
   pluginLayout: PluginLayoutStoreHandle;
   /** One app-level audio session shared by grid and row detail controls. */
   audioPlayback: AudioPlaybackStoreHandle;
+  runtimeSetup: RuntimeSetupStoreHandle;
   /** Per-project extraction drafts and serialized autosave tails. */
   extractionLayouts: ExtractionLayoutStoreHandle;
   /** Immutable API scoped to this workspace project. */
@@ -242,6 +244,7 @@ export function createWorkspaceStores(
   const actionCatalog = createActionCatalogResource(projectId, projectApi, actSurface);
   const pluginLayout = createPluginLayoutStore(workbenchApi, pluginsAvailable);
   const audioPlayback = createAudioPlaybackStore();
+  const runtimeSetup = createRuntimeSetupStore();
   const extractionLayouts = createExtractionLayoutStore(projectId);
   function dispose(): void {
     // Detach project-owned draft state without cancelling already accepted
@@ -278,6 +281,7 @@ export function createWorkspaceStores(
     actSurface,
     pluginLayout,
     audioPlayback,
+    runtimeSetup,
     extractionLayouts,
     projectApi,
     chromePreferences,
