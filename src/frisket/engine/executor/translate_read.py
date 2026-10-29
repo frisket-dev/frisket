@@ -21,6 +21,7 @@ class AdmittedTranslator:
     """One provider translation per captured row, with host-owned facts."""
 
     def __init__(self, ctx: OpContext, *, engine: str, options: dict) -> None:
+        self._translation_engine = TranslationEngine(invocation_owned=True)
         self._ctx = ctx
         self._engine = engine
         self._options = TranslationOptions.model_validate(options).normalize(engine)
@@ -33,6 +34,7 @@ class AdmittedTranslator:
 
     async def aclose(self) -> None:
         self._closed = True
+        await self._translation_engine.aclose()
 
     def _check_active(self, ctx: OpContext) -> None:
         if self._closed:
@@ -112,7 +114,7 @@ class _BoundTranslator:
         owner._called_rows.add(self._row_id)
         artifacts_before = len(ctx.extras.get("artifact_provenance", []))
         try:
-            result = await TranslationEngine().execute(
+            result = await owner._translation_engine.execute(
                 {"text": text}, {**owner._options, "engine": owner._engine}, ctx
             )
         except TranslateEngineError as error:

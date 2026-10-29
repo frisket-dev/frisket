@@ -1232,11 +1232,7 @@ class SelectorChoiceService:
             whisper_base_missing = whisper_base and not whisper_setup_ready()
             downloadable = engine.get("downloadable_models") or []
             artifact_ref = (
-                _optional_str(_mapping(downloadable[0]).get("ref"))
-                if engine_id == "spacy" and not available and downloadable
-                else _optional_str(
-                    _mapping(engine.get("downloadable_model")).get("ref")
-                )
+                _optional_str(_mapping(engine.get("downloadable_model")).get("ref"))
                 if engine_id == "hy_mt2"
                 and available
                 and not _mapping(engine.get("downloadable_model")).get("installed")

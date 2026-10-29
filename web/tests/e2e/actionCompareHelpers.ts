@@ -25,12 +25,16 @@ async function comparisonCellPoint(page: Page, column: number, row: number) {
 export async function expectComparisonCell(
   page: Page, variantColumn: number, row: number, expected: string,
 ): Promise<void> {
-  const point = await comparisonCellPoint(page, variantColumn + 1, row);
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   await page.evaluate(() => navigator.clipboard.writeText(''));
-  await page.mouse.click(point.x, point.y);
-  await page.keyboard.press('ControlOrMeta+C');
-  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(expected);
+  // Selection and Glide's copy listener can settle after the first key press.
+  // Retry the real interaction, not just reads of a clipboard that stayed empty.
+  await expect.poll(async () => {
+    const point = await comparisonCellPoint(page, variantColumn + 1, row);
+    await page.mouse.click(point.x, point.y);
+    await page.keyboard.press('ControlOrMeta+C');
+    return page.evaluate(() => navigator.clipboard.readText());
+  }).toBe(expected);
 }
 
 /** Activate a visible source or variant cell through Glide's native canvas

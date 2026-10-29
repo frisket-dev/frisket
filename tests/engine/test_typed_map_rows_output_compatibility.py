@@ -10,6 +10,10 @@ from frisket.engine.store import Project
 def ner_project(tmp_path, monkeypatch):
     from frisket.ops import spacy_ner
 
+    monkeypatch.setattr(
+        "frisket.engine.executor.ner_read.importlib.util.find_spec", lambda _: object()
+    )
+
     monkeypatch.setattr(spacy_ner, "spacy_available", lambda: (True, None))
     monkeypatch.setattr(
         spacy_ner,

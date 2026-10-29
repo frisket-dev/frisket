@@ -1125,6 +1125,10 @@ def _recipe_engines(
             language=_translate_language_hint("opus_mt"),
         )
         opus_engine["downloadable_pairs"] = opus_downloadable
+        if not opus_runtime:
+            from frisket.engine.jobs.engine_setup import OPUS_MT_SETUP_REF
+
+            opus_engine["setup_ref"] = OPUS_MT_SETUP_REF
 
         from frisket.ops.integrations import hy_mt2 as _hy_mt2
 
@@ -1703,12 +1707,13 @@ def _recipe_engines(
             error=spacy_err,
             models=[SPACY_MODEL] if spacy_ok else None,
         )
-        import importlib.util
-
         from frisket.ai.models import artifact_manifest as _artifact_manifest
+        from frisket.engine.jobs.engine_setup import SPACY_SETUP_REF
+        from frisket.ops.spacy_ner import DEFAULT_SPACY_MODEL
 
         spacy_artifact = _artifact_manifest.spacy_model_artifact()
-        if spacy_artifact is not None and importlib.util.find_spec("spacy") is not None:
+        if spacy_artifact is not None and SPACY_MODEL == DEFAULT_SPACY_MODEL:
+            spacy_engine["setup_ref"] = SPACY_SETUP_REF
             spacy_engine["downloadable_models"] = [
                 {
                     "ref": spacy_artifact.ref,

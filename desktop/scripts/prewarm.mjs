@@ -9,6 +9,7 @@ import { startBackend } from '../src/backend.mjs';
 import { authenticatedHeaders } from '../src/protocol.mjs';
 import { prepareRuntime } from '../src/provision.mjs';
 import { checkSpeechActions } from './check-speech.mjs';
+import { checkLanguageActions } from './check-language.mjs';
 import { installedResources } from '../e2e/installed-platform.mjs';
 
 const execFile = promisify(execFileCallback);
@@ -29,7 +30,7 @@ const runtime = await prepareRuntime({
   onProgress: ({ message }) => process.stdout.write(`${message}\n`),
 });
 const { stdout: initialLibraries } = await execFile(runtime.python, ['-I', '-c',
-  "import importlib.util; assert not any(importlib.util.find_spec(name) for name in ('faster_whisper', 'onnx_asr', 'av')); print('Initial runtime has no speech libraries.')",
+  "import importlib.util; assert not any(importlib.util.find_spec(name) for name in ('faster_whisper', 'onnx_asr', 'av', 'spacy', 'ctranslate2', 'sentencepiece')); print('Initial runtime has no optional engine libraries.')",
 ], { env: runtime.env, timeout: 30_000 });
 process.stdout.write(initialLibraries);
 if (stageModels) {
@@ -93,6 +94,9 @@ if (stageModels) {
       return response.json();
     };
     const setups = [
+      ['spaCy', '/api/providers/models/setup', { setup_ref: 'engine-setup:spacy.local@1' }],
+      ['Opus MT', '/api/providers/models/setup', { setup_ref: 'engine-setup:opus-mt.local@1' }],
+      ['English to Spanish', '/api/providers/models/pull', { ref: 'opus-mt:en-es' }],
       ['Parakeet', '/api/providers/models/setup', {
         setup_ref: 'engine-setup:parakeet-tdt.local-onnx@1',
       }],
@@ -126,14 +130,22 @@ if (stageModels) {
       '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', speech,
     ], { env: runtime.env, timeout: 30_000 });
     await checkSpeechActions(request, speech);
+    await checkLanguageActions(request);
     await execFile(runtime.python, ['-I', '-c',
-      "import importlib.util; assert not any(importlib.util.find_spec(name) for name in ('faster_whisper', 'onnx_asr', 'av'))",
+      "import importlib.util; assert not any(importlib.util.find_spec(name) for name in ('faster_whisper', 'onnx_asr', 'av', 'spacy', 'ctranslate2', 'sentencepiece'))",
     ], { env: runtime.env, timeout: 30_000 });
     const { stdout: speechPython } = await execFile(runtime.python, ['-I', '-B', '-c',
       "import sys; sys.path.insert(0, sys.argv[1]); from frisket.runtime.speech_install import runtime_python; print(runtime_python())",
       path.join(resourcesPath, 'python'),
     ], { env: runtime.env, timeout: 30_000 });
     await writeFile(path.join(dataPath, '.frisket-prewarm-speech-python'), speechPython, { mode: 0o600 });
+    for (const kind of ['spacy', 'translation']) {
+      const { stdout } = await execFile(runtime.python, ['-I', '-B', '-c',
+        `import sys; sys.path.insert(0, sys.argv[1]); from frisket.runtime.${kind}_install import runtime_python; print(runtime_python())`,
+        path.join(resourcesPath, 'python'),
+      ], { env: runtime.env, timeout: 30_000 });
+      await writeFile(path.join(dataPath, `.frisket-prewarm-${kind}-python`), stdout, { mode: 0o600 });
+    }
     if (stageBrowser) {
       const { stdout } = await execFile(runtime.python, [
         '-I', '-B', path.join(here, 'check-browser.py'),

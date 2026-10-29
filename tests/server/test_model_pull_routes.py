@@ -7,6 +7,7 @@ workspace, same-ref deduplication, and cancellation.
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 from frisket.engine.jobs import model_pull_store as store
@@ -682,3 +683,15 @@ def test_uninstall_flips_all_done_rows_for_the_ref(tmp_path) -> None:
     assert resp.status_code == 200, resp.text
     for pid in ids:
         assert store.get(engine, pid).status == store.STATUS_UNINSTALLED
+
+
+@pytest.mark.parametrize(
+    "setup_ref", ["engine-setup:spacy.local@1", "engine-setup:opus-mt.local@1"]
+)
+def test_language_engine_setup_is_allowlisted(tmp_path, setup_ref):
+    client = _client(tmp_path)
+    response = client.post("/api/providers/models/setup", json={"setup_ref": setup_ref})
+    assert response.status_code == 202, response.text
+    pull = response.json()["pull"]
+    assert pull["model"] == setup_ref
+    assert pull["operation_kind"] == "engine_setup"

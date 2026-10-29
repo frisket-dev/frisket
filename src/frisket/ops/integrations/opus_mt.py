@@ -1,15 +1,8 @@
-"""In-process Opus-MT / CTranslate2 local translation runtime.
+"""Opus-MT pair provisioning and host-installed CTranslate2 inference.
 
-Loads a frisket-pulled CT2 pair from the model cache
-(``<model_dir>/opus-mt/<src>-<tgt>/``) and translates in-process on CPU (int8),
-with the Opus-MT SentencePiece tokenizers -- no torch, ~412 chars/s (the
-benchmark that made Opus-MT the local default). Packaged behind the optional
-``standard`` tier (``ctranslate2`` + ``sentencepiece``); absent-runtime ->
-``runtime_available()`` is False and the engine reports unavailable with a
-``pip install 'frisket-data[standard]'`` remediation, exactly like local ASR.
-
-This module lives on its own so the heavy runtime import is isolated;
-``TranslateRecipe.execute`` calls in with a thin dispatch hook.
+Desktop may instead run the shared inference helper in its optional translation
+worker. Runtime presence probes never import native model libraries. Pair
+weights remain a separate pinned first-use download in the model cache.
 """
 
 from __future__ import annotations
@@ -20,9 +13,7 @@ from typing import Any
 
 from frisket.ops.integrations.translate_common import SUPPORTED_LANGUAGE_NAMES
 
-REMEDIATION = (
-    "Install the local translation runtime: pip install 'frisket-data[standard]'"
-)
+REMEDIATION = "Set up local translation in the engine picker before running it."
 FIRST_USE_PREPARATION_MESSAGE = (
     "Preparing the language model if this worker needs it, then translating…"
 )
@@ -49,13 +40,10 @@ class OpusRuntimeUnavailable(RuntimeError):
 
 
 def runtime_available() -> bool:
-    """Whether the in-process CT2 runtime deps import."""
-    try:
-        import ctranslate2  # noqa: F401
-        import sentencepiece  # noqa: F401
-    except ImportError:
-        return False
-    return True
+    """Whether host or managed translation components are present (no imports)."""
+    from frisket.runtime.translation_install import runtime_present
+
+    return runtime_present()
 
 
 def resolve_pair_codes(source: str, target: str) -> tuple[str, str]:
@@ -161,32 +149,9 @@ def translate_texts(
     if not _dir_has_pair(directory):
         raise OpusPairNotInstalled(f"opus-mt:{src}-{tgt} is not installed")
 
-    import sentencepiece
+    from frisket.engine._workers.opus_mt_inference import translate_directory
 
-    sp_src = sentencepiece.SentencePieceProcessor(
-        model_file=str(directory / "source.spm")
-    )
-    sp_tgt = sentencepiece.SentencePieceProcessor(
-        model_file=str(directory / "target.spm")
-    )
-    translator = _load_translator(directory)
-
-    out: list[str] = []
-    # Opus-MT / Marian models REQUIRE the source terminated with the EOS token
-    # `</s>`: the SentencePiece pieces alone leave the decoder with no sentence
-    # boundary and it degenerates into a repetition loop ("Hola hola hola...").
-    # Appending `</s>` (as the MarianTokenizer does) is what makes the CT2
-    # weights produce faithful output ("Hello, world." -> "Hola, mundo."). A
-    # small beam gives a stable hypothesis over greedy decoding.
-    batch_tokens = [sp_src.encode(text, out_type=str) + ["</s>"] for text in texts]
-    results = translator.translate_batch(batch_tokens, beam_size=4)
-    for result in results:
-        hypothesis = result.hypotheses[0] if result.hypotheses else []
-        # Drop any trailing EOS the model emits before detokenizing.
-        if hypothesis and hypothesis[-1] == "</s>":
-            hypothesis = hypothesis[:-1]
-        out.append(sp_tgt.decode(hypothesis))
-    return out
+    return translate_directory(directory, texts, _load_translator(directory))
 
 
 def ensure_pair_installed(

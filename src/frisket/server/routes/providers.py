@@ -468,6 +468,8 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
         """Start an allowlisted local engine setup operation."""
         from frisket.engine.jobs.engine_setup import (
             CHROMIUM_SETUP_REF,
+            SPACY_SETUP_REF,
+            OPUS_MT_SETUP_REF,
             DOCLING_SETUP_REF,
             EMBEDDINGGEMMA_SETUP_REF,
             FASTER_WHISPER_SETUP_REF,
@@ -478,6 +480,8 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
 
         if body.setup_ref not in {
             CHROMIUM_SETUP_REF,
+            SPACY_SETUP_REF,
+            OPUS_MT_SETUP_REF,
             FASTER_WHISPER_SETUP_REF,
             PARAKEET_TDT_SETUP_REF,
             RAPIDOCR_SETUP_REF,

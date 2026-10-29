@@ -117,9 +117,11 @@ COPY vendor/sqlite-vec1/ vendor/sqlite-vec1/
 COPY src/ src/
 # Bundle the standalone model-server project as data with the core wheel.
 COPY sidecar/src/ sidecar/src/
-COPY sidecar/pyproject.toml sidecar/README.md sidecar/classify-constraints.txt sidecar/indra-ocr-constraints.txt sidecar/retrieval-constraints.txt sidecar/speech-requirements.txt sidecar/
+COPY sidecar/pyproject.toml sidecar/README.md sidecar/classify-constraints.txt sidecar/indra-ocr-constraints.txt sidecar/retrieval-constraints.txt sidecar/speech-requirements.txt sidecar/spacy-requirements.txt sidecar/translation-requirements.txt sidecar/
 COPY sidecar/retrieval-runtime/ sidecar/retrieval-runtime/
 COPY sidecar/speech-runtime/ sidecar/speech-runtime/
+COPY sidecar/spacy-runtime/ sidecar/spacy-runtime/
+COPY sidecar/translation-runtime/ sidecar/translation-runtime/
 COPY README.md LICENSE ./
 # Install the project as its built wheel. The wheel hook adds Vec1 outside the
 # source tree, so an editable install would import /app/src without the native

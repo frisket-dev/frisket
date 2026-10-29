@@ -61,6 +61,14 @@ def is_worker_argv(argv: list[str]) -> bool:
         # Only fixed workers may use app-owned optional interpreters. Never
         # trust an arbitrary interpreter supplied in argv.
         interpreter = runtime_python()
+    elif argv[3] == "spacy-session":
+        from frisket.runtime.spacy_install import runtime_for_worker
+
+        interpreter = runtime_for_worker().executable
+    elif argv[3] == "opus-mt-session":
+        from frisket.runtime.translation_install import runtime_for_worker
+
+        interpreter = runtime_for_worker().executable
     elif argv[3] == "indra-ocr":
         from frisket.runtime.indra_ocr_install import runtime_python
 

@@ -5,84 +5,43 @@ import os
 import threading
 from typing import Any, Callable
 
+from frisket.engine._workers.spacy_entities import (
+    SPACY_CANONICAL_TYPES as SPACY_CANONICAL_TYPES,
+    SPACY_ONTONOTES_TAGS as SPACY_ONTONOTES_TAGS,
+    SPACY_ONTONOTES_TYPES as SPACY_ONTONOTES_TYPES,
+    extract_entities,
+)
+
 DEFAULT_SPACY_MODEL = "en_core_web_sm"
 SPACY_MODEL = os.environ.get("FRISKET_SPACY_MODEL", DEFAULT_SPACY_MODEL)
-
-# OntoNotes 5 NER tag set (the label set `en_core_web_sm`/`en_core_web_trf`
-# ship) -> a lowercase canonical type. PERSON/ORG/GPE/LOC route through the
-# same words the shared alias table in `ops/entities.py` already knows
-# (person/organization/location); the rest are OntoNotes-only concepts that
-# alias table has no opinion on, so they pass through as their own lowercase
-# type via `ops.entities.canonicalize_entity_type`'s fallback -- this map
-# exists only to give GPE/LOC/PERSON/ORG the SAME canonical spelling
-# gliner/llm produce, not to relabel everything.
-SPACY_ONTONOTES_TYPES: dict[str, str] = {
-    "PERSON": "person",
-    "ORG": "organization",
-    "GPE": "location",
-    "LOC": "location",
-}
-
-# Every raw tag an `en_core_web_*` pipeline can emit. spaCy's schema is CLOSED:
-# it is a trained tagger, not a zero-shot extractor, so a requested type
-# outside this set can never match and the run would write `[]` into every row
-# -- indistinguishable from clean data. This is the list `map.ner` validates
-# `labels` against when engine="spacy".
-SPACY_ONTONOTES_TAGS: tuple[str, ...] = (
-    "PERSON",
-    "NORP",
-    "FAC",
-    "ORG",
-    "GPE",
-    "LOC",
-    "PRODUCT",
-    "EVENT",
-    "WORK_OF_ART",
-    "LAW",
-    "LANGUAGE",
-    "DATE",
-    "TIME",
-    "PERCENT",
-    "MONEY",
-    "QUANTITY",
-    "ORDINAL",
-    "CARDINAL",
-)
-
-# The canonical types spaCy can actually produce, derived by the SAME
-# tag -> canonical transform `run_spacy_ner` applies to a live span, so a
-# validator built on this can never accept a label the extractor would drop.
-SPACY_CANONICAL_TYPES: frozenset[str] = frozenset(
-    SPACY_ONTONOTES_TYPES.get(tag, tag.lower()) for tag in SPACY_ONTONOTES_TAGS
-)
 
 _PIPELINE_CACHE: dict[str, Any] = {}
 _PIPELINE_LOCK = threading.Lock()
 
 
 def spacy_available(model: str | None = None) -> tuple[bool, str | None]:
-    """Whether the local spaCy engine can actually run: the `spacy` library
-    must import AND the named pipeline model must be available. Either half
-    alone is not a working engine -- honest-fail with an install hint naming
-    exactly what is missing, never a bare/opaque unavailable (mirrors
-    `tesseract_available`).
+    """Passively check host/private runtime and model readiness without loading.
 
-    The default model is either Frisket's checksum-verified managed artifact
-    or a manually installed Python package. Custom ``FRISKET_SPACY_MODEL``
-    values retain the package-only behavior. This never calls ``spacy.load``
-    and never reaches the network."""
+    Custom models require host-installed spaCy. The managed default can use
+    the private runtime together with Frisket's checksum-verified model cache.
+    """
     target_model = model or SPACY_MODEL
-    library = importlib.util.find_spec("spacy") is not None
+    from frisket.runtime.spacy_install import runtime_present
+
+    library = runtime_present()
     if not library:
         return False, (
-            "spaCy is not installed. Install with "
-            "pip install 'frisket-data[standard]', then confirm the managed "
-            "download for the pinned pipeline model."
+            "spaCy is not installed. Set up spaCy in the engine picker. "
+            "For a command-line installation, install frisket-data[standard]."
         )
     if target_model == DEFAULT_SPACY_MODEL:
         from frisket.ai.models.spacy_model import model_state
 
-        state = model_state()
+        state = (
+            model_state()
+            if importlib.util.find_spec("spacy") is not None
+            else model_state(include_python_package=False)
+        )
         if state.status == "present":
             return True, None
         return False, (
@@ -90,7 +49,10 @@ def spacy_available(model: str | None = None) -> tuple[bool, str | None]:
             f"{state.detail}. Pinned artifact: {state.ref}. For a manual "
             f"installation, run: python -m spacy download {target_model}."
         )
-    if importlib.util.find_spec(target_model) is None:
+    if (
+        importlib.util.find_spec("spacy") is None
+        or importlib.util.find_spec(target_model) is None
+    ):
         return False, (
             f"spaCy is installed but the custom '{target_model}' model is not "
             f"installed. Run: python -m spacy download {target_model}."
@@ -140,34 +102,8 @@ def requested_spacy_types(labels: list[str] | None) -> set[str] | None:
 def run_spacy_ner(
     nlp: Callable[[str], Any], texts: list[str], labels: list[str] | None = None
 ) -> list[list[dict[str, Any]]]:
-    """Pure, injectable-pipeline core (HARD RULE: tests use a tiny fake/mocked
-    pipeline for this logic, never a real download). `nlp` is anything
-    callable as `nlp(text) -> doc` where `doc.ents` yields objects with
-    `.text`/`.label_`/`.start_char`/`.end_char` (a real spaCy `Language`, or a
-    fake with that shape). spaCy assigns no per-span confidence, so `score`
-    is honestly `None` rather than a fabricated number."""
-    wanted = requested_spacy_types(labels)
-    results: list[list[dict[str, Any]]] = []
-    for text in texts:
-        entities: list[dict[str, Any]] = []
-        if text and text.strip():
-            doc = nlp(text)
-            for ent in doc.ents:
-                raw_label = str(ent.label_)
-                canonical = SPACY_ONTONOTES_TYPES.get(raw_label, raw_label.lower())
-                if wanted is not None and canonical not in wanted:
-                    continue
-                entities.append(
-                    {
-                        "text": str(ent.text),
-                        "type": canonical,
-                        "start": int(ent.start_char),
-                        "end": int(ent.end_char),
-                        "score": None,
-                    }
-                )
-        results.append(entities)
-    return results
+    """Apply the shared pure extractor with canonicalized requested labels."""
+    return extract_entities(nlp, texts, requested_spacy_types(labels))
 
 
 def run_spacy_ner_default(

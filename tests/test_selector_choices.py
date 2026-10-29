@@ -1815,3 +1815,78 @@ def test_local_speech_setup_refreshes_runtime_and_weights_without_restart(
     assert after["setup"] is None
     assert after["configuration_actions"] == []
     assert after["authored_selection"] == before["authored_selection"]
+
+
+@pytest.mark.parametrize(
+    "engine_id,action_id,setup_ref",
+    [
+        ("spacy", "map.ner", "engine-setup:spacy.local@1"),
+        ("opus_mt", "map.translate", "engine-setup:opus-mt.local@1"),
+    ],
+)
+def test_optional_language_setup_is_reachable_and_refreshes_without_restart(
+    tmp_path,
+    monkeypatch,
+    engine_id,
+    action_id,
+    setup_ref,
+):
+    ready = False
+    monkeypatch.setattr(
+        "frisket.ops.spacy_ner.spacy_available",
+        lambda: (ready, None if ready else "Set up spaCy components."),
+    )
+    monkeypatch.setattr(
+        "frisket.ops.integrations.opus_mt.runtime_available",
+        lambda: ready,
+    )
+    monkeypatch.setattr(
+        "frisket.ops.integrations.opus_mt.installed_pairs",
+        lambda: [],
+    )
+    client, workspace, project_id = _app(
+        tmp_path / engine_id,
+        capabilities_for=lambda _request, _pid: SelectorCapabilities(
+            may_author_actions=True,
+            may_run_actions=True,
+            manage_model_downloads=True,
+        ),
+    )
+    params = {"engine": engine_id}
+    if engine_id == "opus_mt":
+        params.update(language=["en"], target_language="Spanish")
+    route = f"/api/projects/{project_id}/selector-choices"
+    query = _query(
+        {"kind": "action", "action_id": action_id, "field": "engine", "params": params}
+    )
+
+    def selected():
+        response = client.post(route, json=query)
+        assert response.status_code == 200, response.text
+        return next(row for row in _choices(response.json()) if row["is_current"])
+
+    missing = selected()
+    assert missing["status"] == "needs_setup"
+    assert missing["can_author"] is True
+    assert missing["can_run"] is False
+    assert missing["setup"]["kind"] == "engine_setup"
+    assert missing["setup"]["setup_ref"] == setup_ref
+    assert missing["setup"]["can_start"] is True
+    operation, _ = model_pull_store.create_or_get_active(
+        workspace.queue.engine,
+        workspace_root=str(workspace.root),
+        model_ref=setup_ref,
+    )
+    working = selected()
+    assert working["status"] == "working"
+    assert working["active_operation"]["id"] == operation.id
+    assert working["can_run"] is False
+    model_pull_store.mark_done(workspace.queue.engine, operation.id)
+    ready = True
+    installed = selected()
+    assert installed["status"] == "ready"
+    assert installed["can_run"] is True
+    if engine_id == "opus_mt":
+        assert installed["setup"]["kind"] == "first_use_download"
+    else:
+        assert installed["setup"] is None

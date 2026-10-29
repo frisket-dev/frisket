@@ -153,3 +153,34 @@ def test_desktop_bootstrap_refuses_invalid_stdin_without_writing_stdout():
 def test_current_runtime_keeps_venv_executable():
     # subprocess-boundary: verifies interpreter identity or real child lifetime.
     assert worker_argv("runtime-info")[0] == os.path.abspath(sys.executable)
+
+
+@pytest.mark.parametrize(
+    "kind,module",
+    [
+        ("spacy-session", "spacy_install"),
+        ("opus-mt-session", "translation_install"),
+    ],
+)
+def test_language_worker_policy_accepts_only_its_owned_interpreter(
+    monkeypatch, tmp_path, kind, module
+):
+    import importlib
+    from frisket.runtime.launch import is_worker_argv, with_policy
+
+    installer = importlib.import_module(f"frisket.runtime.{module}")
+    owned = tmp_path / "owned-python"
+    monkeypatch.setattr(
+        installer,
+        "runtime_for_worker",
+        lambda: PythonRuntime(owned, PythonRuntime.current().app_code_root),
+    )
+    command = worker_argv("runtime-info")
+    command[0] = str(owned)
+    command[3] = kind
+    assert is_worker_argv(command)
+    assert "--policy" in with_policy(command, {"version": 1})
+    command[0] = str(tmp_path / "arbitrary-python")
+    assert not is_worker_argv(command)
+    with pytest.raises(ValueError, match="managed Python"):
+        with_policy(command, {"version": 1})

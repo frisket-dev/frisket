@@ -16,6 +16,8 @@ TARGETS = {
         "frisket.engine._workers.embeddinggemma_worker",
         "framed_main",
     ),
+    "spacy-session": ("frisket.engine._workers.spacy_worker", "framed_main"),
+    "opus-mt-session": ("frisket.engine._workers.opus_mt_worker", "framed_main"),
     "classifier-session": ("frisket.engine._workers.classifier_worker", "framed_main"),
     "indra-ocr": ("frisket.engine._workers.indra_ocr_worker", "main"),
     "parakeet-session": ("frisket.engine._workers.parakeet_worker", "framed_main"),

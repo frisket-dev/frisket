@@ -202,14 +202,17 @@ def windows_firewall_programs() -> list[Path]:
             "Network prewarm did not retain a private Python base interpreter"
         )
     browser_executables = list((profile / "cache" / "playwright").rglob("*.exe"))
-    speech_record = profile / ".frisket-prewarm-speech-python"
-    speech_python = Path(speech_record.read_text(encoding="utf-8").strip()).absolute()
     runtime_root = Path(os.environ["FRISKET_MODEL_RUNTIME_DIR"]).absolute()
-    if not speech_python.is_relative_to(runtime_root) or speech_python.suffix.lower() != ".exe":
-        raise RuntimeError("Recorded speech worker path escapes the isolated runtime root")
-    if not speech_python.is_file():
-        raise RuntimeError("Explicit setup did not retain the optional speech worker")
-    programs = [*required, *base_pythons, *browser_executables, speech_python]
+    optional_pythons = []
+    for kind in ("speech", "spacy", "translation"):
+        record = profile / f".frisket-prewarm-{kind}-python"
+        python = Path(record.read_text(encoding="utf-8").strip()).absolute()
+        if not python.is_relative_to(runtime_root) or python.suffix.lower() != ".exe":
+            raise RuntimeError(f"Recorded {kind} worker escapes the isolated runtime root")
+        if not python.is_file():
+            raise RuntimeError(f"Explicit setup did not retain the optional {kind} worker")
+        optional_pythons.append(python)
+    programs = [*required, *base_pythons, *browser_executables, *optional_pythons]
     for program in programs:
         if program == runtime_python:
             continue

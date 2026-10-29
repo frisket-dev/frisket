@@ -34,10 +34,12 @@ try {
   await page.waitForURL('frisket://app/**', { timeout: 15 * 60000 });
   await page.getByTestId('home-screen').waitFor({ timeout: 30000 });
   if (process.env.FRISKET_MODEL_RUNTIME_DIR) {
-    try {
-      await access(path.join(process.env.FRISKET_MODEL_RUNTIME_DIR, 'speech-v1'));
-      throw new Error('Fresh first launch unexpectedly created a speech runtime.');
-    } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    for (const runtimeProfile of ['speech-v1', 'spacy-v1', 'translation-v1']) {
+      try {
+        await access(path.join(process.env.FRISKET_MODEL_RUNTIME_DIR, runtimeProfile));
+        throw new Error(`Fresh first launch unexpectedly created ${runtimeProfile}.`);
+      } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    }
   }
   const browserCaches = await readdir(path.join(profile, 'cache', 'playwright'));
   for (const version of browserCaches) {
