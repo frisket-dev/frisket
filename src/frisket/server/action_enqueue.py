@@ -12,6 +12,9 @@ from typing import Any, Literal
 
 from pydantic import ValidationError
 
+from frisket.actions.types import RowError
+from frisket.engine.executor.action_support import _row_input_action_error
+
 from frisket.contracts.action import (
     ActionError,
     ActionResult,
@@ -598,6 +601,8 @@ def _queue_v1_project_run_request(
                 details={"columns": exc.columns},
             )
             return abort_prepare(error)
+        except RowError as exc:
+            return abort_prepare(_row_input_action_error(request.action.kind, exc))
         except (ValueError, RuntimeError) as exc:
             error = request.entry.prepare_run_error(request.action, exc)
             return abort_prepare(error)

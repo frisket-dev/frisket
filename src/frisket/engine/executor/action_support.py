@@ -28,6 +28,22 @@ from frisket.engine.runner.confirmation_context import (
 )
 
 
+def _row_input_action_error(action_kind: str, error: Any) -> ActionError:
+    """Project an expected input-row failure before a run/preview exists."""
+    details = {
+        key: getattr(error, key)
+        for key in ("row_id", "column")
+        if getattr(error, key, None) is not None
+    }
+    return ActionError(
+        code=error.code,
+        message=error.message,
+        action_kind=action_kind,
+        field="params.source",
+        details=details,
+    )
+
+
 def _failed_result(
     *,
     project_id: str,

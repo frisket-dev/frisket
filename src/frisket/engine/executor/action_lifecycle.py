@@ -39,6 +39,8 @@ from frisket.engine.runner.confirmation_context import (
     rate_estimate,
 )
 from frisket.engine.runner.confirmation_echo import refuse_unless_exact_echo
+from frisket.actions.types import RowError
+from frisket.engine.executor.action_support import _row_input_action_error
 from frisket.engine.runner.validation import ExecutionResolutionRefused
 from frisket.engine.runner.map_runner import ResultEvidenceWriteFailed
 from frisket.execution.pricing_policy import default_pricing_policy
@@ -1758,6 +1760,16 @@ def _run_reserved_maprunner_action(
                 ),
                 details={"missing": exc.missing},
             ),
+        )
+    except RowError as exc:
+        OutputColumnClaimStore(project).release(
+            claim_token=claim_token, status="failed"
+        )
+        delete_reservation_fn(project, reservation["receipt_id"])
+        return _failed_result(
+            project_id=project_id,
+            action_kind=action.kind,
+            error=_row_input_action_error(action.kind, exc),
         )
     except EmptyInputColumns as exc:
         # Refuse at request time — before any `runs` row exists — instead of queuing

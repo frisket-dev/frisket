@@ -19,7 +19,6 @@ from frisket.ai.llm import LLMResponse, ModelRouter
 from frisket.engine.executor import run_action_spec
 from frisket.engine.executor.map_rows_action import (
     _typed_map_rows_plan,
-    TypedMapRowsPlanError,
     build_typed_map_rows_plan,
     typed_program_from_runner_spec,
     validate_typed_project_references,
@@ -218,12 +217,9 @@ def test_non_pdf_file_rows_refuse_without_sending_metadata_to_model(
             {"document": column_id},
         )
         bound = typed_action_for_request(request(kind, sheet_id, source))
-        with pytest.raises(TypedMapRowsPlanError, match="not a PDF") as admission_error:
-            build_typed_map_rows_plan(project, bound)
-        assert admission_error.value.code == "pdf_input_invalid"
-        # Runtime reads retain expected row-failure semantics if file inputs
-        # become invalid after an earlier admission.
-        plan = _typed_map_rows_plan(bound)
+        # Form/project-reference validation is metadata-only. File-content
+        # failures remain expected row errors at the actual resolution boundary.
+        plan = build_typed_map_rows_plan(project, bound)
         with pytest.raises(RowError, match="not a PDF") as error:
             row_values(
                 project,
@@ -502,7 +498,7 @@ def test_inferred_reference_types_are_intersected_with_exclusions(monkeypatch):
 
 
 @pytest.mark.parametrize("kind", ["map.ask", "map.summarize"])
-@pytest.mark.parametrize("endpoint", ["run", "preview"])
+@pytest.mark.parametrize("endpoint", ["run", "preview", "estimate"])
 @pytest.mark.parametrize(
     "filename,mime,raw",
     [
@@ -530,11 +526,18 @@ def test_invalid_pdf_preflight_returns_structured_http_error_without_provider(
         body = request(kind, sheet_id, ["document"])
         body["scope"]["row_ids"] = rows
         response = client.post(
-            f"/api/projects/{project_id}/actions/v1/{endpoint}", json=body
+            f"/api/projects/{project_id}/actions/v1/{endpoint}",
+            json={"action": body} if endpoint == "estimate" else body,
         )
         assert response.status_code == 400, response.text
         payload = response.json()
-        error = payload["errors"][0] if endpoint == "run" else payload["error"]
+        error = (
+            payload["errors"][0]
+            if endpoint == "run"
+            else payload["error"]
+            if endpoint == "preview"
+            else payload["detail"]
+        )
         assert error["code"] == "pdf_input_invalid"
         assert error["field"] == "params.source"
         assert error["message"]
@@ -577,3 +580,83 @@ def test_pdf_row_aggregate_page_limit_is_a_structured_http_refusal(tmp_path):
         assert adapter.requests == []
         assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
         assert len(project.columns(sheet_id)) == 2
+
+
+def test_pdf_form_validation_does_not_materialize_files(tmp_path, monkeypatch):
+    router, adapter = router_and_adapter()
+    with TestClient(create_app(tmp_path, router=router)) as client:
+        pid = client.post(
+            "/api/projects", json={"name": "Passive PDF validation"}
+        ).json()["id"]
+        project = client.app.state.workspace.get(pid)
+        sheet_id = project.add_sheet("Rows")
+        column_id = project.add_column(sheet_id, "document", type="file")
+        digest = project.add_blob(
+            b"not a readable PDF", filename="broken.pdf", mime="application/pdf"
+        )
+        project.add_rows(
+            sheet_id,
+            [{"document": {"blob": digest, "mime": "application/pdf"}}],
+            {"document": column_id},
+        )
+
+        def forbidden(*args, **kwargs):
+            raise AssertionError("form validation must not read PDF bytes")
+
+        monkeypatch.setattr(Project, "materialize_blob", forbidden)
+        response = client.post(
+            f"/api/projects/{pid}/actions/v1/validate-params",
+            json={"action": request("map.ask", sheet_id, ["document"])},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["diagnostics"] == {}
+        assert adapter.requests == []
+
+
+def test_pdf_preview_only_resolves_its_bounded_sample(tmp_path, monkeypatch):
+    monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
+    stream = BytesIO()
+    writer = PdfWriter()
+    writer.add_blank_page(width=100, height=200)
+    writer.write(stream)
+    router, adapter = router_and_adapter()
+    with TestClient(create_app(tmp_path, router=router)) as client:
+        pid = client.post("/api/projects", json={"name": "Bounded PDF preview"}).json()[
+            "id"
+        ]
+        project = client.app.state.workspace.get(pid)
+        sheet_id = project.add_sheet("Rows")
+        column_id = project.add_column(sheet_id, "document", type="file")
+        good = project.add_blob(
+            stream.getvalue(), filename="good.pdf", mime="application/pdf"
+        )
+        bad = project.add_blob(
+            b"not a readable PDF", filename="bad.pdf", mime="application/pdf"
+        )
+        project.add_rows(
+            sheet_id,
+            [
+                {"document": {"blob": digest, "mime": "application/pdf"}}
+                for digest in [good] * 20 + [bad]
+            ],
+            {"document": column_id},
+        )
+        original = Project.materialize_blob
+        reads = []
+
+        def bounded(project, digest, *args, **kwargs):
+            assert digest != bad, "Preview must not inspect the unselected 21st PDF"
+            reads.append(digest)
+            return original(project, digest, *args, **kwargs)
+
+        monkeypatch.setattr(Project, "materialize_blob", bounded)
+        # No authored row_ids: the preview endpoint must choose its <=20-row
+        # sample before any file bytes are resolved.
+        response = client.post(
+            f"/api/projects/{pid}/actions/v1/preview",
+            json=request("map.ask", sheet_id, ["document"]),
+        )
+        assert response.status_code == 402, response.text
+        assert response.json()["error"]["code"] == "cost_gate"
+        assert reads and set(reads) == {good}
+        assert adapter.requests == []

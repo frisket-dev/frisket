@@ -24,7 +24,8 @@ from frisket.actions.system import action_id_from_request
 from frisket.actions.core import CreateSheet
 from frisket.actions.registry import ACTION_REGISTRY, NEW_ACTION_IDS
 from frisket.actions.system import typed_action_for_request
-from frisket.actions.types import ActionRequest
+from frisket.actions.types import ActionRequest, RowError
+from frisket.engine.executor.action_support import _row_input_action_error
 from frisket.authoring.workbench.installed_actions import (
     bind_installed_action,
     resolve_installed_action,
@@ -819,6 +820,8 @@ class ActionPreviewRunService:
                     details={"columns": exc.columns},
                 ),
             )
+        except RowError as exc:
+            return _error_response(400, _row_input_action_error(plan.action_kind, exc))
         except ValueError as exc:
             return _error_response(
                 400,

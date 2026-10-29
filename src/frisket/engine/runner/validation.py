@@ -6,6 +6,8 @@ so the guards run identically whether or not the caller persists anything."""
 
 from __future__ import annotations
 
+from frisket.actions.types import RowError
+
 import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
@@ -1174,7 +1176,7 @@ def exact_replay_available(
             )
             if cache.get(request_key(request, recipe.version)) is None:
                 return False
-    except (KeyError, TypeError, ValueError):
+    except (KeyError, TypeError, ValueError, RowError):
         return False
     return True
 
