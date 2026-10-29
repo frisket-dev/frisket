@@ -129,7 +129,7 @@ if (stageModels) {
     await execFile(runtime.python, ['-I', '-c',
       "import importlib.util; assert not any(importlib.util.find_spec(name) for name in ('faster_whisper', 'onnx_asr', 'av'))",
     ], { env: runtime.env, timeout: 30_000 });
-    const { stdout: speechPython } = await execFile(runtime.python, ['-I', '-c',
+    const { stdout: speechPython } = await execFile(runtime.python, ['-I', '-B', '-c',
       "import sys; sys.path.insert(0, sys.argv[1]); from frisket.runtime.speech_install import runtime_python; print(runtime_python())",
       path.join(resourcesPath, 'python'),
     ], { env: runtime.env, timeout: 30_000 });
