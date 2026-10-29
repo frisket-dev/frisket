@@ -27,7 +27,7 @@ filelock==3.29.1
     # via huggingface-hub
 flatbuffers==25.12.19
     # via onnxruntime
-fsspec==2026.4.0
+fsspec==2026.6.0
     # via huggingface-hub
 h11==0.16.0
     # via
