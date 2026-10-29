@@ -79,7 +79,26 @@ def test_speech_setup_uses_one_locked_profile(monkeypatch, tmp_path):
     assert profile.root == tmp_path / "speech-v1"
     assert profile.extra is None
     assert profile.requirements_file == "speech-requirements.txt"
+    assert profile.require_hashes is True
     assert options == {"should_cancel": cancel, "progress": progress}
+
+
+def test_speech_installer_requires_complete_hashed_dependencies(monkeypatch, tmp_path):
+    monkeypatch.setenv("FRISKET_MODEL_RUNTIME_DIR", str(tmp_path))
+    monkeypatch.setattr(model_install, "_uv_command", lambda: ["uv"])
+    monkeypatch.setattr(speech_install, "_probe_install", lambda: True)
+    calls = []
+    monkeypatch.setattr(
+        model_install, "_run_uv", lambda argv, **kwargs: calls.append(argv)
+    )
+    speech_install.install_speech(
+        should_cancel=lambda: False, progress=lambda message: None
+    )
+    install = calls[1]
+    assert "--require-hashes" in install
+    assert Path(install[install.index("--requirement") + 1]).name == (
+        "speech-requirements.txt"
+    )
 
 
 def test_speech_lock_has_only_worker_dependencies():

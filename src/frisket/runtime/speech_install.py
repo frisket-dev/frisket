@@ -76,6 +76,7 @@ def install_speech(
             installed_message="Local transcription components installed",
             probe_failure_message="installed transcription runtime failed its import check",
             requirements_file="speech-requirements.txt",
+            require_hashes=True,
         ),
         should_cancel=should_cancel,
         progress=progress,

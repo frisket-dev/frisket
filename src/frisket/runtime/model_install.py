@@ -77,6 +77,7 @@ class _InstallProfile:
     probe_failure_message: str
     constraint_file: str | None = None
     requirements_file: str | None = None
+    require_hashes: bool = False
 
 
 def model_child_environment(
@@ -256,6 +257,8 @@ def _install_profile(
         raise ValueError("install profile requires exactly one dependency source")
     if profile.constraint_file is not None and profile.requirements_file is not None:
         raise ValueError("a locked requirements profile cannot use constraints")
+    if profile.require_hashes and profile.requirements_file is None:
+        raise ValueError("hash verification requires an exported requirements file")
     profile.root.mkdir(parents=True, exist_ok=True)
     lock = _acquire_install_lock(
         root=profile.root, should_cancel=should_cancel, progress=progress
@@ -313,6 +316,8 @@ def _install_profile(
         if constraint is not None:
             install_argv.extend(["--constraint", str(constraint)])
         if requirements is not None:
+            if profile.require_hashes:
+                install_argv.append("--require-hashes")
             install_argv.extend(["--requirement", str(requirements)])
         else:
             install_argv.append(f"{source}[{profile.extra}]")
