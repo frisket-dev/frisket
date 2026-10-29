@@ -3137,6 +3137,64 @@ type HttpActionParamValidationResult_ActionParamDiagnostic = ({
   "position"?: (((number)) | ((null)));
 });
 
+type HttpActionParamValidationResult_EngineSetup = ({
+  "blocked_by_operation": (((HttpActionParamValidationResult_ModelPull)) | ((null)));
+  "can_mutate": (boolean);
+  "can_start": (boolean);
+  "kind": ("engine_setup") & (string);
+  "scope": ("workspace" | "organization") & (string);
+  "setup_ref": (string);
+});
+
+type HttpActionParamValidationResult_InstructionsSetup = ({
+  "kind": ("instructions") & (string);
+  "steps": (Array<(string)>);
+  "title": (string);
+  "url"?: (((string)) | ((null)));
+});
+
+type HttpActionParamValidationResult_ModelPull = ({
+  "artifact": (((HttpActionParamValidationResult_ModelPullArtifact)) | ((null)));
+  "cancel_requested": (boolean);
+  "capabilities": (HttpActionParamValidationResult_ModelPullCapabilities);
+  "completed_bytes": (((number)) | ((null)));
+  "created_at": (string);
+  "display_name": (string);
+  "endpoint_id": (((string)) | ((null)));
+  "endpoint_origin": (((string)) | ((null)));
+  "error": (((HttpActionParamValidationResult_ModelPullError)) | ((null)));
+  "finished_at": (((string)) | ((null)));
+  "id": (number);
+  "initiated_by": (((string)) | ((null)));
+  "model": (string);
+  "operation_kind": ("artifact" | "local_model" | "engine_setup") & (string);
+  "phase": (((string)) | ((null)));
+  "resolved_digest": (((string)) | ((null)));
+  "resolved_size": (((number)) | ((null)));
+  "schemaVersion": ("frisket.model_pull.v4") & (string);
+  "started_at": (((string)) | ((null)));
+  "status": ("pending" | "running" | "done" | "failed" | "cancelled" | "uninstalled") & (string);
+  "total_bytes": (((number)) | ((null)));
+});
+
+type HttpActionParamValidationResult_ModelPullArtifact = ({
+  "kind": (string);
+  "license": (((string)) | ((null)));
+  "manifest_version": (((string)) | ((null)));
+  "source_url": (((string)) | ((null)));
+});
+
+type HttpActionParamValidationResult_ModelPullCapabilities = ({
+  "cancel": (boolean);
+  "remove": (boolean);
+  "retry": (boolean);
+});
+
+type HttpActionParamValidationResult_ModelPullError = ({
+  "code": (((string)) | ((null)));
+  "message": (((string)) | ((null)));
+});
+
 export type HttpActionParamValidationResult = ({
   "action": ({
   [key: string]: (string);
@@ -3147,6 +3205,7 @@ export type HttpActionParamValidationResult = ({
 });
   "logical_outputs"?: (Array<(HttpActionParamValidationResult_ActionLogicalOutput)>);
   "project_id": (string);
+  "runtime_setup"?: (((HttpActionParamValidationResult_EngineSetup)) | ((HttpActionParamValidationResult_InstructionsSetup)) | ((null)));
   "schema_version": ("frisket.action_param_validation_result.v1") & (string);
 });
 

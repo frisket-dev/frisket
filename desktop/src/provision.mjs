@@ -77,9 +77,6 @@ export async function prepareRuntime({ resourcesPath, dataPath, onProgress = () 
   onProgress({ phase: 'dependencies', message: 'Installing app components…' });
   await guarded(uv, ['pip', 'sync', '--python', python, '--require-hashes', requirements, '--no-config'], 'installing private Python dependencies');
 
-  onProgress({ phase: 'browser', message: 'Setting up browser tools…' });
-  await guarded(python, ['-m', 'playwright', 'install', 'chromium'], 'installing bundled Chromium');
-
   onProgress({ phase: 'workspace', message: 'Checking app components…' });
   await guarded(python, ['-I', bootstrap, 'runtime-info'], 'checking private Python runtime');
 

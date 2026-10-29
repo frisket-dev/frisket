@@ -164,6 +164,7 @@ export function createActionEstimateValidationDomainApi({
       const outputs = wire.logical_outputs;
       return {
         diagnostics: paramValidationFromV1Wire(wire.diagnostics ?? {}),
+        runtime_setup: wire.runtime_setup,
         ...(typeof wire.creates_sheet === 'boolean' ? { creates_sheet: wire.creates_sheet } : {}),
         logical_outputs: (outputs ?? []).map((output) => ({
           key: output.key,

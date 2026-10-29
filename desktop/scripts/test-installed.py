@@ -202,8 +202,6 @@ def windows_firewall_programs() -> list[Path]:
             "Network prewarm did not retain a private Python base interpreter"
         )
     browser_executables = list((profile / "cache" / "playwright").rglob("*.exe"))
-    if not browser_executables:
-        raise RuntimeError("Network prewarm did not retain a Chromium executable")
     programs = [*required, *base_pythons, *browser_executables]
     for program in programs:
         if program == runtime_python:

@@ -252,4 +252,19 @@ describe('action estimate and parameter-validation HTTP contracts', () => {
     });
   });
 
+  it('carries runtime setup beside valid outputs instead of dropping it at the domain projection', async () => {
+    const setup = { kind: 'engine_setup', scope: 'workspace', setup_ref: 'engine-setup:chromium.local@1',
+      can_start: true, can_mutate: true, blocked_by_operation: null };
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ ...validationWire,
+      diagnostics: {}, runtime_setup: setup, logical_outputs: [{ key: 'screenshot', column_type: 'file' }],
+    })));
+    const api = createActionEstimateValidationDomainApi({
+      errorFactory: (status, payload) => new MappedContractError(status, payload), projectId: 'project/one',
+    });
+    await expect(api.resolveParams({ action_id: 'web.capture_screenshot',
+      scope: { kind: 'sheet_rows', sheet_id: 7 }, params: { source: 'url' },
+    })).resolves.toEqual({ diagnostics: {}, runtime_setup: setup,
+      logical_outputs: [{ key: 'screenshot', column_type: 'file' }] });
+  });
+
 });

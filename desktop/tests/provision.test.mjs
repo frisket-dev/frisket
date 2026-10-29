@@ -168,7 +168,8 @@ test('repairs an incomplete environment and records completion only after every 
     const sync = all.find(({ args }) => args.includes('sync'));
     assert.deepEqual(sync.args.slice(0, 6), ['-I', path.join(subject.resources, 'python', 'frisket', 'runtime', '_guard.py'), String(process.pid), '2', path.join(subject.resources, 'bin', 'uv'), 'pip']);
     assert.equal(sync.args.includes('--require-hashes'), true);
-    assert.equal(all.some(({ args }) => args.includes('playwright') && args.includes('chromium')), true);
+    assert.equal(all.some(({ args }) => args.includes('playwright')), false, 'startup leaves browser installation to explicit engine setup');
+    assert.deepEqual(await fs.readdir(ready.env.PLAYWRIGHT_BROWSERS_PATH), []);
     assert.equal(all.some(({ args }) => args.includes('runtime-info')), true);
     assert.equal(all.every(({ pythonpath, nodeOptions }) => pythonpath === undefined && nodeOptions === undefined), true);
     assert.equal(ready.env.FRISKET_FFPROBE_PATH, path.join(subject.resources, 'bin', 'ffprobe'));

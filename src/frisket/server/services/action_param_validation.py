@@ -286,6 +286,39 @@ class ActionParamValidationService:
     def __init__(self, workspace: Workspace):
         self._workspace = workspace
 
+    def _runtime_setup(self, kind: str, params: dict[str, Any]) -> dict | None:
+        # Hosted/team browser provisioning remains operator-owned. Local setup
+        # is a prerequisite, not a field error: preserve the action's outputs.
+        if self._workspace.edition != "solo" or not (
+            kind == "web.capture_screenshot"
+            or (
+                kind == "web.capture_page" and params.get("render_mode") == "playwright"
+            )
+        ):
+            return None
+        from frisket.runtime.chromium import chromium_library_available, chromium_ready
+        from frisket.engine.jobs.engine_setup import CHROMIUM_SETUP_REF
+        from frisket.server.services.selector_choices_capabilities import (
+            SelectorCapabilities,
+        )
+        from frisket.server.services.selector_choices_setup import SelectorSetupService
+
+        if not chromium_library_available():
+            return {
+                "kind": "instructions",
+                "title": "Browser tools need setup",
+                "steps": [
+                    "Install the browser extra: pip install 'frisket-data[browser]'",
+                    "Restart Frisket, then set up browser tools here.",
+                ],
+                "url": None,
+            }
+        if chromium_ready():
+            return None
+        return SelectorSetupService(self._workspace, edition="solo").engine_setup(
+            CHROMIUM_SETUP_REF, SelectorCapabilities(manage_model_downloads=True)
+        )
+
     def _validators_for_kind(self, project_id: str, kind: str) -> dict[str, str]:
         # Typed actions validate through their registered Params below.
         # Legacy plugin validators come from the installed project's catalog.
@@ -590,4 +623,5 @@ class ActionParamValidationService:
             "diagnostics": diagnostics,
             "logical_outputs": logical_outputs,
             **({"creates_sheet": creates_sheet} if creates_sheet is not None else {}),
+            "runtime_setup": self._runtime_setup(kind, params),
         }

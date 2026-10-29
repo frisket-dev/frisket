@@ -2096,6 +2096,7 @@ export interface ParamDiagnostic {
 export type ParamValidationResult = Record<string, ParamDiagnostic>;
 
 export interface ActionParamResolution {
+  runtime_setup?: Extract<import('./selectorChoices').SelectorChoice['setup'], { kind: 'engine_setup' | 'instructions' }> | null;
   diagnostics: ParamValidationResult;
   logical_outputs: Array<{
     key: string;

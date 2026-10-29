@@ -1,6 +1,6 @@
 // Networked first-launch proof. Run before prewarming; no credentials or real projects.
 import { _electron } from '@playwright/test';
-import { access, readFile, mkdir } from 'node:fs/promises';
+import { access, readFile, readdir, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { installedExecutable } from '../e2e/installed-platform.mjs';
 
@@ -33,6 +33,11 @@ try {
   page = await electron.firstWindow();
   await page.waitForURL('frisket://app/**', { timeout: 15 * 60000 });
   await page.getByTestId('home-screen').waitFor({ timeout: 30000 });
+  const browserCaches = await readdir(path.join(profile, 'cache', 'playwright'));
+  for (const version of browserCaches) {
+    const contents = await readdir(path.join(profile, 'cache', 'playwright', version));
+    if (contents.length) throw new Error('Fresh first launch unexpectedly installed browser artifacts.');
+  }
   console.log(`Cold first launch succeeded without Retry in ${((Date.now() - started) / 1000).toFixed(1)}s.`);
 } catch (error) {
   await mkdir('desktop/test-results', { recursive: true });

@@ -96,7 +96,7 @@ jobs:
       - name: First launch with an empty profile and cache (no Retry)
         run: node desktop/scripts/check-cold-start.mjs
       - name: Prepare download caches (networked setup)
-        run: node desktop/scripts/prewarm.mjs
+        run: node desktop/scripts/prewarm.mjs --browser
       - name: Installed app and native engines (no new external connections)
         run: python desktop/scripts/test-installed.py
       - name: Upload unsigned beta
@@ -325,7 +325,7 @@ jobs:
       - name: First launch with an empty profile and cache (no Retry)
         run: node desktop/scripts/check-cold-start.mjs
       - name: Prepare download caches (networked setup)
-        run: node desktop/scripts/prewarm.mjs
+        run: node desktop/scripts/prewarm.mjs --browser
       - name: Installed signed app and native engines (no new external connections)
         run: python desktop/scripts/test-installed.py
       - name: Verify installed application signature after use

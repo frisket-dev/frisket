@@ -8,6 +8,46 @@ from frisket.engine.jobs import engine_setup, model_pull_store as store
 from frisket.engine.jobs.queue import open_queue
 
 
+@pytest.mark.parametrize("outcome", ["done", "cancelled", "failed"])
+def test_chromium_setup_records_completion_cancel_or_retryable_failure(
+    tmp_path, monkeypatch, outcome
+):
+    from frisket.runtime import chromium
+    from frisket.runtime.model_install import ModelInstallCancelled
+
+    def install(**kwargs):
+        if outcome == "cancelled":
+            raise ModelInstallCancelled
+        if outcome == "failed":
+            raise RuntimeError("download failed")
+
+    monkeypatch.setattr(chromium, "install_chromium", install)
+    queue = open_queue(workspace=tmp_path)
+    try:
+        row, _ = store.create_or_get_active(
+            queue.engine,
+            workspace_root=str(tmp_path),
+            model_ref=engine_setup.CHROMIUM_SETUP_REF,
+        )
+        store.mark_running(queue.engine, row.id, job_id=1)
+        args = dict(
+            engine=queue.engine,
+            pull_id=row.id,
+            should_cancel=lambda: False,
+            is_final_attempt=True,
+        )
+        if outcome == "failed":
+            with pytest.raises(RuntimeError, match="browser_setup_failed"):
+                engine_setup.run_engine_setup(**args)
+        else:
+            assert engine_setup.run_engine_setup(**args) == {"status": outcome}
+        saved = store.get(queue.engine, row.id)
+        assert saved.status == outcome
+        assert store.to_dto(saved)["capabilities"]["retry"] is (outcome != "done")
+    finally:
+        queue.close()
+
+
 def test_engine_setup_rejects_an_unhandled_setup_ref(tmp_path) -> None:
     queue = open_queue(workspace=tmp_path)
     try:
