@@ -322,6 +322,8 @@ def resolve_map_preview(
                 code=getattr(exc, "code", "invalid_action_request"),
                 message=str(exc),
                 action_kind=str(data["action_id"]),
+                field=getattr(exc, "field", None),
+                details=dict(getattr(exc, "details", {})),
             )
         preview_scope = _resolve_bounded_preview_scope(
             project,

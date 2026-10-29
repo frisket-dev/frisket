@@ -10,6 +10,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
+from frisket.actions.types import RowError
 from frisket.ops.base import Recipe
 from frisket.engine.runner.grounding import (
     MAX_IMAGE_BYTES,
@@ -18,6 +19,15 @@ from frisket.engine.runner.grounding import (
 )
 from frisket.engine.store import Project
 from frisket.authoring.templates import render_column_template
+
+
+class ModelRowInputError(RowError):
+    """An expected row input error with coordinates for preflight diagnostics."""
+
+    def __init__(self, error: RowError, *, row_id: int, column: str | None = None):
+        super().__init__(error.code, error.message)
+        self.row_id = row_id
+        self.column = column
 
 
 def row_source_snapshot(project, sheet_id, source_column_ids, *, row_ids=None):
@@ -303,7 +313,10 @@ def row_values(
         ):
             from frisket.engine.runner.pdf_inputs import pdf_part
 
-            val = pdf_part(project, val)
+            try:
+                val = pdf_part(project, val)
+            except RowError as exc:
+                raise ModelRowInputError(exc, row_id=row_id, column=name) from exc
         # Handlers may transform mutable JSON inputs in place. Keep the page
         # and captured source value unchanged for other rows and evidence.
         values[name] = (
@@ -317,7 +330,6 @@ def row_values(
         if isinstance(value, dict) and value.get("__pdf_b64__")
     ]
     if pdf_values:
-        from frisket.actions.types import RowError
         from frisket.ai.llm.document_input import MAX_PDF_INPUT_BYTES, MAX_PDF_PAGES
 
         total_bytes = sum(
@@ -328,9 +340,12 @@ def row_values(
             total_bytes > MAX_PDF_INPUT_BYTES
             or sum(value["page_count"] for value in pdf_values) > MAX_PDF_PAGES
         ):
-            raise RowError(
-                "pdf_input_too_large",
-                "Direct PDF input is limited to 20 MiB and 100 pages per row across selected files.",
+            raise ModelRowInputError(
+                RowError(
+                    "pdf_input_too_large",
+                    "Direct PDF input is limited to 20 MiB and 100 pages per row across selected files.",
+                ),
+                row_id=row_id,
             )
     source_cells_empty = bool(prompt_source_names) and all(
         is_empty_cell_value(value) for value in values.values()

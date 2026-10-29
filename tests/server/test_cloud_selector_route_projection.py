@@ -406,7 +406,9 @@ def test_selected_missing_cloud_route_never_borrows_own_details(
         "label": "Frisket Cloud",
     }
     assert selected["execution_route"] is None
-    assert selected["facts"] == []
+    assert selected["facts"] == [
+        {"kind": "text", "label": "PDF input", "value": "Supported"}
+    ]
     assert selected["status"] == "unavailable"
     assert selected["can_author"] is False
     assert selected["blocker"] == {
@@ -1028,6 +1030,7 @@ def test_selector_projects_the_composed_cloud_model_route(
             "source_url": None,
             "updated": None,
         },
+        {"kind": "text", "label": "PDF input", "value": "Supported"},
     ]
     assert [option["id"] for option in selected["route_selection"]["options"]] == [
         "cloud",

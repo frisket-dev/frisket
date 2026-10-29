@@ -24,6 +24,8 @@ from frisket.engine.executor.map_rows_action import (
     build_typed_map_rows_plan,
     bound_typed_program_request_from_runner_spec,
 )
+from frisket.actions.types import RowError
+from frisket.engine.executor.action_support import _row_input_action_error
 from frisket.engine.runner import MapRunner
 from frisket.engine.runner.confirmation_context import (
     BILLED_COST_KEY,
@@ -322,6 +324,10 @@ class ActionPreviewService:
                 estimate["requires_confirmation"] = price is None or price > float(
                     coverage.threshold_usd
                 )
+        except RowError as exc:
+            raise ActionPreviewRouteError(
+                400, _row_input_action_error(action_kind, exc).model_dump(mode="json")
+            ) from exc
         except (KeyError, ValueError) as exc:
             raise _action_error(400, str(exc)) from exc
         return {

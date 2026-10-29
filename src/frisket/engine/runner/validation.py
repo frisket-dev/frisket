@@ -6,6 +6,8 @@ so the guards run identically whether or not the caller persists anything."""
 
 from __future__ import annotations
 
+from frisket.actions.types import RowError
+
 import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
@@ -975,7 +977,7 @@ def _estimate_run(
         if spec.get("action_kind") in PDF_ACTION_IDS:
             sources = set(recipe.source_columns(spec))
             if any(
-                column.get("type") == "file" and column.get("name") in sources
+                column["type"] == "file" and column["name"] in sources
                 for column in project.columns(spec["sheet_id"])
             ):
                 out["warning"] = PDF_ESTIMATE_WARNING
@@ -1174,7 +1176,7 @@ def exact_replay_available(
             )
             if cache.get(request_key(request, recipe.version)) is None:
                 return False
-    except (KeyError, TypeError, ValueError):
+    except (KeyError, TypeError, ValueError, RowError):
         return False
     return True
 
