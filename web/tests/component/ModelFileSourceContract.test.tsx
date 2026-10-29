@@ -14,7 +14,7 @@ const catalog = servedActionCatalog();
 let stores: WorkspaceStores | undefined;
 afterEach(() => { cleanup(); stores?.dispose(); stores = undefined; vi.unstubAllGlobals(); });
 
-it.each(['map.ask', 'map.summarize', 'map.ner'])('%s offers supported sources and explains explicit file conversion', (kind) => {
+it.each(['map.ask', 'map.summarize', 'map.extract', 'map.ner'])('%s follows its declared PDF or text source contract', (kind) => {
   const entry = catalog.actions.find((item) => item.kind === kind);
   if (!entry || !isGeneratedActionCatalogEntry(entry)) throw new Error('Missing generated action');
   const template = generatedActionTemplateFromCatalogEntry(entry);
@@ -28,18 +28,24 @@ it.each(['map.ask', 'map.summarize', 'map.ner'])('%s offers supported sources an
     catalogEntry={entry} actionTemplate={template} sheet={sheet} selectedRowIds={[]} running={false}
     initialDraft={{ action_id: kind, scope: { kind: 'sheet_rows', sheet_id: 7 },
       params: { source: ['body'], model: 'openai/gpt-5-mini', ...(kind === 'map.ask' ? { question: 'What?' }
-        : kind === 'map.ner' ? { engine: 'llm', labels: ['PERSON'] } : {}) }, output_names: {} }}
+        : kind === 'map.ner' ? { engine: 'llm', labels: ['PERSON'] }
+          : kind === 'map.extract' ? { engine: 'llm', fields: [{ name: 'fact', type: 'text' }] } : {}) }, output_names: {} }}
+    resolveParams={vi.fn(async () => ({ diagnostics: {}, logical_outputs: entry.ui_hints.logical_outputs }))}
     onExecute={vi.fn()} onClose={vi.fn()} /></WorkspaceStoresContext.Provider>);
-  expect(screen.getByText('For file contents, run To markdown or OCR first, then select the resulting text column.')).toBeVisible();
+  const acceptsPdf = kind !== 'map.ner';
+  if (acceptsPdf) expect(screen.queryByText('For file contents, run To markdown or OCR first, then select the resulting text column.')).not.toBeInTheDocument();
+  else expect(screen.getByText('For file contents, run To markdown or OCR first, then select the resulting text column.')).toBeVisible();
   fireEvent.mouseDown(screen.getByTestId('text-source-columns'));
   const menu = screen.getByRole('listbox');
   expect(within(menu).getByText('body')).toBeVisible();
   if (kind === 'map.ner') expect(within(menu).queryByText('picture')).not.toBeInTheDocument();
   else expect(within(menu).getByText('picture')).toBeVisible();
-  expect(within(menu).queryByText('document')).not.toBeInTheDocument();
+  if (acceptsPdf) expect(within(menu).getByText('document')).toBeVisible();
+  else expect(within(menu).queryByText('document')).not.toBeInTheDocument();
   fireEvent.click(screen.getByTestId('text-source-mode-template'));
   const insert = screen.getByTestId('text-source-template-column-insert');
   expect(within(insert).getByRole('option', { name: 'body' })).toBeInTheDocument();
   expect(within(insert).getByRole('option', { name: 'picture' })).toBeInTheDocument();
-  expect(within(insert).queryByRole('option', { name: 'document' })).not.toBeInTheDocument();
+  if (acceptsPdf) expect(within(insert).getByRole('option', { name: 'document' })).toBeInTheDocument();
+  else expect(within(insert).queryByRole('option', { name: 'document' })).not.toBeInTheDocument();
 });

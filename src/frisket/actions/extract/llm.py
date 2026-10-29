@@ -19,7 +19,7 @@ from frisket.actions.extraction_types import (
     ExtractGrounding,
     extraction_output_fields,
 )
-from frisket.actions.model_rows import _ModelRowsParams
+from frisket.actions.model_rows import _PdfModelRowsParams
 from frisket.actions.types import (
     ColumnRef,
     DynamicOutput,
@@ -41,7 +41,7 @@ from frisket.contracts.clef import (
 from frisket.ops.extraction import extract_response_schema, render_extract_messages
 
 
-class ExtractParams(_ModelRowsParams):
+class ExtractParams(_PdfModelRowsParams):
     engine: EngineRef[Classifier] = Field(
         default=EngineRef[Classifier]("llm"),
         title="Engine",

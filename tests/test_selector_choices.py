@@ -1890,3 +1890,48 @@ def test_optional_language_setup_is_reachable_and_refreshes_without_restart(
         assert installed["setup"]["kind"] == "first_use_download"
     else:
         assert installed["setup"] is None
+
+
+@pytest.mark.parametrize(
+    "action_id,field",
+    [("map.ask", "model"), ("map.summarize", "model"), ("map.extract", "engine")],
+)
+def test_direct_pdf_selection_projects_authoritative_model_support(
+    tmp_path, action_id, field
+):
+    from frisket.ai.llm.document_input import model_supports_pdf
+
+    client, _workspace, project_id = _app(tmp_path / "workspace")
+    response = client.post(
+        f"/api/projects/{project_id}/selector-choices",
+        json=_query(
+            {
+                "kind": "action",
+                "action_id": action_id,
+                "field": field,
+                "params": {"source": ["document"], "source_contains_pdf": True},
+            }
+        ),
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert "source" in payload["depends_on"]
+    assert "source_contains_pdf" in payload["depends_on"]
+    supported = unsupported = 0
+    for choice in _choices(payload):
+        model = choice["authored_selection"].get("model")
+        if model_supports_pdf(model or ""):
+            supported += 1
+            assert {
+                "kind": "text",
+                "label": "PDF input",
+                "value": "Supported",
+            } in choice["facts"]
+            assert (choice["blocker"] or {}).get("code") != "pdf_input_unsupported"
+        else:
+            unsupported += 1
+            assert choice["can_run"] is False
+            assert choice["status"] == "unavailable"
+            assert choice["blocker"]["code"] == "pdf_input_unsupported"
+    assert supported > 0
+    assert unsupported > 0

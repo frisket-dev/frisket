@@ -8,6 +8,7 @@ import { PluginActionUIBoundary } from './PluginActionUIBoundary';
 import type { GeneratedActionCustomization } from './generatedActionCustomizations';
 
 import { compatibleSourceColumns, formatUsd, isProjectScopedAction } from '../../actions/model';
+import { draftUsesPdf } from '../../actions/pdfInput';
 import { jsonValuesEqual } from '../../actions/canonicalJson';
 import { quotedUsd } from '../../actions/quotedCost';
 import { formatDuration } from '../../format';
@@ -63,10 +64,13 @@ function actionSelectorQuery(
   actionId: string,
   field: string,
   draft: CanonicalDraft,
+  sourceContainsPdf: boolean,
 ): HttpSelectorChoicesQuery {
   return {
     schema_version: 'frisket.selector_choices_query.v1',
-    subject: { kind: 'action', action_id: actionId, field, params: draft },
+    subject: { kind: 'action', action_id: actionId, field, params: { ...draft,
+      ...(sourceContainsPdf ? { source_contains_pdf: true } : {}),
+    } },
   } as HttpSelectorChoicesQuery;
 }
 
@@ -958,6 +962,7 @@ function GeneratedActionFormContents({
     invalidateParams();
     setDraft(params);
   }, [catalogEntry.kind, invalidateParams, lockReason, lockedParams, markFieldTouched, structureLocked]);
+  const pdfInput = draftUsesPdf(catalogEntry, draft, columns);
   const renderField = (field: ActionParamFieldPresentationProps): ReactNode | undefined => {
     const CustomField = customization?.fields?.[field.name];
     if (CustomField) {
@@ -967,7 +972,7 @@ function GeneratedActionFormContents({
     }
     const semanticControl = catalogEntry.ui_hints.semantic_controls[field.name];
     if (semanticControl === 'engine' || semanticControl === 'model') {
-      const query = actionSelectorQuery(catalogEntry.kind, field.name, draft);
+      const query = actionSelectorQuery(catalogEntry.kind, field.name, draft, pdfInput);
       return <div data-tour="action-engine-selector">
         <SelectorField projectId={projectId} label={field.label} query={query}
           recentNamespace={`${projectId ?? 'none'}:action:${catalogEntry.kind}:${field.name}`}
@@ -1310,7 +1315,7 @@ function GeneratedActionFormContents({
             lockedParams, lockReason }}>
             <ParamsBody sheet={sheet} params={draft} setParams={updateBodyParams}
               setEditorProblem={setEditorProblem}
-              engine={selectedEngineInfo}
+              engine={selectedEngineInfo} pdfInput={pdfInput}
               request={{ scope: requestScope, sheet_name: estimateDraft.sheet_name,
                 output_names: estimateDraft.output_names }} onParamInteraction={markFieldTouched}
               errors={displayedDiagnostics} Field={GeneratedField} onNavigateToAction={onNavigateToAction}

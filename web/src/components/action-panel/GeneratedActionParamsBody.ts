@@ -12,6 +12,8 @@ interface GeneratedActionBodyContext {
   sheet: SheetMeta | null;
   /** Served catalog facts used by engine-specific option controls. */
   engine?: Readonly<EngineOption>;
+  /** Effective PDF input selection; authored citation Params remain intact. */
+  pdfInput?: boolean;
   /** Read-only authored request context; naming and scope setters stay in the host. */
   request: Readonly<Pick<GeneratedActionDraft, 'scope' | 'sheet_name' | 'output_names'>>;
   /** A custom body can mark the exact top-level parameter it owns as touched. */

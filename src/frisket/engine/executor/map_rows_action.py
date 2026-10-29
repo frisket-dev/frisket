@@ -1551,6 +1551,14 @@ class _TypedModelRowsProgram(_TypedMapRowsProgram):
             final: logical for logical, final in output_names.items()
         }
 
+    def disable_pdf_citations(self) -> None:
+        if self._uses_extract:
+            from frisket.actions.extraction_types import ExtractGrounding
+
+            self._params = self._params.model_copy(
+                update={"grounding": ExtractGrounding(enabled=False)}
+            )
+
     def postprocess_value(self, name: str, value: Any, spec: dict[str, Any]) -> Any:
         """Apply the Output model's field type and functional metadata."""
 
@@ -1700,6 +1708,15 @@ def build_typed_map_rows_plan(
         output_target_preconditions=output_target_preconditions,
         evaluation_context=evaluation_context,
     )
+    if (
+        bound.action.action_id in {"map.ask", "map.extract", "map.summarize"}
+        and isinstance(bound.action.definition.run, ModelRows)
+        and any(
+            references.source_column_types.get(name) == "file"
+            for name in unresolved.program.prompt_source_columns
+        )
+    ):
+        unresolved.program.disable_pdf_citations()
     unresolved.program.bind_project(project)
     return replace(
         unresolved,
@@ -2282,6 +2299,30 @@ def validate_model_rows_project_inputs(
             details={"column": subject},
         ) from exc
     validate_model_rows_source_types(terminal, params, references.source_column_types)
+    if action_id in {"map.ask", "map.extract", "map.summarize"} and any(
+        references.source_column_types.get(reference.column) == "file"
+        for reference in discover_references(getattr(params, terminal.source_param))
+    ):
+        from frisket.ai.llm.document_input import model_supports_pdf
+
+        model = getattr(params, terminal.model_param, None)
+        if not model_supports_pdf(model.root if model is not None else ""):
+            raise TypedMapRowsPlanError(
+                "pdf_input_unsupported",
+                "Choose a supported OpenAI or Anthropic model for direct PDF input.",
+                field="params.model",
+            )
+        grounding = getattr(params, "grounding", None)
+        policy = getattr(params, "evidence_policy", None)
+        if (grounding and grounding.citation_required) or (
+            policy and policy.citation_required
+        ):
+            raise TypedMapRowsPlanError(
+                "pdf_citations_unsupported",
+                "Citations are unavailable for direct PDF input. Turn off citation-required policies.",
+                field="params.grounding",
+            )
+
     validate_model_rows_input_provenance(
         project,
         action_id=action_id,

@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import vm from 'node:vm';
 
-async function shell() {
+async function shell(windowsNewlines = false) {
   const windows = [];
   const shutdowns = [];
   class Window extends EventEmitter {
@@ -50,8 +50,9 @@ async function shell() {
     Date: { now: () => { clock += 150; return clock; } }, setTimeout: callback => callback(),
     appUrl: url => url.startsWith('frisket://app'), APP_SCHEME: 'frisket', APP_ORIGIN: 'frisket://app',
   });
-  const source = (await readFile(new URL('../src/main.mjs', import.meta.url), 'utf8'))
-    .replace(/^import .*;\n/gm, '').replaceAll('export function', 'function').replace('import.meta.url', '"file:///app/src/main.mjs"');
+  const input = await readFile(new URL('../src/main.mjs', import.meta.url), 'utf8');
+  const source = (windowsNewlines ? input.replace(/\r?\n/g, '\r\n') : input)
+    .replace(/^import .*;\r?\n/gm, '').replaceAll('export function', 'function').replace('import.meta.url', '"file:///app/src/main.mjs"');
   vm.runInContext(`${source}\nmainWindow = createWindow(); globalThis.proof = { showStartup, openHome: () => openHome(mainWindow) };`, context);
   return { windows, shutdowns, proof: context.proof };
 }
@@ -82,4 +83,13 @@ test('closing startup requests guarded application shutdown instead of orphaning
   assert.equal(shutdowns.length, 1);
   assert.equal(typeof shutdowns[0].abortStartup, 'function');
   assert.equal(typeof shutdowns[0].stopBackend, 'function');
+});
+
+test('shell fixture accepts Windows checkout line endings', async () => {
+  const { windows, shutdowns, proof } = await shell(true);
+  await proof.showStartup();
+  await proof.openHome();
+  assert.equal(windows[0].url, 'frisket://app/');
+  assert.equal(windows[1].destroyed, true);
+  assert.equal(shutdowns.length, 0);
 });

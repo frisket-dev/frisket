@@ -15,10 +15,14 @@ from typing import Any
 from frisket.ai.llm import (
     LLMRequest,
     ModelRouter,
-    estimate_tokens,
     model_call_cannot_go_live,
     model_pricing,
     request_key,
+)
+from frisket.ai.llm.pdf_estimates import (
+    PDF_ESTIMATE_WARNING,
+    estimate_input_tokens,
+    has_pdf_input,
 )
 from frisket.ops.base import Recipe
 from frisket.ops.builtin import get_recipe
@@ -964,6 +968,17 @@ def _estimate_run(
                 cost_source="cloud_route_quote" if bound is not None else "unknown",
             ),
         }
+        # The route already rendered inputs to quote them. Disclose PDF token
+        # approximation from selected file columns without rereading blob bytes.
+        from frisket.ai.llm.document_input import PDF_ACTION_IDS
+
+        if spec.get("action_kind") in PDF_ACTION_IDS:
+            sources = set(recipe.source_columns(spec))
+            if any(
+                column.get("type") == "file" and column.get("name") in sources
+                for column in project.columns(spec["sheet_id"])
+            ):
+                out["warning"] = PDF_ESTIMATE_WARNING
         if pricing_policy is None:
             raise TypeError("estimate_run requires a pricing_policy for routed work")
         rated = confirmation_estimate(recipe, spec, out, policy=pricing_policy)
@@ -1063,19 +1078,24 @@ def _estimate_run(
     col_map = {c["name"]: c["id"] for c in columns}
     sample = rows[: min(20, len(rows))]
     sample_tokens = []
+    pdf_inputs = False
     for row_id in sample:
         values = row_values(project, recipe, spec, col_map, row_id)
         call = recipe.render(values, spec)
-        sample_tokens.append(estimate_tokens(json.dumps(call.messages)))
-    avg_in = sum(sample_tokens) / max(1, len(sample_tokens))
+        pdf_inputs |= has_pdf_input(call.messages)
+        sample_tokens.append(estimate_input_tokens(call.messages))
+    estimate_known = all(tokens is not None for tokens in sample_tokens)
+    avg_in = sum(tokens or 0 for tokens in sample_tokens) / max(1, len(sample_tokens))
+    pdf_disclosure = {"warning": PDF_ESTIMATE_WARNING} if pdf_inputs else {}
     est_out = 150 + 50 * len(spec.get("fields", []) or [1])
     pricing = model_pricing(spec.get("model", ""))
-    if pricing.price is None:
+    if pricing.price is None or not estimate_known:
         out = {
             "cost": None,
             "cost_source": "unknown",
             "rows": len(rows),
             "avg_input_tokens": int(avg_in),
+            **pdf_disclosure,
         }
         return _EstimateRunResult(
             out,
@@ -1095,6 +1115,7 @@ def _estimate_run(
         ),
         "rows": len(rows),
         "avg_input_tokens": int(avg_in),
+        **pdf_disclosure,
     }
     return _EstimateRunResult(
         out,

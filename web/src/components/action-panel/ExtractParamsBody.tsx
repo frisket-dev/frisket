@@ -50,16 +50,17 @@ export function ExtractFieldsEditor({ fields, onChange, optional = false,
 }
 
 export function ExtractParamsBody({ params, setParams, errors, Field, engine,
-  structureLocked, lockReason }:
+  structureLocked, lockReason, pdfInput = false }:
   GeneratedActionParamsBodyProps<'map.extract'>) {
-  const groundingEnabled = params.grounding === undefined || Boolean(params.grounding?.enabled);
+  const groundingEnabled = !pdfInput && (params.grounding === undefined || Boolean(params.grounding?.enabled));
   const citationRequired = Boolean(
     params.grounding?.citation_required || params.evidence_policy?.citation_required,
   );
-  const citationMode = groundingEnabled
+  const citationMode = pdfInput && citationRequired ? 'require' : groundingEnabled
     ? (citationRequired ? 'require' : 'cite')
     : 'none';
   const setCitationMode = (mode: string) => {
+    if (pdfInput && mode !== 'none') return;
     const citationRequired = mode === 'require';
     setParams({
       ...params,
@@ -87,13 +88,17 @@ export function ExtractParamsBody({ params, setParams, errors, Field, engine,
     <label className="field-group form-field">
       <span className="form-label">Citations</span>
       <PanelSelect testId="field-citation_mode" value={citationMode}
+        disabled={pdfInput && !citationRequired}
         onValueChange={setCitationMode}
         options={[
           { value: 'none', label: 'Off', description: 'Extract values without citations.' },
-          { value: 'cite', label: 'Cite sources', description: 'Keep values when evidence is unavailable.' },
-          { value: 'require', label: 'Require citations', description: 'Withhold values without usable evidence.' },
+          { value: 'cite', label: 'Cite sources', description: 'Keep values when evidence is unavailable.', disabled: pdfInput },
+          { value: 'require', label: 'Require citations', description: 'Withhold values without usable evidence.', disabled: pdfInput },
         ]} />
-      {citationMode === 'require' && <span className="form-hint">Require citations leaves a value empty or reports a failure when no usable citation is found.</span>}
+      {pdfInput && <span className="form-hint" data-testid="pdf-citation-policy">
+        PDF inputs do not support citations.{citationRequired ? ' Turn citations off to continue.' : ''}
+      </span>}
+      {citationMode === 'require' && !pdfInput && <span className="form-hint">Require citations leaves a value empty or reports a failure when no usable citation is found.</span>}
     </label>
     <details className="action-advanced"><summary>Advanced</summary>
       {groundingEnabled && <>

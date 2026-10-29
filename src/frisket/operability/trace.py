@@ -7,15 +7,19 @@ failures never change action results. Deterministic runs create no trace file.
 
 from __future__ import annotations
 
+import base64
 import gzip
+import hashlib
 import json
 import logging
 import math
 import threading
 import time
 import uuid
-from dataclasses import dataclass, field
+from collections.abc import Mapping
+from dataclasses import dataclass, field, fields, is_dataclass
 from datetime import datetime, timezone
+from itertools import islice
 from pathlib import Path
 from typing import Any, Awaitable, Iterable, Protocol
 
@@ -68,10 +72,126 @@ def trace_path(bundle_path: str | Path, run_id: int) -> Path:
     return Path(bundle_path) / "traces" / f"run-{run_id}.jsonl.gz"
 
 
+def _pdf_metadata(value: Any, metadata: dict | None = None) -> dict:
+    """Hash attachment bytes before generic redaction can stringify a binary part."""
+    metadata = metadata or {}
+    raw = bytes(value) if isinstance(value, (bytes, bytearray, memoryview)) else None
+    if isinstance(value, str):
+        encoded = (
+            value.split(",", 1)[1]
+            if value.startswith("data:application/pdf;base64,")
+            else value
+        )
+        try:
+            raw = base64.b64decode(encoded, validate=True)
+        except (ValueError, TypeError):
+            raw = None
+    result = {
+        "type": "document",
+        "media_type": "application/pdf",
+        "attachment": "omitted",
+    }
+    if raw is not None:
+        result.update(sha256=hashlib.sha256(raw).hexdigest(), byte_count=len(raw))
+    for key in ("filename", "page_count", "text_char_count"):
+        if key in metadata and isinstance(metadata[key], (str, int)):
+            result[key] = metadata[key]
+    return result
+
+
+def _without_pdf_bytes(value: Any) -> Any:
+    """Keep trace capture bounded and cycle safe, including BinaryContent objects."""
+    seen: set[int] = set()
+    remaining = 4096
+
+    def visit(item: Any, depth: int = 0) -> Any:
+        nonlocal remaining
+        remaining -= 1
+        if remaining < 0 or depth > 12:
+            return TRUNCATED
+        if isinstance(item, str):
+            if item.startswith("data:application/pdf;base64,"):
+                return json.dumps(_pdf_metadata(item))
+            if "BinaryContent(" in item and "application/pdf" in item:
+                return "[PDF binary attachment omitted]"
+            # Some diagnostics already serialize request content as JSON text.
+            if item.startswith(("{", "[")) and any(
+                marker in item for marker in ("application/pdf", "__pdf_b64__")
+            ):
+                if len(item) > MAX_ROW_BYTES:
+                    return "[PDF attachment omitted; oversized diagnostic]"
+                try:
+                    decoded = json.loads(item)
+                except (ValueError, RecursionError):
+                    return "[PDF attachment omitted; malformed diagnostic]"
+                else:
+                    safe = visit(decoded, depth + 1)
+                    if safe != decoded:
+                        return json.dumps(safe, ensure_ascii=False)
+            return item
+        if isinstance(item, Mapping):
+            if id(item) in seen:
+                return CYCLE
+            seen.add(id(item))
+            try:
+                if "__pdf_b64__" in item:
+                    return _pdf_metadata(item["__pdf_b64__"], item)
+                if item.get("media_type") == "application/pdf" and "data" in item:
+                    return _pdf_metadata(item["data"], item)
+                if item.get("type") == "document" and isinstance(
+                    item.get("source"), Mapping
+                ):
+                    source = item["source"]
+                    if source.get("media_type") == "application/pdf":
+                        return _pdf_metadata(source.get("data"), item)
+                # OpenAI file objects carry an explicit PDF data URL.
+                if isinstance(item.get("file_data"), str) and item[
+                    "file_data"
+                ].startswith("data:application/pdf;base64,"):
+                    return _pdf_metadata(item["file_data"], item)
+                result = {
+                    key: visit(child, depth + 1)
+                    for key, child in islice(item.items(), 256)
+                }
+                if len(item) > 256:
+                    result[TRUNCATED] = TRUNCATED
+                return result
+            finally:
+                seen.remove(id(item))
+        if isinstance(item, (list, tuple)):
+            if id(item) in seen:
+                return CYCLE
+            seen.add(id(item))
+            try:
+                result = [visit(child, depth + 1) for child in item[:256]]
+                if len(item) > 256:
+                    result.append(TRUNCATED)
+                return result
+            finally:
+                seen.remove(id(item))
+        # pydantic-ai's BinaryContent is a dataclass; generic repr includes bytes.
+        if getattr(item, "media_type", None) == "application/pdf":
+            return _pdf_metadata(getattr(item, "data", None))
+        if is_dataclass(item) and not isinstance(item, type):
+            if id(item) in seen:
+                return CYCLE
+            seen.add(id(item))
+            try:
+                return {
+                    f.name: visit(getattr(item, f.name), depth + 1)
+                    for f in fields(item)[:256]
+                }
+            finally:
+                seen.remove(id(item))
+        return item
+
+    return visit(value)
+
+
 def redact(obj: Any, *, secret_values: tuple[str, ...] = ()) -> Any:
     """Return the bounded, credential-redacted representation used by traces."""
     return redact_value(
-        obj,
+        _without_pdf_bytes(obj),
         secret_values=secret_values,
         max_string_chars=MAX_CAPTURED_STR,
     )
@@ -87,7 +207,9 @@ def _part(
     # Redact once, then apply the trace string limit while recording actual
     # omissions. Ordinary ellipses in snippets or model prose are just text.
     safe = redact_value(
-        value, secret_values=secrets, max_string_chars=MAX_REDACTION_INPUT_CHARS
+        _without_pdf_bytes(value),
+        secret_values=secrets,
+        max_string_chars=MAX_REDACTION_INPUT_CHARS,
     )
     clipped = False
 
@@ -826,7 +948,11 @@ def normalize_trace_row(value: dict) -> dict:
     for key in ("trace_id", "raw_response", "error"):
         if value.get(key) is None or isinstance(value[key], str):
             if key in value:
-                row[key] = value[key]
+                row[key] = (
+                    _part(value[key], (), truncated=truncated)
+                    if key == "raw_response"
+                    else value[key]
+                )
     for key in ("row_id", "tokens_in", "tokens_out", "latency_ms"):
         if value.get(key) is None or type(value[key]) is int:
             if key in value:

@@ -295,6 +295,15 @@ def row_values(
         # need the raw blob reference/path untouched
         if for_model and col_types.get(name) == "image" and val is not None:
             val = image_part(project, val, max_image_bytes=MAX_IMAGE_BYTES) or val
+        if (
+            for_model
+            and col_types.get(name) == "file"
+            and not is_empty_cell_value(val)
+            and spec.get("action_kind") in {"map.ask", "map.extract", "map.summarize"}
+        ):
+            from frisket.engine.runner.pdf_inputs import pdf_part
+
+            val = pdf_part(project, val)
         # Handlers may transform mutable JSON inputs in place. Keep the page
         # and captured source value unchanged for other rows and evidence.
         values[name] = (
@@ -302,6 +311,27 @@ def row_values(
             if source_page is not None and isinstance(val, (dict, list))
             else val
         )
+    pdf_values = [
+        value
+        for value in values.values()
+        if isinstance(value, dict) and value.get("__pdf_b64__")
+    ]
+    if pdf_values:
+        from frisket.actions.types import RowError
+        from frisket.ai.llm.document_input import MAX_PDF_INPUT_BYTES, MAX_PDF_PAGES
+
+        total_bytes = sum(
+            len(value["__pdf_b64__"]) // 4 * 3 - value["__pdf_b64__"].count("=")
+            for value in pdf_values
+        )
+        if (
+            total_bytes > MAX_PDF_INPUT_BYTES
+            or sum(value["page_count"] for value in pdf_values) > MAX_PDF_PAGES
+        ):
+            raise RowError(
+                "pdf_input_too_large",
+                "Direct PDF input is limited to 20 MiB and 100 pages per row across selected files.",
+            )
     source_cells_empty = bool(prompt_source_names) and all(
         is_empty_cell_value(value) for value in values.values()
     )
@@ -312,9 +342,19 @@ def row_values(
         # input_template composes the selected columns into one deliberate
         # source value; media parts still ride alongside the rendered text
         # so multimodal recipes do not stringify blobs out of the prompt.
-        rendered: dict[str, Any] = {"input": render_column_template(template, values)}
+        template_values = {
+            name: f"[PDF attachment: {value.get('filename', 'document.pdf')}]"
+            if isinstance(value, dict) and value.get("__pdf_b64__")
+            else value
+            for name, value in values.items()
+        }
+        rendered: dict[str, Any] = {
+            "input": render_column_template(template, template_values)
+        }
         for name, value in values.items():
-            if isinstance(value, dict) and value.get("__image_b64__"):
+            if isinstance(value, dict) and (
+                value.get("__image_b64__") or value.get("__pdf_b64__")
+            ):
                 rendered[name] = value
         return RowInputValues(
             rendered,
