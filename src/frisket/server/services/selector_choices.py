@@ -1223,6 +1223,13 @@ class SelectorChoiceService:
             setup: dict[str, Any] | None = None
             operation: dict[str, Any] | None = None
             engine_setup_ref = _optional_str(engine.get("setup_ref"))
+            whisper_base = engine_id == "faster_whisper" and params.get(
+                "model_size"
+            ) in (None, "base")
+            # Whisper availability describes its runtime, not the presence of
+            # one default model. Other supported sizes retain their own cache
+            # and acquisition semantics when the runtime is already installed.
+            whisper_base_missing = whisper_base and not whisper_setup_ready()
             downloadable = engine.get("downloadable_models") or []
             artifact_ref = (
                 _optional_str(_mapping(downloadable[0]).get("ref"))
@@ -1237,9 +1244,8 @@ class SelectorChoiceService:
                 if engine_id == "faster_whisper"
                 and active_target_id == "local"
                 and available
-                and params.get("model_size") in (None, "base")
+                and whisper_base_missing
                 and downloadable
-                and not whisper_setup_ready()
                 else None
             )
             if policy_forbidden:
@@ -1253,7 +1259,7 @@ class SelectorChoiceService:
                 }
             elif engine_setup_ref is not None:
                 operation, blocked = self._setup.model_pull_operations(engine_setup_ref)
-                if operation is not None or not available:
+                if operation is not None or not available or whisper_base_missing:
                     status = "working" if operation is not None else "needs_setup"
                     blocker = {
                         "code": (
@@ -1264,7 +1270,18 @@ class SelectorChoiceService:
                         "message": (
                             "Engine setup is still in progress."
                             if operation is not None
-                            else str(engine.get("error") or "Engine setup is required.")
+                            else (
+                                "Set up the local Whisper runtime and base model."
+                                + (
+                                    " Other model sizes keep their existing download and cache behavior."
+                                    if not whisper_base
+                                    else ""
+                                )
+                                if engine_id == "faster_whisper"
+                                else str(
+                                    engine.get("error") or "Engine setup is required."
+                                )
+                            )
                         ),
                         "field": None,
                     }
@@ -1281,24 +1298,7 @@ class SelectorChoiceService:
                         "blocked_by_operation": blocked or operation,
                     }
             elif engine_id == "parakeet-tdt" and active_target_id == "local-onnx":
-                if not parakeet_runtime_present():
-                    setup = {
-                        "kind": "instructions",
-                        "title": "Install the local Parakeet runtime",
-                        "steps": [
-                            "Install Frisket's standard data tier in the app environment.",
-                            "Restart Frisket after installation.",
-                        ],
-                        "url": None,
-                    }
-                    blocker = {
-                        "code": "engine_runtime_missing",
-                        "message": str(
-                            engine.get("error") or "Engine runtime unavailable."
-                        ),
-                        "field": None,
-                    }
-                elif not parakeet_setup_ready():
+                if not parakeet_runtime_present() or not parakeet_setup_ready():
                     operation, blocked = self._setup.model_pull_operations(
                         PARAKEET_TDT_SETUP_REF
                     )

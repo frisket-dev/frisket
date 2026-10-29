@@ -316,7 +316,7 @@ def test_recipe_engines_emit_language_and_diarization(monkeypatch):
     ]
 
 
-def test_recipe_engines_disable_parakeet_when_the_asr_extra_is_missing(monkeypatch):
+def test_recipe_engines_offer_parakeet_setup_when_the_asr_extra_is_missing(monkeypatch):
     monkeypatch.setattr(
         "frisket.execution.definitions.parakeet_artifacts_present", lambda: True
     )
@@ -327,10 +327,11 @@ def test_recipe_engines_disable_parakeet_when_the_asr_extra_is_missing(monkeypat
 
     parakeet = engines["parakeet-tdt"]
     assert parakeet["available"] is False
-    assert "pip install 'frisket-data[standard]'" in parakeet["error"]
+    assert "Download and set up" in parakeet["error"]
+    assert parakeet["setup_ref"] == "engine-setup:parakeet-tdt.local-onnx@1"
 
 
-def test_recipe_engines_disable_whisper_when_its_runtime_is_missing(monkeypatch):
+def test_recipe_engines_offer_whisper_setup_when_its_runtime_is_missing(monkeypatch):
     monkeypatch.setattr(
         "frisket.execution.definitions.faster_whisper_runtime_present", lambda: False
     )
@@ -338,7 +339,8 @@ def test_recipe_engines_disable_whisper_when_its_runtime_is_missing(monkeypatch)
 
     whisper = engines["faster_whisper"]
     assert whisper["available"] is False
-    assert "pip install 'frisket-data[standard]'" in whisper["error"]
+    assert "Download and set up" in whisper["error"]
+    assert whisper["setup_ref"] == "engine-setup:faster-whisper.local@1"
 
 
 def test_openai_whisper_1_availability_follows_effective_provider_keys(

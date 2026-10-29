@@ -295,6 +295,7 @@ function backendEnvironment({ resources, data, environmentPath, manifest }) {
   if (process.env.UV_OFFLINE !== undefined) env.UV_OFFLINE = process.env.UV_OFFLINE;
   env.PLAYWRIGHT_BROWSERS_PATH = path.join(cache, 'playwright', manifest.playwrightVersion);
   env.FRISKET_FFPROBE_PATH = executablePath(resources, 'ffprobe');
+  if (process.env.FRISKET_MODEL_RUNTIME_DIR !== undefined) env.FRISKET_MODEL_RUNTIME_DIR = process.env.FRISKET_MODEL_RUNTIME_DIR;
   env.FRISKET_MODEL_CACHE_DIR = path.join(cache, 'models');
   env.HF_HUB_CACHE = path.join(cache, 'huggingface');
   env.FASTEMBED_CACHE_PATH = path.join(cache, 'fastembed');

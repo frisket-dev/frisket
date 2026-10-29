@@ -55,7 +55,6 @@ import math
 import os
 import re
 from dataclasses import replace
-from importlib.util import find_spec
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -188,22 +187,17 @@ def parakeet_artifacts_present() -> bool:
 
 
 def faster_whisper_runtime_present() -> bool:
-    """Return whether the optional local Whisper runtime is installed."""
-    try:
-        return find_spec("faster_whisper") is not None
-    except (ImportError, ModuleNotFoundError, ValueError):
-        return False
+    """Return whether the host or managed local Whisper runtime is installed."""
+    from frisket.runtime.speech_install import runtime_present
+
+    return runtime_present("faster_whisper")
 
 
 def parakeet_runtime_present() -> bool:
-    """Return whether every module owned by the ``asr`` extra is installed."""
-    try:
-        return all(
-            find_spec(module) is not None
-            for module in ("onnx_asr", "onnxruntime", "huggingface_hub", "av")
-        )
-    except (ImportError, ModuleNotFoundError, ValueError):
-        return False
+    """Return whether the host or managed local Parakeet runtime is installed."""
+    from frisket.runtime.speech_install import runtime_present
+
+    return runtime_present("parakeet-tdt")
 
 
 def _mirror_options(
@@ -955,9 +949,8 @@ class StaticExecutionTargetProvider:
         if target_id == LOCAL_ONNX_TARGET_ID:
             if not parakeet_runtime_present():
                 return (
-                    "Install Frisket's standard tier in the environment that "
-                    "runs the app (pip install 'frisket-data[standard]'), then "
-                    "restart Frisket."
+                    "Set up Parakeet from the engine selector to install local "
+                    "transcription components and its model."
                 )
             return (
                 "Parakeet's pinned ONNX artifacts are not installed. Download "

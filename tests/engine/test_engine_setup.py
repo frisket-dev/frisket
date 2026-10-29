@@ -244,7 +244,7 @@ def test_classifier_setup_installs_runtime_then_selected_weights(
 
 def test_engine_setup_uses_existing_row_and_marks_done(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(
-        "frisket.execution.definitions.parakeet_runtime_present", lambda: True
+        "frisket.runtime.speech_install.runtime_present", lambda engine: True
     )
     queue = open_queue(workspace=tmp_path)
     try:
@@ -284,36 +284,82 @@ def test_engine_setup_uses_existing_row_and_marks_done(tmp_path, monkeypatch) ->
         queue.close()
 
 
-def test_parakeet_setup_refuses_weights_when_runtime_is_missing(
-    tmp_path, monkeypatch
-) -> None:
+@pytest.mark.parametrize("engine_id", ["parakeet-tdt", "faster_whisper"])
+@pytest.mark.parametrize("runtime_state", ["missing", "present", "cancelled", "failed"])
+def test_speech_setup_installs_components_before_weights_and_reuses_runtime(
+    tmp_path, monkeypatch, engine_id, runtime_state
+):
+    from frisket.engine._workers import parakeet_artifacts
+    from frisket.engine.jobs import artifact_pull
+    from frisket.runtime import speech_install
+    from frisket.runtime.model_install import ModelInstallCancelled
+
+    steps = []
     monkeypatch.setattr(
-        "frisket.execution.definitions.parakeet_runtime_present", lambda: False
+        speech_install, "runtime_present", lambda engine: runtime_state == "present"
     )
 
-    async def forbidden(**_kwargs):
-        raise AssertionError("unusable Parakeet weights must not be downloaded")
+    def install(**kwargs):
+        steps.append("runtime")
+        active = store.get(queue.engine, row.id)
+        assert active.phase == "Installing transcription components"
+        assert active.total_bytes is None
+        assert active.status != store.STATUS_DONE
+        if runtime_state == "cancelled":
+            raise ModelInstallCancelled
+        if runtime_state == "failed":
+            raise RuntimeError("installer failed")
 
+    async def parakeet_weights(**kwargs):
+        assert kwargs["allow_download"] is True
+        steps.append("weights")
+
+    def whisper_weights(engine, pull_id, pinned, **kwargs):
+        assert pinned.hf_snapshot.repo_id == "Systran/faster-whisper-base"
+        assert kwargs["mark_done"] is False
+        steps.append("weights")
+        return {"status": "done"}
+
+    monkeypatch.setattr(speech_install, "install_speech", install)
     monkeypatch.setattr(
-        "frisket.engine._workers.parakeet_artifacts.resolve_parakeet_artifacts",
-        forbidden,
+        parakeet_artifacts, "resolve_parakeet_artifacts", parakeet_weights
     )
+    monkeypatch.setattr(parakeet_artifacts, "cached_whisper_path", lambda: tmp_path)
+    monkeypatch.setattr(artifact_pull, "_run_hf_snapshot_pull", whisper_weights)
     queue = open_queue(workspace=tmp_path)
     try:
+        ref = (
+            engine_setup.PARAKEET_TDT_SETUP_REF
+            if engine_id == "parakeet-tdt"
+            else engine_setup.FASTER_WHISPER_SETUP_REF
+        )
         row, _ = store.create_or_get_active(
             queue.engine,
             workspace_root=str(tmp_path),
-            model_ref=engine_setup.PARAKEET_TDT_SETUP_REF,
+            model_ref=ref,
         )
         store.mark_running(queue.engine, row.id, job_id=1)
-
-        with pytest.raises(RuntimeError, match="engine_setup_unavailable"):
-            engine_setup.run_engine_setup(
-                engine=queue.engine,
-                pull_id=row.id,
-                should_cancel=lambda: False,
-                is_final_attempt=True,
-            )
+        args = dict(
+            engine=queue.engine,
+            pull_id=row.id,
+            should_cancel=lambda: False,
+            is_final_attempt=True,
+        )
+        if runtime_state == "failed":
+            with pytest.raises(RuntimeError, match="engine_setup_unavailable"):
+                engine_setup.run_engine_setup(**args)
+            assert store.get(queue.engine, row.id).status == store.STATUS_FAILED
+        else:
+            expected = "cancelled" if runtime_state == "cancelled" else "done"
+            assert engine_setup.run_engine_setup(**args) == {"status": expected}
+            assert store.get(queue.engine, row.id).status == expected
+        assert steps == (
+            ["weights"]
+            if runtime_state == "present"
+            else ["runtime", "weights"]
+            if runtime_state == "missing"
+            else ["runtime"]
+        )
     finally:
         queue.close()
 
@@ -403,9 +449,9 @@ def test_local_search_setup_requirements_are_manifest_sized(monkeypatch) -> None
     assert requirements[1].download_bytes_if_missing == 2_000_000
     assert len(requirements[1].artifact_refs) == 2
     assert requirements[1].download_size_basis == "manifest_estimate"
-    assert requirements[1].runtime_installable is False
+    assert requirements[1].runtime_installable is True
     assert requirements[1].runtime_ready is False
-    assert "standard" in (requirements[1].runtime_remediation or "")
+    assert "transcription components" in (requirements[1].runtime_remediation or "")
     assert requirements[2].download_bytes_if_missing == 1_525_784_180
     assert requirements[2].runtime_ready is True
     assert len(requirements[2].artifact_refs) == 1

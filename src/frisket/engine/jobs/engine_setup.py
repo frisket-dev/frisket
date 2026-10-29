@@ -16,6 +16,7 @@ from frisket.engine._workers.indra_ocr_model import SETUP_REF as INDRA_OCR_SETUP
 from frisket.engine.jobs import model_pull_store
 
 PARAKEET_TDT_SETUP_REF = "engine-setup:parakeet-tdt.local-onnx@1"
+FASTER_WHISPER_SETUP_REF = "engine-setup:faster-whisper.local@1"
 RAPIDOCR_SETUP_REF = "engine-setup:rapidocr.local@1"
 DOCLING_SETUP_REF = "engine-setup:docling.local@1"
 CHROMIUM_SETUP_REF = "engine-setup:chromium.local@1"
@@ -23,6 +24,7 @@ CHROMIUM_SETUP_REF = "engine-setup:chromium.local@1"
 _SETUP_NAMES = {
     CHROMIUM_SETUP_REF: "Browser tools (Chromium)",
     PARAKEET_TDT_SETUP_REF: "Parakeet TDT (local ONNX)",
+    FASTER_WHISPER_SETUP_REF: "Whisper base (local)",
     RAPIDOCR_SETUP_REF: "RapidOCR",
     DOCLING_SETUP_REF: "Docling",
     INDRA_OCR_SETUP_REF: "Indra OCR",
@@ -134,10 +136,11 @@ def local_search_setup_requirements() -> tuple[LocalEngineSetupRequirement, ...]
             source_url=parakeet[0].source_url,
             artifact_refs=tuple(artifact.ref for artifact in parakeet),
             download_size_basis="manifest_estimate",
+            runtime_installable=True,
             runtime_remediation=(
                 None
                 if parakeet_runtime
-                else "Install Frisket's standard data tier, then restart Frisket."
+                else "The explicit setup also installs local transcription components."
             ),
         ),
         LocalEngineSetupRequirement(
@@ -192,6 +195,13 @@ def run_engine_setup(
             should_cancel=should_cancel,
             is_final_attempt=is_final_attempt,
         )
+    if row.model_ref == FASTER_WHISPER_SETUP_REF:
+        return _run_whisper_setup(
+            engine=engine,
+            pull_id=pull_id,
+            should_cancel=should_cancel,
+            is_final_attempt=is_final_attempt,
+        )
     for engine_id, spec in LOCAL_CLASSIFIERS.items():
         if row.model_ref == spec.setup_ref:
             return _run_classifier_setup(
@@ -239,20 +249,11 @@ def run_engine_setup(
     )
     from frisket.engine.jobs.model_pull import _fail
 
-    from frisket.execution.definitions import parakeet_runtime_present
+    from frisket.runtime.model_install import ModelInstallCancelled
 
     if should_cancel():
         model_pull_store.mark_cancelled(engine, pull_id)
         return {"status": "cancelled"}
-    if not parakeet_runtime_present():
-        raise _fail(
-            engine,
-            pull_id,
-            error_code="engine_setup_unavailable",
-            message="Install Frisket's standard data tier and restart before downloading Parakeet weights.",
-            terminal=False,
-            is_final_attempt=is_final_attempt,
-        )
     model_pull_store.set_artifact_metadata(
         engine,
         pull_id,
@@ -265,6 +266,19 @@ def run_engine_setup(
         engine, pull_id, phase="provisioning", total_bytes=None, completed_bytes=0
     )
     try:
+        _install_speech_runtime(
+            "parakeet-tdt",
+            engine=engine,
+            pull_id=pull_id,
+            should_cancel=should_cancel,
+        )
+        model_pull_store.update_progress(
+            engine,
+            pull_id,
+            phase="Downloading Parakeet model",
+            total_bytes=None,
+            completed_bytes=0,
+        )
         asyncio.run(
             resolve_parakeet_artifacts(
                 vad=True,
@@ -272,15 +286,20 @@ def run_engine_setup(
                 allow_download=True,
             )
         )
-    except ParakeetArtifactCancelled:
+    except (ParakeetArtifactCancelled, ModelInstallCancelled):
         model_pull_store.mark_cancelled(engine, pull_id)
         return {"status": "cancelled"}
-    except ParakeetArtifactUnavailable as exc:
+    except (
+        ParakeetArtifactUnavailable,
+        OSError,
+        RuntimeError,
+        subprocess.SubprocessError,
+    ) as exc:
         raise _fail(
             engine,
             pull_id,
             error_code="engine_setup_unavailable",
-            message="could not provision the pinned Parakeet engine artifacts",
+            message="Could not set up Parakeet. Check your connection and available disk space, then retry.",
             terminal=False,
             is_final_attempt=is_final_attempt,
         ) from exc
@@ -289,6 +308,48 @@ def run_engine_setup(
         return {"status": "cancelled"}
     model_pull_store.mark_done(engine, pull_id)
     return {"status": "done"}
+
+
+def _install_speech_runtime(
+    engine_id: str, *, engine, pull_id: int, should_cancel: Callable[[], bool]
+) -> None:
+    from frisket.runtime.speech_install import install_speech, runtime_present
+
+    if not runtime_present(engine_id):
+        model_pull_store.update_progress(
+            engine,
+            pull_id,
+            phase="Installing transcription components",
+            total_bytes=None,
+            completed_bytes=0,
+        )
+        install_speech(should_cancel=should_cancel, progress=lambda _: None)
+
+
+def _run_whisper_setup(
+    *, engine, pull_id: int, should_cancel: Callable[[], bool], is_final_attempt: bool
+) -> dict[str, object]:
+    from frisket.ai.models.artifact_manifest import whisper_base_artifact
+    from frisket.engine._workers.parakeet_artifacts import cached_whisper_path
+
+    def install(*, should_cancel, progress):
+        _install_speech_runtime(
+            "faster_whisper",
+            engine=engine,
+            pull_id=pull_id,
+            should_cancel=should_cancel,
+        )
+
+    return _run_pinned_setup(
+        engine=engine,
+        pull_id=pull_id,
+        should_cancel=should_cancel,
+        is_final_attempt=is_final_attempt,
+        label="Whisper base",
+        install=install,
+        artifact=whisper_base_artifact,
+        cached_path=cached_whisper_path,
+    )
 
 
 def _run_rapidocr_setup(

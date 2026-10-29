@@ -20,6 +20,7 @@ from frisket.contracts.http.cloud_connection import (
     CloudLLMOptionSupport,
     CloudOCROptionSupport,
     CloudSessionResponse,
+    CloudTranscriptionOptionSupport,
     CloudTokenPrice,
     CloudUnitPrice,
     CloudUser,
@@ -1856,3 +1857,68 @@ def test_embedding_projection_never_invents_cloud_setup(tmp_path):
         and all(action["kind"] != "cloud" for action in choice["configuration_actions"])
         for choice in _choices(payload)
     )
+
+
+@pytest.mark.parametrize("engine_id", ["openai/whisper-1", "whisper-turbo"])
+def test_cloud_speech_route_stays_ready_while_local_runtime_requires_setup(
+    tmp_path, monkeypatch, engine_id
+):
+    state = {"ready": False}
+    monkeypatch.setattr(
+        "frisket.execution.definitions.parakeet_runtime_present", lambda: state["ready"]
+    )
+    monkeypatch.setattr(
+        "frisket.execution.definitions.faster_whisper_runtime_present",
+        lambda: state["ready"],
+    )
+    monkeypatch.setattr(
+        "frisket.execution.definitions.parakeet_artifacts_present",
+        lambda: state["ready"],
+    )
+    monkeypatch.setattr(
+        "frisket.server.services.selector_choices.whisper_setup_ready",
+        lambda: state["ready"],
+    )
+    route = CloudCapabilityRoute(
+        capability="transcribe",
+        engine=engine_id,
+        provider="speech",
+        lane="frisket_credits",
+        route_revision="speech-cloud-1",
+        ready=True,
+        blocker=None,
+        price=CloudUnitPrice(kind="unit", unit="audio_second", micro_per_unit=1),
+        options=CloudTranscriptionOptionSupport(
+            kind="transcribe",
+            diarization_mode="none",
+            speaker_hint="none",
+            language=True,
+            model_size=True,
+            vad=True,
+            context=True,
+        ),
+    )
+    client, _workspace, _store, pid = _cloud_selector_app(
+        tmp_path, routes=[route], local_keys={}
+    )
+    query = {
+        "schema_version": "frisket.selector_choices_query.v1",
+        "subject": {
+            "kind": "action",
+            "action_id": "media.transcribe",
+            "field": "engine",
+            "params": {"engine": engine_id},
+        },
+    }
+    with client:
+        for ready in (False, True):
+            state["ready"] = ready
+            response = client.post(f"/api/projects/{pid}/selector-choices", json=query)
+            assert response.status_code == 200, response.text
+            selected = next(
+                row for row in _choices(response.json()) if row["is_current"]
+            )
+            assert selected["status"] == "ready"
+            assert selected["can_run"] is True
+            assert selected["setup"] is None
+            assert selected["execution_route"]["kind"] == "cloud_credits"

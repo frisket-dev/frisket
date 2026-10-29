@@ -1,0 +1,20 @@
+[project]
+name = "frisket-speech-runtime"
+version = "0.1.0"
+description = "Frozen third-party runtime for Frisket local transcription workers"
+requires-python = ">=3.12"
+dependencies = [
+    "av==17.0.1",
+    "ctranslate2==4.7.2",
+    "faster-whisper==1.2.1",
+    "huggingface-hub==1.17.0",
+    "numpy==2.4.6",
+    "onnx-asr==0.11.0",
+    "onnxruntime==1.26.0; sys_platform != 'win32' or python_full_version >= '3.13'",
+    "onnxruntime==1.20.1; sys_platform == 'win32' and python_full_version < '3.13'",
+    "pydantic==2.13.4",
+    "tokenizers==0.22.2",
+]
+
+[tool.uv]
+exclude-newer = "1 week"

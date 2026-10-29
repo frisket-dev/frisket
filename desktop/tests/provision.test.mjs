@@ -146,6 +146,8 @@ test('repairs an incomplete environment and records completion only after every 
   const subject = await fixture();
   const oldPythonPath = process.env.PYTHONPATH;
   const oldNodeOptions = process.env.NODE_OPTIONS;
+  const oldModelRuntime = process.env.FRISKET_MODEL_RUNTIME_DIR;
+  process.env.FRISKET_MODEL_RUNTIME_DIR = path.join(subject.data, 'optional-runtimes');
   process.env.PYTHONPATH = '/unsafe/python';
   process.env.NODE_OPTIONS = '--require=/unsafe/node';
   try {
@@ -172,6 +174,7 @@ test('repairs an incomplete environment and records completion only after every 
     assert.deepEqual(await fs.readdir(ready.env.PLAYWRIGHT_BROWSERS_PATH), []);
     assert.equal(all.some(({ args }) => args.includes('runtime-info')), true);
     assert.equal(all.every(({ pythonpath, nodeOptions }) => pythonpath === undefined && nodeOptions === undefined), true);
+    assert.equal(ready.env.FRISKET_MODEL_RUNTIME_DIR, process.env.FRISKET_MODEL_RUNTIME_DIR);
     assert.equal(ready.env.FRISKET_FFPROBE_PATH, path.join(subject.resources, 'bin', 'ffprobe'));
     assert.equal(ready.env.PLAYWRIGHT_BROWSERS_PATH.endsWith(path.join('cache', 'playwright', '1.62.0')), true);
 
@@ -179,6 +182,8 @@ test('repairs an incomplete environment and records completion only after every 
     await prepareRuntime({ resourcesPath: subject.resources, dataPath: subject.data });
     assert.equal((await traceLines(subject.trace)).length, beforeReuse, 'a completed environment is reused without reinstalling application code');
   } finally {
+    if (oldModelRuntime === undefined) delete process.env.FRISKET_MODEL_RUNTIME_DIR;
+    else process.env.FRISKET_MODEL_RUNTIME_DIR = oldModelRuntime;
     if (oldPythonPath === undefined) delete process.env.PYTHONPATH;
     else process.env.PYTHONPATH = oldPythonPath;
     if (oldNodeOptions === undefined) delete process.env.NODE_OPTIONS;

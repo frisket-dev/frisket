@@ -4,7 +4,11 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { setTimeout as delay } from 'node:timers/promises';
 
+import { checkSpeechActions } from './check-speech.mjs';
+import { startBackend } from '../src/backend.mjs';
+import { authenticatedHeaders } from '../src/protocol.mjs';
 import { prepareRuntime } from '../src/provision.mjs';
 import { assertInstalledPlatform, installedResources } from '../e2e/installed-platform.mjs';
 
@@ -167,6 +171,45 @@ async function checkAsr(resourcesPath, python, env, workspace) {
     '-hide_banner', '-loglevel', 'error', '-ss', '0', '-t', '12', '-i', fixture,
     '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', speech,
   ], { env });
+  const backendWorkspace = path.join(workspace, 'backend-workspace');
+  await fs.mkdir(backendWorkspace);
+  let backendFailure;
+  const backend = await startBackend({
+    runtime: { python, env }, resourcesPath, workspace: backendWorkspace,
+    profileDir: requiredAbsolute('FRISKET_DESKTOP_PROFILE'),
+    onFailure: error => { backendFailure = error; },
+  });
+  try {
+    const request = async (endpoint, options = {}) => {
+      if (backendFailure) throw backendFailure;
+      const response = await fetch(`http://${backend.host}:${backend.port}${endpoint}`, {
+        ...options, headers: authenticatedHeaders(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }, backend.token),
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (!response.ok) throw new Error(`Offline speech proof HTTP ${response.status}: ${await response.text()}`);
+      return response.json();
+    };
+    // Repeating setup offline must reuse the optional runtime and cached weights.
+    for (const setup_ref of ['engine-setup:parakeet-tdt.local-onnx@1', 'engine-setup:faster-whisper.local@1']) {
+      let { pull } = await request('/api/providers/models/setup', {
+        method: 'POST', body: JSON.stringify({ setup_ref }),
+      });
+      const deadline = Date.now() + 120_000;
+      while (pull.status !== 'done') {
+        if (['failed', 'cancelled'].includes(pull.status) || Date.now() >= deadline) {
+          throw new Error(`Cached offline setup did not complete: ${setup_ref}: ${JSON.stringify(pull.error)}`);
+        }
+        await delay(500);
+        pull = await request(`/api/providers/models/pulls/${pull.id}`);
+      }
+    }
+    await checkSpeechActions(request, speech);
+    await run('Host speech libraries stay absent', python, ['-I', '-c',
+      "import importlib.util; assert not any(importlib.util.find_spec(name) for name in ('faster_whisper', 'onnx_asr', 'av'))",
+    ], { env });
+  } finally {
+    await backend.stop();
+  }
   const script = path.join(workspace, 'native-asr-check.py');
   await fs.writeFile(script, `
 import asyncio
@@ -264,7 +307,9 @@ async function main() {
   try {
     await checkMedia(resourcesPath, runtime.env, workspace);
     await checkPython(resourcesPath, runtime.python, runtime.env, workspace);
-    await checkAsr(resourcesPath, runtime.python, runtime.env, workspace);
+    await checkAsr(resourcesPath, runtime.python, {
+      ...runtime.env, HF_HUB_OFFLINE: '1', TRANSFORMERS_OFFLINE: '1',
+    }, workspace);
     console.log('Native checks passed: FFmpeg, ffprobe, Deno, PDFium, RapidOCR, PDF parsing, Faster Whisper and Parakeet.');
   } finally {
     await fs.rm(workspace, { recursive: true, force: true });
