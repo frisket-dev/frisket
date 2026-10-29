@@ -20,6 +20,7 @@ import { createWorkspaceStores, type WorkspaceStores } from '../../src/state/cre
 import { sheetMeta } from '../support/actionFormFixtures';
 import { aiMeta, columnDef } from '../support/domainFixtures';
 import { servedActionCatalog } from '../support/servedActionCatalog';
+import { installPopoverPolyfill } from '../support/domPolyfills';
 import { servedActionValidations } from '../support/servedActionValidation';
 import { installActionSelectorFixture, selectorProviderCatalog } from '../support/selectorChoicesFixture';
 
@@ -51,6 +52,7 @@ const validationRequests: ValidationRequest[] = [
 
 let resolutions: ActionParamResolution[];
 beforeAll(() => {
+  installPopoverPolyfill();
   resolutions = servedActionValidations(validationRequests);
 }, 30_000);
 
@@ -93,6 +95,12 @@ function installSelector(entry: typeof judgeEntry) {
   installActionSelectorFixture(entry, async () => selectorProviderCatalog(['test/model']));
 }
 
+function selectSourceColumn(name: string) {
+  fireEvent.mouseDown(screen.getByTestId('text-source-columns'));
+  fireEvent.click(screen.getByRole('option', { name: new RegExp(`^${name}`), hidden: true }));
+  fireEvent.keyDown(screen.getByLabelText('Filter columns'), { key: 'Escape' });
+}
+
 it('uses the backend Judge refusal to keep a fresh error quiet, disable Run, and reveal it after touch', async () => {
   installSelector(judgeEntry);
   const resolveParams = exactResolver(validationRequests.slice(0, 2), resolutions.slice(0, 2));
@@ -105,6 +113,7 @@ it('uses the backend Judge refusal to keep a fresh error quiet, disable Run, and
     actionTemplate={judgeTemplate} sheet={judgeSheet} running={false}
     resolveParams={resolveParams} onExecute={vi.fn()} onClose={vi.fn()} />);
 
+  selectSourceColumn('raw');
   expect(screen.getByTestId('action-form-title')).toHaveTextContent('Judge results');
   expect(screen.getByLabelText('Guidelines')).toHaveClass('form-textarea-autogrow');
   await waitFor(() => expect(resolveParams).toHaveBeenCalledWith(validationRequests[0]));
@@ -136,6 +145,7 @@ it('accepts empty MCP context while suppressing only the fresh missing-server re
       resolveParams={resolveParams} onExecute={vi.fn()} onClose={vi.fn()} />
   </WorkspaceStoresContext.Provider>);
 
+  selectSourceColumn('story');
   await waitFor(() => expect(resolveParams).toHaveBeenCalledWith(validationRequests[2]));
   expect(screen.queryByText('Select at least one value.')).not.toBeInTheDocument();
   expect(screen.getByTestId('generated-action-run')).toBeDisabled();

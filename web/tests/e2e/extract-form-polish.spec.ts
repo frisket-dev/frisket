@@ -4,6 +4,7 @@ import {
   createProject,
   importCsv,
   openAction,
+  selectActionSourceColumns,
   uniqueName,
 } from './helpers';
 
@@ -138,6 +139,7 @@ test('extract runs clean with fields but no instructions (item 1)', async ({ pag
   await page.goto(`/p/${pid}/s/${sheetId}`);
 
   await openAction(page, 'map.extract');
+  await selectActionSourceColumns(page, 'title');
   await expectAdditionalPromptAfterFields(page);
   // Clear the field to prove it is genuinely optional end to end.
   await page.getByTestId('action-prompt').fill('');
@@ -162,6 +164,7 @@ test('citation_mode default (Cite sources) grounds evidence without requiring ci
   await page.goto(`/p/${pid}/s/${sheetId}`);
 
   await openAction(page, 'map.extract');
+  await selectActionSourceColumns(page, 'title');
   // The select lives in the main form body — no Advanced disclosure to open.
   await expect(page.getByTestId('field-citation_mode')).toBeVisible();
   await expect(page.getByTestId('field-citation_mode')).toHaveValue('cite');
@@ -182,6 +185,7 @@ test("citation_mode 'Off' sends no grounding params", async ({ page }) => {
   await page.goto(`/p/${pid}/s/${sheetId}`);
 
   await openAction(page, 'map.extract');
+  await selectActionSourceColumns(page, 'title');
   await page.getByTestId('field-citation_mode').selectOption('none');
 
   const runRequest = page.waitForRequest(
@@ -202,6 +206,7 @@ test("citation_mode 'Require citations' grounds + requires, launches clean (item
   await page.goto(`/p/${pid}/s/${sheetId}`);
 
   await openAction(page, 'map.extract');
+  await selectActionSourceColumns(page, 'title');
   await page.getByTestId('field-citation_mode').selectOption('require');
   // 'Check citations against columns' (renamed from 'Ground citations
   // against', itself a rename of 'Document columns') stays in Advanced options.
@@ -286,6 +291,7 @@ test('a params-did-not-validate 400 shows which field failed, not just the summa
   await page.goto(`/p/${pid}/s/${sheetId}`);
 
   await openAction(page, 'map.extract');
+  await selectActionSourceColumns(page, 'title');
   await clickRunButton(page);
 
   const toast = page.getByTestId('error-toast');
@@ -302,6 +308,7 @@ test('run split-button menu items left-align consistently (item 5)', async ({ pa
   await page.goto(`/p/${pid}/s/${sheetId}`);
 
   await openAction(page, 'map.extract');
+  await selectActionSourceColumns(page, 'title');
   await page.getByTestId('run-scope-menu-button').click();
   const menu = page.getByTestId('run-scope-menu');
   await expect(menu).toBeVisible();
@@ -327,6 +334,7 @@ test('a fresh extract launch carries include_confidence false unless toggled (it
   await page.goto(`/p/${pid}/s/${sheetId}`);
 
   await openAction(page, 'map.extract');
+  await selectActionSourceColumns(page, 'title');
   await page.getByTestId('advanced-run-options-toggle').click();
   await expect(page.getByLabel('Include confidence')).not.toBeChecked();
   // Extract's
@@ -363,6 +371,7 @@ test("a fresh classify launch also carries include_confidence/include_justificat
   await page.goto(`/p/${pid}/s/${sheetId}`);
 
   await openAction(page, 'map.classify');
+  await selectActionSourceColumns(page, 'title');
   await expectAdditionalPromptAfterFields(page);
   await expect(page.getByTestId('action-prompt')).toHaveValue('');
   await page.getByTestId('action-prompt').fill('');

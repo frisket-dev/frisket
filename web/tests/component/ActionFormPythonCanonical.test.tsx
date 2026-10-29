@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as apiModule from '../../src/api/open';
 import type { GeneratedActionDraft } from '../../src/api/types';
@@ -12,6 +12,9 @@ import { createWorkspaceStores, type WorkspaceStores } from '../../src/state/cre
 import { PYTHON_CATALOG, PYTHON_SHEET, PYTHON_TEMPLATES, renderPythonForm,
   resolvePythonParams } from '../support/pythonActionFixture';
 
+import { installPopoverPolyfill } from '../support/domPolyfills';
+
+beforeAll(installPopoverPolyfill);
 let stores: WorkspaceStores | null = null;
 beforeEach(() => {
   vi.spyOn(apiModule, 'getRuntimeConfig').mockResolvedValue({
@@ -88,6 +91,11 @@ describe('typed Python consumer boundary', () => {
     const onExecute = vi.fn();
     renderPythonForm({ initialSourceColumn: 'score', selectedRowIds: ['101', '103'], onExecute });
     const output = await screen.findByTestId('field-output-computed');
+    expect(screen.getByTestId('generated-action-run')).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /^Remove / })).not.toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByTestId('field-input_columns'));
+    fireEvent.click(screen.getByRole('option', { name: /^score/, hidden: true }));
+    fireEvent.keyDown(screen.getByLabelText('Filter columns'), { key: 'Escape' });
     fireEvent.change(output, { target: { value: 'Computed data' } });
     fireEvent.change(screen.getByTestId('field-code'), {
       target: { value: 'result = {"score": row["score"]}' },

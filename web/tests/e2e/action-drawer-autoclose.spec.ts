@@ -15,6 +15,7 @@ import {
   createProject,
   importCsv,
   openAction,
+  selectActionSourceColumns,
   runAndWait,
   uniqueName,
 } from './helpers';
@@ -77,6 +78,7 @@ test('a server output_column_exists rejection keeps the drawer open (confirm flo
 
   await page.goto(`/p/${pid}/s/${sheetId}`);
   await openAction(page, 'map.extract');
+  await selectActionSourceColumns(page, 'title');
   await page.getByRole('button', { name: 'Add column' }).click();
   await page.getByTestId('output-field-name').fill('officials');
   await expect(page.getByTestId('error-toast')).toHaveCount(0);

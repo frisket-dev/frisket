@@ -17,6 +17,7 @@ import {
   createProject,
   importCsv,
   openAction,
+  selectActionSourceColumns,
   openCellDrawer,
   sheetColumns,
   uniqueName,
@@ -191,6 +192,7 @@ test('Explain this cell shows the exact prompt + raw output, rendered XSS-safe',
   // with responses for this exact sheet so the browser path still records a
   // trace without depending on a shared, ever-growing fixture project.
   await openAction(page, 'map.classify');
+  await selectActionSourceColumns(page, 'snippet');
   await expect(page.getByTestId('generated-action-form')).toBeVisible();
   // Classify defaults to the provider-free local semantic engine. This
   // cassette exercises the hosted prompt/raw-output trace, so choose the

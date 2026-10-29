@@ -9,6 +9,7 @@ import {
   createProject,
   importCsv,
   openAction,
+  selectActionSourceColumns,
   uniqueName,
 } from './helpers';
 
@@ -87,6 +88,7 @@ test('missing provider key at run-confirm time shows named remediation and Diagn
 
   await page.goto(`/p/${pid}/s/${sheetId}`);
   await openAction(page, 'map.classify');
+  await selectActionSourceColumns(page, 'headline');
   await expect(page.getByTestId('action-form')).toBeVisible();
   await expect(page.getByTestId('cost-estimate')).toContainText('$0.01');
 

@@ -389,26 +389,17 @@ function initialParams(entry: GeneratedActionCatalogEntry, template: ActionTempl
       const value = defaultColumn(entry, param.name, columns, sourceColumn, usedColumns);
       edits[param.name] = value;
       if (value) usedColumns.add(value);
-    } else if (control === 'columns' && sourceColumn) {
-      const requirement = entry.ui_hints.source_requirements
-        ?.find((candidate) => candidate.param === param.name) ?? null;
-      edits[param.name] = compatibleSourceColumns(columns, requirement)
-        .some((column) => column.name === sourceColumn) ? [sourceColumn] : [];
-    } else if (control === 'rich_source') {
-      const requirement = entry.ui_hints.source_requirements
-        ?.find((candidate) => candidate.param === param.name) ?? null;
-      const eligible = compatibleSourceColumns(orderedSourceColumns(columns), requirement);
-      edits[param.name] = sourceColumn
-        && eligible.some((column) => column.name === sourceColumn)
-        ? [sourceColumn]
-        : eligible.slice(0, Math.max(1, requirement?.min ?? 1)).map((column) => column.name);
+    } else if (control === 'rich_source' || control === 'columns') {
+      // A new multi-column request needs an explicit choice, including when
+      // the action was opened from a contextual column launcher.
+      edits[param.name] = [];
     } else if (control === 'template' || control === 'formula') {
       edits[param.name] = schema && 'default' in schema
         ? schema.default as CanonicalFieldValue
         : { text: sourceColumn ? `{{${sourceColumn}}}` : '' };
     } else edits[param.name] = schema && 'default' in schema
       ? schema.default as CanonicalFieldValue
-      : control === 'columns' || schema?.type === 'array' ? [] : '';
+      : schema?.type === 'array' ? [] : '';
   }
   const customization = generatedActionCustomizationFor(entry.kind);
   const promptField = template.params?.find((param) => param.name === 'question' || param.name === 'instruction');
@@ -680,9 +671,10 @@ function GeneratedActionFormContents({
         const value = draft[name];
         const requirement = catalogEntry.ui_hints.source_requirements
           ?.find((candidate) => candidate.param === name) ?? null;
-        const fallback = compatibleSourceColumns(orderedSourceColumns(columns), requirement)
-          .slice(0, Math.max(1, requirement?.min ?? 1))
-          .map((column) => column.name);
+        const fallback = control === 'rich_source' ? []
+          : compatibleSourceColumns(orderedSourceColumns(columns), requirement)
+            .slice(0, Math.max(1, requirement?.min ?? 1))
+            .map((column) => column.name);
         return [name, {
           mode: control === 'column_or_template' && typeof value === 'string'
             ? 'column' : Array.isArray(value) ? 'columns' : 'template',

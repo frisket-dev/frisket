@@ -22,7 +22,7 @@ const FORCE_CANCEL_MS = 5_000;
  * @param {{resourcesPath: string, dataPath: string, onProgress?: (progress: {phase: string, message: string}) => void, onActivity?: (message: string) => void, signal?: AbortSignal}} options
  * @returns {Promise<{python: string, env: Record<string, string>}>}
  */
-export async function prepareRuntime({ resourcesPath, dataPath, onProgress = () => {}, onActivity = () => {}, signal }) {
+export async function prepareRuntime({ resourcesPath, dataPath, onProgress = () => {}, onActivity = () => {}, onEvent = () => {}, signal }) {
   throwIfAborted(signal);
   const resources = path.resolve(resourcesPath);
   const data = path.resolve(dataPath);
@@ -40,11 +40,17 @@ export async function prepareRuntime({ resourcesPath, dataPath, onProgress = () 
 
   const ready = await readReadyMarker(markerPath, manifest, environmentId);
   await fs.mkdir(path.join(data, 'cache'), { recursive: true });
+  try {
+    const disk = await fs.statfs(data);
+    onEvent({ type: 'disk', freeDiskBytes: disk.bavail * disk.bsize });
+  } catch { /* Disk diagnostics are optional; setup remains usable. */ }
   if (ready) {
-    onProgress({ phase: 'dependencies', message: 'Preparing included local models…' });
+    onEvent({ type: 'plan', steps: ['open'], firstTime: false });
+    onEvent({ type: 'step-start', step: 'open' });
+    onProgress({ phase: 'workspace', message: 'Copying included models' });
     await seedBundledModelCaches(resources, data, signal);
     await assertFile(python, 'private Python');
-    onProgress({ phase: 'workspace', message: 'Opening your workspace…' });
+    onProgress({ phase: 'workspace', message: 'Opening databases' });
     return { python, env };
   }
 
@@ -52,17 +58,28 @@ export async function prepareRuntime({ resourcesPath, dataPath, onProgress = () 
   const bootstrap = path.join(resources, 'python', 'frisket', 'runtime', '_bootstrap.py');
   const guard = path.join(resources, 'python', 'frisket', 'runtime', '_guard.py');
   const wasIncomplete = await exists(environmentPath);
+  const firstTime = !await hasCompletedRuntime(path.join(data, 'runtimes'));
+  const found = await run(uv, ['python', 'find', manifest.pythonVersion, '--managed-python', '--no-python-downloads', '--no-config'], {
+    label: 'checking managed runtime', env, signal, resourcesPath: resources, onActivity, allowFailure: true,
+  });
+  const enginePresent = found.code === 0 && await exists(found.output.trim());
+  onEvent({ type: 'plan', steps: [...(enginePresent ? [] : ['engine']), 'components', 'open'], firstTime });
 
   await fs.mkdir(path.join(data, 'runtimes'), { recursive: true });
   await fs.mkdir(path.join(data, 'python'), { recursive: true });
   await fs.mkdir(path.join(data, 'cache', 'playwright', manifest.playwrightVersion), { recursive: true });
 
-  onProgress({ phase: 'runtime', message: 'Downloading the app runtime…' });
-  await run(uv, ['python', 'install', manifest.pythonVersion, '--managed-python', '--no-bin', '--no-config'], {
-    label: 'installing private Python', env, signal, resourcesPath: resources, onActivity,
-  });
+  if (!enginePresent) {
+    onEvent({ type: 'step-start', step: 'engine' });
+    onProgress({ phase: 'runtime', message: 'Downloading' });
+    await run(uv, ['python', 'install', manifest.pythonVersion, '--managed-python', '--no-bin', '--no-config'], {
+      label: 'installing private Python', env, signal, resourcesPath: resources, onActivity,
+    });
+    onEvent({ type: 'step-end', step: 'engine', result: 'ok' });
+  }
+  onEvent({ type: 'step-start', step: 'components' });
 
-  onProgress({ phase: 'runtime', message: wasIncomplete ? 'Resuming setup…' : 'Preparing the app runtime…' });
+  onProgress({ phase: 'runtime', message: 'Installing components' });
   const venvArgs = ['venv', environmentPath, '--python', manifest.pythonVersion, '--managed-python', '--no-config'];
   if (wasIncomplete) venvArgs.push('--clear');
   await run(uv, venvArgs, { label: 'creating private Python environment', env, signal, resourcesPath: resources, onActivity });
@@ -72,17 +89,29 @@ export async function prepareRuntime({ resourcesPath, dataPath, onProgress = () 
   const guarded = (command, args, label) => process.platform === 'win32'
     ? run(command, args, { label, env, signal, resourcesPath: resources, onActivity })
     : run(python, ['-I', guard, String(process.pid), GUARD_GRACE_SECONDS, command, ...args], { label, env, signal, onActivity });
-  onProgress({ phase: 'dependencies', message: 'Setting up included local models…' });
+  onProgress({ phase: 'dependencies', message: 'Copying included models' });
   await seedBundledModelCaches(resources, data, signal);
-  onProgress({ phase: 'dependencies', message: 'Installing app components…' });
+  onProgress({ phase: 'dependencies', message: 'Installing components' });
   await guarded(uv, ['pip', 'sync', '--python', python, '--require-hashes', requirements, '--no-config'], 'installing private Python dependencies');
 
-  onProgress({ phase: 'workspace', message: 'Checking app components…' });
+  onProgress({ phase: 'workspace', message: 'Checking everything is ready' });
   await guarded(python, ['-I', bootstrap, 'runtime-info'], 'checking private Python runtime');
 
   await writeReadyMarker(markerPath, manifest, environmentId);
-  onProgress({ phase: 'workspace', message: 'Opening your workspace…' });
+  onEvent({ type: 'step-end', step: 'components', result: 'ok' });
+  onEvent({ type: 'step-start', step: 'open' });
+  onProgress({ phase: 'workspace', message: 'Opening databases' });
   return { python, env };
+}
+
+async function hasCompletedRuntime(directory) {
+  let entries;
+  try { entries = await fs.readdir(directory, { withFileTypes: true }); }
+  catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+  for (const entry of entries) {
+    if (entry.isDirectory() && await exists(path.join(directory, entry.name, MARKER))) return true;
+  }
+  return false;
 }
 
 function pythonPath(environmentPath) {
@@ -346,7 +375,7 @@ function appendTail(current, chunk) {
   return next.length > TAIL_LIMIT ? next.slice(-TAIL_LIMIT) : next;
 }
 
-async function run(command, args, { label, env, signal, resourcesPath, onActivity }) {
+async function run(command, args, { label, env, signal, resourcesPath, onActivity, allowFailure = false }) {
   const started = Date.now();
   onActivity(`Starting: ${label}`);
   throwIfAborted(signal);
@@ -356,6 +385,7 @@ async function run(command, args, { label, env, signal, resourcesPath, onActivit
     : spawn(command, args, { env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
   return new Promise((resolve, reject) => {
     let output = '';
+    let stdoutOutput = '';
     let aborted = false;
     let forcedCleanup = false;
     let settled = false;
@@ -402,7 +432,7 @@ async function run(command, args, { label, env, signal, resourcesPath, onActivit
     const stderr = setupOutput(onActivity);
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
-    child.stdout.on('data', (chunk) => { output = appendTail(output, chunk); stdout.write(chunk); });
+    child.stdout.on('data', (chunk) => { stdoutOutput = appendTail(stdoutOutput, chunk); output = appendTail(output, chunk); stdout.write(chunk); });
     child.stderr.on('data', (chunk) => { output = appendTail(output, chunk); stderr.write(chunk); });
     child.once('error', (error) => rejectOnce(new Error(`Private runtime failed while ${label}: ${redactSetup(error.message)}`)));
     child.once('close', async (code, childSignal) => {
@@ -418,7 +448,7 @@ async function run(command, args, { label, env, signal, resourcesPath, onActivit
         if (forcedCleanup) return reject(new CleanupError('Private runtime cancellation could not prove process cleanup.'));
         return reject(abortError());
       }
-      if (code === 0) return resolve();
+      if (code === 0 || allowFailure) return resolve({ code, output: stdoutOutput });
       const tail = redactSetup(output.trim());
       const detail = tail ? ` ${tail}` : childSignal ? ` (${childSignal})` : '';
       reject(new Error(`Private runtime failed while ${label}.${detail}`));

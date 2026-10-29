@@ -1,9 +1,10 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { app, BrowserWindow, Menu, dialog, session, shell, protocol, clipboard } from 'electron';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { app, BrowserWindow, Menu, dialog, session, shell, protocol, clipboard, ipcMain, screen } from 'electron';
 import electronUpdater from 'electron-updater';
+import { installStartupBridge, canRetryStartup } from './startup-bridge.mjs';
 import { prepareRuntime } from './provision.mjs';
 import { appUrl, installProtocol, APP_ORIGIN, APP_SCHEME } from './protocol.mjs';
 import { startBackend } from './backend.mjs';
@@ -19,6 +20,13 @@ const desktopRoot = path.resolve(here, '..');
 if (process.platform === 'win32') app.setAppUserModelId('dev.frisket.desktop');
 const startupLog = startupDiagnostics({ version: app.getVersion(), platform: process.platform, arch: process.arch });
 let mainWindow;
+let startupWindow;
+let retiringStartup = false;
+let detailsWindow;
+let startupVisible = true;
+let openingHome = false;
+let homeBounds = { width: 1240, height: 840 };
+let detailsOpen = false;
 let backend;
 let startupTask;
 let provisioningController;
@@ -27,6 +35,7 @@ let quitReady = false;
 let recoveryTask;
 let cleanupFailed = false;
 let updates;
+let updatesStarted = false;
 const updateProgress = createUpdateProgress({
   BrowserWindow, getParent: () => mainWindow, pagePath: path.join(desktopRoot, 'ui', 'update.html'),
   createQuitMenu: () => Menu.buildFromTemplate([{
@@ -118,33 +127,97 @@ function createWindow() {
   });
   protectWindow(window);
   window.on('page-title-updated', (event) => event.preventDefault());
-  window.once('ready-to-show', () => window.show());
   window.webContents.on('render-process-gone', (_event, details) => {
     if (!quitting) void recover(new Error(`The workspace window stopped (${details.reason}).`));
   });
   return window;
 }
 
-async function showStartup(window) {
-  await window.loadFile(path.join(desktopRoot, 'ui', 'startup.html'));
-  window.show();
+function createStartupCard(parent) {
+  const window = new BrowserWindow({
+    ...(parent ? { parent } : {}), width: 360, height: 390, frame: false,
+    resizable: false, maximizable: false, backgroundColor: '#ffffff',
+    title: 'Preparing Frisket Desktop', show: false,
+    webPreferences: { preload: path.join(here, 'startup-preload.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, webviewTag: false },
+  });
+  protectWindow(window);
+  return window;
 }
 
-/** @param {{phase: string, message: string}} progress */
-function setStartupStatus(progress) {
-  startupLog.record(progress.message);
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  void mainWindow.webContents.executeJavaScript(
-    `window.updateStartup(${JSON.stringify(progress)})`,
-  ).catch(() => {});
+async function showStartup() {
+  startupVisible = true;
+  openingHome = false;
+  detailsOpen = false;
+  if (!startupWindow || startupWindow.isDestroyed()) {
+    startupWindow = createStartupCard();
+    startupWindow.on('close', event => {
+      if (quitting || retiringStartup) return;
+      event.preventDefault();
+      void requestQuit();
+    });
+  }
+  mainWindow?.hide();
+  startupWindow.setSize(360, 390);
+  startupWindow.center();
+  await startupWindow.loadFile(path.join(desktopRoot, 'ui', 'startup.html'));
+  startupWindow.show();
+}
+
+function publishStartup() {
+  for (const window of [startupWindow, detailsWindow]) {
+    if (!window || window.isDestroyed() || window.webContents.getURL() !== startupPageUrl()) continue;
+    window.webContents.send('startup:state', { ...startupLog.snapshot(), detailsOnly: window === detailsWindow, detailsOpen: window === detailsWindow || detailsOpen });
+  }
+}
+
+function startupEvent(event) {
+  startupLog.event(event);
+  publishStartup();
+}
+
+function setStartupStatus({ message }) {
+  startupEvent({ type: 'activity', message });
 }
 
 function setupActivity(message) {
-  const line = startupLog.record(message);
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  void mainWindow.webContents.executeJavaScript(
-    `window.updateStartupActivity(${JSON.stringify(line)})`,
-  ).catch(() => {});
+  startupLog.record(message);
+  publishStartup();
+}
+
+function startupPageUrl() {
+  return pathToFileURL(path.join(desktopRoot, 'ui', 'startup.html')).href;
+}
+
+async function openHome(window) {
+  openingHome = true;
+  const area = (Number.isFinite(homeBounds.x) && Number.isFinite(homeBounds.y) ? screen.getDisplayMatching(homeBounds) : screen.getPrimaryDisplay()).workArea;
+  const bounds = { ...homeBounds, width: Math.min(homeBounds.width, area.width), height: Math.min(homeBounds.height, area.height) };
+  bounds.x = Math.max(area.x, Math.min(bounds.x ?? area.x + Math.round((area.width - bounds.width) / 2), area.x + area.width - bounds.width));
+  bounds.y = Math.max(area.y, Math.min(bounds.y ?? area.y + Math.round((area.height - bounds.height) / 2), area.y + area.height - bounds.height));
+  window.setBounds(bounds);
+  await window.loadURL(`${APP_ORIGIN}/`);
+  const card = startupWindow;
+  if (quitting || window.isDestroyed()) return;
+  startupVisible = false;
+  openingHome = false;
+  window.show();
+  window.focus();
+  if (card && !card.isDestroyed()) {
+    retiringStartup = true;
+    card.close();
+    retiringStartup = false;
+  }
+  startupWindow = undefined;
+}
+
+async function openStartupDetails() {
+  if (startupVisible) { detailsOpen = true; startupWindow?.setSize(360, 560); publishStartup(); return; }
+  if (detailsWindow && !detailsWindow.isDestroyed()) { detailsWindow.show(); return; }
+  detailsWindow = createStartupCard(mainWindow);
+  detailsWindow.setSize(360, 560);
+  detailsWindow.on('closed', () => { detailsWindow = undefined; });
+  await detailsWindow.loadFile(path.join(desktopRoot, 'ui', 'startup.html'));
+  detailsWindow.show();
 }
 
 async function saveStartupDiagnostics() {
@@ -157,10 +230,10 @@ async function launch() {
   await mkdir(workspace, { recursive: true });
   provisioningController = new AbortController();
   const runtime = await prepareRuntime({
-    resourcesPath: resourcesPath(), dataPath, signal: provisioningController.signal, onProgress: setStartupStatus, onActivity: setupActivity,
+    resourcesPath: resourcesPath(), dataPath, signal: provisioningController.signal, onProgress: setStartupStatus, onActivity: setupActivity, onEvent: startupEvent,
   });
   if (quitting) return;
-  setStartupStatus({ phase: 'workspace', message: 'Opening your workspace…' });
+  setStartupStatus({ phase: 'workspace', message: 'Opening databases' });
   backend = await startBackend({
     runtime, resourcesPath: resourcesPath(), workspace, profileDir: dataPath,
     onFailure: (error) => void recover(error), onActivity: setupActivity, signal: provisioningController.signal,
@@ -170,9 +243,10 @@ async function launch() {
     return;
   }
   installProtocol({ protocol }, backend);
-  setStartupStatus({ phase: 'ready', message: 'Your workspace is ready.' });
+  await openHome(mainWindow);
+  startupEvent({ type: 'step-end', step: 'open', result: 'ok' });
   await saveStartupDiagnostics();
-  await mainWindow.loadURL(`${APP_ORIGIN}/`);
+  if (!quitting && !updatesStarted) { updatesStarted = true; void updates?.start(); }
 }
 
 async function recover(error) {
@@ -187,23 +261,16 @@ async function recover(error) {
     }
     cleanupFailed ||= error instanceof CleanupError;
     startupLog.record(`Failed: ${error instanceof Error ? error.message : String(error)}`);
+    if (!startupVisible) await showStartup();
+    const step = startupLog.snapshot().currentStep;
+    if (step) startupEvent({ type: 'step-end', step, result: 'failed' });
+    startupEvent({ type: 'failure', error });
     await saveStartupDiagnostics();
-    let response;
-    const buttons = cleanupFailed ? ['Quit', 'Copy diagnostics'] : ['Retry', 'Quit', 'Copy diagnostics'];
-    do {
-      ({ response } = await dialog.showMessageBox(mainWindow, {
-        type: 'error', buttons,
-        defaultId: 0, cancelId: cleanupFailed ? 0 : 1,
-        title: 'Frisket Desktop encountered a problem',
-        message: 'Frisket Desktop could not continue.',
-        detail: error instanceof Error ? error.message : 'Please try again.',
-      }));
-      if (buttons[response] === 'Copy diagnostics') clipboard.writeText(startupLog.report());
-    } while (buttons[response] === 'Copy diagnostics' && !quitting);
-    if (!cleanupFailed && response === 0) setTimeout(() => { void startAttempt(); }, 0);
-    else void requestQuit();
   })();
-  try { await recoveryTask; } finally { recoveryTask = undefined; }
+  try { await recoveryTask; } finally {
+    recoveryTask = undefined;
+    if (!startupTask && !quitting) startupEvent({ type: 'stopped', retryable: !cleanupFailed });
+  }
 }
 
 function startAttempt() {
@@ -211,7 +278,7 @@ function startAttempt() {
   startupTask = (async () => {
     try {
       startupLog.begin();
-      await showStartup(mainWindow);
+      await showStartup();
       if (!quitting) await launch();
     } catch (error) {
       if (quitting && error instanceof CleanupError) throw error;
@@ -219,6 +286,7 @@ function startAttempt() {
     } finally {
       startupTask = undefined;
       provisioningController = undefined;
+      if (!quitting && startupLog.snapshot().status === 'failed') startupEvent({ type: 'stopped', retryable: !cleanupFailed });
     }
   })();
   return startupTask;
@@ -266,7 +334,7 @@ function installMenu() {
     { label: 'File', submenu: [{ label: 'Open Data Folder', click: () => void shell.openPath(app.getPath('userData')) }, { type: 'separator' }, { label: 'Quit', accelerator: 'CmdOrCtrl+Q', click: () => void requestQuit() }] },
     { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
     { role: 'help', submenu: [{
-      label: 'Copy Startup Diagnostics', click: () => clipboard.writeText(startupLog.report()),
+      label: 'Startup details', click: () => void openStartupDetails(),
     }, {
       id: 'desktop-update', label: 'Check for Updates…', enabled: Boolean(updates),
       click: () => void updates?.check({ manual: true }),
@@ -326,14 +394,38 @@ app.whenReady().then(async () => {
   app.on('second-instance', () => {
     if (quitting || !mainWindow || mainWindow.isDestroyed()) return;
     if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.show();
-    mainWindow.focus();
+    const window = startupVisible ? startupWindow : mainWindow;
+    window?.show();
+    window?.focus();
   });
   setupUpdates();
   installMenu();
+  try {
+    const saved = JSON.parse(await readFile(path.join(app.getPath('userData'), 'window-bounds.json'), 'utf8'));
+    if ([saved.width, saved.height].every(value => Number.isFinite(value) && value >= 600 && value <= 10000)
+      && [saved.x, saved.y].every(Number.isFinite)) homeBounds = saved;
+  } catch {}
   mainWindow = createWindow();
+  installStartupBridge({
+    ipcMain, pageUrl: startupPageUrl(), findWindow: contents => [startupWindow, detailsWindow].find(window => window && window.webContents === contents),
+    snapshot: window => ({ ...startupLog.snapshot(), detailsOnly: window === detailsWindow, detailsOpen: window === detailsWindow || detailsOpen }),
+    retry: window => {
+      if (window !== startupWindow || !canRetryStartup({ visible: startupVisible, busy: Boolean(startupTask || recoveryTask), cleanupFailed, quitting, retryable: startupLog.snapshot().retryable })) return;
+      void startAttempt();
+    },
+    close: window => { if (window === detailsWindow) window.close(); else void requestQuit(); },
+    copy: () => clipboard.writeText(startupLog.report()),
+    resize: (window, height) => { if (window === detailsWindow || (window === startupWindow && startupVisible && !openingHome)) window.setSize(360, height); },
+    details: (window, open) => { if (window === startupWindow) detailsOpen = open; window.setSize(360, open ? 560 : 390); },
+  });
+  const saveBounds = () => {
+    if (startupVisible || mainWindow.isDestroyed() || !mainWindow.isNormal()) return;
+    homeBounds = mainWindow.getBounds();
+    void writeFile(path.join(app.getPath('userData'), 'window-bounds.json'), JSON.stringify(homeBounds), { mode: 0o600 }).catch(() => {});
+  };
+  mainWindow.on('resize', saveBounds);
+  mainWindow.on('move', saveBounds);
   await startAttempt();
-  if (!quitting) void updates?.start();
 });
 
 app.on('window-all-closed', () => void requestQuit());
@@ -341,7 +433,7 @@ app.on('activate', () => {
   if (quitting) return;
   if (!mainWindow || mainWindow.isDestroyed()) {
     mainWindow = createWindow();
-    if (backend) void mainWindow.loadURL(`${APP_ORIGIN}/`);
+    if (backend) void openHome(mainWindow);
     else void startAttempt();
   }
 });

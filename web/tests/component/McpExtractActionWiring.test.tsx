@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { sheetMeta } from '../support/actionFormFixtures';
 import { columnDef } from '../support/domainFixtures';
+import { installPopoverPolyfill } from '../support/domPolyfills';
 import { lastExecutedRequest, mockLocalProviders, mountTypedForm, pressRun } from './cutoverUiF1TypedForm';
 
 let dispose: (() => void) | undefined;
@@ -22,6 +23,7 @@ afterEach(() => {
 });
 
 beforeEach(() => {
+  installPopoverPolyfill();
   mockLocalProviders();
 });
 
@@ -48,6 +50,9 @@ describe('Tool-assisted Extract MCP wiring', () => {
     const user = userEvent.setup();
     const mounted = mountTypedForm({ kind: 'map.mcp_extract', sheet: sheet(), listMcpServers: servers });
     dispose = mounted.dispose;
+    await userEvent.click(screen.getByTestId('text-source-columns'));
+    await userEvent.click(screen.getByRole('option', { name: /^Company/, hidden: true }));
+    await userEvent.keyboard('{Escape}');
 
     await user.click(await screen.findByRole('button', { name: /^tools/i }));
     await user.click(await screen.findByRole('checkbox', { name: 'Local CRM' }));
@@ -70,6 +75,9 @@ describe('Tool-assisted Extract MCP wiring', () => {
   it('does not render or serialize MCP selection for ordinary map.extract', async () => {
     const mounted = mountTypedForm({ kind: 'map.extract', sheet: sheet(), listMcpServers: servers });
     dispose = mounted.dispose;
+    await userEvent.click(screen.getByTestId('text-source-columns'));
+    await userEvent.click(screen.getByRole('option', { name: /^Company/, hidden: true }));
+    await userEvent.keyboard('{Escape}');
 
     expect(screen.queryByTestId('mcp-tools-selector')).not.toBeInTheDocument();
     await pressRun();

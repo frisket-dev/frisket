@@ -7,6 +7,8 @@ import {
   createProject,
   importCsv,
   openAction,
+  selectActionSourceColumns,
+  selectActionInputColumns,
   sheetData,
   uniqueName,
 } from './helpers';
@@ -117,6 +119,7 @@ test('action run submits explicit row_ids for selected rows and shows row-scoped
   }
 
   await openAction(page, 'map.python');
+  await selectActionInputColumns(page, 'note');
   await expect(page.getByTestId('generated-action-run')).toBeVisible();
   await page
     .getByTestId('field-code')
@@ -202,6 +205,7 @@ test('NER visibly refuses an unrepresentable selected-row scope before any run P
   }
 
   await openAction(page, 'map.ner');
+  await selectActionSourceColumns(page, 'note');
   await expect(page.getByTestId('row-scope-summary')).toContainText('2 selected rows');
 
   const runRequest = page.waitForRequest(

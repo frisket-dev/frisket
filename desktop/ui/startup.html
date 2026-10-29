@@ -3,41 +3,48 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self'">
-    <title>Preparing Frisket Desktop</title>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self'; font-src 'self'">
+    <title>Frisket startup</title>
     <link rel="stylesheet" href="startup.css">
     <script src="startup.js" defer></script>
   </head>
   <body>
-    <main class="startup-card" aria-labelledby="startup-title">
-      <header class="brand">
-        <div class="brand-mark" aria-hidden="true"><img src="favicon.svg" alt=""></div>
-        <span>Frisket Desktop</span>
-      </header>
-
-      <section class="intro">
-        <div class="activity-mark" aria-hidden="true"><span></span></div>
-        <p class="eyebrow">Getting things ready</p>
-        <h1 id="startup-title">Preparing Frisket</h1>
-        <p id="status" class="status" role="status" aria-live="polite">Setting up Frisket Desktop…</p>
-      </section>
-
-      <section class="setup-progress" aria-label="Setup progress">
-        <div class="progress-track" id="progress" role="progressbar" aria-label="Setup progress" aria-valuemin="0" aria-valuemax="3" aria-valuenow="0" aria-valuetext="Step 1 of 3: Preparing Frisket Desktop">
-          <div class="progress-complete"></div>
-          <div class="progress-active"></div>
+    <main class="startup-card" aria-labelledby="status">
+      <header class="cover">
+        <div class="brand"><span class="brand-mark"><img src="favicon.svg" alt=""></span><span>frisket</span></div>
+        <div class="glyphs" aria-hidden="true">
+          <img class="glyph" src="glyphs/section.svg" alt="">
+          <img class="glyph" src="glyphs/diamond.svg" alt="">
+          <img class="glyph" src="glyphs/pilcrow.svg" alt="">
+          <img class="glyph" src="glyphs/circle-dot.svg" alt="">
+          <img class="glyph" src="glyphs/grid-3x3.svg" alt="">
         </div>
-        <ol class="stages" id="stages">
-          <li data-phase="runtime" data-state="active"><span class="stage-icon" aria-hidden="true"></span><span>Preparing Frisket</span></li>
-          <li data-phase="dependencies"><span class="stage-icon" aria-hidden="true"></span><span>Setting up tools</span></li>
-          <li data-phase="workspace"><span class="stage-icon" aria-hidden="true"></span><span>Opening your workspace</span></li>
-        </ol>
+        <ol id="steps" class="steps" aria-label="This launch's steps" hidden></ol>
+      </header>
+      <section class="footer">
+        <h1 id="status" role="status" aria-live="polite">Checking your installation</h1>
+        <p id="activity" class="activity" role="status" aria-live="polite">This takes a moment.</p>
+        <section id="failure" class="failure" role="alert" hidden>
+          <p id="remedy"></p>
+          <button id="retry" type="button" disabled>Retry</button>
+        </section>
+        <section id="details" class="details" aria-label="Startup details" hidden>
+          <div id="setup-log" class="setup-log" tabindex="0" aria-label="Setup log">
+            <div id="log-lines"></div>
+            <p id="quiet" class="log-line quiet" hidden></p>
+          </div>
+          <div class="version-row"><span id="version"></span><button class="link" id="details-copy" type="button">Copy diagnostics</button></div>
+        </section>
+        <p id="first-time" class="first-time" hidden>First-time setup needs an internet connection. Later launches reuse these downloads.</p>
+        <div class="bottom-row">
+          <span id="elapsed" class="elapsed">0:00</span>
+          <span class="bottom-actions">
+            <button id="failure-copy" class="link" type="button" hidden>Copy diagnostics</button>
+            <button id="details-toggle" class="link" type="button" aria-expanded="false" aria-controls="details">Details</button>
+          </span>
+        </div>
       </section>
-
-      <p id="activity" class="activity" role="status">Waiting for setup…</p>
-      <p id="elapsed" class="elapsed"></p>
-      <details class="setup-details"><summary>Setup details</summary><pre id="setup-log"></pre></details>
-      <p class="reassurance">Your workspace is stored on this device.</p>
+      <button id="close" class="close" type="button" aria-label="Quit Frisket"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="m2 2 8 8M10 2l-8 8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>
     </main>
   </body>
 </html>

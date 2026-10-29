@@ -15,6 +15,7 @@ import {
   createProject,
   importCsv,
   openAction,
+  selectActionSourceColumns,
   uniqueName,
 } from './helpers';
 import {
@@ -104,6 +105,7 @@ test('expensive run trips the 402 cost gate modal', async ({ page }) => {
     await expect(page.getByTestId('sheet-stats')).toHaveText(/1,000 rows/);
 
     await openAction(page, 'map.classify');
+    await selectActionSourceColumns(page, 'snippet');
     await page.getByLabel('Field 1 labels').fill('routine, investigate');
 
     // The typed selector owns the exact authored engine + model pair.

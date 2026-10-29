@@ -10,7 +10,7 @@ const test = (name, fn) => nodeTest(name, { skip: process.platform === 'win32' }
 
 import { prepareRuntime } from '../src/provision.mjs';
 
-async function fixture({ corruptRequirements = false, pythonVersion = '3.12.13', realGuard = false, ignoreTermGrandchild = false, largeRapidocr = false } = {}) {
+async function fixture({ corruptRequirements = false, pythonVersion = '3.12.13', realGuard = false, ignoreTermGrandchild = false, largeRapidocr = false, managedPython = false } = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'frisket-provision-'));
   const resources = path.join(root, 'resources');
   const data = path.join(root, 'data');
@@ -55,6 +55,10 @@ const { spawn } = require('node:child_process');
 const trace = ${JSON.stringify(trace)};
 const args = process.argv.slice(2);
 fs.appendFileSync(trace, JSON.stringify({ args, pythonpath: process.env.PYTHONPATH, nodeOptions: process.env.NODE_OPTIONS, cache: process.env.UV_CACHE_DIR }) + '\\n');
+if (args[0] === 'python' && args[1] === 'find') {
+  if (${JSON.stringify(managedPython)}) { process.stdout.write(process.argv[1] + '\\n'); process.exit(0); }
+  process.exit(1);
+}
 if (args.includes('sync') && ${JSON.stringify(ignoreTermGrandchild)}) {
   const descendant = spawn(process.execPath, ['-e', ${JSON.stringify(`const fs = require('node:fs'); process.on('SIGTERM', () => {}); fs.writeFileSync(${JSON.stringify(grandchildReady)}, 'ready'); setInterval(() => {}, 1000)`)}], { stdio: 'ignore' });
   fs.writeFileSync(${JSON.stringify(grandchildPid)}, String(descendant.pid));
@@ -151,6 +155,7 @@ test('repairs an incomplete environment and records completion only after every 
   process.env.PYTHONPATH = '/unsafe/python';
   process.env.NODE_OPTIONS = '--require=/unsafe/node';
   try {
+    const events = [];
     await fs.writeFile(path.join(subject.root, 'fail-sync-once'), 'yes');
     await assert.rejects(
       prepareRuntime({ resourcesPath: subject.resources, dataPath: subject.data }),
@@ -160,11 +165,12 @@ test('repairs an incomplete environment and records completion only after every 
     assert.equal(first.some(({ args }) => args.includes('sync')), true);
     assert.equal(first.some(({ args }) => args.includes('playwright')), false);
 
-    const ready = await prepareRuntime({ resourcesPath: subject.resources, dataPath: subject.data });
+    const ready = await prepareRuntime({ resourcesPath: subject.resources, dataPath: subject.data, onEvent: event => events.push(event) });
+    assert.equal(events.find(event => event.type === 'plan').firstTime, true, 'failed first install retains first-time note on retry');
     await fs.access(ready.python, fsConstants.X_OK);
     const all = await traceLines(subject.trace);
     const venvCalls = all.filter(({ args }) => args[0] === 'venv');
-    assert.deepEqual(all[0].args.slice(0, 6), ['python', 'install', '3.12.13', '--managed-python', '--no-bin', '--no-config']);
+    assert.deepEqual(all.find(({ args }) => args[0] === 'python' && args[1] === 'install').args.slice(0, 6), ['python', 'install', '3.12.13', '--managed-python', '--no-bin', '--no-config']);
     assert.equal(venvCalls.length, 2);
     assert.equal(venvCalls[1].args.includes('--clear'), true);
     const sync = all.find(({ args }) => args.includes('sync'));
@@ -274,4 +280,22 @@ test('setup reports the failing command, real output, and exit status without le
     assert.match(activity.at(-1), /installing private Python dependencies: exit 17 after/);
     assert.equal(activity.join('\n').includes('should-not-escape'), false);
   } finally { await subject.cleanup(); }
+});
+
+
+test('announces one truthful plan and skips engine installation when managed runtime exists', async () => {
+  for (const managedPython of [false, true]) {
+    const subject = await fixture({ managedPython });
+    try {
+      const events = [];
+      await prepareRuntime({ resourcesPath: subject.resources, dataPath: subject.data, onEvent: event => events.push(event) });
+      const plans = events.filter(event => event.type === 'plan');
+      assert.equal(plans.length, 1);
+      assert.deepEqual(plans[0].steps, managedPython ? ['components', 'open'] : ['engine', 'components', 'open']);
+      assert.equal((await traceLines(subject.trace)).some(({ args }) => args[0] === 'python' && args[1] === 'install'), !managedPython);
+      const reused = [];
+      await prepareRuntime({ resourcesPath: subject.resources, dataPath: subject.data, onEvent: event => reused.push(event) });
+      assert.deepEqual(reused.find(event => event.type === 'plan'), { type: 'plan', steps: ['open'], firstTime: false });
+    } finally { await subject.cleanup(); }
+  }
 });

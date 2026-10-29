@@ -122,6 +122,13 @@ async function chooseFixedEngine(engineId: string): Promise<void> {
   await chooseActionSelector(engineId);
 }
 
+async function chooseSourceColumn(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+  await user.click(screen.getByTestId('text-source-columns'));
+  const menu = await screen.findByTestId('text-source-columns-menu');
+  await user.click(within(menu).getByRole('option', { name: /statement/, hidden: true }));
+  await user.keyboard('{Escape}');
+}
+
 async function runEnabled(): Promise<void> {
   await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
 }
@@ -142,12 +149,13 @@ describe('translate form', () => {
     expect(within(form).queryByText('Save this setup')).not.toBeInTheDocument();
 
     // The shared rich-source control: All / Column(s) / Template, defaulting
-    // to the first compatible column, with every text column on offer.
+    // to an empty Column(s) choice, with every text column on offer.
     expect(within(form).getByTestId('text-source-mode-all')).toBeVisible();
     expect(within(form).getByTestId('text-source-mode-columns')).toHaveAttribute('aria-pressed', 'true');
     expect(within(form).getByTestId('text-source-mode-template')).toBeVisible();
     const picker = within(form).getByTestId('text-source-columns');
-    expect(within(picker).getByText('statement')).toBeVisible();
+    expect(within(picker).queryByText('statement')).not.toBeInTheDocument();
+    expect(screen.getByTestId('generated-action-run')).toBeDisabled();
     fireEvent.mouseDown(picker);
     const menu = await screen.findByTestId('text-source-columns-menu');
     expect(within(menu).getAllByRole('option', { hidden: true }).map((option) => option.textContent))
@@ -209,6 +217,7 @@ describe('translate form', () => {
     const user = userEvent.setup();
     const { onExecute } = mountTranslate();
     const form = screen.getByTestId('generated-action-form');
+    await chooseSourceColumn(user);
 
     await waitFor(() => expect(selectorTrigger()).toHaveTextContent('Test model'));
     await runEnabled();
@@ -231,6 +240,7 @@ describe('translate form', () => {
       }),
     });
     const form = screen.getByTestId('generated-action-form');
+    await chooseSourceColumn(user);
 
     // Default LLM model and dataset-context guidance are present,
     // model-dollar estimate shown.
@@ -312,6 +322,7 @@ describe('translate form', () => {
       estimate: estimateByEngine({}),
     });
     const form = screen.getByTestId('generated-action-form');
+    await chooseSourceColumn(user);
 
     const destination = await within(form).findByTestId('field-output-translation');
     await user.clear(destination);
@@ -358,6 +369,7 @@ describe('opus_mt pair run-gating', () => {
     // remains quiet until the user interacts with its controls.
     const { onExecute } = mountTranslate({ engines: withInstalledPairs([]) });
     let form = screen.getByTestId('generated-action-form');
+    await chooseSourceColumn(user);
     await chooseFixedEngine('opus_mt');
     // the paired picker renders (engine WAS selectable despite zero pairs)
     expect(within(form).getByTestId('translate-pair-picker')).toBeInTheDocument();
@@ -385,6 +397,7 @@ describe('opus_mt pair run-gating', () => {
 
     // Same selection with the pair installed (engine.models) -> badge + Run.
     mountTranslate({ engines: withInstalledPairs(['en-es']) });
+    await chooseSourceColumn(user);
     form = screen.getByTestId('generated-action-form');
     await chooseFixedEngine('opus_mt');
     await user.selectOptions(within(form).getByTestId('translate-pair-source'), 'en');

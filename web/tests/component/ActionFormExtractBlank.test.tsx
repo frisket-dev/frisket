@@ -11,6 +11,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { columnDef } from '../support/domainFixtures';
+import { installPopoverPolyfill } from '../support/domPolyfills';
 import { sheetMeta } from '../support/actionFormFixtures';
 import { lastExecutedRequest, mockLocalProviders, mountTypedForm, pressRun } from './cutoverUiF1TypedForm';
 
@@ -23,6 +24,7 @@ afterEach(() => {
 });
 
 beforeEach(() => {
+  installPopoverPolyfill();
   mockLocalProviders();
 });
 
@@ -39,6 +41,10 @@ function mountExtract(options: Partial<Parameters<typeof mountTypedForm>[0]> = {
 describe('fresh Extract form', () => {
   it('starts with a blank instruction and one unnamed-by-example output column', async () => {
     const { onExecute } = mountExtract();
+    expect(screen.getByTestId('generated-action-run')).toBeDisabled();
+    await userEvent.click(screen.getByTestId('text-source-columns'));
+    await userEvent.click(screen.getByRole('option', { name: /^story/, hidden: true }));
+    await userEvent.keyboard('{Escape}');
 
     const instruction = screen.getByTestId('field-instruction');
     expect(instruction.tagName).toBe('TEXTAREA');
@@ -54,7 +60,7 @@ describe('fresh Extract form', () => {
     // there is nothing to assert in its place — the blank-and-unplaceholdered
     // checks above are the whole "no invented example prose" contract now.
 
-    // Nothing invented on the wire: the seeded column and a blank instruction.
+    // Nothing invented on the wire: the selected source and a blank instruction.
     await pressRun();
     const request = lastExecutedRequest(onExecute);
     expect(request.action_id).toBe('map.extract');
