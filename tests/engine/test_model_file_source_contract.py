@@ -2,24 +2,30 @@ from __future__ import annotations
 
 import base64
 import json
+from io import BytesIO
 
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
+from pypdf import PdfWriter
+
+from http_test_helpers import drain_queue, post_v1_action_with_exact_confirmation
 
 from frisket.actions.model_rows import FILE_SOURCE_CONVERSION_HINT
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.actions.system import typed_action_for_request
-from frisket.actions.types import ColumnRef
+from frisket.actions.types import ColumnRef, RowError
 from frisket.ai.llm import LLMResponse, ModelRouter
 from frisket.engine.executor import run_action_spec
 from frisket.engine.executor.map_rows_action import (
     _typed_map_rows_plan,
+    TypedMapRowsPlanError,
     build_typed_map_rows_plan,
     typed_program_from_runner_spec,
     validate_typed_project_references,
 )
 from frisket.engine.store import Project
+from frisket.engine.runner.row_inputs import row_values
 from frisket.server.app import create_app
 
 
@@ -75,9 +81,7 @@ def request(kind, sheet_id, source):
     }
 
 
-@pytest.mark.parametrize(
-    "kind", ["map.ask", "map.summarize", "map.translate", "map.ner"]
-)
+@pytest.mark.parametrize("kind", ["map.translate", "map.ner"])
 @pytest.mark.parametrize("source", [["document"], {"text": "Read {{document}}"}])
 def test_file_sources_refuse_at_http_and_worker_reconstruction_before_provider(
     tmp_path, kind, source
@@ -112,6 +116,128 @@ def test_file_sources_refuse_at_http_and_worker_reconstruction_before_provider(
         with pytest.raises(ValueError, match="To markdown or OCR"):
             typed_program_from_runner_spec(project, spec)
         assert adapter.requests == []
+
+
+@pytest.mark.parametrize("kind", ["map.ask", "map.summarize"])
+@pytest.mark.parametrize("source", [["document"], {"text": "Read {{document}}"}])
+def test_pdf_sources_survive_http_and_worker_reconstruction_and_publish_output(
+    tmp_path, kind, source
+):
+    stream = BytesIO()
+    writer = PdfWriter()
+    writer.add_blank_page(width=100, height=200)
+    writer.write(stream)
+    pdf = stream.getvalue()
+    router, adapter = router_and_adapter()
+    with TestClient(create_app(tmp_path, router=router)) as client:
+        project_id = client.post("/api/projects", json={"name": "PDF input"}).json()[
+            "id"
+        ]
+        project = client.app.state.workspace.get(project_id)
+        sheet_id = project.add_sheet("Rows")
+        column_id = project.add_column(sheet_id, "document", type="file")
+        digest = project.add_blob(pdf, filename="note.pdf", mime="application/pdf")
+        rows = project.add_rows(
+            sheet_id,
+            [
+                {
+                    "document": {
+                        "blob": digest,
+                        "filename": "note.pdf",
+                        "mime": "application/pdf",
+                    }
+                }
+            ],
+            {"document": column_id},
+        )
+        body = request(kind, sheet_id, source)
+        spec = build_typed_map_rows_plan(
+            project, typed_action_for_request(body)
+        ).spec_dict()
+        worker = typed_program_from_runner_spec(project, spec)
+        assert worker is not None
+        values = row_values(project, worker, spec, {"document": column_id}, rows[0])
+        call = worker.render(values, spec)
+        parts = call.messages[1]["content"]
+        document = next(part for part in parts if part["type"] == "document")
+        assert document["media_type"] == "application/pdf"
+        assert base64.b64decode(document["data"]) == pdf
+        assert not any(part["type"] == "image" for part in parts)
+        assert adapter.requests == []
+        response = post_v1_action_with_exact_confirmation(client, project_id, body)
+        assert response.status_code == 200, response.text
+        queued = response.json()
+        assert queued["status"] == "queued"
+        drain_queue(client)
+        receipt = client.get(
+            f"/api/projects/{project_id}/actions/v1/receipts/{queued['receipt_id']}"
+        ).json()
+        assert receipt["status"] == "completed", receipt["errors"]
+        assert len(adapter.requests) == 1
+        sent = next(
+            part
+            for part in adapter.requests[0].messages[1]["content"]
+            if part["type"] == "document"
+        )
+        assert base64.b64decode(sent["data"]) == pdf
+        output_name = "answer" if kind == "map.ask" else "summary"
+        output = next(
+            column
+            for column in project.columns(sheet_id)
+            if column["name"] == output_name
+        )
+        assert project.get_values(sheet_id, output["id"], row_ids=rows) == {
+            rows[0]: "Document content"
+        }
+
+
+@pytest.mark.parametrize("kind", ["map.ask", "map.summarize"])
+@pytest.mark.parametrize("source", [["document"], {"text": "Read {{document}}"}])
+def test_non_pdf_file_rows_refuse_without_sending_metadata_to_model(
+    tmp_path, kind, source
+):
+    project = Project.create(tmp_path / "non-pdf.frisket")
+    router, adapter = router_and_adapter()
+    try:
+        sheet_id = project.add_sheet("Rows")
+        column_id = project.add_column(sheet_id, "document", type="file")
+        digest = project.add_blob(
+            b"File content", filename="note.txt", mime="text/plain"
+        )
+        rows = project.add_rows(
+            sheet_id,
+            [
+                {
+                    "document": {
+                        "blob": digest,
+                        "filename": "note.txt",
+                        "mime": "text/plain",
+                    }
+                }
+            ],
+            {"document": column_id},
+        )
+        bound = typed_action_for_request(request(kind, sheet_id, source))
+        with pytest.raises(TypedMapRowsPlanError, match="not a PDF") as admission_error:
+            build_typed_map_rows_plan(project, bound)
+        assert admission_error.value.code == "pdf_input_invalid"
+        # Runtime reads retain expected row-failure semantics if file inputs
+        # become invalid after an earlier admission.
+        plan = _typed_map_rows_plan(bound)
+        with pytest.raises(RowError, match="not a PDF") as error:
+            row_values(
+                project,
+                plan.program,
+                plan.spec_dict(),
+                {"document": column_id},
+                rows[0],
+            )
+        assert error.value.code == "pdf_input_invalid"
+        assert adapter.requests == []
+        assert len(project.columns(sheet_id)) == 1
+        assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
+    finally:
+        project.close()
 
 
 @pytest.mark.parametrize("kind", ["map.ask", "map.summarize"])
@@ -180,21 +306,24 @@ def test_model_sources_still_send_text_pixels_and_ordinary_json(
         "map.translate",
     ],
 )
-def test_shared_model_catalog_requires_explicit_file_conversion(kind):
+def test_shared_model_catalog_limits_pdf_support_to_three_model_actions(kind):
     entry = ACTION_REGISTRY.get(kind).catalog_entry()
     source = next(
         item
         for item in entry["ui_hints"]["source_requirements"]
         if item["param"] == "source"
     )
-    assert "file" not in source["accepted_column_types"]
+    pdf_supported = kind in {"map.ask", "map.summarize", "map.extract"}
+    assert ("file" in source["accepted_column_types"]) is pdf_supported
     assert {"text", "image", "json", "number", "boolean"} <= set(
         source["accepted_column_types"]
     )
-    assert (
-        entry["input_schema"]["properties"]["source"]["description"]
-        == FILE_SOURCE_CONVERSION_HINT
-    )
+    description = entry["input_schema"]["properties"]["source"]["description"]
+    if pdf_supported:
+        assert "PDF files" in description
+        assert "Other files need To markdown or OCR first" in description
+    else:
+        assert description == FILE_SOURCE_CONVERSION_HINT
 
 
 @pytest.mark.parametrize("kind", ["media.to_markdown", "media.ocr", "media.transcribe"])
@@ -370,3 +499,81 @@ def test_inferred_reference_types_are_intersected_with_exclusions(monkeypatch):
         "link",
         "text",
     )
+
+
+@pytest.mark.parametrize("kind", ["map.ask", "map.summarize"])
+@pytest.mark.parametrize("endpoint", ["run", "preview"])
+@pytest.mark.parametrize(
+    "filename,mime,raw",
+    [
+        ("note.txt", "text/plain", b"File content"),
+        ("broken.pdf", "application/pdf", b"%PDF-1.4 invalid document bytes"),
+    ],
+)
+def test_invalid_pdf_preflight_returns_structured_http_error_without_provider(
+    tmp_path, kind, endpoint, filename, mime, raw
+):
+    router, adapter = router_and_adapter()
+    with TestClient(create_app(tmp_path, router=router)) as client:
+        project_id = client.post("/api/projects", json={"name": "Invalid PDF"}).json()[
+            "id"
+        ]
+        project = client.app.state.workspace.get(project_id)
+        sheet_id = project.add_sheet("Rows")
+        column_id = project.add_column(sheet_id, "document", type="file")
+        digest = project.add_blob(raw, filename=filename, mime=mime)
+        rows = project.add_rows(
+            sheet_id,
+            [{"document": {"blob": digest, "filename": filename, "mime": mime}}],
+            {"document": column_id},
+        )
+        body = request(kind, sheet_id, ["document"])
+        body["scope"]["row_ids"] = rows
+        response = client.post(
+            f"/api/projects/{project_id}/actions/v1/{endpoint}", json=body
+        )
+        assert response.status_code == 400, response.text
+        payload = response.json()
+        error = payload["errors"][0] if endpoint == "run" else payload["error"]
+        assert error["code"] == "pdf_input_invalid"
+        assert error["field"] == "params.source"
+        assert error["message"]
+        assert adapter.requests == []
+        assert len(project.columns(sheet_id)) == 1
+        assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
+
+
+def test_pdf_row_aggregate_page_limit_is_a_structured_http_refusal(tmp_path):
+    stream = BytesIO()
+    writer = PdfWriter()
+    for _ in range(51):
+        writer.add_blank_page(width=100, height=200)
+    writer.write(stream)
+    router, adapter = router_and_adapter()
+    with TestClient(create_app(tmp_path, router=router)) as client:
+        project_id = client.post(
+            "/api/projects", json={"name": "PDF aggregate limit"}
+        ).json()["id"]
+        project = client.app.state.workspace.get(project_id)
+        sheet_id = project.add_sheet("Rows")
+        columns = {
+            name: project.add_column(sheet_id, name, type="file")
+            for name in ("first", "second")
+        }
+        digest = project.add_blob(
+            stream.getvalue(), filename="pages.pdf", mime="application/pdf"
+        )
+        cell = {"blob": digest, "filename": "pages.pdf", "mime": "application/pdf"}
+        project.add_rows(sheet_id, [{name: cell for name in columns}], columns)
+        response = client.post(
+            f"/api/projects/{project_id}/actions/v1/run",
+            json=request("map.ask", sheet_id, list(columns)),
+        )
+        assert response.status_code == 400, response.text
+        error = response.json()["errors"][0]
+        assert error["code"] == "pdf_input_too_large"
+        assert error["field"] == "params.source"
+        assert "across selected files" in error["message"]
+        assert adapter.requests == []
+        assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
+        assert len(project.columns(sheet_id)) == 2

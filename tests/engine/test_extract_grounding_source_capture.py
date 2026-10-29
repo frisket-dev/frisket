@@ -309,9 +309,15 @@ def test_queued_grounding_keeps_admitted_file_identity(tmp_path, change_after_qu
             _assert_original_artifact(project, receipt, seeded, adapter)
 
 
-@pytest.mark.parametrize("bad_source", ["missing", "model_file"])
-def test_grounding_references_are_validated_without_permitting_model_files(
-    tmp_path, bad_source
+@pytest.mark.parametrize(
+    "bad_source,error_code",
+    [
+        ("missing", "invalid_input_ref"),
+        ("required_pdf_citations", "pdf_citations_unsupported"),
+    ],
+)
+def test_grounding_references_validate_missing_sources_and_refuse_required_pdf_citations(
+    tmp_path, bad_source, error_code
 ):
     project = Project.create(tmp_path / "documents.frisket")
     try:
@@ -324,7 +330,12 @@ def test_grounding_references_are_validated_without_permitting_model_files(
             request["params"]["source"] = ["document"]
         result = run_action_spec(project, request, project_id="p", router=router)
         assert result.status == "failed"
-        assert result.errors[0].code == "invalid_input_ref"
+        assert result.errors[0].code == error_code
+        if bad_source == "required_pdf_citations":
+            assert (
+                "Citations are unavailable for direct PDF input"
+                in result.errors[0].message
+            )
         assert adapter.requests == []
         assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
     finally:

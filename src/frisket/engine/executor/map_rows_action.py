@@ -2322,6 +2322,49 @@ def validate_model_rows_project_inputs(
                 "Citations are unavailable for direct PDF input. Turn off citation-required policies.",
                 field="params.grounding",
             )
+        # PDF decoding can fail while estimates resolve row inputs, before the
+        # runner's ordinary per-row error boundary exists. Admit the selected
+        # files here so Run and Preview return the same structured diagnostic
+        # before reserving output columns or invoking a provider.
+        from frisket.engine.runner.pdf_inputs import pdf_part
+        from frisket.engine.runner.row_inputs import is_empty_cell_value
+        from frisket.ai.llm.document_input import MAX_PDF_INPUT_BYTES, MAX_PDF_PAGES
+
+        row_totals: dict[int, tuple[int, int]] = {}
+        selected_rows = (
+            project.visible_row_ids(sheet_id) if row_ids is None else list(row_ids)
+        )
+        for reference in discover_references(getattr(params, terminal.source_param)):
+            name = reference.column
+            if references.source_column_types.get(name) != "file":
+                continue
+            values = project.get_values(
+                sheet_id, references.source_column_ids[name], row_ids=selected_rows
+            )
+            for row_id, value in values.items():
+                if is_empty_cell_value(value):
+                    continue
+                try:
+                    part = pdf_part(project, value)
+                    previous_bytes, previous_pages = row_totals.get(int(row_id), (0, 0))
+                    encoded = part["__pdf_b64__"]
+                    total_bytes = (
+                        previous_bytes + len(encoded) // 4 * 3 - encoded.count("=")
+                    )
+                    total_pages = previous_pages + part["page_count"]
+                    if total_bytes > MAX_PDF_INPUT_BYTES or total_pages > MAX_PDF_PAGES:
+                        raise RowError(
+                            "pdf_input_too_large",
+                            "Direct PDF input is limited to 20 MiB and 100 pages per row across selected files.",
+                        )
+                    row_totals[int(row_id)] = (total_bytes, total_pages)
+                except RowError as exc:
+                    raise TypedMapRowsPlanError(
+                        exc.code,
+                        exc.message,
+                        field="params.source",
+                        details={"column": name, "row_id": int(row_id)},
+                    ) from exc
 
     validate_model_rows_input_provenance(
         project,
