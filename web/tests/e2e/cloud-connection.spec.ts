@@ -25,15 +25,22 @@ type SelectorResponse = {
 };
 
 async function waitForExtractSelector(page: Page, navigate: () => Promise<unknown>) {
-  const pending = page.waitForRequest((request) => (
-    request.method() === 'POST'
-    && request.url().endsWith('/selector-choices')
-  ));
+  // Route changes can overlap a refresh of the previous selection. Wait for
+  // the committed Cloud projection rather than accepting that earlier response.
+  const pending = page.waitForResponse(async (response) => {
+    if (response.request().method() !== 'POST'
+      || !response.url().endsWith('/selector-choices') || !response.ok()) return false;
+    const payload = await response.json() as SelectorResponse;
+    return payload.subject.kind === 'action'
+      && payload.subject.action_id === 'map.extract' && payload.subject.field === 'engine'
+      && payload.groups.flatMap((group) => group.choices).some((choice) => (
+        choice.authored_selection.model === 'gemini/gemini-3.5-flash-lite'
+        && choice.execution_route?.kind === 'cloud_credits'
+        && choice.execution_route.account_id === 41 && choice.can_run
+      ));
+  });
   await navigate();
-  const response = await (await pending).response();
-  if (!response) throw new Error('Selector request did not complete');
-  expect(response.ok()).toBeTruthy();
-  const body = await response.json() as SelectorResponse;
+  const body = await (await pending).json() as SelectorResponse;
   expect(body.subject).toMatchObject({
     kind: 'action',
     action_id: 'map.extract',

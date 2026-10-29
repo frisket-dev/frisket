@@ -975,7 +975,7 @@ def _estimate_run(
         if spec.get("action_kind") in PDF_ACTION_IDS:
             sources = set(recipe.source_columns(spec))
             if any(
-                column.get("type") == "file" and column.get("name") in sources
+                column["type"] == "file" and column["name"] in sources
                 for column in project.columns(spec["sheet_id"])
             ):
                 out["warning"] = PDF_ESTIMATE_WARNING
