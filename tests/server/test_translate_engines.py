@@ -194,13 +194,13 @@ def test_opus_mt_availability_tracks_runtime_not_pairs(monkeypatch) -> None:
 
     monkeypatch.setattr(opus_mt, "installed_pairs", lambda cache_root=None: [])
 
-    # runtime ABSENT -> engine unavailable with the pip-install remediation.
+    # Runtime absent: engine offers picker setup rather than a shell command.
     monkeypatch.setattr(opus_mt, "runtime_available", lambda: False)
     opus = _engines_by_id()["opus_mt"]
     assert opus["tier"] == "local"
     assert opus["billable"] is False
     assert opus["available"] is False
-    assert "frisket-data[standard]" in opus["error"]
+    assert "Set up local translation in the engine picker" in opus["error"]
     assert "models" not in opus  # no pairs installed -> no models list
     assert "downloadable_pairs" in opus  # the roster is always present
 

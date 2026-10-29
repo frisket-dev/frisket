@@ -5,6 +5,7 @@ import { handleFirstLaunchPrompts } from './onboarding.mjs';
 import {
   aliveProcesses, assertInstalledPlatform, descendants, installedExecutable, listeningPorts, windowsProcessDetails,
 } from './installed-platform.mjs';
+import { waitForStartup, observeWindows } from './startup.mjs';
 import { importTable } from './table-import.mjs';
 
 const appPath = process.env.FRISKET_DESKTOP_APP;
@@ -21,6 +22,22 @@ async function launch(testInfo, automaticChoice = 'Only when I ask') {
   let stderr = '';
   electron.process().stderr.on('data', (chunk) => {
     stderr = `${stderr}${chunk}`.slice(-16_384);
+  });
+  let page;
+  const rendererErrors = [];
+  let browserLog = '';
+  const record = (message) => { browserLog = `${browserLog}${message}\n`.slice(-16_384); };
+  observeWindows(electron, page => {
+    page.on('pageerror', (error) => rendererErrors.push(error.message));
+    page.on('console', (message) => {
+      if (['error', 'warning'].includes(message.type())) record(message.text());
+    });
+    page.on('requestfailed', (request) => record(`${request.url()}: ${request.failure()?.errorText}`));
+    page.on('response', (response) => {
+      if (['document', 'script', 'stylesheet'].includes(response.request().resourceType())) {
+        record(`${response.status()} ${response.headers()['content-type']} ${response.url()}`);
+      }
+    });
   });
   // Install this before asking for the first window, and therefore before the
   // backend can become ready. The update preference is a native first-run
@@ -44,22 +61,8 @@ async function launch(testInfo, automaticChoice = 'Only when I ask') {
       return showMessageBox(...args);
     };
   }, automaticChoice);
-  const page = await electron.firstWindow();
-  const rendererErrors = [];
-  let browserLog = '';
-  const record = (message) => { browserLog = `${browserLog}${message}\n`.slice(-16_384); };
-  page.on('pageerror', (error) => rendererErrors.push(error.message));
-  page.on('console', (message) => {
-    if (['error', 'warning'].includes(message.type())) record(message.text());
-  });
-  page.on('requestfailed', (request) => record(`${request.url()}: ${request.failure()?.errorText}`));
-  page.on('response', (response) => {
-    if (['document', 'script', 'stylesheet'].includes(response.request().resourceType())) {
-      record(`${response.status()} ${response.headers()['content-type']} ${response.url()}`);
-    }
-  });
   try {
-    await page.waitForURL('frisket://app/**', { timeout: 300_000 });
+    page = await waitForStartup(electron, { timeout: 300_000, diagnosticsPath: path.join(profile, 'startup-diagnostics.txt') });
     await expect(page.getByTestId('home-screen')).toBeVisible();
     await handleFirstLaunchPrompts(page);
     return { electron, page, rendererErrors, stderr: () => stderr };
@@ -68,7 +71,7 @@ async function launch(testInfo, automaticChoice = 'Only when I ask') {
     await testInfo.attach('startup-browser', {
       body: `${rendererErrors.join('\n')}\n${browserLog}`, contentType: 'text/plain',
     });
-    await page.screenshot({ path: testInfo.outputPath('startup-failure.png') }).catch(() => {});
+    await (error.startupPage || page)?.screenshot({ path: testInfo.outputPath('startup-failure.png') }).catch(() => {});
     await electron.close().catch(() => {});
     throw error;
   }

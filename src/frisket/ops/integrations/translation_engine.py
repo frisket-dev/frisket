@@ -18,6 +18,34 @@ from frisket.ops.integrations.translate_common import TranslateEngineError
 class TranslationEngine:
     """Existing hosted/local engines, producing logical values and actual facts."""
 
+    def __init__(self, *, invocation_owned: bool = False) -> None:
+        self._invocation_owned = invocation_owned
+        self._opus_session = None
+
+    async def aclose(self) -> None:
+        if self._opus_session is not None:
+            await self._opus_session.aclose()
+
+    async def _opus_translate(self, src: str, tgt: str, texts: list[str], cancel):
+        import asyncio
+
+        from frisket.ops.integrations import opus_mt
+        from frisket.runtime.translation_install import host_present, is_installed
+
+        if host_present() or not is_installed():
+            return await asyncio.to_thread(opus_mt.translate_texts, src, tgt, texts)
+        from frisket.engine._workers.opus_mt_session import OpusMtSession
+
+        if self._invocation_owned:
+            if self._opus_session is None:
+                self._opus_session = OpusMtSession(cancelled=cancel)
+            return await self._opus_session.translate(src, tgt, texts)
+        session = OpusMtSession(cancelled=cancel)
+        try:
+            return await session.translate(src, tgt, texts)
+        finally:
+            await session.aclose()
+
     @staticmethod
     def _translation_column(spec: dict) -> str:
         return "translation"
@@ -279,9 +307,8 @@ class TranslationEngine:
             )
 
         if engine == "opus_mt":
-            # In-process CTranslate2 local translate. The heavy
-            # runtime lives in its own module (integrations/opus_mt.py); this
-            # hook stays thin. Opus-MT is pair-based with NO language ID, so an
+            # Host-installed CTranslate2 or the owned optional worker share
+            # pinned pair provisioning. Opus-MT has no language ID, so an
             # explicit source is required (the contract already rejects
             # empty/auto via allows_auto=False -- this is defence in depth).
             import asyncio
@@ -310,9 +337,7 @@ class TranslationEngine:
                 ) from exc
             cancel = self._cancel_signal(ctx)
             try:
-                results = await asyncio.to_thread(
-                    opus_mt.translate_texts, src_code, tgt_code, [text]
-                )
+                results = await self._opus_translate(src_code, tgt_code, [text], cancel)
             except opus_mt.OpusPairNotInstalled:
                 # Lazy pull-on-first-use: the run queue has no host
                 # affinity, so a row can land on any worker. If the pinned pair
@@ -325,8 +350,8 @@ class TranslationEngine:
                         tgt_code,
                         should_cancel=cancel,
                     )
-                    results = await asyncio.to_thread(
-                        opus_mt.translate_texts, src_code, tgt_code, [text]
+                    results = await self._opus_translate(
+                        src_code, tgt_code, [text], cancel
                     )
                 except artifact_pull.ProvisionCancelled as exc:
                     # The run was cancelled mid-download. Retryable so

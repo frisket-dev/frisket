@@ -1,0 +1,12 @@
+[project]
+name = "frisket-translation-runtime"
+version = "0.1.0"
+description = "Frozen third-party runtime for Frisket translation workers"
+requires-python = ">=3.12"
+dependencies = [
+    "ctranslate2==4.7.2",
+    "sentencepiece==0.2.1"
+]
+
+[tool.uv]
+exclude-newer = "1 week"

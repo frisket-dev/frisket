@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import { checkSpeechActions } from './check-speech.mjs';
+import { checkLanguageActions } from './check-language.mjs';
 import { startBackend } from '../src/backend.mjs';
 import { authenticatedHeaders } from '../src/protocol.mjs';
 import { prepareRuntime } from '../src/provision.mjs';
@@ -190,7 +191,7 @@ async function checkAsr(resourcesPath, python, env, workspace) {
       return response.json();
     };
     // Repeating setup offline must reuse the optional runtime and cached weights.
-    for (const setup_ref of ['engine-setup:parakeet-tdt.local-onnx@1', 'engine-setup:faster-whisper.local@1']) {
+    for (const setup_ref of ['engine-setup:parakeet-tdt.local-onnx@1', 'engine-setup:faster-whisper.local@1', 'engine-setup:spacy.local@1', 'engine-setup:opus-mt.local@1']) {
       let { pull } = await request('/api/providers/models/setup', {
         method: 'POST', body: JSON.stringify({ setup_ref }),
       });
@@ -203,9 +204,21 @@ async function checkAsr(resourcesPath, python, env, workspace) {
         pull = await request(`/api/providers/models/pulls/${pull.id}`);
       }
     }
+    let { pull: pair } = await request('/api/providers/models/pull', {
+      method: 'POST', body: JSON.stringify({ ref: 'opus-mt:en-es' }),
+    });
+    const pairDeadline = Date.now() + 120_000;
+    while (pair.status !== 'done') {
+      if (['failed', 'cancelled'].includes(pair.status) || Date.now() >= pairDeadline) {
+        throw new Error(`Cached offline translation pair unavailable: ${JSON.stringify(pair.error)}`);
+      }
+      await delay(500);
+      pair = await request(`/api/providers/models/pulls/${pair.id}`);
+    }
     await checkSpeechActions(request, speech);
-    await run('Host speech libraries stay absent', python, ['-I', '-c',
-      "import importlib.util; assert not any(importlib.util.find_spec(name) for name in ('faster_whisper', 'onnx_asr', 'av'))",
+    await checkLanguageActions(request);
+    await run('Host optional libraries stay absent', python, ['-I', '-c',
+      "import importlib.util; assert not any(importlib.util.find_spec(name) for name in ('faster_whisper', 'onnx_asr', 'av', 'spacy', 'ctranslate2', 'sentencepiece'))",
     ], { env });
   } finally {
     await backend.stop();

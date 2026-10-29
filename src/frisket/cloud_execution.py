@@ -8,7 +8,6 @@ cannot choose another account, lane, provider, or route revision.
 from __future__ import annotations
 
 import asyncio
-import json
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -372,9 +371,9 @@ def cloud_llm_estimated_spend_micro(
         raise TypeError("Cloud LLM quote request is invalid")
     if not isinstance(price, CloudTokenPrice):
         raise TypeError("Cloud LLM quote price is invalid")
-    from frisket.ai.llm import estimate_tokens
+    from frisket.ai.llm.pdf_estimates import estimate_input_tokens
 
-    input_text = json.dumps(
+    input_tokens = estimate_input_tokens(
         {
             "messages": request.messages,
             "schema": request.schema_,
@@ -385,9 +384,10 @@ def cloud_llm_estimated_spend_micro(
         separators=(",", ":"),
         allow_nan=False,
     )
+    if input_tokens is None:
+        raise ValueError("PDF token estimate requires page and native-text metadata")
     raw = (
-        Decimal(estimate_tokens(input_text))
-        * Decimal(price.input_micro_per_million_tokens)
+        Decimal(input_tokens) * Decimal(price.input_micro_per_million_tokens)
         + Decimal(request.max_tokens) * Decimal(price.output_micro_per_million_tokens)
     ) / Decimal(1_000_000)
     return int(raw.to_integral_value(rounding=ROUND_CEILING))

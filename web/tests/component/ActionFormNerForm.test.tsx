@@ -137,6 +137,13 @@ async function expectRunBlockedByForm(): Promise<void> {
   expect(screen.getByTestId('generated-action-run')).toBeDisabled();
 }
 
+async function selectSourceColumn(name = 'headline'): Promise<void> {
+  await userEvent.click(screen.getByTestId('text-source-columns'));
+  const menu = await screen.findByTestId('text-source-columns-menu');
+  await userEvent.click(within(menu).getByRole('option', { name: new RegExp(`^${name}`), hidden: true }));
+  await userEvent.keyboard('{Escape}');
+}
+
 async function selectAllSource(): Promise<void> {
   await userEvent.click(screen.getByTestId('text-source-mode-all'));
 }
@@ -159,6 +166,7 @@ describe('engine-aware cost gating', () => {
           : { cost: 0, rows: 3, billed_cost: 0, policy_id: 'frisket.identity.v1' }
       ),
     });
+    await selectSourceColumn('headline');
 
     await waitFor(() => {
       expect(screen.getByTestId('cost-estimate')).toHaveClass('cost-local');
@@ -223,6 +231,7 @@ describe('engine-aware cost gating', () => {
   it('omits hidden engine-specific values from estimate and run', async () => {
     const user = userEvent.setup();
     const { onExecute, estimateAction } = mountNer();
+    await selectSourceColumn('headline');
 
     await chooseEngine('gliner');
     fireEvent.change(screen.getByTestId('field-threshold'), { target: { value: '0.73' } });
@@ -270,6 +279,7 @@ describe('C2 — one output control', () => {
   it('projects an edited fresh Save-to name into the typed request', async () => {
     const user = userEvent.setup();
     const { onExecute } = mountNer();
+    await selectSourceColumn('headline');
 
     await user.clear(screen.getByTestId('field-output-entities'));
     await user.type(screen.getByTestId('field-output-entities'), 'named_entities');
@@ -298,6 +308,7 @@ describe('exact row scope output', () => {
       selectedRowIds: ['1'],
       hasExactRowScopeInitializer: true,
     });
+    await selectSourceColumn('body');
 
     const saveTo = screen.getByTestId('field-output-entities');
     await user.click(saveTo);
@@ -319,6 +330,7 @@ describe('exact row scope output', () => {
       // than an immediate launch, so the scope can change before Run.
       estimateAction: async () => ({ cost: 0.01, rows: 3, billed_cost: 10_000, policy_id: 'acme.cost_plus.v1' }),
     });
+    await selectSourceColumn('body');
 
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
     await user.click(screen.getByTestId('generated-action-run-scope-menu-button'));
@@ -339,6 +351,7 @@ describe('exact row scope output', () => {
       selectedRowIds: [],
       hasExactRowScopeInitializer: true,
     });
+    await selectSourceColumn('headline');
 
     await pressRun();
     expect(lastExecutedRequest(onExecute).scope).toEqual({ kind: 'sheet_rows', sheet_id: 7, row_ids: [] });
@@ -419,7 +432,6 @@ describe('C1 — a real source picker', () => {
     const { onExecute } = mountNer();
 
     await user.click(screen.getByTestId('text-source-mode-columns'));
-    await user.click(screen.getByRole('button', { name: 'Remove headline' }));
     await user.click(screen.getByTestId('text-source-columns'));
     const menu = screen.getByTestId('text-source-columns-menu');
     // hidden:true is the established workaround (DeriveJoinForm.test.tsx et
@@ -436,7 +448,6 @@ describe('C1 — a real source picker', () => {
     const { onExecute } = mountNer();
 
     await user.click(screen.getByTestId('text-source-mode-columns'));
-    await user.click(screen.getByRole('button', { name: 'Remove headline' }));
     await expectRunBlockedByForm();
     fireEvent.click(screen.getByTestId('generated-action-run'));
     expect(onExecute).not.toHaveBeenCalled();
@@ -491,6 +502,7 @@ describe('C4a — canonical entity-type chips', () => {
   it('writes the CANONICAL value into labels, and offers no raw OntoNotes tag', async () => {
     const user = userEvent.setup();
     const { onExecute } = mountNer();
+    await selectSourceColumn('headline');
 
     // No `GPE` chip exists to write `GPE` — the tag whose request side asked
     // for `gpe` while every emitted span said `location`.
@@ -531,6 +543,7 @@ describe('C4a — canonical entity-type chips', () => {
 describe('C4b — an empty selection is invalid', () => {
   it('defaults a new run to spaCy and the five recommended types', async () => {
     const { onExecute } = mountNer();
+    await selectSourceColumn('headline');
 
     await waitFor(() => expect(selectorTrigger()).toHaveTextContent('spaCy'));
     for (const type of RECOMMENDED_LABELS) {
@@ -558,6 +571,7 @@ describe('C4b — an empty selection is invalid', () => {
   it('blocks submission once the final type is cleared — and does NOT silently submit a default', async () => {
     const user = userEvent.setup();
     const { onExecute, resolveParams } = mountNer();
+    await selectSourceColumn('headline');
 
     for (const type of RECOMMENDED_LABELS) {
       await user.click(screen.getByTestId(`ner-spacy-types-${type}`));
@@ -596,6 +610,7 @@ describe('C4b — an empty selection is invalid', () => {
   it('Select all checks every canonical type; Reset recommended returns to the five', async () => {
     const user = userEvent.setup();
     const { onExecute } = mountNer();
+    await selectSourceColumn('headline');
 
     await user.click(screen.getByTestId('ner-spacy-types-select-all'));
     for (const type of ['person', 'norp', 'fac', 'work_of_art', 'cardinal']) {
@@ -638,6 +653,7 @@ describe('C4b — an empty selection is invalid', () => {
   it('enforces the same required-ness for GLiNER free text', async () => {
     const user = userEvent.setup();
     const { onExecute } = mountNer();
+    await selectSourceColumn('headline');
 
     // The fresh spaCy posture hides GLiNER's threshold field.
     expect(screen.queryByTestId('field-threshold')).not.toBeInTheDocument();

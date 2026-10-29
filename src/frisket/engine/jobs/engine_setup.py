@@ -20,8 +20,12 @@ FASTER_WHISPER_SETUP_REF = "engine-setup:faster-whisper.local@1"
 RAPIDOCR_SETUP_REF = "engine-setup:rapidocr.local@1"
 DOCLING_SETUP_REF = "engine-setup:docling.local@1"
 CHROMIUM_SETUP_REF = "engine-setup:chromium.local@1"
+SPACY_SETUP_REF = "engine-setup:spacy.local@1"
+OPUS_MT_SETUP_REF = "engine-setup:opus-mt.local@1"
 
 _SETUP_NAMES = {
+    SPACY_SETUP_REF: "spaCy",
+    OPUS_MT_SETUP_REF: "Opus MT",
     CHROMIUM_SETUP_REF: "Browser tools (Chromium)",
     PARAKEET_TDT_SETUP_REF: "Parakeet TDT (local ONNX)",
     FASTER_WHISPER_SETUP_REF: "Whisper base (local)",
@@ -188,6 +192,14 @@ def run_engine_setup(
     row = model_pull_store.get(engine, pull_id)
     if row is None:
         raise LookupError(f"engine setup row {pull_id} does not exist")
+    if row.model_ref in {SPACY_SETUP_REF, OPUS_MT_SETUP_REF}:
+        return _run_language_setup(
+            spacy=row.model_ref == SPACY_SETUP_REF,
+            engine=engine,
+            pull_id=pull_id,
+            should_cancel=should_cancel,
+            is_final_attempt=is_final_attempt,
+        )
     if row.model_ref == CHROMIUM_SETUP_REF:
         return _run_chromium_setup(
             engine=engine,
@@ -547,6 +559,113 @@ def _run_pinned_setup(
     return {"status": "done"}
 
 
+def _run_language_setup(
+    *,
+    spacy: bool,
+    engine,
+    pull_id: int,
+    should_cancel: Callable[[], bool],
+    is_final_attempt: bool,
+) -> dict[str, object]:
+    """Install optional language components; spaCy also needs its pinned wheel."""
+    import httpx
+
+    from frisket.engine.jobs.artifact_pull import ProvisionCancelled, provision_pinned
+    from frisket.engine.jobs.model_pull import _fail
+    from frisket.runtime.model_install import ModelInstallCancelled
+
+    if spacy:
+        from frisket.runtime.spacy_install import (
+            install_spacy as install,
+            runtime_present,
+        )
+    else:
+        from frisket.runtime.translation_install import (
+            install_translation as install,
+            runtime_present,
+        )
+    label = "spaCy" if spacy else "Opus MT"
+
+    def progress(phase: str) -> None:
+        model_pull_store.update_progress(
+            engine, pull_id, phase=phase, total_bytes=None, completed_bytes=0
+        )
+
+    model_pull_store.set_artifact_metadata(
+        engine,
+        pull_id,
+        artifact_kind="engine_setup",
+        artifact_source_url=None,
+        artifact_license=None,
+        artifact_manifest_version=None,
+    )
+    try:
+        if should_cancel():
+            raise ModelInstallCancelled
+        if not runtime_present():
+            progress(f"Installing {label} components")
+            install(should_cancel=should_cancel, progress=progress)
+        if should_cancel():
+            raise ModelInstallCancelled
+        if not runtime_present():
+            raise RuntimeError("language runtime did not become available")
+        digest = None
+        if spacy:
+            from frisket.ai.models.artifact_manifest import spacy_model_artifact
+            from frisket.ai.models.spacy_model import (
+                ensure_loadable_model_path,
+                model_state,
+                wheel_path,
+            )
+            from frisket.engine.jobs.artifact_ref import normalize_artifact_ref
+
+            pinned = spacy_model_artifact()
+            if pinned is None:
+                raise RuntimeError("the pinned spaCy model manifest is unavailable")
+            model_pull_store.set_artifact_metadata(
+                engine,
+                pull_id,
+                artifact_kind="engine_setup",
+                artifact_source_url=pinned.source_url,
+                artifact_license=pinned.license,
+                artifact_manifest_version=pinned.manifest_version,
+            )
+            # The worker-local downloader fast-paths by size. Remove a wheel
+            # that failed its checksum so an explicit retry can repair it.
+            if model_state(include_python_package=False).status == "hash_mismatch":
+                wheel_path().unlink(missing_ok=True)
+            progress("Downloading spaCy model")
+            with httpx.Client() as client:
+                provision_pinned(
+                    normalize_artifact_ref(pinned.ref),
+                    pinned,
+                    cache_root=None,
+                    client=client,
+                    should_cancel=should_cancel,
+                )
+            if should_cancel():
+                raise ModelInstallCancelled
+            progress("Preparing spaCy model")
+            ensure_loadable_model_path()
+            digest = pinned.composite_digest
+        if should_cancel():
+            raise ModelInstallCancelled
+    except (ModelInstallCancelled, ProvisionCancelled):
+        model_pull_store.mark_cancelled(engine, pull_id)
+        return {"status": "cancelled"}
+    except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+        raise _fail(
+            engine,
+            pull_id,
+            error_code="engine_setup_unavailable",
+            message=f"Could not set up {label}. Check your connection and available disk space, then retry.",
+            terminal=False,
+            is_final_attempt=is_final_attempt,
+        ) from exc
+    model_pull_store.mark_done(engine, pull_id, resolved_digest=digest)
+    return {"status": "done"}
+
+
 def _run_chromium_setup(
     *, engine, pull_id: int, should_cancel: Callable[[], bool], is_final_attempt: bool
 ) -> dict[str, object]:
@@ -644,6 +763,8 @@ def _run_docling_setup(
 
 
 __all__ = [
+    "SPACY_SETUP_REF",
+    "OPUS_MT_SETUP_REF",
     "DOCLING_SETUP_REF",
     "INDRA_OCR_SETUP_REF",
     "PARAKEET_TDT_SETUP_REF",

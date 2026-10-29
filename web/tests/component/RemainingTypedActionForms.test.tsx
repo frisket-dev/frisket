@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, expect, it, vi } from 'vitest';
 import { generatedActionTemplateFromCatalogEntry } from '../../src/actions/model';
 import type { GeneratedActionDraft, SheetMeta } from '../../src/api/types';
 import { isGeneratedActionCatalogEntry } from '../../src/api/types';
@@ -11,6 +11,9 @@ import { WorkspaceStoresContext } from '../../src/bind/workspaceStoresContext';
 import { GeneratedActionForm } from '../../src/components/action-panel/GeneratedActionForm';
 import { servedActionCatalog } from '../support/servedActionCatalog';
 import { installActionSelectorFixture, selectorProviderCatalog } from '../support/selectorChoicesFixture';
+import { installPopoverPolyfill } from '../support/domPolyfills';
+
+beforeAll(installPopoverPolyfill);
 const catalog = servedActionCatalog();
 
 const sheet: SheetMeta = { id: '7', name: 'Stories', rowCount: 3,
@@ -92,6 +95,10 @@ it('preserves a question redirected to Extract as the output field instruction',
   render(<GeneratedActionForm projectId="typed-forms:extract-prompt" catalogEntry={entry} actionTemplate={template} sheet={sheet}
     initialSourceColumn="story" initialPrompt="Who signed the contract?" running={false}
     resolveParams={resolveParams} onExecute={vi.fn()} onClose={vi.fn()} />);
+  expect(screen.queryByRole('button', { name: 'Remove story' })).not.toBeInTheDocument();
+  fireEvent.mouseDown(screen.getByTestId('text-source-columns'));
+  fireEvent.click(screen.getByRole('option', { name: /^story/, hidden: true }));
+  fireEvent.keyDown(screen.getByLabelText('Filter columns'), { key: 'Escape' });
   await waitFor(() => expect(resolveParams).toHaveBeenCalledWith(expect.objectContaining({
     params: expect.objectContaining({ source: ['story'],
       fields: [{ name: 'who_signed_the_contract', type: 'text', description: 'Who signed the contract?' }] }),

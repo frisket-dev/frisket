@@ -6,7 +6,10 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
+import re
 from typing import Any
 
 import httpx
@@ -17,9 +20,64 @@ from . import structured_capabilities as capabilities
 from .pricing import cost_of_with_source
 from .structured import _extract_prose_json
 from .structured_capabilities import NATIVE_STRICT, NATIVE_TOOL, PROSE_JSON
-from .types import LLMError, LLMRequest, LLMResponse, SchemaViolation
+from .types import (
+    LLMError,
+    LLMRequest,
+    LLMResponse,
+    SchemaViolation,
+    has_document_content,
+)
 
 TIMEOUT = httpx.Timeout(120.0, connect=10.0)
+
+
+def _validate_document_request(req: LLMRequest) -> None:
+    """Fail closed before HTTP; compatible endpoints do not imply PDF support."""
+    if not has_document_content(req.messages):
+        return
+    from .document_input import MAX_PDF_INPUT_BYTES, MAX_PDF_PAGES, require_pdf_model
+
+    require_pdf_model(req.model)
+    total_bytes = 0
+    total_pages = 0
+    for message in req.messages:
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+        for part in content:
+            if not isinstance(part, dict) or part.get("type") != "document":
+                continue
+            if message.get("role") != "user":
+                raise LLMError("PDF attachments require a user message")
+            page_count = part.get("page_count")
+            if page_count is not None:
+                if type(page_count) is not int or page_count <= 0:
+                    raise LLMError("PDF page count must be a positive integer")
+                total_pages += page_count
+                if total_pages > MAX_PDF_PAGES:
+                    raise LLMError("PDF attachments exceed the 100-page request limit")
+            _data, byte_count = _pdf_attachment(part)
+            total_bytes += byte_count
+            if total_bytes > MAX_PDF_INPUT_BYTES:
+                raise LLMError("PDF attachments exceed the 20 MiB request limit")
+
+
+def _pdf_attachment(part: dict[str, Any]) -> tuple[str, int]:
+    if part.get("media_type") != "application/pdf":
+        raise LLMError("Only PDF document attachments are supported")
+    data = part.get("data")
+    if not isinstance(data, str) or not data:
+        raise LLMError("PDF attachment data is required")
+    try:
+        decoded = base64.b64decode(data, validate=True)
+    except (ValueError, binascii.Error):
+        raise LLMError("PDF attachment data must be valid base64") from None
+    if not decoded.startswith(b"%PDF-"):
+        raise LLMError("Document attachment is not a PDF")
+    filename = part.get("filename", "document.pdf")
+    if not isinstance(filename, str) or not filename.strip():
+        raise LLMError("PDF attachment filename must be nonblank text")
+    return data, len(decoded)
 
 
 def _resolve_mechanism(req: LLMRequest) -> str:
@@ -142,6 +200,7 @@ class AnthropicAdapter:
         self.no_temperature_prefixes = no_temperature_prefixes
 
     async def complete(self, req: LLMRequest, client: httpx.AsyncClient) -> LLMResponse:
+        _validate_document_request(req)
         model = req.model.split("/", 1)[-1]
         system_parts = [m["content"] for m in req.messages if m["role"] == "system"]
         messages = self._messages(req.messages)
@@ -211,7 +270,11 @@ class AnthropicAdapter:
             },
             timeout=TIMEOUT,
         )
-        _raise_for_status(resp, secret_values=(self.api_key,))
+        _raise_for_status(
+            resp,
+            secret_values=(self.api_key,),
+            include_details=not has_document_content(req.messages),
+        )
         out = _response_object(resp, "completion", self.api_key)
         usage = _object_or_empty(out.get("usage"), "completion usage", self.api_key)
         tokens_in = _usage_count(usage, "input_tokens", self.api_key)
@@ -331,6 +394,20 @@ class AnthropicAdapter:
         for p in content:
             if p.get("type") == "text":
                 parts.append({"type": "text", "text": p["text"]})
+            elif p.get("type") == "document":
+                data, _byte_count = _pdf_attachment(p)
+                parts.append(
+                    {
+                        "type": "document",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "application/pdf",
+                            "data": data,
+                        },
+                        "title": p.get("filename", "document.pdf"),
+                        "citations": {"enabled": False},
+                    }
+                )
             elif p.get("type") == "image":
                 parts.append(
                     {
@@ -383,6 +460,7 @@ class OpenAICompatAdapter:
         *,
         cost_model: str | None = None,
     ) -> LLMResponse:
+        _validate_document_request(req)
         model = req.model.split("/", 1)[-1]
         messages = self._messages(req.messages)
         body: dict[str, Any] = {
@@ -457,7 +535,11 @@ class OpenAICompatAdapter:
             headers={"Authorization": f"Bearer {self.api_key}"},
             timeout=TIMEOUT,
         )
-        _raise_for_status(resp, secret_values=(self.api_key,))
+        _raise_for_status(
+            resp,
+            secret_values=(self.api_key,),
+            include_details=not has_document_content(req.messages),
+        )
         out = _response_object(resp, "completion", self.api_key)
         usage = _object_or_empty(out.get("usage"), "completion usage", self.api_key)
         tokens_in = _usage_count(usage, "prompt_tokens", self.api_key)
@@ -611,6 +693,17 @@ class OpenAICompatAdapter:
         for p in content:
             if p.get("type") == "text":
                 parts.append({"type": "text", "text": p["text"]})
+            elif p.get("type") == "document":
+                data, _byte_count = _pdf_attachment(p)
+                parts.append(
+                    {
+                        "type": "file",
+                        "file": {
+                            "filename": p.get("filename", "document.pdf"),
+                            "file_data": "data:application/pdf;base64," + data,
+                        },
+                    }
+                )
             elif p.get("type") == "image":
                 data_url = f"data:{p['media_type']};base64,{p['data']}"
                 image_url: str | dict[str, Any]
@@ -664,7 +757,10 @@ def _strictify(schema: dict) -> dict:
 
 
 def _raise_for_status(
-    resp: httpx.Response, *, secret_values: tuple[str | None, ...] = ()
+    resp: httpx.Response,
+    *,
+    secret_values: tuple[str | None, ...] = (),
+    include_details: bool = True,
 ) -> None:
     if resp.status_code == 200:
         return
@@ -686,8 +782,15 @@ def _raise_for_status(
                 provider_code = code
     # This boundary owns the key used for the request.  Never inspect a wider
     # credential set merely to make an echoed provider body safe.
+    if not include_details and (
+        provider_code is not None
+        and re.fullmatch(r"[a-z][a-z0-9_]{0,63}", provider_code) is None
+    ):
+        provider_code = None
     safe_detail = redact_text(
-        f"provider returned {resp.status_code}: {detail}",
+        f"provider returned {resp.status_code}: {detail}"
+        if include_details
+        else f"provider returned {resp.status_code}",
         secret_values=secret_values,
     )
     if provider_code is not None:

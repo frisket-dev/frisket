@@ -79,7 +79,27 @@ class _ModelRowsParams(ActionParams):
         return _validate_model_rows_source(value)
 
 
-class AskParams(_ModelRowsParams):
+class PdfRichColumn(RichColumn):
+    accepted_column_types: ClassVar[tuple[str, ...]] = (*RICH_COLUMN_TYPES, "file")
+
+
+class PdfRichTemplate(RichTemplate):
+    accepted_column_types: ClassVar[tuple[str, ...]] = (*RICH_COLUMN_TYPES, "file")
+
+
+PdfRichSource: TypeAlias = Annotated[
+    Annotated[list[PdfRichColumn], Field(min_length=1)] | PdfRichTemplate,
+    Field(
+        description="Select text, images, or PDF files. Other files need To markdown or OCR first."
+    ),
+]
+
+
+class _PdfModelRowsParams(_ModelRowsParams):
+    source: PdfRichSource
+
+
+class AskParams(_PdfModelRowsParams):
     question: StrictStr = Field(
         description="The question to answer for each row.",
         json_schema_extra={"x-frisket-input": "textarea"},
@@ -207,7 +227,7 @@ ASK = action(
 )
 
 
-class SummarizeParams(_ModelRowsParams):
+class SummarizeParams(_PdfModelRowsParams):
     preset: Literal["paragraph", "one_line", "topics", "quotes"] = Field(
         default="paragraph",
         title="Summary style",

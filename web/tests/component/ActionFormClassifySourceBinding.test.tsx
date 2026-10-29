@@ -109,6 +109,13 @@ function mountClassify(options: {
   });
 }
 
+async function selectSourceColumn(user: ReturnType<typeof userEvent.setup>, name: string): Promise<void> {
+  await user.click(screen.getByTestId('text-source-columns'));
+  const menu = await screen.findByTestId('text-source-columns-menu');
+  await user.click(within(menu).getByRole('option', { name: new RegExp(`^${name}`), hidden: true }));
+  await user.keyboard('{Escape}');
+}
+
 function savedClassifyDraft(
   fields: Array<Record<string, unknown>>,
   outputNames: Record<string, string> = {},
@@ -130,6 +137,7 @@ describe('classify source binding', () => {
   it('keeps untouched category labels clean, then routes their server error beside the labels control', async () => {
     const user = userEvent.setup();
     const { onExecute } = mountClassify({ sheet: summarySheet() });
+    await selectSourceColumn(user, 'summary');
 
     expect(screen.getByTestId('classify-labels')).toHaveValue('');
     expect(screen.queryByText('Housing')).not.toBeInTheDocument();
@@ -228,6 +236,7 @@ describe('classify source binding', () => {
   it('offers the engine picker and captures the local semantic engine on the typed wire', async () => {
     const user = userEvent.setup();
     const { onExecute } = mountClassify({ sheet: summarySheet() });
+    await selectSourceColumn(user, 'summary');
 
     // The combined selector defaults to the local engine.
     await waitFor(() => expect(selectorTrigger()).toHaveTextContent('Local semantic'));
@@ -395,6 +404,7 @@ describe('classify source binding', () => {
     };
     (listProviders as unknown as Mock).mockResolvedValue(providerCatalog);
     const { onExecute } = mountClassify({ sheet: summarySheet() });
+    await selectSourceColumn(user, 'summary');
 
     await waitFor(() => expect(listProviders).toHaveBeenCalled());
     await chooseActionSelector('openai/gpt-5-mini');
@@ -432,6 +442,7 @@ describe('classify source binding', () => {
       }],
     } satisfies LocalProviderCatalog);
     const { onExecute } = mountClassify({ sheet: summarySheet() });
+    await selectSourceColumn(user, 'summary');
 
     await chooseActionSelector('openai/gpt-5-mini');
     await waitFor(() => expect(selectorTrigger()).toHaveTextContent('GPT-5 mini'));
@@ -501,7 +512,7 @@ describe('classify source binding', () => {
     expect(onExecute).not.toHaveBeenCalled();
   });
 
-  it('submits only the selected source column by default', async () => {
+  it('submits only the explicitly selected source column', async () => {
     const user = userEvent.setup();
     const { onExecute } = mountClassify({
       sheet: sheetMeta([
@@ -514,7 +525,9 @@ describe('classify source binding', () => {
     expect(screen.getByTestId('text-source-mode')).toBeVisible();
     expect(screen.getByTestId('text-source-mode-columns')).toHaveAttribute('aria-pressed', 'true');
     const picker = screen.getByTestId('text-source-columns');
-    expect(within(picker).getByText('headline')).toBeVisible();
+    expect(within(picker).queryByText('headline')).not.toBeInTheDocument();
+    expect(screen.getByTestId('generated-action-run')).toBeDisabled();
+    await selectSourceColumn(user, 'headline');
     expect(within(picker).queryByText('city')).not.toBeInTheDocument();
     expect(within(picker).queryByText('notes')).not.toBeInTheDocument();
     await user.type(screen.getByTestId('classify-labels'), 'news, opinion');
@@ -588,7 +601,6 @@ describe('classify source binding', () => {
       ], { id: '7' }),
     });
 
-    await user.click(screen.getByRole('button', { name: 'Remove headline' }));
     fireEvent.mouseDown(screen.getByTestId('text-source-columns'));
     const menu = await screen.findByTestId('text-source-columns-menu');
     await user.click(within(menu).getByRole('option', { name: /media/, hidden: true }));

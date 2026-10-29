@@ -85,7 +85,11 @@ describe('shared rich-source control', () => {
     const { onExecute } = mountExtract();
 
     expect(screen.getByTestId('text-source-mode-columns')).toHaveAttribute('aria-pressed', 'true');
-    expect(within(screen.getByTestId('text-source-columns')).getByText('headline')).toBeVisible();
+    const picker = screen.getByTestId('text-source-columns');
+    expect(within(picker).queryByText('headline')).not.toBeInTheDocument();
+    expect(screen.getByTestId('generated-action-run')).toBeDisabled();
+    await user.click(picker);
+    await user.click(screen.getByRole('option', { name: /^headline/ }));
     await submitRun(user);
 
     expect(onExecute).toHaveBeenCalledTimes(1);

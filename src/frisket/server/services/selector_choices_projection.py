@@ -241,6 +241,18 @@ def _choice(
     route_selection: dict[str, Any] | None = None,
     active_operation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    model = selection.get("model")
+    if isinstance(model, str):
+        from frisket.ai.llm.document_input import model_supports_pdf
+
+        facts = [
+            *facts,
+            {
+                "kind": "text",
+                "label": "PDF input",
+                "value": "Supported" if model_supports_pdf(model) else "Not supported",
+            },
+        ]
     return {
         "choice_id": _choice_id(selection),
         "label": label,

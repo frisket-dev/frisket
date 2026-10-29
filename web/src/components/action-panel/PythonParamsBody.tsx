@@ -5,7 +5,7 @@ import { useEffect, useRef } from 'react';
 import type { GeneratedActionParamsBodyProps } from './GeneratedActionParamsBody';
 
 /** Only the Params region belongs to Python; the host owns names and execution. */
-export function PythonParamsBody({ params, setParams, sheet, Field }:
+export function PythonParamsBody({ params, setParams, Field }:
   GeneratedActionParamsBodyProps<'map.python'>) {
   const initialized = useRef(false);
   useEffect(() => {
@@ -16,13 +16,12 @@ export function PythonParamsBody({ params, setParams, sheet, Field }:
     if (params.return_schema && params.output_routes?.length) return;
     setParams({
       ...params,
-      input_columns: params.input_columns?.length ? params.input_columns
-        : (sheet?.columns ?? []).slice(0, 1).map((column) => column.name),
+      input_columns: params.input_columns ?? [],
       code: params.code || 'result = {"computed": sum(len(str(v)) for v in row.values() if v)}',
       return_schema: { type: 'object' },
       output_routes: [{ name: 'computed', path: '$', target: { kind: 'column', type: 'json' } }],
     });
-  }, [params, setParams, (sheet?.columns ?? [])]);
+  }, [params, setParams]);
 
   return <>
     <Field name="input_columns" label="Inputs" />

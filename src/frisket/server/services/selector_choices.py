@@ -564,6 +564,26 @@ class SelectorChoiceService:
                     )
                 )
 
+        if subject.action_id in {"map.ask", "map.extract", "map.summarize"}:
+            depends_on = list(
+                dict.fromkeys([*depends_on, "source", "source_contains_pdf"])
+            )
+            if subject.params.get("source_contains_pdf") is True:
+                from frisket.ai.llm.document_input import model_supports_pdf
+
+                for choice in choices:
+                    model = choice["authored_selection"].get("model")
+                    if not isinstance(model, str) or not model_supports_pdf(model):
+                        choice.update(
+                            status="unavailable",
+                            can_run=False,
+                            can_author=False,
+                            blocker={
+                                "code": "pdf_input_unsupported",
+                                "message": "This choice does not support direct PDF input. Choose a supported OpenAI or Anthropic model.",
+                                "field": "source",
+                            },
+                        )
         return _response(
             project_id,
             subject={
@@ -1232,11 +1252,7 @@ class SelectorChoiceService:
             whisper_base_missing = whisper_base and not whisper_setup_ready()
             downloadable = engine.get("downloadable_models") or []
             artifact_ref = (
-                _optional_str(_mapping(downloadable[0]).get("ref"))
-                if engine_id == "spacy" and not available and downloadable
-                else _optional_str(
-                    _mapping(engine.get("downloadable_model")).get("ref")
-                )
+                _optional_str(_mapping(engine.get("downloadable_model")).get("ref"))
                 if engine_id == "hy_mt2"
                 and available
                 and not _mapping(engine.get("downloadable_model")).get("installed")

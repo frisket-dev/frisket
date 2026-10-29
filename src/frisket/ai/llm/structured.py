@@ -93,6 +93,7 @@ from .types import (
     ReasoningPolicy,
     SchemaViolation,
     provider_from_model_id,
+    has_document_content,
 )
 
 # Mechanism ids — the closed vocabulary (NOT a registry). Re-exported from
@@ -188,6 +189,8 @@ class StructuredResult:
 # Bidirectional and image-preserving so multimodal callers (map_runner image
 # rows) do not regress: our image parts round-trip through BinaryContent.
 _IMAGE_DETAIL_VENDOR_KEY = "frisket_image_detail"
+_DOCUMENT_METADATA_VENDOR_KEY = "frisket_document_metadata"
+_DOCUMENT_METADATA_FIELDS = ("filename", "page_count", "text_char_count")
 
 
 def _content_to_pai(content: Any) -> Any:
@@ -198,6 +201,20 @@ def _content_to_pai(content: Any) -> Any:
     for p in content:
         if p["type"] == "text":
             out.append(p["text"])
+        elif p["type"] == "document":
+            if p.get("media_type") != "application/pdf":
+                raise TypeError("only PDF document content is supported")
+            out.append(
+                BinaryContent(
+                    data=base64.b64decode(p["data"], validate=True),
+                    media_type="application/pdf",
+                    vendor_metadata={
+                        _DOCUMENT_METADATA_VENDOR_KEY: {
+                            key: p[key] for key in _DOCUMENT_METADATA_FIELDS if key in p
+                        }
+                    },
+                )
+            )
         elif p["type"] == "image":
             out.append(
                 BinaryContent(
@@ -210,6 +227,8 @@ def _content_to_pai(content: Any) -> Any:
                     ),
                 )
             )
+        else:
+            raise TypeError("unsupported model content part")
     return out
 
 
@@ -224,17 +243,34 @@ def _content_from_pai(content: Any) -> Any:
         elif isinstance(c, TextContent):
             parts.append({"type": "text", "text": c.content})
         elif isinstance(c, BinaryContent):
-            image = {
-                "type": "image",
+            part = {
+                "type": "document" if c.media_type == "application/pdf" else "image",
                 "media_type": c.media_type,
                 "data": base64.b64encode(c.data).decode(),
             }
             metadata = c.vendor_metadata
-            if isinstance(metadata, dict) and isinstance(
-                metadata.get(_IMAGE_DETAIL_VENDOR_KEY), str
-            ):
-                image["detail"] = metadata[_IMAGE_DETAIL_VENDOR_KEY]
-            parts.append(image)
+            if c.media_type == "application/pdf":
+                document_metadata = (
+                    metadata.get(_DOCUMENT_METADATA_VENDOR_KEY)
+                    if isinstance(metadata, dict)
+                    else None
+                )
+                if isinstance(document_metadata, dict):
+                    part.update(
+                        {
+                            key: document_metadata[key]
+                            for key in _DOCUMENT_METADATA_FIELDS
+                            if key in document_metadata
+                        }
+                    )
+            elif c.media_type.startswith("image/"):
+                if isinstance(metadata, dict) and isinstance(
+                    metadata.get(_IMAGE_DETAIL_VENDOR_KEY), str
+                ):
+                    part["detail"] = metadata[_IMAGE_DETAIL_VENDOR_KEY]
+            else:
+                raise TypeError("unsupported binary model content")
+            parts.append(part)
         else:
             raise TypeError(f"unsupported pydantic-ai user content: {type(c).__name__}")
     return parts
@@ -765,6 +801,10 @@ class StructuredCompleter:
     ) -> StructuredResult:
         if req.schema is None:
             raise ValueError("StructuredRequest.schema is required")
+        if has_document_content(req.messages):
+            from .document_input import require_pdf_model
+
+            require_pdf_model(req.model)
 
         wrapped_schema, was_wrapped = _wrap_array_schema(req.schema)
         # Untrusted/broker-supplied schemas can be structurally invalid; catch it

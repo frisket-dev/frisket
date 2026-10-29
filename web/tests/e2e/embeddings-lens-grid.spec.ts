@@ -3,6 +3,7 @@ import {
   createProject,
   importCsv,
   openAction,
+  selectActionSourceColumns,
   openDiscoverTab,
   uniqueName,
 } from './helpers';
@@ -416,6 +417,7 @@ test('NER initialized from a lens submits complete exact membership, not its gri
   );
 
   await openAction(page, 'map.ner');
+  await selectActionSourceColumns(page, 'headline');
   await expect(page.getByTestId('run-button')).toBeEnabled();
   await page.getByTestId('run-button').click();
   await runStarted;

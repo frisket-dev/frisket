@@ -697,6 +697,8 @@ def _llm_rendered_calls(
 
 
 def _llm_options(rendered: Mapping[int, Any], recipe: Any) -> dict[str, Any]:
+    from frisket.ai.llm.types import has_document_content
+
     def has_image(value: Any) -> bool:
         if isinstance(value, Mapping):
             return any(
@@ -711,7 +713,10 @@ def _llm_options(rendered: Mapping[int, Any], recipe: Any) -> dict[str, Any]:
     return {
         "structured_output": any(call.schema is not None for call in calls),
         "tools": hasattr(recipe, "run_agent"),
-        "vision": any(has_image(call.messages) for call in calls),
+        "vision": any(
+            has_image(call.messages) or has_document_content(call.messages)
+            for call in calls
+        ),
         "max_output_tokens": max((int(call.max_tokens) for call in calls), default=1),
     }
 
@@ -742,8 +747,11 @@ def _llm_cost_basis(
     # issue changed tool rounds.  Their initial render is not a spend bound;
     # keep the known price terms while asking for explicit unknown-quantity
     # consent.  A schema-less non-agent row has exactly one paid request.
+    from frisket.ai.llm.pdf_estimates import estimate_input_tokens
+
     bounded_one_call = not hasattr(recipe, "run_agent") and all(
-        call.schema is None for call in rendered.values()
+        call.schema is None and estimate_input_tokens(call.messages) is not None
+        for call in rendered.values()
     )
     row_micro: dict[int, int] = {}
     if bounded_one_call:

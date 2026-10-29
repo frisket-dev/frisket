@@ -11,6 +11,7 @@ import {
   previewTableFile,
   reviewTableColumns,
   openAction,
+  selectActionSourceColumns,
   sheetColumns,
   uniqueName,
 } from './helpers';
@@ -88,6 +89,7 @@ test('import → classify run → results → undo/redo', async ({ page }) => {
   // server's response cache never short-circuits the run — we want to observe
   // the live pending → complete transition, not a cache replay.
   await openAction(page, 'map.classify');
+  await selectActionSourceColumns(page, 'snippet');
   await expect(page.getByTestId('action-form')).toBeVisible();
   await selectGeminiEngine(page);
   await page

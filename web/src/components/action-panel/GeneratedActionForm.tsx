@@ -8,6 +8,7 @@ import { PluginActionUIBoundary } from './PluginActionUIBoundary';
 import type { GeneratedActionCustomization } from './generatedActionCustomizations';
 
 import { compatibleSourceColumns, formatUsd, isProjectScopedAction } from '../../actions/model';
+import { draftUsesPdf } from '../../actions/pdfInput';
 import { jsonValuesEqual } from '../../actions/canonicalJson';
 import { quotedUsd } from '../../actions/quotedCost';
 import { formatDuration } from '../../format';
@@ -63,10 +64,13 @@ function actionSelectorQuery(
   actionId: string,
   field: string,
   draft: CanonicalDraft,
+  sourceContainsPdf: boolean,
 ): HttpSelectorChoicesQuery {
   return {
     schema_version: 'frisket.selector_choices_query.v1',
-    subject: { kind: 'action', action_id: actionId, field, params: draft },
+    subject: { kind: 'action', action_id: actionId, field, params: { ...draft,
+      ...(sourceContainsPdf ? { source_contains_pdf: true } : {}),
+    } },
   } as HttpSelectorChoicesQuery;
 }
 
@@ -389,26 +393,17 @@ function initialParams(entry: GeneratedActionCatalogEntry, template: ActionTempl
       const value = defaultColumn(entry, param.name, columns, sourceColumn, usedColumns);
       edits[param.name] = value;
       if (value) usedColumns.add(value);
-    } else if (control === 'columns' && sourceColumn) {
-      const requirement = entry.ui_hints.source_requirements
-        ?.find((candidate) => candidate.param === param.name) ?? null;
-      edits[param.name] = compatibleSourceColumns(columns, requirement)
-        .some((column) => column.name === sourceColumn) ? [sourceColumn] : [];
-    } else if (control === 'rich_source') {
-      const requirement = entry.ui_hints.source_requirements
-        ?.find((candidate) => candidate.param === param.name) ?? null;
-      const eligible = compatibleSourceColumns(orderedSourceColumns(columns), requirement);
-      edits[param.name] = sourceColumn
-        && eligible.some((column) => column.name === sourceColumn)
-        ? [sourceColumn]
-        : eligible.slice(0, Math.max(1, requirement?.min ?? 1)).map((column) => column.name);
+    } else if (control === 'rich_source' || control === 'columns') {
+      // A new multi-column request needs an explicit choice, including when
+      // the action was opened from a contextual column launcher.
+      edits[param.name] = [];
     } else if (control === 'template' || control === 'formula') {
       edits[param.name] = schema && 'default' in schema
         ? schema.default as CanonicalFieldValue
         : { text: sourceColumn ? `{{${sourceColumn}}}` : '' };
     } else edits[param.name] = schema && 'default' in schema
       ? schema.default as CanonicalFieldValue
-      : control === 'columns' || schema?.type === 'array' ? [] : '';
+      : schema?.type === 'array' ? [] : '';
   }
   const customization = generatedActionCustomizationFor(entry.kind);
   const promptField = template.params?.find((param) => param.name === 'question' || param.name === 'instruction');
@@ -680,9 +675,10 @@ function GeneratedActionFormContents({
         const value = draft[name];
         const requirement = catalogEntry.ui_hints.source_requirements
           ?.find((candidate) => candidate.param === name) ?? null;
-        const fallback = compatibleSourceColumns(orderedSourceColumns(columns), requirement)
-          .slice(0, Math.max(1, requirement?.min ?? 1))
-          .map((column) => column.name);
+        const fallback = control === 'rich_source' ? []
+          : compatibleSourceColumns(orderedSourceColumns(columns), requirement)
+            .slice(0, Math.max(1, requirement?.min ?? 1))
+            .map((column) => column.name);
         return [name, {
           mode: control === 'column_or_template' && typeof value === 'string'
             ? 'column' : Array.isArray(value) ? 'columns' : 'template',
@@ -966,6 +962,7 @@ function GeneratedActionFormContents({
     invalidateParams();
     setDraft(params);
   }, [catalogEntry.kind, invalidateParams, lockReason, lockedParams, markFieldTouched, structureLocked]);
+  const pdfInput = draftUsesPdf(catalogEntry, draft, columns);
   const renderField = (field: ActionParamFieldPresentationProps): ReactNode | undefined => {
     const CustomField = customization?.fields?.[field.name];
     if (CustomField) {
@@ -975,7 +972,7 @@ function GeneratedActionFormContents({
     }
     const semanticControl = catalogEntry.ui_hints.semantic_controls[field.name];
     if (semanticControl === 'engine' || semanticControl === 'model') {
-      const query = actionSelectorQuery(catalogEntry.kind, field.name, draft);
+      const query = actionSelectorQuery(catalogEntry.kind, field.name, draft, pdfInput);
       return <div data-tour="action-engine-selector">
         <SelectorField projectId={projectId} label={field.label} query={query}
           recentNamespace={`${projectId ?? 'none'}:action:${catalogEntry.kind}:${field.name}`}
@@ -1318,7 +1315,7 @@ function GeneratedActionFormContents({
             lockedParams, lockReason }}>
             <ParamsBody sheet={sheet} params={draft} setParams={updateBodyParams}
               setEditorProblem={setEditorProblem}
-              engine={selectedEngineInfo}
+              engine={selectedEngineInfo} pdfInput={pdfInput}
               request={{ scope: requestScope, sheet_name: estimateDraft.sheet_name,
                 output_names: estimateDraft.output_names }} onParamInteraction={markFieldTouched}
               errors={displayedDiagnostics} Field={GeneratedField} onNavigateToAction={onNavigateToAction}

@@ -58,6 +58,28 @@ def validate_credential_source(value: object) -> CredentialSource:
     return cast(CredentialSource, value)
 
 
+class DocumentContentPart(TypedDict):
+    """Inline PDF attachment; metadata supports estimates without pricing base64."""
+
+    type: Literal["document"]
+    media_type: Literal["application/pdf"]
+    data: str
+    filename: NotRequired[str]
+    page_count: NotRequired[int]
+    text_char_count: NotRequired[int]
+
+
+def has_document_content(messages: list[dict[str, Any]]) -> bool:
+    return any(
+        isinstance(message.get("content"), list)
+        and any(
+            isinstance(part, dict) and part.get("type") == "document"
+            for part in message["content"]
+        )
+        for message in messages
+    )
+
+
 @dataclass
 class LLMRequest:
     """Provider-agnostic request. model is routed by prefix:
@@ -65,7 +87,8 @@ class LLMRequest:
     ollama/@<endpoint-id>/...
     messages: [{"role": "user"|"system"|"assistant", "content": str | list[part]}]
     where part = {"type":"text","text":...} or
-    {"type":"image","media_type":...,"data":<b64>,"detail":<optional hint>}.
+    {"type":"image","media_type":...,"data":<b64>,"detail":<optional hint>}
+    or a DocumentContentPart carrying inline application/pdf bytes.
     Assistant messages may carry tool_calls (LLMToolCall entries) with no text.
     Tool results use role="tool", tool_name, tool_call_id, content, and tool_error.
     schema: JSON Schema, the provider-neutral structured-output contract.

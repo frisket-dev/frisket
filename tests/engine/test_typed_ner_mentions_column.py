@@ -8,6 +8,10 @@ from frisket.querysets import is_entity_mentions_column
 def test_typed_ner_publishes_a_recognized_mentions_column(tmp_path, monkeypatch):
     from frisket.ops import spacy_ner
 
+    monkeypatch.setattr(
+        "frisket.engine.executor.ner_read.importlib.util.find_spec", lambda _: object()
+    )
+
     monkeypatch.setattr(spacy_ner, "spacy_available", lambda: (True, None))
     monkeypatch.setattr(
         spacy_ner,

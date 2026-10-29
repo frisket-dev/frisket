@@ -27,7 +27,9 @@ test('Classify keeps a fresh invalid form quiet, then places and clears the labe
   await openAction(page, 'map.classify');
 
   const source = page.getByTestId('text-source-columns');
-  await expect(source.getByRole('button', { name: 'Remove story' })).toBeVisible();
+  await expect(page.getByTestId('text-source-mode-columns')).toHaveAttribute('aria-pressed', 'true');
+  await expect(source.getByRole('button', { name: 'Remove story' })).toHaveCount(0);
+  await expect(page.getByTestId('field-source-error')).toHaveCount(0);
 
   const labels = page.getByTestId('classify-labels');
   const labelsError = page.getByTestId('classify-labels-error');

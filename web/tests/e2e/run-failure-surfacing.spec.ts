@@ -5,6 +5,8 @@ import {
   dblclickCell,
   importCsv,
   openAction,
+  selectActionSourceColumns,
+  selectActionInputColumns,
   openProject,
   runAndWait,
   seedGeoSheet,
@@ -135,6 +137,7 @@ test('a NEW-column collision with an AI column offers an overwrite path, not a d
   // Use a legacy-form action here because registered typed actions reject
   // existing output names instead of offering the legacy overwrite escape hatch.
   await openAction(page, 'map.classify');
+  await selectActionSourceColumns(page, 'note');
   await expect(page.getByTestId('action-form')).toBeVisible();
 
   // Type a name that normalizes onto the existing AI column → output-name
@@ -183,6 +186,7 @@ test('clicking a preview error cell shows the full error text in the Detail pane
   await openProject(page, pid, sheetId);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 20_000 });
   await openAction(page, 'map.python');
+  await selectActionInputColumns(page, 'note');
   await expect(page.getByTestId('field-code')).toBeVisible();
   await page.getByTestId('field-code').fill(
     'if row["note"] == "fail":\n    raise ValueError("preview row timed out")\nresult = row["note"]',
@@ -242,6 +246,7 @@ test('a failed direct run surfaces in the Errors tab (not only in History)', asy
 
   await openProject(page, pid, sheetId);
   await openAction(page, 'map.python');
+  await selectActionInputColumns(page, 'note');
   await expect(page.getByTestId('python-code-editor')).toBeVisible();
   await page.getByTestId('field-code').fill("result = row.get('note', '')");
   await page.getByTestId('generated-action-run').click();

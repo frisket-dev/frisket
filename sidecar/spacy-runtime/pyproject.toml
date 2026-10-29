@@ -1,0 +1,11 @@
+[project]
+name = "frisket-spacy-runtime"
+version = "0.1.0"
+description = "Frozen third-party runtime for Frisket spacy workers"
+requires-python = ">=3.12"
+dependencies = [
+    "spacy==3.8.14"
+]
+
+[tool.uv]
+exclude-newer = "1 week"

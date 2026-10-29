@@ -1225,6 +1225,19 @@ export async function openAction(page: Page, launcherKind: string): Promise<void
   )).toBeVisible({ timeout: 20_000 });
 }
 
+/** Explicitly choose rich source columns, as a user does in a fresh form. */
+export async function selectActionSourceColumns(page: Page, ...names: string[]): Promise<void> {
+  const picker = page.getByTestId('text-source-columns');
+  const menu = page.getByTestId('text-source-columns-menu');
+  for (const name of names) {
+    if (await picker.getByRole('button', { name: `Remove ${name}`, exact: true }).count()) continue;
+    if (!await menu.isVisible()) await picker.click();
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    await menu.getByRole('option', { name: new RegExp(`^${escaped}(?:\\s|$)`) }).click();
+  }
+  if (await menu.isVisible()) await page.keyboard.press('Escape');
+}
+
 /** Select one or more columns in a generated action's canonical
  * `input_columns` control. The picker intentionally starts empty when an
  * action is launched from the ribbon rather than a column menu. */

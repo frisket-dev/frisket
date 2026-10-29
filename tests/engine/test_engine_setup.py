@@ -565,3 +565,194 @@ def test_docling_engine_setup_waits_for_server_before_marking_done(
         assert seen == {"cancelled": False}
     finally:
         queue.close()
+
+
+@pytest.mark.parametrize("spacy", [False, True])
+@pytest.mark.parametrize("outcome", ["done", "cancelled", "failed", "not_ready"])
+def test_language_setup_installs_runtime_before_ready(
+    tmp_path, monkeypatch, spacy, outcome
+):
+    from frisket.runtime import spacy_install, translation_install
+    from frisket.runtime.model_install import ModelInstallCancelled
+    from frisket.ai.models import spacy_model
+    from frisket.engine.jobs import artifact_pull
+
+    module = spacy_install if spacy else translation_install
+    ready = False
+    steps = []
+
+    def install(**kwargs):
+        nonlocal ready
+        steps.append("runtime")
+        if outcome == "cancelled":
+            raise ModelInstallCancelled
+        if outcome == "failed":
+            raise RuntimeError("offline")
+        ready = outcome != "not_ready"
+        kwargs["progress"]("Installing components")
+
+    def provision(art, pinned, **kwargs):
+        assert art.scheme == "spacy"
+        assert pinned.integrity == "checksum"
+        assert kwargs["should_cancel"]() is False
+        steps.append("wheel")
+
+    monkeypatch.setattr(module, "runtime_present", lambda: ready)
+    monkeypatch.setattr(
+        module, "install_spacy" if spacy else "install_translation", install
+    )
+    monkeypatch.setattr(artifact_pull, "provision_pinned", provision)
+    monkeypatch.setattr(
+        spacy_model, "ensure_loadable_model_path", lambda: steps.append("extract")
+    )
+    queue = open_queue(workspace=tmp_path)
+    try:
+        ref = engine_setup.SPACY_SETUP_REF if spacy else engine_setup.OPUS_MT_SETUP_REF
+        row, _ = store.create_or_get_active(
+            queue.engine, workspace_root=str(tmp_path), model_ref=ref
+        )
+        store.mark_running(queue.engine, row.id, job_id=1)
+        kwargs = dict(
+            engine=queue.engine,
+            pull_id=row.id,
+            should_cancel=lambda: False,
+            is_final_attempt=True,
+        )
+        if outcome in {"failed", "not_ready"}:
+            with pytest.raises(RuntimeError, match="engine_setup_unavailable"):
+                engine_setup.run_engine_setup(**kwargs)
+        else:
+            assert engine_setup.run_engine_setup(**kwargs) == {"status": outcome}
+        saved = store.get(queue.engine, row.id)
+        assert saved.status == ("failed" if outcome == "not_ready" else outcome)
+        assert steps == (
+            ["runtime", "wheel", "extract"]
+            if spacy and outcome == "done"
+            else ["runtime"]
+        )
+        assert store.to_dto(saved)["capabilities"]["retry"] is (outcome != "done")
+    finally:
+        queue.close()
+
+
+@pytest.mark.parametrize("outcome", ["cancelled", "corrupt"])
+def test_spacy_setup_never_publishes_unusable_wheel(tmp_path, monkeypatch, outcome):
+    from frisket.runtime import spacy_install
+    from frisket.ai.models import spacy_model
+    from frisket.engine.jobs import artifact_pull
+
+    monkeypatch.setattr(spacy_install, "runtime_present", lambda: True)
+
+    def provision(*args, **kwargs):
+        if outcome == "cancelled":
+            raise artifact_pull.ProvisionCancelled("cancelled")
+
+    def extract():
+        raise spacy_model.SpacyModelUnavailable("invalid wheel")
+
+    monkeypatch.setattr(artifact_pull, "provision_pinned", provision)
+    monkeypatch.setattr(spacy_model, "ensure_loadable_model_path", extract)
+    queue = open_queue(workspace=tmp_path)
+    try:
+        row, _ = store.create_or_get_active(
+            queue.engine,
+            workspace_root=str(tmp_path),
+            model_ref=engine_setup.SPACY_SETUP_REF,
+        )
+        store.mark_running(queue.engine, row.id, job_id=1)
+        kwargs = dict(
+            engine=queue.engine,
+            pull_id=row.id,
+            should_cancel=lambda: False,
+            is_final_attempt=True,
+        )
+        if outcome == "corrupt":
+            with pytest.raises(RuntimeError, match="engine_setup_unavailable"):
+                engine_setup.run_engine_setup(**kwargs)
+        else:
+            assert engine_setup.run_engine_setup(**kwargs) == {"status": "cancelled"}
+        assert store.get(queue.engine, row.id).status == (
+            "failed" if outcome == "corrupt" else "cancelled"
+        )
+    finally:
+        queue.close()
+
+
+@pytest.mark.parametrize("spacy", [False, True])
+def test_language_setup_reuses_installed_runtime(tmp_path, monkeypatch, spacy):
+    from frisket.ai.models import spacy_model
+    from frisket.engine.jobs import artifact_pull
+    from frisket.runtime import spacy_install, translation_install
+
+    module = spacy_install if spacy else translation_install
+    monkeypatch.setattr(module, "runtime_present", lambda: True)
+
+    def unexpected_install(**kwargs):
+        raise AssertionError("installed components must not be reinstalled")
+
+    monkeypatch.setattr(
+        module, "install_spacy" if spacy else "install_translation", unexpected_install
+    )
+    calls = []
+    monkeypatch.setattr(
+        artifact_pull, "provision_pinned", lambda *a, **kw: calls.append("wheel")
+    )
+    monkeypatch.setattr(
+        spacy_model, "ensure_loadable_model_path", lambda: calls.append("extract")
+    )
+    queue = open_queue(workspace=tmp_path)
+    try:
+        ref = engine_setup.SPACY_SETUP_REF if spacy else engine_setup.OPUS_MT_SETUP_REF
+        row, _ = store.create_or_get_active(
+            queue.engine, workspace_root=str(tmp_path), model_ref=ref
+        )
+        store.mark_running(queue.engine, row.id, job_id=1)
+        assert engine_setup.run_engine_setup(
+            engine=queue.engine,
+            pull_id=row.id,
+            should_cancel=lambda: False,
+            is_final_attempt=True,
+        ) == {"status": "done"}
+        assert calls == (["wheel", "extract"] if spacy else [])
+    finally:
+        queue.close()
+
+
+def test_spacy_setup_repairs_checksum_invalid_managed_wheel(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from frisket.ai.models import spacy_model
+    from frisket.engine.jobs import artifact_pull
+    from frisket.runtime import spacy_install
+
+    wheel = tmp_path / "invalid.whl"
+    wheel.write_bytes(b"invalid")
+    monkeypatch.setattr(spacy_install, "runtime_present", lambda: True)
+    monkeypatch.setattr(
+        spacy_model, "model_state", lambda **kw: SimpleNamespace(status="hash_mismatch")
+    )
+    monkeypatch.setattr(spacy_model, "wheel_path", lambda: wheel)
+
+    def provision(*args, **kwargs):
+        assert not wheel.exists()
+        wheel.write_bytes(b"repaired")
+
+    monkeypatch.setattr(artifact_pull, "provision_pinned", provision)
+    monkeypatch.setattr(spacy_model, "ensure_loadable_model_path", lambda: tmp_path)
+    queue = open_queue(workspace=tmp_path)
+    try:
+        row, _ = store.create_or_get_active(
+            queue.engine,
+            workspace_root=str(tmp_path),
+            model_ref=engine_setup.SPACY_SETUP_REF,
+        )
+        store.mark_running(queue.engine, row.id, job_id=1)
+        assert engine_setup.run_engine_setup(
+            engine=queue.engine,
+            pull_id=row.id,
+            should_cancel=lambda: False,
+            is_final_attempt=True,
+        ) == {"status": "done"}
+        assert wheel.read_bytes() == b"repaired"
+    finally:
+        queue.close()

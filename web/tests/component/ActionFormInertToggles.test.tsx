@@ -56,6 +56,9 @@ describe('confidence/justification toggle visibility (A20)', () => {
   it('classify shows both for the Model engine and neither for the local engine', async () => {
     const user = userEvent.setup();
     const { onExecute } = mount('map.classify');
+    await user.click(screen.getByTestId('text-source-columns'));
+    await user.click(screen.getByRole('option', { name: /^notes/, hidden: true }));
+    await user.keyboard('{Escape}');
 
     // Local semantic classification reads neither flag.
     await waitFor(() => expect(selectorTrigger()).toHaveTextContent('Local semantic'));
@@ -80,6 +83,9 @@ describe('confidence/justification toggle visibility (A20)', () => {
   it('extract shows confidence only', async () => {
     const user = userEvent.setup();
     const { onExecute } = mount('map.extract');
+    await user.click(screen.getByTestId('text-source-columns'));
+    await user.click(screen.getByRole('option', { name: /^notes/, hidden: true }));
+    await user.keyboard('{Escape}');
 
     expect(screen.getByLabelText('Include Confidence')).toBeInTheDocument();
     expect(screen.queryByLabelText('Include Justification')).not.toBeInTheDocument();

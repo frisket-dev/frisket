@@ -70,7 +70,7 @@ def test_spacy_unavailable_reports_install_hint_for_missing_library():
     if importlib.util.find_spec("spacy") is None:
         assert available is False
         assert "standard" in error
-        assert "pip install" in error
+        assert "engine picker" in error
 
 
 def test_spacy_availability_reports_managed_model_hash_mismatch(monkeypatch):
@@ -253,3 +253,26 @@ def test_spacy_reads_fixture_real():
     out = run_spacy_ner_default(["Barack Obama was born in Hawaii."])
     types = {e["type"] for e in out[0]}
     assert "person" in types or "location" in types
+
+
+def test_spacy_private_runtime_uses_only_managed_weights(monkeypatch):
+    from frisket.ai.models import spacy_model
+    from frisket.runtime import spacy_install
+
+    monkeypatch.setattr(spacy_install.importlib.util, "find_spec", lambda _: None)
+    monkeypatch.setattr(spacy_install, "is_installed", lambda: True)
+    probes = []
+
+    def state(**kwargs):
+        probes.append(kwargs)
+        return SpacyModelState(
+            status="present",
+            source="managed_cache",
+            ref="spacy:en_core_web_sm@3.8.0",
+            detail="verified",
+        )
+
+    monkeypatch.setattr(spacy_model, "model_state", state)
+    assert spacy_available(model="en_core_web_sm") == (True, None)
+    assert probes == [{"include_python_package": False}]
+    assert spacy_available(model="custom_model")[0] is False

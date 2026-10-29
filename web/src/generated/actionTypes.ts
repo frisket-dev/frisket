@@ -767,14 +767,14 @@ export type ApiCallParams = ({
 
 type AskParams_ModelRef = (string);
 
-type AskParams_RichColumn = (string);
+type AskParams_PdfRichColumn = (string);
 
-type AskParams_RichTemplate = ({
+type AskParams_PdfRichTemplate = ({
   "text": (string);
 });
 
 export type AskParams = ({
-  "source": (((Array<(AskParams_RichColumn)>)) | ((AskParams_RichTemplate)));
+  "source": (((Array<(AskParams_PdfRichColumn)>)) | ((AskParams_PdfRichTemplate)));
   "model": (AskParams_ModelRef);
   "context"?: (string);
   "question": (string);
@@ -882,14 +882,14 @@ type ExtractParams_ExtractGrounding = ({
 
 type ExtractParams_ModelRef = (string);
 
-type ExtractParams_RichColumn = (string);
+type ExtractParams_PdfRichColumn = (string);
 
-type ExtractParams_RichTemplate = ({
+type ExtractParams_PdfRichTemplate = ({
   "text": (string);
 });
 
 export type ExtractParams = ({
-  "source": (((Array<(ExtractParams_RichColumn)>)) | ((ExtractParams_RichTemplate)));
+  "source": (((Array<(ExtractParams_PdfRichColumn)>)) | ((ExtractParams_PdfRichTemplate)));
   "model"?: (((ExtractParams_ModelRef)) | ((null)));
   "context"?: (string);
   "engine"?: (ExtractParams_EngineRef_Classifier_);
@@ -1070,14 +1070,14 @@ export type RegexExtractParams = ({
 
 type SummarizeParams_ModelRef = (string);
 
-type SummarizeParams_RichColumn = (string);
+type SummarizeParams_PdfRichColumn = (string);
 
-type SummarizeParams_RichTemplate = ({
+type SummarizeParams_PdfRichTemplate = ({
   "text": (string);
 });
 
 export type SummarizeParams = ({
-  "source": (((Array<(SummarizeParams_RichColumn)>)) | ((SummarizeParams_RichTemplate)));
+  "source": (((Array<(SummarizeParams_PdfRichColumn)>)) | ((SummarizeParams_PdfRichTemplate)));
   "model": (SummarizeParams_ModelRef);
   "context"?: (string);
   "preset"?: ("paragraph" | "one_line" | "topics" | "quotes") & (string);

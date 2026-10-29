@@ -467,8 +467,13 @@ test('fresh Ask can enter Compare before any action executes', async ({ page }) 
   await openProject(page, pid, sheetId);
   await openAction(page, 'map.ask');
   const form = page.getByTestId('generated-action-form');
-  await expect(form.getByTestId('text-source-columns')
-    .getByRole('button', { name: 'Remove case_text' })).toBeVisible();
+  const source = form.getByTestId('text-source-columns');
+  await expect(form.getByTestId('text-source-mode-columns')).toHaveAttribute('aria-pressed', 'true');
+  await expect(source.getByRole('button', { name: 'Remove case_text' })).toHaveCount(0);
+  await expect(form.getByTestId('generated-action-run')).toBeDisabled();
+  await source.click();
+  await page.getByTestId('text-source-columns-menu').getByRole('option', { name: /^case_text/ }).click();
+  await expect(source.getByRole('button', { name: 'Remove case_text' })).toBeVisible();
   await form.getByLabel('Question', { exact: true }).fill(ASK_QUESTION_A);
   const trigger = form.getByTestId('engine-selector').locator('.engine-selector__trigger');
   await trigger.click();

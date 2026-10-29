@@ -24,6 +24,7 @@ import {
   createProject,
   importCsv,
   openAction,
+  selectActionSourceColumns,
   openDiscoverTab,
   openProject,
   openToolbarOverflow,
@@ -162,6 +163,7 @@ test('1b — the same map.ner drawer opened from the Act ribbon fills the Mentio
   await expect(panel.getByTestId('mentions-extract-cta')).toBeVisible();
 
   await openAction(page, 'map.ner');
+  await selectActionSourceColumns(page, 'snippet');
   expect((await sheetColumns(request, pid, sheetId)).map((column) => column.name)).toEqual([
     'snippet',
   ]);
