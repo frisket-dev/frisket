@@ -53,7 +53,7 @@ async function shell(windowsNewlines = false) {
   const input = await readFile(new URL('../src/main.mjs', import.meta.url), 'utf8');
   const source = (windowsNewlines ? input.replace(/\r?\n/g, '\r\n') : input)
     .replace(/^import .*;\r?\n/gm, '').replaceAll('export function', 'function').replace('import.meta.url', '"file:///app/src/main.mjs"');
-  vm.runInContext(`${source}\nmainWindow = createWindow(); globalThis.proof = { showStartup, openHome: () => openHome(mainWindow) };`, context);
+  vm.runInContext(`${source}\nmainWindow = createWindow(); globalThis.proof = { showStartup, openStartupDetails, openHome: () => openHome(mainWindow) };`, context);
   return { windows, shutdowns, proof: context.proof };
 }
 
@@ -83,6 +83,15 @@ test('closing startup requests guarded application shutdown instead of orphaning
   assert.equal(shutdowns.length, 1);
   assert.equal(typeof shutdowns[0].abortStartup, 'function');
   assert.equal(typeof shutdowns[0].stopBackend, 'function');
+});
+
+test('opening details leaves window sizing to the rendered content', async () => {
+  const { windows, proof } = await shell();
+  await proof.showStartup();
+  const card = windows[1];
+  card.setSize(360, 267);
+  await proof.openStartupDetails();
+  assert.equal(card.getBounds().height, 267);
 });
 
 test('shell fixture accepts Windows checkout line endings', async () => {

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { app, BrowserWindow, Menu, dialog, session, shell, protocol, clipboard, ipcMain, screen } from 'electron';
 import electronUpdater from 'electron-updater';
-import { installStartupBridge, canRetryStartup } from './startup-bridge.mjs';
+import { installStartupBridge, canRetryStartup, resizeStartupWindow } from './startup-bridge.mjs';
 import { prepareRuntime } from './provision.mjs';
 import { appUrl, installProtocol, APP_ORIGIN, APP_SCHEME } from './protocol.mjs';
 import { startBackend } from './backend.mjs';
@@ -157,7 +157,6 @@ async function showStartup() {
     });
   }
   mainWindow?.hide();
-  startupWindow.setSize(360, 390);
   startupWindow.center();
   await startupWindow.loadFile(path.join(desktopRoot, 'ui', 'startup.html'));
   startupWindow.show();
@@ -211,10 +210,9 @@ async function openHome(window) {
 }
 
 async function openStartupDetails() {
-  if (startupVisible) { detailsOpen = true; startupWindow?.setSize(360, 560); publishStartup(); return; }
+  if (startupVisible) { detailsOpen = true; publishStartup(); return; }
   if (detailsWindow && !detailsWindow.isDestroyed()) { detailsWindow.show(); return; }
   detailsWindow = createStartupCard(mainWindow);
-  detailsWindow.setSize(360, 560);
   detailsWindow.on('closed', () => { detailsWindow = undefined; });
   await detailsWindow.loadFile(path.join(desktopRoot, 'ui', 'startup.html'));
   detailsWindow.show();
@@ -415,8 +413,8 @@ app.whenReady().then(async () => {
     },
     close: window => { if (window === detailsWindow) window.close(); else void requestQuit(); },
     copy: () => clipboard.writeText(startupLog.report()),
-    resize: (window, height) => { if (window === detailsWindow || (window === startupWindow && startupVisible && !openingHome)) window.setSize(360, height); },
-    details: (window, open) => { if (window === startupWindow) detailsOpen = open; window.setSize(360, open ? 560 : 390); },
+    resize: (window, height) => { if (window === detailsWindow || (window === startupWindow && startupVisible && !openingHome)) resizeStartupWindow(window, height); },
+    details: (window, open) => { if (window === startupWindow) detailsOpen = open; },
   });
   const saveBounds = () => {
     if (startupVisible || mainWindow.isDestroyed() || !mainWindow.isNormal()) return;
