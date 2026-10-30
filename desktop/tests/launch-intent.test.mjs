@@ -73,3 +73,27 @@ test('Electron delivery fixture handles early macOS events and second-instance a
   assert.deepEqual(seen, ['frisket://app/learn/court-filings?revision=1', 'frisket://app/learn/council-recordings?revision=1']);
   assert.equal(focuses, 1);
 });
+
+test('recovery retries an interrupted navigation unless a newer intent replaced it', async () => {
+  for (const newer of [false, true]) {
+    const seen = [];
+    let interrupt;
+    const intents = createLaunchIntents({ navigate: url => {
+      seen.push(url);
+      if (seen.length === 1) return new Promise((_resolve, reject) => { interrupt = reject; });
+    } });
+    intents.setReady(true);
+    intents.accept('frisket://learn/court-filings?revision=1');
+    intents.setReady(false);
+    if (newer) intents.accept('frisket://learn/council-recordings?revision=1');
+    interrupt(new Error('navigation stopped for recovery'));
+    await tick();
+    assert.equal(seen.length, 1);
+    intents.setReady(true);
+    await tick();
+    assert.deepEqual(seen, [
+      'frisket://app/learn/court-filings?revision=1',
+      `frisket://app/learn/${newer ? 'council-recordings' : 'court-filings'}?revision=1`,
+    ]);
+  }
+});

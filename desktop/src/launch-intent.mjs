@@ -20,7 +20,11 @@ export function createLaunchIntents({ navigate }) {
     const destination = pending;
     pending = undefined;
     navigating = true;
-    try { await navigate(destination); } catch { /* startup/recovery may cancel a navigation */ }
+    try { await navigate(destination); } catch {
+      // Recovery stops the current load. Keep it for the next ready window,
+      // unless a more recent external request has already replaced it.
+      if (!ready && !pending) pending = destination;
+    }
     finally { navigating = false; void drain(); }
   }
   return {
