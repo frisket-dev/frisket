@@ -58,10 +58,20 @@ export function TrySeveral({ session, state, response, modelField, instructionsF
     const variant = state.variants.find(v => v.id === id);
     return response?.variants.find(v => v.key === variant?.displayKey)?.scores[activeField];
   };
-  const scores = Object.values(created ?? {}).map(id => scoreFor(id));
-  // A winner is meaningful only once every selected cell has a score on equal coverage.
-  const comparable = scores.length > 0 && scores.every(score => score?.accuracy != null)
-    && scores.every(score => score?.checked === scores[0]?.checked && score?.attempted === scores[0]?.attempted);
+  const createdIds = Object.values(created ?? {});
+  const scores = createdIds.map(id => scoreFor(id));
+  // Equal counts can still represent different rows. Compare the scored row identities.
+  const scopes = createdIds.map(id => {
+    const variant = state.variants.find(item => item.id === id);
+    const result = response?.variants.find(item => item.key === variant?.displayKey);
+    return response?.row_ids.filter(rowId => {
+      const verdict = result?.verdicts[String(rowId)]?.[activeField];
+      return verdict === 'match' || verdict === 'miss';
+    }) ?? [];
+  });
+  const comparable = scopes.length > 0 && scopes[0].length > 0
+    && scores.every(score => score?.accuracy != null && score.remaining === 0)
+    && scopes.every(scope => scope.length === scopes[0].length && scope.every((rowId, index) => rowId === scopes[0][index]));
   const bestScore = comparable ? Math.max(...scores.map(score => score!.accuracy!)) : null;
   const bestIds = Object.values(created ?? {}).filter(id => bestScore !== null && scoreFor(id)?.accuracy === bestScore);
   const columns: GridColumn[] = [

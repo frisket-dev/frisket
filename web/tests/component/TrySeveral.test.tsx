@@ -88,10 +88,11 @@ describe('Try several', () => {
   it('shows exact ties for equal coverage and does not select an unfinished hand field', () => {
     const score = { checked: 2, attempted: 2, matches: 2, misses: 0, failed: 0, scored: 2, remaining: 0, accuracy: 1, coverage: 1 };
     const response = {
+      row_ids: [10, 11],
       link: { fields: [ { logical_key: 'result', rule: 'exact' }, { logical_key: 'essay', rule: 'hand' } ] },
       variants: [
-        { key: 'B', scores: { result: score, essay: { ...score, remaining: 1 } } },
-        { key: 'C', scores: { result: score, essay: { ...score, remaining: 1 } } },
+        { key: 'B', scores: { result: score, essay: { ...score, remaining: 1 } }, verdicts: { '10': { result: 'match' }, '11': { result: 'match' } } },
+        { key: 'C', scores: { result: score, essay: { ...score, remaining: 1 } }, verdicts: { '10': { result: 'match' }, '11': { result: 'match' } } },
       ],
     } as unknown as EvaluationResponse;
     const { session, Editor, onOpenVariant, onUse } = fixture(8, response);
@@ -109,9 +110,23 @@ describe('Try several', () => {
 
   it('does not choose a winner from unequal coverage', () => {
     const score = { checked: 2, attempted: 2, matches: 2, misses: 0, failed: 0, scored: 2, remaining: 0, accuracy: 1, coverage: 1 };
-    const response = { link: { fields: [{ logical_key: 'result', rule: 'exact' }] }, variants: [
-      { key: 'B', scores: { result: score } },
-      { key: 'C', scores: { result: { ...score, attempted: 1, accuracy: 1, coverage: 0.5 } } },
+    const response = { row_ids: [10, 11], link: { fields: [{ logical_key: 'result', rule: 'exact' }] }, variants: [
+      { key: 'B', scores: { result: score }, verdicts: { '10': { result: 'match' }, '11': { result: 'match' } } },
+      { key: 'C', scores: { result: { ...score, attempted: 1, accuracy: 1, coverage: 0.5 } }, verdicts: { '10': { result: 'match' }, '11': { result: 'not_run' } } },
+    ] } as unknown as EvaluationResponse;
+    const { session, Editor } = fixture(8, response);
+    render(<Editor session={session} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Add model' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Run 2 combinations' }));
+    expect(screen.queryByText(/★/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Use best' })).toBeDisabled();
+  });
+
+  it('does not choose a winner when equal scores cover different rows', () => {
+    const score = { checked: 2, attempted: 1, matches: 1, misses: 0, failed: 0, scored: 1, remaining: 0, accuracy: 1, coverage: 0.5 };
+    const response = { row_ids: [10, 11], link: { fields: [{ logical_key: 'result', rule: 'exact' }] }, variants: [
+      { key: 'B', scores: { result: score }, verdicts: { '10': { result: 'match' }, '11': { result: 'not_run' } } },
+      { key: 'C', scores: { result: score }, verdicts: { '10': { result: 'not_run' }, '11': { result: 'match' } } },
     ] } as unknown as EvaluationResponse;
     const { session, Editor } = fixture(8, response);
     render(<Editor session={session} />);
