@@ -250,5 +250,143 @@
     "expected": "\u001chello",
     "answer": "hello",
     "verdict": "miss"
+  },
+  {
+    "note": "hand empty needs judgment",
+    "rule": "hand",
+    "expected": "[empty]",
+    "answer": "",
+    "verdict": "unscored"
+  },
+  {
+    "note": "hand empty respects judgment",
+    "rule": "hand",
+    "expected": "[empty]",
+    "answer": "",
+    "handVerdict": "miss",
+    "verdict": "miss"
+  },
+  {
+    "note": "hand failure overrides judgment",
+    "rule": "hand",
+    "expected": "[empty]",
+    "answer": "",
+    "state": "error",
+    "handVerdict": "match",
+    "verdict": "miss"
+  },
+  {
+    "note": "non-ASCII digits rejected for numbers",
+    "rule": "number",
+    "expected": "١٢",
+    "answer": "١٢",
+    "verdict": "miss"
+  },
+  {
+    "note": "non-ASCII digits rejected for dates",
+    "rule": "date",
+    "expected": "٢٠٢٦-٠٣-١٢",
+    "answer": "2026-03-12",
+    "verdict": "miss"
+  },
+  {
+    "note": "month date with no-break space",
+    "rule": "date",
+    "expected": "Mar 12, 2026",
+    "answer": "2026-03-12",
+    "verdict": "match"
+  },
+  {
+    "note": "month date with byte-order-mark space",
+    "rule": "date",
+    "expected": "Mar﻿12, 2026",
+    "answer": "2026-03-12",
+    "verdict": "match"
+  },
+  {
+    "note": "large exact decimal strings",
+    "rule": "number",
+    "expected": "9,007,199,254,740,993",
+    "answer": "9007199254740993.0",
+    "verdict": "match"
+  },
+  {
+    "note": "scientific notation",
+    "rule": "number",
+    "expected": "1.25e3",
+    "answer": "1,250",
+    "verdict": "match"
+  },
+  {
+    "note": "leap day",
+    "rule": "date",
+    "expected": "February 29, 2024",
+    "answer": "2024-02-29",
+    "verdict": "match"
+  },
+  {
+    "note": "date does not roll over",
+    "rule": "date",
+    "expected": "2/29/2025",
+    "answer": "2025-03-01",
+    "verdict": "miss"
+  },
+  {
+    "note": "sets of duplicate objects",
+    "rule": "set",
+    "expected": [
+      {
+        "x": 1,
+        "y": [
+          2,
+          3
+        ]
+      },
+      {
+        "y": [
+          2,
+          3
+        ],
+        "x": 1
+      }
+    ],
+    "answer": [
+      {
+        "y": [
+          2,
+          3
+        ],
+        "x": 1
+      }
+    ],
+    "verdict": "match"
+  },
+  {
+    "note": "sets preserve nested array order",
+    "rule": "set",
+    "expected": [
+      {
+        "x": [
+          1,
+          2
+        ]
+      }
+    ],
+    "answer": [
+      {
+        "x": [
+          2,
+          1
+        ]
+      }
+    ],
+    "verdict": "miss"
+  },
+  {
+    "note": "unicode contextual lowercase",
+    "rule": "ignore_case",
+    "expected": "ΟΣ",
+    "answer": "ος",
+    "verdict": "match"
   }
 ]

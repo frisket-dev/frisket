@@ -57,8 +57,8 @@ export function matchAnswer(rule: string, expected: unknown, answer: unknown, op
   if (['missing', 'pending', 'cancelled'].includes(options.state ?? 'value')) return 'not_run';
   if (expected === null || expected === '') return 'unchecked';
   if (options.state === 'error') return 'miss';
-  if (expected === '[empty]') return answer === null || (typeof answer === 'string' && !answer.trim()) || (Array.isArray(answer) && !answer.length) ? 'match' : 'miss';
   if (rule === 'hand') return options.handVerdict === 'match' || options.handVerdict === 'miss' ? options.handVerdict : 'unscored';
+  if (expected === '[empty]') return answer === null || (typeof answer === 'string' && !answer.trim()) || (Array.isArray(answer) && !answer.length) ? 'match' : 'miss';
   let matches: boolean;
   if (rule === 'exact') matches = canonical(expected) === canonical(answer);
   else if (rule === 'ignore_case') matches = typeof expected === 'string' && typeof answer === 'string' && expected.trim().toLowerCase() === answer.trim().toLowerCase();

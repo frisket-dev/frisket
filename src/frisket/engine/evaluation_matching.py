@@ -12,7 +12,7 @@ import re
 from datetime import date
 
 _NUMBER = re.compile(
-    r"^([+-]?)(?:\$)?((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?|\.\d+)(?:[eE]([+-]?\d+))?$"
+    r"^([+-]?)(?:\$)?((?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]+)?|\.[0-9]+)(?:[eE]([+-]?[0-9]+))?$"
 )
 _MONTHS = {
     name: index
@@ -84,9 +84,12 @@ def _date(value):
     if not isinstance(value, str):
         return None
     value = _trim(value)
-    iso = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", value)
-    slash = re.fullmatch(r"(\d{1,2})/(\d{1,2})/(\d{2}|\d{4})", value)
-    month = re.fullmatch(r"([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})", value)
+    iso = re.fullmatch(r"([0-9]{4})-([0-9]{2})-([0-9]{2})", value)
+    slash = re.fullmatch(r"([0-9]{1,2})/([0-9]{1,2})/([0-9]{2}|[0-9]{4})", value)
+    space = f"[{re.escape(_WHITESPACE)}]"
+    month = re.fullmatch(
+        rf"([A-Za-z]+){space}+([0-9]{{1,2}}),?{space}+([0-9]{{4}})", value
+    )
     try:
         if iso:
             return date(*(int(x) for x in iso.groups()))
@@ -123,6 +126,8 @@ def match_answer(rule, expected, answer, *, state="value", hand_verdict=None):
         return "unchecked"
     if state == "error":
         return "miss"
+    if rule == "hand":
+        return hand_verdict if hand_verdict in ("match", "miss") else "unscored"
     if expected == "[empty]":
         empty = (
             answer is None
@@ -130,8 +135,6 @@ def match_answer(rule, expected, answer, *, state="value", hand_verdict=None):
             or answer == []
         )
         return "match" if empty else "miss"
-    if rule == "hand":
-        return hand_verdict if hand_verdict in ("match", "miss") else "unscored"
     if rule == "exact":
         matches = _canonical(expected) == _canonical(answer)
     elif rule == "ignore_case":
