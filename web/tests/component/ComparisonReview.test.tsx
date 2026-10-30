@@ -8,7 +8,7 @@ import { ComparisonReview, type ComparisonReviewProps } from '../../src/workbenc
 installDialogPolyfill();
 afterEach(cleanup);
 function props(): ComparisonReviewProps {
-  return { fieldLabel: 'amount', rowId: 7, position: 1, total: 2, mode: 'disagreements',
+  return { sheetName: 'Financial disclosures', fieldLabel: 'amount', rowId: 7, position: 1, total: 2, mode: 'disagreements',
     groups: [{ key: 'one', answerText: '$100', variantKeys: ['A', 'B'], verdict: 'not_checked' },
       { key: 'two', answerText: '$200', variantKeys: ['C'], verdict: 'not_checked' }],
     expectedValue: '', rule: 'exact', busy: false, source: <div>Source document</div>,
@@ -73,6 +73,8 @@ it('opens in the shared Review shell and closes through its caller', () => {
   const p = props();
   const { container } = render(<ComparisonReview {...p} toolbar={<span>Queue filters</span>} />);
   expect(screen.getByRole('dialog', { name: 'Review queue' })).toBeVisible();
+  expect(screen.getByText('Compare answers · Financial disclosures')).toBeVisible();
+  expect(screen.getByRole('group', { name: 'Review filters' })).toContainElement(screen.getByText('Queue filters'));
   expect(screen.getByText('Queue filters')).toBeVisible();
   expect(container.querySelector('[data-testid="review-queue"]')).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Close comparison review' }));

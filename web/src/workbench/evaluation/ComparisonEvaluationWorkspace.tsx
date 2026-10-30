@@ -287,7 +287,7 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
     {lens === 'expected' && sourceUnavailable && e.link && <div>
       <UnavailableExpectedLinks links={[e.link]} onRemove={(id) => { void e.mutate(async () => { await p.api.deleteLink(id); p.onExpectedAnswersChanged?.(); }); }} />
       <Button onClick={p.onJoinExpected}>Edit join…</Button></div>}
-    {queue && <ComparisonReview fieldLabel={currentField?.current_name ?? field} rowId={queueRow ?? 0}
+    {queue && <ComparisonReview sheetName={p.state.context.sheet.name} fieldLabel={currentField?.current_name ?? field} rowId={queueRow ?? 0}
       position={queueRow === undefined ? 0 : queueRows.indexOf(queueRow) + 1} total={queueRows.length}
       mode={queue.mode} groups={reviewGroups} expectedValue={expectedText} rule={rule} busy={scoreBusy} error={e.error}
       toolbar={<>

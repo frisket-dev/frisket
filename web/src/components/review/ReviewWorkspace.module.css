@@ -45,4 +45,5 @@
 .expectedAnswer { flex: 0 1 auto; margin-bottom: auto; min-height: 84px; max-height: 40%; overflow-y: auto; border-top: 1px solid var(--border); background: var(--green-bg); }
 .expectedAnswer textarea { max-height: 100px; resize: vertical; }
 .comparisonToolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); }
+.contextTitle { flex: 1 1 200px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .comparisonToolbar > nav { margin-left: auto; }
