@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, readFileSync, writeFileSync } from 'node:fs';
-import { openAction, selectActionSourceColumns, selectRow } from '../helpers';
+import { openAction, selectActionSourceColumns, selectRow, sheetData } from '../helpers';
 import { captureCheckpoint, publishCaptureBundle } from './capture';
 
 test.use({ deviceScaleFactor: 2, viewport: { width: 1600, height: 1000 } });
@@ -43,6 +43,15 @@ test('court sample imports and runs the selected filings through strict replay',
   const sheets = await (await page.request.get(`/api/projects/${pid}/sheets`)).json();
   const imported = sheets.find((sheet: { name: string }) => sheet.name === 'Court filings');
   expect(imported?.rows).toBe(6);
+  const initialData = await sheetData(page.request, pid, imported.id, 0, 6);
+  const filenameColumn = initialData.columns.find(column => column.name === 'filename');
+  expect(filenameColumn).toBeDefined();
+  expect(initialData.rows.slice(0, 3).map(row => row.cells[String(filenameColumn!.id)])).toEqual([
+    'RV-CV-2026-00418_alvarez-v-northstar_complaint.pdf',
+    'RV-CV-2026-00502_water-alliance_records-petition.pdf',
+    'RV-CV-2026-00611_meridian-v-riverton_injunction-motion.pdf',
+  ]);
+  const selectedRowIds = initialData.rows.slice(0, 3).map(row => row.id).sort((a, b) => a - b);
   execFileSync(process.env.FRISKET_E2E_PYTHON!, [path.resolve('tests/e2e/docs/render_court_requests.py'), process.env.FRISKET_E2E_WS!, pid, String(imported.id), path.resolve('../guides/recipes/court-filings-to-table.json'), path.join(process.env.FRISKET_DOCS_PROOF_DIR!, 'llm-requests.json')], { env: process.env, stdio: 'inherit', timeout: 60_000 });
   expect(JSON.parse(readFileSync(path.join(process.env.FRISKET_DOCS_PROOF_DIR!, 'llm-requests.json'), 'utf8'))).toEqual(JSON.parse(readFileSync(path.resolve('tests/e2e/docs/fixtures/court-live-requests.json'), 'utf8')));
   copyFileSync(path.resolve('tests/e2e/docs/fixtures/court-live.cache.db'), path.join(process.env.FRISKET_E2E_WS!, `${pid}.frisket`, 'project.cache.db'));
@@ -157,14 +166,14 @@ test('court sample imports and runs the selected filings through strict replay',
     await page.getByRole('group', { name: 'Comparison field' }).getByRole('button', { name, exact: true }).click();
   }
   const score = await (await scoreResponse).json();
-  expect(score.row_ids).toHaveLength(3);
+  expect([...score.row_ids].sort((a: number, b: number) => a - b)).toEqual(selectedRowIds);
   await expect(page.getByText('Join a sheet of expected answers to check this action.')).toHaveCount(0, { timeout: 30_000 });
   await expect(page.getByText('Scoring…')).toHaveCount(0, { timeout: 30_000 });
   captures.push(await captureCheckpoint(page, { id: 'court-comparison', root: page.getByRole('region', { name: 'Action comparison' }), annotations: [] }, stage));
   await page.getByTestId('workbench-mainView-tab-' + imported.id).click();
   await openAction(page, 'map.extract');
   await selectActionSourceColumns(page, 'text');
-  await page.getByTestId('output-fields-label').click();
+  await page.getByTestId('ribbon-tab-analyze').click();
   await expect(page.getByTestId('text-source-columns-menu')).toBeHidden();
   await page.getByTestId('field-engine').locator('.engine-selector__trigger').click();
   await page.getByTestId('engine-selector-dialog').getByText('Gemini 3.5 Flash-Lite', { exact: true }).click();
