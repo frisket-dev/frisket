@@ -19,6 +19,8 @@ export interface CaptureDescription {
   id: string;
   /** The root is also the element crop; omit for the viewport. */
   root?: Locator;
+  /** Optional visible vertical boundaries inside the root, with a little breathing room. */
+  cropBetween?: { top: Locator; bottom: Locator };
   annotations: CaptureAnnotation[];
 }
 export interface CaptureRecord {
@@ -78,8 +80,17 @@ export async function captureCheckpoint(page: Page, description: CaptureDescript
   if (scale !== 2) throw new Error(`Capture requires device scale 2, got ${scale}`);
   const scope = description.root ?? page;
   if (description.root) await description.root.scrollIntoViewIfNeeded();
-  const crop = description.root ? await description.root.boundingBox() : { x: 0, y: 0, ...page.viewportSize()! };
+  let crop = description.root ? await description.root.boundingBox() : { x: 0, y: 0, ...page.viewportSize()! };
   if (!crop || crop.width <= 0 || crop.height <= 0) throw new Error(`Capture ${description.id} has no visible crop`);
+  if (description.cropBetween) {
+    const top = await description.cropBetween.top.boundingBox();
+    const bottom = await description.cropBetween.bottom.boundingBox();
+    if (!top || !bottom) throw new Error(`Capture ${description.id} has missing crop boundaries`);
+    const y = Math.max(crop.y, top.y - 12);
+    const end = Math.min(crop.y + crop.height, bottom.y + bottom.height + 12);
+    if (end <= y || y < 0 || end > page.viewportSize()!.height) throw new Error(`Capture ${description.id} has invalid crop boundaries`);
+    crop = { x: crop.x, y, width: crop.width, height: end - y };
+  }
   const annotations: CaptureRecord['annotations'] = [];
   for (const [index, annotation] of description.annotations.entries()) {
     const target = await resolveCaptureTarget(scope, annotation.target);
@@ -103,7 +114,8 @@ export async function captureCheckpoint(page: Page, description: CaptureDescript
       rect: { x: (box.x - crop.x) / crop.width, y: (box.y - crop.y) / crop.height, width: box.width / crop.width, height: box.height / crop.height } });
   }
   const image = `${description.id}.png`;
-  if (description.root) await description.root.screenshot({ path: path.join(directory, image), animations: 'disabled' });
+  if (description.cropBetween) await page.screenshot({ path: path.join(directory, image), clip: crop, animations: 'disabled' });
+  else if (description.root) await description.root.screenshot({ path: path.join(directory, image), animations: 'disabled' });
   else await page.screenshot({ path: path.join(directory, image), animations: 'disabled' });
   const png = await readFile(path.join(directory, image));
   if (png.length < 24 || !png.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) || png.toString('ascii', 12, 16) !== 'IHDR') throw new Error(`Invalid PNG for capture ${description.id}`);

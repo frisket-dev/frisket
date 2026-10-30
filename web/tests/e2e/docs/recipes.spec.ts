@@ -87,22 +87,23 @@ test('court sample imports and runs the selected filings through strict replay',
   expect(JSON.parse(readFileSync(authoredPath, 'utf8'))).toEqual(JSON.parse(readFileSync(path.join(process.env.FRISKET_DOCS_PROOF_DIR!, 'llm-requests.json'), 'utf8')));
   const source = page.getByTestId('text-source-columns');
   const engineTarget = page.locator('[data-tour="action-engine-selector"]');
-  await source.scrollIntoViewIfNeeded();
+  await page.getByText('Source', { exact: true }).evaluate(element => element.scrollIntoView({ block: 'center' }));
   await expect(source.getByRole('button', { name: 'Remove text' })).toBeVisible();
   await expect(engineTarget).toContainText('Gemini 3.5 Flash-Lite');
-  captures.push(await captureCheckpoint(page, { id: 'court-extract-settings', root: page.getByTestId('action-panel'), annotations: [
+  captures.push(await captureCheckpoint(page, { id: 'court-extract-settings', root: page.getByTestId('action-panel'), cropBetween: { top: page.getByText('Source', { exact: true }), bottom: engineTarget }, annotations: [
     { id: 'source', number: 1, target: { kind: 'field', id: 'text-source-columns' }, label: 'Source', labelTarget: page.getByText('Source', { exact: true }), expected: { kind: 'text', value: (await source.innerText()).trim() } },
     { id: 'engine', number: 2, target: { kind: 'tour', id: 'action-engine-selector' }, label: 'Gemini 3.5 Flash-Lite', labelTarget: engineTarget.locator('strong'), expected: { kind: 'text', value: (await engineTarget.innerText()).trim() } },
   ] }, stage));
   const fieldsLabel = page.getByTestId('output-fields-label');
   await fieldsLabel.scrollIntoViewIfNeeded();
-  captures.push(await captureCheckpoint(page, { id: 'court-extract-fields', root: page.getByTestId('action-panel'), annotations: [
+  await page.getByTestId('output-fields-editor').scrollIntoViewIfNeeded();
+  captures.push(await captureCheckpoint(page, { id: 'court-extract-fields', root: page.getByTestId('action-panel'), cropBetween: { top: fieldsLabel.locator('..'), bottom: page.getByTestId('output-fields-editor') }, annotations: [
     { id: 'fields', number: 4, target: { kind: 'field', id: 'output-fields-label' }, label: 'Columns it creates', labelTarget: fieldsLabel, expected: { kind: 'text', value: 'Columns it creates' } },
   ] }, stage));
   const instruction = page.getByTestId('field-instruction');
   const citations = page.getByTestId('field-citation_mode');
   await citations.scrollIntoViewIfNeeded();
-  captures.push(await captureCheckpoint(page, { id: 'court-extract-instruction', root: page.getByTestId('action-panel'), annotations: [
+  captures.push(await captureCheckpoint(page, { id: 'court-extract-instruction', root: page.getByTestId('action-panel'), cropBetween: { top: page.getByText('Instruction', { exact: true }), bottom: citations.locator('xpath=ancestor::label[1]') }, annotations: [
     { id: 'instruction', number: 5, target: { kind: 'field', id: 'field-instruction' }, label: 'Instruction', expected: { kind: 'value', value: settings.instruction } },
     { id: 'citations', number: 6, target: { kind: 'field', id: 'field-citation_mode' }, label: 'Citations', labelTarget: page.getByText('Citations', { exact: true }), expected: { kind: 'value', value: 'cite' } },
   ] }, stage));
@@ -247,7 +248,7 @@ test('court sample imports and runs the selected filings through strict replay',
   await expect(page.getByText('Loading models…')).toHaveCount(0, { timeout: 60_000 });
   await expect(page.getByText('Loading choices…')).toHaveCount(0, { timeout: 60_000 });
   await expect(page.getByTestId('field-engine').locator('.engine-selector__trigger')).toBeVisible({ timeout: 60_000 });
-  captures.push(await captureCheckpoint(page, { id: 'court-ocr-settings', root: page.getByTestId('action-panel'), annotations: [] }, stage));
+  captures.push(await captureCheckpoint(page, { id: 'court-ocr-settings', root: page.getByTestId('action-panel'), cropBetween: { top: page.getByTestId('action-panel'), bottom: page.getByText('Text result', { exact: true }).locator('..') }, annotations: [] }, stage));
   await page.getByTestId('field-engine').locator('.engine-selector__trigger').click();
   await expect(page.getByTestId('engine-selector-dialog')).toBeVisible();
   captures.push(await captureCheckpoint(page, { id: 'court-ocr-engine', root: page.getByTestId('engine-selector-dialog'), annotations: [] }, stage));
