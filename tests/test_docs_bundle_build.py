@@ -245,3 +245,35 @@ def test_invalid_extra_reference_capture_fails_closed(inputs, failure):
     with pytest.raises(ValueError):
         module.build_bundle(**inputs)
     assert not inputs["output"].exists()
+
+
+def test_split_capture_accepts_step_wide_annotation_number(inputs):
+    path = inputs["captures"][0] / "bundle.json"
+    bundle = json.loads(path.read_text())
+    bundle["captures"][0]["annotations"][0]["number"] = 3
+    write_json(path, bundle)
+    module.build_bundle(**inputs)
+    result = json.loads((inputs["output"] / "guideBundle.json").read_text())
+    assert result["captures"][0]["annotations"][0]["number"] == 3
+
+
+@pytest.mark.parametrize("number", [0, -1, True, 1.5, "1"])
+def test_invalid_annotation_number_is_rejected(inputs, number):
+    path = inputs["captures"][0] / "bundle.json"
+    bundle = json.loads(path.read_text())
+    bundle["captures"][0]["annotations"][0]["number"] = number
+    write_json(path, bundle)
+    with pytest.raises(ValueError, match="annotation number"):
+        module.build_bundle(**inputs)
+    assert not inputs["output"].exists()
+
+
+def test_duplicate_annotation_numbers_are_rejected(inputs):
+    path = inputs["captures"][0] / "bundle.json"
+    bundle = json.loads(path.read_text())
+    annotations = bundle["captures"][0]["annotations"]
+    annotations.append({**annotations[0], "id": "other"})
+    write_json(path, bundle)
+    with pytest.raises(ValueError, match="annotation number"):
+        module.build_bundle(**inputs)
+    assert not inputs["output"].exists()

@@ -145,9 +145,12 @@ def build_bundle(
             ):
                 raise ValueError(f"Capture PNG dimensions mismatch: {identity}")
             unique(record.get("annotations", []), f"annotation in {identity}")
-            for index, annotation in enumerate(record.get("annotations", []), start=1):
-                if annotation["number"] != index:
-                    raise ValueError(f"Invalid annotation order: {identity}")
+            numbers: set[int] = set()
+            for annotation in record.get("annotations", []):
+                number = annotation["number"]
+                if type(number) is not int or number <= 0 or number in numbers:
+                    raise ValueError(f"Invalid annotation number: {identity}")
+                numbers.add(number)
                 rect = annotation["rect"]
                 if (
                     any(
