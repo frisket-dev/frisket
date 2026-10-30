@@ -76,7 +76,7 @@ export interface ActionCompareSessionSnapshot {
 export type ActionCompareRunOutcome =
   | { status: 'ready'; previewId: string; result: ActionCompareVariantResult }
   | { status: 'failed'; previewId?: string | null; error: string; requiresRequote?: boolean }
-  | { status: 'cancelled'; previewId?: string | null }
+  | { status: 'cancelled'; previewId?: string | null; previewTerminal?: boolean }
   | { status: 'unavailable'; previewId?: string | null; error?: string };
 
 export type ActionCompareVariantRun = ((args: {
@@ -655,6 +655,17 @@ export function createActionCompareRunner(
   requestCostConfirmation: ActionCompareCostConfirmation,
   evaluationApi?: Pick<EvaluationApi, 'captureComparison' | 'discardCapture'>,
 ): ActionCompareVariantRun {
+  const settleCancelledPreview = async (previewId: string): Promise<ActionComparisonPreviewSnapshot | null> => {
+    // The user's aborted polling signal cannot observe terminal partial rows.
+    // Keep this existing job's cleanup bounded; it starts no replacement work.
+    const cleanup = new AbortController();
+    const timeout = setTimeout(() => cleanup.abort(), 10_000);
+    void api.cancelPreview(previewId).catch(() => undefined);
+    try {
+      return await pollComparisonPreview(api, previewId, { signal: cleanup.signal, intervalMs: 250,
+        initialDelayMs: 0, visibility: 'continue', maxFailures: 3, cancelOnFailure: false });
+    } finally { clearTimeout(timeout); }
+  };
   const runChunk = async ({ context, variant, signal, onStarted }: Parameters<ActionCompareVariantRun>[0], request: ActionComparisonPreviewRequest): Promise<ActionCompareRunOutcome> => {
     if (!context.available) {
       return { status: 'failed', error: context.reason?.message ?? 'This action cannot be compared.' };
@@ -694,8 +705,12 @@ export function createActionCompareRunner(
       }
       throw error;
     }
-    if (!preview || preview.status === 'cancelled') {
-      return { status: 'cancelled', previewId: started.preview_id };
+    if (!preview) {
+      const terminal = await settleCancelledPreview(started.preview_id);
+      return { status: 'cancelled', previewId: started.preview_id, previewTerminal: terminal !== null && terminal.status !== 'running' };
+    }
+    if (preview.status === 'cancelled') {
+      return { status: 'cancelled', previewId: started.preview_id, previewTerminal: true };
     }
     if (preview.status === 'error') {
       return {
@@ -758,7 +773,8 @@ export function createActionCompareRunner(
         Object.assign(result.rows, outcome.result.rows);
         onPartial?.(result);
       }
-      const terminalPreviewId = outcome.status === 'ready' || (outcome.status === 'failed' && !outcome.requiresRequote) ? outcome.previewId : null;
+      const terminalPreviewId = outcome.status === 'ready' || (outcome.status === 'failed' && !outcome.requiresRequote)
+        || (outcome.status === 'cancelled' && outcome.previewTerminal) ? outcome.previewId : null;
       if (evaluationApi && terminalPreviewId) {
         try {
           const capture = await evaluationApi.captureComparison({ comparison: {

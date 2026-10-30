@@ -231,13 +231,13 @@ export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, froze
   const columns = useMemo<GridColumn[]>(() => projectedColumns.map((projected) => {
     const output = projected.kind === 'output';
     const icon = output
-      ? evaluation?.lens === 'expected' ? undefined : variantBadgeIconName(projected.variant.displayKey) ?? 'aiBolt'
+      ? variantBadgeIconName(projected.variant.displayKey) ?? 'aiBolt'
       : typeHeaderIcon(projected.column.type);
     return {
       id: projected.id,
       title: output
         ? evaluation?.lens === 'expected'
-          ? `${projected.variant.displayKey} · ${scoreLabel(evaluation.response?.variants.find((variant) => variant.key === projected.variant.displayKey)?.scores[projected.logicalKey]?.accuracy)}`
+          ? `${variantBadgeIconName(projected.variant.displayKey) ? '' : `${projected.variant.displayKey} · `}${scoreLabel(evaluation.response?.variants.find((variant) => variant.key === projected.variant.displayKey)?.scores[projected.logicalKey]?.accuracy)}`
           : `${variantBadgeIconName(projected.variant.displayKey) ? '' : `${projected.variant.displayKey} · `}${labelForDraft?.(
           projected.variant.draft,
           projected.variant.displayKey,

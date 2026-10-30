@@ -430,6 +430,32 @@ describe('actionCompareCellEquality', () => {
 });
 
 describe('createActionCompareRunner', () => {
+  it('waits for terminal cancellation before retaining a partially completed paid chunk', async () => {
+    const events: string[] = [];
+    const api = withFreeQuotes({
+      startPreview: vi.fn().mockResolvedValue({ schema_version: 'frisket.action_preview.v1', preview_id: 'partial-cancel', total: 2 }),
+      getPreview: vi.fn().mockImplementation(async () => {
+        const terminal = events.includes('running'); events.push(terminal ? 'cancelled' : 'running');
+        return { previewId: 'partial-cancel', status: terminal ? 'cancelled' : 'running', progress: { done: 1, total: 2, preparation: null },
+          rows: {}, rowIds: [101, 102], sampled: 2, total: 2, error: null, accounting: null };
+      }), cancelPreview: vi.fn().mockResolvedValue(undefined),
+    } as unknown as ActionComparisonApi);
+    const captureComparison = vi.fn(async () => { events.push('captured'); return { items: [{ id: 81 }] }; });
+    const controller = new AbortController(); const onCaptured = vi.fn();
+    const variant = createActionCompareSession({ context: context('preview') }, { runVariant: vi.fn() }).getSnapshot().variants[0];
+    const running = createActionCompareRunner(api, vi.fn(), { captureComparison, discardCapture: vi.fn() } as never)({
+      context: context('preview'), variant, signal: controller.signal, onStarted: vi.fn(), onCaptured,
+    });
+    await vi.waitFor(() => expect(api.getPreview).toHaveBeenCalledTimes(1));
+    controller.abort();
+    expect(await running).toMatchObject({ status: 'cancelled', previewId: 'partial-cancel', previewTerminal: true });
+    expect(events).toEqual(['running', 'cancelled', 'captured']);
+    expect(onCaptured).toHaveBeenCalledWith(81);
+    expect(captureComparison).toHaveBeenCalledWith(expect.objectContaining({ comparison: expect.objectContaining({
+      row_ids: [101, 102], variants: [expect.objectContaining({ source: { kind: 'preview', preview_ids: ['partial-cancel'] } })],
+    }) }));
+  });
+
   it('keeps a completed chunk when Stop arrives while its durable capture is saving', async () => {
     const capture = deferred<{ items: Array<{ id: number }> }>();
     const captureComparison = vi.fn(() => capture.promise);

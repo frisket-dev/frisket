@@ -51,8 +51,10 @@ export function MatchRuleDialog({ response, field, busy, onRule, onEditAll, onCl
         <input type="radio" name="comparison-rule" value={value} checked={current === value} disabled={busy} onChange={() => onRule(value)} />
         <span><strong>{label}</strong><small>{response.variants.map((variant) => {
           const before = variant.scores[field]; const after = response.rule_previews[field]?.[value]?.[variant.key];
-          const canCount = value !== 'hand' && response.row_ids.every((rowId) => !variant.rows[String(rowId)]?.[field]?.bounded_value && !response.expected_bounded?.[String(rowId)]?.[field]);
-          const flipped = canCount ? response.row_ids.filter((rowId) => {
+          const stale = new Set((variant as typeof variant & { stale_source_row_ids?: number[] }).stale_source_row_ids ?? []);
+          const eligibleRows = response.row_ids.filter((rowId) => !stale.has(rowId));
+          const canCount = value !== 'hand' && eligibleRows.every((rowId) => !variant.rows[String(rowId)]?.[field]?.bounded_value && !response.expected_bounded?.[String(rowId)]?.[field]);
+          const flipped = canCount ? eligibleRows.filter((rowId) => {
             const cell = variant.rows[String(rowId)]?.[field];
             return matchAnswer(value, response.expected[String(rowId)]?.[field] ?? null, cell?.value ?? null, { state: cell?.state ?? 'missing' }) !== variant.verdicts[String(rowId)]?.[field];
           }).length : null;

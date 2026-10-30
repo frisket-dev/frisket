@@ -6,6 +6,9 @@ import type { ActionComparisonContext } from '../../src/api/actionComparison';
 import type { EvaluationApi, EvaluationLink, EvaluationResponse } from '../../src/api/evaluation';
 import { createActionCompareSession } from '../../src/workbench/actionCompareSession';
 import { ComparisonEvaluationWorkspace } from '../../src/workbench/evaluation/ComparisonEvaluationWorkspace';
+import { installDialogPolyfill } from '../support/domPolyfills';
+
+installDialogPolyfill();
 
 vi.mock('../../src/workbench/evaluation/ComparisonSources', () => ({ ComparisonSources: () => <div>Normal source pane</div> }));
 vi.mock('../../src/workbench/evaluation/ComparisonAnswerValue', () => ({ ComparisonAnswerValue: ({ value }: { value: unknown }) => <span>{String(value ?? '')}</span> }));
@@ -80,6 +83,16 @@ async function setup({ joined = true, two = false, bestB = false, hand = false, 
 }
 
 describe('comparison evaluation workspace', () => {
+  it('excludes stale-source rows from projected rule flip counts', async () => {
+    const { response } = await setup({ two: true, stale: true });
+    response.variants[1].verdicts['101'].answer = 'not_run';
+    response.rule_previews.answer = { ignore_case: Object.fromEntries(response.variants.map((variant) => [variant.key, variant.scores.answer])) } as EvaluationResponse['rule_previews'][string];
+    const open = await screen.findByRole('button', { name: 'Exact ▾' });
+    await waitFor(() => expect(open).toHaveProperty('disabled', false));
+    fireEvent.click(open);
+    const rule = await screen.findByRole('radio', { name: /^Ignore case/ });
+    expect(rule.parentElement?.textContent).not.toContain('row flips');
+  });
   it('supersedes a delayed clear when a disagreement answer is accepted', async () => {
     const { api } = await setup({ joined: false, two: true });
     fireEvent.click(await screen.findByRole('button', { name: 'Variants disagree · 1' }));
