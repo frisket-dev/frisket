@@ -1107,8 +1107,6 @@ def test_comparison_context_accepts_500_rows_and_reports_limits(tmp_path: Path) 
 
 
 def test_comparison_preview_captures_full_evaluation_metadata(tmp_path: Path) -> None:
-    import time
-
     app = create_app(
         tmp_path / "adapter-workspace",
         router=_router(),
@@ -1145,11 +1143,8 @@ def test_comparison_preview_captures_full_evaluation_metadata(tmp_path: Path) ->
             started = service.start_compare_preview(pid, body)
         assert started.status_code == 202, started.payload
         preview_id = started.payload["preview_id"]
-        for _ in range(5000):
-            status = service.get_preview(pid, preview_id).payload["status"]
-            if status != "running":
-                break
-            time.sleep(0.002)
+        service._registry._threads[preview_id].join(timeout=10)
+        assert service.get_preview(pid, preview_id).payload["status"] != "running"
         result = service.evaluation_preview(pid, preview_id)
         assert result["sheet_id"] == sheet_id
         assert result["action_id"] == "map.ask"
@@ -1169,7 +1164,6 @@ def test_preview_input_change_during_execution_invalidates_identity(
 ) -> None:
     import threading
     import asyncio
-    import time
     from frisket.server.services.evaluation_values import source_fingerprints
 
     entered, resume = threading.Event(), threading.Event()
@@ -1228,10 +1222,8 @@ def test_preview_input_change_during_execution_invalidates_identity(
         finally:
             resume.set()
         preview_id = started.payload["preview_id"]
-        for _ in range(5000):
-            if service.get_preview(pid, preview_id).payload["status"] != "running":
-                break
-            time.sleep(0.002)
+        service._registry._threads[preview_id].join(timeout=10)
+        assert service.get_preview(pid, preview_id).payload["status"] != "running"
         fingerprint = service.evaluation_preview(pid, preview_id)[
             "source_fingerprints"
         ][str(rows[0])]

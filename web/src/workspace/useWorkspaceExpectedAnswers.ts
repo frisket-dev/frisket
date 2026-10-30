@@ -138,5 +138,5 @@ export function useWorkspaceExpectedAnswers(projectId: string, sheet: SheetMeta 
   }, [api, join, refresh]);
   const removeLink = useCallback(async (id: number) => { await api.deleteLink(id); refresh(); }, [api, refresh]);
   const setRule = useCallback(async (columnId: number, rule: EvaluationRule) => { await api.setRule(columnId, rule); refresh(); }, [api, refresh]);
-  return { api, links, availableLinks, unavailableLinks, removeLink, runs, runChoices, actionChoices, joinSheets, joinActions, join, openJoin, closeJoin: () => setJoin(null), saveLink, refresh, matchedCounts, expectedColumns, projectExpected, editExpected, setLink, setRule };
+  return { api, revision, links, availableLinks, unavailableLinks, removeLink, runs, runChoices, actionChoices, joinSheets, joinActions, join, openJoin, closeJoin: () => setJoin(null), saveLink, refresh, matchedCounts, expectedColumns, projectExpected, editExpected, setLink, setRule };
 }

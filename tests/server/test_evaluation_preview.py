@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import time
 from pathlib import Path
 
 import pytest
@@ -43,10 +42,8 @@ def test_evaluation_preview_reads_full_artifacts_and_checks_ownership(tmp_path: 
     job = registry.start(
         "one", 3, lambda progress, cancel: result, comparison_context=context
     )
-    for _ in range(1000):
-        if job.finished_at is not None:
-            break
-        time.sleep(0.001)
+    registry._threads[job.id].join(timeout=10)
+    assert job.finished_at is not None
     data = service.evaluation_preview("one", job.id)
     assert data["rows"]["1"]["answer"] == {"state": "value", "value": large}
     assert data["rows"]["2"]["answer"]["state"] == "error"
@@ -76,10 +73,8 @@ def test_evaluation_preview_reports_failure_and_cancelled_partial_rows(tmp_path:
         raise RuntimeError("failed")
 
     failed = registry.start("one", 2, fail, comparison_context=context)
-    for _ in range(1000):
-        if failed.finished_at is not None:
-            break
-        time.sleep(0.001)
+    registry._threads[failed.id].join(timeout=10)
+    assert failed.finished_at is not None
     assert all(
         row["answer"]["state"] == "error"
         for row in service.evaluation_preview("one", failed.id)["rows"].values()
@@ -97,10 +92,8 @@ def test_evaluation_preview_reports_failure_and_cancelled_partial_rows(tmp_path:
         )
 
     cancelled = registry.start("one", 2, cancel_after_one, comparison_context=context)
-    for _ in range(1000):
-        if cancelled.finished_at is not None:
-            break
-        time.sleep(0.001)
+    registry._threads[cancelled.id].join(timeout=10)
+    assert cancelled.finished_at is not None
     rows = service.evaluation_preview("one", cancelled.id)["rows"]
     assert rows["1"]["answer"] == {"state": "value", "value": "yes"}
     assert rows["2"]["answer"] == {"state": "cancelled"}
