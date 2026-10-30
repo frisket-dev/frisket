@@ -116,21 +116,21 @@ test('court sample imports and runs the selected filings through strict replay',
   }
   await expect(page.getByTestId('preview-tab-banner')).toHaveAttribute('data-status', 'done', { timeout: 120_000 });
   await expect(page.getByTestId('preview-run-for-real-button')).toBeVisible();
+  await page.getByTestId('action-drawer-close').click();
+  await expect(page.getByTestId('action-drawer')).toHaveCount(0);
   captures.push(await captureCheckpoint(page, { id: 'court-preview', root: page.getByTestId('workbench-region-mainView'), annotations: [] }, stage));
-  await page.getByTestId('preview-tab-close').click();
-  await expect(page.getByTestId('preview-tab-banner')).toHaveCount(0);
-  await page.getByTestId('generated-action-run-scope-menu-button').click();
-  await expect(page.getByTestId('generated-action-row-scope-selected')).toContainText('3 selected');
   const start = page.waitForResponse(response => response.url().endsWith('/actions/v1/run') && response.request().method() === 'POST', { timeout: 60_000 });
-  await page.getByTestId('generated-action-row-scope-selected').click();
-  if (await page.getByTestId('generated-action-run').isVisible({ timeout: 2_000 }).catch(() => false)) await page.getByTestId('generated-action-run').click();
+  await page.getByTestId('preview-run-for-real-button').click();
   const gate = page.getByTestId('cost-gate-modal');
   if (await gate.isVisible({ timeout: 2_000 }).catch(() => false)) {
-    await page.getByTestId('cost-gate-input').fill('confirm');
+    const input = page.getByTestId('cost-gate-input');
+    if (await input.isVisible()) await input.fill('confirm');
     await page.getByTestId('cost-gate-confirm').click();
   }
   const runResponse = await start;
   expect(runResponse.ok()).toBeTruthy();
+  const posted = runResponse.request().postDataJSON();
+  expect([...posted.scope.row_ids].sort((a: number, b: number) => a - b)).toEqual(selectedRowIds);
   const { run_id: runId } = await runResponse.json();
   expect(typeof runId).toBe('number');
   await expect.poll(async () => {
