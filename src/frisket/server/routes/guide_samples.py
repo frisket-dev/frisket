@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from frisket.server.services.guide_samples import (
     GuideSampleService,
+    SAMPLE_IDS,
     download,
     sample_metadata,
 )
@@ -71,12 +72,7 @@ def register_guide_sample_routes(app: FastAPI, *, service: GuideSampleService) -
         response_model_exclude_none=True,
     )
     def list_guide_samples() -> dict:
-        return {
-            "samples": [
-                sample_metadata("court-filings"),
-                sample_metadata("council-recordings"),
-            ]
-        }
+        return {"samples": [sample_metadata(sample_id) for sample_id in SAMPLE_IDS]}
 
     @app.get(
         "/api/guide-samples/{sample_id}",

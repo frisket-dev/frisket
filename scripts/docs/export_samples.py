@@ -11,7 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-from frisket.server.services.guide_samples import download, sample_metadata  # noqa: E402
+from frisket.server.services.guide_samples import SAMPLE_IDS, download, sample_metadata  # noqa: E402
 
 
 def main() -> None:
@@ -20,7 +20,7 @@ def main() -> None:
     output = parser.parse_args().output
     output.mkdir(parents=True, exist_ok=False)
     samples = []
-    for sample_id in ("court-filings", "council-recordings"):
+    for sample_id in SAMPLE_IDS:
         info = sample_metadata(sample_id)
         filename = f"{sample_id}-r{info['revision']}.zip"
         (output / filename).write_bytes(download(sample_id, info["revision"]))

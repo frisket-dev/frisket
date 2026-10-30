@@ -31,26 +31,30 @@ class SampleFile:
     data: bytes
 
 
+SAMPLE_CATALOG = {
+    "court-filings": {
+        "id": "court-filings",
+        "revision": 1,
+        "title": "Court filings",
+        "description": "Six fictional court filings ready to review and import.",
+        "file_count": 7,
+    },
+    "council-recordings": {
+        "id": "council-recordings",
+        "revision": 1,
+        "title": "Council recordings",
+        "description": "Two council audio excerpts with source information.",
+        "file_count": 3,
+    },
+}
+SAMPLE_IDS = tuple(SAMPLE_CATALOG)
+
+
 def metadata(sample_id: str, revision: int = 1) -> dict:
-    catalog = {
-        "court-filings": {
-            "id": "court-filings",
-            "revision": 1,
-            "title": "Court filings",
-            "description": "Six fictional court filings ready to review and import.",
-            "file_count": 7,
-        },
-        "council-recordings": {
-            "id": "council-recordings",
-            "revision": 1,
-            "title": "Council recordings",
-            "description": "Two council audio excerpts with source information.",
-            "file_count": 3,
-        },
-    }
-    if sample_id not in catalog or revision != 1:
+    info = SAMPLE_CATALOG.get(sample_id)
+    if info is None or revision != info["revision"]:
         raise RouteError(404, "Unknown guide sample or revision")
-    return catalog[sample_id]
+    return info.copy()
 
 
 def files(sample_id: str, revision: int = 1) -> list[SampleFile]:
@@ -60,6 +64,8 @@ def files(sample_id: str, revision: int = 1) -> list[SampleFile]:
             SampleFile(x.filename, "application/pdf", lawsuit_pdf_bytes(x))
             for x in SAMPLE_LAWSUITS
         ] + [SampleFile("expected.csv", "text/csv", sample_docket_csv().encode())]
+    if sample_id != "council-recordings":
+        raise RuntimeError(f"No files defined for guide sample {sample_id}")
     return [
         SampleFile(x.filename, "audio/mpeg", council_audio_bytes(x.filename))
         for x in SAMPLE_COUNCIL_AUDIO
