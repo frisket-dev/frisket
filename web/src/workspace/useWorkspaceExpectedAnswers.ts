@@ -105,6 +105,7 @@ export function useWorkspaceExpectedAnswers(projectId: string, sheet: SheetMeta 
     expected_column_id: field.expected_column_id, output_column_id: field.output_column_id,
     logical_key: field.logical_key, rule: field.rule, hidden: field.hidden || link.hidden, source: field.source,
     name: sheets.find(item => Number(item.id) === link.expected_sheet_id)?.columns.find(column => Number(column.id) === field.expected_column_id)?.name ?? field.logical_key,
+    sourceColumn: sheets.find(item => Number(item.id) === link.expected_sheet_id)?.columns.find(column => Number(column.id) === field.expected_column_id),
     type: sheets.find(item => Number(item.id) === link.expected_sheet_id)?.columns.find(column => Number(column.id) === field.expected_column_id)?.type ?? 'text',
   }))), [links, sheets]);
   const projectExpected = useCallback((rowIds: number[]) => api.projectExpected(Number(sheet?.id), rowIds), [api, sheet?.id]);

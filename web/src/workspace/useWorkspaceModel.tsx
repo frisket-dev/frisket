@@ -1000,7 +1000,7 @@ export function useWorkspaceModel({
           expectedColumns={expectedAnswers.expectedColumns}
           projectExpected={expectedAnswers.projectExpected}
           onExpectedEdit={async (...args) => {
-            try { await expectedAnswers.editExpected(...args); projectData.invalidate(); }
+            try { await expectedAnswers.editExpected(...args); projectData.invalidate(); void refreshHistory(); }
             catch (error) { showError(error instanceof Error ? error.message : 'Could not edit expected answer.'); throw error; }
           }}
           onExpectedHeaderMenu={(column) => setExpectedHeader(column)}

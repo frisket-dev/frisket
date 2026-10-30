@@ -291,7 +291,7 @@ export interface ParentRowFilter {
   count: number;
 }
 
-export type ExpectedGridColumn = ExpectedProjection['columns'][number] & { type?: ColumnDef['type'] };
+export type ExpectedGridColumn = ExpectedProjection['columns'][number] & { type?: ColumnDef['type']; sourceColumn?: ColumnDef };
 const EMPTY_EXPECTED_COLUMNS: ExpectedGridColumn[] = [];
 const EMPTY_EXPECTED_ROWS: ExpectedProjection['rows'] = {};
 
@@ -493,7 +493,8 @@ function useColumnModel(
   const gridColumns = useMemo(
     () => orderedSheetColumns.filter((col) => !hiddenNames.has(col.name)).flatMap(column => [column,
       ...expectedColumns.filter(expected => !expected.hidden && expected.output_column_id === Number(column.id)).map(expected => ({
-        ...column, id: expected.id, name: `Expected · ${expected.name}`, type: expected.type ?? 'text', ai: undefined,
+        ...expected.sourceColumn, id: expected.id, name: `Expected · ${expected.name}`,
+        type: expected.sourceColumn?.type ?? expected.type ?? 'text', latestRunId: column.latestRunId,
       }))]),
     [hiddenNames, orderedSheetColumns, expectedColumns],
   );
