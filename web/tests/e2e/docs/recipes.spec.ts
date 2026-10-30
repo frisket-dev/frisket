@@ -81,19 +81,19 @@ test('court sample imports and runs the selected filings through strict replay',
   await source.scrollIntoViewIfNeeded();
   await expect(source.getByRole('button', { name: 'Remove text' })).toBeVisible();
   await expect(engineTarget).toContainText('Gemini 3.5 Flash-Lite');
-  captures.push(await captureCheckpoint(page, { id: 'court-extract-settings', annotations: [
+  captures.push(await captureCheckpoint(page, { id: 'court-extract-settings', root: page.getByTestId('action-panel'), annotations: [
     { id: 'source', number: 1, target: { kind: 'field', id: 'text-source-columns' }, label: 'Source', labelTarget: page.getByText('Source', { exact: true }), expected: { kind: 'text', value: (await source.innerText()).trim() } },
     { id: 'engine', number: 2, target: { kind: 'tour', id: 'action-engine-selector' }, label: 'Gemini 3.5 Flash-Lite', labelTarget: engineTarget.locator('strong'), expected: { kind: 'text', value: (await engineTarget.innerText()).trim() } },
   ] }, stage));
   const fieldsLabel = page.getByTestId('output-fields-label');
   await fieldsLabel.scrollIntoViewIfNeeded();
-  captures.push(await captureCheckpoint(page, { id: 'court-extract-fields', annotations: [
+  captures.push(await captureCheckpoint(page, { id: 'court-extract-fields', root: page.getByTestId('action-panel'), annotations: [
     { id: 'fields', number: 4, target: { kind: 'field', id: 'output-fields-label' }, label: 'Columns it creates', labelTarget: fieldsLabel, expected: { kind: 'text', value: 'Columns it creates' } },
   ] }, stage));
   const instruction = page.getByTestId('field-instruction');
   const citations = page.getByTestId('field-citation_mode');
   await citations.scrollIntoViewIfNeeded();
-  captures.push(await captureCheckpoint(page, { id: 'court-extract-instruction', annotations: [
+  captures.push(await captureCheckpoint(page, { id: 'court-extract-instruction', root: page.getByTestId('action-panel'), annotations: [
     { id: 'instruction', number: 5, target: { kind: 'field', id: 'field-instruction' }, label: 'Instruction', expected: { kind: 'value', value: settings.instruction } },
     { id: 'citations', number: 6, target: { kind: 'field', id: 'field-citation_mode' }, label: 'Citations', labelTarget: page.getByText('Citations', { exact: true }), expected: { kind: 'value', value: 'cite' } },
   ] }, stage));
@@ -260,13 +260,13 @@ test('council sample opens the real transcription comparison', async ({ page }) 
   const form = page.getByTestId('generated-action-form');
   const engineTarget = form.locator('[data-tour="action-engine-selector"]');
   await page.getByTestId('field-source').scrollIntoViewIfNeeded();
-  captures.push(await captureCheckpoint(page, { id: 'council-transcribe-settings', annotations: [
+  captures.push(await captureCheckpoint(page, { id: 'council-transcribe-settings', root: page.getByTestId('action-panel'), annotations: [
     { id: 'source', number: 1, target: { kind: 'field', id: 'field-source' }, label: 'Media', expected: { kind: 'value', value: 'media' } },
     { id: 'engine', number: 2, target: { kind: 'tour', id: 'action-engine-selector' }, label: 'Whisper (multilingual transcription)', labelTarget: engineTarget.locator('strong'), expected: { kind: 'text', value: (await engineTarget.innerText()).trim() } },
     { id: 'model-size', number: 3, target: { kind: 'field', id: 'field-model_size' }, label: 'Model size', expected: { kind: 'value', value: 'base' } },
   ] }, stage));
   await page.getByTestId('field-output-segments').scrollIntoViewIfNeeded();
-  captures.push(await captureCheckpoint(page, { id: 'council-transcribe-outputs', annotations: [
+  captures.push(await captureCheckpoint(page, { id: 'council-transcribe-outputs', root: page.getByTestId('action-panel'), annotations: [
     { id: 'transcript', number: 4, target: { kind: 'field', id: 'field-output-text' }, label: 'Transcript', expected: { kind: 'value', value: 'transcript' } },
     { id: 'segments', number: 5, target: { kind: 'field', id: 'field-output-segments' }, label: 'Timestamped segments', expected: { kind: 'value', value: 'transcript_segments' } },
   ] }, stage));
