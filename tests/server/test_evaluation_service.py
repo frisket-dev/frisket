@@ -958,3 +958,102 @@ def test_new_expected_row_rolls_back_if_it_would_make_target_keys_ambiguous(env)
         )
     assert e.project.row_count(e.expected) == before_rows
     assert e.project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == before_ops
+
+
+def test_expected_answers_keep_same_action_output_families_separate(env):
+    e = env
+    answer = {
+        "basis": e.basis,
+        "link_id": None,
+        "row_id": e.rows[0],
+        "logical_key": "answer",
+        "value": "first family",
+        "rule": "exact",
+    }
+    first = e.service.expected_answer("p", answer)
+    second_output = e.project.add_column(e.sheet, "second_answer")
+    e.context["output_columns"] = [
+        {
+            "logical_key": "answer",
+            "column_id": second_output,
+            "current_name": "second_answer",
+        }
+    ]
+    e.context["draft"]["output_names"] = {"answer": "second_answer"}
+    second = e.service.expected_answer("p", {**answer, "value": "second family"})
+    assert second["id"] != first["id"]
+    assert first["fields"][0]["output_column_id"] == e.cols["answer"]
+    assert second["fields"][0]["output_column_id"] == second_output
+    first_values = e.project.get_values(
+        first["expected_sheet_id"], first["fields"][0]["expected_column_id"]
+    )
+    second_values = e.project.get_values(
+        second["expected_sheet_id"], second["fields"][0]["expected_column_id"]
+    )
+    assert list(first_values.values()) == ["first family"]
+    assert list(second_values.values()) == ["second family"]
+    with pytest.raises(RouteError) as error:
+        e.service.expected_answer(
+            "p", {**answer, "link_id": first["id"], "value": "wrong family overwrite"}
+        )
+    assert error.value.status_code == 409
+    assert (
+        e.project.get_values(
+            first["expected_sheet_id"], first["fields"][0]["expected_column_id"]
+        )
+        == first_values
+    )
+
+
+def test_new_expected_rows_follow_column_type_validation_before_persistence(env):
+    e = env
+    expected_sheet = e.project.add_sheet("Known dates")
+    keys = e.project.add_column(expected_sheet, "id")
+    dates = e.project.add_column(expected_sheet, "answer", "date")
+    e.project.add_rows(
+        expected_sheet,
+        [{"id": "a", "answer": "2026-03-12"}],
+        {"id": keys, "answer": dates},
+    )
+    link = e.service.save_link(
+        "p",
+        {
+            **e.body,
+            "expected_sheet_id": expected_sheet,
+            "keys": [{"expected_column_id": keys, "target_column_id": e.cols["id"]}],
+            "fields": [
+                {
+                    "expected_column_id": dates,
+                    "output_column_id": e.cols["answer"],
+                    "logical_key": "answer",
+                    "rule": "date",
+                    "hidden": False,
+                    "source": "import",
+                }
+            ],
+        },
+    )
+    answer = {
+        "basis": e.basis,
+        "link_id": link["id"],
+        "row_id": e.rows[1],
+        "logical_key": "answer",
+        "value": "definitely-not-a-date",
+        "rule": "date",
+    }
+    before_ops = e.project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
+    for value in ("definitely-not-a-date", "[empty]"):
+        with pytest.raises(RouteError) as error:
+            e.service.expected_answer("p", {**answer, "value": value})
+        assert error.value.status_code == 422
+        assert "date" in error.value.detail
+        assert e.project.row_count(expected_sheet) == 1
+        assert (
+            e.project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == before_ops
+        )
+    e.service.expected_answer("p", {**answer, "value": "2026-03-13"})
+    assert e.project.row_count(expected_sheet) == 2
+    assert list(e.project.get_values(expected_sheet, dates).values()) == [
+        "2026-03-12",
+        "2026-03-13",
+    ]
