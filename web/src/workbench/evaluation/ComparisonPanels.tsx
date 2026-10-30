@@ -15,9 +15,9 @@ export function ComparisonResults({ response, onChoose, onClose }: {
 }) {
   const { gridTheme } = useGridTheme();
   const evaluationColors = useMemo(() => evaluationTheme(gridTheme), [gridTheme]);
-  const columns = [{ id: 'variant', title: 'Variant', width: 190 },
+  const columns = [{ id: 'variant', title: 'Variant', width: 220 },
     ...response.output_columns.filter((column) => response.link?.fields.some((field) => field.logical_key === column.logical_key))
-      .map((column) => ({ id: column.logical_key, title: column.current_name, width: 190 }))];
+      .map((column) => ({ id: column.logical_key, title: column.current_name, width: 260 }))];
   return <Modal title="Results" size="wide" onClose={onClose} closeLabel="Close results" testId="comparison-results">
     <div className="comparison-results-grid" style={{ height: Math.min(440, 72 + response.variants.length * 38) }}>
       <GridViewport columns={columns} rows={response.variants.length} rowHeight={38} theme={gridTheme}
@@ -58,8 +58,8 @@ export function MatchRuleDialog({ response, field, busy, onRule, onEditAll, onCl
             const cell = variant.rows[String(rowId)]?.[field];
             return matchAnswer(value, response.expected[String(rowId)]?.[field] ?? null, cell?.value ?? null, { state: cell?.state ?? 'missing' }) !== variant.verdicts[String(rowId)]?.[field];
           }).length : null;
-          return `${variant.key} ${scoreLabel(before?.accuracy)} → ${scoreLabel(after?.accuracy)}${flipped ? ` · ${flipped} ${flipped === 1 ? 'row flips' : 'rows flip'}` : ''}`;
-        }).join(' · ')}</small></span>
+          return <span key={variant.key}>{variant.key} {scoreLabel(before?.accuracy)} → {scoreLabel(after?.accuracy)}{flipped ? ` · ${flipped} ${flipped === 1 ? 'row flips' : 'rows flip'}` : ''}</span>;
+        })}</small></span>
       </label>)}
       <Button disabled={busy} onClick={onEditAll}>Edit all fields…</Button>
     </div>

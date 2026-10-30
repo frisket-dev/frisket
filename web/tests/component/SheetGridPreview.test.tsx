@@ -289,6 +289,7 @@ it('renders projected expected values in the ordinary grid and routes edits to t
     columnGroupsStorageScope="expected-grid" onRowOpen={vi.fn()} onColumnOpen={vi.fn()} onCellEdit={vi.fn()}
     expectedColumns={[expected]} projectExpected={project} onExpectedEdit={edit} />);
   await waitFor(() => expect(editor.props?.getCellContent([1, 0])).toMatchObject({ kind: GridCellKind.Text, data: 'verified', readonly: false, allowOverlay: true }));
+  expect(editor.props?.getCellContent([1, 0])).toMatchObject({ themeOverride: { bgCell: '#dcefec', bgCellMedium: '#dcefec' } });
   expect(editor.props?.columns.map(item => item.id)).toEqual(['10', expected.id]);
   expect(editor.props?.columns[1]).toMatchObject({ title: 'Expected · answer', icon: 'typeLink', themeOverride: { bgHeader: '#dcefec', bgCell: '#ffffff' } });
   await act(async () => editor.props?.onCellEdited?.([1, 0], { kind: GridCellKind.Text, data: 'corrected', displayData: 'corrected', allowOverlay: true }));

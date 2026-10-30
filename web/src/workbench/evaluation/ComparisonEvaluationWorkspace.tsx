@@ -218,7 +218,9 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
       const settings = item.settings as unknown as Partial<GeneratedActionDraft>;
       const draft = settings.action_id && settings.scope && settings.params && settings.output_names
         ? settings as GeneratedActionDraft : p.state.context.draft;
-      const restored = p.session.restoreVariant({ savedId: id, label: item.label, draft, result: { rows: Object.fromEntries(Object.entries(item.rows).map(([rowId, cells]) => [rowId,
+      const savedDate = new Date(item.saved_at);
+      const label = Number.isNaN(savedDate.getTime()) ? item.label : `${item.label} · ${savedDate.toLocaleDateString()}`;
+      const restored = p.session.restoreVariant({ savedId: id, label, draft, result: { rows: Object.fromEntries(Object.entries(item.rows).map(([rowId, cells]) => [rowId,
         Object.fromEntries(Object.entries(cells).map(([key, { bounded_value, ...cell }]) => [key, { ...cell, evaluationValue: bounded_value }])),
       ])) } });
       if (!restored) throw new Error('A comparison can show up to 32 variants. Remove one before restoring another.');
@@ -303,7 +305,7 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
     {!queue && p.state.variants.length === 1 && <div className="comparison-try-baseline"><strong>B · try to beat A</strong><Button onClick={() => { const id = p.session.addVariant(); if (id) p.onOpenVariant(id); }}>Another model ▾</Button><Button onClick={() => { const id = p.session.addVariant(); if (id) p.onOpenVariant(id); }}>Edit instructions</Button><Button disabled={!modelField || !instructionsField} onClick={() => setSeveralOpen(true)}>Try several…</Button></div>}
     {!queue && <footer className="comparison-footer"><Button disabled={!evaluated || running || e.saving} onClick={() => void shelve()}>🗄 Shelve</Button>
       {lens === 'each_other' && evaluated >= 2 && <Button onClick={() => setQueue({ mode: 'disagreements', rowId: disagreements[0] ?? 0, filter: 'all' })}>Check the {disagreements.length} disagreements</Button>}
-      {response?.variants.some((variant) => variant.scores[field]?.coverage < 1) && <span>Coverage differs · missing results are not checked</span>}
+      {response?.link && response.variants.some((variant) => variant.scores[field]?.checked > 0 && variant.scores[field].coverage < 1) && <span>Coverage differs · missing results are not checked</span>}
       {expectedField?.source === 'disagreements' && <span>From disagreements</span>}
       <span className="comparison-footer-spacer" />{bestUse && !handBlocked && <Button disabled={scoreBusy} className="btn-primary" onClick={() => p.onUseSettings(bestUse)}>Use {bestUse.variantLabel}…</Button>}</footer>}
     {ruleOpen && response && <MatchRuleDialog response={response} field={field} busy={e.saving || e.loading} onRule={(next) => void changeRule(next)} onEditAll={() => { setRuleOpen(false); p.onJoinExpected?.(); }} onClose={() => setRuleOpen(false)} />}

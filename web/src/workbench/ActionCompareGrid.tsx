@@ -233,18 +233,22 @@ export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, froze
     const icon = output
       ? variantBadgeIconName(projected.variant.displayKey) ?? 'aiBolt'
       : typeHeaderIcon(projected.column.type);
+    const field = projected.kind === 'source' ? undefined : evaluation?.response?.link?.fields.find((item) => item.logical_key === projected.logicalKey);
+    const score = output ? evaluation?.response?.variants.find((variant) => variant.key === projected.variant.displayKey)?.scores[projected.logicalKey] : undefined;
+    const checked = projected.kind === 'expected' ? evaluation?.response?.variants[0]?.scores[projected.logicalKey]?.checked : undefined;
+    const partialHand = field?.rule === 'hand' && score && score.remaining > 0;
     return {
       id: projected.id,
       title: output
         ? evaluation?.lens === 'expected'
-          ? `${variantBadgeIconName(projected.variant.displayKey) ? '' : `${projected.variant.displayKey} · `}${scoreLabel(evaluation.response?.variants.find((variant) => variant.key === projected.variant.displayKey)?.scores[projected.logicalKey]?.accuracy)}`
+          ? `${variantBadgeIconName(projected.variant.displayKey) ? '' : `${projected.variant.displayKey} · `}${scoreLabel(score?.accuracy)}${partialHand ? ` · ${score.scored}/${score.scored + score.remaining} scored` : ''}`
           : `${variantBadgeIconName(projected.variant.displayKey) ? '' : `${projected.variant.displayKey} · `}${labelForDraft?.(
           projected.variant.draft,
           projected.variant.displayKey,
         ) ?? projected.variant.label}`
-        : projected.kind === 'expected' ? `expected · ${evaluation?.response?.link?.fields.find((field) => field.logical_key === projected.logicalKey)?.rule ?? 'exact'}` : projected.column.name,
+        : projected.kind === 'expected' ? `expected · ${field?.rule ?? 'exact'}${checked != null ? ` · ${checked} checked` : ''}` : projected.column.name,
       group: projected.kind !== 'source' ? `${OUTPUT_GROUP_PREFIX}${projected.logicalKey}` : SOURCE_GROUP,
-      width: widths[projected.id] ?? (output ? DEFAULT_OUTPUT_WIDTH : DEFAULT_SOURCE_WIDTH),
+      width: widths[projected.id] ?? (partialHand || projected.kind === 'expected' ? 240 : output ? DEFAULT_OUTPUT_WIDTH : DEFAULT_SOURCE_WIDTH),
       ...(icon ? { icon } : {}),
       ...(projected.kind === 'expected' ? { themeOverride: { bgHeader: evaluationColors.expected, textHeader: evaluationColors.match } }
         : output ? { themeOverride: { ...variantColumnTheme,

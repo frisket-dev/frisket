@@ -1,5 +1,5 @@
 import { useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
-import { PanelRightOpen, Copy, Eye, EyeOff, LockKeyhole, Plus, RotateCw, X } from 'lucide-react';
+import { Archive, PanelRightOpen, Copy, Eye, EyeOff, LockKeyhole, Plus, RotateCw, X } from 'lucide-react';
 import type { ActionComparisonBoundedValue } from '../api/actionComparison';
 import type { GeneratedActionDraft } from '../api/types';
 import type { EvaluationApi } from '../api/evaluation';
@@ -158,7 +158,7 @@ export function ActionCompareTab({ projectId, session, rowHeight, wrapText, froz
               if (!event.currentTarget.contains(event.relatedTarget)) setHoveredId(null);
             }}>
             {variant.baseline || variant.readOnly ? <div className="action-compare-variant-body" aria-label={`Variant ${variant.displayKey}${variant.readOnly ? ', shelved, read-only' : ''}`}>
-              <VariantBadge label={variant.displayKey} /><span>{displayLabel}</span>
+              <VariantBadge label={variant.displayKey} />{variant.readOnly && <Archive size={13} aria-label="Shelved, read-only" />}<span>{displayLabel}</span>
               {variant.status !== 'current' && variant.status !== 'ready' && variant.status !== 'pending' &&
                 <StatusChip tone={statusTone(variant.status)} size="sm">{variant.status}</StatusChip>}
             </div> : <button type="button" className="action-compare-variant-body"

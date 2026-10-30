@@ -448,6 +448,7 @@ interface ColumnModel {
   gridColumns: ColumnDef[];
   gridTheme: Partial<Theme>;
   aiColumnTheme: Partial<Theme>;
+  expectedColumnTheme: Partial<Theme>;
   gridCellPalette: GridCellPalette;
   onColumnResize(column: GridColumn, newSize: number): void;
   /** Boundaries between visible columns that flank a user-hidden run. */
@@ -630,6 +631,7 @@ function useColumnModel(
     gridColumns,
     gridTheme,
     aiColumnTheme,
+    expectedColumnTheme,
     gridCellPalette,
     onColumnResize,
     hiddenBoundaries,
@@ -1487,6 +1489,7 @@ function useSheetGridController({
     gridColumns,
     gridTheme,
     aiColumnTheme,
+    expectedColumnTheme,
     gridCellPalette,
     onColumnResize: onColumnResizeRaw,
     hiddenBoundaries,
@@ -1746,6 +1749,7 @@ function useSheetGridController({
           row,
         ),
       );
+      if (expected) cell = { ...cell, themeOverride: { ...cell.themeOverride, bgCell: expectedColumnTheme.bgHeader, bgCellMedium: expectedColumnTheme.bgHeader } };
       if (def.id === citationColumnId) cell = { ...cell, themeOverride: { ...cell.themeOverride, bgCell: gridTheme.bgSearchResult ?? "#fff1cf" } };
       const media = audioMedia(cell);
       if (!media || !row) return cell;
@@ -1778,6 +1782,7 @@ function useSheetGridController({
       previewAt,
       projectId,
       gridCellPalette,
+      expectedColumnTheme,
       citationColumnId,
       gridTheme.bgSearchResult,
       sheet.id,

@@ -98,6 +98,16 @@ describe('ActionCompareTab', () => {
     expect(typeof editor.props!.headerIcons?.variantBadgeE).toBe('function');
   });
 
+  it('shows partial hand scoring and checked answers in grid headers', () => {
+    const session = createActionCompareSession({ context: fixture() }, { runVariant: vi.fn() });
+    const response = { link: { fields: [{ logical_key: 'party', rule: 'hand', hidden: false }] }, expected: {},
+      variants: [{ key: 'A', rows: {}, scores: { party: { accuracy: 1, scored: 1, remaining: 37, checked: 38 } }, verdicts: {} }], best: {} } as unknown as EvaluationResponse;
+    render(<ActionCompareGrid projectId="p1" state={session.getSnapshot()} {...gridPreferences}
+      evaluation={{ response, field: 'party', lens: 'expected', rowIds: [10, 11], onOpenRow: vi.fn(), onRuleClick: vi.fn(), onScoreClick: vi.fn() }} />);
+    expect(editor.props!.columns.find((column) => String(column.id).startsWith('output:party:'))).toMatchObject({ title: '100% · 1/38 scored', width: 240 });
+    expect(editor.props!.columns.find((column) => column.id === 'expected:party')).toMatchObject({ title: 'expected · hand · 38 checked', width: 240 });
+  });
+
   it('projects typed grouped results through the shared grid and uses only evaluated settings', async () => {
     const session = createActionCompareSession(
       { context: fixture(), capturedSelection: { rowIds: [10, 11, 12], totalCount: 237 } },

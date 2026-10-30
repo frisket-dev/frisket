@@ -6,6 +6,7 @@ import type { ActionComparisonContext } from '../../src/api/actionComparison';
 import type { EvaluationApi, EvaluationLink, EvaluationResponse } from '../../src/api/evaluation';
 import { createActionCompareSession } from '../../src/workbench/actionCompareSession';
 import { ComparisonEvaluationWorkspace } from '../../src/workbench/evaluation/ComparisonEvaluationWorkspace';
+import { MatchRuleDialog } from '../../src/workbench/evaluation/ComparisonPanels';
 import { installDialogPolyfill } from '../support/domPolyfills';
 
 installDialogPolyfill();
@@ -48,8 +49,9 @@ function fakeApi(response: EvaluationResponse): EvaluationApi {
     setRule: vi.fn(async (id, rule) => { link.fields[0].rule = rule; return { expected_column_id: id, rule }; }),
   } as unknown as EvaluationApi;
 }
-async function setup({ joined = true, two = false, bestB = false, hand = false, stale = false, unavailable = false, secondField = false } = {}) {
+async function setup({ joined = true, two = false, bestB = false, hand = false, stale = false, unavailable = false, secondField = false, emptyCoverage = false } = {}) {
   const response = result(joined, two);
+  if (emptyCoverage) response.variants[0].scores.answer = { ...response.variants[0].scores.answer, checked: 0, coverage: 0 };
   if (bestB) response.best.answer = ['B'];
   if (hand && response.link) {
     response.link = { ...response.link, fields: response.link.fields.map((field) => ({ ...field, rule: 'hand' })) };
@@ -83,6 +85,17 @@ async function setup({ joined = true, two = false, bestB = false, hand = false, 
 }
 
 describe('comparison evaluation workspace', () => {
+  it('does not show a coverage warning without checked answers', async () => {
+    await setup({ joined: false, emptyCoverage: true });
+    expect(screen.queryByText(/Coverage differs/)).toBeNull();
+  });
+
+  it('shows each variant on its own line in rule previews', () => {
+    render(<MatchRuleDialog response={result(true, true)} field="answer" busy={false} onRule={vi.fn()} onEditAll={vi.fn()} onClose={vi.fn()} />);
+    const preview = screen.getByText('Exact').parentElement!.querySelector('small')!;
+    expect(Array.from(preview.children).map((child) => child.textContent)).toEqual(['A 100% → —', 'B 0% → —']);
+  });
+
   it('excludes stale-source rows from projected rule flip counts', async () => {
     const { response } = await setup({ two: true, stale: true });
     response.variants[1].verdicts['101'].answer = 'not_run';
