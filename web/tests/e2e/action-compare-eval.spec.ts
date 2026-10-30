@@ -1,9 +1,9 @@
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { createEvaluationScenario, EVALUATION_EXPECTED, EVALUATION_ROW_COUNT, EVALUATION_VARIANTS } from './evaluationScenario';
-import { clickGroupHeader, editCells, listSheets, openProject, sheetData } from './helpers';
+import { clickGroupHeader, clickHeaderMenu, editCells, listSheets, openProject, sheetData } from './helpers';
 
 test.use({ deviceScaleFactor: 2 });
 
@@ -139,6 +139,7 @@ test('join expected answers and compare 38 rows across five variants', async ({ 
   await join.getByLabel('Target key 1', { exact: true }).selectOption(targetColumn('case_id'));
   await expect(join.getByRole('status')).toContainText('match more than one');
   await expect(join.getByRole('button', { name: 'Next', exact: true })).toBeDisabled();
+  await capture(page, '01a-ambiguous-key-next-blocked.png');
   await join.getByRole('button', { name: '+ Another column', exact: true }).click();
   await join.getByLabel('Expected key 2', { exact: true }).selectOption(expectedColumn('county'));
   await join.getByLabel('Target key 2', { exact: true }).selectOption(targetColumn('county'));
@@ -155,6 +156,16 @@ test('join expected answers and compare 38 rows across five variants', async ({ 
   await expect(join).toHaveCount(0);
   await expect(page.getByRole('button', { name: '◉ Expected answers · Hide', exact: true })).toBeVisible();
   await capture(page, '02-expected-columns-in-sheet.png');
+  const projectedColumns = scenario.targetColumns.flatMap(column => {
+    const expected = scenario.expectedColumns.find(candidate => candidate.name === column.name);
+    return expected && ['plaintiff', 'amount', 'parties', 'summary'].includes(column.name)
+      ? [column, { ...expected, name: `Expected · ${column.name}` }] : [column];
+  });
+  await clickHeaderMenu(page, projectedColumns, 'Expected · plaintiff');
+  const expectedMenu = page.getByRole('dialog', { name: 'Expected column', exact: true });
+  await expect(expectedMenu).toBeVisible();
+  await capture(page, '02b-expected-column-menu.png');
+  await expectedMenu.getByRole('button', { name: 'Close', exact: true }).click();
   await clickGroupHeader(page, scenario.targetColumns, 'plaintiff', 'summary');
   const entry = page.getByTestId('action-run-entry-card');
   await expect(entry.getByRole('button', { name: '✓ Check against expected', exact: true })).toBeVisible();
@@ -216,6 +227,8 @@ test('join expected answers and compare 38 rows across five variants', async ({ 
   await openFirstComparisonRow(page);
   await expect(page.getByTestId('comparison-review').getByRole('button', { name: /Answer 1, variants A, B, C/ })).toBeVisible();
   await expect(page.getByTestId('comparison-review').getByRole('button', { name: 'Accept answer 1', exact: true })).toBeDisabled();
+  await expect(page.getByTestId('comparison-review')).toContainText('Public notice 1: Reporter 1 v Agency 1.');
+  await expect(page.getByText('Loading cited sources…', { exact: true })).toHaveCount(0);
   await capture(page, '13a-inspect-grouped-misses.png');
   await page.getByRole('button', { name: 'Close', exact: true }).click();
 
@@ -249,6 +262,9 @@ test('join expected answers and compare 38 rows across five variants', async ({ 
 
   const [csvDownload] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: '⤓ CSV', exact: true }).click()]);
   const csvText = await downloadedText(csvDownload);
+  const downloadArtifacts = process.env.FRISKET_COMPARE_SCREENSHOTS ?? path.resolve('screenshots/action-compare-connected');
+  mkdirSync(downloadArtifacts, { recursive: true });
+  writeFileSync(path.join(downloadArtifacts, 'comparison.csv'), csvText);
   const records = csvRecords(csvText);
   expect(records).toHaveLength(38);
   expect(records[0].summary_C).toBe(EVALUATION_EXPECTED[0].summary);
@@ -258,13 +274,21 @@ test('join expected answers and compare 38 rows across five variants', async ({ 
   expect(records[37].amount_A).toBe('');
   expect(records[37].amount_A_match).toBe('yes');
   const [settingsDownload] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Settings', exact: true }).click()]);
-  const settings = JSON.parse(await downloadedText(settingsDownload));
+  const settingsText = await downloadedText(settingsDownload);
+  writeFileSync(path.join(downloadArtifacts, 'comparison-settings.json'), settingsText);
+  const settings = JSON.parse(settingsText);
   expect(settings.schema_version).toBe('frisket.comparison_settings.v1');
   expect(settings.variants).toHaveLength(5);
   expect(settings.row_ids).toHaveLength(38);
   await capture(page, '06-download.png');
 
   await page.getByRole('group', { name: 'Comparison field' }).getByRole('button', { name: 'plaintiff', exact: true }).click();
+  const subset = await page.request.post(`/api/projects/${scenario.projectId}/evaluation/shelf`, { data: {
+    comparison: { basis: { kind: 'run', run_id: scenario.baselineRunId, column_id: Number(targetColumn('plaintiff')) },
+      row_ids: scenario.rowIds.slice(1), link_id: latest!.link!.id,
+      variants: [{ key: 'A', label: 'Earlier subset', source: { kind: 'current' } }] }, variant_keys: ['A'],
+  } });
+  expect(subset.ok()).toBeTruthy();
   await page.getByRole('button', { name: '🗄 Shelve', exact: true }).click();
   await expect(page.getByTestId('action-compare-toolbar')).toHaveCount(0);
   const firstExpectedRow = (await sheetData(page.request, scenario.projectId, scenario.expectedSheetId, 0, 1)).rows[0];
@@ -273,7 +297,13 @@ test('join expected answers and compare 38 rows across five variants', async ({ 
   await selectAllExpectedRows(page);
   await expect.poll(() => latest?.row_ids.length).toBe(38);
   await page.getByRole('button', { name: '+ ⌄', exact: true }).click();
-  const shelfChoice = page.getByRole('menuitem', { name: 'Current values · 38 rows', exact: true });
+  await capture(page, '15a-from-the-shelf-menu.png');
+  await page.getByRole('menuitem', { name: 'Manage shelf…', exact: true }).click();
+  await expect(page.getByTestId('comparison-manage-shelf')).toBeVisible();
+  await capture(page, '15b-manage-shelf.png');
+  await page.getByRole('button', { name: 'Close shelf', exact: true }).click();
+  await page.getByRole('button', { name: '+ ⌄', exact: true }).click();
+  const shelfChoice = page.getByRole('menuitem').filter({ hasText: 'Current values' }).filter({ hasText: '38 rows' });
   await expect(shelfChoice).toBeVisible();
   await shelfChoice.click();
   await expect(page.getByLabel(/shelved, read-only/)).toBeVisible();
@@ -281,6 +311,10 @@ test('join expected answers and compare 38 rows across five variants', async ({ 
   await expect.poll(() => latest?.variants.find(variant => variant.key === 'S')?.scores.plaintiff.matches).toBe(29);
   expect(previewStarts).toBe(8);
   await capture(page, '15-shelf.png');
+  await page.getByRole('button', { name: '+ ⌄', exact: true }).click();
+  await page.getByRole('menuitem').filter({ hasText: 'Earlier subset' }).click();
+  await expect.poll(() => latest?.variants.find(variant => variant.key === 'S2')?.verdicts[String(scenario.rowIds[0])]?.plaintiff).toBe('not_run');
+  await capture(page, '15c-restored-missing-row.png');
   console.log('evaluation milestone: full CSV and separate metadata downloaded; shelf restored read-only');
 });
 
@@ -329,6 +363,11 @@ test('disagreement rejection stays unchecked and acceptance creates an ordinary 
   await capture(page, '14-disagreement-queue.png');
   expect(latest!.link!.fields[0].rule).toBe('exact');
   expect(latest!.link!.fields[0].source).toBe('disagreements');
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.getByRole('button', { name: '✓ Expected answers', exact: true }).click();
+  await expect(page.getByTestId('action-compare-grid')).toBeVisible();
+  await expect(page.getByText('Scoring…', { exact: true })).toHaveCount(0);
+  await capture(page, '14b-expected-header-from-disagreements.png');
   console.log('evaluation milestone: rejection wrote no expected answer; acceptance created visible ordinary expected sheet');
 });
 
