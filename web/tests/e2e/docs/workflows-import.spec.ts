@@ -120,7 +120,7 @@ test('documentation: import one row per PDF page', async ({ page }) => {
     await expect.poll(async () => (await sheetData(page.request, pid, sheet.id)).total).toBe(Number(match![1]));
     const data = await sheetData(page.request, pid, sheet.id);
     expect(data.columns.map(column => column.name)).toContain('filename');
-    captures.push(await captureCheckpoint(page, { id: 'import-pdf-page-result', annotations: [] }, stage));
+    captures.push(await captureCheckpoint(page, { id: 'import-pdf-page-result', root: page.getByTestId('grid'), maxHeight: 520, annotations: [] }, stage));
     return captures;
   });
 });

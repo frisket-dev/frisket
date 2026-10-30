@@ -101,7 +101,6 @@ test('court sample imports and runs the selected filings through strict replay',
   captures.push(await captureCheckpoint(page, { id: 'court-extract-fields', root: page.getByTestId('action-panel'), cropBetween: { top: fieldsLabel.locator('..'), bottom: page.getByTestId('output-fields-editor') }, annotations: [
     { id: 'fields', number: 3, target: { kind: 'field', id: 'output-fields-label' }, label: 'Columns it creates', labelTarget: fieldsLabel, expected: { kind: 'text', value: 'Columns it creates' } },
   ] }, stage));
-  const instruction = page.getByTestId('field-instruction');
   const citations = page.getByTestId('field-citation_mode');
   await citations.scrollIntoViewIfNeeded();
   captures.push(await captureCheckpoint(page, { id: 'court-extract-instruction', root: page.getByTestId('action-panel'), cropBetween: { top: page.getByText('Instruction', { exact: true }), bottom: citations.locator('xpath=ancestor::label[1]') }, annotations: [
@@ -147,7 +146,7 @@ test('court sample imports and runs the selected filings through strict replay',
     const sheet = current.find((item: { id: number }) => item.id === imported.id);
     return ['case_number', 'filed_at', 'plaintiff', 'defendant_as_filed'].every(name => sheet.columns.some((column: { name: string, latest_run_id: number }) => column.name === name && column.latest_run_id === runId));
   }, { timeout: 30_000 }).toBe(true);
-  captures.push(await captureCheckpoint(page, { id: 'court-sample-run', root: page.getByTestId('grid'), annotations: [] }, stage));
+  captures.push(await captureCheckpoint(page, { id: 'court-sample-run', root: page.getByTestId('grid'), maxHeight: 300, annotations: [] }, stage));
   await page.getByTestId('ribbon-tab-tables').click();
   await page.getByRole('button', { name: 'Join expected answers', exact: true }).click();
   const join = page.getByTestId('join-expected-dialog');
@@ -256,7 +255,7 @@ test('court sample imports and runs the selected filings through strict replay',
   expect(review).toHaveLength(6);
   expect(review.every(row => row.fields.case_number.actual === row.fields.case_number.expected)).toBeTruthy();
   writeFileSync(path.join(stage, 'court-review.json'), JSON.stringify({ runId: fullRunId, rows: review }, null, 2));
-  captures.push(await captureCheckpoint(page, { id: 'court-results', root: page.getByTestId('grid'), annotations: [] }, stage));
+  captures.push(await captureCheckpoint(page, { id: 'court-results', root: page.getByTestId('grid'), maxHeight: 300, annotations: [] }, stage));
   captures.push(...await captureReview(page, stage, fullRunId));
   await openAction(page, 'media.ocr');
   await expect(page.getByText('Loading models…')).toHaveCount(0, { timeout: 60_000 });
@@ -526,7 +525,7 @@ test('docs workflow: split a PDF packet', async ({ page }) => {
     await expect(page.getByTestId('row-drawer')).toContainText(firstFilename);
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('row-drawer')).toHaveCount(0);
-    captures.push(await captureCheckpoint(page, { id: 'pdf-packet-import-result', root: page.getByTestId('grid'), annotations: [] }, stage));
+    captures.push(await captureCheckpoint(page, { id: 'pdf-packet-import-result', root: page.getByTestId('grid'), maxHeight: 160, annotations: [] }, stage));
     return captures;
   });
 });

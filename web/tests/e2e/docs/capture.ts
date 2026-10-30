@@ -21,6 +21,9 @@ export interface CaptureDescription {
   root?: Locator;
   /** Optional visible vertical boundaries inside the root, with a little breathing room. */
   cropBetween?: { top: Locator; bottom: Locator };
+  /** Limit empty canvas/pane space or crop horizontally to visible controls. */
+  maxHeight?: number;
+  cropHorizontal?: { left: Locator; right: Locator };
   annotations: CaptureAnnotation[];
 }
 export interface CaptureRecord {
@@ -90,6 +93,19 @@ export async function captureCheckpoint(page: Page, description: CaptureDescript
     if (end <= y || y < 0 || end > page.viewportSize()!.height) throw new Error(`Capture ${description.id} has invalid crop boundaries`);
     crop = { x: crop.x, y, width: crop.width, height: end - y };
   }
+  if (description.maxHeight !== undefined) {
+    if (!Number.isFinite(description.maxHeight) || description.maxHeight <= 0) throw new Error(`Invalid height for ${description.id}`);
+    crop = { ...crop, height: Math.min(crop.height, description.maxHeight) };
+  }
+  if (description.cropHorizontal) {
+    const left = await description.cropHorizontal.left.boundingBox();
+    const right = await description.cropHorizontal.right.boundingBox();
+    if (!left || !right) throw new Error(`Capture ${description.id} has missing horizontal boundaries`);
+    const x = Math.max(crop.x, left.x - 12);
+    const end = Math.min(crop.x + crop.width, right.x + right.width + 12);
+    if (end <= x) throw new Error(`Capture ${description.id} has invalid horizontal boundaries`);
+    crop = { ...crop, x, width: end - x };
+  }
   const annotations: CaptureRecord['annotations'] = [];
   for (const [index, annotation] of description.annotations.entries()) {
     const target = await resolveCaptureTarget(scope, annotation.target);
@@ -113,7 +129,7 @@ export async function captureCheckpoint(page: Page, description: CaptureDescript
       rect: { x: (box.x - crop.x) / crop.width, y: (box.y - crop.y) / crop.height, width: box.width / crop.width, height: box.height / crop.height } });
   }
   const image = `${description.id}.png`;
-  if (description.cropBetween) await page.screenshot({ path: path.join(directory, image), clip: crop, animations: 'disabled' });
+  if (description.cropBetween || description.maxHeight !== undefined || description.cropHorizontal) await page.screenshot({ path: path.join(directory, image), clip: crop, animations: 'disabled' });
   else if (description.root) await description.root.screenshot({ path: path.join(directory, image), animations: 'disabled' });
   else await page.screenshot({ path: path.join(directory, image), animations: 'disabled' });
   const png = await readFile(path.join(directory, image));
