@@ -26,6 +26,7 @@ export interface ActionRunEntryDetails {
   ranAt?: string | null;
   errorCount?: number | null;
   outcomeLabel?: string | null;
+  expected?: { sheetName: string; rowCount: number } | null;
 }
 
 export interface ActionColumnMenuEntry {
@@ -36,6 +37,7 @@ export interface ActionColumnMenuEntry {
 
 export interface ActionRunEntryCallbacks {
   onCompareActionRun?(anchor: ActionRunAnchor): void;
+  onCheckExpected?(anchor: ActionRunAnchor): void;
 }
 
 function safeLabels(labels: readonly string[]): string[] {
@@ -71,6 +73,7 @@ export function ActionRunEntryCard({
   selectedRowCount,
   layoutControls,
   onCompareActionRun,
+  onCheckExpected,
   onPointerEnter,
   onPointerLeave,
   style,
@@ -122,6 +125,7 @@ export function ActionRunEntryCard({
             {model && <MetadataRow label="Model">{model}</MetadataRow>}
             {outputs.length > 0 && <MetadataRow label="Creates">{outputs.join(', ')}</MetadataRow>}
             {ran && <MetadataRow label="Ran">{ran}</MetadataRow>}
+            {details.expected && <MetadataRow label="Expected">⛓ {details.expected.sheetName} · {countLabel(details.expected.rowCount, 'row')}</MetadataRow>}
           </dl>
           <div className="action-run-entry-actions">
             {eligible && onCompareActionRun && (
@@ -137,6 +141,7 @@ export function ActionRunEntryCard({
                   : 'Compare…'}
               </Button>
             )}
+            {eligible && details.expected && onCheckExpected && <Button type="button" onClick={() => onCheckExpected(anchor)}>✓ Check against expected</Button>}
           </div>
         </>
       )}
