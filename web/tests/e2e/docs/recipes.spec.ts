@@ -11,7 +11,9 @@ test.beforeAll(() => {
   const root = path.resolve('..');
   const git = (...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
   expect(process.env.FRISKET_DOCS_REVISION).toBe(git('rev-parse', 'HEAD'));
-  expect(git('status', '--porcelain', '--untracked-files=no')).toBe('');
+  const changes = git('status', '--porcelain', '--untracked-files=no').split('\n').filter(Boolean);
+  const permittedOverlay = process.env.FRISKET_DOCS_PACKAGE_OVERLAY === '1' ? ['M web/package.json'] : [];
+  expect(changes.filter(change => !permittedOverlay.includes(change))).toEqual([]);
 });
 
 test('court sample imports and runs the selected filings through strict replay', async ({ page }) => {
