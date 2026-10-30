@@ -2,8 +2,11 @@ import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { expect, type Page } from '@playwright/test';
-import { createProject, importCsv, runAndWait, sheetColumns, sheetData, uniqueName } from './helpers';
+import { createProject, importCsv, runAndWait, sheetColumns, sheetData, setProjectModelRoute, uniqueName } from './helpers';
 import { exposeReplayModel, prepareOwnModelReplay, REPLAY_MODEL } from './replayModelScenario';
+import { actionSelectorResponse, stubActionSelectorChoices } from './selectorChoicesFixture';
+
+export const ALTERNATE_REPLAY_MODEL = 'anthropic/claude-haiku-4-5';
 
 const REPO_ROOT = path.basename(process.cwd()) === 'web' ? path.resolve(process.cwd(), '..') : process.cwd();
 const PYTHON = process.env.FRISKET_E2E_PYTHON ?? path.join(REPO_ROOT, '.venv/bin/python');
@@ -57,7 +60,7 @@ function action(sheetId: number, context: string) {
   };
 }
 /** Prime exact plan keys, never call a provider. Product HTTP/worker paths remain real. */
-function primeEvaluationReplies(projectId: string, sheetId: number): void {
+function primeEvaluationReplies(projectId: string, sheetId: number, alternateModel: boolean): void {
   const workspace = process.env.FRISKET_E2E_WS ?? path.join(os.homedir(), '.frisket/e2e-ws');
   const script = String.raw`
 import asyncio, json, sys
@@ -80,11 +83,13 @@ try:
     values, row_ids = project.get_values(sheet_id, source_id), project.visible_row_ids(sheet_id)
     cache = ResponseCache(project.path / 'project.cache.db')
     adapter = FixtureAdapter()
-    router = ModelRouter(keys={'gemini': 'fixture-only'}, cache=cache, cache_mode='fresh')
+    router = ModelRouter(keys={'gemini': 'fixture-only', 'anthropic': 'fixture-only'}, cache=cache, cache_mode='fresh')
     router._adapters['gemini'] = adapter
+    router._adapters['anthropic'] = adapter
     async def record():
         for variant in variants:
             action['params']['context'] = variant['context']
+            action['params']['model'] = variant.get('model', action['params']['model'])
             plan = build_typed_map_rows_plan(project, typed_action_for_request(action))
             spec = plan.spec_dict()
             if len(row_ids) != len(variant['rows']): raise RuntimeError('Fixture row count changed')
@@ -101,17 +106,30 @@ finally:
     project.close()
 `;
   execFileSync(PYTHON, ['-c', script, workspace, projectId, JSON.stringify(action(sheetId, EVALUATION_VARIANTS[0].context))], {
-    cwd: REPO_ROOT, stdio: 'pipe', timeout: 60_000, input: JSON.stringify(EVALUATION_VARIANTS),
+    cwd: REPO_ROOT, stdio: 'pipe', timeout: 60_000, input: JSON.stringify(alternateModel ? [...EVALUATION_VARIANTS, { ...EVALUATION_VARIANTS[3], context: EVALUATION_VARIANTS[0].context, model: ALTERNATE_REPLAY_MODEL }] : EVALUATION_VARIANTS),
     env: { ...process.env, PYTHONPATH: path.join(REPO_ROOT, 'src') },
   });
 }
-export async function createEvaluationScenario(page: Page) {
+export async function createEvaluationScenario(page: Page, options: { alternateModel?: boolean } = {}) {
   const projectId = await createProject(page.request, uniqueName('e2e-expected-answers'));
   await prepareOwnModelReplay(page.request, projectId);
-  await exposeReplayModel(page, projectId);
+  if (options.alternateModel) {
+    await setProjectModelRoute(page.request, projectId, ALTERNATE_REPLAY_MODEL, 'own');
+    await stubActionSelectorChoices(page, projectId, ({ actionId, field, params }) => {
+      const models = [{ id: REPLAY_MODEL, label: 'Gemini 3.5 Flash-Lite', provider: 'gemini' },
+        { id: ALTERNATE_REPLAY_MODEL, label: 'Claude Haiku 4.5', provider: 'anthropic' }];
+      const groups = models.map(model => ({ id: model.provider, label: model.provider, choices: [{
+        choiceId: model.id, label: model.label, summary: 'Strict replay fixture',
+        authoredSelection: field === 'engine' ? { kind: 'engine_model', engine: 'llm', model: model.id }
+          : { kind: 'model', model: model.id },
+      }] }));
+      return actionSelectorResponse({ projectId, actionId, field, groups,
+        currentChoiceId: typeof params.model === 'string' ? params.model : null });
+    });
+  } else await exposeReplayModel(page, projectId);
   const targetSheetId = await importCsv(page.request, projectId, 'public-notices.csv', EVALUATION_TARGET_CSV);
   const expectedSheetId = await importCsv(page.request, projectId, 'verified-fields.csv', EVALUATION_EXPECTED_CSV);
-  primeEvaluationReplies(projectId, targetSheetId);
+  primeEvaluationReplies(projectId, targetSheetId, options.alternateModel ?? false);
   const baselineRunId = await runAndWait(page.request, projectId, action(targetSheetId, EVALUATION_VARIANTS[0].context));
   const [targetColumns, expectedColumns, data] = await Promise.all([
     sheetColumns(page.request, projectId, targetSheetId), sheetColumns(page.request, projectId, expectedSheetId),
