@@ -39,10 +39,15 @@ are CC0 recordings with their source links in the Council meetings sheet.
 
 Current checkpoint IDs:
 
-- `court-check-text`, `court-extract-settings`, `court-preview`,
+- `court-check-text`, `court-extract-settings`, `court-sample-run`,
   `court-expected-join`, `court-comparison`, `court-run-settings`, `court-results`
 - `council-engine-comparison` (always visible in the recipe),
   `council-transcribe-settings`, `council-timed-transcript`, `council-results`
+
+The court comparison needs a real persisted action with output columns. Select
+the three named sample filings, optionally Preview, then Run on selected before
+joining Expected. A temporary Preview cannot be selected as the action to check.
+Only after comparing this small sample should you run all six filings.
 
 The court comparison joins the imported Expected sheet by original PDF filename
 and maps only the four extraction fields. Use exact text matching and the date

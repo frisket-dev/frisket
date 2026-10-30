@@ -117,16 +117,36 @@
     },
     {
       "id": "preview",
-      "title": "Preview a few filings",
+      "title": "Preview the selected sample (optional)",
       "actionId": "map.extract",
       "settings": [
         {
           "id": "scope",
-          "value": "sample"
+          "value": "selected"
+        }
+      ],
+      "optional": true
+    },
+    {
+      "id": "sample-run",
+      "title": "Extract a small selected sample",
+      "actionId": "map.extract",
+      "settings": [
+        {
+          "id": "scope",
+          "value": "selected"
+        },
+        {
+          "id": "sample-filenames",
+          "value": [
+            "RV-CV-2026-00418_alvarez-v-northstar_complaint.pdf",
+            "RV-CV-2026-00502_water-alliance_records-petition.pdf",
+            "RV-CV-2026-00611_meridian-v-riverton_injunction-motion.pdf"
+          ]
         }
       ],
       "captureIds": [
-        "court-preview"
+        "court-sample-run"
       ]
     },
     {
@@ -206,6 +226,7 @@
     "expectedKind": "independently-authored-answer-key",
     "qualityStatus": "pending-real-run",
     "review": "Compare these four extracted fields against expected.csv and the source PDFs. Other docket columns are companion metadata, not facts to infer from a filing.",
-    "expectedSheet": "Expected"
+    "expectedSheet": "Expected",
+    "sampleRowCount": 3
   }
 }
