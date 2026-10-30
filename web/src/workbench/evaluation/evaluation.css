@@ -20,3 +20,6 @@
 .action-compare-shelved { border-style: dashed; color: var(--text-light); font-style: italic; }
 .comparison-expected-answer { flex: 0 0 auto; max-height: 45%; overflow-y: auto; border-top: 1px solid var(--border); background: var(--green-bg); }
 .comparison-expected-answer textarea { max-height: 100px; resize: vertical; }
+.comparison-try-several { padding: var(--space-16); max-height: 75vh; overflow: auto; }
+.comparison-try-several > label { display: grid; gap: var(--space-6); margin-block: var(--space-10); }
+.comparison-try-several > fieldset { margin-block: var(--space-10); }

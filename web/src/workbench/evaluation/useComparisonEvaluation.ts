@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { EvaluationApi, EvaluationLink, EvaluationRequest, EvaluationResponse, SavedSummary } from '../../api/evaluation';
 import type { ActionCompareSessionSnapshot } from '../actionCompareSession';
 import { comparisonRequest } from './comparisonEvaluation';
+import { isExpectedLinkAvailable } from '../../workspace/expectedLinkAvailability';
 
 function matchingShelf(items: SavedSummary[], columns: ActionCompareSessionSnapshot['context']['output_columns']) {
   const signature = (outputs: typeof columns | SavedSummary['output_columns']) => outputs
@@ -22,9 +23,11 @@ export function useComparisonEvaluation(api: EvaluationApi | undefined, state: A
   const sheetId = state.context.sheet.id;
   const outputColumns = state.context.output_columns;
   const outputIds = useMemo(() => new Set(outputColumns.flatMap((column) => column.column_id ? [column.column_id] : [])), [outputColumns]);
-  const link = links.find((candidate) => candidate.action_id === actionId
-    && candidate.fields.some((field) => outputIds.has(field.output_column_id))) ?? null;
-  const requestKey = JSON.stringify(comparisonRequest(state, link?.id ?? null));
+  const matchesOutputs = (candidate: EvaluationLink) => candidate.action_id === actionId
+    && candidate.fields.some((field) => outputIds.has(field.output_column_id));
+  const available = isExpectedLinkAvailable;
+  const link = links.find((candidate) => matchesOutputs(candidate) && available(candidate)) ?? links.find(matchesOutputs) ?? null;
+  const requestKey = JSON.stringify(comparisonRequest(state, link && available(link) ? link.id : null));
   const request = useMemo<EvaluationRequest>(() => JSON.parse(requestKey), [requestKey]);
   const scoreKey = `${dataRevision}:${generation}:${requestKey}`;
   const loading = Boolean(api && request.variants.length && scoreState.key !== scoreKey);

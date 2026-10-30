@@ -398,6 +398,9 @@ export function createActionCompareSession(
   function retryVariant(variantId: string): boolean {
     const current = snapshot.variants.find((variant) => variant.id === variantId);
     if (!current || current.readOnly || !['failed', 'cancelled', 'unavailable'].includes(current.status)) return false;
+    if (current.savedId !== undefined) {
+      void dependencies.discardCaptured?.(current.savedId).then(() => capturedIds.delete(current.savedId!)).catch(() => undefined);
+    }
     return replaceVariant(variantId, (variant) => ({ ...variant, status: 'pending', previewId: null, previewIds: [], savedId: undefined, error: null }));
   }
 

@@ -6,27 +6,27 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { EvaluationResponse } from '../../src/api/evaluation';
 import type { ActionCompareSession, ActionCompareSessionSnapshot, ActionCompareVariant } from '../../src/workbench/actionCompareSession';
 import { TrySeveral } from '../../src/workbench/evaluation/TrySeveral';
+import { installDialogPolyfill } from '../support/domPolyfills';
+import type { GridViewportProps } from '../../src/grid/GridViewport';
 
-type MockGridProps = {
-  columns: Array<{ title: string }>; rows: number;
-  getCellContent(item: [number, number]): { displayData: string };
-  onCellClicked?(item: [number, number]): void;
-};
+installDialogPolyfill();
+
+
 
 vi.mock('../../src/grid/GridViewport', () => ({
-  GridViewport: ({ columns, rows, getCellContent, onCellClicked }: MockGridProps) => <div data-testid="matrix">
+  GridViewport: ({ columns, rows, getCellContent, onCellClicked }: Pick<GridViewportProps, 'columns' | 'rows' | 'getCellContent' | 'onCellClicked'>) => <div data-testid="matrix">
     {Array.from({ length: rows }, (_, row) => columns.map((column: { title: string }, col: number) =>
-      <button type="button" key={`${row}-${col}`} onClick={() => onCellClicked?.([col, row])}>
-        {column.title}: {getCellContent([col, row]).displayData}
+      <button type="button" key={`${row}-${col}`} onClick={() => onCellClicked?.([col, row], {} as never)}>
+        {column.title}: {String((getCellContent([col, row]) as { displayData?: string }).displayData ?? '')}
       </button>))}
   </div>,
 }));
 
 afterEach(cleanup);
 
-function fixture(capacity = 8, response: EvaluationResponse | null = null) {
+function fixture(capacity = 8, response: EvaluationResponse | null = null, modelField = 'model') {
   const draft = { action_id: 'map.extract', scope: { kind: 'sheet_rows', sheet_id: 1 },
-    params: { source: 'body', model: 'model-a', instructions: 'original' }, output_names: { result: 'result' } };
+    params: { source: 'body', model: 'model-a', instructions: 'original', ...(modelField === 'engine' ? { engine: 'local', execution_target: 'local', provider_ref: 'old-provider' } : {}) }, output_names: { result: 'result' } };
   let snapshot = { context: { available: true, limits: { max_challengers: capacity } },
     variants: [{ id: 'baseline', displayKey: 'A', label: 'Current', baseline: true, draft, status: 'current' }],
     sequenceStatus: 'idle' } as unknown as ActionCompareSessionSnapshot;
@@ -50,11 +50,12 @@ function fixture(capacity = 8, response: EvaluationResponse | null = null) {
   const onUse = vi.fn();
   const Editor = ({ session: live }: { session: ActionCompareSession }) => {
     const state = useSyncExternalStore(live.subscribe, live.getSnapshot, live.getSnapshot);
-    return <TrySeveral session={live} state={state} response={response} modelField="model" instructionsField="instructions"
+    return <TrySeveral session={live} state={state} response={response} modelField={modelField} instructionsField="instructions"
       onOpenVariant={onOpenVariant} onUse={onUse} onClose={vi.fn()}
       renderVariantEditor={({ label, draft: value, onDraftChange, lockedParams }) => <label>{label}
-        <input aria-label={label} value={String(value.params.model)}
-          onChange={event => onDraftChange({ ...value, params: { ...value.params, model: event.target.value, source: 'tampered' } })} />
+        <input aria-label={label} value={String(value.params[modelField])}
+          onChange={event => onDraftChange({ ...value, params: { ...value.params, [modelField]: event.target.value, source: 'tampered',
+            ...(modelField === 'engine' ? { model: 'chosen/model', execution_target: 'remote', provider_ref: 'chosen-provider' } : {}) } })} />
         <span>{lockedParams.join(',')}</span>
       </label>} />;
   };
@@ -62,6 +63,15 @@ function fixture(capacity = 8, response: EvaluationResponse | null = null) {
 }
 
 describe('Try several', () => {
+  it('keeps the complete engine and model choice from the normal editor', () => {
+    const { session, Editor } = fixture(8, null, 'engine');
+    render(<Editor session={session} />);
+    expect(screen.getByRole('dialog', { name: 'Try several values' })).toBeVisible();
+    fireEvent.change(screen.getByLabelText('Model 1'), { target: { value: 'litellm' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Run 1 combinations' }));
+    expect(session.getSnapshot().variants[1].draft.params).toMatchObject({ engine: 'litellm', model: 'chosen/model',
+      execution_target: 'remote', provider_ref: 'chosen-provider', source: 'body', instructions: 'original' });
+  });
   it('creates all model and instruction combinations using the normal run', () => {
     const { session, runPending, Editor } = fixture();
     render(<Editor session={session} />);

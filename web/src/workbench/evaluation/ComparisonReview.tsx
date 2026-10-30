@@ -14,7 +14,7 @@ export interface ComparisonReviewProps {
   mode: 'inspect' | 'score' | 'disagreements';
   groups: Array<{ key: string; answerText: string; variantKeys: string[];
     verdict: 'match' | 'miss' | 'not_checked' | 'to_score' | 'failed' | 'not_run' | 'ruled_out';
-    canSelect?: boolean; field?: ReviewBundleField; valueContent?: ReactNode }>;
+    canSelect?: boolean; field?: ReviewBundleField; valueContent?: ReactNode; variantNotes?: string }>;
   expectedValue: string;
   expectedField?: ReviewBundleField;
   expectedContent?: ReactNode;
@@ -88,6 +88,7 @@ function ComparisonReviewRow(p: ComparisonReviewProps) {
             <button type="button" className={styles.fieldSelect} aria-label={`Answer ${index + 1}, variants ${group.variantKeys.join(", ")}, ${verdictLabels[group.verdict]}`} aria-pressed={index === selected} onClick={() => setSelected(index)}>
               <span className={styles.fieldHeading}><strong>Answer {index + 1}</strong>
                 {group.variantKeys.map((key) => <small key={key}>{key}</small>)} <small>{verdictLabels[group.verdict]}</small></span>
+              {group.variantNotes && <small>{group.variantNotes}</small>}
             </button>
             <div className={styles.verdict} role="group" aria-label={`Decision for answer ${index + 1}`}>
               <button type="button" className={styles.accept} aria-label={`Accept answer ${index + 1}`} title="Accept (← or A)"
@@ -104,7 +105,7 @@ function ComparisonReviewRow(p: ComparisonReviewProps) {
             {p.mode !== 'disagreements' && <button type="button" className={styles.textButton} aria-label="Edit expected answer"
               disabled={p.busy || p.expectedEditable === false || Boolean(p.expectedField?.boundedValue)} onClick={() => setEditing(!editing)}><Pencil size={14} /></button>}
             {showEditor && p.expectedEditable !== false && !p.expectedField?.boundedValue ? <div className={styles.editor}>
-              <textarea className="form-input form-textarea" aria-label="Expected answer" value={p.expectedValue} disabled={p.busy}
+              <textarea className="form-input form-textarea" aria-label="Expected answer" value={p.expectedValue}
                 onChange={(event) => p.onExpectedChange(event.target.value)} />
             </div> : <div className={styles.value}>{p.expectedContent ?? (p.expectedField ? <ReviewValue field={p.expectedField} /> : p.expectedValue || <em>Not checked</em>)}</div>}
             {p.expectedField?.boundedValue && <p className={styles.editUnavailable}>Only an excerpt is shown; editing is unavailable.</p>}

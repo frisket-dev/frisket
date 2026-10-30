@@ -51,6 +51,9 @@ it('offers expected editing in scoring mode and disables actions while busy', ()
   expect(screen.getByLabelText('Expected answer')).toHaveValue('100');
   rerender(<ComparisonReview {...p} busy />);
   expect(screen.getByRole('button', { name: 'Accept answer 1' })).toBeDisabled();
+  expect(screen.getByLabelText('Expected answer')).toBeEnabled();
+  fireEvent.change(screen.getByLabelText('Expected answer'), { target: { value: 'Still typing' } });
+  expect(p.onExpectedChange).toHaveBeenCalledWith('Still typing');
 });
 
 it('renders bounded values without offering to copy or edit an excerpt', () => {

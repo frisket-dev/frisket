@@ -4,6 +4,7 @@ import type { EvaluationResponse } from '../../api/evaluation';
 import type { GeneratedActionDraft } from '../../api/types';
 import { Button } from '../../components/Button';
 import { PanelSelect } from '../../components/PanelSelect';
+import { Modal } from '../../components/Modal';
 import { GridViewport } from '../../grid/GridViewport';
 import type { ActionCompareVariantEditorRenderProps } from '../ActionCompareTab';
 import type { ActionCompareSession, ActionCompareSessionSnapshot, ActionCompareUseSettings } from '../actionCompareSession';
@@ -18,15 +19,25 @@ export interface TrySeveralProps {
   onOpenVariant(variantId: string): void;
   onUse(selection: ActionCompareUseSettings): void;
   onClose(): void;
+  scoring?: boolean;
 }
 
 type Model = { id: number; draft: GeneratedActionDraft };
 type Instructions = { id: number; value: string };
 const cellKey = (model: number, instruction: number) => `${model}:${instruction}`;
+const routingFields = (modelField: string) => new Set([modelField, 'model', 'engine', 'provider', 'provider_ref', 'execution_target']);
+function selectedModelDraft(baseline: GeneratedActionDraft, selected: GeneratedActionDraft, modelField: string): GeneratedActionDraft {
+  const params = { ...baseline.params };
+  for (const key of routingFields(modelField)) {
+    if (key in selected.params) params[key] = selected.params[key];
+    else delete params[key];
+  }
+  return { ...baseline, params };
+}
 
 /** The matrix creates ordinary session variants; the session owns execution and consent. */
 export function TrySeveral({ session, state, response, modelField, instructionsField,
-  renderVariantEditor, onOpenVariant, onUse, onClose }: TrySeveralProps) {
+  renderVariantEditor, onOpenVariant, onUse, onClose, scoring = false }: TrySeveralProps) {
   const baseline = state.variants[0];
   const [models, setModels] = useState<Model[]>(() => [{ id: 0, draft: baseline.draft }]);
   const [instructions, setInstructions] = useState<Instructions[]>(() => [{
@@ -69,7 +80,7 @@ export function TrySeveral({ session, state, response, modelField, instructionsF
       return verdict === 'match' || verdict === 'miss';
     }) ?? [];
   });
-  const comparable = scopes.length > 0 && scopes[0].length > 0
+  const comparable = !scoring && scopes.length > 0 && scopes[0].length > 0
     && scores.every(score => score?.accuracy != null && score.remaining === 0)
     && scopes.every(scope => scope.length === scopes[0].length && scope.every((rowId, index) => rowId === scopes[0][index]));
   const bestScore = comparable ? Math.max(...scores.map(score => score!.accuracy!)) : null;
@@ -82,7 +93,7 @@ export function TrySeveral({ session, state, response, modelField, instructionsF
     const model = models[row];
     const instruction = instructions[column - 1];
     let text = '';
-    if (column === 0) text = String(model?.draft.params[modelField] ?? '');
+    if (column === 0) text = `${String(model?.draft.params[modelField] ?? '')}${modelField !== 'model' && model?.draft.params.model ? ` · ${String(model.draft.params.model)}` : ''}`;
     else if (model && instruction) {
       const key = cellKey(model.id, instruction.id);
       const id = created?.[key];
@@ -114,8 +125,7 @@ export function TrySeveral({ session, state, response, modelField, instructionsF
         return;
       }
       added[key] = id;
-      const draft = { ...baseline.draft, params: { ...baseline.draft.params,
-        [modelField]: model.draft.params[modelField], [instructionsField]: instruction.value } };
+      const draft = { ...model.draft, params: { ...model.draft.params, [instructionsField]: instruction.value } };
       if (!session.updateVariant(id, draft)) {
         Object.values(added).forEach(variantId => session.removeVariant(variantId));
         setError('Could not update all combinations. No combinations were run.');
@@ -126,15 +136,14 @@ export function TrySeveral({ session, state, response, modelField, instructionsF
     setError('');
     void session.runPending();
   }
-  return <section aria-label="Try several values">
-    <header><h2>Try several values</h2><Button type="button" onClick={onClose}>Close</Button></header>
+  return <Modal title="Try several values" onClose={onClose} closeLabel="Close try several" size="wide" testId="comparison-try-several"><section className="comparison-try-several" aria-label="Try several values">
     <p>Choose models and instructions, then run the selected combinations. This also runs other pending variants.</p>
     <fieldset disabled={locked}><legend>Models</legend>{models.map((model, index) => <div key={model.id}>
       {renderVariantEditor?.({ variantId: `try-several-model-${model.id}`, label: `Model ${index + 1}`,
-        draft: model.draft, lockedParams: Object.keys(baseline.draft.params).filter(key => key !== modelField),
+        draft: model.draft, lockedParams: Object.keys(baseline.draft.params).filter(key => !routingFields(modelField).has(key)),
         structureLocked: true, lockReason: 'Fixed for this comparison',
         onDraftChange: draft => setModels(previous => previous.map(item => item.id === model.id
-          ? { ...item, draft: { ...baseline.draft, params: { ...baseline.draft.params, [modelField]: draft.params[modelField] } } } : item)),
+          ? { ...item, draft: selectedModelDraft(baseline.draft, draft, modelField) } : item)),
         onDuplicate: () => {}, onDismiss: () => {},
       })}
     </div>)}</fieldset>
@@ -171,5 +180,5 @@ export function TrySeveral({ session, state, response, modelField, instructionsF
       if (selection) onUse(selection);
     }}>Use best</Button>}
     {error && <p role="alert">{error}</p>}
-  </section>;
+  </section></Modal>;
 }

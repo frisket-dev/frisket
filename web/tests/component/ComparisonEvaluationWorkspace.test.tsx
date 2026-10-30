@@ -39,31 +39,94 @@ function result(joined = true, two = false): EvaluationResponse {
 function fakeApi(response: EvaluationResponse): EvaluationApi {
   return { getLinks: vi.fn(async () => ({ links: response.link ? [response.link] : [] })), getShelf: vi.fn(async () => ({ items: [] })),
     score: vi.fn(async () => response), saveShelf: vi.fn(async () => ({ items: [] })),
+    setJudgment: vi.fn(async () => response),
+    deleteLink: vi.fn(async () => { response.link = null; }),
     saveExpectedAnswer: vi.fn(async (input) => { response.link = link; response.expected = { 101: { answer: input.value } }; return link; }),
     setRule: vi.fn(async (id, rule) => { link.fields[0].rule = rule; return { expected_column_id: id, rule }; }),
   } as unknown as EvaluationApi;
 }
-async function setup({ joined = true, two = false } = {}) {
+async function setup({ joined = true, two = false, bestB = false, hand = false, stale = false, unavailable = false, secondField = false } = {}) {
   const response = result(joined, two);
+  if (bestB) response.best.answer = ['B'];
+  if (hand && response.link) {
+    response.link = { ...response.link, fields: response.link.fields.map((field) => ({ ...field, rule: 'hand' })) };
+    response.variants[0].verdicts['101'].answer = 'unscored';
+    response.variants[0].scores.answer = { ...response.variants[0].scores.answer, remaining: 1, scored: 0, accuracy: null };
+  }
+  if (stale) {
+    response.variants[1].rows['101'].answer.value = 'A';
+    response.variants[1].verdicts['101'].answer = 'match';
+    (response.variants[1] as typeof response.variants[number] & { stale_source_row_ids: number[] }).stale_source_row_ids = [101];
+  }
+  if (unavailable && response.link) response.link = { ...response.link, available: false, unavailable_reason: 'Sheet hidden' } as EvaluationLink;
   const api = fakeApi(response);
   const runVariant = vi.fn(async ({ onCaptured }: { onCaptured?(id: number): void }) => {
     onCaptured?.(42); return { status: 'ready' as const, previewId: 'preview-B', result: { rows: { 101: { answer: { state: 'value' as const, value: 'B' } } } } };
   });
-  const session = createActionCompareSession({ context: seed() }, { runVariant });
+  const context = seed();
+  if (secondField) context.output_columns.push({ ...context.output_columns[0], logical_key: 'other', current_name: 'other', column_id: 14 });
+  const session = createActionCompareSession({ context }, { runVariant });
   if (two) { session.addVariant(); await session.runPending(); }
   const onJoinExpected = vi.fn(); const changed = vi.fn();
-  function Host() {
+  function Host({ revision = 0 }: { revision?: number }) {
     const state = useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot);
     return <ComparisonEvaluationWorkspace api={api} state={state} session={session} initialLens={joined ? 'expected' : 'each_other'}
-      onJoinExpected={onJoinExpected} onExpectedAnswersChanged={changed} onOpenVariant={vi.fn()} onUseSettings={vi.fn()}
+      dataRevision={revision} onJoinExpected={onJoinExpected} onExpectedAnswersChanged={changed} onOpenVariant={vi.fn()} onUseSettings={vi.fn()}
       renderGrid={(evaluation) => <button onClick={() => evaluation.onOpenRow(101)}>Open row</button>} />;
   }
-  render(<Host />);
+  const view = render(<Host />);
   await waitFor(() => expect(api.score).toHaveBeenCalled());
-  return { api, session, runVariant, response, onJoinExpected, changed };
+  return { api, session, runVariant, response, onJoinExpected, changed, rerenderRevision: (revision: number) => view.rerender(<Host revision={revision} />) };
 }
 
 describe('comparison evaluation workspace', () => {
+  it('keeps a failed expected edit open instead of changing fields', async () => {
+    const { api } = await setup({ secondField: true });
+    vi.mocked(api.saveExpectedAnswer).mockRejectedValue(new Error('Cannot save this edit'));
+    fireEvent.click(screen.getByRole('button', { name: 'Open row' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Edit expected answer' })).toHaveProperty('disabled', false));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit expected answer' }));
+    fireEvent.change(screen.getByLabelText('Expected answer'), { target: { value: 'Changed' } });
+    fireEvent.click(screen.getByRole('button', { name: 'other' }));
+    expect((await screen.findAllByText('Cannot save this edit')).length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: 'answer' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByLabelText('Expected answer')).toHaveProperty('value', 'Changed');
+  });
+  it('keeps an unavailable expected source editable and deletable without scoring its broken link', async () => {
+    const { api, onJoinExpected } = await setup({ unavailable: true });
+    expect(await screen.findByText(/Expected answers · Verified answers: Sheet hidden/)).toBeTruthy();
+    expect(api.score).toHaveBeenLastCalledWith(expect.objectContaining({ link_id: null }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit join…' }));
+    expect(onJoinExpected).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove link' }));
+    await waitFor(() => expect(api.deleteLink).toHaveBeenCalledWith(1));
+  });
+  it('shows mixed eligibility within a shared answer and judges only the current source', async () => {
+    const { api } = await setup({ two: true, hand: true, stale: true });
+    fireEvent.click(await screen.findByRole('button', { name: 'Open row' }));
+    expect(await screen.findByText('A · To score · B · Source changed')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Accept answer 1' }));
+    await waitFor(() => expect(api.setJudgment).toHaveBeenCalledTimes(1));
+    expect(api.setJudgment).toHaveBeenCalledWith(expect.objectContaining({ variant_key: 'A', row_id: 101 }));
+  });
+  it('refreshes on external data revision and disables stale winner actions while waiting', async () => {
+    const { api, rerenderRevision } = await setup({ two: true, bestB: true });
+    await screen.findByRole('button', { name: 'Use B…' });
+    const initialScores = vi.mocked(api.score).mock.calls.length;
+    const initialLinks = vi.mocked(api.getLinks).mock.calls.length;
+    rerenderRevision(0);
+    expect(api.score).toHaveBeenCalledTimes(initialScores);
+    expect(api.getLinks).toHaveBeenCalledTimes(initialLinks);
+    let resolve!: (response: EvaluationResponse) => void;
+    vi.mocked(api.score).mockImplementation(() => new Promise((done) => { resolve = done; }));
+    rerenderRevision(1);
+    await waitFor(() => expect(api.score).toHaveBeenCalledTimes(initialScores + 1));
+    expect(screen.getByRole('button', { name: 'Use B…' })).toHaveProperty('disabled', true);
+    expect(screen.getByRole('button', { name: 'Best misses' })).toHaveProperty('disabled', true);
+    expect(screen.getByRole('button', { name: 'Results' })).toHaveProperty('disabled', true);
+    resolve(result(true, true));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Results' })).toHaveProperty('disabled', false));
+  });
   it('scores a current-values baseline without executing an action', async () => {
     const { api, runVariant } = await setup();
     await screen.findByRole('button', { name: 'Results' });
