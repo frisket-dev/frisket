@@ -97,7 +97,10 @@ test('documentation: table import and the file and URL entry modes', async ({ pa
     await expect(page.getByTestId('grid')).toBeVisible();
     const result = await sheetData(page.request, pid, sheet);
     expect(result.columns.map(column => column.name)).toContain('case_number');
-    captures.push(await captureCheckpoint(page, { id: 'import-table-result', annotations: [] }, stage));
+    await openProject(page, pid, sheet);
+    await expect(page.getByTestId('sheet-stats')).toContainText('6 rows');
+    await expect(page.getByText('Loading grid…')).toHaveCount(0, { timeout: 30_000 });
+    captures.push(await captureCheckpoint(page, { id: 'import-table-result', root: page.getByTestId('workbench-region-mainView'), annotations: [] }, stage));
     return captures;
   });
 });
