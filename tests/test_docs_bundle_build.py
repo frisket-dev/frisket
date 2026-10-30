@@ -230,6 +230,52 @@ def test_extra_reference_capture_is_published(inputs):
     ).read_bytes()
 
 
+def test_extra_fixture_capture_is_published_with_provenance(inputs):
+    directory, bundle = add_reference_capture(inputs)
+    del bundle["sample"]
+    bundle["fixture"] = {"id": "search-workflows-fixture", "revision": 1}
+    write_json(directory / "bundle.json", bundle)
+    module.build_bundle(**inputs)
+    result = json.loads((inputs["output"] / "guideBundle.json").read_text())
+    capture = next(c for c in result["captures"] if c["id"] == "ocr-reference")
+    assert capture["fixture"] == bundle["fixture"]
+    assert "sample" not in capture
+    assert result["samples"] == [{"id": "filing", "revision": 1}]
+    assert (inputs["output"] / capture["image"].lstrip("/")).read_bytes() == PNG
+
+
+@pytest.mark.parametrize("failure", ["missing", "both", "id", "revision", "bool"])
+def test_invalid_fixture_provenance_is_rejected(inputs, failure):
+    directory, bundle = add_reference_capture(inputs)
+    bundle["fixture"] = {"id": "search-workflows-fixture", "revision": 1}
+    if failure != "both":
+        del bundle["sample"]
+    if failure == "missing":
+        del bundle["fixture"]
+    elif failure == "id":
+        bundle["fixture"]["id"] = "bad/id"
+    elif failure == "revision":
+        bundle["fixture"]["revision"] = 0
+    elif failure == "bool":
+        bundle["fixture"]["revision"] = True
+    write_json(directory / "bundle.json", bundle)
+    with pytest.raises(ValueError):
+        module.build_bundle(**inputs)
+    assert not inputs["output"].exists()
+    assert not list(inputs["output"].parent.glob(".output-*"))
+
+
+def test_fixture_cannot_supply_recipe_capture(inputs):
+    directory = inputs["captures"][0]
+    path = directory / "bundle.json"
+    bundle = json.loads(path.read_text())
+    bundle["fixture"] = bundle.pop("sample")
+    write_json(path, bundle)
+    with pytest.raises(ValueError, match="Capture sample mismatch"):
+        module.build_bundle(**inputs)
+    assert not inputs["output"].exists()
+
+
 @pytest.mark.parametrize("failure", ["sample", "revision", "image", "duplicate"])
 def test_invalid_extra_reference_capture_fails_closed(inputs, failure):
     directory, bundle = add_reference_capture(inputs)
