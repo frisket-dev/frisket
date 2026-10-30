@@ -80,6 +80,7 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
   const saveExpected = useCallback(async (write: { rowId: number; field: string; value: JsonValue; rule: EvaluationRule }) => {
+    if (!linkRef.current && (write.value === null || write.value === '')) return true;
     const result = await mutate(() => api.saveExpectedAnswer({ basis,
       link_id: linkRef.current?.id ?? null, row_id: write.rowId, logical_key: write.field, value: write.value, rule: write.rule }));
     if (result) { linkRef.current = result; setLink(result); onExpectedAnswersChanged?.(); }

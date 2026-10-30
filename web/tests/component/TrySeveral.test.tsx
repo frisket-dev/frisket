@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { useSyncExternalStore } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { EvaluationResponse } from '../../src/api/evaluation';
 import type { ActionCompareSession, ActionCompareSessionSnapshot, ActionCompareVariant } from '../../src/workbench/actionCompareSession';
@@ -50,8 +50,10 @@ function fixture(capacity = 8, response: EvaluationResponse | null = null, model
   const onUse = vi.fn();
   const Editor = ({ session: live }: { session: ActionCompareSession }) => {
     const state = useSyncExternalStore(live.subscribe, live.getSnapshot, live.getSnapshot);
+    const [open, setOpen] = useState(true);
+    if (!open) return null;
     return <TrySeveral session={live} state={state} response={response} modelField={modelField} instructionsField="instructions"
-      onOpenVariant={onOpenVariant} onUse={onUse} onClose={vi.fn()}
+      onOpenVariant={onOpenVariant} onUse={onUse} onClose={() => setOpen(false)}
       renderVariantEditor={({ label, draft: value, onDraftChange, lockedParams }) => <label>{label}
         <input aria-label={label} value={String(value.params[modelField])}
           onChange={event => onDraftChange({ ...value, params: { ...value.params, [modelField]: event.target.value, source: 'tampered',
@@ -118,10 +120,11 @@ describe('Try several', () => {
     expect(screen.getAllByText(/100% ★/)).toHaveLength(2);
     fireEvent.click(screen.getAllByText(/100% ★/)[1]);
     expect(onOpenVariant).toHaveBeenCalledWith('v2');
-    fireEvent.click(screen.getByRole('button', { name: 'Use best' }));
-    expect(onUse).toHaveBeenCalledWith({ variantId: 'v1' });
     expect(screen.getByRole('option', { name: 'essay' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Use best' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Use best' }));
+    expect(onUse).toHaveBeenCalledWith({ variantId: 'v1' });
+    expect(screen.queryByRole('dialog', { name: 'Try several values' })).not.toBeInTheDocument();
   });
 
   it('does not choose a winner from unequal coverage', () => {

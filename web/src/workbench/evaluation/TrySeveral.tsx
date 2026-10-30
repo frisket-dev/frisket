@@ -177,7 +177,7 @@ export function TrySeveral({ session, state, response, modelField, instructionsF
       <Button type="button" disabled={locked || !renderVariantEditor || !selected.length || selected.length > capacity} onClick={run}>Run {selected.length} combinations</Button></>}
     {created && <Button type="button" disabled={!bestIds.length} onClick={() => {
       const selection = bestIds.length ? session.useVariant(bestIds[0]) : null;
-      if (selection) onUse(selection);
+      if (selection) { onClose(); onUse(selection); }
     }}>Use best</Button>}
     {error && <p role="alert">{error}</p>}
   </section></Modal>;

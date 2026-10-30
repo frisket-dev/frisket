@@ -80,6 +80,15 @@ async function setup({ joined = true, two = false, bestB = false, hand = false, 
 }
 
 describe('comparison evaluation workspace', () => {
+  it('leaves a new expected answer blank without creating a source sheet', async () => {
+    const { api } = await setup({ joined: false, two: true });
+    fireEvent.click(await screen.findByRole('button', { name: 'Variants disagree · 1' }));
+    fireEvent.change(screen.getByLabelText('Expected answer'), { target: { value: 'draft' } });
+    fireEvent.change(screen.getByLabelText('Expected answer'), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.queryByTestId('comparison-review')).toBeNull());
+    expect(api.saveExpectedAnswer).not.toHaveBeenCalled();
+  });
   it('keeps a failed expected edit open instead of changing fields', async () => {
     const { api } = await setup({ secondField: true });
     vi.mocked(api.saveExpectedAnswer).mockRejectedValue(new Error('Cannot save this edit'));

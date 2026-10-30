@@ -231,15 +231,17 @@ export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, froze
   const columns = useMemo<GridColumn[]>(() => projectedColumns.map((projected) => {
     const output = projected.kind === 'output';
     const icon = output
-      ? variantBadgeIconName(projected.variant.displayKey) ?? 'aiBolt'
+      ? evaluation?.lens === 'expected' ? undefined : variantBadgeIconName(projected.variant.displayKey) ?? 'aiBolt'
       : typeHeaderIcon(projected.column.type);
     return {
       id: projected.id,
       title: output
-        ? `${variantBadgeIconName(projected.variant.displayKey) ? '' : `${projected.variant.displayKey} · `}${labelForDraft?.(
+        ? evaluation?.lens === 'expected'
+          ? `${projected.variant.displayKey} · ${scoreLabel(evaluation.response?.variants.find((variant) => variant.key === projected.variant.displayKey)?.scores[projected.logicalKey]?.accuracy)}`
+          : `${variantBadgeIconName(projected.variant.displayKey) ? '' : `${projected.variant.displayKey} · `}${labelForDraft?.(
           projected.variant.draft,
           projected.variant.displayKey,
-        ) ?? projected.variant.label}${evaluation?.lens === 'expected' ? ` · ${scoreLabel(evaluation.response?.variants.find((variant) => variant.key === projected.variant.displayKey)?.scores[projected.logicalKey]?.accuracy)}` : ''}`
+        ) ?? projected.variant.label}`
         : projected.kind === 'expected' ? `expected · ${evaluation?.response?.link?.fields.find((field) => field.logical_key === projected.logicalKey)?.rule ?? 'exact'}` : projected.column.name,
       group: projected.kind !== 'source' ? `${OUTPUT_GROUP_PREFIX}${projected.logicalKey}` : SOURCE_GROUP,
       width: widths[projected.id] ?? (output ? DEFAULT_OUTPUT_WIDTH : DEFAULT_SOURCE_WIDTH),

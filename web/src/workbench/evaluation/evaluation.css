@@ -18,8 +18,11 @@
 .comparison-results-grid { min-width: 0; margin: var(--space-12); }
 .comparison-dialog-copy { padding: var(--space-12); }
 .action-compare-shelved { border-style: dashed; color: var(--text-light); font-style: italic; }
-.comparison-expected-answer { flex: 0 0 auto; max-height: 45%; overflow-y: auto; border-top: 1px solid var(--border); background: var(--green-bg); }
+.comparison-expected-answer { flex: 0 1 40%; min-height: 84px; max-height: 40%; overflow-y: auto; padding: 10px 12px; border-top: 1px solid var(--border); background: var(--green-bg); }
 .comparison-expected-answer textarea { max-height: 100px; resize: vertical; }
+.comparison-answer-list { min-height: 96px; }
+.comparison-review-footer { padding: 6px 12px; }
+.comparison-review-footer > p { margin-top: 4px; }
 .comparison-try-several { padding: var(--space-16); max-height: 75vh; overflow: auto; }
 .comparison-try-several > label { display: grid; gap: var(--space-6); margin-block: var(--space-10); }
 .comparison-try-several > fieldset { margin-block: var(--space-10); }

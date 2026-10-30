@@ -83,7 +83,7 @@ function ComparisonReviewRow(p: ComparisonReviewProps) {
       {p.source}
       <section className={styles.results} aria-label="Comparison answers">
         <div className={styles.resultsHeader}>Results <span>{p.fieldLabel} · row {p.rowId}</span></div>
-        <div className={styles.fields} role="region" aria-label="Distinct answers">
+        <div className={`${styles.fields} comparison-answer-list`} role="region" aria-label="Distinct answers">
           {p.groups.map((group, index) => <section key={group.key} className={styles.field} data-selected={index === selected}>
             <button type="button" className={styles.fieldSelect} aria-label={`Answer ${index + 1}, variants ${group.variantKeys.join(", ")}, ${verdictLabels[group.verdict]}`} aria-pressed={index === selected} onClick={() => setSelected(index)}>
               <span className={styles.fieldHeading}><strong>Answer {index + 1}</strong>
@@ -115,7 +115,7 @@ function ComparisonReviewRow(p: ComparisonReviewProps) {
               </select>
             </label>
           </section>
-        <footer className={styles.footer}><div className={styles.footerButtons}>
+        <footer className={`${styles.footer} comparison-review-footer`}><div className={styles.footerButtons}>
           <span>{p.position} of {p.total}</span><Button disabled={p.busy || p.position >= p.total} onClick={p.onNext}>Next row <ChevronRight size={14} /></Button>
         </div><p className={styles.shortcuts}><kbd>↑↓</kbd> / <kbd>W S</kbd> answer · <kbd>←</kbd>/<kbd>A</kbd> yes · <kbd>→</kbd>/<kbd>D</kbd> no</p></footer>
       </section>
