@@ -16,6 +16,7 @@ import { answerText, disagreementRows, expectedValueFromText, filteredEvaluation
 import { useComparisonEvaluation } from './useComparisonEvaluation';
 import { TrySeveral } from './TrySeveral';
 import { FocusedAnswerValue } from './FocusedAnswerValue';
+import { ComparisonAnswerValue } from './ComparisonAnswerValue';
 import './evaluation.css';
 
 export interface ComparisonEvaluationWorkspaceProps {
@@ -147,10 +148,11 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
     const verdict = activeDraft ? matchAnswer(rule, expectedValue, group.value, { state: group.failed ? 'error' : group.canSelect ? 'value' : 'missing' }) : group.verdict;
     const isRejected = !expectedText && rejected.has(`${queueRow}:${field}:${group.key}`);
     return { key: group.key, answerText: group.answerText, variantKeys: group.variantKeys,
-      verdict: group.failed ? 'failed' as const : isRejected ? 'miss' as const
+      verdict: group.failed ? 'failed' as const : isRejected ? 'ruled_out' as const
         : verdict === 'unchecked' ? 'not_checked' as const : verdict === 'unscored' ? 'to_score' as const : verdict,
       canSelect: group.canSelect && (queue?.mode === 'disagreements' || rule === 'hand'),
-      ...(group.bounded ? { valueContent: loaded?.cells[group.key] ? <FocusedAnswerValue text={group.answerText} /> : <><p>{group.answerText}</p><small>Loading full answer…</small></> } : {}),
+      ...(group.bounded ? { valueContent: loaded?.cells[group.key] ? <FocusedAnswerValue text={group.answerText} /> : <><p>{group.answerText}</p><small>Loading full answer…</small></> }
+        : group.canSelect && queueRow !== undefined ? { valueContent: <ComparisonAnswerValue state={p.state} rowId={queueRow} field={field} value={group.value} /> } : {}),
     };
   });
 
@@ -257,7 +259,8 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
       {queueRow === undefined ? <div className="comparison-empty-queue"><p>{queue.mode === 'disagreements' ? 'No disagreements in this field.' : queue.filter === 'to_score' ? 'No answers left to score.' : 'No misses in this field.'}</p><Button onClick={() => void closeQueue()}>Back to comparison</Button></div>
         : <ComparisonReview fieldLabel={currentField?.current_name ?? field} rowId={queueRow} position={queueRows.indexOf(queueRow) + 1} total={queueRows.length}
           mode={queue.mode} groups={reviewGroups} expectedValue={expectedText} rule={rule} busy={e.saving} error={e.error}
-          expectedContent={boundedExpected ? loaded?.expected ? <FocusedAnswerValue text={expectedText} /> : <p>Loading full expected answer…</p> : undefined}
+          expectedContent={boundedExpected ? loaded?.expected ? <FocusedAnswerValue text={expectedText} /> : <p>Loading full expected answer…</p>
+            : expectedValue != null && expectedValue !== '' ? <ComparisonAnswerValue state={p.state} rowId={queueRow} field={field} value={expectedValue} /> : undefined}
           expectedEditable={!boundedExpected}
           source={<ComparisonSources state={p.state} rowId={queueRow} field={field} />}
           onExpectedChange={expectedChanged} onRuleChange={(next) => void changeRule(next)} onAccept={(key) => void decide(key, true)} onReject={(key) => void decide(key, false)}

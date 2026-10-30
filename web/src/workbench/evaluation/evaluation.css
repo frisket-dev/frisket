@@ -18,3 +18,5 @@
 .comparison-results-grid { min-width: 0; margin: var(--space-12); }
 .comparison-dialog-copy { padding: var(--space-12); }
 .action-compare-shelved { border-style: dashed; color: var(--text-light); font-style: italic; }
+.comparison-expected-answer { flex: 0 0 auto; max-height: 45%; overflow-y: auto; border-top: 1px solid var(--border); background: var(--green-bg); }
+.comparison-expected-answer textarea { max-height: 100px; resize: vertical; }

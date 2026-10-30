@@ -17,6 +17,7 @@ it('shows grouped answers and keeps rejection separate from expected answer', ()
   const p = props(); render(<ComparisonReview {...p} />);
   expect(screen.getByText('Source document')).toBeVisible();
   expect(screen.getByRole('button', { name: /Answer 1, variants A, B/ })).toBeVisible();
+  expect(screen.getByRole('region', { name: 'Distinct answers' })).not.toContainElement(screen.getByLabelText('Expected answer'));
   fireEvent.click(screen.getByRole('button', { name: 'Reject answer 1' }));
   expect(p.onReject).toHaveBeenCalledWith('one'); expect(p.onExpectedChange).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Accept answer 2' }));
@@ -25,6 +26,13 @@ it('shows grouped answers and keeps rejection separate from expected answer', ()
   expect(p.onExpectedChange).toHaveBeenCalledWith('300');
   fireEvent.change(screen.getByLabelText('Match rule'), { target: { value: 'ignore_case' } });
   expect(p.onRuleChange).toHaveBeenCalledWith('ignore_case');
+});
+it('labels a local rejected candidate as ruled out before any expected answer exists', () => {
+  const p = props(); p.groups[0].verdict = 'ruled_out';
+  render(<ComparisonReview {...p} />);
+  expect(screen.getByRole('button', { name: /Answer 1, variants A, B, Ruled out/ })).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Reject answer 1' })).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.queryByText('Miss')).toBeNull();
 });
 it('supports navigation and decisions with Review shortcuts while ignoring typing', () => {
   const p = props(); render(<ComparisonReview {...p} />);

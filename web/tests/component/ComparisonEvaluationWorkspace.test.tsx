@@ -8,6 +8,7 @@ import { createActionCompareSession } from '../../src/workbench/actionCompareSes
 import { ComparisonEvaluationWorkspace } from '../../src/workbench/evaluation/ComparisonEvaluationWorkspace';
 
 vi.mock('../../src/workbench/evaluation/ComparisonSources', () => ({ ComparisonSources: () => <div>Normal source pane</div> }));
+vi.mock('../../src/workbench/evaluation/ComparisonAnswerValue', () => ({ ComparisonAnswerValue: ({ value }: { value: unknown }) => <span>{String(value ?? '')}</span> }));
 afterEach(cleanup);
 
 const link: EvaluationLink = { id: 1, target_sheet_id: 7, expected_sheet_id: 8,
