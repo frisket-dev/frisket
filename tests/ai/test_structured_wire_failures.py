@@ -232,6 +232,26 @@ async def test_openrouter_plain_text_is_not_restricted_to_json_endpoints():
     assert "response_format" not in bodies[0]
 
 
+@pytest.mark.asyncio
+async def test_plain_text_output_limit_preserves_existing_cache_behavior(tmp_path):
+    cache = ResponseCache(tmp_path / "cache.db")
+    try:
+        req = LLMRequest(model=MODELS["openrouter"], messages=[])
+        async with provider(("A partial answer", "length"), cache=cache) as (
+            router,
+            bodies,
+            policy,
+        ):
+            first = await router.complete(req)
+            replay = await router.complete(req)
+        assert len(bodies) == len(policy.responses) == 1
+        assert first.content == replay.content == "A partial answer"
+        assert replay.cached
+        assert replay.output_limited
+    finally:
+        cache.close()
+
+
 @pytest.mark.parametrize("name", MODELS)
 @pytest.mark.parametrize("schema", [None, SCHEMA])
 def test_cache_invalidates_only_openrouter_schema_calls(name, schema):

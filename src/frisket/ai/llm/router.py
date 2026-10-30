@@ -641,7 +641,7 @@ class ModelRouter:
         if (
             self.cache is not None
             and self.cache_mode in ("replay", "fresh")
-            and not resp.output_limited
+            and not (resp.output_limited and req.schema is not None)
         ):
             self.cache.put(key, resp)
         return resp
