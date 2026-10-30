@@ -87,6 +87,22 @@ def sample_metadata(sample_id: str, revision: int = 1) -> dict:
         }
         for item in SAMPLE_COUNCIL_AUDIO
     }
+    provenance.update(
+        {
+            item.filename: {
+                "source_url": "https://github.com/frisket-dev/frisket/blob/main/src/frisket/sample_content/lawsuits.py",
+                "license": "Apache-2.0",
+                "author": "Frisket (synthetic fictional filing)",
+            }
+            for item in SAMPLE_LAWSUITS
+        }
+    )
+    for filename in ("expected.csv", "council-meetings.csv"):
+        provenance[filename] = {
+            "source_url": "https://github.com/frisket-dev/frisket/blob/main/src/frisket/server/services/sample_project.py",
+            "license": "Apache-2.0",
+            "author": "Frisket (sample companion data)",
+        }
     info["files"] = [
         {
             "filename": item.name,
