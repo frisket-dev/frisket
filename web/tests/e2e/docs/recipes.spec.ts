@@ -99,14 +99,14 @@ test('court sample imports and runs the selected filings through strict replay',
   await fieldsLabel.scrollIntoViewIfNeeded();
   await page.getByTestId('output-fields-editor').scrollIntoViewIfNeeded();
   captures.push(await captureCheckpoint(page, { id: 'court-extract-fields', root: page.getByTestId('action-panel'), cropBetween: { top: fieldsLabel.locator('..'), bottom: page.getByTestId('output-fields-editor') }, annotations: [
-    { id: 'fields', number: 4, target: { kind: 'field', id: 'output-fields-label' }, label: 'Columns it creates', labelTarget: fieldsLabel, expected: { kind: 'text', value: 'Columns it creates' } },
+    { id: 'fields', number: 3, target: { kind: 'field', id: 'output-fields-label' }, label: 'Columns it creates', labelTarget: fieldsLabel, expected: { kind: 'text', value: 'Columns it creates' } },
   ] }, stage));
   const instruction = page.getByTestId('field-instruction');
   const citations = page.getByTestId('field-citation_mode');
   await citations.scrollIntoViewIfNeeded();
   captures.push(await captureCheckpoint(page, { id: 'court-extract-instruction', root: page.getByTestId('action-panel'), cropBetween: { top: page.getByText('Instruction', { exact: true }), bottom: citations.locator('xpath=ancestor::label[1]') }, annotations: [
-    { id: 'instruction', number: 5, target: { kind: 'field', id: 'field-instruction' }, label: 'Instruction', expected: { kind: 'value', value: settings.instruction } },
-    { id: 'citations', number: 6, target: { kind: 'field', id: 'field-citation_mode' }, label: 'Citations', labelTarget: page.getByText('Citations', { exact: true }), expected: { kind: 'value', value: 'cite' } },
+    { id: 'instruction', number: 4, target: { kind: 'field', id: 'field-instruction' }, label: 'Instruction', expected: { kind: 'value', value: settings.instruction } },
+    { id: 'citations', number: 5, target: { kind: 'field', id: 'field-citation_mode' }, label: 'Citations', labelTarget: page.getByText('Citations', { exact: true }), expected: { kind: 'value', value: 'cite' } },
   ] }, stage));
   await expect(page.locator('.run-scope-summary')).toContainText('3 selected rows');
   await page.getByTestId('generated-action-preview').click();
