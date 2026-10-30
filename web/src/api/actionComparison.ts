@@ -3,9 +3,11 @@ import type {
   GeneratedActionDraft,
   JsonValue,
   RegisteredActionRequest,
+  RunEstimate,
 } from './types';
 import { createActionPreviewRunsApi, type ActionPreviewStatusWire } from './actionPreviewRuns';
 import { httpContract } from './httpContract';
+import { runEstimateFromV1Wire } from './actionEstimateValidation';
 
 export type ActionComparisonSource =
   | { kind: 'draft'; draft: GeneratedActionDraft }
@@ -85,6 +87,10 @@ export interface ActionComparisonRequestOptions {
 }
 
 export interface ActionComparisonApi {
+  quotePreview(
+    request: ActionComparisonPreviewRequest,
+    options?: ActionComparisonRequestOptions,
+  ): Promise<{ schema_version: 'frisket.action_compare_quote.v1'; estimate: RunEstimate }>;
   getContext(
     request: ActionComparisonContextRequest,
     options?: ActionComparisonRequestOptions,
@@ -117,7 +123,7 @@ function draftForWire(draft: GeneratedActionDraft): HttpActionCompareContextRequ
     ...(draft.sheet_name === undefined ? {} : { sheet_name: draft.sheet_name }) } };
 }
 
-function sourceForWire(source: ActionComparisonSource): HttpActionCompareContextRequest['source'] {
+export function sourceForWire(source: ActionComparisonSource): HttpActionCompareContextRequest['source'] {
   return source.kind === 'draft' ? draftForWire(source.draft) : source;
 }
 
@@ -195,6 +201,16 @@ export function createActionComparisonApi(
 ): ActionComparisonApi {
   const previewRuns = createActionPreviewRunsApi(errorFactory, projectId);
   return {
+    quotePreview(request, options = {}) {
+      return httpContract('tenant.v1_action_compare_preview_quote.post', {
+        pathParams: { pid: projectId }, query: {},
+        body: {
+          action: { ...draftForWire(request.action).draft, idempotency_key: request.action.idempotency_key },
+          comparison: { ...request.comparison, basis: sourceForWire(request.comparison.basis) },
+        },
+        signal: options.signal, headers: options.headers, errorFactory,
+      }, wire => ({ ...wire, estimate: runEstimateFromV1Wire(wire.estimate) }));
+    },
     getContext(request, options = {}) {
       return httpContract(
         'tenant.v1_action_compare_context.post',

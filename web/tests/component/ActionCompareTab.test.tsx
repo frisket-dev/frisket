@@ -10,6 +10,8 @@ import {
 import type { ActionComparisonCell, ActionComparisonContext } from '../../src/api/actionComparison';
 import { createActionCompareSession } from '../../src/workbench/actionCompareSession';
 import { ActionCompareTab } from '../../src/workbench/ActionCompareTab';
+import { ActionCompareGrid } from '../../src/workbench/ActionCompareGrid';
+import type { EvaluationResponse } from '../../src/api/evaluation';
 
 const editor = vi.hoisted(() => ({ props: null as DataEditorProps | null }));
 vi.mock('@glideapps/glide-data-grid', async (importOriginal) => {
@@ -80,6 +82,32 @@ function fixture(): ActionComparisonContext {
 const gridPreferences = { rowHeight: 48, wrapText: false, frozenColumnCount: 1 } as const;
 
 describe('ActionCompareTab', () => {
+  it('keeps boxed variant badges with compact score labels in the expected lens', () => {
+    const context = fixture();
+    context.limits = { max_sample_rows: 20, max_challengers: 5 } as unknown as ActionComparisonContext['limits'];
+    const session = createActionCompareSession({ context }, { runVariant: vi.fn() });
+    for (let index = 0; index < 4; index += 1) session.addVariant();
+    const state = session.getSnapshot();
+    const response = { link: null, expected: {}, variants: state.variants.map((variant) => ({ key: variant.displayKey,
+      rows: {}, scores: { party: { accuracy: 0.74 } }, verdicts: {} })), best: {} } as unknown as EvaluationResponse;
+    render(<ActionCompareGrid projectId="p1" state={state} {...gridPreferences}
+      labelForDraft={() => 'A model name that would obscure the score'} evaluation={{ response, field: 'party', lens: 'expected', rowIds: [10, 11],
+        onOpenRow: vi.fn(), onRuleClick: vi.fn(), onScoreClick: vi.fn() }} />);
+    const headers = editor.props!.columns.filter((column) => String(column.id).startsWith('output:'));
+    expect(headers.map((column) => [column.icon, column.title])).toEqual(['A', 'B', 'C', 'D', 'E'].map((key) => [`variantBadge${key}`, '74%']));
+    expect(typeof editor.props!.headerIcons?.variantBadgeE).toBe('function');
+  });
+
+  it('shows partial hand scoring and checked answers in grid headers', () => {
+    const session = createActionCompareSession({ context: fixture() }, { runVariant: vi.fn() });
+    const response = { link: { fields: [{ logical_key: 'party', rule: 'hand', hidden: false }] }, expected: {},
+      variants: [{ key: 'A', rows: {}, scores: { party: { accuracy: 1, scored: 1, remaining: 37, checked: 38 } }, verdicts: {} }], best: {} } as unknown as EvaluationResponse;
+    render(<ActionCompareGrid projectId="p1" state={session.getSnapshot()} {...gridPreferences}
+      evaluation={{ response, field: 'party', lens: 'expected', rowIds: [10, 11], onOpenRow: vi.fn(), onRuleClick: vi.fn(), onScoreClick: vi.fn() }} />);
+    expect(editor.props!.columns.find((column) => String(column.id).startsWith('output:party:'))).toMatchObject({ title: '100% · 1/38 scored', width: 240 });
+    expect(editor.props!.columns.find((column) => column.id === 'expected:party')).toMatchObject({ title: 'expected · hand · 38 checked', width: 240 });
+  });
+
   it('projects typed grouped results through the shared grid and uses only evaluated settings', async () => {
     const session = createActionCompareSession(
       { context: fixture(), capturedSelection: { rowIds: [10, 11, 12], totalCount: 237 } },

@@ -106,14 +106,11 @@ def test_upgrade_preserves_prepared_refs_and_reopens(tmp_path):
         ).fetchone()[0]
         is None
     )
-    assert (
-        p.get_meta(SCHEMA_DIGEST_META_KEY)
-        == SHORT_TEXT_CACHE_TO_DIGEST
-        == SCHEMA_DIGEST
-    )
+    assert p.get_meta(SCHEMA_DIGEST_META_KEY) == SHORT_TEXT_CACHE_TO_DIGEST
     p.close()
     p = Project(path)
     try:
+        assert p.get_meta(SCHEMA_DIGEST_META_KEY) == SCHEMA_DIGEST
         assert p.get_values_with_refs(s, c, rows) == before
         assert p.db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert p.db.execute("PRAGMA foreign_key_check").fetchall() == []

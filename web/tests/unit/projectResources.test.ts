@@ -4,6 +4,7 @@ import {
   embeddingExportArtifactUrl,
   projectBlobUrl,
   projectExportUrl,
+  reviewRunExportUrl,
   sheetDatasetExportUrl,
   workLogExportUrl,
 } from '../../src/api/raw/projectResources';
@@ -12,6 +13,9 @@ describe('project resource URLs', () => {
   const projectId = 'project / one?';
 
   it('builds the named blob and embedding resource URLs', () => {
+    expect(reviewRunExportUrl(projectId, 'run / one?')).toBe(
+      '/api/projects/project%20%2F%20one%3F/evaluation/review.csv?run_id=run%20%2F%20one%3F',
+    );
     expect(projectBlobUrl(projectId, 'sha/256?')).toBe(
       '/api/projects/project%20%2F%20one%3F/blobs/sha%2F256%3F',
     );

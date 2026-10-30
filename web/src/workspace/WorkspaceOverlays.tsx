@@ -7,6 +7,8 @@ import { NowPlayingWidget } from '../components/NowPlayingWidget';
 import { PanelLoading } from '../components/PanelPrimitives';
 import { ColumnDrawer } from '../components/ColumnDrawer';
 import { ReviewQueue } from '../components/ReviewQueue';
+import { canReviewProject } from '../api/projectRole';
+import { reviewRunExportUrl } from '../api/raw/projectResources';
 import { ProvenanceManifest } from '../components/ProvenanceManifest';
 import { CompletedClusterResult } from '../components/CompletedClusterResult';
 import { entityTableDraft } from '../actions/entityTable';
@@ -387,6 +389,7 @@ export const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
             onClose={closeReview}
             onChanged={commitReviewDecision}
             runId={reviewRunId ?? undefined}
+            reviewExportUrl={canReviewProject(project) ? (id) => reviewRunExportUrl(project.id, id) : undefined}
           />
         </ReviewQueueWorkbenchViewFrame>
       )}

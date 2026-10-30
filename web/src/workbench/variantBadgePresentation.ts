@@ -1,6 +1,6 @@
 import type { SpriteMap } from '@glideapps/glide-data-grid';
 
-const VARIANT_KEYS = ['A', 'B', 'C', 'D'] as const;
+const VARIANT_KEYS = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', ...Array.from({ length: 31 }, (_, index) => `S${index + 2}`)];
 
 export const VARIANT_BADGE_PRESENTATION = {
   size: 20,
@@ -22,16 +22,11 @@ function badgeSprite(label: string): SpriteMap[string] {
     </svg>`;
 }
 
-export const variantBadgeHeaderIcons: SpriteMap = {
-  variantBadgeA: badgeSprite('A'),
-  variantBadgeB: badgeSprite('B'),
-  variantBadgeC: badgeSprite('C'),
-  variantBadgeD: badgeSprite('D'),
-};
+export const variantBadgeHeaderIcons: SpriteMap = Object.fromEntries(VARIANT_KEYS.map(key => [`variantBadge${key}`, badgeSprite(key)]));
 
 export function variantBadgeIconName(label: string): string | undefined {
   const key = label.trim().toUpperCase();
-  return VARIANT_KEYS.includes(key as (typeof VARIANT_KEYS)[number])
+  return VARIANT_KEYS.includes(key)
     ? `variantBadge${key}`
     : undefined;
 }

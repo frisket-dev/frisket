@@ -1,0 +1,455 @@
+[
+  {
+    "note": "blank expected",
+    "rule": "exact",
+    "expected": "",
+    "answer": "",
+    "verdict": "unchecked"
+  },
+  {
+    "note": "null expected",
+    "rule": "exact",
+    "expected": null,
+    "answer": null,
+    "verdict": "unchecked"
+  },
+  {
+    "note": "whitespace expected is checked",
+    "rule": "exact",
+    "expected": " ",
+    "answer": "",
+    "verdict": "miss"
+  },
+  {
+    "note": "empty sentinel whitespace",
+    "rule": "exact",
+    "expected": "[empty]",
+    "answer": "  ",
+    "verdict": "match"
+  },
+  {
+    "note": "empty sentinel list",
+    "rule": "exact",
+    "expected": "[empty]",
+    "answer": [],
+    "verdict": "match"
+  },
+  {
+    "note": "empty sentinel null",
+    "rule": "exact",
+    "expected": "[empty]",
+    "answer": null,
+    "verdict": "match"
+  },
+  {
+    "note": "zero isn't empty",
+    "rule": "exact",
+    "expected": "[empty]",
+    "answer": 0,
+    "verdict": "miss"
+  },
+  {
+    "note": "false isn't empty",
+    "rule": "exact",
+    "expected": "[empty]",
+    "answer": false,
+    "verdict": "miss"
+  },
+  {
+    "note": "failure isn't empty",
+    "rule": "exact",
+    "expected": "[empty]",
+    "answer": null,
+    "state": "error",
+    "verdict": "miss"
+  },
+  {
+    "note": "unchecked failure",
+    "rule": "exact",
+    "expected": "",
+    "answer": null,
+    "state": "error",
+    "verdict": "unchecked"
+  },
+  {
+    "note": "missing",
+    "rule": "exact",
+    "expected": "x",
+    "answer": null,
+    "state": "missing",
+    "verdict": "not_run"
+  },
+  {
+    "note": "pending",
+    "rule": "exact",
+    "expected": "x",
+    "answer": null,
+    "state": "pending",
+    "verdict": "not_run"
+  },
+  {
+    "note": "cancelled",
+    "rule": "exact",
+    "expected": "x",
+    "answer": null,
+    "state": "cancelled",
+    "verdict": "not_run"
+  },
+  {
+    "note": "exact keeps whitespace",
+    "rule": "exact",
+    "expected": " hi",
+    "answer": "hi",
+    "verdict": "miss"
+  },
+  {
+    "note": "number and canonical number text",
+    "rule": "exact",
+    "expected": 1,
+    "answer": "1",
+    "verdict": "match"
+  },
+  {
+    "note": "boolean isn't a number",
+    "rule": "exact",
+    "expected": 1,
+    "answer": true,
+    "verdict": "miss"
+  },
+  {
+    "note": "object keys canonical",
+    "rule": "exact",
+    "expected": {
+      "a": 1,
+      "b": [
+        2,
+        3
+      ]
+    },
+    "answer": {
+      "b": [
+        2,
+        3
+      ],
+      "a": 1
+    },
+    "verdict": "match"
+  },
+  {
+    "note": "array order",
+    "rule": "exact",
+    "expected": [
+      1,
+      2
+    ],
+    "answer": [
+      2,
+      1
+    ],
+    "verdict": "miss"
+  },
+  {
+    "note": "unicode lower and trim",
+    "rule": "ignore_case",
+    "expected": "  CAFÉ ",
+    "answer": "café",
+    "verdict": "match"
+  },
+  {
+    "note": "currency",
+    "rule": "number",
+    "expected": "$925,000",
+    "answer": "925000.00",
+    "verdict": "match"
+  },
+  {
+    "note": "negative",
+    "rule": "number",
+    "expected": "-1,234.500",
+    "answer": "-1234.5",
+    "verdict": "match"
+  },
+  {
+    "note": "invalid grouping",
+    "rule": "number",
+    "expected": "1,20",
+    "answer": "120",
+    "verdict": "miss"
+  },
+  {
+    "note": "invalid number",
+    "rule": "number",
+    "expected": "TBD",
+    "answer": "TBD",
+    "verdict": "miss"
+  },
+  {
+    "note": "same date",
+    "rule": "date",
+    "expected": "Mar 12, 2026",
+    "answer": "2026-03-12",
+    "verdict": "match"
+  },
+  {
+    "note": "US date",
+    "rule": "date",
+    "expected": "3/12/26",
+    "answer": "2026-03-12",
+    "verdict": "match"
+  },
+  {
+    "note": "invalid date",
+    "rule": "date",
+    "expected": "2026-02-30",
+    "answer": "2026-02-30",
+    "verdict": "miss"
+  },
+  {
+    "note": "set order and duplicates",
+    "rule": "set",
+    "expected": [
+      "a",
+      "b",
+      "a"
+    ],
+    "answer": "[\"b\",\"a\"]",
+    "verdict": "match"
+  },
+  {
+    "note": "arbitrary comma text is not a list",
+    "rule": "set",
+    "expected": "a,b",
+    "answer": "b,a",
+    "verdict": "miss"
+  },
+  {
+    "note": "manual unscored",
+    "rule": "hand",
+    "expected": "x",
+    "answer": "x",
+    "verdict": "unscored"
+  },
+  {
+    "note": "manual verdict",
+    "rule": "hand",
+    "expected": "x",
+    "answer": "y",
+    "handVerdict": "match",
+    "verdict": "match"
+  },
+  {
+    "note": "browser whitespace trim",
+    "rule": "ignore_case",
+    "expected": "﻿HELLO﻿",
+    "answer": "hello",
+    "verdict": "match"
+  },
+  {
+    "note": "non-browser whitespace remains",
+    "rule": "ignore_case",
+    "expected": "\u001chello",
+    "answer": "hello",
+    "verdict": "miss"
+  },
+  {
+    "note": "hand empty needs judgment",
+    "rule": "hand",
+    "expected": "[empty]",
+    "answer": "",
+    "verdict": "unscored"
+  },
+  {
+    "note": "hand empty respects judgment",
+    "rule": "hand",
+    "expected": "[empty]",
+    "answer": "",
+    "handVerdict": "miss",
+    "verdict": "miss"
+  },
+  {
+    "note": "hand failure overrides judgment",
+    "rule": "hand",
+    "expected": "[empty]",
+    "answer": "",
+    "state": "error",
+    "handVerdict": "match",
+    "verdict": "miss"
+  },
+  {
+    "note": "non-ASCII digits rejected for numbers",
+    "rule": "number",
+    "expected": "١٢",
+    "answer": "١٢",
+    "verdict": "miss"
+  },
+  {
+    "note": "non-ASCII digits rejected for dates",
+    "rule": "date",
+    "expected": "٢٠٢٦-٠٣-١٢",
+    "answer": "2026-03-12",
+    "verdict": "miss"
+  },
+  {
+    "note": "month date with no-break space",
+    "rule": "date",
+    "expected": "Mar 12, 2026",
+    "answer": "2026-03-12",
+    "verdict": "match"
+  },
+  {
+    "note": "month date with byte-order-mark space",
+    "rule": "date",
+    "expected": "Mar﻿12, 2026",
+    "answer": "2026-03-12",
+    "verdict": "match"
+  },
+  {
+    "note": "large exact decimal strings",
+    "rule": "number",
+    "expected": "9,007,199,254,740,993",
+    "answer": "9007199254740993.0",
+    "verdict": "match"
+  },
+  {
+    "note": "scientific notation",
+    "rule": "number",
+    "expected": "1.25e3",
+    "answer": "1,250",
+    "verdict": "match"
+  },
+  {
+    "note": "leap day",
+    "rule": "date",
+    "expected": "February 29, 2024",
+    "answer": "2024-02-29",
+    "verdict": "match"
+  },
+  {
+    "note": "date does not roll over",
+    "rule": "date",
+    "expected": "2/29/2025",
+    "answer": "2025-03-01",
+    "verdict": "miss"
+  },
+  {
+    "note": "sets of duplicate objects",
+    "rule": "set",
+    "expected": [
+      {
+        "x": 1,
+        "y": [
+          2,
+          3
+        ]
+      },
+      {
+        "y": [
+          2,
+          3
+        ],
+        "x": 1
+      }
+    ],
+    "answer": [
+      {
+        "y": [
+          2,
+          3
+        ],
+        "x": 1
+      }
+    ],
+    "verdict": "match"
+  },
+  {
+    "note": "sets preserve nested array order",
+    "rule": "set",
+    "expected": [
+      {
+        "x": [
+          1,
+          2
+        ]
+      }
+    ],
+    "answer": [
+      {
+        "x": [
+          2,
+          1
+        ]
+      }
+    ],
+    "verdict": "miss"
+  },
+  {
+    "note": "unicode contextual lowercase",
+    "rule": "ignore_case",
+    "expected": "ΟΣ",
+    "answer": "ος",
+    "verdict": "match"
+  },
+  {
+    "note": "integer versus model number text",
+    "rule": "exact",
+    "expected": 925000,
+    "answer": "925000",
+    "verdict": "match"
+  },
+  {
+    "note": "numeric text versus numeric decimal",
+    "rule": "exact",
+    "expected": "2.5",
+    "answer": 2.5,
+    "verdict": "match"
+  },
+  {
+    "note": "exact text retains leading zeros",
+    "rule": "exact",
+    "expected": 2,
+    "answer": "02",
+    "verdict": "miss"
+  },
+  {
+    "note": "exact text retains decimal zero",
+    "rule": "exact",
+    "expected": 2,
+    "answer": "2.0",
+    "verdict": "miss"
+  },
+  {
+    "note": "exact text retains currency formatting",
+    "rule": "exact",
+    "expected": 925000,
+    "answer": "$925,000",
+    "verdict": "miss"
+  },
+  {
+    "note": "exact does not coerce boolean",
+    "rule": "exact",
+    "expected": true,
+    "answer": "true",
+    "verdict": "miss"
+  },
+  {
+    "note": "whitespace expectation is not empty answer",
+    "rule": "ignore_case",
+    "expected": "  ",
+    "answer": "",
+    "verdict": "miss"
+  },
+  {
+    "note": "whitespace expectation matches same raw whitespace",
+    "rule": "ignore_case",
+    "expected": "  ",
+    "answer": "  ",
+    "verdict": "match"
+  },
+  {
+    "note": "ignore case trims whitespace-only values",
+    "rule": "ignore_case",
+    "expected": "  ",
+    "answer": " ",
+    "verdict": "match"
+  }
+]

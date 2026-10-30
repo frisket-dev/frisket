@@ -1,3 +1,4 @@
+import type { ExpectedProjection } from '../api/evaluation';
 import '../workspace/gridMenus.css';
 import '../components/PanelPrimitives.css';
 import '../walkthrough/WalkthroughProvider.css';
@@ -290,6 +291,10 @@ export interface ParentRowFilter {
   count: number;
 }
 
+export type ExpectedGridColumn = ExpectedProjection['columns'][number] & { type?: ColumnDef['type']; sourceColumn?: ColumnDef };
+const EMPTY_EXPECTED_COLUMNS: ExpectedGridColumn[] = [];
+const EMPTY_EXPECTED_ROWS: ExpectedProjection['rows'] = {};
+
 export interface SheetGridProps {
   scopeRowIds?: number[] | null;
   citationColumnId?: string | null;
@@ -354,6 +359,11 @@ export interface SheetGridProps {
    * Never called per row, per cell, or during ordinary grid rendering. */
   loadActionRunEntry?(anchor: ActionRunAnchor): Promise<ActionRunEntryDetails | null>;
   onCompareActionRun?(anchor: ActionRunAnchor): void;
+  onCheckExpected?(anchor: ActionRunAnchor): void;
+  expectedColumns?: ExpectedGridColumn[];
+  projectExpected?(rowIds: number[]): Promise<ExpectedProjection>;
+  onExpectedEdit?(rowId: string, column: ExpectedProjection['columns'][number], cell: ExpectedProjection['rows'][string][string] | undefined, value: CellValue): Promise<void>;
+  onExpectedHeaderMenu?(column: ExpectedProjection['columns'][number], bounds: Rectangle): void;
   onColumnGroupsChange?(groups: ColumnGroupViewSpec[]): void;
   onSelectedRowsChange?(selection: { sheetId: string; rowIds: string[]; rowIndexes: number[]; cachedAnchors: Array<{ index: number; rowId: string }> }): void;
   onRowContextMenu?(request: { rowId: string; rowIndex: number; columnId: string | null; bounds: Rectangle; selected: boolean; copy(): Promise<void> }): void;
@@ -438,6 +448,7 @@ interface ColumnModel {
   gridColumns: ColumnDef[];
   gridTheme: Partial<Theme>;
   aiColumnTheme: Partial<Theme>;
+  expectedColumnTheme: Partial<Theme>;
   gridCellPalette: GridCellPalette;
   onColumnResize(column: GridColumn, newSize: number): void;
   /** Boundaries between visible columns that flank a user-hidden run. */
@@ -470,6 +481,7 @@ function useColumnModel(
   lensActive: boolean,
   previewNewColumns: PreviewOverlayColumn[],
   activeSort: GridSortSpec | null | undefined,
+  expectedColumns: ExpectedGridColumn[],
 ): ColumnModel {
   const stored = useMemo(() => loadColWidths(storageScope, sheet.id), [storageScope, sheet.id]);
   const [colWidthsBySheet, setColWidthsBySheet] = useState<Record<string, Record<string, number>>>({});
@@ -480,8 +492,12 @@ function useColumnModel(
     [columnOrder, sheet],
   );
   const gridColumns = useMemo(
-    () => orderedSheetColumns.filter((col) => !hiddenNames.has(col.name)),
-    [hiddenNames, orderedSheetColumns],
+    () => orderedSheetColumns.filter((col) => !hiddenNames.has(col.name)).flatMap(column => [column,
+      ...expectedColumns.filter(expected => !expected.hidden && expected.output_column_id === Number(column.id)).map(expected => ({
+        ...expected.sourceColumn, id: expected.id, name: `Expected · ${expected.name}`,
+        type: expected.sourceColumn?.type ?? expected.type ?? 'text', latestRunId: column.latestRunId,
+      }))]),
+    [hiddenNames, orderedSheetColumns, expectedColumns],
   );
 
   const onColumnResize = useCallback(
@@ -499,7 +515,7 @@ function useColumnModel(
     [sheet.id, storageScope, stored],
   );
 
-  const { gridTheme, aiColumnTheme, gridCellPalette } = useGridTheme();
+  const { gridTheme, aiColumnTheme, expectedColumnTheme, gridCellPalette } = useGridTheme();
 
   const sortByName = useMemo(() => {
     const map = new Map<string, GridSortDirection>();
@@ -515,7 +531,8 @@ function useColumnModel(
       // Icon priority (the funnel-when-filtered sprite was dropped — filtered
       // state now renders in the caret menu): AI columns keep their bolt;
       // else the column's type-tag glyph.
-      const icon = c.ai ? 'aiBolt' : typeHeaderIcon(c.type);
+      const expected = expectedColumns.some(column => column.id === c.id);
+      const icon = expected ? 'typeLink' : c.ai ? 'aiBolt' : typeHeaderIcon(c.type);
       return {
         id: c.id,
         title,
@@ -526,7 +543,7 @@ function useColumnModel(
         hasMenu: true,
         menuIcon: GridColumnMenuIcon.Dots,
         ...(icon ? { icon } : {}),
-        ...(c.ai ? { themeOverride: aiColumnTheme } : {}),
+        ...(expected ? { themeOverride: expectedColumnTheme } : c.ai ? { themeOverride: aiColumnTheme } : {}),
       };
     });
     // Trailing chip column: each row's derived-row count in the child sheet
@@ -564,7 +581,7 @@ function useColumnModel(
       });
     }
     return cols;
-  }, [gridColumns, colWidths, childSheet, columnGroups.groupByRunId, lensActive, aiColumnTheme, previewNewColumns, sortByName]);
+  }, [gridColumns, colWidths, childSheet, columnGroups.groupByRunId, lensActive, aiColumnTheme, expectedColumnTheme, expectedColumns, previewNewColumns, sortByName]);
 
   // The revive chevrons + the add-column "+" ride a DOM band over the canvas
   // header (glide has no per-boundary DOM). A hidden run is a maximal sequence
@@ -614,6 +631,7 @@ function useColumnModel(
     gridColumns,
     gridTheme,
     aiColumnTheme,
+    expectedColumnTheme,
     gridCellPalette,
     onColumnResize,
     hiddenBoundaries,
@@ -985,9 +1003,15 @@ function useGridHeaderHandlers(
     anchor: ActionRunAnchor;
     status: 'loading' | 'ready' | 'error';
     details: ActionRunEntryDetails | null;
+    loader: SheetGridProps['loadActionRunEntry'];
   }>>({});
   const entryLoads = useRef(new Set<string>());
   const hoverCloseTimer = useRef<number | null>(null);
+  const entryRevision = useRef(0);
+  useEffect(() => {
+    entryRevision.current += 1;
+    entryLoads.current.clear();
+  }, [loadActionRunEntry]);
 
   const anchorForGroup = useCallback((group: ColumnGroupModel): ActionRunAnchor | null => {
     const column = gridColumns.find(
@@ -1004,25 +1028,28 @@ function useGridHeaderHandlers(
     if (!anchor) return;
     const key = `${anchor.sheetId}:${anchor.runId}:${anchor.columnId}`;
     const cached = entryCache[key];
-    if (cached?.status === 'loading' || cached?.status === 'ready' || entryLoads.current.has(key)) return;
+    if ((cached?.loader === loadActionRunEntry && (cached.status === 'loading' || cached.status === 'ready')) || entryLoads.current.has(key)) return;
     entryLoads.current.add(key);
+    const revision = entryRevision.current;
     setEntryCache((entries) => ({
       ...entries,
-      [key]: { anchor, status: 'loading', details: null },
+      [key]: { anchor, status: 'loading', details: null, loader: loadActionRunEntry },
     }));
     void loadActionRunEntry(anchor).then(
       (details) => {
+        if (revision !== entryRevision.current) return;
         entryLoads.current.delete(key);
         setEntryCache((entries) => ({
           ...entries,
-          [key]: { anchor, status: 'ready', details },
+          [key]: { anchor, status: 'ready', details, loader: loadActionRunEntry },
         }));
       },
       () => {
+        if (revision !== entryRevision.current) return;
         entryLoads.current.delete(key);
         setEntryCache((entries) => ({
           ...entries,
-          [key]: { anchor, status: 'error', details: null },
+          [key]: { anchor, status: 'error', details: null, loader: loadActionRunEntry },
         }));
       },
     );
@@ -1162,7 +1189,8 @@ function useGridHeaderHandlers(
   const activeEntryKey = activeGroupAnchor
     ? `${activeGroupAnchor.sheetId}:${activeGroupAnchor.runId}:${activeGroupAnchor.columnId}`
     : null;
-  const activeEntry = activeEntryKey ? entryCache[activeEntryKey] : undefined;
+  const cachedEntry = activeEntryKey ? entryCache[activeEntryKey] : undefined;
+  const activeEntry = cachedEntry?.loader === loadActionRunEntry ? cachedEntry : undefined;
 
   return {
     activeEntry,
@@ -1193,7 +1221,7 @@ function NativeColumnGroupMenu({
   entry,
   selectedRowCount,
   showLayoutControls,
-  onCompareActionRun,
+  onCompareActionRun, onCheckExpected,
   onPointerEnter,
   onPointerLeave,
 }: {
@@ -1252,6 +1280,7 @@ function NativeColumnGroupMenu({
           selectedRowCount={selectedRowCount}
           layoutControls={showLayoutControls ? layoutControls : undefined}
           onCompareActionRun={onCompareActionRun}
+          onCheckExpected={onCheckExpected}
           onPointerEnter={onPointerEnter}
           onPointerLeave={onPointerLeave}
           style={{
@@ -1330,7 +1359,7 @@ function useSheetGridController({
   onRevealColumns, onAddColumnAtEnd,
   onRowOpen, onColumnOpen, onHeaderSort, onSelectedRowsChange, onRowContextMenu,
   onColumnHeaderMenu, loadActionRunEntry,
-  onCompareActionRun,
+  onCompareActionRun, onCheckExpected, expectedColumns = EMPTY_EXPECTED_COLUMNS, projectExpected, onExpectedEdit, onExpectedHeaderMenu,
   onColumnGroupsChange, onColumnOrderChange, onCellEdit,
   onFacetValueFilter, rowCacheStore,
   columnAnnotations: externalColumnAnnotations = EMPTY_COLUMN_ANNOTATIONS,
@@ -1395,6 +1424,31 @@ function useSheetGridController({
     ? Math.max(0, Math.floor(pendingImportRowCount))
     : 0;
   const rowCount = realRowCount + placeholderRowCount;
+  const [expectedResult, setExpectedResult] = useState<{ key: string; columns: ExpectedGridColumn[]; loader: SheetGridProps['projectExpected']; rows: ExpectedProjection['rows']; error: boolean } | null>(null);
+  const [expectedRange, setExpectedRange] = useState({ start: 0, end: 40 });
+  const visibleExpectedIds = useMemo(() => {
+    const ids: number[] = [];
+    for (let index = expectedRange.start; index < Math.min(expectedRange.end, realRowCount); index++) {
+      const row = cache.getRow(index); if (row) ids.push(Number(row.id));
+    }
+    return ids;
+  }, [cache, cache.version, expectedRange, realRowCount]);
+  const visibleExpectedKey = visibleExpectedIds.join(',');
+  const expectedRequestKey = `${sheet.id}:${dataVersion}:${visibleExpectedKey}`;
+  useEffect(() => {
+    if (!projectExpected || !expectedColumns.length || !visibleExpectedKey) return;
+    let active = true;
+    void projectExpected(visibleExpectedKey.split(',').map(Number)).then(
+      result => { if (active) setExpectedResult({ key: expectedRequestKey, columns: expectedColumns, loader: projectExpected, rows: result.rows, error: false }); },
+      () => { if (active) setExpectedResult({ key: expectedRequestKey, columns: expectedColumns, loader: projectExpected, rows: {}, error: true }); },
+    );
+    return () => { active = false; };
+  }, [projectExpected, expectedColumns, visibleExpectedKey, expectedRequestKey]);
+  const currentExpectedResult = expectedResult?.key === expectedRequestKey && expectedResult.columns === expectedColumns && expectedResult.loader === projectExpected
+    ? expectedResult : null;
+  const expectedRows = currentExpectedResult?.rows ?? EMPTY_EXPECTED_ROWS;
+  const expectedUnavailable = currentExpectedResult?.error === true;
+  const expectedById = useMemo(() => new Map(expectedColumns.map(column => [column.id, column])), [expectedColumns]);
   const gridRef = useRef<DataEditorRef | null>(null);
   const visibleRegion = useRef<Rectangle>({ x: 0, y: 0, width: 1, height: 1 });
   const selectedItem = useRef<Item | null>(null);
@@ -1435,6 +1489,7 @@ function useSheetGridController({
     gridColumns,
     gridTheme,
     aiColumnTheme,
+    expectedColumnTheme,
     gridCellPalette,
     onColumnResize: onColumnResizeRaw,
     hiddenBoundaries,
@@ -1452,7 +1507,18 @@ function useSheetGridController({
       lensActive,
       previewNewColumns,
       activeSort,
+      expectedColumns,
     );
+  useEffect(() => {
+    const cells: Array<{ cell: Item }> = [];
+    const range = visibleRegion.current;
+    for (let index = 0; index < expectedColumns.length; index++) {
+      const columnIndex = gridColumns.findIndex(column => column.id === expectedColumns[index].id);
+      if (columnIndex < 0) continue;
+      for (let row = range.y; row < range.y + range.height; row++) cells.push({ cell: [columnIndex, row] });
+    }
+    if (cells.length) gridRef.current?.updateCells(cells);
+  }, [expectedRows, expectedColumns, gridColumns]);
   const runActive = liveRun?.sheetId === sheet.id && isActiveRunStatus(liveRun.status);
   const backgroundRunActive = backgroundLiveRun?.sheetId === sheet.id
     && isActiveRunStatus(backgroundLiveRun.status);
@@ -1467,11 +1533,15 @@ function useSheetGridController({
     gridColumns,
     columnGroups,
     onColumnOpen,
-    onColumnHeaderMenu,
-    onHeaderSort,
+    (request) => {
+      const expected = expectedById.get(request.column.id);
+      if (expected) onExpectedHeaderMenu?.(expected, request.bounds);
+      else onColumnHeaderMenu?.(request);
+    },
+    (column) => { if (!expectedById.has(column.id)) { if (onHeaderSort) onHeaderSort(column); else onColumnOpen(column); } },
     aiColumnTheme,
     loadActionRunEntry,
-    { onCompareActionRun },
+    { onCompareActionRun, onCheckExpected },
   );
 
   const previewColumnAt = useCallback((col: number) => {
@@ -1645,7 +1715,13 @@ function useSheetGridController({
           previewGridCell(preview.column, preview.cell, { wrap: wrapText, projectId, gridCellPalette }),
         );
       }
-      const row = cache.getRow(rowIdx);
+      const originalRow = cache.getRow(rowIdx);
+      const expected = expectedById.get(def.id);
+      const projected = originalRow && expected ? expectedRows[originalRow.id]?.[def.id] : undefined;
+      if (expected && originalRow && !projected) return expectedUnavailable
+        ? { kind: GridCellKind.Text, data: '', displayData: 'Unavailable', allowOverlay: false, readonly: true }
+        : { kind: GridCellKind.Loading, allowOverlay: false };
+      const row = originalRow && expected && projected ? { ...originalRow, cells: { ...originalRow.cells, [def.id]: projected.value as CellValue } } : originalRow;
       const runPending =
         pendingColIds.has(def.id) &&
         (pendingRowIds === null || (row !== undefined && pendingRowIds.has(row.id)));
@@ -1673,6 +1749,7 @@ function useSheetGridController({
           row,
         ),
       );
+      if (expected) cell = { ...cell, themeOverride: { ...cell.themeOverride, bgCell: expectedColumnTheme.bgHeader, bgCellMedium: expectedColumnTheme.bgHeader } };
       if (def.id === citationColumnId) cell = { ...cell, themeOverride: { ...cell.themeOverride, bgCell: gridTheme.bgSearchResult ?? "#fff1cf" } };
       const media = audioMedia(cell);
       if (!media || !row) return cell;
@@ -1690,7 +1767,7 @@ function useSheetGridController({
     },
     [
       gridColumns,
-      cache,
+      cache, expectedById, expectedRows, expectedUnavailable,
       wrapText,
       pendingColIds,
       pendingRowIds,
@@ -1705,6 +1782,7 @@ function useSheetGridController({
       previewAt,
       projectId,
       gridCellPalette,
+      expectedColumnTheme,
       citationColumnId,
       gridTheme.bgSearchResult,
       sheet.id,
@@ -1892,6 +1970,7 @@ function useSheetGridController({
   const onVisibleRegionChanged = useCallback(
     (range: Rectangle) => {
       visibleRegion.current = range;
+      setExpectedRange(current => current.start === range.y && current.end === range.y + range.height ? current : { start: range.y, end: range.y + range.height });
       const firstRealRow = Math.min(range.y, realRowCount);
       const lastRealRow = Math.min(range.y + range.height, realRowCount);
       if (lastRealRow > firstRealRow) cache.onVisibleRowsChanged(firstRealRow, lastRealRow);
@@ -1903,7 +1982,7 @@ function useSheetGridController({
   const openCell = useCallback(
     (item: Item) => {
       const [col, rowIdx] = item;
-      if (col < 0) return;
+      if (col < 0 || expectedById.has(gridColumns[col]?.id)) return;
       const row = cache.getRow(rowIdx);
       if (!row) return;
       const prev = lastOpenedItem.current;
@@ -1936,6 +2015,7 @@ function useSheetGridController({
       childSheet,
       sheet.id,
       gridColumns,
+      expectedById,
       previewAt,
     ],
   );
@@ -2176,13 +2256,14 @@ function useSheetGridController({
   const onColumnMoved = useCallback(
     (startIndex: number, endIndex: number) => {
       if (!onColumnOrderChange) return;
+      if (expectedById.has(gridColumns[startIndex]?.id) || expectedById.has(gridColumns[endIndex]?.id)) return;
       const next = [...gridColumns];
       const [moved] = next.splice(startIndex, 1);
       if (!moved) return;
       next.splice(endIndex, 0, moved);
-      onColumnOrderChange(next.map((col) => col.name));
+      onColumnOrderChange(next.filter((col) => !expectedById.has(col.id)).map((col) => col.name));
     },
-    [gridColumns, onColumnOrderChange],
+    [gridColumns, onColumnOrderChange, expectedById],
   );
 
   const onCellEdited = useCallback(
@@ -2193,13 +2274,20 @@ function useSheetGridController({
       if (!def || def.ai) return;
       const row = cache.getRow(rowIdx);
       const value = editableValue(newValue);
+      const expected = expectedById.get(def.id);
+      if (expected) {
+        const source = row && expectedRows[row.id]?.[def.id];
+        if (!row || !source || value === undefined || !onExpectedEdit) return;
+        void onExpectedEdit(row.id, expected, source, value).then(() => { setExpectedResult(null); cache.refresh(); }, () => cache.refresh());
+        return;
+      }
       if (!row || row.boundedValues?.[def.id] || value === undefined) return;
       void onCellEdit(row, def, value).then(
         () => cache.refresh(),
         () => cache.refresh(),
       );
     },
-    [cache, onCellEdit, gridColumns, previewAt],
+    [cache, onCellEdit, gridColumns, previewAt, expectedById, expectedRows, onExpectedEdit],
   );
 
   return useMemo(
@@ -2508,6 +2596,7 @@ function SheetGridSurface({ controller }: { controller: SheetGridController }) {
             selectedRowCount={gridSelection.rows.toArray().length}
             showLayoutControls={headerHandlers.activeGroupMenuPinned}
             onCompareActionRun={headerHandlers.onCompareActionRun}
+            onCheckExpected={headerHandlers.onCheckExpected}
             onPointerEnter={headerHandlers.keepGroupHoverOpen}
             onPointerLeave={headerHandlers.closeGroupHover}
           />

@@ -28,7 +28,6 @@ from frisket.engine.executor.action_families.runs import (
 )
 from frisket.engine.executor.actions import MapPreviewPlan
 from frisket.engine.executor.map_rows_action import normalized_typed_request_identity
-from frisket.engine.runner.preview import PREVIEW_MAX_ROWS
 from frisket.engine.runner.result_generations import _compatibility_key
 from frisket.engine.store.current_value_windows import (
     PREVIEW_CODEPOINT_LIMIT,
@@ -46,7 +45,8 @@ from frisket.server.workspace import Workspace
 
 
 ACTION_COMPARE_SCHEMA_VERSION = "frisket.action_compare_context.v1"
-MAX_CHALLENGERS = 3
+MAX_CHALLENGERS = 19
+MAX_COMPARE_ROWS = 500
 COMPARE_CONTEXT_AGGREGATE_CELL_BYTE_LIMIT = 512 * 1024
 
 
@@ -154,7 +154,7 @@ class ActionCompareService:
             "available": available,
             "reason": reason,
             "limits": {
-                "max_sample_rows": PREVIEW_MAX_ROWS,
+                "max_sample_rows": MAX_COMPARE_ROWS,
                 "max_challengers": MAX_CHALLENGERS,
             },
             "baseline_mode": baseline_mode,
@@ -373,8 +373,10 @@ def _resolve_run_draft(project, *, run_id: int, column_id: int):
 
 
 def _require_sample_rows(project, sheet_id: int, row_ids: list[int]) -> list[int]:
-    if len(row_ids) > PREVIEW_MAX_ROWS:
-        raise ActionCompareRouteError(400, "comparison sample exceeds the preview cap")
+    if len(row_ids) > MAX_COMPARE_ROWS:
+        raise ActionCompareRouteError(
+            400, "comparison sample exceeds the comparison cap"
+        )
     visible = project.visible_row_ids(sheet_id, row_ids)
     missing = sorted(set(row_ids) - set(visible))
     if missing:

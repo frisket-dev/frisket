@@ -52,6 +52,11 @@ import { useAskNavigation } from './useAskNavigation';
 import { useWorkbenchContributionVisibility } from './useWorkbenchContributionVisibility';
 import { useWorkspaceChromeState } from './useWorkspaceChromeState';
 import { useReplayReviewController } from './useReplayReviewController';
+import { useWorkspaceExpectedAnswers } from './useWorkspaceExpectedAnswers';
+import { UnavailableExpectedLinks } from './UnavailableExpectedLinks';
+import { ExpectedColumnMenu } from './ExpectedColumnMenu';
+import type { ExpectedProjection } from '../api/evaluation';
+import { JoinExpectedAnswersDialog } from '../components/expectedAnswers/JoinExpectedAnswersDialog';
 import { useWorkspaceActionCompareController } from './useWorkspaceActionCompareController';
 import { useWorkspaceActionController } from './useWorkspaceActionController';
 import { useWorkspaceGridController } from './useWorkspaceGridController';
@@ -810,9 +815,16 @@ export function useWorkspaceModel({
     setPdfSplitFileColumn(columnId);
     setPdfSplitOpen(true);
   }, [selection, sheet]);
+  const catalogEntries = useSelector(actionCatalog.store, (state) => state.catalog?.actions);
+  const [expectedHeader, setExpectedHeader] = useState<ExpectedProjection['columns'][number] | null>(null);
+  const expectedAnswers = useWorkspaceExpectedAnswers(project.id, sheet, sheets, projectApi, catalogEntries, actActionTemplates, dataVersion, showError);
+  const { openJoin: openExpectedJoin } = expectedAnswers;
   const runActCommand = useCallback(
     (command: ActMenuCommand) => {
       switch (command) {
+        case 'join-expected':
+          openExpectedJoin();
+          return;
         case 'split-pdfs':
           setPdfSplitFileColumn(null);
           setPdfSplitOpen(true);
@@ -846,7 +858,7 @@ export function useWorkspaceModel({
           return;
       }
     },
-    [dispatchCommand],
+    [dispatchCommand, openExpectedJoin],
   );
 
   const contributions = useWorkspaceContributionController({
@@ -916,9 +928,33 @@ export function useWorkspaceModel({
     selection={pdfSplitSelection}
     view={pdfSplitView} getSheetRows={getPdfSplitRows} onClose={() => setPdfSplitOpen(false)} onApply={applyExistingPdfSplit} /> : null;
 
+  const { loadActionRunEntry } = actionCompare;
+  const loadRunWithExpected = useCallback(async (anchor: import('../grid/actionRunEntry').ActionRunAnchor) => {
+    const details = await loadActionRunEntry(anchor);
+    const run = expectedAnswers.runs.find(item => item.anchor.runId === anchor.runId && item.anchor.sheetId === anchor.sheetId);
+    const link = expectedAnswers.availableLinks.find(item => item.action_id === run?.context.draft.action_id && item.fields.some(field => run.context.output_columns.some(output => output.column_id === field.output_column_id)));
+    return details && link ? { ...details, expected: { sheetName: link.expected_sheet_name, rowCount: expectedAnswers.matchedCounts[link.id] ?? 0 } } : details;
+  }, [loadActionRunEntry, expectedAnswers.runs, expectedAnswers.availableLinks, expectedAnswers.matchedCounts]);
+
   const gridContribution = useMemo(() => activePreviewView?.result?.kind === 'table'
     ? <PreviewTable result={activePreviewView.result} /> : sheet ? (
     <GridWorkbenchViewFrame>
+      <UnavailableExpectedLinks links={expectedAnswers.unavailableLinks} onRemove={(id) => {
+        void expectedAnswers.removeLink(id).catch(error => showError(error instanceof Error ? error.message : 'Could not remove expected answers link.'));
+      }} />
+      {expectedAnswers.availableLinks.length > 0 && <button type="button" className="text-btn" onClick={() => {
+        const show = expectedAnswers.availableLinks.every(link => link.hidden || link.fields.every(field => field.hidden));
+        void Promise.all(expectedAnswers.availableLinks.map(link => expectedAnswers.setLink({ ...link, hidden: !show, fields: show ? link.fields.map(field => ({ ...field, hidden: false })) : link.fields }, link.id))).catch(error => showError(error instanceof Error ? error.message : 'Could not change expected visibility.'));
+      }}>◉ Expected answers · {expectedAnswers.availableLinks.every(link => link.hidden || link.fields.every(field => field.hidden)) ? 'Show' : 'Hide'}</button>}
+      {expectedHeader && (() => {
+        const link = expectedAnswers.links.find(item => item.id === expectedHeader.link_id);
+        const run = expectedAnswers.runs.find(item => item.context.draft.action_id === link?.action_id && item.context.output_columns.some(output => output.column_id === expectedHeader.output_column_id));
+        return link && <ExpectedColumnMenu column={expectedHeader} link={link} onClose={() => setExpectedHeader(null)}
+          onChange={(next) => expectedAnswers.setLink(next, link.id)}
+          onRuleChange={(rule) => expectedAnswers.setRule(expectedHeader.expected_column_id, rule)}
+          onEditJoin={() => { setExpectedHeader(null); expectedAnswers.openJoin(undefined, link, 'columns'); }}
+          onCompare={() => { setExpectedHeader(null); if (run) actionCompare.compareActionRun(run.anchor, true); }} />;
+      })()}
       <Suspense fallback={<PanelLoading className="grid-host" label="Loading grid…" />}>
         <LazySheetGrid
           sheet={sheet}
@@ -964,8 +1000,16 @@ export function useWorkspaceModel({
           onRowOpen={(row, col, preview) => {
             openRowPanel(row, col, preview);
           }}
-          loadActionRunEntry={actionCompare.loadActionRunEntry}
+          loadActionRunEntry={loadRunWithExpected}
           onCompareActionRun={actionCompare.compareActionRun}
+          onCheckExpected={(anchor) => actionCompare.compareActionRun(anchor, true)}
+          expectedColumns={expectedAnswers.expectedColumns}
+          projectExpected={expectedAnswers.projectExpected}
+          onExpectedEdit={async (...args) => {
+            try { await expectedAnswers.editExpected(...args); projectData.invalidate(); void refreshHistory(); }
+            catch (error) { showError(error instanceof Error ? error.message : 'Could not edit expected answer.'); throw error; }
+          }}
+          onExpectedHeaderMenu={(column) => setExpectedHeader(column)}
           onColumnOpen={openColumnPanel}
           onHeaderSort={sortHeaderColumn}
           onColumnHeaderMenu={openGridHeaderMenu}
@@ -997,6 +1041,7 @@ export function useWorkspaceModel({
     </GridWorkbenchViewFrame>
   ) : null, [
     actionCompare,
+    expectedAnswers, expectedHeader, showError, loadRunWithExpected,
     scopeRowIds,
     sheet,
     dataVersion,
@@ -1054,6 +1099,8 @@ export function useWorkspaceModel({
     () => ({
       ...grid,
       ...actionCompare,
+      expectedAnswers,
+      comparisonDataVersion: dataVersion,
       ...savedViewController,
       ...view,
       ...actions,
@@ -1103,6 +1150,8 @@ export function useWorkspaceModel({
       grid,
       savedViewController,
       actionCompare,
+      expectedAnswers,
+      dataVersion,
       view,
       actions,
       navigation.mainView,
@@ -1218,6 +1267,12 @@ export function useWorkspaceModel({
     project,
     projectApi,
     pdfSplitDialog,
+    expectedJoinDialog: expectedAnswers.join && <JoinExpectedAnswersDialog
+      sheets={expectedAnswers.joinSheets} actions={expectedAnswers.joinActions}
+      initialActionId={expectedAnswers.join.actionId} initialLink={expectedAnswers.join.link}
+      initialStep={expectedAnswers.join.step} onPreview={expectedAnswers.api.previewLink}
+      onSave={expectedAnswers.saveLink} onImport={() => dispatchCommand({ type: 'import.open' })}
+      onClose={expectedAnswers.closeJoin} />,
     pdfRowMenuElement,
     runActCommand,
     revealPluginLauncher,
@@ -1271,6 +1326,8 @@ export function useWorkspaceModel({
     hideContribution,
 
     actRibbonTabs,
+    expectedAnswers,
+    compareActionRun: actionCompare.compareActionRun,
     launchActionFromSurface,
     renderPluginDetailTab,
     walkDetailRow,

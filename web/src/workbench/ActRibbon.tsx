@@ -7,6 +7,7 @@ import { TabButton } from '../components/Button';
 // pre-targeted, it never runs.
 
 import { PanelTopClose } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { OverflowRow } from '../components/OverflowRow';
 import overflowStyles from './ActTabsOverflow.module.css';
 import {
@@ -60,6 +61,7 @@ export function ActRibbon({
   onLaunchContribution,
   onCollapse,
   hideBand = false,
+  compareSlot,
 }: {
   tabs: ResolvedActTab[];
   activeTabId: string;
@@ -71,6 +73,8 @@ export function ActRibbon({
   onCollapse(): void;
   /** A view-owned contextual toolbar occupies the band instead. */
   hideBand?: boolean;
+  /** Workspace-owned Compare menu for Analyze and Media. */
+  compareSlot?: (tabId: 'analyze' | 'media') => ReactNode;
 }) {
   const onItemClick = (item: ResolvedActItem) => {
     if (item.kind === 'action') onRunAction(item.launcherKind);
@@ -203,6 +207,7 @@ export function ActRibbon({
             <div className="act-ribbon-group-caption">{group.caption}</div>
           </div>
         ))}
+        {(activeTab?.id === 'analyze' || activeTab?.id === 'media') && compareSlot && <div className="act-ribbon-group"><span className="act-ribbon-group-divider" aria-hidden /><div className="act-ribbon-group-body">{compareSlot(activeTab.id)}</div><div className="act-ribbon-group-caption">COMPARE</div></div>}
       </div>}
     </div>
   );

@@ -1,7 +1,8 @@
 import { useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
-import { PanelRightOpen, Copy, Eye, EyeOff, LockKeyhole, Plus, RotateCw, X } from 'lucide-react';
+import { Archive, PanelRightOpen, Copy, Eye, EyeOff, LockKeyhole, Plus, RotateCw, X } from 'lucide-react';
 import type { ActionComparisonBoundedValue } from '../api/actionComparison';
 import type { GeneratedActionDraft } from '../api/types';
+import type { EvaluationApi } from '../api/evaluation';
 import { Button } from '../components/Button';
 import { IconButton } from '../components/IconButton';
 import { WindowCloseButton } from '../components/WindowCloseButton';
@@ -17,6 +18,8 @@ import {
 } from './actionCompareSession';
 import { ActionCompareGrid, type ActionCompareStructuredValue } from './ActionCompareGrid';
 import { VariantBadge } from './VariantBadge';
+import { ComparisonEvaluationWorkspace } from './evaluation/ComparisonEvaluationWorkspace';
+import { PanelSelect } from '../components/PanelSelect';
 import './ActionCompareTab.css';
 
 export interface ActionCompareVariantEditorRenderProps {
@@ -48,6 +51,18 @@ export interface ActionCompareTabProps {
   }): void;
   onOpenStructuredValue?(value: ActionCompareStructuredValue): void;
   className?: string;
+  evaluationApi?: EvaluationApi;
+  onJoinExpected?(): void;
+  initialLens?: 'each_other' | 'expected';
+  onExpectedAnswersChanged?(): void;
+  onShelved?(): void;
+  modelField?: string | null;
+  instructionsField?: string | null;
+  rowScope?: 'sample' | 'all' | 'expected';
+  rowScopePending?: boolean;
+  rowScopeTotal?: number | null;
+  dataRevision?: number;
+  onChangeRowScope?(scope: 'sample' | 'all' | 'expected', lens?: 'each_other' | 'expected'): void;
 }
 
 function actionCompareEditorMaxHeight(toolbarBottom: number, contentBottom: number): number {
@@ -66,7 +81,8 @@ function statusTone(status: ActionCompareVariant['status']): StatusTone {
 export function ActionCompareTab({ projectId, session, rowHeight, wrapText, frozenColumnCount,
   onUseSettings, renderVariantEditor,
   labelForDraft, describeVariantChanges, onOpenBoundedValue, onOpenStructuredValue,
-  className }: ActionCompareTabProps) {
+  className, evaluationApi, onJoinExpected, initialLens, onExpectedAnswersChanged, onShelved,
+  modelField, instructionsField, rowScope, rowScopePending, rowScopeTotal, dataRevision, onChangeRowScope }: ActionCompareTabProps) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
@@ -131,18 +147,18 @@ export function ActionCompareTab({ projectId, session, rowHeight, wrapText, froz
       <CompareToolbar testIdPrefix="action-compare" running={running} controls={controls} label={null} tag={null}>
         {state.variants.map((variant) => {
           const use = session.useVariant(variant.id);
-          const displayLabel = labelForDraft?.(variant.draft, variant.displayKey) ?? variant.label;
+          const displayLabel = variant.readOnly ? variant.label : labelForDraft?.(variant.draft, variant.displayKey) ?? variant.label;
           const changes = editingId === null && hoveredId === variant.id && !variant.baseline && describeVariantChanges
             ? describeVariantChanges(baseline.draft, variant.draft) : [];
-          return <div key={variant.id} className="action-compare-variant" data-status={variant.status}
+          return <div key={variant.id} className={`action-compare-variant${variant.readOnly ? ' action-compare-shelved' : ''}`} data-status={variant.status}
             data-active={editingId === variant.id || hoveredId === variant.id ? 'true' : undefined}
             data-testid={`action-compare-variant-${variant.displayKey}`}
             onMouseEnter={() => setHoveredId(variant.id)} onMouseLeave={() => setHoveredId(null)}
             onFocus={() => setHoveredId(variant.id)} onBlur={(event) => {
               if (!event.currentTarget.contains(event.relatedTarget)) setHoveredId(null);
             }}>
-            {variant.baseline ? <div className="action-compare-variant-body" aria-label={`Variant ${variant.displayKey}`}>
-              <VariantBadge label={variant.displayKey} /><span>{displayLabel}</span>
+            {variant.baseline || variant.readOnly ? <div className="action-compare-variant-body" aria-label={`Variant ${variant.displayKey}${variant.readOnly ? ', shelved, read-only' : ''}`}>
+              <VariantBadge label={variant.displayKey} />{variant.readOnly && <Archive size={13} aria-label="Shelved, read-only" />}<span>{displayLabel}</span>
               {variant.status !== 'current' && variant.status !== 'ready' && variant.status !== 'pending' &&
                 <StatusChip tone={statusTone(variant.status)} size="sm">{variant.status}</StatusChip>}
             </div> : <button type="button" className="action-compare-variant-body"
@@ -170,8 +186,9 @@ export function ActionCompareTab({ projectId, session, rowHeight, wrapText, froz
             </div>}
           </div>;
         })}
-        <Button type="button" className="action-compare-add" disabled={state.variants.length >= Math.min(3, context.limits.max_challengers) + 1}
+        {!evaluationApi && <Button type="button" className="action-compare-add" disabled={state.variants.filter((variant) => !variant.baseline && !variant.readOnly).length >= context.limits.max_challengers}
           onClick={() => { const id = session.addVariant(); if (id) setEditingId(id); }}><Plus size={13} /> Variant</Button>
+        }
       </CompareToolbar>
 
       {editing && renderVariantEditor && <aside className="action-compare-editor" style={editorMaxHeight === null
@@ -193,7 +210,7 @@ export function ActionCompareTab({ projectId, session, rowHeight, wrapText, froz
       </aside>}
     </div>
 
-    <div className="action-compare-visibility"><span>Columns</span>
+    {!evaluationApi && <div className="action-compare-visibility"><span>Columns</span>
       <OverflowRow items={visibilityFields} getKey={(field) => field.key} aria-label="Visible comparison fields"
         className="action-compare-visibility-row" overflowLabel="More comparison fields"
         triggerClassName="action-compare-visibility-overflow"
@@ -206,13 +223,24 @@ export function ActionCompareTab({ projectId, session, rowHeight, wrapText, froz
             session.setColumnVisible(key, !visible); closeMenu();
           }}><span aria-hidden>{visible ? '✓' : '+'}</span><span className="menu-item-name">{name}</span></button>; }} />
       <span className="action-compare-sample-count" data-testid="action-compare-sample-count">{sampleLabel(
-        Math.min(20, context.limits.max_sample_rows, context.sample_row_ids.length),
+        context.sample_row_ids.length,
         state.capturedSelection?.totalCount ?? null,
       )}</span>
-    </div>
+      {onChangeRowScope && <PanelSelect ariaLabel="Comparison rows" value={rowScope ?? 'sample'} disabled={running || rowScopePending}
+        options={[{ value: 'sample', label: 'Sample · up to 20 rows' }, { value: 'all', label: 'All · up to 500 rows' }]}
+        onValueChange={(value) => onChangeRowScope(value as 'sample' | 'all')} />}
+    </div>}
 
-    <ActionCompareGrid projectId={projectId} state={state} rowHeight={rowHeight}
+    {evaluationApi ? <ComparisonEvaluationWorkspace key={initialLens ?? 'each_other'} api={evaluationApi} state={state} session={session}
+      initialLens={initialLens} onJoinExpected={onJoinExpected} onExpectedAnswersChanged={onExpectedAnswersChanged}
+      onShelved={onShelved} modelField={modelField} instructionsField={instructionsField}
+      rowScope={rowScope} rowScopePending={rowScopePending} rowScopeTotal={rowScopeTotal} dataRevision={dataRevision} onChangeRowScope={onChangeRowScope}
+      renderVariantEditor={renderVariantEditor} onOpenVariant={setEditingId} onUseSettings={onUseSettings}
+      renderGrid={(evaluation) => <ActionCompareGrid projectId={projectId} state={state} rowHeight={rowHeight}
+        wrapText={wrapText} frozenColumnCount={frozenColumnCount} labelForDraft={labelForDraft}
+        onOpenBoundedValue={onOpenBoundedValue} onOpenStructuredValue={onOpenStructuredValue} evaluation={evaluation} />} />
+      : <ActionCompareGrid projectId={projectId} state={state} rowHeight={rowHeight}
       wrapText={wrapText} frozenColumnCount={frozenColumnCount} labelForDraft={labelForDraft}
-      onOpenBoundedValue={onOpenBoundedValue} onOpenStructuredValue={onOpenStructuredValue} />
+      onOpenBoundedValue={onOpenBoundedValue} onOpenStructuredValue={onOpenStructuredValue} />}
   </section>;
 }

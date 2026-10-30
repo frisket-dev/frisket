@@ -51,9 +51,9 @@ describe('served action ribbon organization', () => {
       }
       return tab.groups.flatMap((group) => group.items);
     });
-    // All 51 standalone actions (including Structured Agent Research) and 9 workflow or
+    // All 51 standalone actions (including Structured Agent Research) and 10 workflow or
     // compare commands remain present, with no duplicate base-tab launchers.
-    expect(items).toHaveLength(60);
+    expect(items).toHaveLength(61);
     expect(new Set(items.map((item) => item.kind === 'action' ? item.launcherKind
       : item.kind === 'command' ? item.command : item.contributionId)).size).toBe(items.length);
   });

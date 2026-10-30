@@ -11,6 +11,9 @@ Output values stay ephemeral; paid previews retain receipt-owned call facts.
 from __future__ import annotations
 
 import asyncio
+import copy
+import json
+import uuid
 import threading
 import time
 from dataclasses import dataclass, replace
@@ -88,6 +91,7 @@ from frisket.server.services.scratch_action_preview import (
 )
 from frisket.execution.resolve_for_action import SCRATCH_PREVIEW_UNIT_ID
 from frisket.server.workspace import Workspace
+from frisket.server.route_errors import RouteError
 
 PREVIEW_SCHEMA_VERSION = "frisket.action_preview.v1"
 
@@ -540,6 +544,7 @@ class ActionPreviewRunService:
         request_context: Any = None,
         on_finished: Callable[[], None] | None = None,
         comparison: dict[str, Any] | None = None,
+        quote_only: bool = False,
     ) -> ActionPreviewRunResponse:
         kind = action_id_from_request(body) if isinstance(body, dict) else None
         if not action_available_in_edition(kind, self._workspace.edition):
@@ -745,6 +750,22 @@ class ActionPreviewRunService:
         except CostGate as exc:
             from frisket.engine.executor.action_support import _claims_gate_details
 
+            if quote_only:
+                details = _claims_gate_details(exc)
+                if not isinstance(exc.estimate_details, dict) or not details.get(
+                    "promise_set_hash"
+                ):
+                    return _error_response(
+                        409,
+                        _preview_error(
+                            "preview_quote_unavailable",
+                            "The preview did not provide a complete confirmation quote.",
+                            plan.action_kind,
+                        ),
+                    )
+                return _comparison_quote_response(
+                    {**exc.estimate_details, **details, "requires_confirmation": True}
+                )
             return _error_response(
                 402,
                 _preview_error(
@@ -828,6 +849,56 @@ class ActionPreviewRunService:
                 _preview_error("invalid_preview", str(exc), plan.action_kind),
             )
 
+        if quote_only:
+            from frisket.engine.runner.confirmation_context import (
+                BILLED_COST_KEY,
+                POLICY_ID_KEY,
+            )
+
+            estimate = dict(prepared.est or {})
+            if POLICY_ID_KEY not in estimate or BILLED_COST_KEY not in estimate:
+                estimate = validation.confirmation_estimate(
+                    prepared.recipe,
+                    plan.runner_spec,
+                    estimate,
+                    policy=runner.pricing_policy,
+                )
+            return _comparison_quote_response(
+                {**estimate, "rows": sample_total, "requires_confirmation": False}
+            )
+
+        comparison_context = None
+        if comparison is not None:
+            from frisket.server.services.action_compare import ActionCompareService
+            from frisket.server.services.evaluation_values import source_fingerprints
+
+            facts = ActionCompareService(self._workspace).context(
+                project_id,
+                {
+                    "source": comparison["basis"],
+                    "sample_row_ids": list(prepared.row_ids),
+                },
+            )
+            source_ids = [int(item["column_id"]) for item in facts["source_columns"]]
+            fingerprints = source_fingerprints(
+                project, facts["sheet"]["id"], source_ids, list(prepared.row_ids)
+            )
+            comparison_context = {
+                "sheet_id": facts["sheet"]["id"],
+                "action_id": body["action_id"],
+                "output_columns": [
+                    {
+                        key: item[key]
+                        for key in ("logical_key", "column_id", "current_name")
+                    }
+                    for item in facts["output_columns"]
+                ],
+                "row_ids": list(prepared.row_ids),
+                "source_column_ids": source_ids,
+                "source_fingerprints": fingerprints,
+                "settings": copy.deepcopy(body),
+            }
+
         runner_spec = plan.runner_spec
         accounted = row_effect_spends_or_meters(
             prepared.recipe, runner_spec, runner.router
@@ -897,6 +968,25 @@ class ActionPreviewRunService:
                 failure = exc
                 raise
             finally:
+                if comparison_context is not None:
+                    # A changed source cannot inherit a hand judgment captured for
+                    # the earlier inputs. A unique token also covers failed reads.
+                    try:
+                        after = source_fingerprints(
+                            project,
+                            comparison_context["sheet_id"],
+                            comparison_context["source_column_ids"],
+                            comparison_context["row_ids"],
+                        )
+                    except Exception:
+                        after = {}
+                    for row_id, before in list(
+                        comparison_context["source_fingerprints"].items()
+                    ):
+                        if after.get(row_id) != before:
+                            comparison_context["source_fingerprints"][row_id] = (
+                                f"changed:{uuid.uuid4().hex}"
+                            )
                 # asyncio.run has joined all runner work and capability scope
                 # finalizers. Only now may receipt-scoped writers lose authority.
                 status = (
@@ -939,6 +1029,7 @@ class ActionPreviewRunService:
                 **({"receipt": receipt} if receipt is not None else {}),
                 on_finished=on_finished,
                 preparation_message=preparation_message,
+                comparison_context=comparison_context,
                 replacement_key=(
                     f"action_compare:{_preview_actor_id(request_context)}"
                     if comparison is not None
@@ -981,6 +1072,102 @@ class ActionPreviewRunService:
             request_context=request_context,
             comparison=comparison,
         )
+
+    def quote_compare_preview(
+        self, project_id: str, body: dict[str, Any], *, request_context: Any = None
+    ) -> ActionPreviewRunResponse:
+        action = body.get("action") if isinstance(body, dict) else None
+        comparison = body.get("comparison") if isinstance(body, dict) else None
+        if not isinstance(action, dict) or not isinstance(comparison, dict):
+            return _error_response(
+                400,
+                _preview_error(
+                    "invalid_comparison_request",
+                    "Compare quote requires action and comparison objects.",
+                    None,
+                ),
+            )
+        # A quote must not be suppressed by a caller-supplied echo.
+        action = {key: value for key, value in action.items() if key != "confirmation"}
+        return self.start_preview(
+            project_id,
+            action,
+            request_context=request_context,
+            comparison=comparison,
+            quote_only=True,
+        )
+
+    def evaluation_preview(self, project_id: str, preview_id: str) -> dict[str, Any]:
+        """Read a finished comparison preview using its full, job-owned values."""
+        self._workspace.get(project_id)
+        job = self._registry.get(project_id, preview_id)
+        if job is None or job.comparison_context is None:
+            raise RouteError(404, "Comparison preview not found or expired.")
+        if job.status not in {"done", "error", "cancelled"}:
+            raise RouteError(409, "Comparison preview is still running.")
+        context = job.comparison_context
+        result = job.result if isinstance(job.result, PreviewResult) else None
+        if job.status == "done" and result is None:
+            raise RouteError(409, "Comparison preview has no row results.")
+        if result is not None and result.sheet_id != context["sheet_id"]:
+            raise RouteError(409, "Comparison preview belongs to a different sheet.")
+        rows = {}
+        for row_id in context["row_ids"]:
+            cells = result.values.get(row_id, {}) if result else {}
+            row = {}
+            for output in context["output_columns"]:
+                raw = cells.get(output["current_name"])
+                if raw is None:
+                    if job.status == "error":
+                        cell = {
+                            "state": "error",
+                            "error": (job.error or {}).get(
+                                "message", "Preview failed."
+                            ),
+                        }
+                    elif job.status == "cancelled":
+                        cell = {"state": "cancelled"}
+                    else:
+                        cell = {"state": "missing"}
+                elif raw.get("error"):
+                    cell = {"state": "error", "error": str(raw["error"])}
+                else:
+                    value = raw.get("value")
+                    bounded = raw.get("bounded_value")
+                    if bounded is not None:
+                        if (
+                            result is None
+                            or result.artifacts.get(bounded.id) is not bounded
+                        ):
+                            raise RouteError(
+                                409, "Comparison preview artifact is unavailable."
+                            )
+                        try:
+                            contents = bounded.path.read_text(encoding="utf-8")
+                            value = (
+                                json.loads(contents)
+                                if bounded.value_kind == "json"
+                                else contents
+                            )
+                        except (OSError, ValueError) as exc:
+                            raise RouteError(
+                                409, "Comparison preview artifact is unavailable."
+                            ) from exc
+                    cell = (
+                        {"state": "null"}
+                        if value is None
+                        else {"state": "value", "value": value}
+                    )
+                row[output["logical_key"]] = cell
+            rows[str(row_id)] = row
+        return {
+            "sheet_id": context["sheet_id"],
+            "action_id": context["action_id"],
+            "output_columns": copy.deepcopy(context["output_columns"]),
+            "rows": rows,
+            "source_fingerprints": dict(context["source_fingerprints"]),
+            "settings": copy.deepcopy(context["settings"]),
+        }
 
     def get_preview(self, project_id: str, preview_id: str) -> ActionPreviewRunResponse:
         project = self._workspace.get(project_id)
@@ -1048,6 +1235,27 @@ class ActionPreviewRunService:
             return artifact.path.open("rb"), artifact
         except FileNotFoundError:
             return None
+
+
+def _comparison_quote_response(estimate: dict[str, Any]) -> ActionPreviewRunResponse:
+    from frisket.contracts.http.action_estimate_validation import ActionEstimate
+
+    # Keep the same closed, rated money/claims schema as normal action estimates.
+    fields = {
+        key: value
+        for key, value in estimate.items()
+        if key in ActionEstimate.model_fields
+    }
+    quote = ActionEstimate.model_validate(fields).model_dump(
+        mode="json", exclude_unset=True
+    )
+    return ActionPreviewRunResponse(
+        status_code=200,
+        payload={
+            "schema_version": "frisket.action_compare_quote.v1",
+            "estimate": quote,
+        },
+    )
 
 
 def _job_payload(job: PreviewJob) -> dict[str, Any]:

@@ -318,6 +318,17 @@ describe('workspace controller composition boundaries', () => {
     expect(overlayRegionCommit.mock.calls.length).toBeGreaterThan(overlayCommits);
   });
 
+  it('updates the main projection for expected-answer state and data revisions', async () => {
+    await readyWorkspace();
+    const before = model().mainViewModel;
+    act(() => model().expectedAnswers.openJoin());
+    expect(model().mainViewModel).not.toBe(before);
+    expect(model().mainViewModel.expectedAnswers.join).not.toBeNull();
+    const dataVersion = model().mainViewModel.comparisonDataVersion;
+    act(() => model().invalidateProjectData());
+    expect(model().mainViewModel.comparisonDataVersion).toBeGreaterThan(dataVersion);
+  });
+
   it('updates comparison sessions without rerendering overlays', async () => {
     await readyWorkspace();
     const before = model().overlayModel;

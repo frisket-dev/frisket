@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import copy
 import json
 from typing import Any
 
@@ -1075,3 +1076,221 @@ def test_row_preview_spools_large_unicode_and_json_once(tmp_path: Path) -> None:
     assert [artifact.path for artifact in result.artifacts.values()] == paths
     result.close()
     assert all(not path.exists() for path in paths)
+
+
+def test_comparison_context_accepts_500_rows_and_reports_limits(tmp_path: Path) -> None:
+    workspace, sheet_id, _ = _workspace(tmp_path / "workspace")
+    project = workspace.get("compare")
+    source_id = next(
+        column["id"] for column in project.columns(sheet_id) if column["name"] == "text"
+    )
+    rows = project.add_rows(
+        sheet_id, [{"text": str(i)} for i in range(500)], {"text": source_id}
+    )
+    context = ActionCompareService(workspace).context(
+        "compare",
+        {
+            "source": {"kind": "draft", "draft": _ask_draft(sheet_id, rows)},
+            "sample_row_ids": rows,
+        },
+    )
+    assert context["limits"] == {"max_sample_rows": 500, "max_challengers": 19}
+    assert len(context["source_rows"]) == 500
+    with pytest.raises(ValueError):
+        ActionCompareService(workspace).context(
+            "compare",
+            {
+                "source": {"kind": "draft", "draft": _ask_draft(sheet_id, rows)},
+                "sample_row_ids": rows + [rows[0]],
+            },
+        )
+
+
+def test_comparison_preview_captures_full_evaluation_metadata(tmp_path: Path) -> None:
+    app = create_app(
+        tmp_path / "adapter-workspace",
+        router=_router(),
+        serve_spa=False,
+        enable_provider_config=False,
+    )
+    with TestClient(app) as client:
+        pid = client.post("/api/projects", json={"name": "Adapter"}).json()["id"]
+        workspace = app.state.workspace
+        project = workspace.get(pid)
+        sheet_id = project.add_sheet("Stories")
+        source_id = project.add_column(sheet_id, "text", type="text")
+        rows = project.add_rows(sheet_id, [{"text": "Alpha"}], {"text": source_id})
+        context = ActionCompareService(workspace).context(
+            pid,
+            {
+                "source": {"kind": "draft", "draft": _ask_draft(sheet_id, rows)},
+                "sample_row_ids": rows,
+            },
+        )
+        service = ActionPreviewRunService(workspace)
+        body = {
+            "action": {**context["draft"], "idempotency_key": "eval-adapter"},
+            "comparison": {
+                "basis": context["comparison_basis"],
+                "expected_output_signature": context["expected_output_signature"],
+            },
+        }
+        started = service.start_compare_preview(pid, body)
+        if started.status_code == 402:
+            body["action"]["confirmation"] = started.payload["error"]["details"][
+                "promise_set_hash"
+            ]
+            started = service.start_compare_preview(pid, body)
+        assert started.status_code == 202, started.payload
+        preview_id = started.payload["preview_id"]
+        service._registry._threads[preview_id].join(timeout=10)
+        assert service.get_preview(pid, preview_id).payload["status"] != "running"
+        result = service.evaluation_preview(pid, preview_id)
+        assert result["sheet_id"] == sheet_id
+        assert result["action_id"] == "map.ask"
+        assert result["output_columns"][0]["logical_key"] == "answer"
+        assert result["rows"][str(rows[0])]["answer"]["state"] in {
+            "value",
+            "error",
+            "null",
+        }
+        assert result["source_fingerprints"][str(rows[0])]
+        assert result["settings"]["params"] == body["action"]["params"]
+        service._registry.shutdown()
+
+
+def test_preview_input_change_during_execution_invalidates_identity(
+    tmp_path: Path,
+) -> None:
+    import threading
+    import asyncio
+    from frisket.server.services.evaluation_values import source_fingerprints
+
+    entered, resume = threading.Event(), threading.Event()
+
+    class WaitingAdapter(_ClassifyAdapter):
+        async def complete(self, request, client):
+            entered.set()
+            await asyncio.to_thread(resume.wait, 10)
+            return await super().complete(request, client)
+
+    app = create_app(
+        tmp_path / "change-workspace",
+        router=_router(WaitingAdapter()),
+        serve_spa=False,
+        enable_provider_config=False,
+    )
+    with TestClient(app) as client:
+        pid = client.post("/api/projects", json={"name": "Change"}).json()["id"]
+        workspace = app.state.workspace
+        project = workspace.get(pid)
+        sheet_id = project.add_sheet("Stories")
+        source_id = project.add_column(sheet_id, "text", type="text")
+        rows = project.add_rows(sheet_id, [{"text": "Alpha"}], {"text": source_id})
+        before = source_fingerprints(project, sheet_id, [source_id], rows)[str(rows[0])]
+        context = ActionCompareService(workspace).context(
+            pid,
+            {
+                "source": {"kind": "draft", "draft": _ask_draft(sheet_id, rows)},
+                "sample_row_ids": rows,
+            },
+        )
+        service = ActionPreviewRunService(workspace)
+        body = {
+            "action": {**context["draft"], "idempotency_key": "eval-change"},
+            "comparison": {
+                "basis": context["comparison_basis"],
+                "expected_output_signature": context["expected_output_signature"],
+            },
+        }
+        started = service.start_compare_preview(pid, body)
+        if started.status_code == 402:
+            body["action"]["confirmation"] = started.payload["error"]["details"][
+                "promise_set_hash"
+            ]
+            started = service.start_compare_preview(pid, body)
+        assert started.status_code == 202, started.payload
+        try:
+            assert entered.wait(5)
+            edit = post_cell_edit_as_v1_action(
+                client,
+                pid,
+                [{"row_id": rows[0], "column_id": source_id, "value": "Changed"}],
+                idempotency_key="eval-source-change",
+            )
+            assert edit.status_code == 200, edit.text
+        finally:
+            resume.set()
+        preview_id = started.payload["preview_id"]
+        service._registry._threads[preview_id].join(timeout=10)
+        assert service.get_preview(pid, preview_id).payload["status"] != "running"
+        fingerprint = service.evaluation_preview(pid, preview_id)[
+            "source_fingerprints"
+        ][str(rows[0])]
+        assert fingerprint != before
+        assert (
+            fingerprint
+            != source_fingerprints(project, sheet_id, [source_id], rows)[str(rows[0])]
+        )
+        service._registry.shutdown()
+
+
+def test_compare_quote_is_write_free_and_its_confirmation_starts_same_preview(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
+    app = create_app(
+        tmp_path / "quote-workspace",
+        router=_router(),
+        serve_spa=False,
+        enable_provider_config=False,
+    )
+    with TestClient(app) as client:
+        pid = client.post("/api/projects", json={"name": "Quote"}).json()["id"]
+        workspace = app.state.workspace
+        project = workspace.get(pid)
+        sheet_id = project.add_sheet("Stories")
+        source = project.add_column(sheet_id, "text", type="text")
+        rows = project.add_rows(sheet_id, [{"text": "Alpha"}], {"text": source})
+        context = ActionCompareService(workspace).context(
+            pid,
+            {
+                "source": {"kind": "draft", "draft": _ask_draft(sheet_id, rows)},
+                "sample_row_ids": rows,
+            },
+        )
+        body = {
+            "action": {**context["draft"], "idempotency_key": "eval-quote"},
+            "comparison": {
+                "basis": context["comparison_basis"],
+                "expected_output_signature": context["expected_output_signature"],
+            },
+        }
+        service = ActionPreviewRunService(workspace)
+        quoted = service.quote_compare_preview(pid, body)
+        assert quoted.status_code == 200, quoted.payload
+        assert not service._registry._jobs
+        wire_quote = client.post(
+            f"/api/projects/{pid}/actions/v1/compare-preview-quote", json=body
+        )
+        assert wire_quote.status_code == 200, wire_quote.text
+        assert wire_quote.json()["estimate"] == quoted.payload["estimate"]
+        estimate = quoted.payload["estimate"]
+        assert estimate["rows"] == 1
+        assert "billed_cost" in estimate and estimate["policy_id"]
+        assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
+        assert estimate["requires_confirmation"]
+        if estimate["requires_confirmation"]:
+            assert estimate["promise_set_hash"]
+            stale = copy.deepcopy(body)
+            stale["action"]["params"]["question"] = (
+                "A different question with different words"
+            )
+            stale["action"]["confirmation"] = estimate["promise_set_hash"]
+            assert service.start_compare_preview(pid, stale).status_code == 402
+            assert not service._registry._jobs
+            body["action"]["confirmation"] = estimate["promise_set_hash"]
+        started = service.start_compare_preview(pid, body)
+        assert started.status_code == 202, started.payload
+        service._registry.shutdown()

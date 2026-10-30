@@ -187,6 +187,8 @@ from frisket.server.services.action_previews import ActionPreviewService
 from frisket.server.services.action_preview_runs import ActionPreviewRunService
 from frisket.server.services.action_preview_jobs import ActionPreviewJobRegistry
 from frisket.server.services.action_compare import ActionCompareService
+from frisket.server.services.evaluation import EvaluationService
+from frisket.server.routes.project_evaluation import register_project_evaluation_routes
 from frisket.server.services.action_registry import ActionRegistryService
 from frisket.server.services.action_run_rows import ActionRunRowsService
 from frisket.server.services.action_run_cancel import ActionRunCancelService
@@ -1101,6 +1103,13 @@ def create_app(
         service=action_preview_run_service,
         compare_service=ActionCompareService(ws),
         import_admission=import_admission,
+    )
+
+    register_project_evaluation_routes(
+        app,
+        service=EvaluationService(
+            ws, preview_reader=action_preview_run_service.evaluation_preview
+        ),
     )
 
     register_project_timing_routes(app, service=ProjectTimingService(ws))

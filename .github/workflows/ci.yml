@@ -367,6 +367,7 @@ jobs:
           --project=chromium --no-deps --workers=1
           action-compare-connected.spec.ts
           action-compare-extract.spec.ts
+          action-compare-eval.spec.ts
           action-validation-ux.spec.ts
           ask-skill-authoring.spec.ts
           backfill-cost-gate.spec.ts

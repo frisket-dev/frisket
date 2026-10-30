@@ -139,3 +139,16 @@ export function readAiColumnTheme(): Partial<Theme> {
     textGroupHeader: v(s, '--text-mid', '#57534a'),
   };
 }
+
+/** Expected-answer headers use the shared success palette; cells remain ordinary. */
+export function readExpectedColumnTheme(): Partial<Theme> {
+  const s = tokens();
+  const bg = v(s, '--green-bg', '#dcefec');
+  const accent = v(s, '--green', '#06776b');
+  return {
+    bgHeader: bg, bgHeaderHovered: mixHex(bg, accent, 0.18),
+    bgIconHeader: accent, fgIconHeader: v(s, '--text-on-solid', '#ffffff'),
+    textHeader: v(s, '--text', '#211f1b'),
+    bgCell: v(s, '--bg', '#ffffff'), bgCellMedium: v(s, '--bg', '#ffffff'),
+  };
+}

@@ -135,6 +135,8 @@ export function useWorkbenchHostContext(): WorkspaceViewModel['workbenchHostCont
 
 export interface WorkspaceActHandle {
   actRibbonTabs: WorkspaceViewModel['actRibbonTabs'];
+  expectedAnswers: WorkspaceViewModel['expectedAnswers'];
+  compareActionRun: WorkspaceViewModel['compareActionRun'];
   launchActionFromSurface: WorkspaceViewModel['launchActionFromSurface'];
   runActionFromSurface: WorkspaceViewModel['runActionFromSurface'];
 }

@@ -27,6 +27,24 @@ const run: ReviewRun = {
 };
 
 describe('ReviewRunControls', () => {
+  it('downloads results for the selected run only when export is available', () => {
+    const nextRun = { ...run, runId: '10' };
+    const controls = (selectedRunId: string, reviewExportUrl?: (id: string) => string) => (
+      <ReviewRunControls runs={[run, nextRun]} selectedRunId={selectedRunId}
+        onSelectedRunChange={vi.fn()} selectedFieldId={null} onSelectedFieldChange={vi.fn()}
+        order="shuffle" onOrderChange={vi.fn()} reviewExportUrl={reviewExportUrl} />
+    );
+    const { rerender } = render(controls('9', (id) => `/run/${id}/export.csv`));
+    fireEvent.click(screen.getByRole('button', { name: 'Results' }));
+    expect(screen.getByRole('link', { name: 'Download results CSV' }))
+      .toHaveAttribute('href', '/run/9/export.csv');
+    rerender(controls('10', (id) => `/run/${id}/export.csv`));
+    expect(screen.getByRole('link', { name: 'Download results CSV' }))
+      .toHaveAttribute('href', '/run/10/export.csv');
+    rerender(controls('10'));
+    expect(screen.queryByRole('link', { name: 'Download results CSV' })).not.toBeInTheDocument();
+  });
+
   it('uses PanelSelects to scope review to a run and output field', () => {
     const changedRun = vi.fn();
     const changedField = vi.fn();

@@ -39,6 +39,7 @@ import {
   FileOutput,
   Film,
   GitMerge,
+  Link,
   Languages,
   ListTree,
   ListChecks,
@@ -227,7 +228,7 @@ const RIBBON_LAYOUT: readonly RibbonTabLayout[] = [
       ] },
     ],
   },
-  { id: 'tables', label: 'Tables', groups: [{ caption: 'TABLES' }] },
+  { id: 'tables', label: 'Tables', groups: [{ caption: 'TABLES' }, { caption: 'JOIN', commands: [{ command: 'join-expected', label: 'Join expected answers', icon: Link }] }] },
   {
     id: 'research', label: 'Research', groups: [
       { caption: 'RESEARCH' },
@@ -352,6 +353,7 @@ const CONTEXTUAL_TAB_SPECS: readonly ContextualTabSpec[] = [
 // features live on via the toolbar/overflow controls, the WorkViewSwitcher,
 // and the ⌘K palette.
 export type ActMenuCommand =
+  | 'join-expected'
   | 'import'
   | 'split-pdfs'
   | 'sources'

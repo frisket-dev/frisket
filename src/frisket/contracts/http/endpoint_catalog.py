@@ -329,6 +329,14 @@ LOCAL_CONFIGURATION_ENDPOINT_IDS = (
 _TENANT_SPEND: tuple[RouteSpec, ...] = (("spend", "GET"),)
 
 _TENANT_VIEWER: tuple[RouteSpec, ...] = (
+    ("evaluation_rows", "POST"),
+    ("evaluation_cell", "POST"),
+    ("evaluation_links", "GET"),
+    ("evaluation_link_preview", "POST"),
+    ("evaluation_projection", "POST"),
+    ("evaluation_score", "POST"),
+    ("evaluation_shelf_list", "GET"),
+    ("evaluation_shelf_get", "GET"),
     ("extraction_document_get", "GET"),
     ("extraction_templates_list", "GET"),
     ("qa_threads", "GET"),
@@ -488,6 +496,10 @@ _TENANT_VIEWER: tuple[RouteSpec, ...] = (
 # access does not mean to grant a full data takeout. One rung above the
 # ordinary per-cell/per-row reads in ``_TENANT_VIEWER``.
 _TENANT_REVIEWER: tuple[RouteSpec, ...] = (
+    ("evaluation_judgment", "PUT"),
+    ("evaluation_download_csv", "POST"),
+    ("evaluation_download_settings", "POST"),
+    ("evaluation_review_csv", "GET"),
     ("review_run_status_ep", "POST"),
     ("export_project", "GET"),
     ("export_sheet_dataset", "GET"),
@@ -609,6 +621,7 @@ _TENANT_ACTION_RUN: tuple[RouteSpec, ...] = (("v1_action_run", "POST"),)
 _TENANT_ACTION_PREVIEW: tuple[RouteSpec, ...] = (
     ("v1_action_preview_start", "POST"),
     ("v1_action_compare_preview_start", "POST"),
+    ("v1_action_compare_preview_quote", "POST"),
 )
 
 _TENANT_SKILLS: tuple[RouteSpec, ...] = (
@@ -622,6 +635,16 @@ _TENANT_SKILLS: tuple[RouteSpec, ...] = (
 )
 
 _TENANT_EDITOR: tuple[RouteSpec, ...] = (
+    ("evaluation_capture", "POST"),
+    ("evaluation_capture_discard", "DELETE"),
+    ("evaluation_link_create", "POST"),
+    ("evaluation_link_update", "PUT"),
+    ("evaluation_link_delete", "DELETE"),
+    ("evaluation_rule_update", "PUT"),
+    ("evaluation_expected_answer", "POST"),
+    ("evaluation_shelf_save", "POST"),
+    ("evaluation_shelf_rename", "PATCH"),
+    ("evaluation_shelf_delete", "DELETE"),
     ("create_table_import_from_file", "POST"),
     ("create_table_import_from_paste", "POST"),
     ("get_table_import", "GET"),
@@ -888,7 +911,27 @@ _BROWSER_CLIENT_IDS = (
             "tenant.v1_action_run.post",
             "tenant.v1_action_preview_cancel.delete",
             "tenant.v1_action_compare_context.post",
+            "tenant.evaluation_links.get",
+            "tenant.evaluation_link_preview.post",
+            "tenant.evaluation_projection.post",
+            "tenant.evaluation_score.post",
+            "tenant.evaluation_capture.post",
+            "tenant.evaluation_capture_discard.delete",
+            "tenant.evaluation_rows.post",
+            "tenant.evaluation_cell.post",
+            "tenant.evaluation_shelf_list.get",
+            "tenant.evaluation_shelf_get.get",
+            "tenant.evaluation_judgment.put",
+            "tenant.evaluation_link_create.post",
+            "tenant.evaluation_link_update.put",
+            "tenant.evaluation_link_delete.delete",
+            "tenant.evaluation_rule_update.put",
+            "tenant.evaluation_expected_answer.post",
+            "tenant.evaluation_shelf_save.post",
+            "tenant.evaluation_shelf_rename.patch",
+            "tenant.evaluation_shelf_delete.delete",
             "tenant.v1_action_compare_preview_start.post",
+            "tenant.v1_action_compare_preview_quote.post",
             "tenant.v1_action_preview_start.post",
             "tenant.v1_action_preview_status.get",
             "tenant.action_run_status.get",

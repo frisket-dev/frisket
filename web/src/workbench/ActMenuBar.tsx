@@ -77,12 +77,13 @@ function ActMenuDropdown({
   tab,
   triggerRef,
   onClose,
-  renderItem,
+  renderItem, compareSlot,
 }: {
   tab: ResolvedActTab;
   triggerRef: RefObject<HTMLButtonElement | null>;
   onClose(): void;
   renderItem(item: ResolvedActItem): ReactNode;
+  compareSlot?: (tabId: 'analyze' | 'media', close: () => void) => ReactNode;
 }) {
   const popoverRef = useRef<HTMLDivElement>(null);
   // Escape + outside-pointerdown; any `.act-menubar-trigger` is ignored so a
@@ -108,6 +109,7 @@ function ActMenuDropdown({
       }
     >
       {tab.groups.flatMap((group) => actItemsInDisplayOrder(group.items)).map(renderItem)}
+      {(tab.id === 'analyze' || tab.id === 'media') && compareSlot?.(tab.id, onClose)}
     </div>
   );
 }
@@ -117,13 +119,14 @@ export function ActMenuBar({
   onRunAction,
   onCommand,
   onLaunchContribution,
-  onExpandRibbon,
+  onExpandRibbon, compareSlot,
 }: {
   tabs: ResolvedActTab[];
   onRunAction(launcherKind: string): void;
   onCommand(command: ActMenuCommand): void;
   onLaunchContribution(contributionId: string): void;
   onExpandRibbon(): void;
+  compareSlot?: (tabId: 'analyze' | 'media', close: () => void) => ReactNode;
 }) {
   const [openTabId, setOpenTabId] = useState<string | null>(null);
   // Focus returns to the current trigger on Escape, outside click, or item
@@ -226,6 +229,7 @@ export function ActMenuBar({
           triggerRef={openTriggerRef}
           onClose={closeMenu}
           renderItem={renderItem}
+          compareSlot={compareSlot}
         />
       )}
       <button

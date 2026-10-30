@@ -5,6 +5,7 @@ import {
   readAiColumnTheme,
   readGridCellPalette,
   readGridDifferenceTheme,
+  readExpectedColumnTheme,
   readGridTheme,
   type GridCellPalette,
 } from './gridTheme';
@@ -12,6 +13,7 @@ import {
 export interface GridThemeSnapshot {
   gridTheme: Partial<Theme>;
   aiColumnTheme: Partial<Theme>;
+  expectedColumnTheme: Partial<Theme>;
   gridCellPalette: GridCellPalette;
   differenceTheme: Partial<Theme>;
 }
@@ -20,6 +22,7 @@ function readGridThemeSnapshot(): GridThemeSnapshot {
   return {
     gridTheme: readGridTheme(),
     aiColumnTheme: readAiColumnTheme(),
+    expectedColumnTheme: readExpectedColumnTheme(),
     gridCellPalette: readGridCellPalette(),
     differenceTheme: readGridDifferenceTheme(),
   };
