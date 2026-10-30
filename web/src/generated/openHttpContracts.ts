@@ -1054,6 +1054,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
+      "id": "tenant.evaluation_rows.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/evaluation/rows",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
       "id": "tenant.evaluation_rule_update.put",
       "method": "PUT",
       "path": "/api/projects/{pid}/evaluation/rules/{expected_column_id}",
@@ -6727,6 +6736,16 @@ export type HttpExpectedProjection = ({
 export type HttpExpectedProjectionRequest = ({
   "row_ids": (Array<(number)>);
   "sheet_id": (number);
+});
+
+export type HttpExpectedRowsRequest = ({
+  "limit"?: (number);
+  "link_id": (number);
+});
+
+export type HttpExpectedRowsResponse = ({
+  "row_ids": (Array<(number)>);
+  "total": (number);
 });
 
 export type HttpExpectedRuleChange = ({
@@ -17638,6 +17657,21 @@ export type HttpContractOperationMap = {
     readonly request: HttpExpectedProjectionRequest;
     readonly responses: {
       readonly "200": HttpExpectedProjection;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.evaluation_rows.post": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpExpectedRowsRequest;
+    readonly responses: {
+      readonly "200": HttpExpectedRowsResponse;
       readonly "400": HttpError;
       readonly "401": HttpError;
       readonly "403": HttpError;

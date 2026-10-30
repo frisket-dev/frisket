@@ -329,6 +329,7 @@ LOCAL_CONFIGURATION_ENDPOINT_IDS = (
 _TENANT_SPEND: tuple[RouteSpec, ...] = (("spend", "GET"),)
 
 _TENANT_VIEWER: tuple[RouteSpec, ...] = (
+    ("evaluation_rows", "POST"),
     ("evaluation_cell", "POST"),
 
     ("evaluation_links", "GET"),
@@ -922,6 +923,7 @@ _BROWSER_CLIENT_IDS = (
             "tenant.evaluation_capture.post",
             "tenant.evaluation_capture_discard.delete",
 
+            "tenant.evaluation_rows.post",
             "tenant.evaluation_cell.post",
 
             "tenant.evaluation_shelf_list.get",

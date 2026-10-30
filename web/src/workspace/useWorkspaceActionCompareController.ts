@@ -136,7 +136,7 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
 
   const readContext = useCallback(async (target: ComparisonTarget) => {
     const scope = target.rowScope ?? (target.selection ? 'all' : target.initialLens === 'expected' ? 'expected' : 'sample');
-    const options = target.sheetId === sheetId ? sampleOptions : {};
+    const options = scope !== 'expected' && target.sheetId === sheetId ? sampleOptions : {};
     const limit = scope === 'sample' ? DEFAULT_SAMPLE_ROWS : MAX_COMPARE_ROWS;
     let total: number | null = target.selection?.totalCount ?? null;
     let sample: number[];
@@ -159,9 +159,7 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
       const link = links.find(item => item.action_id === context.draft.action_id
         && item.fields.some(field => context.output_columns.some(output => output.column_id === field.output_column_id)));
       if (!link) throw new Error('Join expected answers for this action first.');
-      // The shared client gains this endpoint with the backend contract.
-      const rowsApi = evaluationApi as typeof evaluationApi & { getExpectedRows(input: { link_id: number; limit: number }): Promise<{ row_ids: number[]; total: number }> };
-      const expectedRows = await rowsApi.getExpectedRows({ link_id: link.id, limit: MAX_COMPARE_ROWS });
+      const expectedRows = await evaluationApi.getExpectedRows({ link_id: link.id, limit: MAX_COMPARE_ROWS });
       if (!expectedRows.row_ids.length) throw new Error('No rows have expected answers for this action.');
       total = expectedRows.total;
       context = await api.getContext({ source: target.source, sample_row_ids: expectedRows.row_ids });

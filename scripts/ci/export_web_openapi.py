@@ -75,6 +75,7 @@ class _Projection:
 CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
     {
         ("tenant", "v1_action_compare_preview_quote", "POST"): "tenant.v1_action_compare_preview_quote.post",
+        ("tenant", "evaluation_rows", "POST"): "tenant.evaluation_rows.post",
         ("tenant", "evaluation_cell", "POST"): "tenant.evaluation_cell.post",
         ("tenant", "evaluation_capture", "POST"): "tenant.evaluation_capture.post",
         ("tenant", "evaluation_capture_discard", "DELETE"): "tenant.evaluation_capture_discard.delete",

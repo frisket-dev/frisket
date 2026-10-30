@@ -81,6 +81,7 @@ function normalizeResponse(response: HttpEvaluationResponse): EvaluationResponse
 }
 
 export interface EvaluationApi {
+  getExpectedRows(input: { link_id: number; limit?: number }): Promise<{ row_ids: number[]; total: number }>;
   getLinks(sheetId: number): Promise<{ links: EvaluationLink[] }>;
   previewLink(input: EvaluationLinkInput): Promise<EvaluationJoinPreview>;
   saveLink(input: EvaluationLinkInput, id?: number): Promise<EvaluationLink>;
@@ -108,6 +109,7 @@ export function createEvaluationApi(
 ): EvaluationApi {
   const base = { pathParams: { pid: projectId }, query: {}, errorFactory };
   return {
+    getExpectedRows: body => httpContract('tenant.evaluation_rows.post', { ...base, body }),
     getLinks: sheetId => httpContract('tenant.evaluation_links.get', { ...base, query: { sheet_id: sheetId } }, wire => ({ links: wire.links.map(normalizeLink) })),
     previewLink: body => httpContract('tenant.evaluation_link_preview.post', { ...base, body }),
     saveLink: (body, id) => id === undefined
