@@ -9,8 +9,12 @@ export function GuideSampleLaunch({ sampleId }: { sampleId: string }) {
   const query = new URLSearchParams(window.location.search);
   const revisionText = query.get('revision') ?? '1';
   const revision = /^[1-9]\d*$/.test(revisionText) ? Number(revisionText) : NaN;
+  return <GuideSampleLaunchView key={`${sampleId}:${revisionText}`} sampleId={sampleId} revision={revision} />;
+}
+
+function GuideSampleLaunchView({ sampleId, revision }: { sampleId: string; revision: number }) {
   const [sample, setSample] = useState<GuideSampleMetadata | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(() => Number.isSafeInteger(revision) ? null : 'Invalid sample revision.');
   const [busy, setBusy] = useState(false);
   const [canStartAgain, setCanStartAgain] = useState(false);
   const opening = useRef(false);
@@ -26,10 +30,7 @@ export function GuideSampleLaunch({ sampleId }: { sampleId: string }) {
 
   useEffect(() => {
     const controller = new AbortController();
-    if (!Number.isSafeInteger(revision)) {
-      setError('Invalid sample revision.');
-      return () => controller.abort();
-    }
+    if (!Number.isSafeInteger(revision)) return () => controller.abort();
     void guideSamplesApi.get(sampleId, revision, controller.signal).then(setSample, (problem: unknown) => {
       if (!controller.signal.aborted) setError(problem instanceof Error ? problem.message : String(problem));
     });

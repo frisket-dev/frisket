@@ -1817,6 +1817,22 @@ describe('guide draft arrival', () => {
     expect(api.commit).not.toHaveBeenCalled();
   });
 
+  it('enters Check text again for a different resumed draft', async () => {
+    const { api } = createApi();
+    vi.mocked(api.get).mockImplementation(async (_projectId, draftId) => (
+      snapshot(1, { id: draftId, draft_id: draftId })
+    ));
+    const props = { destinationSheets: [], api, onContextChange: vi.fn(), registerCloseGuard: vi.fn(),
+      onImported: vi.fn(), onDiscarded: vi.fn(), onError: vi.fn(), initialCheckText: true };
+    const view = render(<PdfBatchImportFlow {...props} projectId="project-1" resumeDraftId="draft-1" />);
+    await waitFor(() => expect(screen.getByTestId('pdf-batch-flow')).toHaveAttribute('data-stage', 'check'));
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expect(screen.getByTestId('pdf-batch-flow')).toHaveAttribute('data-stage', 'add');
+    view.rerender(<PdfBatchImportFlow {...props} projectId="project-2" resumeDraftId="draft-2" />);
+    await waitFor(() => expect(screen.getByTestId('pdf-batch-flow')).toHaveAttribute('data-stage', 'check'));
+    expect(api.commit).not.toHaveBeenCalled();
+  });
+
   it('waits for analysis readiness before entering Check text', async () => {
     const pending = snapshot(1, { can_review_text: false, analysis: { files_done: 0, files_total: 2, sealed: false } });
     const { api } = createApi(pending);

@@ -107,3 +107,17 @@ it('offers an explicit fresh start after a conflict', async () => {
   await waitFor(() => expect(location.pathname).toBe('/p/new-project/s/1'));
   expect(api.launch.mock.calls[1][2]).not.toBe(previous);
 });
+
+it('resets the visible sample when the route revision changes', async () => {
+  const view = render(<GuideSampleLaunch sampleId="court-filings" />);
+  expect(await screen.findByText('Sample PDFs')).toBeVisible();
+  history.replaceState(null, '', '/learn/court-filings?revision=bad');
+  view.rerender(<GuideSampleLaunch sampleId="court-filings" />);
+  expect(screen.getByRole('alert')).toHaveTextContent('Invalid sample revision.');
+  expect(screen.queryByText('Sample PDFs')).not.toBeInTheDocument();
+  expect(api.get).toHaveBeenCalledTimes(1);
+  history.replaceState(null, '', '/learn/court-filings?revision=1');
+  view.rerender(<GuideSampleLaunch sampleId="court-filings" />);
+  expect(await screen.findByText('Sample PDFs')).toBeVisible();
+  expect(api.get).toHaveBeenCalledTimes(2);
+});
