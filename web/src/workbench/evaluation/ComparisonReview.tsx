@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Check, ChevronLeft, ChevronRight, Pencil, X } from 'lucide-react';
 import type { ReviewBundleField } from '../../api/types';
 import { Button } from '../../components/Button';
+import { PanelSelect } from '../../components/PanelSelect';
 import { ReviewValue } from '../../components/review/ReviewValue';
 import styles from '../../components/review/ReviewWorkspace.module.css';
 
@@ -110,9 +111,9 @@ function ComparisonReviewRow(p: ComparisonReviewProps) {
             </div> : <div className={styles.value}>{p.expectedContent ?? (p.expectedField ? <ReviewValue field={p.expectedField} /> : p.expectedValue || <em>Not checked</em>)}</div>}
             {p.expectedField?.boundedValue && <p className={styles.editUnavailable}>Only an excerpt is shown; editing is unavailable.</p>}
             <label className={styles.value}>Match rule{' '}
-              <select aria-label="Match rule" value={p.rule} disabled={p.busy} onChange={(event) => p.onRuleChange(event.target.value as ComparisonReviewRule)}>
-                {rules.map(([value, label]) => <option value={value} key={value}>{label}</option>)}
-              </select>
+              <PanelSelect ariaLabel="Match rule" value={p.rule} disabled={p.busy}
+                onValueChange={(value) => p.onRuleChange(value as ComparisonReviewRule)}
+                options={rules.map(([value, label]) => ({ value, label }))} />
             </label>
           </section>
         <footer className={`${styles.footer} comparison-review-footer`}><div className={styles.footerButtons}>

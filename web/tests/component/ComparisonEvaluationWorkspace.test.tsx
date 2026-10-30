@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { useSyncExternalStore } from 'react';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ActionComparisonContext } from '../../src/api/actionComparison';
 import type { EvaluationApi, EvaluationLink, EvaluationResponse } from '../../src/api/evaluation';
@@ -80,6 +80,28 @@ async function setup({ joined = true, two = false, bestB = false, hand = false, 
 }
 
 describe('comparison evaluation workspace', () => {
+  it('supersedes a delayed clear when a disagreement answer is accepted', async () => {
+    const { api } = await setup({ joined: false, two: true });
+    fireEvent.click(await screen.findByRole('button', { name: 'Variants disagree · 1' }));
+    vi.useFakeTimers();
+    try {
+      fireEvent.change(screen.getByLabelText('Expected answer'), { target: { value: 'draft' } });
+      fireEvent.change(screen.getByLabelText('Expected answer'), { target: { value: '' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Accept answer 2' }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+      expect(vi.mocked(api.saveExpectedAnswer).mock.calls.map(([input]) => input.value)).toEqual(['B']);
+    } finally { vi.useRealTimers(); }
+  });
+  it('keeps a failed candidate write retryable when leaving the queue', async () => {
+    const { api } = await setup({ joined: false, two: true });
+    vi.mocked(api.saveExpectedAnswer).mockRejectedValueOnce(new Error('Save failed')).mockResolvedValueOnce(link);
+    fireEvent.click(await screen.findByRole('button', { name: 'Variants disagree · 1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Accept answer 2' }));
+    await screen.findAllByText('Save failed');
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(api.saveExpectedAnswer).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(api.saveExpectedAnswer).mock.calls.map(([input]) => input.value)).toEqual(['B', 'B']);
+  });
   it('leaves a new expected answer blank without creating a source sheet', async () => {
     const { api } = await setup({ joined: false, two: true });
     fireEvent.click(await screen.findByRole('button', { name: 'Variants disagree · 1' }));

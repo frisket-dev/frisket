@@ -62,7 +62,8 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
   const [conflict, setConflict] = useState<{ value: JsonValue; looser: EvaluationRule | null } | null>(null);
   const [unlinkedRules, setUnlinkedRules] = useState<Record<string, EvaluationRule>>({});
   const [fullCells, setFullCells] = useState<{ key: string; response: EvaluationResponse | null; cells: Record<string, EvaluationCell>; expected?: EvaluationCell }>({ key: '', response: null, cells: {} });
-  const pending = useRef<{ rowId: number; field: string; value: JsonValue; rule: EvaluationRule } | null>(null);
+  const pending = useRef<{ rowId: number; field: string; value: JsonValue; rule: EvaluationRule; version: number } | null>(null);
+  const writeVersion = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const expectedSave = useRef<Promise<boolean>>(Promise.resolve(true));
   const running = p.state.sequenceStatus === 'running';
@@ -93,20 +94,30 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
     if (!write) return expectedSave.current;
     const saving = expectedSave.current.then(() => saveExpected(write));
     expectedSave.current = saving;
-    if (!await saving) { if (!pending.current) pending.current = write; return false; }
+    if (!await saving) { if (!pending.current && write.version === writeVersion.current) pending.current = write; return false; }
     return true;
   }, [saveExpected]);
   const flushOnLeave = useRef(flushExpected);
   useLayoutEffect(() => { flushOnLeave.current = flushExpected; }, [flushExpected]);
   useEffect(() => () => { void flushOnLeave.current(); }, []);
 
+  const stageExpected = (write: { rowId: number; field: string; value: JsonValue; rule: EvaluationRule }) => {
+    pending.current = { ...write, version: ++writeVersion.current };
+    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+  };
+
   const expectedChanged = (value: string) => {
     if (!queue || queueRow === undefined) return;
     setDraft({ rowId: queueRow, field, value });
-    pending.current = { rowId: queueRow, field,
-      value: expectedValueFromText(value, response?.expected[String(queueRow)]?.[field], currentField?.column_type ?? 'text'), rule };
-    if (timer.current) clearTimeout(timer.current);
+    stageExpected({ rowId: queueRow, field,
+      value: expectedValueFromText(value, response?.expected[String(queueRow)]?.[field], currentField?.column_type ?? 'text'), rule });
     timer.current = setTimeout(() => { void flushExpected(); }, 400);
+  };
+  const chooseExpected = async (value: JsonValue) => {
+    if (queueRow === undefined) return false;
+    setDraft({ rowId: queueRow, field, value: answerText(value) });
+    stageExpected({ rowId: queueRow, field, value, rule });
+    return flushExpected();
   };
 
   const changeRule = async (next: EvaluationRule) => {
@@ -180,7 +191,8 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
           && matchAnswer(item.value, expectedValue, group.value) === 'match')?.value ?? null;
         setConflict({ value, looser }); return;
       }
-      if (!expectedText) { setDraft({ rowId: queueRow, field, value: answerText(value) }); await saveExpected({ rowId: queueRow, field, value, rule }); }
+      if (!expectedText) await chooseExpected(value);
+      else await flushExpected();
       return;
     }
     if (rule !== 'hand') return;
@@ -301,7 +313,7 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
     {conflict && queueRow !== undefined && <Modal title="Choose the expected answer" onClose={() => setConflict(null)} closeLabel="Cancel">
       <p className="comparison-dialog-copy">There is one expected answer per row.</p><div className="form-actions">
         {conflict.looser && <Button onClick={() => { void changeRule(conflict.looser!); setConflict(null); }}>{MATCH_RULES.find((item) => item.value === conflict.looser)?.label} would accept both</Button>}
-        <Button onClick={() => { setDraft({ rowId: queueRow, field, value: answerText(conflict.value) }); void saveExpected({ rowId: queueRow, field, value: conflict.value, rule }); setConflict(null); }}>Replace expected answer</Button>
+        <Button onClick={() => { void chooseExpected(conflict.value); setConflict(null); }}>Replace expected answer</Button>
       </div></Modal>}
   </>;
 }
