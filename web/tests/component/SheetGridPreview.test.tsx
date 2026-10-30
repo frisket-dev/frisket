@@ -290,6 +290,7 @@ it('renders projected expected values in the ordinary grid and routes edits to t
     expectedColumns={[expected]} projectExpected={project} onExpectedEdit={edit} />);
   await waitFor(() => expect(editor.props?.getCellContent([1, 0])).toMatchObject({ kind: GridCellKind.Text, data: 'verified' }));
   expect(editor.props?.columns.map(item => item.id)).toEqual(['10', expected.id]);
+  expect(editor.props?.columns[1]).toMatchObject({ title: 'Expected · answer', icon: 'typeLink', themeOverride: { bgHeader: '#dcefec', bgCell: '#ffffff' } });
   await act(async () => editor.props?.onCellEdited?.([1, 0], { kind: GridCellKind.Text, data: 'corrected', displayData: 'corrected', allowOverlay: true }));
   expect(edit).toHaveBeenCalledWith('1', expected, cell, 'corrected');
 });

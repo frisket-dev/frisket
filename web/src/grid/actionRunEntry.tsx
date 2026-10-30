@@ -1,5 +1,5 @@
 import './actionRunEntry.css';
-import { GitCompareArrows, Sparkles } from 'lucide-react';
+import { GitCompareArrows, Link2, Sparkles } from 'lucide-react';
 import type { CSSProperties, ReactNode } from 'react';
 import { Button } from '../components/Button';
 import { countLabel, formatRelativeTime } from '../format';
@@ -125,7 +125,7 @@ export function ActionRunEntryCard({
             {model && <MetadataRow label="Model">{model}</MetadataRow>}
             {outputs.length > 0 && <MetadataRow label="Creates">{outputs.join(', ')}</MetadataRow>}
             {ran && <MetadataRow label="Ran">{ran}</MetadataRow>}
-            {details.expected && <MetadataRow label="Expected">⛓ {details.expected.sheetName} · {countLabel(details.expected.rowCount, 'row')}</MetadataRow>}
+            {details.expected && <MetadataRow label="Expected"><Link2 size={12} aria-hidden /> {details.expected.sheetName} · {countLabel(details.expected.rowCount, 'row')}</MetadataRow>}
           </dl>
           <div className="action-run-entry-actions">
             {eligible && onCompareActionRun && (

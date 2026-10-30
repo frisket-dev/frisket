@@ -1,0 +1,21 @@
+.expected-join-key-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.expected-join-mappings { display: grid; gap: 8px; }
+.expected-join-mapping-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) auto minmax(160px, 1.5fr) minmax(130px, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+.expected-join-mapping-row strong { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .expected-join-key-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .expected-join-key-row > span:nth-child(2) { display: none; }
+  .expected-join-mapping-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .expected-join-mapping-row > span:nth-child(2) { display: none; }
+}

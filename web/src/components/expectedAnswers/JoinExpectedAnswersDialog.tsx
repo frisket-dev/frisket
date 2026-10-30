@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import './JoinExpectedAnswersDialog.css';
 import { Button } from '../Button';
 import { FormField } from '../FormControls';
 import { Modal } from '../Modal';
@@ -87,7 +88,7 @@ export function JoinExpectedAnswersDialog({ sheets, actions, initialActionId, in
     try { await onSave(draft, updates); onClose(); } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not join expected answers.'); } finally { setSaving(false); }
   }
   const options = (columns: JoinColumn[]) => [{ value: '', label: 'Choose a column' }, ...columns.map((column) => ({ value: String(column.id), label: column.name }))];
-  return <Modal title={initialLink ? 'Edit expected answers join' : 'Join expected answers'} onClose={onClose} busy={saving} testId="join-expected-dialog" closeLabel="Close">
+  return <Modal title={initialLink ? 'Edit expected answers join' : 'Join expected answers'} onClose={onClose} busy={saving} testId="join-expected-dialog" closeLabel="Close" size="wide">
     <StageStepper label="Join expected answers steps" stages={steps} stage={step} />
     <div className="modal-body">
       {step === 'sheets' && <>
@@ -98,9 +99,9 @@ export function JoinExpectedAnswersDialog({ sheets, actions, initialActionId, in
         {target && <p>Target sheet: {target.name}</p>}
       </>}
       {step === 'keys' && <><p>Rows match when all of these are equal.</p>
-        {keys.map((key, index) => <div key={index}>
+        {keys.map((key, index) => <div className="expected-join-key-row" key={index}>
           <PanelSelect ariaLabel={`Expected key ${index + 1}`} value={key.expected_column_id || ''} options={options(sheet?.columns ?? [])} onValueChange={(value) => setKeys(keys.map((item, i) => i === index ? { ...item, expected_column_id: Number(value) } : item))} />
-          {' = '}
+          <span aria-hidden>=</span>
           <PanelSelect ariaLabel={`Target key ${index + 1}`} value={key.target_column_id === null ? 'row-id' : key.target_column_id || ''} options={[...options(target?.columns ?? []), ...(initialLink?.keys.some((item) => item.target_column_id === null) ? [{ value: 'row-id', label: 'Row ID' }] : [])]} onValueChange={(value) => setKeys(keys.map((item, i) => i === index ? { ...item, target_column_id: value === 'row-id' ? null : Number(value) } : item))} />
           <Button type="button" disabled={keys.length === 1} aria-label={`Remove key ${index + 1}`} onClick={() => setKeys(keys.filter((_, i) => i !== index))}>×</Button>
         </div>)}
@@ -109,9 +110,9 @@ export function JoinExpectedAnswersDialog({ sheets, actions, initialActionId, in
         {showUnmatched && preview && <p>Expected row IDs: {preview.unmatched_expected_row_ids.join(', ')}</p>}
         {previewError && <p role="alert">{previewError}</p>}
       </>}
-      {step === 'columns' && <><p>Choose which columns contain expected answers.</p>{remaining.map((column) => {
+      {step === 'columns' && <><p>Choose which columns contain expected answers.</p><div className="expected-join-mappings">{remaining.map((column) => {
         const field = fields.find((item) => item.expected_column_id === column.id);
-        return <div key={column.id}><span>{column.name} → </span>
+        return <div className="expected-join-mapping-row" key={column.id}><strong>{column.name}</strong><span aria-hidden>→</span>
           <PanelSelect ariaLabel={`Role for ${column.name}`} value={field ? String(field.output_column_id) : ''} options={[{ value: '', label: "Don't join / Choose an output" }, ...(action?.outputs ?? []).map((output) => ({ value: String(output.id), label: `Expected · ${output.name}` }))]} onValueChange={(value) => {
             const output = action?.outputs.find((item) => item.id === Number(value));
             setFields([...fields.filter((item) => item.expected_column_id !== column.id), ...(output ? [{ expected_column_id: column.id, output_column_id: output.id, logical_key: output.logicalKey, rule: field?.rule ?? 'exact', hidden: field?.hidden ?? false, source: field?.source ?? 'import' as const }] : [])]);
@@ -123,7 +124,7 @@ export function JoinExpectedAnswersDialog({ sheets, actions, initialActionId, in
             setFields(fields.map((item) => item.expected_column_id === column.id ? { ...item, rule } : item));
           }} />}
         </div>;
-      })}{!validFields && fields.length > 0 && <p role="alert">Choose a different output for each expected column.</p>}</>}
+      })}</div>{!validFields && fields.length > 0 && <p role="alert">Choose a different output for each expected column.</p>}</>}
       {error && <p role="alert">{error}</p>}
     </div>
     <div className="form-actions"><Button type="button" disabled={saving} onClick={step === 'sheets' ? onClose : () => setStep(step === 'columns' ? 'keys' : 'sheets')}>{step === 'sheets' ? 'Cancel' : 'Back'}</Button>

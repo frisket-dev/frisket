@@ -492,7 +492,7 @@ function useColumnModel(
   const gridColumns = useMemo(
     () => orderedSheetColumns.filter((col) => !hiddenNames.has(col.name)).flatMap(column => [column,
       ...expectedColumns.filter(expected => !expected.hidden && expected.output_column_id === Number(column.id)).map(expected => ({
-        ...column, id: expected.id, name: `⛓ expected · ${expected.name}`, type: expected.type ?? 'text', ai: undefined,
+        ...column, id: expected.id, name: `Expected · ${expected.name}`, type: expected.type ?? 'text', ai: undefined,
       }))]),
     [hiddenNames, orderedSheetColumns, expectedColumns],
   );
@@ -512,7 +512,7 @@ function useColumnModel(
     [sheet.id, storageScope, stored],
   );
 
-  const { gridTheme, aiColumnTheme, gridCellPalette } = useGridTheme();
+  const { gridTheme, aiColumnTheme, expectedColumnTheme, gridCellPalette } = useGridTheme();
 
   const sortByName = useMemo(() => {
     const map = new Map<string, GridSortDirection>();
@@ -528,7 +528,8 @@ function useColumnModel(
       // Icon priority (the funnel-when-filtered sprite was dropped — filtered
       // state now renders in the caret menu): AI columns keep their bolt;
       // else the column's type-tag glyph.
-      const icon = c.ai ? 'aiBolt' : typeHeaderIcon(c.type);
+      const expected = expectedColumns.some(column => column.id === c.id);
+      const icon = expected ? 'typeLink' : c.ai ? 'aiBolt' : typeHeaderIcon(c.type);
       return {
         id: c.id,
         title,
@@ -539,7 +540,7 @@ function useColumnModel(
         hasMenu: true,
         menuIcon: GridColumnMenuIcon.Dots,
         ...(icon ? { icon } : {}),
-        ...(c.ai ? { themeOverride: aiColumnTheme } : {}),
+        ...(expected ? { themeOverride: expectedColumnTheme } : c.ai ? { themeOverride: aiColumnTheme } : {}),
       };
     });
     // Trailing chip column: each row's derived-row count in the child sheet
@@ -577,7 +578,7 @@ function useColumnModel(
       });
     }
     return cols;
-  }, [gridColumns, colWidths, childSheet, columnGroups.groupByRunId, lensActive, aiColumnTheme, previewNewColumns, sortByName]);
+  }, [gridColumns, colWidths, childSheet, columnGroups.groupByRunId, lensActive, aiColumnTheme, expectedColumnTheme, expectedColumns, previewNewColumns, sortByName]);
 
   // The revive chevrons + the add-column "+" ride a DOM band over the canvas
   // header (glide has no per-boundary DOM). A hidden run is a maximal sequence
