@@ -6239,6 +6239,7 @@ type HttpEvaluationResponse_EvaluationVariant = ({
   "source_fingerprints": ({
   [key: string]: (string);
 });
+  "stale_source_row_ids"?: (Array<(number)>);
   "verdicts": ({
   [key: string]: ({
   [key: string]: ("match" | "miss" | "unchecked" | "unscored" | "not_run") & (string);
@@ -6262,6 +6263,7 @@ type HttpEvaluationResponse_ExpectedKey = ({
 
 type HttpEvaluationResponse_ExpectedLink = ({
   "action_id": (string);
+  "available"?: (boolean);
   "expected_sheet_id": (number);
   "expected_sheet_name": (string);
   "fields": (Array<(HttpEvaluationResponse_ExpectedField)>);
@@ -6270,6 +6272,7 @@ type HttpEvaluationResponse_ExpectedLink = ({
   "keys": (Array<(HttpEvaluationResponse_ExpectedKey)>);
   "target_sheet_id": (number);
   "target_sheet_name": (string);
+  "unavailable_reason"?: (((string)) | ((null)));
 });
 
 type HttpEvaluationResponse_JsonValue = JsonValue;
@@ -6590,6 +6593,7 @@ type HttpExpectedLink_ExpectedKey = ({
 
 export type HttpExpectedLink = ({
   "action_id": (string);
+  "available"?: (boolean);
   "expected_sheet_id": (number);
   "expected_sheet_name": (string);
   "fields": (Array<(HttpExpectedLink_ExpectedField)>);
@@ -6598,6 +6602,7 @@ export type HttpExpectedLink = ({
   "keys": (Array<(HttpExpectedLink_ExpectedKey)>);
   "target_sheet_id": (number);
   "target_sheet_name": (string);
+  "unavailable_reason"?: (((string)) | ((null)));
 });
 
 type HttpExpectedLinkInput_ExpectedField = ({
@@ -6662,6 +6667,7 @@ type HttpExpectedLinks_ExpectedKey = ({
 
 type HttpExpectedLinks_ExpectedLink = ({
   "action_id": (string);
+  "available"?: (boolean);
   "expected_sheet_id": (number);
   "expected_sheet_name": (string);
   "fields": (Array<(HttpExpectedLinks_ExpectedField)>);
@@ -6670,6 +6676,7 @@ type HttpExpectedLinks_ExpectedLink = ({
   "keys": (Array<(HttpExpectedLinks_ExpectedKey)>);
   "target_sheet_id": (number);
   "target_sheet_name": (string);
+  "unavailable_reason"?: (((string)) | ((null)));
 });
 
 export type HttpExpectedLinks = ({
@@ -6692,6 +6699,7 @@ type HttpExpectedProjection_ExpectedKey = ({
 
 type HttpExpectedProjection_ExpectedLink = ({
   "action_id": (string);
+  "available"?: (boolean);
   "expected_sheet_id": (number);
   "expected_sheet_name": (string);
   "fields": (Array<(HttpExpectedProjection_ExpectedField)>);
@@ -6700,6 +6708,7 @@ type HttpExpectedProjection_ExpectedLink = ({
   "keys": (Array<(HttpExpectedProjection_ExpectedKey)>);
   "target_sheet_id": (number);
   "target_sheet_name": (string);
+  "unavailable_reason"?: (((string)) | ((null)));
 });
 
 type HttpExpectedProjection_ExpectedProjectedCell = ({
