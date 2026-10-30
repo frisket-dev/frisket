@@ -76,6 +76,10 @@ test('documentation: table import and the file and URL entry modes', async ({ pa
     await expect(urls).toHaveValue('https://example.org/filing.pdf');
     await expect(page.getByTestId('import-url-submit')).toBeEnabled();
     captures.push(await captureCheckpoint(page, { id: 'import-urls-choose', root: workspace, annotations: [] }, stage));
+    await page.getByTestId('import-mode-feed').click();
+    await expect(page.getByTestId('source-kind')).toHaveValue('rss');
+    await expect(page.getByTestId('source-url')).toHaveValue('');
+    captures.push(await captureCheckpoint(page, { id: 'import-feed-choose', root: workspace, annotations: [] }, stage));
     await page.getByTestId('import-mode-csv').click();
     await previewTableFile(page, { name: 'expected.csv', mimeType: 'text/csv', buffer: csv });
     const rows = page.getByRole('region', { name: 'Check rows', exact: true });
