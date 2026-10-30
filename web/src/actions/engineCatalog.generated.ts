@@ -56,7 +56,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   },
   {
     "id": "surya2",
-    "label": "Surya 2 document OCR (local sidecar)",
+    "label": "Surya 2.5 document OCR (local sidecar)",
     "tier": "sidecar",
     "available": false,
     "error": "Action catalog unavailable"

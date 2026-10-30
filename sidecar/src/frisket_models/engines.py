@@ -257,7 +257,7 @@ class _SuryaHtmlTextParser(HTMLParser):
 
 
 def _surya_block_to_block(block: Any) -> dict[str, Any]:
-    """Normalize one Surya 2 HTML block to Frisket's plain-text OCR shape."""
+    """Normalize one Surya 2.5 HTML block to Frisket's plain-text OCR shape."""
     parser = _SuryaHtmlTextParser()
     parser.feed(getattr(block, "html", "") or "")
     text = parser.text()
@@ -272,7 +272,7 @@ def _surya_block_to_block(block: Any) -> dict[str, Any]:
 
 
 def load_surya2() -> Callable[[list[bytes]], list[dict]]:
-    """Surya 2 adapter for surya-ocr 0.22.x.
+    """Surya 2.5 adapter for surya-ocr 0.23.x.
 
     The shared ``SuryaInferenceManager`` owns the upstream vLLM-or-llama.cpp
     backend. ``RecognitionPredictor`` performs full-page OCR and returns
@@ -801,7 +801,7 @@ def default_registry() -> Registry:
                 "/ocr",
                 ["surya"],
                 load_surya2,
-                models=["datalab-to/surya-ocr-2"],
+                models=["datalab-to/surya-ocr-2.5"],
             ),
             Engine(
                 "paddleocr-vl",

@@ -28,7 +28,7 @@ run-scoped behavior:
 **A target is a VENUE, not a kind of work.** Each ``TargetEngineSupport``
 row declares the CAPABILITY it serves, so the same rows above carry OCR too:
 ``local`` gains RapidOCR, Tesseract, and Indra OCR; ``models-gateway`` gains dots.mocr,
-GLM-OCR, Surya 2, and paddleocr-vl over its own ``sidecar.ocr`` wire, and every
+GLM-OCR, Surya 2.5, and paddleocr-vl over its own ``sidecar.ocr`` wire, and every
 ``remote-api`` target gains an OCR ``{provider}/*`` row for vision-model OCR.
 Only Datalab needed a new venue. Resolution filters candidates by capability
 first, so two capabilities can share a venue (and even an engine SPELLING)

@@ -57,7 +57,7 @@ TranscriptionTransport = Literal[
 #: - ``local``            — in-process/sandboxed subprocess on this box
 #:   (rapidocr's pool, the tesseract worker);
 #: - ``sidecar.ocr``      — the frisket-models service's POST /ocr multipart
-#:   contract (dots.mocr, GLM-OCR, Surya 2, paddleocr-vl), which is distinct from
+#:   contract (dots.mocr, GLM-OCR, Surya 2.5, paddleocr-vl), which is distinct from
 #:   transcription v1;
 #: - ``datalab.convert``  — Datalab's hosted /convert(output_format=json) API;
 #: - ``remote``           — a router-served ``provider/model`` VLM.
@@ -313,7 +313,7 @@ OCR_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     ),
     EngineDeclaration(
         id="surya2",
-        label="Surya 2 document OCR (local sidecar)",
+        label="Surya 2.5 document OCR (local sidecar)",
         ocr_geometry=True,
         ocr_searchable_pdf=True,
         tier="sidecar",
