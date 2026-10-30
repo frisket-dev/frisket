@@ -235,7 +235,6 @@ def test_shelf_copies_full_values_survives_preview_discard_and_exports_csv(env):
         )["value"]
         == long_value
     )
-    csv.field_size_limit(1_000_000)
     records = list(csv.DictReader(io.StringIO(e.service.download_csv("p", e.request))))
     assert records[0]["answer_B"] == long_value
     assert records[1]["answer_B"] == "#FAILED"
@@ -360,7 +359,6 @@ def test_review_download_full_values_and_original_correctness(env):
             (run, row_id, e.cols["answer"], value, decision),
         )
     e.project.db.commit()
-    csv.field_size_limit(1_000_000)
     records = list(csv.DictReader(io.StringIO(e.service.review_csv("p", run))))
     assert records[0]["answer"] == long_value
     assert records[0]["answer_reviewed"] == "yes"
