@@ -191,3 +191,57 @@ def test_result_capture_without_annotations_is_valid(inputs):
     write_json(capture, bundle)
     module.build_bundle(**inputs)
     assert (inputs["output"] / "guideBundle.json").exists()
+
+
+def add_reference_capture(inputs):
+    directory = inputs["captures"][0].parent / "reference"
+    directory.mkdir()
+    (directory / "ocr.png").write_bytes(PNG)
+    record = {
+        "id": "ocr-reference",
+        "image": "ocr.png",
+        "width": 1,
+        "height": 1,
+        "scale": 2,
+        "annotations": [],
+    }
+    bundle = {
+        "version": 1,
+        "appRevision": SHA,
+        "sample": {"id": "filing", "revision": 1},
+        "captures": [record],
+    }
+    write_json(directory / "bundle.json", bundle)
+    inputs["captures"].append(directory)
+    return directory, bundle
+
+
+def test_extra_reference_capture_is_published(inputs):
+    directory, _ = add_reference_capture(inputs)
+    module.build_bundle(**inputs)
+    output = inputs["output"]
+    result = json.loads((output / "guideBundle.json").read_text())
+    assert {capture["id"] for capture in result["captures"]} == {
+        "setup",
+        "ocr-reference",
+    }
+    assert (output / f"assets/docs/{SHA[:12]}/ocr-reference.png").read_bytes() == (
+        directory / "ocr.png"
+    ).read_bytes()
+
+
+@pytest.mark.parametrize("failure", ["sample", "revision", "image", "duplicate"])
+def test_invalid_extra_reference_capture_fails_closed(inputs, failure):
+    directory, bundle = add_reference_capture(inputs)
+    if failure == "sample":
+        bundle["sample"]["id"] = "unknown"
+    elif failure == "revision":
+        bundle["appRevision"] = "b" * 40
+    elif failure == "image":
+        (directory / "ocr.png").write_bytes(b"not a png")
+    else:
+        bundle["captures"][0]["id"] = "setup"
+    write_json(directory / "bundle.json", bundle)
+    with pytest.raises(ValueError):
+        module.build_bundle(**inputs)
+    assert not inputs["output"].exists()

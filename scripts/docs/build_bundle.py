@@ -109,13 +109,18 @@ def build_bundle(
         if bundle["version"] != 1 or bundle["appRevision"] != app_revision:
             raise ValueError(f"Capture revision mismatch: {capture_directory}")
         sample = bundle["sample"]
+        published_sample = samples_by_id.get(sample["id"])
+        if (
+            not published_sample
+            or type(sample["revision"]) is not int
+            or published_sample["revision"] != sample["revision"]
+        ):
+            raise ValueError(f"Unknown capture sample revision: {capture_directory}")
         for record in bundle["captures"]:
             identity = record["id"]
-            if identity not in required_captures:
-                continue
             if (
-                type(sample["revision"]) is not int
-                or (sample["id"], sample["revision"]) != required_captures[identity]
+                identity in required_captures
+                and (sample["id"], sample["revision"]) != required_captures[identity]
             ):
                 raise ValueError(f"Capture sample mismatch: {identity}")
             image = (capture_directory / record["image"]).resolve()
