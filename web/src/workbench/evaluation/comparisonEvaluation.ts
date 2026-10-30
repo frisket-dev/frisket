@@ -40,21 +40,33 @@ export function expectedValueFromText(text: string, existing: JsonValue | undefi
 
 export function groupedAnswers(response: EvaluationResponse, rowId: number, field: string) {
   const groups = new Map<string, { key: string; value: JsonValue | undefined; answerText: string;
-    variantKeys: string[]; verdict: EvaluationVerdict; failed: boolean; canSelect: boolean; bounded: EvaluationBoundedValue | null }>();
+    variantKeys: string[]; eligibleVariantKeys: string[];
+    variantStates: Array<{ key: string; verdict: EvaluationVerdict; eligible: boolean; stale: boolean }>;
+    verdict: EvaluationVerdict; failed: boolean; canSelect: boolean; bounded: EvaluationBoundedValue | null }>();
   for (const variant of response.variants) {
     const cell = variant.rows[String(rowId)]?.[field];
     const state = cell?.state ?? 'missing';
+    const verdict = variant.verdicts[String(rowId)]?.[field] ?? 'unchecked';
+    const stale = (variant as typeof variant & { stale_source_row_ids?: number[] }).stale_source_row_ids?.includes(rowId) ?? false;
+    const eligible = (state === 'value' || state === 'null') && verdict !== 'not_run' && !stale;
     const key = cell?.bounded_value && cell.value_hash ? `full:${cell.value_hash}`
       : state === 'value' || state === 'null' ? canonicalJson(cell?.value ?? null) : `${state}:${cell?.error ?? ''}`;
-    const existing = groups.get(key);
-    if (existing) { existing.variantKeys.push(variant.key); continue; }
-    groups.set(key, { key, value: cell?.value,
-      answerText: state === 'error' ? `Failed · ${cell?.error || 'Action failed'}`
-        : ['missing', 'pending', 'cancelled'].includes(state) ? 'Not run' : cell?.bounded_value?.preview ?? answerText(cell?.value),
-      variantKeys: [variant.key], verdict: variant.verdicts[String(rowId)]?.[field] ?? 'unchecked',
-      failed: state === 'error', canSelect: (state === 'value' || state === 'null') && !cell?.bounded_value,
-      bounded: cell?.bounded_value ?? null,
-    });
+    let group = groups.get(key);
+    if (!group) {
+      group = { key, value: cell?.value,
+        answerText: state === 'error' ? `Failed · ${cell?.error || 'Action failed'}`
+          : ['missing', 'pending', 'cancelled'].includes(state) ? 'Not run' : cell?.bounded_value?.preview ?? answerText(cell?.value),
+        variantKeys: [], eligibleVariantKeys: [], variantStates: [], verdict,
+        failed: state === 'error', canSelect: false, bounded: cell?.bounded_value ?? null };
+      groups.set(key, group);
+    }
+    group.variantKeys.push(variant.key);
+    group.variantStates.push({ key: variant.key, verdict, eligible, stale });
+    if (eligible) group.eligibleVariantKeys.push(variant.key);
+    const eligibleStates = group.variantStates.filter(item => item.eligible);
+    group.verdict = eligibleStates.some(item => item.verdict === 'unscored') ? 'unscored'
+      : eligibleStates[0]?.verdict ?? (group.failed ? verdict : 'not_run');
+    group.canSelect = group.eligibleVariantKeys.length > 0 && !group.bounded;
   }
   return [...groups.values()];
 }
@@ -62,7 +74,7 @@ export function groupedAnswers(response: EvaluationResponse, rowId: number, fiel
 export function disagreementRows(response: EvaluationResponse, field: string): number[] {
   if (response.variants.length < 2) return [];
   return response.row_ids.filter((rowId) => {
-    const answers = groupedAnswers(response, rowId, field).filter((group) => group.canSelect || group.bounded);
+    const answers = groupedAnswers(response, rowId, field).filter((group) => group.eligibleVariantKeys.length > 0);
     return answers.length > 1;
   });
 }

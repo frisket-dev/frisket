@@ -51,3 +51,46 @@ describe('comparison evaluation projections', () => {
     expect(expectedValueFromText('925000', undefined, 'text')).toBe('925000');
   });
 });
+
+describe('grouped answer eligibility', () => {
+  it('retains per-variant statuses and leaves a current unscored answer selectable', () => {
+    const result = response();
+    result.row_ids = [1];
+    result.variants = [
+      { ...variant('S', { 1: { answer: { state: 'value', value: 'same' } } }, { 1: { answer: 'unscored' } }), stale_source_row_ids: [1] },
+      variant('A', { 1: { answer: { state: 'value', value: 'same' } } }, { 1: { answer: 'unscored' } }),
+    ] as EvaluationVariant[];
+    const [group] = groupedAnswers(result, 1, 'answer');
+    expect(group.variantKeys).toEqual(['S', 'A']);
+    expect(group.eligibleVariantKeys).toEqual(['A']);
+    expect(group.variantStates).toEqual([
+      { key: 'S', verdict: 'unscored', eligible: false, stale: true },
+      { key: 'A', verdict: 'unscored', eligible: true, stale: false },
+    ]);
+    expect(group.verdict).toBe('unscored');
+    expect(group.canSelect).toBe(true);
+  });
+
+  it('does not hide an unscored variant behind the same scored answer', () => {
+    const result = response();
+    result.variants = [
+      variant('A', { 1: { answer: { state: 'value', value: 'same' } } }, { 1: { answer: 'match' } }),
+      variant('B', { 1: { answer: { state: 'value', value: 'same' } } }, { 1: { answer: 'unscored' } }),
+    ];
+    const [group] = groupedAnswers(result, 1, 'answer');
+    expect(group.verdict).toBe('unscored');
+    expect(group.eligibleVariantKeys).toEqual(['A', 'B']);
+  });
+
+  it('excludes stale and not-run-only answers from disagreement choices', () => {
+    const result = response();
+    result.row_ids = [1];
+    result.variants = [
+      variant('A', { 1: { answer: { state: 'value', value: 'current' } } }, { 1: { answer: 'unchecked' } }),
+      { ...variant('S', { 1: { answer: { state: 'value', value: 'old' } } }, { 1: { answer: 'unchecked' } }), stale_source_row_ids: [1] },
+      variant('N', { 1: { answer: { state: 'value', value: 'missing' } } }, { 1: { answer: 'not_run' } }),
+    ] as EvaluationVariant[];
+    expect(disagreementRows(result, 'answer')).toEqual([]);
+    expect(groupedAnswers(result, 1, 'answer').slice(1).every(group => !group.canSelect)).toBe(true);
+  });
+});
