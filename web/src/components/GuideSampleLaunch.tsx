@@ -12,6 +12,7 @@ export function GuideSampleLaunch({ sampleId }: { sampleId: string }) {
   const [sample, setSample] = useState<GuideSampleMetadata | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [canStartAgain, setCanStartAgain] = useState(false);
   const opening = useRef(false);
   const active = useRef(false);
   useEffect(() => {
@@ -35,12 +36,14 @@ export function GuideSampleLaunch({ sampleId }: { sampleId: string }) {
     return () => controller.abort();
   }, [sampleId, revision]);
 
-  const open = async () => {
+  const open = async (startAgain = false) => {
     if (opening.current || !sample) return;
     opening.current = true;
     setBusy(true);
     setError(null);
+    setCanStartAgain(false);
     const url = new URL(window.location.href);
+    if (startAgain) url.searchParams.delete('operation_id');
     let operationId = url.searchParams.get('operation_id');
     if (!operationId || !/^[a-f0-9-]{36}$/i.test(operationId)) {
       operationId = crypto.randomUUID();
@@ -63,6 +66,8 @@ export function GuideSampleLaunch({ sampleId }: { sampleId: string }) {
     } catch (problem) {
       if (!stillHere()) return;
       setError(problem instanceof Error ? problem.message : String(problem));
+      setCanStartAgain(typeof problem === 'object' && problem !== null
+        && 'status' in problem && problem.status === 409);
       opening.current = false;
       setBusy(false);
     }
@@ -74,7 +79,7 @@ export function GuideSampleLaunch({ sampleId }: { sampleId: string }) {
       <h1>Open {sample.title}?</h1>
       <p>{sample.description}</p>
       <p>This creates a new project with {sample.file_count} sample files ready to use.</p>
-      <Button type="button" disabled={busy} onClick={() => void open()}>{busy ? 'Opening…' : 'Open in Frisket'}</Button>{' '}
+      <Button type="button" disabled={busy} onClick={() => void open(canStartAgain)}>{busy ? 'Opening…' : canStartAgain ? 'Start again' : 'Open in Frisket'}</Button>{' '}
       <Button type="button" disabled={busy} onClick={cancel}>Cancel</Button>
     </>}
     {error && <div className="panel-error" role="alert">{error}</div>}

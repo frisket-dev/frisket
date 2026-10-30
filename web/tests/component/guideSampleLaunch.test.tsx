@@ -91,3 +91,19 @@ it('does not navigate if the location changes before the component unmounts', as
   });
   expect(location.pathname).toBe('/settings/personal/profile');
 });
+
+
+it('offers an explicit fresh start after a conflict', async () => {
+  const conflict = Object.assign(new Error('The sample import is no longer open.'), { status: 409 });
+  api.launch.mockRejectedValueOnce(conflict).mockResolvedValueOnce({
+    project_id: 'new-project', destination: { kind: 'sheet', sheet_id: 1 },
+  });
+  render(<GuideSampleLaunch sampleId="court-filings" />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Open in Frisket' }));
+  await screen.findByRole('alert');
+  const previous = api.launch.mock.calls[0][2];
+  expect(new URLSearchParams(location.search).get('operation_id')).toBe(previous);
+  fireEvent.click(screen.getByRole('button', { name: 'Start again' }));
+  await waitFor(() => expect(location.pathname).toBe('/p/new-project/s/1'));
+  expect(api.launch.mock.calls[1][2]).not.toBe(previous);
+});
