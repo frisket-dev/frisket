@@ -1,0 +1,254 @@
+[
+  {
+    "note": "blank expected",
+    "rule": "exact",
+    "expected": "",
+    "answer": "",
+    "verdict": "unchecked"
+  },
+  {
+    "note": "null expected",
+    "rule": "exact",
+    "expected": null,
+    "answer": null,
+    "verdict": "unchecked"
+  },
+  {
+    "note": "whitespace expected is checked",
+    "rule": "exact",
+    "expected": " ",
+    "answer": "",
+    "verdict": "miss"
+  },
+  {
+    "note": "empty sentinel whitespace",
+    "rule": "exact",
+    "expected": "[empty]",
+    "answer": "  ",
+    "verdict": "match"
+  },
+  {
+    "note": "empty sentinel list",
+    "rule": "exact",
+    "expected": "[empty]",
+    "answer": [],
+    "verdict": "match"
+  },
+  {
+    "note": "empty sentinel null",
+    "rule": "exact",
+    "expected": "[empty]",
+    "answer": null,
+    "verdict": "match"
+  },
+  {
+    "note": "zero isn't empty",
+    "rule": "exact",
+    "expected": "[empty]",
+    "answer": 0,
+    "verdict": "miss"
+  },
+  {
+    "note": "false isn't empty",
+    "rule": "exact",
+    "expected": "[empty]",
+    "answer": false,
+    "verdict": "miss"
+  },
+  {
+    "note": "failure isn't empty",
+    "rule": "exact",
+    "expected": "[empty]",
+    "answer": null,
+    "state": "error",
+    "verdict": "miss"
+  },
+  {
+    "note": "unchecked failure",
+    "rule": "exact",
+    "expected": "",
+    "answer": null,
+    "state": "error",
+    "verdict": "unchecked"
+  },
+  {
+    "note": "missing",
+    "rule": "exact",
+    "expected": "x",
+    "answer": null,
+    "state": "missing",
+    "verdict": "not_run"
+  },
+  {
+    "note": "pending",
+    "rule": "exact",
+    "expected": "x",
+    "answer": null,
+    "state": "pending",
+    "verdict": "not_run"
+  },
+  {
+    "note": "cancelled",
+    "rule": "exact",
+    "expected": "x",
+    "answer": null,
+    "state": "cancelled",
+    "verdict": "not_run"
+  },
+  {
+    "note": "exact keeps whitespace",
+    "rule": "exact",
+    "expected": " hi",
+    "answer": "hi",
+    "verdict": "miss"
+  },
+  {
+    "note": "typed",
+    "rule": "exact",
+    "expected": 1,
+    "answer": "1",
+    "verdict": "miss"
+  },
+  {
+    "note": "boolean isn't a number",
+    "rule": "exact",
+    "expected": 1,
+    "answer": true,
+    "verdict": "miss"
+  },
+  {
+    "note": "object keys canonical",
+    "rule": "exact",
+    "expected": {
+      "a": 1,
+      "b": [
+        2,
+        3
+      ]
+    },
+    "answer": {
+      "b": [
+        2,
+        3
+      ],
+      "a": 1
+    },
+    "verdict": "match"
+  },
+  {
+    "note": "array order",
+    "rule": "exact",
+    "expected": [
+      1,
+      2
+    ],
+    "answer": [
+      2,
+      1
+    ],
+    "verdict": "miss"
+  },
+  {
+    "note": "unicode lower and trim",
+    "rule": "ignore_case",
+    "expected": "  CAFÉ ",
+    "answer": "café",
+    "verdict": "match"
+  },
+  {
+    "note": "currency",
+    "rule": "number",
+    "expected": "$925,000",
+    "answer": "925000.00",
+    "verdict": "match"
+  },
+  {
+    "note": "negative",
+    "rule": "number",
+    "expected": "-1,234.500",
+    "answer": "-1234.5",
+    "verdict": "match"
+  },
+  {
+    "note": "invalid grouping",
+    "rule": "number",
+    "expected": "1,20",
+    "answer": "120",
+    "verdict": "miss"
+  },
+  {
+    "note": "invalid number",
+    "rule": "number",
+    "expected": "TBD",
+    "answer": "TBD",
+    "verdict": "miss"
+  },
+  {
+    "note": "same date",
+    "rule": "date",
+    "expected": "Mar 12, 2026",
+    "answer": "2026-03-12",
+    "verdict": "match"
+  },
+  {
+    "note": "US date",
+    "rule": "date",
+    "expected": "3/12/26",
+    "answer": "2026-03-12",
+    "verdict": "match"
+  },
+  {
+    "note": "invalid date",
+    "rule": "date",
+    "expected": "2026-02-30",
+    "answer": "2026-02-30",
+    "verdict": "miss"
+  },
+  {
+    "note": "set order and duplicates",
+    "rule": "set",
+    "expected": [
+      "a",
+      "b",
+      "a"
+    ],
+    "answer": "[\"b\",\"a\"]",
+    "verdict": "match"
+  },
+  {
+    "note": "arbitrary comma text is not a list",
+    "rule": "set",
+    "expected": "a,b",
+    "answer": "b,a",
+    "verdict": "miss"
+  },
+  {
+    "note": "manual unscored",
+    "rule": "hand",
+    "expected": "x",
+    "answer": "x",
+    "verdict": "unscored"
+  },
+  {
+    "note": "manual verdict",
+    "rule": "hand",
+    "expected": "x",
+    "answer": "y",
+    "handVerdict": "match",
+    "verdict": "match"
+  },
+  {
+    "note": "browser whitespace trim",
+    "rule": "ignore_case",
+    "expected": "﻿HELLO﻿",
+    "answer": "hello",
+    "verdict": "match"
+  },
+  {
+    "note": "non-browser whitespace remains",
+    "rule": "ignore_case",
+    "expected": "\u001chello",
+    "answer": "hello",
+    "verdict": "miss"
+  }
+]
