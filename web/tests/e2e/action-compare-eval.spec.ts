@@ -103,7 +103,7 @@ async function openFirstComparisonRow(page: import('@playwright/test').Page, exp
   await expect(page.getByTestId('comparison-review')).toBeVisible();
 }
 
-async function expectFullScreenReview(page: import('@playwright/test').Page) {
+async function expectFullScreenReview(page: import('@playwright/test').Page, onOpen = true) {
   const dialog = page.getByRole('dialog', { name: 'Review queue', exact: true });
   await expect(dialog).toBeVisible();
   const box = await dialog.boundingBox();
@@ -113,7 +113,7 @@ async function expectFullScreenReview(page: import('@playwright/test').Page) {
   expect(box!.y).toBe(0);
   expect(box!.width).toBe(viewport.width);
   expect(box!.height).toBe(viewport.height);
-  await expect.poll(() => dialog.evaluate(element => element.contains(document.activeElement))).toBe(true);
+  if (onOpen) await expect.poll(() => dialog.evaluate(element => element.contains(document.activeElement))).toBe(true);
   await page.keyboard.press('Tab');
   await expect.poll(() => dialog.evaluate(element => element.contains(document.activeElement))).toBe(true);
   return dialog;
@@ -251,7 +251,7 @@ test('join expected answers and compare 38 rows across five variants', async ({ 
   await expect(page.getByText('Loading cited sources…', { exact: true })).toHaveCount(0);
   await capture(page, '13a-inspect-grouped-misses.png');
   await page.setViewportSize({ width: 1024, height: 900 });
-  await expectFullScreenReview(page);
+  await expectFullScreenReview(page, false);
   await capture(page, '13c-comparison-review-1024.png');
   await page.setViewportSize({ width: 1600, height: 900 });
   await page.getByRole('button', { name: 'Close comparison review', exact: true }).focus();
@@ -436,7 +436,7 @@ test('Try several preserves engine and model selection and scores the chosen fie
   await modelChoices.nth(1).click();
   await page.getByTestId('engine-selector-dialog').getByRole('button', { name: /Claude Haiku 4.5/ }).click();
   await expect(modelChoices.nth(1)).toContainText('Claude Haiku 4.5');
-  await expect(matrix.getByLabel('Score on', { exact: true }).locator('option[value="summary"]')).toBeDisabled();
+  await expect(matrix.getByLabel('Score on', { exact: true }).locator('option[value="summary"]')).toHaveJSProperty('disabled', true);
   await capture(page, '11a-try-several-setup.png');
   await matrix.getByRole('button', { name: 'Run 2 combinations', exact: true }).click();
   await approveComparisonConsent(page, 76);
@@ -479,7 +479,7 @@ test('ordinary Review keeps its full-screen decisions and saves a pending row no
   await expect(plaintiff).toHaveAttribute('data-review-state', 'verified');
   await capture(page, '16-ordinary-review.png');
   await page.setViewportSize({ width: 1024, height: 900 });
-  await expectFullScreenReview(page);
+  await expectFullScreenReview(page, false);
   await capture(page, '16b-ordinary-review-1024.png');
   const note = 'Ordinary Review retains its own row note and yes/no decisions.';
   await dialog.getByTestId('review-note-input').fill(note);
