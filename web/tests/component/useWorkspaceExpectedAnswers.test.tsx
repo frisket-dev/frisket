@@ -74,3 +74,23 @@ it('keeps unavailable links visible for removal but omits their virtual columns 
   expect(result.current.availableLinks).toEqual([]);
   expect(calls.previewLink).not.toHaveBeenCalled();
 });
+
+it('keeps same-sheet links during refresh without leaking them across sheet switches', async () => {
+  const api = prepare();
+  const first = { id: 3, action_id: 'map.ask', target_sheet_id: 1, expected_sheet_id: 2, target_sheet_name: 'Current', expected_sheet_name: 'Other', keys: [], fields: [{ expected_column_id: 22, output_column_id: 11, logical_key: 'answer', rule: 'exact', hidden: false, source: 'import' }], hidden: false };
+  let finishRefresh!: (value: { links: typeof first[] }) => void;
+  calls.getLinks.mockResolvedValueOnce({ links: [first] }).mockImplementationOnce(() => new Promise(resolve => { finishRefresh = resolve; })).mockImplementation(() => new Promise(() => {}));
+  const { result, rerender } = renderHook(({ project, current }) => useWorkspaceExpectedAnswers(project, current, sheets, api, [], [], 0, showError),
+    { initialProps: { project: 'p', current: sheets[0] } });
+  await waitFor(() => expect(result.current.expectedColumns).toHaveLength(1));
+  act(() => result.current.refresh());
+  await waitFor(() => expect(calls.getLinks).toHaveBeenCalledTimes(2));
+  expect(result.current.expectedColumns).toHaveLength(1);
+  rerender({ project: 'p', current: sheets[1] });
+  expect(result.current.links).toEqual([]);
+  expect(result.current.expectedColumns).toEqual([]);
+  await act(async () => finishRefresh({ links: [first] }));
+  expect(result.current.links).toEqual([]);
+  rerender({ project: 'other-project', current: sheets[0] });
+  expect(result.current.links).toEqual([]);
+});

@@ -21,7 +21,7 @@ export function useWorkspaceExpectedAnswers(projectId: string, sheet: SheetMeta 
   void dataVersion; // Grid projection refreshes independently of run discovery.
   const api = useMemo(() => createEvaluationApi(actionPreviewRunErrorFromContract, projectId), [projectId]);
   const comparisonApi = useMemo(() => createActionComparisonApi(actionPreviewRunErrorFromContract, projectId), [projectId]);
-  const [linkResult, setLinkResult] = useState<{ key: string; links: EvaluationLink[]; counts: Record<number, number> } | null>(null);
+  const [linkResult, setLinkResult] = useState<{ owner: string; links: EvaluationLink[]; counts: Record<number, number> } | null>(null);
   const [currentRunResult, setCurrentRunResult] = useState<{ key: string; projectId: string; runs: Run[] } | null>(null);
   const [otherRunResult, setOtherRunResult] = useState<{ key: string; projectId: string; runs: Run[]; join: object } | null>(null);
   const [revision, setRevision] = useState(0);
@@ -56,17 +56,18 @@ export function useWorkspaceExpectedAnswers(projectId: string, sheet: SheetMeta 
     }));
     return groups.flat();
   }, [projectApi, comparisonApi]);
-  const linksKey = `${projectId}:${sheetId ?? ''}:${revision}`;
+  const linksOwner = JSON.stringify([projectId, sheetId ?? null]);
+  const linksKey = JSON.stringify([projectId, sheetId ?? null, revision]);
   useEffect(() => {
     let live = true;
     if (sheetId) void api.getLinks(Number(sheetId)).then(result => {
-      if (live) setLinkResult({ key: linksKey, links: result.links, counts: {} });
+      if (live) setLinkResult(previous => ({ owner: linksOwner, links: result.links, counts: previous?.owner === linksOwner ? previous.counts : {} }));
       void Promise.all(result.links.filter(isExpectedLinkAvailable).map(async link => {
         try { const preview = await api.previewLink({ target_sheet_id: link.target_sheet_id, expected_sheet_id: link.expected_sheet_id, action_id: link.action_id, keys: link.keys, fields: link.fields, hidden: link.hidden }); return [link.id, preview.matched] as const; } catch { return null; }
-      })).then(counts => { if (live) setLinkResult({ key: linksKey, links: result.links, counts: Object.fromEntries(counts.filter((item): item is readonly [number, number] => item !== null)) }); });
+      })).then(counts => { if (live) setLinkResult({ owner: linksOwner, links: result.links, counts: Object.fromEntries(counts.filter((item): item is readonly [number, number] => item !== null)) }); });
     }, error => { if (live) showErrorRef.current(error instanceof Error ? error.message : 'Could not load expected answers.'); });
     return () => { live = false; };
-  }, [api, sheetId, linksKey]);
+  }, [api, sheetId, linksKey, linksOwner]);
   useEffect(() => {
     let live = true;
     void readRuns(currentSignature).then(result => { if (live) setCurrentRunResult({ key: currentSignature, projectId, runs: result }); });
@@ -77,8 +78,8 @@ export function useWorkspaceExpectedAnswers(projectId: string, sheet: SheetMeta 
     if (join) void readRuns(otherSignature).then(result => { if (live) setOtherRunResult({ key: otherSignature, projectId, runs: result, join }); });
     return () => { live = false; };
   }, [readRuns, otherSignature, join, projectId]);
-  const links = linkResult?.key === linksKey ? linkResult.links : EMPTY_LINKS;
-  const matchedCounts = linkResult?.key === linksKey ? linkResult.counts : EMPTY_COUNTS;
+  const links = linkResult?.owner === linksOwner ? linkResult.links : EMPTY_LINKS;
+  const matchedCounts = linkResult?.owner === linksOwner ? linkResult.counts : EMPTY_COUNTS;
   const availableLinks = useMemo(() => links.filter(isExpectedLinkAvailable), [links]);
   const unavailableLinks = useMemo(() => links.filter(link => !isExpectedLinkAvailable(link)), [links]);
   const currentRuns = currentRunResult?.projectId === projectId && currentRunResult.key === currentSignature ? currentRunResult.runs : EMPTY_RUNS;

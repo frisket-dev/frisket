@@ -1422,7 +1422,7 @@ function useSheetGridController({
     ? Math.max(0, Math.floor(pendingImportRowCount))
     : 0;
   const rowCount = realRowCount + placeholderRowCount;
-  const [expectedResult, setExpectedResult] = useState<{ key: string; columns: ExpectedGridColumn[]; loader: SheetGridProps['projectExpected']; rows: ExpectedProjection['rows'] } | null>(null);
+  const [expectedResult, setExpectedResult] = useState<{ key: string; columns: ExpectedGridColumn[]; loader: SheetGridProps['projectExpected']; rows: ExpectedProjection['rows']; error: boolean } | null>(null);
   const [expectedRange, setExpectedRange] = useState({ start: 0, end: 40 });
   const visibleExpectedIds = useMemo(() => {
     const ids: number[] = [];
@@ -1437,13 +1437,15 @@ function useSheetGridController({
     if (!projectExpected || !expectedColumns.length || !visibleExpectedKey) return;
     let active = true;
     void projectExpected(visibleExpectedKey.split(',').map(Number)).then(
-      result => { if (active) setExpectedResult({ key: expectedRequestKey, columns: expectedColumns, loader: projectExpected, rows: result.rows }); },
-      () => { if (active) setExpectedResult({ key: expectedRequestKey, columns: expectedColumns, loader: projectExpected, rows: {} }); },
+      result => { if (active) setExpectedResult({ key: expectedRequestKey, columns: expectedColumns, loader: projectExpected, rows: result.rows, error: false }); },
+      () => { if (active) setExpectedResult({ key: expectedRequestKey, columns: expectedColumns, loader: projectExpected, rows: {}, error: true }); },
     );
     return () => { active = false; };
   }, [projectExpected, expectedColumns, visibleExpectedKey, expectedRequestKey]);
-  const expectedRows = expectedResult?.key === expectedRequestKey && expectedResult.columns === expectedColumns && expectedResult.loader === projectExpected
-    ? expectedResult.rows : EMPTY_EXPECTED_ROWS;
+  const currentExpectedResult = expectedResult?.key === expectedRequestKey && expectedResult.columns === expectedColumns && expectedResult.loader === projectExpected
+    ? expectedResult : null;
+  const expectedRows = currentExpectedResult?.rows ?? EMPTY_EXPECTED_ROWS;
+  const expectedUnavailable = currentExpectedResult?.error === true;
   const expectedById = useMemo(() => new Map(expectedColumns.map(column => [column.id, column])), [expectedColumns]);
   const gridRef = useRef<DataEditorRef | null>(null);
   const visibleRegion = useRef<Rectangle>({ x: 0, y: 0, width: 1, height: 1 });
@@ -1713,7 +1715,9 @@ function useSheetGridController({
       const originalRow = cache.getRow(rowIdx);
       const expected = expectedById.get(def.id);
       const projected = originalRow && expected ? expectedRows[originalRow.id]?.[def.id] : undefined;
-      if (expected && originalRow && !projected) return { kind: GridCellKind.Loading, allowOverlay: false };
+      if (expected && originalRow && !projected) return expectedUnavailable
+        ? { kind: GridCellKind.Text, data: '', displayData: 'Unavailable', allowOverlay: false, readonly: true }
+        : { kind: GridCellKind.Loading, allowOverlay: false };
       const row = originalRow && expected && projected ? { ...originalRow, cells: { ...originalRow.cells, [def.id]: projected.value as CellValue } } : originalRow;
       const runPending =
         pendingColIds.has(def.id) &&
@@ -1759,7 +1763,7 @@ function useSheetGridController({
     },
     [
       gridColumns,
-      cache, expectedById, expectedRows,
+      cache, expectedById, expectedRows, expectedUnavailable,
       wrapText,
       pendingColIds,
       pendingRowIds,
@@ -2265,8 +2269,10 @@ function useSheetGridController({
       const row = cache.getRow(rowIdx);
       const value = editableValue(newValue);
       const expected = expectedById.get(def.id);
-      if (expected && row && value !== undefined && onExpectedEdit) {
-        void onExpectedEdit(row.id, expected, expectedRows[row.id]?.[def.id], value).then(() => { setExpectedResult(null); cache.refresh(); }, () => cache.refresh());
+      if (expected) {
+        const source = row && expectedRows[row.id]?.[def.id];
+        if (!row || !source || value === undefined || !onExpectedEdit) return;
+        void onExpectedEdit(row.id, expected, source, value).then(() => { setExpectedResult(null); cache.refresh(); }, () => cache.refresh());
         return;
       }
       if (!row || row.boundedValues?.[def.id] || value === undefined) return;

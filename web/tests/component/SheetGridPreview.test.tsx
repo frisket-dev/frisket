@@ -294,3 +294,21 @@ it('renders projected expected values in the ordinary grid and routes edits to t
   await act(async () => editor.props?.onCellEdited?.([1, 0], { kind: GridCellKind.Text, data: 'corrected', displayData: 'corrected', allowOverlay: true }));
   expect(edit).toHaveBeenCalledWith('1', expected, cell, 'corrected');
 });
+
+it('shows a read-only unavailable cell when expected projection fails and retries on data refresh', async () => {
+  const target = { ...sheet, columns: [columnDef({ id: '10', name: 'Answer', type: 'text' })] };
+  const expected = { id: 'expected:4:20', link_id: 4, expected_column_id: 20, output_column_id: 10,
+    logical_key: 'answer', name: 'answer', rule: 'exact' as const, hidden: false, source: 'import' as const };
+  const expectedColumns = [expected];
+  const cell = { value: 'restored', source_row_id: 50, source_column_id: 20, checked: true };
+  const project = vi.fn().mockRejectedValueOnce(new Error('unavailable')).mockResolvedValue({ links: [], columns: expectedColumns, rows: { '1': { [expected.id]: cell } } });
+  const edit = vi.fn().mockResolvedValue(undefined);
+  const props = { sheet: target, liveRun: null, rowHeight: 32, wrapText: false, columnGroupsStorageScope: 'expected-grid',
+    onRowOpen: vi.fn(), onColumnOpen: vi.fn(), onCellEdit: vi.fn(), expectedColumns, projectExpected: project, onExpectedEdit: edit };
+  const view = render(<SheetGrid {...props} dataVersion={0} />);
+  await waitFor(() => expect(editor.props?.getCellContent([1, 0])).toMatchObject({ kind: GridCellKind.Text, displayData: 'Unavailable', readonly: true, allowOverlay: false }));
+  act(() => editor.props?.onCellEdited?.([1, 0], { kind: GridCellKind.Text, data: 'incorrect', displayData: 'incorrect', allowOverlay: true }));
+  expect(edit).not.toHaveBeenCalled();
+  view.rerender(<SheetGrid {...props} dataVersion={1} />);
+  await waitFor(() => expect(editor.props?.getCellContent([1, 0])).toMatchObject({ kind: GridCellKind.Text, data: 'restored' }));
+});
