@@ -156,6 +156,17 @@ async function shoot(page: Page, name: string): Promise<void> {
   });
 }
 
+async function addComparisonVariant(page: Page): Promise<void> {
+  await page.getByRole('button', { name: '+ ⌄', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'New variant', exact: true }).click();
+}
+
+async function expectComparisonRows(page: Page, text: string, scope: 'sample' | 'all'): Promise<void> {
+  const toolbar = page.locator('.comparison-field-toolbar');
+  await expect(toolbar.getByText(text, { exact: true })).toBeVisible();
+  await expect(page.getByRole('combobox', { name: 'Comparison rows' })).toHaveValue(scope);
+}
+
 async function approveCostGateIfShown(page: Page): Promise<void> {
   const gate = page.getByTestId('cost-gate-modal');
   if (!await gate.isVisible({ timeout: 1_000 }).catch(() => false)) return;
@@ -231,11 +242,11 @@ test.describe('connected action comparison', () => {
     await shoot(page, '01-column-menu.png');
 
     await page.getByTestId('header-menu-compare-action-run').click();
-    await expect(page.getByTestId('action-compare-sample-count')).toHaveText('3 sample rows');
+    await expectComparisonRows(page, '3 rows', 'sample');
     await expect(page.getByTestId('action-compare-variant-A')).toHaveAttribute('data-status', 'current');
     await shoot(page, '03-current-values.png');
 
-    await page.getByRole('button', { name: 'Variant', exact: true }).click();
+    await addComparisonVariant(page);
     const editor = page.getByRole('complementary', { name: 'Configure variant B' });
     await expect(editor).toBeVisible();
     await editor.getByTestId('field-context').fill(PROMPT_B);
@@ -315,7 +326,7 @@ test.describe('connected action comparison', () => {
     const columns = await sheetColumns(page.request, pid, sheetId);
 
     await chooseCompareFromColumnMenu(page, columns, 'topic');
-    await expect(page.getByTestId('action-compare-sample-count')).toHaveText('20 sample rows');
+    await expectComparisonRows(page, '20 of 25 rows', 'sample');
     await shoot(page, '10-default-sample.png');
     await page.getByTestId('action-compare-maintab-close').click();
     await expect(page.getByTestId('action-compare-toolbar')).toHaveCount(0);
@@ -325,8 +336,7 @@ test.describe('connected action comparison', () => {
       window as typeof window & { __frisketGridSelection?: { rows: number[] } }
     ).__frisketGridSelection?.rows.length ?? 0)).toBe(25);
     await chooseCompareFromColumnMenu(page, columns, 'topic');
-    await expect(page.getByTestId('action-compare-sample-count'))
-      .toHaveText('20 of 25 selected rows');
+    await expectComparisonRows(page, '25 rows', 'all');
     await shoot(page, '11-captured-selection.png');
     await page.getByTestId('action-compare-maintab-close').click();
     await expect(page.getByTestId('action-compare-toolbar')).toHaveCount(0);
@@ -340,10 +350,9 @@ test.describe('connected action comparison', () => {
       window as typeof window & { __frisketGridSelection?: { rows: number[] } }
     ).__frisketGridSelection?.rows.length ?? 0)).toBe(2);
     await chooseCompareFromColumnMenu(page, columns, 'topic');
-    await expect(page.getByTestId('action-compare-sample-count'))
-      .toHaveText('2 sample rows');
+    await expectComparisonRows(page, '2 rows', 'all');
 
-    await page.getByRole('button', { name: 'Variant', exact: true }).click();
+    await addComparisonVariant(page);
     const editor = page.getByRole('complementary', { name: 'Configure variant B' });
     await editor.getByTestId('field-context').fill(PROMPT_B);
     await editor.getByRole('button', { name: 'Close variant editor' }).click();
