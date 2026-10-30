@@ -20,6 +20,7 @@ import styles from './ReviewWorkspace.module.css';
 export interface ReviewSessionProps extends ReviewSessionOptions {
   onClose?(): void;
   renderToolbar?(navigation: ReactNode, leave: (action: () => void) => void, busy: boolean): ReactNode;
+  renderFrame?(content: ReactNode, leave: (action: () => void) => void, busy: boolean, editing: boolean): ReactNode;
 }
 
 function RowNavigation({ controller: c }: { controller: ReviewSessionController }) {
@@ -110,18 +111,18 @@ function ReviewFooter({ controller: c }: { controller: ReviewSessionController }
   </footer>;
 }
 
-export function ReviewSession({ onClose, renderToolbar, ...options }: ReviewSessionProps) {
+export function ReviewSession({ onClose, renderToolbar, renderFrame, ...options }: ReviewSessionProps) {
   const c = useReviewSession(options);
   const [selectedItem, setSelectedItem] = useState<ReviewItemSelection | null>(null);
   const [itemLocations, setItemLocations] = useState<ReviewItemLocation[]>([]);
-  useEscapeDismiss(() => { if (onClose && !c.editingId) c.leave(onClose); }, { enabled: !!onClose, typingGuard: true });
+  useEscapeDismiss(() => { if (onClose && !c.editingId) c.leave(onClose); }, { enabled: !!onClose && !renderFrame, typingGuard: true });
   useReviewShortcuts({ disabled: c.busy || Boolean(c.editingId), onMove: (delta) => c.moveField(delta),
     onAccept: () => { if (c.field) c.toggle(c.field, 'accept'); },
     onReject: () => { if (c.field) c.toggle(c.field, 'reject'); },
     onEdit: () => c.startEdit(), onAcceptRemaining: () => c.acceptRemaining() });
 
   const navigation = <RowNavigation controller={c} />;
-  return <>
+  const content = <>
     {renderToolbar ? renderToolbar(navigation, c.leave, c.busy && !c.loading) : navigation}
     {c.problem && <div className={styles.notice} role="alert">{c.problem}
       {c.loading === false && c.canRetryPageLoad && <Button onClick={c.retry}>Retry</Button>}
@@ -142,4 +143,5 @@ export function ReviewSession({ onClose, renderToolbar, ...options }: ReviewSess
             <ReviewFooter controller={c} />
         </ReviewWorkspace>}
   </>;
+  return renderFrame ? renderFrame(content, c.leave, c.busy && !c.loading, Boolean(c.editingId)) : content;
 }

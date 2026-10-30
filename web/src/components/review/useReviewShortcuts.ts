@@ -10,7 +10,10 @@ export function useReviewShortcuts({ disabled, onMove, onAccept, onReject, onEdi
       if (event.defaultPrevented || event.repeat || event.isComposing || event.ctrlKey || event.metaKey || event.altKey || disabled) return;
       const target = event.target instanceof HTMLElement ? event.target : null;
       if (target?.closest('input, textarea, select, [contenteditable="true"], [role="menu"], [role="listbox"]')) return;
-      if (document.querySelector(':popover-open, :modal')) return;
+      if (document.querySelector(':popover-open')) return;
+      const modals = document.querySelectorAll(':modal');
+      const top = modals[modals.length - 1];
+      if (top && (!top.classList.contains('review-overlay') || (target && !top.contains(target)))) return;
       switch (event.key.toLowerCase()) {
         case 'arrowdown': case 's': case 'j': onMove(1); break;
         case 'arrowup': case 'w': case 'k': onMove(-1); break;

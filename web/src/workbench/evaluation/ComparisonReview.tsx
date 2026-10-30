@@ -2,12 +2,11 @@ import { useState, type ReactNode } from 'react';
 import { ChevronRight, Pencil } from 'lucide-react';
 import type { ReviewBundleField } from '../../api/types';
 import { Button } from '../../components/Button';
-import { TextArea } from '../../components/FormControls';
+import { FormField, TextArea } from '../../components/FormControls';
 import { PanelSelect } from '../../components/PanelSelect';
 import { ReviewValue } from '../../components/review/ReviewValue';
 import { ReviewDecisionControls, ReviewHeader, ReviewNavigation, ReviewShell, ReviewWorkspace } from '../../components/review/ReviewPresentation';
 import { useReviewShortcuts } from '../../components/review/useReviewShortcuts';
-import { useEscapeDismiss } from '../../hooks/useEscapeDismiss';
 import styles from '../../components/review/ReviewWorkspace.module.css';
 
 export type ComparisonReviewRule = 'exact' | 'ignore_case' | 'number' | 'date' | 'set' | 'hand';
@@ -50,7 +49,16 @@ const verdictLabels: Record<ComparisonReviewProps['groups'][number]['verdict'], 
 
 /** A presentation-only evaluation queue; the caller owns source identities and writes. */
 export function ComparisonReview(p: ComparisonReviewProps) {
-  return <ComparisonReviewRow key={`${p.rowId}:${p.fieldLabel}`} {...p} />;
+  return <ReviewShell busy={p.busy} onClose={p.onClose}>
+    <ReviewHeader busy={p.busy} onClose={p.onClose} closeLabel="Close comparison review">
+      <section className={styles.comparisonToolbar}>{p.toolbar}
+        <ReviewNavigation label="Comparison review rows" position={p.position} total={p.total} busy={p.busy}
+          canPrevious={p.position > 1} canNext={p.position < p.total} onPrevious={p.onPrevious} onNext={p.onNext} />
+      </section>
+    </ReviewHeader>
+    {p.error && <p className={styles.notice} role="alert">{p.error}</p>}
+    <ComparisonReviewRow key={`${p.rowId}:${p.fieldLabel}`} {...p} />
+  </ReviewShell>;
 }
 
 function ComparisonReviewRow(p: ComparisonReviewProps) {
@@ -59,24 +67,16 @@ function ComparisonReviewRow(p: ComparisonReviewProps) {
   const selectedGroup = p.groups[Math.min(selected, p.groups.length - 1)];
   const selectable = (group: ComparisonReviewProps['groups'][number]) => group.canSelect !== false && group.verdict !== 'not_run';
   const canAccept = (group: ComparisonReviewProps['groups'][number]) => selectable(group) && !(p.mode === 'disagreements' && group.field?.boundedValue);
-  useEscapeDismiss(p.onClose, { enabled: !p.busy, typingGuard: true });
   useReviewShortcuts({ disabled: p.busy,
     onMove: (delta) => setSelected((index) => Math.max(0, Math.min(index + delta, p.groups.length - 1))),
     onAccept: () => { if (selectedGroup && canAccept(selectedGroup)) p.onAccept(selectedGroup.key); },
     onReject: () => { if (selectedGroup && selectable(selectedGroup)) p.onReject(selectedGroup.key); },
   });
   const showEditor = p.mode === 'disagreements' || editing;
-  return <ReviewShell portal>
-    <ReviewHeader busy={p.busy} onClose={p.onClose} closeLabel="Close comparison review">
-      <section className={styles.comparisonToolbar}>{p.toolbar}
-        <ReviewNavigation label="Comparison review rows" position={p.position} total={p.total} busy={p.busy}
-          canPrevious={p.position > 1} canNext={p.position < p.total} onPrevious={p.onPrevious} onNext={p.onNext} />
-      </section>
-    </ReviewHeader>
-    {p.error && <p className={styles.notice} role="alert">{p.error}</p>}
+  return <>
     {p.emptyMessage ? <div className={styles.empty}>{p.emptyMessage}</div> : <ReviewWorkspace testId="comparison-review" label="Comparison answers" busy={p.busy} source={p.source}>
         <div className={styles.resultsHeader}>Results <span>{p.fieldLabel} · row {p.rowId}</span></div>
-        <div className={`${styles.fields} ${styles.answerList} comparison-answer-list`} role="region" aria-label="Distinct answers">
+        <div className={`${styles.fields} ${styles.answerList}`} role="region" aria-label="Distinct answers">
           {p.groups.map((group, index) => <section key={group.key} className={styles.field} data-selected={index === selected}>
             <button type="button" className={styles.fieldSelect} aria-label={`Answer ${index + 1}, variants ${group.variantKeys.join(", ")}, ${verdictLabels[group.verdict]}`} aria-pressed={index === selected} onClick={() => setSelected(index)}>
               <span className={styles.fieldHeading}><strong>Answer {index + 1}</strong>
@@ -92,7 +92,7 @@ function ComparisonReviewRow(p: ComparisonReviewProps) {
             {p.mode === 'disagreements' && group.field?.boundedValue && <p className={styles.editUnavailable}>Only an excerpt is shown; it cannot be selected as the expected answer.</p>}
           </section>)}
         </div>
-          <section className={`${styles.field} comparison-expected-answer`} aria-label="Expected answer editor">
+          <section className={`${styles.field} ${styles.expectedAnswer}`} aria-label="Expected answer editor">
             <span className={styles.fieldHeading}><strong>Expected answer</strong></span>
             {p.mode !== 'disagreements' && <button type="button" className={styles.textButton} aria-label="Edit expected answer"
               disabled={p.busy || p.expectedEditable === false || Boolean(p.expectedField?.boundedValue)} onClick={() => setEditing(!editing)}><Pencil size={14} /></button>}
@@ -101,15 +101,15 @@ function ComparisonReviewRow(p: ComparisonReviewProps) {
                 onChange={(event) => p.onExpectedChange(event.target.value)} />
             </div> : <div className={styles.value}>{p.expectedContent ?? (p.expectedField ? <ReviewValue field={p.expectedField} /> : p.expectedValue || <em>Not checked</em>)}</div>}
             {p.expectedField?.boundedValue && <p className={styles.editUnavailable}>Only an excerpt is shown; editing is unavailable.</p>}
-            <label className={styles.value}>Match rule{' '}
+            <FormField className={styles.value} label="Match rule">
               <PanelSelect ariaLabel="Match rule" value={p.rule} disabled={p.busy}
                 onValueChange={(value) => p.onRuleChange(value as ComparisonReviewRule)}
                 options={rules.map(([value, label]) => ({ value, label }))} />
-            </label>
+            </FormField>
           </section>
-        <footer className={`${styles.footer} comparison-review-footer`}><div className={styles.footerButtons}>
+        <footer className={styles.footer}><div className={styles.footerButtons}>
           <span>{p.position} of {p.total}</span><Button disabled={p.busy || p.position >= p.total} onClick={p.onNext}>Next row <ChevronRight size={14} /></Button>
         </div><p className={styles.shortcuts}><kbd>↑↓</kbd> / <kbd>W S</kbd> answer · <kbd>←</kbd>/<kbd>A</kbd> yes · <kbd>→</kbd>/<kbd>D</kbd> no</p></footer>
     </ReviewWorkspace>}
-  </ReviewShell>;
+  </>;
 }

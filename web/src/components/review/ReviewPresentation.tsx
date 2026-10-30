@@ -1,20 +1,20 @@
 import type { ReactNode } from 'react';
-import { createPortal } from 'react-dom';
 import { Check, ChevronLeft, ChevronRight, Pencil, X } from 'lucide-react';
 import { WindowCloseButton } from '../WindowCloseButton';
+import { Modal } from '../Modal';
 import '../ReviewQueue.css';
 import styles from './ReviewWorkspace.module.css';
 
 /** Shared full-screen Review frame; controllers retain their own close/save behavior. */
-export function ReviewShell({ children, portal = false }: { children: ReactNode; portal?: boolean }) {
-  const shell = <dialog className="review-overlay" data-testid="review-queue" aria-label="Review queue" open
-    onCancel={(event) => { event.preventDefault(); }}>{children}</dialog>;
-  return portal ? createPortal(shell, document.body) : shell;
+export function ReviewShell({ children, busy, onClose }: { children: ReactNode; busy: boolean; onClose(): void }) {
+  return <Modal title="Review queue" hideHeader className="review-overlay" testId="review-queue" busy={busy} onClose={onClose}>
+    {children}
+  </Modal>;
 }
 
 export function ReviewHeader({ children, busy, onClose, closeLabel = 'Close review queue' }: { children: ReactNode; busy: boolean; onClose(): void; closeLabel?: string }) {
   return <div className="review-run-header">{children}
-    <WindowCloseButton size="compact" disabled={busy} onClick={onClose} label={closeLabel} />
+    <WindowCloseButton size="compact" disabled={busy} onClick={onClose} label={closeLabel} data-modal-autofocus />
   </div>;
 }
 
