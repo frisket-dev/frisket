@@ -509,10 +509,23 @@ test('docs workflow: split a PDF packet', async ({ page }) => {
     await flow.getByRole('button', { name: /^Import 2 rows/ }).click();
     await expect(flow).toHaveCount(0, { timeout: 90_000 });
     await expect(page.getByTestId('grid')).toBeVisible();
+    let importedSheet: { id: number; rows: number } | undefined;
     await expect.poll(async () => {
       const sheets = await (await page.request.get(`/api/projects/${pid}/sheets`)).json();
-      return sheets.some((item: { rows: number }) => item.rows === 2);
+      importedSheet = sheets.find((item: { id: number; rows: number }) => item.id !== sheet && item.rows === 2);
+      return Boolean(importedSheet);
     }, { timeout: 30_000 }).toBeTruthy();
+    const packetData = await sheetData(page.request, pid, importedSheet!.id);
+    const filename = packetData.columns.find(column => column.name === 'filename');
+    expect(filename).toBeDefined();
+    const firstFilename = String(packetData.rows[0].cells[String(filename!.id)]);
+    expect(firstFilename).toContain('council-packet');
+    await openProject(page, pid, importedSheet!.id);
+    await expect(page.getByTestId('sheet-stats')).toContainText('2 rows');
+    await openCellDrawer(page, packetData.columns, 'filename', 0);
+    await expect(page.getByTestId('row-drawer')).toContainText(firstFilename);
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('row-drawer')).toHaveCount(0);
     captures.push(await captureCheckpoint(page, { id: 'pdf-packet-import-result', root: page.getByTestId('grid'), annotations: [] }, stage));
     return captures;
   });
