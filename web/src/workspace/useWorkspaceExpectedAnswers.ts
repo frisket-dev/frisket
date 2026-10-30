@@ -16,22 +16,54 @@ const EMPTY_COUNTS: Record<number, number> = {};
 const EMPTY_RUNS: Run[] = [];
 interface Run { anchor: ActionRunAnchor; context: ActionComparisonContext }
 interface RunDiscovery { runs: Run[]; retryable: boolean }
+
+/** Keep a read alive across completion updates, and serialize its retry. */
+function useRunDiscovery(
+  signature: string, owner: string, scope: object | null, enabled: boolean, completionSignal: string,
+  readRuns: (signature: string) => Promise<RunDiscovery>,
+) {
+  const [result, setResult] = useState<{ key: string; owner: string; scope: object | null; runs: Run[] } | null>(null);
+  const completion = useRef(completionSignal);
+  completion.current = completionSignal;
+  const notifyCompletion = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    if (!enabled) return;
+    let live = true;
+    let inFlight = false;
+    let retryable = false;
+    let observedCompletion = completion.current;
+    const read = async () => {
+      inFlight = true;
+      const startedAt = completion.current;
+      const next = await readRuns(signature);
+      if (!live) return;
+      inFlight = false;
+      retryable = next.retryable;
+      setResult({ key: signature, owner, scope, runs: next.runs });
+      if (retryable && completion.current !== startedAt) void read();
+    };
+    notifyCompletion.current = () => {
+      if (observedCompletion === completion.current) return;
+      observedCompletion = completion.current;
+      if (retryable && !inFlight) void read();
+    };
+    void read();
+    return () => { live = false; notifyCompletion.current = null; };
+  }, [enabled, readRuns, signature, owner, scope]);
+  useEffect(() => { notifyCompletion.current?.(); }, [completionSignal]);
+  return enabled && result?.key === signature && result.owner === owner && result.scope === scope ? result.runs : EMPTY_RUNS;
+}
 export function useWorkspaceExpectedAnswers(projectId: string, sheet: SheetMeta | undefined, sheets: SheetMeta[],
-  projectApi: GridApiPort, entries: ActionCatalogEntry[] | undefined, templates: ActionTemplate[], dataVersion: number,
+  projectApi: GridApiPort, entries: ActionCatalogEntry[] | undefined, templates: ActionTemplate[], completionSignal: string,
   showError: (message: string) => void) {
   const api = useMemo(() => createEvaluationApi(actionPreviewRunErrorFromContract, projectId), [projectId]);
   const comparisonApi = useMemo(() => createActionComparisonApi(actionPreviewRunErrorFromContract, projectId), [projectId]);
   const [linkResult, setLinkResult] = useState<{ owner: string; links: EvaluationLink[]; counts: Record<number, number> } | null>(null);
-  const [currentRunResult, setCurrentRunResult] = useState<{ key: string; projectId: string; runs: Run[] } | null>(null);
-  const [otherRunResult, setOtherRunResult] = useState<{ key: string; projectId: string; runs: Run[]; join: object } | null>(null);
-  const currentDiscovery = useRef<{ key: string; projectId: string; retryable: boolean } | null>(null);
-  const otherDiscovery = useRef<{ key: string; projectId: string; join: object; retryable: boolean } | null>(null);
   const [revision, setRevision] = useState(0);
   const [join, setJoin] = useState<{ actionId?: string; link?: EvaluationLink; step?: 'columns' } | null>(null);
   const refresh = useCallback(() => setRevision((value) => value + 1), []);
-  // Stable identities drive discovery. An in-progress run can expose its output
-  // columns before its comparison context is ready; retry that 409 after the
-  // existing project-data invalidation, including the run completion signal.
+  // Output columns may exist before a run's comparison context is ready.
+  // Retry a pending context on the existing job completion signal.
   const identity = (target: SheetMeta) => ({ id: target.id, rowCount: target.rowCount,
     anchors: target.columns.filter(column => column.latestRunId)
       .filter((column, index, all) => all.findIndex(other => other.latestRunId === column.latestRunId) === index)
@@ -75,38 +107,12 @@ export function useWorkspaceExpectedAnswers(projectId: string, sheet: SheetMeta 
     }, error => { if (live) showErrorRef.current(error instanceof Error ? error.message : 'Could not load expected answers.'); });
     return () => { live = false; };
   }, [api, sheetId, linksKey, linksOwner]);
-  useEffect(() => {
-    let live = true;
-    const previous = currentDiscovery.current;
-    if (!previous || previous.key !== currentSignature || previous.projectId !== projectId || previous.retryable) {
-      void readRuns(currentSignature).then(result => {
-        if (live) {
-          currentDiscovery.current = { key: currentSignature, projectId, retryable: result.retryable };
-          setCurrentRunResult({ key: currentSignature, projectId, runs: result.runs });
-        }
-      });
-    }
-    return () => { live = false; };
-  }, [readRuns, currentSignature, projectId, dataVersion]);
-  useEffect(() => {
-    let live = true;
-    const previous = otherDiscovery.current;
-    if (join && (!previous || previous.key !== otherSignature || previous.projectId !== projectId || previous.join !== join || previous.retryable)) {
-      void readRuns(otherSignature).then(result => {
-        if (live) {
-          otherDiscovery.current = { key: otherSignature, projectId, join, retryable: result.retryable };
-          setOtherRunResult({ key: otherSignature, projectId, runs: result.runs, join });
-        }
-      });
-    }
-    return () => { live = false; };
-  }, [readRuns, otherSignature, join, projectId, dataVersion]);
+  const currentRuns = useRunDiscovery(currentSignature, projectId, null, true, completionSignal, readRuns);
+  const otherRuns = useRunDiscovery(otherSignature, projectId, join, Boolean(join), completionSignal, readRuns);
   const links = linkResult?.owner === linksOwner ? linkResult.links : EMPTY_LINKS;
   const matchedCounts = linkResult?.owner === linksOwner ? linkResult.counts : EMPTY_COUNTS;
   const availableLinks = useMemo(() => links.filter(isExpectedLinkAvailable), [links]);
   const unavailableLinks = useMemo(() => links.filter(link => !isExpectedLinkAvailable(link)), [links]);
-  const currentRuns = currentRunResult?.projectId === projectId && currentRunResult.key === currentSignature ? currentRunResult.runs : EMPTY_RUNS;
-  const otherRuns = join && otherRunResult?.projectId === projectId && otherRunResult.join === join && otherRunResult.key === otherSignature ? otherRunResult.runs : EMPTY_RUNS;
   const runs = useMemo(() => [...currentRuns, ...otherRuns], [currentRuns, otherRuns]);
   const runChoices = useMemo(() => runs.filter(item => item.anchor.sheetId === sheet?.id).map(({ anchor, context }) => {
     const link = availableLinks.find(item => item.action_id === context.draft.action_id && item.fields.some(field => context.output_columns.some(output => output.column_id === field.output_column_id)));
