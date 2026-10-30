@@ -483,7 +483,7 @@ test('docs workflow: split a PDF packet', async ({ page }) => {
     await thirdPage.click();
     await expect(thirdPage).toHaveAttribute('aria-pressed', 'true');
     captures.push(await captureCheckpoint(page, { id: 'pdf-packet-find-starts', root: review, annotations: [] }, stage));
-    await review.getByRole('button', { name: /Continue/ }).click();
+    await review.getByRole('button', { name: 'Continue to import →', exact: true }).click();
     await expect(flow).toHaveAttribute('data-stage', 'destination', { timeout: 60_000 });
     captures.push(await captureCheckpoint(page, { id: 'pdf-packet-destination', root: flow, annotations: [] }, stage));
     await flow.getByRole('button', { name: 'Search setup →' }).click();
