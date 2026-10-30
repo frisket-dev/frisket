@@ -60,8 +60,16 @@ export function matchAnswer(rule: string, expected: unknown, answer: unknown, op
   if (rule === 'hand') return options.handVerdict === 'match' || options.handVerdict === 'miss' ? options.handVerdict : 'unscored';
   if (expected === '[empty]') return answer === null || (typeof answer === 'string' && !answer.trim()) || (Array.isArray(answer) && !answer.length) ? 'match' : 'miss';
   let matches: boolean;
-  if (rule === 'exact') matches = canonical(expected) === canonical(answer);
-  else if (rule === 'ignore_case') matches = typeof expected === 'string' && typeof answer === 'string' && expected.trim().toLowerCase() === answer.trim().toLowerCase();
+  if (rule === 'exact') {
+    matches = canonical(expected) === canonical(answer);
+    const numeric = typeof answer === 'string' ? expected : answer;
+    const text = typeof answer === 'string' ? answer : expected;
+    if (!matches && typeof numeric === 'number' && typeof text === 'string' && text !== '-0'
+      && /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]*[1-9])?$/.test(text)) {
+      matches = number(numeric) !== null && number(numeric) === number(text);
+    }
+  }
+  else if (rule === 'ignore_case') matches = typeof expected === 'string' && typeof answer === 'string' && answer !== '' && expected.trim().toLowerCase() === answer.trim().toLowerCase();
   else if (rule === 'number' || rule === 'date') {
     const parse = rule === 'number' ? number : date;
     const a = parse(expected), b = parse(answer);

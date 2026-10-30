@@ -103,11 +103,11 @@
     "verdict": "miss"
   },
   {
-    "note": "typed",
+    "note": "number and canonical number text",
     "rule": "exact",
     "expected": 1,
     "answer": "1",
-    "verdict": "miss"
+    "verdict": "match"
   },
   {
     "note": "boolean isn't a number",
@@ -387,6 +387,69 @@
     "rule": "ignore_case",
     "expected": "ΟΣ",
     "answer": "ος",
+    "verdict": "match"
+  },
+  {
+    "note": "integer versus model number text",
+    "rule": "exact",
+    "expected": 925000,
+    "answer": "925000",
+    "verdict": "match"
+  },
+  {
+    "note": "numeric text versus numeric decimal",
+    "rule": "exact",
+    "expected": "2.5",
+    "answer": 2.5,
+    "verdict": "match"
+  },
+  {
+    "note": "exact text retains leading zeros",
+    "rule": "exact",
+    "expected": 2,
+    "answer": "02",
+    "verdict": "miss"
+  },
+  {
+    "note": "exact text retains decimal zero",
+    "rule": "exact",
+    "expected": 2,
+    "answer": "2.0",
+    "verdict": "miss"
+  },
+  {
+    "note": "exact text retains currency formatting",
+    "rule": "exact",
+    "expected": 925000,
+    "answer": "$925,000",
+    "verdict": "miss"
+  },
+  {
+    "note": "exact does not coerce boolean",
+    "rule": "exact",
+    "expected": true,
+    "answer": "true",
+    "verdict": "miss"
+  },
+  {
+    "note": "whitespace expectation is not empty answer",
+    "rule": "ignore_case",
+    "expected": "  ",
+    "answer": "",
+    "verdict": "miss"
+  },
+  {
+    "note": "whitespace expectation matches same raw whitespace",
+    "rule": "ignore_case",
+    "expected": "  ",
+    "answer": "  ",
+    "verdict": "match"
+  },
+  {
+    "note": "ignore case trims whitespace-only values",
+    "rule": "ignore_case",
+    "expected": "  ",
+    "answer": " ",
     "verdict": "match"
   }
 ]

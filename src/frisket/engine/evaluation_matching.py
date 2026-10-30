@@ -1,7 +1,7 @@
 """Pure expected-answer matching, shared with the workbench implementation.
 
 Only null and the empty string mean an unchecked expectation; whitespace is a
-value. Sets accept arrays or JSON-encoded arrays, never comma-separated text.
+value. Exact treats numbers and their canonical decimal text alike. Sets accept arrays or JSON-encoded arrays, never comma-separated text.
 Dates accept ISO dates, English month names, and US month/day/year slashes;
 two-digit slash years denote 2000–2099.
 """
@@ -137,10 +137,23 @@ def match_answer(rule, expected, answer, *, state="value", hand_verdict=None):
         return "match" if empty else "miss"
     if rule == "exact":
         matches = _canonical(expected) == _canonical(answer)
+        if not matches:
+            numeric, text = (
+                (expected, answer) if isinstance(answer, str) else (answer, expected)
+            )
+            if (
+                isinstance(text, str)
+                and isinstance(numeric, (int, float))
+                and not isinstance(numeric, bool)
+                and text != "-0"
+                and re.fullmatch(r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]*[1-9])?", text)
+            ):
+                matches = _number(numeric) == _number(text)
     elif rule == "ignore_case":
         matches = (
             isinstance(expected, str)
             and isinstance(answer, str)
+            and answer != ""
             and _trim(expected).lower() == _trim(answer).lower()
         )
     elif rule in ("number", "date", "set"):

@@ -4,15 +4,26 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 
 from frisket.engine.store.current_value_windows import read_current_column
 from frisket.engine.store.retrieval_lifecycle import read_binding_revisions
 from frisket.server.route_errors import RouteError
 
 
+def _canonical_json_numbers(value):
+    if isinstance(value, float) and math.isfinite(value) and value.is_integer():
+        return int(value)
+    if isinstance(value, list):
+        return [_canonical_json_numbers(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _canonical_json_numbers(item) for key, item in value.items()}
+    return value
+
+
 def value_hash(value):
     data = json.dumps(
-        value,
+        _canonical_json_numbers(value),
         sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=False,

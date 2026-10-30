@@ -743,3 +743,47 @@ def test_hand_score_reports_stale_saved_source_without_blocking_current_answer(e
                 "verdict": "match",
             },
         )
+
+
+def test_hand_judgment_reuses_integer_and_integral_float_answer(env):
+    e = env
+    join(e)
+    e.service.set_rule("p", e.ec["answer"], "hand")
+    preview(
+        e, "float", {str(e.rows[0]): {"answer": {"state": "value", "value": 925000.0}}}
+    )
+    e.request["variants"] = [
+        {
+            "key": "F",
+            "label": "Float",
+            "source": {"kind": "preview", "preview_ids": ["float"]},
+        }
+    ]
+    e.service.judgment(
+        "p",
+        {
+            "comparison": e.request,
+            "variant_key": "F",
+            "row_id": e.rows[0],
+            "logical_key": "answer",
+            "verdict": "match",
+        },
+    )
+    preview(e, "int", {str(e.rows[0]): {"answer": {"state": "value", "value": 925000}}})
+    e.request["variants"] = [
+        {
+            "key": "I",
+            "label": "Integer",
+            "source": {"kind": "preview", "preview_ids": ["int"]},
+        }
+    ]
+    result = e.service.score("p", e.request)
+    assert result["variants"][0]["verdicts"][str(e.rows[0])]["answer"] == "match"
+
+
+def test_hand_value_hash_preserves_types_while_normalizing_integral_numbers():
+    from frisket.server.services.evaluation_values import value_hash
+
+    assert value_hash({"items": [925000.0, 0.0]}) == value_hash({"items": [925000, 0]})
+    assert value_hash(False) != value_hash(0)
+    assert value_hash("925000") != value_hash(925000)
