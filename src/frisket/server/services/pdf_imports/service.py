@@ -258,9 +258,10 @@ class PdfImportService:
             raise PdfImportDraftError(422, "expected PDF bytes must be nonnegative")
         project = self._workspace.get(project_id)
         directory = self._root / draft_id
+        hidden = self._root / f".adopt-{draft_id}-{secrets.token_hex(6)}"
         try:
             header = self._initialize_directory(
-                directory,
+                hidden,
                 draft_id=draft_id,
                 project_id=project_id,
                 storage_identity=project.storage_identity,
@@ -268,9 +269,11 @@ class PdfImportService:
                 expected_bytes=expected_bytes,
                 source_label=source_label,
             )
-            self._store.write_header(directory, header)
+            self._store.write_header(hidden, header)
+            os.replace(hidden, directory)
+            fsync_directory(self._root)
         except BaseException:
-            shutil.rmtree(directory, ignore_errors=True)
+            shutil.rmtree(hidden, ignore_errors=True)
             raise
         return self._snapshot(header, self._stats(directory))
 

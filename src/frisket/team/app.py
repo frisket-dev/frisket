@@ -22,6 +22,7 @@ from urllib.parse import urlsplit, urlunsplit
 import sqlalchemy as sa
 from fastapi import FastAPI, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from filelock import FileLock
 from pydantic import BaseModel
 
 from frisket.contracts.http.api_tokens import (
@@ -1398,18 +1399,99 @@ def create_team_app(
         user = require_org_member(request)
         if not body.name.strip():
             raise HTTPException(400, "project name is required")
-        slug = _project_intent_slug(body.name)
-        with engine.begin() as cx:
-            cx.execute(
-                project_creation_intents.insert().values(
-                    slug=slug,
-                    org_id=org_id,
-                    creator_user_id=user["id"],
-                    name=body.name.strip(),
-                    sensitive=body.sensitive,
+        key = request.headers.get("idempotency-key", "").strip()
+        if not key:
+            slug = _project_intent_slug(body.name)
+            with engine.begin() as cx:
+                cx.execute(
+                    project_creation_intents.insert().values(
+                        slug=slug,
+                        org_id=org_id,
+                        creator_user_id=user["id"],
+                        name=body.name.strip(),
+                        sensitive=body.sensitive,
+                    )
                 )
-            )
-        return _complete_project_intent(engine, core.state.workspace, slug=slug)
+            return _complete_project_intent(engine, core.state.workspace, slug=slug)
+
+        workspace = core.state.workspace
+        digest = hashlib.sha256(
+            json.dumps([org_id, int(user["id"]), key], separators=(",", ":")).encode()
+        ).hexdigest()
+        receipt_root = workspace.root / ".team-project-creation-operations"
+        receipt_root.mkdir(parents=True, exist_ok=True)
+        receipt_path = receipt_root / f"{digest}.json"
+        with FileLock(str(receipt_root / f"{digest}.lock"), timeout=-1):
+            if receipt_path.exists():
+                receipt = json.loads(receipt_path.read_text())
+                if (
+                    receipt["name"] != body.name.strip()
+                    or receipt["sensitive"] != body.sensitive
+                ):
+                    raise HTTPException(
+                        409, "Idempotency key was used with different project details"
+                    )
+            else:
+                receipt = {
+                    "slug": _project_intent_slug(body.name),
+                    "name": body.name.strip(),
+                    "sensitive": body.sensitive,
+                    "storage_identity": None,
+                }
+                scratch = receipt_path.with_suffix(".tmp")
+                scratch.write_text(json.dumps(receipt, sort_keys=True))
+                scratch.replace(receipt_path)
+            slug = receipt["slug"]
+            with engine.begin() as cx:
+                intent = cx.execute(
+                    sa.select(project_creation_intents.c.slug).where(
+                        project_creation_intents.c.slug == slug
+                    )
+                ).scalar_one_or_none()
+                registered = cx.execute(
+                    sa.select(projects.c.id).where(
+                        projects.c.org_id == org_id, projects.c.slug == slug
+                    )
+                ).scalar_one_or_none()
+                if receipt["storage_identity"] is not None and registered is None:
+                    raise HTTPException(
+                        409, "Project creation operation refers to a retired project"
+                    )
+                if intent is None and registered is None:
+                    cx.execute(
+                        project_creation_intents.insert().values(
+                            slug=slug,
+                            org_id=org_id,
+                            creator_user_id=user["id"],
+                            name=receipt["name"],
+                            sensitive=receipt["sensitive"],
+                        )
+                    )
+            if registered is not None and not access.can_on_project(
+                org_id, slug, int(user["id"]), "viewer"
+            ):
+                raise HTTPException(403, "Project access required")
+            if receipt["storage_identity"] is not None:
+                project = workspace.get(slug)
+                if receipt["storage_identity"] != project.storage_identity:
+                    raise HTTPException(
+                        409, "Project creation operation refers to a different project"
+                    )
+                return project.project_metadata()
+            made = _complete_project_intent(engine, workspace, slug=slug)
+            storage_identity = workspace.get(slug).storage_identity
+            if (
+                receipt["storage_identity"] is not None
+                and receipt["storage_identity"] != storage_identity
+            ):
+                raise HTTPException(
+                    409, "Project creation operation refers to a different project"
+                )
+            receipt["storage_identity"] = storage_identity
+            scratch = receipt_path.with_suffix(".tmp")
+            scratch.write_text(json.dumps(receipt, sort_keys=True))
+            scratch.replace(receipt_path)
+            return made
 
     @app.patch("/api/projects/{pid}/sensitivity", name="update_project_sensitivity")
     def update_project_sensitivity(

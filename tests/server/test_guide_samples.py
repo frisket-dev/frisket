@@ -202,3 +202,37 @@ def test_pdf_creation_key_rejects_changed_binding(tmp_path):
             creation_key="one",
         )
     assert error.value.status_code == 409
+
+
+def test_pdf_creation_recovers_process_exit_before_manifest(tmp_path):
+    import multiprocessing
+    import os
+
+    app = create_app(tmp_path)
+    client = TestClient(app)
+    pid = client.post("/api/projects", json={"name": "hard crash"}).json()["id"]
+    pdf = app.state.pdf_import_service
+
+    def terminate_during_create():
+        pdf._store.write_header = lambda *_args: os._exit(73)
+        pdf.create(
+            pid,
+            expected_files=1,
+            expected_bytes=4,
+            source_label="Crash",
+            creation_key="crash",
+        )
+
+    child = multiprocessing.get_context("fork").Process(target=terminate_during_create)
+    child.start()
+    child.join(20)
+    assert child.exitcode == 73
+    draft = pdf.create(
+        pid,
+        expected_files=1,
+        expected_bytes=4,
+        source_label="Crash",
+        creation_key="crash",
+    )
+    assert draft["state"] == "open"
+    assert len(pdf.list(pid)) == 1
