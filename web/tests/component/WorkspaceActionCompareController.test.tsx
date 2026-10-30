@@ -637,16 +637,19 @@ it('caps all selected rows at 500 and reports the complete selected count', asyn
   expect(vi.mocked(harness!.api.getContext).mock.calls[0][0].sample_row_ids).toEqual(ids.slice(0, 500).map(Number));
   expect(view.result.current.actionCompareSession!.getSnapshot().capturedSelection?.totalCount).toBe(520);
 });
-it('opens an expected comparison on the checked row IDs', async () => {
+it('starts an expected comparison with a normal sample and allows choosing checked rows', async () => {
   const getExpectedRows = vi.fn().mockResolvedValue({ row_ids: [12, 14, 16], total: 3 });
   vi.spyOn(evaluationApi, 'createEvaluationApi').mockReturnValue({ getLinks: vi.fn().mockResolvedValue({ links: [{ id: 5, action_id: 'map.extract', fields: [{ output_column_id: 101 }] }] }), getExpectedRows } as unknown as evaluationApi.EvaluationApi);
   vi.mocked(harness!.api.getContext).mockImplementation(async ({ sample_row_ids }) => comparisonContext({ runId: 42, sampleRowIds: sample_row_ids }));
   const view = renderController([], 0);
   act(() => view.result.current.compareActionRun({ sheetId: '7', runId: '42', columnId: '101' }, true));
   await waitFor(() => expect(view.result.current.actionCompareSession).not.toBeNull());
+  expect(view.result.current.rowScope).toBe('sample');
+  expect(getExpectedRows).not.toHaveBeenCalled();
+  act(() => view.result.current.changeActionCompareRowScope('expected', 'expected'));
+  await waitFor(() => expect(view.result.current.rowScope).toBe('expected'));
   expect(getExpectedRows).toHaveBeenCalledWith({ link_id: 5, limit: 500 });
   expect(vi.mocked(harness!.api.getContext).mock.calls.at(-1)?.[0].sample_row_ids).toEqual([12, 14, 16]);
-  expect(view.result.current.rowScope).toBe('expected');
 });
 it('preserves an explicit selection when opening the expected lens', async () => {
   const getLinks = vi.fn();
@@ -679,5 +682,23 @@ it('resolves the expected scope independently of an active grid filter', async (
   const view = renderController([], 0, { filter });
   act(() => view.result.current.compareActionRun({ sheetId: '7', runId: '42', columnId: '101' }, true));
   await waitFor(() => expect(view.result.current.actionCompareSession).not.toBeNull());
+  act(() => view.result.current.changeActionCompareRowScope('expected', 'expected'));
+  await waitFor(() => expect(view.result.current.rowScope).toBe('expected'));
   expect(harness!.stores.projectApi.getSheetData).toHaveBeenCalledWith('7', 0, 1, { columnIds: [], valueMode: 'bounded' });
+});
+
+it('preserves configured variant drafts when the user changes row scope', async () => {
+  const ids = Array.from({ length: 38 }, (_, i) => String(i + 1));
+  vi.mocked(harness!.api.getContext).mockImplementation(async ({ sample_row_ids }) => comparisonContext({ runId: 42, sampleRowIds: sample_row_ids, fingerprint: `scope-${sample_row_ids.length}` }));
+  const view = renderController(ids);
+  act(() => view.result.current.compareActionRun({ sheetId: '7', runId: '42', columnId: '101' }));
+  await waitFor(() => expect(view.result.current.actionCompareSession).not.toBeNull());
+  const session = view.result.current.actionCompareSession!;
+  let variant = '';
+  act(() => { variant = session.addVariant()!; session.updateVariant(variant, { ...ALL_ROWS_DRAFT, params: { ...ALL_ROWS_DRAFT.params, instruction: 'Keep this instruction' } }); });
+  act(() => view.result.current.changeActionCompareRowScope('sample', 'each_other'));
+  await waitFor(() => expect(view.result.current.rowScope).toBe('sample'));
+  expect(view.result.current.actionCompareSession).toBe(session);
+  expect(session.getSnapshot().variants.find(item => item.id === variant)).toMatchObject({ status: 'pending', draft: { params: { instruction: 'Keep this instruction' } } });
+  expect(view.result.current.actionComparePendingTarget).toBeNull();
 });

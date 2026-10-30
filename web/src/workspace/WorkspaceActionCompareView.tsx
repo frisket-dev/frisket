@@ -147,7 +147,7 @@ function ActionCompareContents() {
         projectId={chromePreferences.projectId} variantId={variant.id} query={query} publish={publishChoice} />;
     })}
     <ActionCompareTab projectId={model.project.id} session={session}
-      evaluationApi={model.expectedAnswers.api} initialLens={model.initialLens}
+      evaluationApi={model.expectedAnswers.api} initialLens={model.initialLens} dataRevision={model.comparisonDataVersion}
       rowScope={model.rowScope} rowScopeTotal={model.rowScopeTotal} onChangeRowScope={model.changeActionCompareRowScope} rowScopePending={model.rowScopePending}
       modelField={selectorField}
       onJoinExpected={() => {
