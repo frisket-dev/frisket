@@ -202,6 +202,7 @@ test('court sample imports and runs the selected filings through strict replay',
   await selectActionSourceColumns(page, 'text');
   await page.getByTestId('ribbon-tab-analyze').click();
   await expect(page.getByTestId('text-source-columns-menu')).toBeHidden();
+  await expect(page.getByTestId('field-engine').locator('.engine-selector__trigger')).toBeVisible({ timeout: 60_000 });
   await page.getByTestId('field-engine').locator('.engine-selector__trigger').click();
   await page.getByTestId('engine-selector-dialog').getByText('Gemini 3.5 Flash-Lite', { exact: true }).click();
   await expect(page.getByTestId('engine-selector-dialog')).toBeHidden();
