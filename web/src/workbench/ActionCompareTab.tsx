@@ -25,6 +25,9 @@ import './ActionCompareTab.css';
 export interface ActionCompareVariantEditorRenderProps {
   variantId: string;
   label: string;
+  modelOnly?: boolean;
+  modelDisabled?: boolean;
+  onModelLabelChange?(label: string): void;
   draft: GeneratedActionDraft;
   lockedParams: readonly string[];
   structureLocked: true;

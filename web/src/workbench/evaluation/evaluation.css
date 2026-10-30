@@ -24,6 +24,3 @@
 .comparison-answer-list { min-height: 96px; }
 .comparison-review-footer { padding: 6px 12px; }
 .comparison-review-footer > p { margin-top: 4px; }
-.comparison-try-several { padding: var(--space-16); max-height: 75vh; overflow: auto; }
-.comparison-try-several > label { display: grid; gap: var(--space-6); margin-block: var(--space-10); }
-.comparison-try-several > fieldset { margin-block: var(--space-10); }
