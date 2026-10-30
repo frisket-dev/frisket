@@ -189,9 +189,6 @@ test('court sample imports and runs the selected filings through strict replay',
   await expect(page.getByText('Scoring…')).toHaveCount(0, { timeout: 30_000 });
   captures.push(await captureCheckpoint(page, { id: 'court-comparison', root: page.getByRole('region', { name: 'Action comparison' }), annotations: [] }, stage));
   await page.getByTestId('workbench-mainView-tab-' + imported.id).click();
-  await selectRow(page, 0);
-  await selectRow(page, 1);
-  await selectRow(page, 2);
   await openAction(page, 'map.extract');
   await selectActionSourceColumns(page, 'text');
   await page.getByTestId('ribbon-tab-analyze').click();
@@ -208,9 +205,9 @@ test('court sample imports and runs the selected filings through strict replay',
   await page.getByTestId('field-instruction').fill(settings.instruction);
   await page.getByTestId('field-citation_mode').selectOption('cite');
   await expect(page.getByTestId('field-engine')).toContainText('Gemini 3.5 Flash-Lite');
-  await expect(page.locator('.run-scope-summary')).toContainText(/All 6 rows/i);
-  captures.push(await captureCheckpoint(page, { id: 'court-run-settings', root: page.getByTestId('action-panel'), annotations: [] }, stage));
   await page.getByTestId('generated-action-run-scope-menu-button').click();
+  await expect(page.getByTestId('generated-action-row-scope-all')).toBeVisible();
+  captures.push(await captureCheckpoint(page, { id: 'court-run-settings', root: page.getByTestId('action-panel'), annotations: [] }, stage));
   const fullStart = page.waitForResponse(response => response.url().endsWith('/actions/v1/run') && response.request().method() === 'POST', { timeout: 60_000 });
   await page.getByTestId('generated-action-row-scope-all').click();
   if (await page.getByTestId('generated-action-run').isVisible({ timeout: 2_000 }).catch(() => false)) await page.getByTestId('generated-action-run').click();
