@@ -1,55 +1,61 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { EvaluationApi, EvaluationLink, EvaluationResponse, SavedSummary } from '../../api/evaluation';
+import type { EvaluationApi, EvaluationLink, EvaluationRequest, EvaluationResponse, SavedSummary } from '../../api/evaluation';
 import type { ActionCompareSessionSnapshot } from '../actionCompareSession';
 import { comparisonRequest } from './comparisonEvaluation';
+
+function matchingShelf(items: SavedSummary[], columns: ActionCompareSessionSnapshot['context']['output_columns']) {
+  const signature = (outputs: typeof columns | SavedSummary['output_columns']) => outputs
+    .map((column) => `${column.logical_key}:${column.column_id ?? `name:${column.current_name}`}`).sort().join('\0');
+  const outputs = signature(columns);
+  return items.filter((item) => signature(item.output_columns) === outputs);
+}
 
 export function useComparisonEvaluation(api: EvaluationApi | undefined, state: ActionCompareSessionSnapshot) {
   const [links, setLinks] = useState<EvaluationLink[]>([]);
   const [items, setItems] = useState<SavedSummary[]>([]);
-  const [response, setResponse] = useState<EvaluationResponse | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [scoreState, setScoreState] = useState<{ key: string; requestKey: string; response: EvaluationResponse | null }>({ key: '', requestKey: '', response: null });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [generation, setGeneration] = useState(0);
   const sequence = useRef(0);
   const actionId = state.context.draft.action_id;
   const sheetId = state.context.sheet.id;
-  const outputIds = useMemo(() => new Set(state.context.output_columns.flatMap((column) => column.column_id ? [column.column_id] : [])), [state.context.output_columns]);
+  const outputColumns = state.context.output_columns;
+  const outputIds = useMemo(() => new Set(outputColumns.flatMap((column) => column.column_id ? [column.column_id] : [])), [outputColumns]);
   const link = links.find((candidate) => candidate.action_id === actionId
     && candidate.fields.some((field) => outputIds.has(field.output_column_id))) ?? null;
-  const request = useMemo(() => comparisonRequest(state, link?.id ?? null), [state, link?.id]);
-  const requestKey = JSON.stringify(request);
-  const requestRef = useRef(request);
-  requestRef.current = request;
+  const requestKey = JSON.stringify(comparisonRequest(state, link?.id ?? null));
+  const request = useMemo<EvaluationRequest>(() => JSON.parse(requestKey), [requestKey]);
+  const scoreKey = `${generation}:${requestKey}`;
+  const loading = Boolean(api && request.variants.length && scoreState.key !== scoreKey);
+  const response = scoreState.requestKey === requestKey ? scoreState.response : null;
+  const setResponse = useCallback((value: EvaluationResponse) => setScoreState({ key: scoreKey, requestKey, response: value }), [scoreKey, requestKey]);
+  const setLink = useCallback((value: EvaluationLink) => setLinks((current) => [...current.filter((item) => item.id !== value.id), value]), []);
 
   const refresh = useCallback(() => setGeneration((value) => value + 1), []);
   const refreshShelf = useCallback(async () => {
     if (!api) return;
     const result = await api.getShelf(sheetId, actionId);
-    const signature = (columns: typeof state.context.output_columns | SavedSummary['output_columns']) => columns
-      .map((column) => `${column.logical_key}:${column.column_id ?? `name:${column.current_name}`}`).sort().join('\0');
-    const outputs = signature(state.context.output_columns);
-    setItems(result.items.filter((item) => signature(item.output_columns) === outputs));
-  }, [api, sheetId, actionId, state.context.output_columns]);
+    setItems(matchingShelf(result.items, outputColumns));
+  }, [api, sheetId, actionId, outputColumns]);
 
   useEffect(() => {
     if (!api) return;
     let alive = true;
-    void api.getLinks(sheetId).then((result) => { if (alive) setLinks(result.links); }, (problem) => { if (alive) setError(String(problem.message ?? problem)); });
-    void refreshShelf().catch((problem) => { if (alive) setError(String(problem.message ?? problem)); });
+    void Promise.all([api.getLinks(sheetId), api.getShelf(sheetId, actionId)]).then(([linkResult, shelfResult]) => {
+      if (alive) { setLinks(linkResult.links); setItems(matchingShelf(shelfResult.items, outputColumns)); }
+    }, (problem) => { if (alive) setError(String(problem.message ?? problem)); });
     return () => { alive = false; };
-  }, [api, sheetId, generation, refreshShelf]);
+  }, [api, sheetId, actionId, generation, outputColumns]);
 
   useEffect(() => {
     const current = ++sequence.current;
-    if (!api || !requestRef.current.variants.length) { setResponse(null); setLoading(false); return; }
-    setLoading(true); setError(null);
-    void api.score(requestRef.current).then((result) => {
-      if (current === sequence.current) setResponse(result);
-    }, (problem) => { if (current === sequence.current) { setResponse(null); setError(String(problem.message ?? problem)); } })
-      .finally(() => { if (current === sequence.current) setLoading(false); });
+    if (!api || !request.variants.length) return;
+    void api.score(request).then((result) => {
+      if (current === sequence.current) { setScoreState({ key: scoreKey, requestKey, response: result }); setError(null); }
+    }, (problem) => { if (current === sequence.current) { setScoreState({ key: scoreKey, requestKey, response: null }); setError(String(problem.message ?? problem)); } });
     return () => { sequence.current += 1; };
-  }, [api, requestKey, generation]);
+  }, [api, request, requestKey, scoreKey]);
 
   const mutate = useCallback(async <Value,>(operation: () => Promise<Value>): Promise<Value | undefined> => {
     setSaving(true); setError(null);
@@ -59,5 +65,5 @@ export function useComparisonEvaluation(api: EvaluationApi | undefined, state: A
   }, [refresh]);
 
   return { api, link, links, request, response, items, loading, saving, error, refresh, refreshShelf, mutate,
-    setResponse, setError, setLink: (value: EvaluationLink) => setLinks((current) => [...current.filter((item) => item.id !== value.id), value]) };
+    setResponse, setError, setLink };
 }

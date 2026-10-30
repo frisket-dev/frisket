@@ -19,6 +19,7 @@ import {
 import { ActionCompareGrid, type ActionCompareStructuredValue } from './ActionCompareGrid';
 import { VariantBadge } from './VariantBadge';
 import { ComparisonEvaluationWorkspace } from './evaluation/ComparisonEvaluationWorkspace';
+import { PanelSelect } from '../components/PanelSelect';
 import './ActionCompareTab.css';
 
 export interface ActionCompareVariantEditorRenderProps {
@@ -57,6 +58,10 @@ export interface ActionCompareTabProps {
   onShelved?(): void;
   modelField?: string | null;
   instructionsField?: string | null;
+  rowScope?: 'sample' | 'all' | 'expected';
+  rowScopePending?: boolean;
+  rowScopeTotal?: number | null;
+  onChangeRowScope?(scope: 'sample' | 'all' | 'expected', lens?: 'each_other' | 'expected'): void;
 }
 
 function actionCompareEditorMaxHeight(toolbarBottom: number, contentBottom: number): number {
@@ -76,7 +81,7 @@ export function ActionCompareTab({ projectId, session, rowHeight, wrapText, froz
   onUseSettings, renderVariantEditor,
   labelForDraft, describeVariantChanges, onOpenBoundedValue, onOpenStructuredValue,
   className, evaluationApi, onJoinExpected, initialLens, onExpectedAnswersChanged, onShelved,
-  modelField, instructionsField }: ActionCompareTabProps) {
+  modelField, instructionsField, rowScope, rowScopePending, rowScopeTotal, onChangeRowScope }: ActionCompareTabProps) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
@@ -217,14 +222,18 @@ export function ActionCompareTab({ projectId, session, rowHeight, wrapText, froz
             session.setColumnVisible(key, !visible); closeMenu();
           }}><span aria-hidden>{visible ? '✓' : '+'}</span><span className="menu-item-name">{name}</span></button>; }} />
       <span className="action-compare-sample-count" data-testid="action-compare-sample-count">{sampleLabel(
-        Math.min(20, context.limits.max_sample_rows, context.sample_row_ids.length),
+        context.sample_row_ids.length,
         state.capturedSelection?.totalCount ?? null,
       )}</span>
+      {onChangeRowScope && <PanelSelect ariaLabel="Comparison rows" value={rowScope ?? 'sample'} disabled={running || rowScopePending}
+        options={[{ value: 'sample', label: 'Sample · up to 20 rows' }, { value: 'all', label: 'All · up to 500 rows' }]}
+        onValueChange={(value) => onChangeRowScope(value as 'sample' | 'all')} />}
     </div>}
 
-    {evaluationApi ? <ComparisonEvaluationWorkspace api={evaluationApi} state={state} session={session}
+    {evaluationApi ? <ComparisonEvaluationWorkspace key={initialLens ?? 'each_other'} api={evaluationApi} state={state} session={session}
       initialLens={initialLens} onJoinExpected={onJoinExpected} onExpectedAnswersChanged={onExpectedAnswersChanged}
       onShelved={onShelved} modelField={modelField} instructionsField={instructionsField}
+      rowScope={rowScope} rowScopePending={rowScopePending} rowScopeTotal={rowScopeTotal} onChangeRowScope={onChangeRowScope}
       renderVariantEditor={renderVariantEditor} onOpenVariant={setEditingId} onUseSettings={onUseSettings}
       renderGrid={(evaluation) => <ActionCompareGrid projectId={projectId} state={state} rowHeight={rowHeight}
         wrapText={wrapText} frozenColumnCount={frozenColumnCount} labelForDraft={labelForDraft}

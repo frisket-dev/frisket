@@ -25,6 +25,7 @@ import {
   variantBadgeIconName,
 } from './variantBadgePresentation';
 import { answerText, scoreLabel } from './evaluation/comparisonEvaluation';
+import { evaluationTheme } from './evaluation/evaluationTheme';
 
 
 
@@ -212,6 +213,7 @@ function compareColumns(
 export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, frozenColumnCount,
   labelForDraft, onOpenBoundedValue, onOpenStructuredValue, evaluation }: ActionCompareGridProps) {
   const { gridTheme, aiColumnTheme, gridCellPalette, differenceTheme } = useGridTheme();
+  const evaluationColors = useMemo(() => evaluationTheme(gridTheme), [gridTheme]);
   const variantColumnTheme = useMemo(() => ({
     ...aiColumnTheme,
     headerIconSize: VARIANT_BADGE_PRESENTATION.size,
@@ -234,7 +236,7 @@ export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, froze
     return {
       id: projected.id,
       title: output
-        ? `${labelForDraft?.(
+        ? `${variantBadgeIconName(projected.variant.displayKey) ? '' : `${projected.variant.displayKey} · `}${labelForDraft?.(
           projected.variant.draft,
           projected.variant.displayKey,
         ) ?? projected.variant.label}${evaluation?.lens === 'expected' ? ` · ${scoreLabel(evaluation.response?.variants.find((variant) => variant.key === projected.variant.displayKey)?.scores[projected.logicalKey]?.accuracy)}` : ''}`
@@ -242,9 +244,12 @@ export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, froze
       group: projected.kind !== 'source' ? `${OUTPUT_GROUP_PREFIX}${projected.logicalKey}` : SOURCE_GROUP,
       width: widths[projected.id] ?? (output ? DEFAULT_OUTPUT_WIDTH : DEFAULT_SOURCE_WIDTH),
       ...(icon ? { icon } : {}),
-      ...(output ? { themeOverride: variantColumnTheme } : {}),
+      ...(projected.kind === 'expected' ? { themeOverride: { bgHeader: evaluationColors.expected, textHeader: evaluationColors.match } }
+        : output ? { themeOverride: { ...variantColumnTheme,
+          ...(evaluation?.lens === 'expected' && evaluation.response?.best[projected.logicalKey]?.includes(projected.variant.displayKey) ? { textHeader: evaluationColors.match } : {}),
+        } } : {}),
     };
-  }), [evaluation, labelForDraft, projectedColumns, variantColumnTheme, widths]);
+  }), [evaluation, evaluationColors, labelForDraft, projectedColumns, variantColumnTheme, widths]);
 
   const cellAt = useCallback((projected: CompareGridColumn, rowId: number): ActionCompareResultCell | undefined => {
     if (projected.kind === 'source') {
@@ -304,10 +309,11 @@ export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, froze
             : `${verdict === 'match' ? '✓ ' : verdict === 'miss' ? '✗ ' : ''}${cell.evaluationValue?.preview ?? (answerText(cell.value) || 'empty answer')}`;
         rendered = { kind: GridCellKind.Text, data: answerText(cell.value), displayData: text,
           allowOverlay: false, readonly: true, allowWrapping: wrapText,
-          ...(verdict === 'miss' ? { themeOverride: { ...gridCellPalette.error, bgCell: gridTheme.bgCellMedium } } : {}),
+          ...(verdict === 'miss' ? { themeOverride: { ...gridCellPalette.error, bgCell: evaluationColors.miss } } : {}),
         };
       }
     }
+    if (projected.kind === 'expected') rendered = { ...rendered, themeOverride: { ...rendered.themeOverride, bgCell: evaluationColors.expected } };
     let comparison: ReturnType<typeof actionCompareCellEquality> | undefined;
     if (projected.kind === 'output' && !projected.variant.baseline
       && projected.variant.status === 'ready' && projected.variant.result) {
@@ -332,7 +338,7 @@ export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, froze
       evaluation?.lens !== 'expected' && state.highlightDifferences && comparison === 'different' ? differenceTheme : undefined,
     );
     return rendered;
-  }, [cellAt, differenceTheme, evaluation, gridCellPalette, gridTheme.bgCellMedium, projectId, projectedColumns, sampleRowIds,
+  }, [cellAt, differenceTheme, evaluation, evaluationColors, gridCellPalette, projectId, projectedColumns, sampleRowIds,
     state.highlightDifferences, state.variants, wrapText]);
 
   const onCellActivated = useCallback((item: Item) => {
@@ -374,11 +380,11 @@ export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, froze
     if (score?.accuracy == null) return;
     const best = evaluation.response?.best[projected.logicalKey]?.includes(projected.variant.displayKey);
     const { ctx, rect } = args;
-    ctx.save(); ctx.fillStyle = best ? args.theme.accentColor : args.theme.textMedium;
+    ctx.save(); ctx.fillStyle = best ? evaluationColors.match : args.theme.textMedium;
     ctx.fillRect(rect.x + 8, rect.y + rect.height - 4, (rect.width - 16) * score.accuracy, 2);
     if (best) { ctx.strokeStyle = args.theme.accentColor; ctx.lineWidth = 2; ctx.strokeRect(rect.x + 1, rect.y + 1, rect.width - 2, rect.height - 2); }
     ctx.restore();
-  }, [evaluation, projectedColumns]);
+  }, [evaluation, evaluationColors.match, projectedColumns]);
 
   const onColumnResize = useCallback<NonNullable<GridViewportProps['onColumnResize']>>((column, newSize) => {
     if (!column.id) return;

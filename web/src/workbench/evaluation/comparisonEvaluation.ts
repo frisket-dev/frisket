@@ -1,9 +1,14 @@
-import type { EvaluationBoundedValue, EvaluationRequest, EvaluationResponse, EvaluationVerdict } from '../../api/evaluation';
+import type { EvaluationBoundedValue, EvaluationRequest, EvaluationResponse, EvaluationRule, EvaluationVerdict } from '../../api/evaluation';
 import type { JsonValue } from '../../api/types';
 import { canonicalJson } from '../../actions/canonicalJson';
 import type { ActionCompareSessionSnapshot } from '../actionCompareSession';
 
 export type EvaluationRowFilter = 'all' | 'any_miss' | 'best_misses' | 'everyone_misses' | `variant:${string}`;
+export const MATCH_RULES: Array<{ value: EvaluationRule; label: string }> = [
+  { value: 'exact', label: 'Exact' }, { value: 'ignore_case', label: 'Ignore case' },
+  { value: 'number', label: 'Same number' }, { value: 'date', label: 'Same date' },
+  { value: 'set', label: 'Same items' }, { value: 'hand', label: 'Score by hand' },
+];
 
 export function comparisonRequest(state: ActionCompareSessionSnapshot, linkId: number | null): EvaluationRequest {
   return {

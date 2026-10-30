@@ -11,8 +11,8 @@ function cellValue(value: unknown): CellValue {
 
 /** Current inputs and real persisted evidence use Review's normal renderers. */
 export function ComparisonSources({ state, rowId, field }: { state: ActionCompareSessionSnapshot; rowId: number; field: string }) {
+  const { context } = state;
   const bundle = useMemo<ReviewBundle>(() => {
-    const { context } = state;
     const basis = context.comparison_basis;
     const runId = basis.kind === 'run' ? String(basis.run_id) : '';
     const fields: ReviewBundleField[] = basis.kind === 'run' ? context.output_columns.flatMap((column) => {
@@ -42,7 +42,7 @@ export function ComparisonSources({ state, rowId, field }: { state: ActionCompar
       source: Object.fromEntries(sources.map((source) => [source.columnName, source.value])), sources,
       context: '', fields, evidence: [],
     };
-  }, [state.context, rowId]);
+  }, [context, rowId]);
   if (!bundle.fields.length) return <ReviewInputSources bundle={bundle} />;
   return <ReviewSourcePreview bundle={bundle} activeField={bundle.fields.find((item) => item.outputKey === field)}
     sourceEntries={Object.entries(bundle.source)} />;

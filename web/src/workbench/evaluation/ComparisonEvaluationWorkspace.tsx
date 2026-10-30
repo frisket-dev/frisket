@@ -1,17 +1,18 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { EvaluationApi, EvaluationCell, EvaluationRule } from '../../api/evaluation';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import type { EvaluationApi, EvaluationCell, EvaluationResponse, EvaluationRule } from '../../api/evaluation';
 import type { GeneratedActionDraft, JsonValue } from '../../api/types';
 import { Button } from '../../components/Button';
 import { Modal } from '../../components/Modal';
 import { AnchoredMenu } from '../../components/MenuPop';
+import { PanelSelect } from '../../components/PanelSelect';
 import type { ActionCompareGridProps } from '../ActionCompareGrid';
 import type { ActionCompareVariantEditorRenderProps } from '../ActionCompareTab';
 import type { ActionCompareSession, ActionCompareSessionSnapshot, ActionCompareUseSettings } from '../actionCompareSession';
 import { matchAnswer } from '../evaluationMatching';
 import { ComparisonReview } from './ComparisonReview';
 import { ComparisonSources } from './ComparisonSources';
-import { ComparisonResults, ManageShelf, MATCH_RULES, MatchRuleDialog } from './ComparisonPanels';
-import { answerText, disagreementRows, expectedValueFromText, filteredEvaluationRows, groupedAnswers, type EvaluationRowFilter } from './comparisonEvaluation';
+import { ComparisonResults, ManageShelf, MatchRuleDialog } from './ComparisonPanels';
+import { answerText, disagreementRows, expectedValueFromText, filteredEvaluationRows, groupedAnswers, MATCH_RULES, type EvaluationRowFilter } from './comparisonEvaluation';
 import { useComparisonEvaluation } from './useComparisonEvaluation';
 import { TrySeveral } from './TrySeveral';
 import { FocusedAnswerValue } from './FocusedAnswerValue';
@@ -22,6 +23,9 @@ export interface ComparisonEvaluationWorkspaceProps {
   initialLens?: 'each_other' | 'expected'; onJoinExpected?(): void; onExpectedAnswersChanged?(): void; onShelved?(): void;
   modelField?: string | null; instructionsField?: string | null;
   renderVariantEditor?(props: ActionCompareVariantEditorRenderProps): ReactNode;
+  rowScope?: 'sample' | 'all' | 'expected'; rowScopePending?: boolean;
+  rowScopeTotal?: number | null;
+  onChangeRowScope?(scope: 'sample' | 'all' | 'expected', lens?: 'each_other' | 'expected'): void;
   onOpenVariant(id: string): void; onUseSettings(selection: ActionCompareUseSettings): void;
   renderGrid(evaluation: NonNullable<ActionCompareGridProps['evaluation']>): ReactNode;
 }
@@ -34,8 +38,11 @@ function download(blob: Blob, name: string) {
 
 export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspaceProps) {
   const e = useComparisonEvaluation(p.api, p.state);
+  const { api, onExpectedAnswersChanged } = p;
+  const { mutate, setLink, request: evaluationRequest, setError: setEvaluationError } = e;
+  const basis = p.state.context.comparison_basis;
   const linkRef = useRef(e.link);
-  linkRef.current = e.link;
+  useLayoutEffect(() => { linkRef.current = e.link; }, [e.link]);
   const [lens, setLens] = useState<'each_other' | 'expected'>(p.initialLens ?? 'each_other');
   const [field, setField] = useState(p.state.context.output_columns[0]?.logical_key ?? '');
   const [filter, setFilter] = useState<EvaluationRowFilter>('all');
@@ -50,7 +57,7 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
   const [rejected, setRejected] = useState<Set<string>>(new Set());
   const [conflict, setConflict] = useState<{ value: JsonValue; looser: EvaluationRule | null } | null>(null);
   const [unlinkedRules, setUnlinkedRules] = useState<Record<string, EvaluationRule>>({});
-  const [fullCells, setFullCells] = useState<{ key: string; cells: Record<string, EvaluationCell>; expected?: EvaluationCell }>({ key: '', cells: {} });
+  const [fullCells, setFullCells] = useState<{ key: string; response: EvaluationResponse | null; cells: Record<string, EvaluationCell>; expected?: EvaluationCell }>({ key: '', response: null, cells: {} });
   const pending = useRef<{ rowId: number; field: string; value: JsonValue; rule: EvaluationRule } | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const running = p.state.sequenceStatus === 'running';
@@ -64,15 +71,14 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
   const modelField = p.modelField ?? ['model', 'engine'].find((name) => name in p.state.context.draft.params);
   const instructionsField = p.instructionsField ?? ['instruction', 'instructions', 'extra_instructions', 'prompt', 'question', 'context'].find((name) => typeof p.state.context.draft.params[name] === 'string');
 
-  useEffect(() => { if (p.initialLens) setLens(p.initialLens); }, [p.initialLens]);
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
   const saveExpected = useCallback(async (write: { rowId: number; field: string; value: JsonValue; rule: EvaluationRule }) => {
-    const result = await e.mutate(() => p.api.saveExpectedAnswer({ basis: p.state.context.comparison_basis,
+    const result = await mutate(() => api.saveExpectedAnswer({ basis,
       link_id: linkRef.current?.id ?? null, row_id: write.rowId, logical_key: write.field, value: write.value, rule: write.rule }));
-    if (result) { linkRef.current = result; e.setLink(result); p.onExpectedAnswersChanged?.(); }
+    if (result) { linkRef.current = result; setLink(result); onExpectedAnswersChanged?.(); }
     return Boolean(result);
-  }, [e.mutate, e.link?.id, p.api, p.state.context.comparison_basis, p.onExpectedAnswersChanged]);
+  }, [mutate, api, basis, setLink, onExpectedAnswersChanged]);
 
   const flushExpected = useCallback(async () => {
     if (timer.current) { clearTimeout(timer.current); timer.current = null; }
@@ -81,7 +87,7 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
     return true;
   }, [saveExpected]);
   const flushOnLeave = useRef(flushExpected);
-  flushOnLeave.current = flushExpected;
+  useLayoutEffect(() => { flushOnLeave.current = flushExpected; }, [flushExpected]);
   useEffect(() => () => { void flushOnLeave.current(); }, []);
 
   const expectedChanged = (value: string) => {
@@ -110,28 +116,28 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
   }, [queue, response, field, rows]);
   const queueRow = queue && queueRows.includes(queue.rowId) ? queue.rowId : queueRows[0];
   const focusedKey = JSON.stringify([e.request, queueRow, field]);
-  const loaded = fullCells.key === focusedKey ? fullCells : null;
+  const loaded = fullCells.key === focusedKey && fullCells.response === response ? fullCells : null;
   const boundedExpected = queueRow === undefined ? undefined : response?.expected_bounded?.[String(queueRow)]?.[field];
   const storedExpected = loaded?.expected?.value ?? (queueRow === undefined ? undefined : response?.expected[String(queueRow)]?.[field]);
   const activeDraft = draft && draft.rowId === queueRow && draft.field === field ? draft : null;
   const expectedText = activeDraft?.value ?? answerText(storedExpected);
   const expectedValue = expectedValueFromText(expectedText, storedExpected, currentField?.column_type ?? 'text');
+  const queueActive = queue !== null;
   useEffect(() => {
-    if (!response || queueRow === undefined || !queue) return;
+    if (!response || queueRow === undefined || !queueActive) return;
     let alive = true;
     const groups = groupedAnswers(response, queueRow, field);
     const bounded = groups.filter((group) => group.bounded);
     const expected = response.expected_bounded?.[String(queueRow)]?.[field];
     if (!bounded.length && !expected) return;
-    setFullCells({ key: focusedKey, cells: {} });
     void Promise.all([
-      ...bounded.map(async (group) => [group.key, await p.api.getCell({ comparison: e.request, variant_key: group.variantKeys[0], row_id: queueRow, logical_key: field })] as const),
-      ...(expected ? [(async () => ['expected', await p.api.getCell({ comparison: e.request, variant_key: 'expected', row_id: queueRow, logical_key: field })] as const)()] : []),
+      ...bounded.map(async (group) => [group.key, await api.getCell({ comparison: evaluationRequest, variant_key: group.variantKeys[0], row_id: queueRow, logical_key: field })] as const),
+      ...(expected ? [(async () => ['expected', await api.getCell({ comparison: evaluationRequest, variant_key: 'expected', row_id: queueRow, logical_key: field })] as const)()] : []),
     ]).then((entries) => {
-      if (alive) setFullCells({ key: focusedKey, cells: Object.fromEntries(entries), expected: entries.find(([key]) => key === 'expected')?.[1] });
-    }, (problem) => { if (alive) e.setError(problem instanceof Error ? problem.message : String(problem)); });
+      if (alive) setFullCells({ key: focusedKey, response, cells: Object.fromEntries(entries), expected: entries.find(([key]) => key === 'expected')?.[1] });
+    }, (problem) => { if (alive) setEvaluationError(problem instanceof Error ? problem.message : String(problem)); });
     return () => { alive = false; };
-  }, [p.api, response, queueRow, field, focusedKey, e.request, queue?.mode, e.setError]);
+  }, [api, response, queueRow, field, focusedKey, evaluationRequest, queueActive, setEvaluationError]);
 
   const groups = response && queueRow !== undefined ? groupedAnswers(response, queueRow, field).map((group) => {
     const cell = loaded?.cells[group.key];
@@ -220,7 +226,9 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
       </div>
       <span>Compare to</span>
       <Button aria-pressed={lens === 'each_other'} disabled={p.state.variants.length < 2} title={p.state.variants.length < 2 ? 'Needs two variants' : undefined} onClick={() => { setLens('each_other'); setFilter('all'); }}>Each other</Button>
-      <Button aria-pressed={lens === 'expected'} onClick={() => { setLens('expected'); e.refresh(); }}>✓ Expected answers</Button>
+      <Button aria-pressed={lens === 'expected'} onClick={() => { setLens('expected'); e.refresh();
+        if (e.link && p.rowScope !== 'expected' && !p.rowScopePending) p.onChangeRowScope?.('expected', 'expected');
+      }}>✓ Expected answers</Button>
       {response && lens === 'each_other' && evaluated >= 2 && <Button onClick={() => setQueue({ mode: 'disagreements', rowId: disagreements[0] ?? 0, filter: 'all' })}>Variants disagree · {disagreements.length}</Button>}
       {response && lens === 'expected' && <><Button onClick={() => setResultsOpen(true)}>Results</Button>
         {unscored > 0 && <Button onClick={() => setQueue({ mode: 'score', rowId: response.row_ids[0] ?? 0, filter: 'to_score' })}>{unscored} to score by hand ›</Button>}
@@ -231,7 +239,12 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
     {e.error && <div className="action-compare-notice" role="alert">{e.error}<Button onClick={e.refresh}>Retry</Button></div>}
     <div className="comparison-field-toolbar">
       <div role="group" aria-label="Comparison field">{p.state.context.output_columns.map((column) => <Button key={column.logical_key} aria-pressed={field === column.logical_key} onClick={() => { void flushExpected(); setField(column.logical_key); setFilter('all'); setQueue(null); }}>{column.current_name}</Button>)}</div>
-      <span>{lens === 'expected' && e.link ? `${response?.variants[0]?.scores[field]?.checked ?? 0} with expected answers` : `${p.state.context.sample_row_ids.length} rows`}</span>
+      <span>{p.rowScopeTotal && p.rowScopeTotal > p.state.context.sample_row_ids.length
+        ? `${p.state.context.sample_row_ids.length} of ${p.rowScopeTotal} ${p.rowScope === 'expected' ? 'with expected answers' : 'rows'}`
+        : lens === 'expected' && e.link ? `${response?.variants[0]?.scores[field]?.checked ?? 0} with expected answers` : `${p.state.context.sample_row_ids.length} rows`}</span>
+      {p.onChangeRowScope && <PanelSelect ariaLabel="Comparison rows" value={p.rowScope ?? 'sample'} disabled={running || p.rowScopePending}
+        options={[{ value: 'sample', label: 'Sample · up to 20 rows' }, { value: 'all', label: 'All · up to 500 rows' }, { value: 'expected', label: 'With expected answers · up to 500 rows', disabled: !e.link }]}
+        onValueChange={(value) => p.onChangeRowScope?.(value as 'sample' | 'all' | 'expected', lens)} />}
       {lens === 'expected' && e.link && <>{(['all', 'any_miss', 'best_misses', 'everyone_misses'] as const).map((value) => <Button key={value} aria-pressed={filter === value} disabled={value === 'best_misses' && !bestKey} onClick={() => setFilter(value)}>
         {{ all: 'All', any_miss: 'Any miss', best_misses: 'Best misses', everyone_misses: 'Everyone misses' }[value]}
       </Button>)}</>}

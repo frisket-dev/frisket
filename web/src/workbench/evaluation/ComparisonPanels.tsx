@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { GridCellKind } from '@glideapps/glide-data-grid';
 import type { EvaluationResponse, EvaluationRule, SavedSummary } from '../../api/evaluation';
 import { Button } from '../../components/Button';
@@ -6,19 +6,15 @@ import { Modal } from '../../components/Modal';
 import { TextInput } from '../../components/FormControls';
 import { GridViewport } from '../../grid/GridViewport';
 import { useGridTheme } from '../../grid/useGridTheme';
-import { scoreLabel } from './comparisonEvaluation';
+import { MATCH_RULES, scoreLabel } from './comparisonEvaluation';
 import { matchAnswer } from '../evaluationMatching';
-
-export const MATCH_RULES: Array<{ value: EvaluationRule; label: string }> = [
-  { value: 'exact', label: 'Exact' }, { value: 'ignore_case', label: 'Ignore case' },
-  { value: 'number', label: 'Same number' }, { value: 'date', label: 'Same date' },
-  { value: 'set', label: 'Same items' }, { value: 'hand', label: 'Score by hand' },
-];
+import { evaluationTheme } from './evaluationTheme';
 
 export function ComparisonResults({ response, onChoose, onClose }: {
   response: EvaluationResponse; onChoose(field: string, variant: string): void; onClose(): void;
 }) {
   const { gridTheme } = useGridTheme();
+  const evaluationColors = useMemo(() => evaluationTheme(gridTheme), [gridTheme]);
   const columns = [{ id: 'variant', title: 'Variant', width: 190 },
     ...response.output_columns.filter((column) => response.link?.fields.some((field) => field.logical_key === column.logical_key))
       .map((column) => ({ id: column.logical_key, title: column.current_name, width: 190 }))];
@@ -35,7 +31,8 @@ export function ComparisonResults({ response, onChoose, onClose }: {
           draw();
           const score = response.variants[args.row]?.scores[columns[args.col]?.id];
           if (args.col === 0 || score?.accuracy == null) return;
-          args.ctx.save(); args.ctx.fillStyle = args.theme.textMedium;
+          const best = response.best[columns[args.col].id]?.includes(response.variants[args.row].key);
+          args.ctx.save(); args.ctx.fillStyle = best ? evaluationColors.match : args.theme.textMedium;
           args.ctx.fillRect(args.rect.x + 8, args.rect.y + args.rect.height - 4, (args.rect.width - 16) * score.accuracy, 2); args.ctx.restore();
         }}
         onCellActivated={([column, row]) => { if (column > 0) onChoose(columns[column].id, response.variants[row].key); }} />

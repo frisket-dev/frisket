@@ -451,7 +451,7 @@ export function createActionCompareSession(
         onCaptured: (savedId) => {
           capturedIds.add(savedId);
           const latest = snapshot.variants.find((candidate) => candidate.id === variantId);
-          if (latest?.draftRevision === draftRevision && latest.status === 'running' && !controller.signal.aborted) {
+          if (latest?.draftRevision === draftRevision && (latest.status === 'cancelled' || (latest.status === 'running' && !controller.signal.aborted))) {
             replaceVariant(variantId, (candidate) => ({ ...candidate, savedId }));
           } else {
             void dependencies.discardCaptured?.(savedId).then(() => capturedIds.delete(savedId)).catch(() => undefined);
@@ -724,17 +724,20 @@ export function createActionCompareRunner(
       if (signal.aborted) return { status: 'cancelled', previewId: lastPreviewId || null };
       const request = plan.requests[chunkIndex];
       const rawRows = request.action.scope.row_ids;
-      const rows = Array.isArray(rawRows) ? rawRows.filter((row): row is number => typeof row === 'number') : [];
+      const rows: number[] = [];
+      if (Array.isArray(rawRows)) for (const row of rawRows) if (typeof row === 'number') rows.push(row);
       const outcome = await runChunk({ context: { ...context, sample_row_ids: rows }, variant, signal, onStarted }, request);
-      if (outcome.status !== 'ready') return outcome;
-      lastPreviewId = outcome.previewId;
-      Object.assign(result.rows, outcome.result.rows);
-      onPartial?.(result);
-      if (evaluationApi) {
+      if (outcome.status === 'ready') {
+        lastPreviewId = outcome.previewId;
+        Object.assign(result.rows, outcome.result.rows);
+        onPartial?.(result);
+      }
+      const terminalPreviewId = outcome.status === 'ready' || (outcome.status === 'failed' && !outcome.requiresRequote) ? outcome.previewId : null;
+      if (evaluationApi && terminalPreviewId) {
         try {
           const capture = await evaluationApi.captureComparison({ comparison: {
             basis: context.comparison_basis, row_ids: rows, link_id: null,
-            variants: [{ key: variant.displayKey, label: variant.label, source: { kind: 'preview', preview_ids: [outcome.previewId] } }],
+            variants: [{ key: variant.displayKey, label: variant.label, source: { kind: 'preview', preview_ids: [terminalPreviewId] } }],
           }, variant_keys: [variant.displayKey], ...(capturedId === undefined ? {} : { target_id: capturedId }) });
           const saved = capture.items[0];
           if (!saved) throw new Error('The comparison outputs could not be retained.');
@@ -744,6 +747,7 @@ export function createActionCompareRunner(
           return { status: 'failed', previewId: lastPreviewId, error: error instanceof Error ? error.message : String(error) };
         }
       }
+      if (outcome.status !== 'ready') return outcome;
     }
     return { status: 'ready', previewId: lastPreviewId, result };
   };
