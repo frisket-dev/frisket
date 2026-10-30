@@ -74,28 +74,74 @@ class _Projection:
 # D/E are per-edition canonical operations, not aliases.
 CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
     {
-        ("tenant", "v1_action_compare_preview_quote", "POST"): "tenant.v1_action_compare_preview_quote.post",
+        (
+            "tenant",
+            "v1_action_compare_preview_quote",
+            "POST",
+        ): "tenant.v1_action_compare_preview_quote.post",
         ("tenant", "evaluation_rows", "POST"): "tenant.evaluation_rows.post",
         ("tenant", "evaluation_cell", "POST"): "tenant.evaluation_cell.post",
         ("tenant", "evaluation_capture", "POST"): "tenant.evaluation_capture.post",
-        ("tenant", "evaluation_capture_discard", "DELETE"): "tenant.evaluation_capture_discard.delete",
-
+        (
+            "tenant",
+            "evaluation_capture_discard",
+            "DELETE",
+        ): "tenant.evaluation_capture_discard.delete",
         ("tenant", "evaluation_links", "GET"): "tenant.evaluation_links.get",
-        ("tenant", "evaluation_link_preview", "POST"): "tenant.evaluation_link_preview.post",
-        ("tenant", "evaluation_projection", "POST"): "tenant.evaluation_projection.post",
+        (
+            "tenant",
+            "evaluation_link_preview",
+            "POST",
+        ): "tenant.evaluation_link_preview.post",
+        (
+            "tenant",
+            "evaluation_projection",
+            "POST",
+        ): "tenant.evaluation_projection.post",
         ("tenant", "evaluation_score", "POST"): "tenant.evaluation_score.post",
         ("tenant", "evaluation_shelf_list", "GET"): "tenant.evaluation_shelf_list.get",
         ("tenant", "evaluation_shelf_get", "GET"): "tenant.evaluation_shelf_get.get",
         ("tenant", "evaluation_judgment", "PUT"): "tenant.evaluation_judgment.put",
-        ("tenant", "evaluation_link_create", "POST"): "tenant.evaluation_link_create.post",
-        ("tenant", "evaluation_link_update", "PUT"): "tenant.evaluation_link_update.put",
-        ("tenant", "evaluation_link_delete", "DELETE"): "tenant.evaluation_link_delete.delete",
-        ("tenant", "evaluation_rule_update", "PUT"): "tenant.evaluation_rule_update.put",
-        ("tenant", "evaluation_expected_answer", "POST"): "tenant.evaluation_expected_answer.post",
-        ("tenant", "evaluation_shelf_save", "POST"): "tenant.evaluation_shelf_save.post",
-        ("tenant", "evaluation_shelf_rename", "PATCH"): "tenant.evaluation_shelf_rename.patch",
-        ("tenant", "evaluation_shelf_delete", "DELETE"): "tenant.evaluation_shelf_delete.delete",
-
+        (
+            "tenant",
+            "evaluation_link_create",
+            "POST",
+        ): "tenant.evaluation_link_create.post",
+        (
+            "tenant",
+            "evaluation_link_update",
+            "PUT",
+        ): "tenant.evaluation_link_update.put",
+        (
+            "tenant",
+            "evaluation_link_delete",
+            "DELETE",
+        ): "tenant.evaluation_link_delete.delete",
+        (
+            "tenant",
+            "evaluation_rule_update",
+            "PUT",
+        ): "tenant.evaluation_rule_update.put",
+        (
+            "tenant",
+            "evaluation_expected_answer",
+            "POST",
+        ): "tenant.evaluation_expected_answer.post",
+        (
+            "tenant",
+            "evaluation_shelf_save",
+            "POST",
+        ): "tenant.evaluation_shelf_save.post",
+        (
+            "tenant",
+            "evaluation_shelf_rename",
+            "PATCH",
+        ): "tenant.evaluation_shelf_rename.patch",
+        (
+            "tenant",
+            "evaluation_shelf_delete",
+            "DELETE",
+        ): "tenant.evaluation_shelf_delete.delete",
         (
             "tenant",
             "create_search_preparation",

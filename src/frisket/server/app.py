@@ -1107,7 +1107,9 @@ def create_app(
 
     register_project_evaluation_routes(
         app,
-        service=EvaluationService(ws, preview_reader=action_preview_run_service.evaluation_preview),
+        service=EvaluationService(
+            ws, preview_reader=action_preview_run_service.evaluation_preview
+        ),
     )
 
     register_project_timing_routes(app, service=ProjectTimingService(ws))
