@@ -21,12 +21,17 @@ function hasScratchWork(state: ActionCompareSessionSnapshot) {
   return state.variants.some(variant => !variant.baseline || variant.previewId !== null || variant.status === 'running');
 }
 
+export type ActionCompareRowScope = 'sample' | 'all' | 'expected';
+const MAX_COMPARE_ROWS = 500;
+const DEFAULT_SAMPLE_ROWS = 20;
+
 interface ComparisonTarget {
   source: ActionComparisonSource;
   sheetId: string;
   selection: ActionCompareCapturedSelection | null;
   sampleRowIds?: number[];
   initialLens?: 'each_other' | 'expected';
+  rowScope?: ActionCompareRowScope;
 }
 
 interface ActionCompareHistoryMenuTarget {
@@ -83,6 +88,9 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
   const tab = useSelector(compareView.store, state => state.action);
   const api = useMemo(() => createActionComparisonApi(actionPreviewRunErrorFromContract, projectId), [projectId]);
   const evaluationApi = useMemo(() => createEvaluationApi(actionPreviewRunErrorFromContract, projectId), [projectId]);
+  const [rowScope, setRowScope] = useState<ActionCompareRowScope>('sample');
+  const [rowScopeTotal, setRowScopeTotal] = useState<number | null>(null);
+  const activeTarget = useRef<ComparisonTarget | null>(null);
   const [initialLens, setInitialLens] = useState<'each_other' | 'expected'>('each_other');
   const [session, setSession] = useState<ActionCompareSession | null>(null);
   const sessionRef = useRef<ActionCompareSession | null>(null);
@@ -120,25 +128,47 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
       operation.current = { revision: operation.current.revision + 1, targetPending: false };
       const current = sessionRef.current;
       sessionRef.current = null;
+      activeTarget.current = null;
       setSession(null);
       void current?.dispose();
     }
   }, [tab.open]);
 
   const readContext = useCallback(async (target: ComparisonTarget) => {
-    const sample = target.sampleRowIds ?? target.selection?.rowIds.slice(0, 20)
-      ?? (await projectApi.getSheetData(target.sheetId, 0, 20, {
-        ...(target.sheetId === sheetId ? sampleOptions : {}), columnIds: [], valueMode: 'bounded',
-      })).rows.map(row => Number(row.id));
-    if (!sample.length) throw new Error('Choose a sheet with rows to compare.');
-    const context = await api.getContext({ source: target.source, sample_row_ids: sample });
-    if (!context.available) {
-      throw new ActionComparisonUnavailableError(
-        context.reason?.message ?? 'This action cannot be compared.',
-      );
+    const scope = target.rowScope ?? (target.selection ? 'all' : target.initialLens === 'expected' ? 'expected' : 'sample');
+    const options = target.sheetId === sheetId ? sampleOptions : {};
+    const limit = scope === 'sample' ? DEFAULT_SAMPLE_ROWS : MAX_COMPARE_ROWS;
+    let total: number | null = target.selection?.totalCount ?? null;
+    let sample: number[];
+    if (target.sampleRowIds) sample = target.sampleRowIds.slice(0, limit);
+    else if (scope !== 'expected' && target.selection) sample = target.selection.rowIds.slice(0, limit);
+    else {
+      const data = await projectApi.getSheetData(target.sheetId, 0, scope === 'expected' ? 1 : limit, {
+        ...options, columnIds: [], valueMode: 'bounded',
+      });
+      sample = data.rows.map(row => Number(row.id));
+      total = data.total;
     }
-    return context;
-  }, [api, projectApi, sampleOptions, sheetId]);
+    if (!sample.length) throw new Error('Choose a sheet with rows to compare.');
+    let context = await api.getContext({ source: target.source, sample_row_ids: sample });
+    if (!context.available) {
+      throw new ActionComparisonUnavailableError(context.reason?.message ?? 'This action cannot be compared.');
+    }
+    if (scope === 'expected') {
+      const { links } = await evaluationApi.getLinks(Number(target.sheetId));
+      const link = links.find(item => item.action_id === context.draft.action_id
+        && item.fields.some(field => context.output_columns.some(output => output.column_id === field.output_column_id)));
+      if (!link) throw new Error('Join expected answers for this action first.');
+      // The shared client gains this endpoint with the backend contract.
+      const rowsApi = evaluationApi as typeof evaluationApi & { getExpectedRows(input: { link_id: number; limit: number }): Promise<{ row_ids: number[]; total: number }> };
+      const expectedRows = await rowsApi.getExpectedRows({ link_id: link.id, limit: MAX_COMPARE_ROWS });
+      if (!expectedRows.row_ids.length) throw new Error('No rows have expected answers for this action.');
+      total = expectedRows.total;
+      context = await api.getContext({ source: target.source, sample_row_ids: expectedRows.row_ids });
+      if (!context.available) throw new ActionComparisonUnavailableError(context.reason?.message ?? 'This action cannot be compared.');
+    }
+    return { context, total };
+  }, [api, evaluationApi, projectApi, sampleOptions, sheetId]);
 
   const requestCostConfirmation = useMemo(
     () => createActionCompareCostConfirmation(jobs),
@@ -155,14 +185,18 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
     try {
       await previous?.dispose();
       if (operation.current.revision !== revision) return null;
-      const context = await readContext(target);
+      const { context, total } = await readContext(target);
       if (operation.current.revision !== revision) return null;
-      const next = createActionCompareSession({ context, capturedSelection: target.selection }, {
+      const resolvedScope = target.rowScope ?? (target.selection ? 'all' : target.initialLens === 'expected' ? 'expected' : 'sample');
+      const next = createActionCompareSession({ context, capturedSelection: resolvedScope === 'expected' ? null : target.selection }, {
         runVariant: createActionCompareRunner(api, requestCostConfirmation, evaluationApi),
         cancelPreview: id => api.cancelPreview(id), discardPreview: id => api.discardPreview(id),
         discardCaptured: id => evaluationApi.discardCapture(id),
       });
+      setRowScopeTotal(total);
       setInitialLens(target.initialLens ?? 'each_other');
+      setRowScope(resolvedScope);
+      activeTarget.current = target;
       sessionRef.current = next;
       setSession(next); setPendingTarget(null);
       openCompareTabTransition({ setOpenSplit }, workView, compareView, 'action');
@@ -185,6 +219,12 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
     if (existing && hasScratchWork(existing)) setPendingTarget(target);
     else void openTarget(target);
   }, [openTarget]);
+
+  const changeActionCompareRowScope = useCallback((scope: ActionCompareRowScope, lens?: 'each_other' | 'expected') => {
+    const target = activeTarget.current;
+    if (!target || scope === rowScope) return;
+    requestTarget({ ...target, sampleRowIds: undefined, rowScope: scope, initialLens: lens ?? target.initialLens });
+  }, [requestTarget, rowScope]);
 
   const openActionCompare = useCallback((draft: GeneratedActionDraft,
     capturedSelection?: ActionCompareCapturedSelection | null) => {
@@ -232,7 +272,7 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
     if (supersedesRetarget) compareView.close('action');
     try {
       const target = targetForRun(anchor);
-      const context = await readContext(target);
+      const { context } = await readContext(target);
       if (operation.current.revision !== revision) return;
       launchSettings(context, context.draft, target.selection);
     } catch (error) {
@@ -255,7 +295,7 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
     let context: ActionComparisonContext | null = null;
     if (comparisonKind) {
       try {
-        context = await readContext(targetForRun(anchor));
+        context = (await readContext({ ...targetForRun(anchor), rowScope: 'sample' })).context;
       } catch (error) {
         if (!(error instanceof ActionComparisonUnavailableError)) throw error;
         // Keep run metadata usable, but do not advertise a comparison that
@@ -292,7 +332,7 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
   const closeActionCompare = useCallback(() => {
     operation.current = { revision: operation.current.revision + 1, targetPending: false };
     const current = sessionRef.current;
-    sessionRef.current = null; setSession(null); setPendingTarget(null);
+    sessionRef.current = null; activeTarget.current = null; setSession(null); setPendingTarget(null);
     compareView.close('action');
     void current?.dispose();
   }, [compareView]);
@@ -313,12 +353,13 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
 
   return useMemo(() => ({ actionCompareSession: session, actionCompareOpen: tab.open, actionCompareActive: tab.active,
     actionCompareCloseWarn: tab.closeWarn, actionComparePendingTarget: pendingTarget,
+    rowScopePending: pendingTarget !== null,
     actionCompareHistoryMenuTarget: historyMenuTarget,
-    openActionCompare, compareActionRun, restoreActionRunSettings, loadActionRunEntry, useActionCompareSettings, initialLens,
+    openActionCompare, compareActionRun, restoreActionRunSettings, loadActionRunEntry, useActionCompareSettings, initialLens, rowScope, rowScopeTotal, changeActionCompareRowScope,
     openActionCompareHistory, closeActionCompareHistory, returnToActionCompare, closeActionCompare,
     cancelActionCompareClose, cancelActionCompareRetarget, confirmActionCompareRetarget,
   }), [cancelActionCompareClose, cancelActionCompareRetarget, closeActionCompare, compareActionRun,
     closeActionCompareHistory, confirmActionCompareRetarget, historyMenuTarget, loadActionRunEntry, openActionCompare,
     openActionCompareHistory, pendingTarget, returnToActionCompare, session, tab.active,
-    initialLens, restoreActionRunSettings, tab.closeWarn, tab.open, useActionCompareSettings]);
+    initialLens, rowScope, rowScopeTotal, changeActionCompareRowScope, restoreActionRunSettings, tab.closeWarn, tab.open, useActionCompareSettings]);
 }

@@ -148,6 +148,7 @@ function ActionCompareContents() {
     })}
     <ActionCompareTab projectId={model.project.id} session={session}
       evaluationApi={model.expectedAnswers.api} initialLens={model.initialLens}
+      rowScope={model.rowScope} rowScopeTotal={model.rowScopeTotal} onChangeRowScope={model.changeActionCompareRowScope} rowScopePending={model.rowScopePending}
       modelField={selectorField}
       onJoinExpected={() => {
         const run = model.expectedAnswers.runs.find(item => item.context.draft.action_id === state.context.draft.action_id && item.context.output_columns.some(output => state.context.output_columns.some(current => current.column_id === output.column_id)));

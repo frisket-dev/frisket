@@ -5,6 +5,7 @@ import type { PropsWithChildren } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as actionComparisonApi from '../../src/api/actionComparison';
+import * as evaluationApi from '../../src/api/evaluation';
 import type {
   ActionComparisonApi,
   ActionComparisonContext,
@@ -616,4 +617,56 @@ describe('useWorkspaceActionCompareController', () => {
     expect(focus).not.toHaveBeenCalled();
     expect(harness!.stores.compareView.store.get().action.active).toBe(false);
   });
+});
+
+it('compares an explicitly selected 38-row scope without truncating to 20', async () => {
+  const ids = Array.from({ length: 38 }, (_, i) => String(i + 1));
+  vi.mocked(harness!.api.getContext).mockImplementation(async ({ sample_row_ids }) => comparisonContext({ sampleRowIds: sample_row_ids }));
+  const view = renderController(ids);
+  act(() => view.result.current.openActionCompare(ALL_ROWS_DRAFT));
+  await waitFor(() => expect(view.result.current.actionCompareSession).not.toBeNull());
+  expect(vi.mocked(harness!.api.getContext).mock.calls[0][0].sample_row_ids).toEqual(ids.map(Number));
+  expect(view.result.current.rowScope).toBe('all');
+});
+it('caps all selected rows at 500 and reports the complete selected count', async () => {
+  const ids = Array.from({ length: 520 }, (_, i) => String(i + 1));
+  vi.mocked(harness!.api.getContext).mockImplementation(async ({ sample_row_ids }) => comparisonContext({ sampleRowIds: sample_row_ids }));
+  const view = renderController(ids);
+  act(() => view.result.current.openActionCompare(ALL_ROWS_DRAFT));
+  await waitFor(() => expect(view.result.current.actionCompareSession).not.toBeNull());
+  expect(vi.mocked(harness!.api.getContext).mock.calls[0][0].sample_row_ids).toEqual(ids.slice(0, 500).map(Number));
+  expect(view.result.current.actionCompareSession!.getSnapshot().capturedSelection?.totalCount).toBe(520);
+});
+it('opens an expected comparison on the checked row IDs', async () => {
+  const getExpectedRows = vi.fn().mockResolvedValue({ row_ids: [12, 14, 16], total: 3 });
+  vi.spyOn(evaluationApi, 'createEvaluationApi').mockReturnValue({ getLinks: vi.fn().mockResolvedValue({ links: [{ id: 5, action_id: 'map.extract', fields: [{ output_column_id: 101 }] }] }), getExpectedRows } as unknown as evaluationApi.EvaluationApi);
+  vi.mocked(harness!.api.getContext).mockImplementation(async ({ sample_row_ids }) => comparisonContext({ runId: 42, sampleRowIds: sample_row_ids }));
+  const view = renderController([], 0);
+  act(() => view.result.current.compareActionRun({ sheetId: '7', runId: '42', columnId: '101' }, true));
+  await waitFor(() => expect(view.result.current.actionCompareSession).not.toBeNull());
+  expect(getExpectedRows).toHaveBeenCalledWith({ link_id: 5, limit: 500 });
+  expect(vi.mocked(harness!.api.getContext).mock.calls.at(-1)?.[0].sample_row_ids).toEqual([12, 14, 16]);
+  expect(view.result.current.rowScope).toBe('expected');
+});
+it('preserves an explicit selection when opening the expected lens', async () => {
+  const getLinks = vi.fn();
+  vi.spyOn(evaluationApi, 'createEvaluationApi').mockReturnValue({ getLinks } as unknown as evaluationApi.EvaluationApi);
+  vi.mocked(harness!.api.getContext).mockImplementation(async ({ sample_row_ids }) => comparisonContext({ runId: 42, sampleRowIds: sample_row_ids }));
+  const view = renderController(['11', '13']);
+  act(() => view.result.current.compareActionRun({ sheetId: '7', runId: '42', columnId: '101' }, true));
+  await waitFor(() => expect(view.result.current.actionCompareSession).not.toBeNull());
+  expect(getLinks).not.toHaveBeenCalled();
+  expect(vi.mocked(harness!.api.getContext).mock.calls[0][0].sample_row_ids).toEqual([11, 13]);
+  expect(view.result.current.rowScope).toBe('all');
+});
+it('allows switching from a sample to all selected rows', async () => {
+  const ids = Array.from({ length: 38 }, (_, i) => String(i + 1));
+  vi.mocked(harness!.api.getContext).mockImplementation(async ({ sample_row_ids }) => comparisonContext({ runId: 42, sampleRowIds: sample_row_ids, fingerprint: `scope-${sample_row_ids.length}` }));
+  const view = renderController(ids);
+  act(() => view.result.current.compareActionRun({ sheetId: '7', runId: '42', columnId: '101' }));
+  await waitFor(() => expect(view.result.current.rowScope).toBe('all'));
+  act(() => view.result.current.changeActionCompareRowScope('sample'));
+  await waitFor(() => expect(view.result.current.actionCompareSession?.getSnapshot().context.sample_row_ids).toHaveLength(20));
+  act(() => view.result.current.changeActionCompareRowScope('all'));
+  await waitFor(() => expect(view.result.current.actionCompareSession?.getSnapshot().context.sample_row_ids).toHaveLength(38));
 });
