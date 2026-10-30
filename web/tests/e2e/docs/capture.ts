@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Locator, Page } from '@playwright/test';
 import { walkthroughTargetCandidates } from '../../../src/walkthrough/targets';
@@ -7,7 +7,7 @@ import { setTheme } from '../screenshotHelpers';
 
 export interface CaptureAnnotation {
   id: string;
-  target: WalkthroughTarget;
+  target: WalkthroughTarget | { kind: 'radio'; group: string; value: string };
   label: string;
   expected: { kind: 'value' | 'text' | 'checked'; value: string | boolean };
 }
@@ -35,10 +35,13 @@ export interface CaptureBundle {
 }
 
 /** Require one visible candidate across all representations inside the supplied root. */
-export async function resolveCaptureTarget(scope: Page | Locator, target: WalkthroughTarget): Promise<Locator> {
+export async function resolveCaptureTarget(scope: Page | Locator, target: CaptureAnnotation['target']): Promise<Locator> {
   if (target.kind === 'completed-run') throw new Error('Capture must wait for its exact run ID, not the walkthrough latest-run target');
   const matches: Locator[] = [];
-  for (const selector of walkthroughTargetCandidates(target)) {
+  const selectors = target.kind === 'radio'
+    ? [`input[type=radio][name=${JSON.stringify(target.group)}][value=${JSON.stringify(target.value)}]`]
+    : walkthroughTargetCandidates(target);
+  for (const selector of selectors) {
     let candidates = scope.locator(selector);
     if (target.kind === 'sheet') candidates = candidates.filter({ has: scope.locator('.workbench-mainView-tab-name').filter({ hasText: target.id }) });
     for (let i = 0; i < await candidates.count(); i++) {
@@ -76,7 +79,7 @@ export async function captureCheckpoint(page: Page, description: CaptureDescript
     const target = await resolveCaptureTarget(scope, annotation.target);
     const label = await target.evaluate((element) => {
       const control = element as HTMLInputElement;
-      return Array.from(control.labels ?? []).map((item) => item.textContent?.trim()).filter(Boolean).join(' ')
+      return Array.from(control.labels ?? []).map((item) => (control.type === 'radio' ? item.querySelector('strong')?.textContent : item.textContent)?.trim()).filter(Boolean).join(' ')
         || element.getAttribute('aria-label') || '';
     });
     if (label !== annotation.label) throw new Error(`Capture ${description.id} target ${annotation.id}: expected label ${JSON.stringify(annotation.label)}, got ${JSON.stringify(label)}`);
@@ -90,7 +93,12 @@ export async function captureCheckpoint(page: Page, description: CaptureDescript
   const image = `${description.id}.png`;
   if (description.root) await description.root.screenshot({ path: path.join(directory, image), animations: 'disabled' });
   else await page.screenshot({ path: path.join(directory, image), animations: 'disabled' });
-  return { id: description.id, image, width: Math.round(crop.width * scale), height: Math.round(crop.height * scale), scale, annotations };
+  const png = await readFile(path.join(directory, image));
+  if (png.length < 24 || !png.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) || png.toString('ascii', 12, 16) !== 'IHDR') throw new Error(`Invalid PNG for capture ${description.id}`);
+  const width = png.readUInt32BE(16);
+  const height = png.readUInt32BE(20);
+  if (!width || !height) throw new Error(`Empty PNG for capture ${description.id}`);
+  return { id: description.id, image, width, height, scale, annotations };
 }
 
 /** Publish only a complete new bundle; an existing destination is never overwritten. */
