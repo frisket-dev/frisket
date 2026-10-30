@@ -85,6 +85,19 @@ async function setup({ joined = true, two = false, bestB = false, hand = false, 
 }
 
 describe('comparison evaluation workspace', () => {
+  it('opens the shared Review shell and returns to the preserved comparison', async () => {
+    const { session } = await setup({ joined: false, two: true });
+    const original = session.getSnapshot();
+    const grid = screen.getByRole('button', { name: 'Open row' });
+    fireEvent.click(await screen.findByRole('button', { name: 'Variants disagree · 1' }));
+    expect(screen.getByRole('dialog', { name: 'Review queue' })).toBeTruthy();
+    expect(grid.isConnected).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Close comparison review' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Review queue' })).toBeNull());
+    expect(session.getSnapshot()).toBe(original);
+    expect(screen.getByRole('button', { name: 'Open row' })).toBe(grid);
+  });
+
   it('does not show a coverage warning without checked answers', async () => {
     await setup({ joined: false, emptyCoverage: true });
     expect(screen.queryByText(/Coverage differs/)).toBeNull();
@@ -124,7 +137,7 @@ describe('comparison evaluation workspace', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Variants disagree · 1' }));
     fireEvent.click(screen.getByRole('button', { name: 'Accept answer 2' }));
     await screen.findAllByText('Save failed');
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close comparison review' }));
     await waitFor(() => expect(api.saveExpectedAnswer).toHaveBeenCalledTimes(2));
     expect(vi.mocked(api.saveExpectedAnswer).mock.calls.map(([input]) => input.value)).toEqual(['B', 'B']);
   });
@@ -133,7 +146,7 @@ describe('comparison evaluation workspace', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Variants disagree · 1' }));
     fireEvent.change(screen.getByLabelText('Expected answer'), { target: { value: 'draft' } });
     fireEvent.change(screen.getByLabelText('Expected answer'), { target: { value: '' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close comparison review' }));
     await waitFor(() => expect(screen.queryByTestId('comparison-review')).toBeNull());
     expect(api.saveExpectedAnswer).not.toHaveBeenCalled();
   });
@@ -144,9 +157,9 @@ describe('comparison evaluation workspace', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Edit expected answer' })).toHaveProperty('disabled', false));
     fireEvent.click(screen.getByRole('button', { name: 'Edit expected answer' }));
     fireEvent.change(screen.getByLabelText('Expected answer'), { target: { value: 'Changed' } });
-    fireEvent.click(screen.getByRole('button', { name: 'other' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Review field' }), { target: { value: 'other' } });
     expect((await screen.findAllByText('Cannot save this edit')).length).toBeGreaterThan(0);
-    expect(screen.getByRole('button', { name: 'answer' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('combobox', { name: 'Review field' })).toHaveProperty('value', 'answer');
     expect(screen.getByLabelText('Expected answer')).toHaveProperty('value', 'Changed');
   });
   it('keeps an unavailable expected source editable and deletable without scoring its broken link', async () => {
@@ -190,7 +203,7 @@ describe('comparison evaluation workspace', () => {
     expect(api.score).toHaveBeenLastCalledWith(expect.objectContaining({ row_ids: [101], variants: [expect.objectContaining({ key: 'A', source: { kind: 'current' } })] }));
     expect(runVariant).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Open row' }));
-    fireEvent.click(screen.getByRole('button', { name: 'To score · 0' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Review answers' }), { target: { value: 'to_score' } });
     expect(await screen.findByText('No answers left to score.')).toBeTruthy();
   });
   it('shelves live durable captures together with the current baseline', async () => {

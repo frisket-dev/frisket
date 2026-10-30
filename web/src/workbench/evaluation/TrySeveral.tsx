@@ -139,7 +139,7 @@ export function TrySeveral({ session, state, response, modelField, instructionsF
   }
   const setup = <div className="form-stack">
     <p className="modal-body-text">Choose models and instructions, then run the selected combinations. This also runs other pending variants.</p>
-    <div role="group" aria-label="Models" className="form-stack"><span className="form-label">Models</span>{models.map((model, index) => <div key={model.id}>
+    <div role="group" aria-label="Models" className="form-stack">{models.map((model, index) => <div key={model.id} className="form-field" role="group" aria-label={`Model ${index + 1}`}><span className="form-field-label">Model {index + 1}</span>
       {renderVariantEditor?.({ variantId: `try-several-model-${model.id}`, label: `Model ${index + 1}`, modelOnly: true, modelDisabled: locked,
         onModelLabelChange: label => setModels(previous => previous.find(item => item.id === model.id)?.label === label ? previous : previous.map(item => item.id === model.id ? { ...item, label } : item)),
         draft: model.draft, lockedParams: Object.keys(baseline.draft.params).filter(key => !routingFields(modelField).has(key)),
