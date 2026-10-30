@@ -12,6 +12,7 @@ import styles from '../../components/review/ReviewWorkspace.module.css';
 
 export type ComparisonReviewRule = 'exact' | 'ignore_case' | 'number' | 'date' | 'set' | 'hand';
 export interface ComparisonReviewProps {
+  sheetName: string;
   fieldLabel: string;
   rowId: number;
   position: number;
@@ -50,9 +51,12 @@ const verdictLabels: Record<ComparisonReviewProps['groups'][number]['verdict'], 
 
 /** A presentation-only evaluation queue; the caller owns source identities and writes. */
 export function ComparisonReview(p: ComparisonReviewProps) {
+  const title = `Compare answers · ${p.sheetName}`;
   return <ReviewShell busy={p.busy} onClose={p.onClose}>
     <ReviewHeader busy={p.busy} onClose={p.onClose} closeLabel="Close comparison review">
-      <section className={styles.comparisonToolbar}>{p.toolbar}
+      <section className={styles.comparisonToolbar}>
+        <strong className={styles.contextTitle} title={title}>{title}</strong>
+        {p.toolbar && <div className="control-row" role="group" aria-label="Review filters">{p.toolbar}</div>}
         <ReviewNavigation label="Comparison review rows" position={p.position} total={p.total} busy={p.busy}
           canPrevious={p.position > 1} canNext={p.position < p.total} onPrevious={p.onPrevious} onNext={p.onNext} />
       </section>
