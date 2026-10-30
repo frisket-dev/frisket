@@ -3,6 +3,7 @@ import type { EvaluationApi, EvaluationCell, EvaluationRule } from '../../api/ev
 import type { GeneratedActionDraft, JsonValue } from '../../api/types';
 import { Button } from '../../components/Button';
 import { Modal } from '../../components/Modal';
+import { AnchoredMenu } from '../../components/MenuPop';
 import type { ActionCompareGridProps } from '../ActionCompareGrid';
 import type { ActionCompareVariantEditorRenderProps } from '../ActionCompareTab';
 import type { ActionCompareSession, ActionCompareSessionSnapshot, ActionCompareUseSettings } from '../actionCompareSession';
@@ -33,10 +34,13 @@ function download(blob: Blob, name: string) {
 
 export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspaceProps) {
   const e = useComparisonEvaluation(p.api, p.state);
+  const linkRef = useRef(e.link);
+  linkRef.current = e.link;
   const [lens, setLens] = useState<'each_other' | 'expected'>(p.initialLens ?? 'each_other');
   const [field, setField] = useState(p.state.context.output_columns[0]?.logical_key ?? '');
   const [filter, setFilter] = useState<EvaluationRowFilter>('all');
   const [menu, setMenu] = useState(false);
+  const menuAnchor = useRef<HTMLButtonElement>(null);
   const [ruleOpen, setRuleOpen] = useState(false);
   const [resultsOpen, setResultsOpen] = useState(false);
   const [shelfOpen, setShelfOpen] = useState(false);
@@ -65,8 +69,8 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
 
   const saveExpected = useCallback(async (write: { rowId: number; field: string; value: JsonValue; rule: EvaluationRule }) => {
     const result = await e.mutate(() => p.api.saveExpectedAnswer({ basis: p.state.context.comparison_basis,
-      link_id: e.link?.id ?? null, row_id: write.rowId, logical_key: write.field, value: write.value, rule: write.rule }));
-    if (result) { e.setLink(result); p.onExpectedAnswersChanged?.(); }
+      link_id: linkRef.current?.id ?? null, row_id: write.rowId, logical_key: write.field, value: write.value, rule: write.rule }));
+    if (result) { linkRef.current = result; e.setLink(result); p.onExpectedAnswersChanged?.(); }
     return Boolean(result);
   }, [e.mutate, e.link?.id, p.api, p.state.context.comparison_basis, p.onExpectedAnswersChanged]);
 
@@ -76,6 +80,9 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
     if (write && !await saveExpected(write)) { pending.current = write; return false; }
     return true;
   }, [saveExpected]);
+  const flushOnLeave = useRef(flushExpected);
+  flushOnLeave.current = flushExpected;
+  useEffect(() => () => { void flushOnLeave.current(); }, []);
 
   const expectedChanged = (value: string) => {
     if (!queue || queueRow === undefined) return;
@@ -88,8 +95,9 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
 
   const changeRule = async (next: EvaluationRule) => {
     if (!await flushExpected()) return;
-    if (!expectedField) { setUnlinkedRules((current) => ({ ...current, [field]: next })); return; }
-    const result = await e.mutate(() => p.api.setRule(expectedField.expected_column_id, next));
+    const target = linkRef.current?.fields.find((item) => item.logical_key === field);
+    if (!target) { setUnlinkedRules((current) => ({ ...current, [field]: next })); return; }
+    const result = await e.mutate(() => p.api.setRule(target.expected_column_id, next));
     if (result) p.onExpectedAnswersChanged?.();
   };
 
@@ -105,7 +113,7 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
   const loaded = fullCells.key === focusedKey ? fullCells : null;
   const boundedExpected = queueRow === undefined ? undefined : response?.expected_bounded?.[String(queueRow)]?.[field];
   const storedExpected = loaded?.expected?.value ?? (queueRow === undefined ? undefined : response?.expected[String(queueRow)]?.[field]);
-  const activeDraft = draft?.rowId === queueRow && draft.field === field ? draft : null;
+  const activeDraft = draft && draft.rowId === queueRow && draft.field === field ? draft : null;
   const expectedText = activeDraft?.value ?? answerText(storedExpected);
   const expectedValue = expectedValueFromText(expectedText, storedExpected, currentField?.column_type ?? 'text');
   useEffect(() => {
@@ -184,7 +192,7 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
   };
   const shelve = async () => {
     await flushExpected();
-    const keys = e.request.variants.filter((variant) => variant.source.kind !== 'saved').map((variant) => variant.key);
+    const keys = e.request.variants.filter((variant) => !p.state.variants.find((item) => item.displayKey === variant.key)?.readOnly).map((variant) => variant.key);
     const result = await e.mutate(() => p.api.saveShelf({ comparison: e.request, variant_keys: keys }));
     if (!result) return;
     await e.refreshShelf();
@@ -200,15 +208,15 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
   return <>
     <div className="comparison-evaluation-toolbar">
       <div className="comparison-add-menu">
-        <Button aria-expanded={menu} onClick={() => setMenu(!menu)}>+ ⌄</Button>
-        {menu && <div className="comparison-menu" role="menu">
+        <Button ref={menuAnchor} aria-expanded={menu} onClick={() => setMenu(!menu)}>+ ⌄</Button>
+        {menu && <AnchoredMenu anchorRef={menuAnchor} onClose={() => setMenu(false)} width={380} className="comparison-menu" dismissOnFocusOutside>
           <button className="menu-item" role="menuitem" onClick={() => { const id = p.session.addVariant(); setMenu(false); if (id) p.onOpenVariant(id); }}>New variant</button>
           <button className="menu-item" role="menuitem" disabled={!modelField || !instructionsField || !p.renderVariantEditor} onClick={() => { setSeveralOpen(true); setMenu(false); }}>Try several…</button>
           <div className="comparison-menu-heading">From the shelf</div>
           {e.items.map((item) => <button key={item.id} className="menu-item" role="menuitem" onClick={() => void restore(item.id)}>{item.label} · {item.row_count} rows</button>)}
           {!e.items.length && <span className="comparison-menu-heading">No shelved results</span>}
           <button className="menu-item" role="menuitem" onClick={() => { setShelfOpen(true); setMenu(false); }}>Manage shelf…</button>
-        </div>}
+        </AnchoredMenu>}
       </div>
       <span>Compare to</span>
       <Button aria-pressed={lens === 'each_other'} disabled={p.state.variants.length < 2} title={p.state.variants.length < 2 ? 'Needs two variants' : undefined} onClick={() => { setLens('each_other'); setFilter('all'); }}>Each other</Button>

@@ -401,7 +401,7 @@ export function createActionCompareSession(
     const current = snapshot.variants.find((variant) => variant.previewId === previewId || variant.previewIds?.includes(previewId));
     // A reader can outlive an edit or rerun. Only the exact completed preview
     // may retire its own result; a late 404 cannot clobber newer work.
-    if (!current || current.status !== 'ready') return false;
+    if (!current || current.status !== 'ready' || current.savedId !== undefined) return false;
     return replaceVariant(current.id, (variant) => ({
       ...variant,
       status: 'unavailable',
@@ -723,7 +723,8 @@ export function createActionCompareRunner(
     for (let chunkIndex = 0; chunkIndex < plan.requests.length; chunkIndex += 1) {
       if (signal.aborted) return { status: 'cancelled', previewId: lastPreviewId || null };
       const request = plan.requests[chunkIndex];
-      const rows = request.action.scope.row_ids ?? [];
+      const rawRows = request.action.scope.row_ids;
+      const rows = Array.isArray(rawRows) ? rawRows.filter((row): row is number => typeof row === 'number') : [];
       const outcome = await runChunk({ context: { ...context, sample_row_ids: rows }, variant, signal, onStarted }, request);
       if (outcome.status !== 'ready') return outcome;
       lastPreviewId = outcome.previewId;

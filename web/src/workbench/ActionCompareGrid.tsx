@@ -246,7 +246,7 @@ export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, froze
     };
   }), [evaluation, labelForDraft, projectedColumns, variantColumnTheme, widths]);
 
-  const cellAt = useCallback((projected: CompareGridColumn, rowId: number) => {
+  const cellAt = useCallback((projected: CompareGridColumn, rowId: number): ActionCompareResultCell | undefined => {
     if (projected.kind === 'source') {
       return state.context.source_rows[String(rowId)]?.[projected.sourceName];
     }
@@ -273,7 +273,7 @@ export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, froze
     const rowId = sampleRowIds[rowIndex];
     if (!projected || rowId === undefined) return { kind: GridCellKind.Loading, allowOverlay: false };
     const rawCell = cellAt(projected, rowId);
-    const cell = projected.kind === 'output'
+    const cell: ActionCompareResultCell = projected.kind === 'output'
       ? displayedCell(projected.variant, rawCell)
       : rawCell ?? { state: 'null' as const };
     const status = projected.kind === 'output' ? statusText(cell) : null;

@@ -26,8 +26,10 @@ export function useComparisonEvaluation(api: EvaluationApi | undefined, state: A
   const refreshShelf = useCallback(async () => {
     if (!api) return;
     const result = await api.getShelf(sheetId, actionId);
-    const outputs = state.context.output_columns.map((column) => column.logical_key).sort().join('\0');
-    setItems(result.items.filter((item) => item.output_columns.map((column) => column.logical_key).sort().join('\0') === outputs));
+    const signature = (columns: typeof state.context.output_columns | SavedSummary['output_columns']) => columns
+      .map((column) => `${column.logical_key}:${column.column_id ?? `name:${column.current_name}`}`).sort().join('\0');
+    const outputs = signature(state.context.output_columns);
+    setItems(result.items.filter((item) => signature(item.output_columns) === outputs));
   }, [api, sheetId, actionId, state.context.output_columns]);
 
   useEffect(() => {
