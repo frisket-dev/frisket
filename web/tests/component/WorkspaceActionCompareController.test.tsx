@@ -174,7 +174,7 @@ afterEach(() => {
 });
 
 function renderController(selectedRowIds: readonly string[] = ['11', '12', '13'],
-  selectedRowCount = selectedRowIds.length) {
+  selectedRowCount = selectedRowIds.length, sampleOptions: import('../../src/api/types').SheetDataOptions = {}) {
   if (!harness) throw new Error('Controller harness is not initialized.');
   const current = harness;
   return renderHook(() => useWorkspaceActionCompareController({
@@ -182,7 +182,7 @@ function renderController(selectedRowIds: readonly string[] = ['11', '12', '13']
     sheetId: '7',
     selectedRowIds,
     selectedRowCount,
-    sampleOptions: {},
+    sampleOptions,
     runActionFromSurface: current.runActionFromSurface,
     closeActionRoute: current.closeActionRoute,
     setOpenSplit: current.stores.chrome.setOpenSplit,
@@ -669,4 +669,15 @@ it('allows switching from a sample to all selected rows', async () => {
   await waitFor(() => expect(view.result.current.actionCompareSession?.getSnapshot().context.sample_row_ids).toHaveLength(20));
   act(() => view.result.current.changeActionCompareRowScope('all'));
   await waitFor(() => expect(view.result.current.actionCompareSession?.getSnapshot().context.sample_row_ids).toHaveLength(38));
+});
+
+it('resolves the expected scope independently of an active grid filter', async () => {
+  const getExpectedRows = vi.fn().mockResolvedValue({ row_ids: [12], total: 1 });
+  vi.spyOn(evaluationApi, 'createEvaluationApi').mockReturnValue({ getLinks: vi.fn().mockResolvedValue({ links: [{ id: 5, action_id: 'map.extract', fields: [{ output_column_id: 101 }] }] }), getExpectedRows } as unknown as evaluationApi.EvaluationApi);
+  vi.mocked(harness!.api.getContext).mockImplementation(async ({ sample_row_ids }) => comparisonContext({ runId: 42, sampleRowIds: sample_row_ids }));
+  const filter = { story: { eq: 'not visible' } } as import('../../src/api/types').GridFilterSpec;
+  const view = renderController([], 0, { filter });
+  act(() => view.result.current.compareActionRun({ sheetId: '7', runId: '42', columnId: '101' }, true));
+  await waitFor(() => expect(view.result.current.actionCompareSession).not.toBeNull());
+  expect(harness!.stores.projectApi.getSheetData).toHaveBeenCalledWith('7', 0, 1, { columnIds: [], valueMode: 'bounded' });
 });
