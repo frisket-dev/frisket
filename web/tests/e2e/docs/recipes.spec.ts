@@ -132,7 +132,7 @@ test('court sample imports and runs the selected filings through strict replay',
     const sheet = current.find((item: { id: number }) => item.id === imported.id);
     return ['case_number', 'filed_at', 'plaintiff', 'defendant_as_filed'].every(name => sheet.columns.some((column: { name: string, latest_run_id: number }) => column.name === name && column.latest_run_id === runId));
   }, { timeout: 30_000 }).toBe(true);
-  captures.push(await captureCheckpoint(page, { id: 'court-sample-run', annotations: [] }, stage));
+  captures.push(await captureCheckpoint(page, { id: 'court-sample-run', root: page.getByTestId('grid'), annotations: [] }, stage));
   await page.getByTestId('ribbon-tab-tables').click();
   await page.getByRole('button', { name: 'Join expected answers', exact: true }).click();
   const join = page.getByTestId('join-expected-dialog');
@@ -159,18 +159,26 @@ test('court sample imports and runs the selected filings through strict replay',
   await expect(join).toHaveCount(0);
   await page.getByTestId('ribbon-tab-analyze').click();
   await page.getByTestId('compare-menu-trigger').click();
-  const scoreResponse = page.waitForResponse(response => response.url().endsWith('/evaluation/score') && response.ok(), { timeout: 30_000 });
+  let score: import('../../../src/api/evaluation').EvaluationResponse | null = null;
+  page.on('response', async response => {
+    if (response.url().endsWith('/evaluation/score') && response.ok()) score = await response.json();
+  });
   await page.getByRole('menuitem', { name: /vs expected/ }).click();
   await expect(page.getByTestId('action-compare-toolbar')).toBeVisible();
   for (const name of ['case_number', 'filed_at', 'plaintiff', 'defendant_as_filed']) {
     await page.getByRole('group', { name: 'Comparison field' }).getByRole('button', { name, exact: true }).click();
   }
-  const score = await (await scoreResponse).json();
-  expect([...score.row_ids].sort((a: number, b: number) => a - b)).toEqual(selectedRowIds);
+  await expect.poll(() => score?.link?.id ?? null, { timeout: 30_000 }).not.toBeNull();
+  const scored = score as import('../../../src/api/evaluation').EvaluationResponse;
+  expect([...scored.row_ids].sort((a, b) => a - b)).toEqual(selectedRowIds);
+  writeFileSync(path.join(stage, 'court-comparison-score.json'), JSON.stringify(scored, null, 2));
   await expect(page.getByText('Join a sheet of expected answers to check this action.')).toHaveCount(0, { timeout: 30_000 });
   await expect(page.getByText('Scoring…')).toHaveCount(0, { timeout: 30_000 });
   captures.push(await captureCheckpoint(page, { id: 'court-comparison', root: page.getByRole('region', { name: 'Action comparison' }), annotations: [] }, stage));
   await page.getByTestId('workbench-mainView-tab-' + imported.id).click();
+  await selectRow(page, 0);
+  await selectRow(page, 1);
+  await selectRow(page, 2);
   await openAction(page, 'map.extract');
   await selectActionSourceColumns(page, 'text');
   await page.getByTestId('ribbon-tab-analyze').click();
@@ -187,6 +195,7 @@ test('court sample imports and runs the selected filings through strict replay',
   await page.getByTestId('field-instruction').fill(settings.instruction);
   await page.getByTestId('field-citation_mode').selectOption('cite');
   await expect(page.getByTestId('field-engine')).toContainText('Gemini 3.5 Flash-Lite');
+  await expect(page.locator('.run-scope-summary')).toContainText(/All 6 rows/i);
   captures.push(await captureCheckpoint(page, { id: 'court-run-settings', root: page.getByTestId('action-panel'), annotations: [] }, stage));
   await page.getByTestId('generated-action-run-scope-menu-button').click();
   const fullStart = page.waitForResponse(response => response.url().endsWith('/actions/v1/run') && response.request().method() === 'POST', { timeout: 60_000 });
@@ -206,8 +215,28 @@ test('court sample imports and runs the selected filings through strict replay',
     if (['failed', 'cancelled', 'stalled', 'orphaned'].includes(run.status)) throw new Error(`Extract run ${fullRunId} ${run.status}`);
     return [run.status, run.completed_rows, run.failed_rows];
   }, { timeout: 120_000 }).toEqual(['completed', 6, 0]);
+  const actualRows = await sheetData(page.request, pid, imported.id, 0, 6);
+  const expectedRows = await sheetData(page.request, pid, expected.id, 0, 6);
+  const actualColumns = Object.fromEntries(actualRows.columns.map(column => [column.name, String(column.id)]));
+  const expectedColumns = Object.fromEntries(expectedRows.columns.map(column => [column.name, String(column.id)]));
+  const fullSheet = (await (await page.request.get(`/api/projects/${pid}/sheets`)).json()).find((sheet: { id: number }) => sheet.id === imported.id);
+  for (const name of ['case_number', 'filed_at', 'plaintiff', 'defendant_as_filed']) {
+    expect(fullSheet.columns.find((column: { name: string }) => column.name === `${name}_2`)?.latest_run_id).toBe(fullRunId);
+  }
+  const byFilename = new Map(expectedRows.rows.map(row => [row.cells[expectedColumns.pdf_filename], row]));
+  const review = actualRows.rows.map(row => {
+    const filename = row.cells[actualColumns.filename];
+    const answer = byFilename.get(filename);
+    if (!answer) throw new Error(`Expected filing not found: ${String(filename)}`);
+    return { filename, fields: Object.fromEntries(['case_number', 'filed_at', 'plaintiff', 'defendant_as_filed'].map(name => [name, { actual: row.cells[actualColumns[`${name}_2`]], expected: answer.cells[expectedColumns[name]] }])) };
+  });
+  expect(review).toHaveLength(6);
+  writeFileSync(path.join(stage, 'court-review.json'), JSON.stringify({ runId: fullRunId, rows: review }, null, 2));
   captures.push(await captureCheckpoint(page, { id: 'court-results', root: page.getByTestId('grid'), annotations: [] }, stage));
   await openAction(page, 'media.ocr');
+  await expect(page.getByText('Loading models…')).toHaveCount(0, { timeout: 60_000 });
+  await expect(page.getByText('Loading choices…')).toHaveCount(0, { timeout: 60_000 });
+  await expect(page.getByTestId('field-engine').locator('.engine-selector__trigger')).toBeVisible({ timeout: 60_000 });
   captures.push(await captureCheckpoint(page, { id: 'court-ocr-settings', root: page.getByTestId('action-panel'), annotations: [] }, stage));
   await page.getByTestId('field-engine').locator('.engine-selector__trigger').click();
   await expect(page.getByTestId('engine-selector-dialog')).toBeVisible();
@@ -302,9 +331,10 @@ test('council sample opens the real transcription comparison', async ({ page }) 
   const parts = marker.split(':').map(Number);
   const seconds = parts.reduce((total, part) => total * 60 + part, 0);
   expect(Number.isFinite(seconds)).toBeTruthy();
+  expect((await segment.innerText()).trim().length).toBeGreaterThan(marker.length);
   await segment.click();
   await expect(segment).toHaveAttribute('data-active', 'true');
-  await expect.poll(() => transcript.locator('audio').evaluate((el: HTMLAudioElement) => el.currentTime)).toBeGreaterThanOrEqual(Math.max(0, seconds - 1));
+  await expect.poll(async () => Math.abs(await transcript.locator('audio').evaluate((el: HTMLAudioElement) => el.currentTime) - seconds)).toBeLessThanOrEqual(1);
   captures.push(await captureCheckpoint(page, { id: 'council-timed-transcript', root: transcript, annotations: [] }, stage));
   await page.getByTestId('view-switch-grid').click();
   captures.push(await captureCheckpoint(page, { id: 'council-results', root: page.getByTestId('grid'), annotations: [] }, stage));
