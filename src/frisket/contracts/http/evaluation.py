@@ -86,6 +86,16 @@ class ExpectedJoinPreview(WireModel):
     ambiguous_target_row_ids: list[int]
 
 
+class ExpectedRowsRequest(WireModel):
+    link_id: PositiveId
+    limit: int = Field(default=500, ge=1, le=500)
+
+
+class ExpectedRowsResponse(WireModel):
+    row_ids: list[PositiveId]
+    total: int = Field(ge=0)
+
+
 class ExpectedProjectionRequest(WireModel):
     sheet_id: PositiveId
     row_ids: list[PositiveId] = Field(max_length=500)

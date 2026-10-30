@@ -314,6 +314,17 @@ def test_public_routes_accept_key_preview_before_field_mapping(env):
         link = client.post(root + "/links", json=env.body)
         assert link.status_code == 200, link.text
         env.request["link_id"] = link.json()["id"]
+        scope = client.post(
+            root + "/rows", json={"link_id": link.json()["id"], "limit": 1}
+        )
+        assert scope.status_code == 200, scope.text
+        assert scope.json() == {"row_ids": [env.rows[0]], "total": 2}
+        assert (
+            client.post(
+                root + "/rows", json={"link_id": link.json()["id"], "limit": 501}
+            ).status_code
+            == 422
+        )
         score = client.post(root + "/score", json=env.request)
         assert score.status_code == 200, score.text
         assert score.json()["variants"][0]["scores"]["answer"]["misses"] == 2
@@ -588,3 +599,97 @@ def test_join_ambiguity_created_after_save_refuses_reads(env):
         e.service.score("p", e.request)
     with pytest.raises(RouteError, match="ambiguous"):
         e.service.projection("p", e.sheet, e.rows)
+
+
+def test_expected_row_scope_counts_checked_matches_and_limits_only_returned_ids(env):
+    e = env
+    link = join(e)
+    records = [
+        {"id": str(index), "source": f"source {index}", "answer": "value"}
+        for index in range(40)
+    ]
+    added = e.project.add_rows(e.sheet, records, e.cols)
+    expectations = [
+        {
+            "id": str(index),
+            "answer": None
+            if index % 3 == 0
+            else "[empty]"
+            if index == 1
+            else " "
+            if index == 2
+            else "large" * 20_000
+            if index == 4
+            else "value",
+        }
+        for index in range(40)
+    ]
+    e.project.add_rows(
+        e.expected, [*expectations, {"id": "unmatched", "answer": "value"}], e.ec
+    )
+    checked = e.rows + [row_id for index, row_id in enumerate(added) if index % 3]
+    limited = e.service.expected_rows("p", {"link_id": link["id"], "limit": 5})
+    assert limited == {"row_ids": checked[:5], "total": len(checked)}
+    assert len(checked) > 20
+    assert e.service.expected_rows("p", {"link_id": link["id"]})["row_ids"] == checked
+    e.project.add_rows(e.expected, [{"id": "a", "answer": "ambiguous"}], e.ec)
+    with pytest.raises(RouteError, match="ambiguous"):
+        e.service.expected_rows("p", {"link_id": link["id"]})
+
+
+def test_expected_projection_reads_values_only_for_requested_matching_rows(
+    env, monkeypatch
+):
+    from frisket.server.services import evaluation_links
+
+    e = env
+    join(e)
+    original = evaluation_links.full_column
+    reads = []
+
+    def observed(project, sheet_id, column_id, row_ids):
+        if column_id == e.ec["answer"]:
+            reads.append(list(row_ids))
+        return original(project, sheet_id, column_id, row_ids)
+
+    monkeypatch.setattr(evaluation_links, "full_column", observed)
+    result = e.service.projection("p", e.sheet, [e.rows[0]])
+    assert result["rows"][str(e.rows[0])]
+    assert reads == [[e.erows[0]]]
+
+
+def test_expected_row_scope_accepts_any_mapped_field_and_resolves_keys_once(
+    env, monkeypatch
+):
+    from frisket.server.services import evaluation_links
+
+    e = env
+    other_output = e.project.add_column(e.sheet, "other")
+    other_expected = e.project.add_column(e.expected, "other")
+    e.body["fields"].append(
+        {
+            "expected_column_id": other_expected,
+            "output_column_id": other_output,
+            "logical_key": "other",
+            "rule": "exact",
+            "hidden": False,
+            "source": "import",
+        }
+    )
+    link = join(e)
+    e.service._edit_cell("p", e.project, e.erows[0], e.ec["answer"], None)
+    e.service._edit_cell("p", e.project, e.erows[1], e.ec["answer"], "")
+    e.service._edit_cell("p", e.project, e.erows[1], other_expected, "[empty]")
+    calls = []
+    original = evaluation_links.row_matches
+
+    def observed(project, body):
+        calls.append(body["target_sheet_id"])
+        return original(project, body)
+
+    monkeypatch.setattr(evaluation_links, "row_matches", observed)
+    assert e.service.expected_rows("p", {"link_id": link["id"]}) == {
+        "row_ids": [e.rows[1]],
+        "total": 1,
+    }
+    assert calls == [e.sheet]

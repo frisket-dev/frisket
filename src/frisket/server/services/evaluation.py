@@ -12,6 +12,7 @@ from frisket.contracts.http.evaluation import (
     ExpectedLinkInput,
     ExpectedProjectionRequest,
     ExpectedRuleChange,
+    ExpectedRowsRequest,
     ShelfRename,
     ShelfSaveRequest,
 )
@@ -92,6 +93,12 @@ class EvaluationService:
             project.db.execute(
                 "DELETE FROM expected_answer_links WHERE id=?", (link_id,)
             )
+
+    def expected_rows(self, pid, raw):
+        body = _body(ExpectedRowsRequest, raw)
+        project = self.workspace.get(pid)
+        with read_transaction(project.db):
+            return links.checked_rows(project, body["link_id"], body["limit"])
 
     def projection(self, pid, sheet_id, row_ids):
         _body(ExpectedProjectionRequest, {"sheet_id": sheet_id, "row_ids": row_ids})

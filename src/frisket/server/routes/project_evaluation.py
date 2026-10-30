@@ -24,6 +24,8 @@ from frisket.contracts.http.evaluation import (
     ExpectedProjectionRequest,
     ExpectedRuleChange,
     ExpectedRuleSetting,
+    ExpectedRowsRequest,
+    ExpectedRowsResponse,
     SavedComparison,
     SavedComparisons,
     SavedComparisonSummary,
@@ -64,6 +66,10 @@ def register_project_evaluation_routes(app: FastAPI, *, service: EvaluationServi
     def evaluation_link_delete(pid: str, link_id: int):
         service.delete_link(pid, link_id)
         return Response(status_code=204)
+
+    @app.post(root + "/rows", response_model=ExpectedRowsResponse, responses=errors)
+    def evaluation_rows(pid: str, body: ExpectedRowsRequest):
+        return service.expected_rows(pid, body)
 
     @app.post(root + "/projection", response_model=ExpectedProjection, responses=errors)
     def evaluation_projection(pid: str, body: ExpectedProjectionRequest):

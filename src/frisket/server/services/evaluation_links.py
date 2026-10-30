@@ -14,6 +14,7 @@ from frisket.engine.executor.joined_table import (
     _pair_mode,
 )
 from frisket.engine.store import evaluation as store
+from frisket.engine.store.current_value_windows import read_current_column
 from frisket.server.route_errors import RouteError
 from frisket.server.services.evaluation_values import full_column
 
@@ -147,12 +148,15 @@ def resolve(project, link, row_ids):
     mapping, preview = row_matches(project, body)
     require_unambiguous(preview)
     rows = {str(row_id): {} for row_id in row_ids}
+    requested_expected_rows = [
+        mapping[row_id] for row_id in row_ids if row_id in mapping
+    ]
     for field in body["fields"]:
         values = full_column(
             project,
             body["expected_sheet_id"],
             field["expected_column_id"],
-            list(mapping.values()),
+            requested_expected_rows,
         )
         for target_row_id in row_ids:
             expected_row_id = mapping.get(target_row_id)
@@ -204,3 +208,47 @@ def projection(project, sheet_id, row_ids):
             for row_id in row_ids:
                 rows[str(row_id)][virtual_id] = cells[str(row_id)][field["logical_key"]]
     return {"links": links, "columns": columns, "rows": rows}
+
+
+def checked_rows(project, link_id, limit):
+    """Resolve keys once; count checked rows without loading full expected text."""
+    link = store.link(project, link_id)
+    if link is None:
+        raise RouteError(404, "Expected answer link was not found")
+    body = validate(project, {key: value for key, value in link.items() if key != "id"})
+    mapping, preview = row_matches(project, body)
+    require_unambiguous(preview)
+    matched_targets = sorted(mapping)
+    selected, total = [], 0
+    for start in range(0, len(matched_targets), 500):
+        targets = matched_targets[start : start + 500]
+        expected_ids = [mapping[row_id] for row_id in targets]
+        checked = set()
+        for field in body["fields"]:
+            reads = read_current_column(
+                project.db,
+                sheet_id=body["expected_sheet_id"],
+                column_id=field["expected_column_id"],
+                row_ids=expected_ids,
+                bounded=True,
+                include_hidden=True,
+            )
+            for target_row_id in targets:
+                read = reads.get(mapping[target_row_id])
+                if read is not None and (
+                    read.bounded_value is not None
+                    or (
+                        read.value_present
+                        and read.value is not None
+                        and read.value != ""
+                    )
+                ):
+                    checked.add(target_row_id)
+            if len(checked) == len(targets):
+                break
+        for row_id in targets:
+            if row_id in checked:
+                total += 1
+                if len(selected) < limit:
+                    selected.append(row_id)
+    return {"row_ids": selected, "total": total}
