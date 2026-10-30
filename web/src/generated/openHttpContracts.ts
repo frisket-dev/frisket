@@ -862,6 +862,12 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
+      "id": "tenant.download_guide_sample.get",
+      "method": "GET",
+      "path": "/api/guide-samples/{sample_id}/download",
+      "request": null
+    },
+    {
       "id": "tenant.embedding_hybrid_preview.post",
       "method": "POST",
       "path": "/api/projects/{pid}/embeddings/v1/hybrid-preview",
@@ -1183,6 +1189,12 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
+      "id": "tenant.get_guide_sample.get",
+      "method": "GET",
+      "path": "/api/guide-samples/{sample_id}",
+      "request": null
+    },
+    {
       "id": "tenant.get_import_session.get",
       "method": "GET",
       "path": "/api/projects/{pid}/import/files/sessions/{ref}",
@@ -1486,6 +1498,12 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
+      "id": "tenant.list_guide_samples.get",
+      "method": "GET",
+      "path": "/api/guide-samples",
+      "request": null
+    },
+    {
       "id": "tenant.list_import_sessions.get",
       "method": "GET",
       "path": "/api/projects/{pid}/import/files/sessions",
@@ -1745,6 +1763,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "method": "GET",
       "path": "/api/cloud-connection/device-authorizations/{authorization_id}",
       "request": null
+    },
+    {
+      "id": "tenant.prepare_guide_sample.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/guide-samples/{sample_id}/prepare",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
     },
     {
       "id": "tenant.prepare_import_files.post",
@@ -7162,6 +7189,83 @@ export type HttpExtractionTemplatesResponse = ({
   "templates": (Array<(HttpExtractionTemplatesResponse_ExtractionSavedLayout)>);
 });
 
+type HttpGuideSampleCatalog_GuideSampleFile = ({
+  "author"?: (((string)) | ((null)));
+  "filename": (string);
+  "license"?: (((string)) | ((null)));
+  "media_type": (string);
+  "size": (number);
+  "source_url"?: (((string)) | ((null)));
+  [key: string]: JsonValue | (((string)) | ((null))) | (string) | (number) | undefined;
+});
+
+type HttpGuideSampleCatalog_GuideSampleMetadata = ({
+  "description": (string);
+  "file_count": (number);
+  "files": (Array<(HttpGuideSampleCatalog_GuideSampleFile)>);
+  "id": (string);
+  "revision": (number);
+  "title": (string);
+  "total_bytes": (number);
+  [key: string]: JsonValue | (string) | (number) | (Array<(HttpGuideSampleCatalog_GuideSampleFile)>);
+});
+
+export type HttpGuideSampleCatalog = ({
+  "samples": (Array<(HttpGuideSampleCatalog_GuideSampleMetadata)>);
+  [key: string]: JsonValue | (Array<(HttpGuideSampleCatalog_GuideSampleMetadata)>);
+});
+
+export type HttpGuideSampleLaunchRequest = ({
+  "operation_id": (string);
+  "revision": (number);
+  [key: string]: JsonValue | (string) | (number);
+});
+
+type HttpGuideSampleLaunchResponse_PdfDestination = ({
+  "draft_id": (string);
+  "guide_id": (string);
+  "kind": ("pdf_import_draft") & (string);
+  "stage": ("check_text") & (string);
+  "state": ("ready" | "pending") & (string);
+  "step_id": (string);
+  [key: string]: JsonValue | (string) | ("pdf_import_draft") & (string) | ("check_text") & (string) | ("ready" | "pending") & (string);
+});
+
+type HttpGuideSampleLaunchResponse_SheetDestination = ({
+  "guide_id": (string);
+  "kind": ("sheet") & (string);
+  "sheet_id": (number);
+  "step_id": (string);
+  [key: string]: JsonValue | (string) | ("sheet") & (string) | (number);
+});
+
+export type HttpGuideSampleLaunchResponse = ({
+  "destination": (((HttpGuideSampleLaunchResponse_PdfDestination)) | ((HttpGuideSampleLaunchResponse_SheetDestination)));
+  "project_id": (string);
+  [key: string]: JsonValue | (((HttpGuideSampleLaunchResponse_PdfDestination)) | ((HttpGuideSampleLaunchResponse_SheetDestination))) | (string);
+});
+
+type HttpGuideSampleMetadata_GuideSampleFile = ({
+  "author"?: (((string)) | ((null)));
+  "filename": (string);
+  "license"?: (((string)) | ((null)));
+  "media_type": (string);
+  "size": (number);
+  "source_url"?: (((string)) | ((null)));
+  [key: string]: JsonValue | (((string)) | ((null))) | (string) | (number) | undefined;
+});
+
+export type HttpGuideSampleMetadata = ({
+  "description": (string);
+  "file_count": (number);
+  "files": (Array<(HttpGuideSampleMetadata_GuideSampleFile)>);
+  "id": (string);
+  "revision": (number);
+  "title": (string);
+  "total_bytes": (number);
+  [key: string]: JsonValue | (string) | (number) | (Array<(HttpGuideSampleMetadata_GuideSampleFile)>);
+});
+
 type HttpHTTPValidationError_ValidationError = ({
   "ctx"?: ({
   [key: string]: JsonValue;
@@ -7885,6 +7989,11 @@ export type HttpInline_2db1a359156d1ac7 = ({
 
 export type HttpInline_31216580afa58ff4 = ({
   [key: string]: JsonValue;
+});
+
+export type HttpInline_35dc538769c6fe4c = ({
+  "pid": (string);
+  "sample_id": (string);
 });
 
 export type HttpInline_38aa6fedb0c0d4ef = ({
@@ -9122,6 +9231,10 @@ export type HttpInline_b4fba50c46a3827d = ({
   "sheet_id": (number);
 });
 
+export type HttpInline_b782b1851b85e75a = ({
+  "sample_id": (string);
+});
+
 export type HttpInline_bba1a4e3df1f7401 = ({
   "column_id": (number);
   "pid": (string);
@@ -9130,6 +9243,10 @@ export type HttpInline_bba1a4e3df1f7401 = ({
 
 export type HttpInline_bbf568d7195f5e35 = ({
   "name": (string);
+});
+
+export type HttpInline_bbfb2b0d9eb11e67 = ({
+  "revision"?: (number);
 });
 
 export type HttpInline_bc7126b34d1daea2 = ({
@@ -17327,6 +17444,15 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
+  readonly "tenant.download_guide_sample.get": {
+    readonly pathParams: HttpInline_b782b1851b85e75a;
+    readonly query: HttpInline_bbfb2b0d9eb11e67;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpInline_44136fa355b3678a;
+      readonly "422": HttpHTTPValidationError;
+    };
+  };
   readonly "tenant.embedding_hybrid_preview.post": {
     readonly pathParams: HttpInline_87cacc773db826e7;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -17904,6 +18030,15 @@ export type HttpContractOperationMap = {
     readonly responses: {
       readonly "200": HttpCloudConnectionPreferencesResponse;
       readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.get_guide_sample.get": {
+    readonly pathParams: HttpInline_b782b1851b85e75a;
+    readonly query: HttpInline_bbfb2b0d9eb11e67;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpGuideSampleMetadata;
+      readonly "422": HttpHTTPValidationError;
     };
   };
   readonly "tenant.get_import_session.get": {
@@ -18515,6 +18650,14 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
+  readonly "tenant.list_guide_samples.get": {
+    readonly pathParams: HttpInline_d746974fa9afd5e9;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpGuideSampleCatalog;
+    };
+  };
   readonly "tenant.list_import_sessions.get": {
     readonly pathParams: HttpInline_87cacc773db826e7;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -19037,6 +19180,15 @@ export type HttpContractOperationMap = {
       readonly "200": HttpCloudDeviceAuthorizationPollResponse;
       readonly "404": HttpError;
       readonly "503": HttpError;
+    };
+  };
+  readonly "tenant.prepare_guide_sample.post": {
+    readonly pathParams: HttpInline_35dc538769c6fe4c;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpGuideSampleLaunchRequest;
+    readonly responses: {
+      readonly "200": HttpGuideSampleLaunchResponse;
+      readonly "422": HttpHTTPValidationError;
     };
   };
   readonly "tenant.prepare_import_files.post": {

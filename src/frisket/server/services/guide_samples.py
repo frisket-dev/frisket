@@ -17,7 +17,6 @@ from frisket.server.route_errors import RouteError
 from frisket.server.services.import_csv import ImportCsvUploadService
 from frisket.server.services.import_files import ImportFilesUploadService
 from frisket.server.services.pdf_imports import PdfImportService
-from frisket.server.services.projects import ProjectLifecycleService
 from frisket.server.services.sample_project import (
     _owned_upload,
     sample_council_meetings_csv,
@@ -83,20 +82,27 @@ class GuideSampleService:
     def __init__(self, workspace, pdf: PdfImportService):
         self.workspace = workspace
         self.pdf = pdf
-        self.projects = ProjectLifecycleService(workspace)
         self.csv = ImportCsvUploadService(workspace)
         self.file_import = ImportFilesUploadService(workspace)
 
-    def launch(
-        self, sample_id: str, revision: int, operation_id: str, actor: str
+    def prepare(
+        self,
+        project_id: str,
+        sample_id: str,
+        revision: int,
+        operation_id: str,
+        actor: str,
     ) -> dict:
         info = metadata(sample_id, revision)
+        storage_identity = self.workspace.get(project_id).storage_identity
         if not operation_id or len(operation_id) > 128 or not operation_id.strip():
             raise RouteError(
                 422, "A nonempty operation_id of at most 128 characters is required"
             )
         digest = hashlib.sha256(
-            json.dumps([actor, operation_id], separators=(",", ":")).encode()
+            json.dumps(
+                [actor, project_id, operation_id], separators=(",", ":")
+            ).encode()
         ).hexdigest()
         root = self.workspace.root / ".guide-sample-operations"
         root.mkdir(parents=True, exist_ok=True)
@@ -104,6 +110,10 @@ class GuideSampleService:
         with FileLock(str(root / (digest + ".lock")), timeout=-1):
             if path.exists():
                 record = json.loads(path.read_text())
+                if record.get("storage_identity") != storage_identity:
+                    raise RouteError(
+                        409, "The sample operation refers to a different project"
+                    )
                 if record["sample_id"] != sample_id or record["revision"] != revision:
                     raise RouteError(
                         409, "Operation was already used for a different sample"
@@ -112,16 +122,12 @@ class GuideSampleService:
                 record = {
                     "sample_id": sample_id,
                     "revision": revision,
+                    "storage_identity": storage_identity,
                     "state": "project",
                 }
                 self._save(path, record)
             if record["state"] == "complete":
-                # Verify the original bundle still exists and is the same creation operation.
-                self.projects.create_project(
-                    info["title"],
-                    idempotency_key="guide-sample:" + operation_id,
-                    idempotency_scope=actor,
-                )
+                self.workspace.get(project_id)
                 result = record["result"]
                 destination = result["destination"]
                 if destination["kind"] == "pdf_import_draft":
@@ -139,17 +145,8 @@ class GuideSampleService:
                     }
                     result = {**result, "destination": destination}
                 return result
-            if record["state"] == "interrupted":
-                raise RouteError(
-                    409,
-                    "This sample setup was interrupted. Start a new sample to try again.",
-                )
-            project = self.projects.create_project(
-                info["title"],
-                idempotency_key="guide-sample:" + operation_id,
-                idempotency_scope=actor,
-            )
-            pid = project["id"]
+            self.workspace.get(project_id)
+            pid = project_id
             items = files(sample_id, revision)
             if record["state"] == "pdf":
                 destination = self._stage_pdf(pid, record["draft_id"], items)
@@ -157,9 +154,6 @@ class GuideSampleService:
                 record.update(state="complete", result=result)
                 self._save(path, record)
                 return result
-            # Mark before non-idempotent writes; retry never repeats an uncertain write.
-            record.update(state="interrupted", project_id=pid)
-            self._save(path, record)
             with ExitStack() as stack:
                 uploads = [
                     _owned_upload(stack, filename=x.name, mime=x.mime, data=x.data)
@@ -179,6 +173,16 @@ class GuideSampleService:
                         expected_files=len(items) - 1,
                         expected_bytes=sum(len(x.data) for x in items[:-1]),
                         source_label=info["title"],
+                        creation_key=json.dumps(
+                            [
+                                actor,
+                                storage_identity,
+                                sample_id,
+                                revision,
+                                operation_id,
+                            ],
+                            separators=(",", ":"),
+                        ),
                     )
                     draft_id = draft["draft_id"]
                     record.update(state="pdf", draft_id=draft_id)

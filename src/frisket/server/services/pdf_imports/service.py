@@ -210,13 +210,53 @@ class PdfImportService:
         expected_files: int,
         expected_bytes: int,
         source_label: str | None,
+        creation_key: str | None = None,
+    ) -> dict[str, Any]:
+        if creation_key is not None:
+            digest = hashlib.sha256(creation_key.encode("utf-8")).hexdigest()
+            draft_id = f"pdf-{digest}"
+            with FileLock(str(self._root / f".creation-{digest}.lock"), timeout=-1):
+                directory = self._root / draft_id
+                if directory.exists():
+                    directory, header = self._open(project_id, draft_id)
+                    if (
+                        header["expected_files"] != expected_files
+                        or header["expected_bytes"] != expected_bytes
+                        or header["source_label"] != source_label
+                    ):
+                        raise PdfImportDraftError(
+                            409, "PDF creation key conflicts with its draft"
+                        )
+                    return self._snapshot(header, self._stats(directory))
+                return self._create_new(
+                    project_id,
+                    expected_files=expected_files,
+                    expected_bytes=expected_bytes,
+                    source_label=source_label,
+                    draft_id=draft_id,
+                )
+        return self._create_new(
+            project_id,
+            expected_files=expected_files,
+            expected_bytes=expected_bytes,
+            source_label=source_label,
+            draft_id=f"pdf-{secrets.token_urlsafe(18)}",
+        )
+
+    def _create_new(
+        self,
+        project_id: str,
+        *,
+        expected_files: int,
+        expected_bytes: int,
+        source_label: str | None,
+        draft_id: str,
     ) -> dict[str, Any]:
         if type(expected_files) is not int or expected_files < 1:
             raise PdfImportDraftError(422, "PDF import requires at least one file")
         if type(expected_bytes) is not int or expected_bytes < 0:
             raise PdfImportDraftError(422, "expected PDF bytes must be nonnegative")
         project = self._workspace.get(project_id)
-        draft_id = f"pdf-{secrets.token_urlsafe(18)}"
         directory = self._root / draft_id
         try:
             header = self._initialize_directory(

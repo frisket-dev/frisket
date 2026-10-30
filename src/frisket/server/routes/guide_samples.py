@@ -120,13 +120,16 @@ def register_guide_sample_routes(app: FastAPI, *, service: GuideSampleService) -
         )
 
     @app.post(
-        "/api/guide-samples/{sample_id}/launch",
+        "/api/projects/{pid}/guide-samples/{sample_id}/prepare",
         response_model=GuideSampleLaunchResponse,
     )
-    def launch_guide_sample(
-        sample_id: str, body: GuideSampleLaunchRequest, request: Request
+    def prepare_guide_sample(
+        pid: str,
+        sample_id: str,
+        body: GuideSampleLaunchRequest,
+        request: Request,
     ) -> dict:
         user = getattr(request.state, "user", None)
         actor_id = user.get("id") if isinstance(user, dict) else None
         actor = f"user:{int(actor_id)}" if actor_id is not None else "local"
-        return service.launch(sample_id, body.revision, body.operation_id, actor)
+        return service.prepare(pid, sample_id, body.revision, body.operation_id, actor)
