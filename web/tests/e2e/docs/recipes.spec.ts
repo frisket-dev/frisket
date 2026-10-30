@@ -7,6 +7,12 @@ import { captureCheckpoint, publishCaptureBundle } from './capture';
 
 test.use({ deviceScaleFactor: 2, viewport: { width: 1600, height: 1000 } });
 test.skip(!process.env.FRISKET_DOCS_PROOF_DIR, 'Run through the isolated documentation capture harness');
+test.beforeAll(() => {
+  const root = path.resolve('..');
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
+  expect(process.env.FRISKET_DOCS_REVISION).toBe(git('rev-parse', 'HEAD'));
+  expect(git('status', '--porcelain', '--untracked-files=no')).toBe('');
+});
 
 test('court sample imports and runs the selected filings through strict replay', async ({ page }) => {
   test.setTimeout(180_000);

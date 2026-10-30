@@ -29,12 +29,7 @@ async def _post(self, url, *args, **kwargs):
     except (TypeError, ValueError) as exc:
         raise RuntimeError('MAI replay received invalid audio') from exc
     expected = json.loads(json.dumps(fixture['request']))
-    expected_audio = expected['input_audio'].pop('data', None)
-    try:
-        expected_digest = hashlib.sha256(base64.b64decode(expected_audio, validate=True)).hexdigest()
-    except (TypeError, ValueError) as exc:
-        raise RuntimeError('MAI fixture contains invalid audio') from exc
-    if digest != fixture['clip_sha256'] or expected_digest != digest or actual != expected:
+    if digest != fixture['clip_sha256'] or actual != expected:
         raise RuntimeError('MAI replay request does not match the recorded audio and options')
     return httpx.Response(200, json=fixture['response'], request=httpx.Request('POST', str(url)))
 
