@@ -41,6 +41,10 @@ export interface ActionCompareVariant {
   result: ActionCompareVariantResult | null;
   previousResult: ActionCompareVariantResult | null;
   error: string | null;
+  /** Every bounded preview chunk belongs to this variant until disposal. */
+  previewIds?: string[];
+  readOnly?: boolean;
+  savedId?: number;
 }
 
 export interface ActionCompareCapturedSelection {
@@ -76,6 +80,7 @@ export type ActionCompareVariantRun = (args: {
   variant: Readonly<ActionCompareVariant>;
   signal: AbortSignal;
   onStarted(previewId: string): void;
+  onPartial?(result: ActionCompareVariantResult): void;
 }) => Promise<ActionCompareRunOutcome>;
 
 export interface ActionCompareSessionDependencies {
@@ -105,6 +110,7 @@ export interface ActionCompareSession {
   getSnapshot(): ActionCompareSessionSnapshot;
   subscribe(listener: () => void): () => void;
   addVariant(fromVariantId?: string): string | null;
+  restoreVariant(saved: { savedId: number; label: string; draft: GeneratedActionDraft; result: ActionCompareVariantResult }): string | null;
   updateVariant(variantId: string, draft: GeneratedActionDraft): boolean;
   removeVariant(variantId: string): boolean;
   retryVariant(variantId: string): boolean;
@@ -294,10 +300,15 @@ export function createActionCompareSession(
 
   function addVariant(fromVariantId?: string): string | null {
     if (snapshot.disposed || !snapshot.context.available) return null;
-    const challengers = snapshot.variants.filter((variant) => !variant.baseline).length;
-    if (challengers >= Math.min(3, snapshot.context.limits.max_challengers)) return null;
+    const challengers = snapshot.variants.filter((variant) => !variant.baseline && !variant.readOnly).length;
+    if (challengers >= snapshot.context.limits.max_challengers) return null;
     const used = new Set(snapshot.variants.map((variant) => variant.displayKey));
-    const displayKey = ['B', 'C', 'D'].find((key) => !used.has(key));
+    const displayKey = Array.from({ length: snapshot.context.limits.max_challengers + 1 }, (_, index) => {
+      let position = index + 1;
+      let key = '';
+      while (position > 0) { key = String.fromCharCode(65 + (position - 1) % 26) + key; position = Math.floor((position - 1) / 26); }
+      return key;
+    }).find((key) => key !== 'A' && !used.has(key));
     if (!displayKey) return null;
     const source = snapshot.variants.find((variant) => variant.id === fromVariantId) ?? snapshot.variants[0];
     const id = createId();
@@ -320,9 +331,24 @@ export function createActionCompareSession(
     return id;
   }
 
+  function restoreVariant(saved: { savedId: number; label: string; draft: GeneratedActionDraft; result: ActionCompareVariantResult }): string | null {
+    if (snapshot.disposed || !snapshot.context.available) return null;
+    const existing = snapshot.variants.find((variant) => variant.savedId === saved.savedId);
+    if (existing) return existing.id;
+    const count = snapshot.variants.filter((variant) => variant.readOnly).length;
+    const id = createId();
+    publish({ variants: [...snapshot.variants, {
+      id, displayKey: count ? `S${count + 1}` : 'S', label: saved.label,
+      baseline: false, draft: cloneDraft(saved.draft), draftRevision: 0,
+      status: 'ready', previewId: null, previewIds: [], result: cloneJson(saved.result),
+      previousResult: null, error: null, readOnly: true, savedId: saved.savedId,
+    }] });
+    return id;
+  }
+
   function updateVariant(variantId: string, draft: GeneratedActionDraft): boolean {
     const current = snapshot.variants.find((variant) => variant.id === variantId);
-    if (!current || current.baseline || snapshot.disposed) return false;
+    if (!current || current.baseline || current.readOnly || snapshot.disposed) return false;
     cancelActive(variantId);
     return replaceVariant(variantId, (variant) => ({
       ...variant,
@@ -331,6 +357,7 @@ export function createActionCompareSession(
       draftRevision: variant.draftRevision + 1,
       status: 'pending',
       previewId: null,
+      previewIds: [],
       previousResult: variant.result ?? variant.previousResult,
       result: null,
       error: null,
@@ -341,8 +368,8 @@ export function createActionCompareSession(
     const variant = snapshot.variants.find((candidate) => candidate.id === variantId);
     if (!variant || variant.baseline || snapshot.disposed) return false;
     cancelActive(variantId);
-    if (variant.previewId) {
-      void discardRememberedPreview(variant.previewId).catch(() => undefined);
+    for (const previewId of variant.previewIds ?? (variant.previewId ? [variant.previewId] : [])) {
+      void discardRememberedPreview(previewId).catch(() => undefined);
     }
     publish({ variants: snapshot.variants.filter((candidate) => candidate.id !== variantId) });
     return true;
@@ -350,12 +377,12 @@ export function createActionCompareSession(
 
   function retryVariant(variantId: string): boolean {
     const current = snapshot.variants.find((variant) => variant.id === variantId);
-    if (!current || !['failed', 'cancelled', 'unavailable'].includes(current.status)) return false;
-    return replaceVariant(variantId, (variant) => ({ ...variant, status: 'pending', previewId: null, error: null }));
+    if (!current || current.readOnly || !['failed', 'cancelled', 'unavailable'].includes(current.status)) return false;
+    return replaceVariant(variantId, (variant) => ({ ...variant, status: 'pending', previewId: null, previewIds: [], error: null }));
   }
 
   function markPreviewUnavailable(previewId: string): boolean {
-    const current = snapshot.variants.find((variant) => variant.previewId === previewId);
+    const current = snapshot.variants.find((variant) => variant.previewId === previewId || variant.previewIds?.includes(previewId));
     // A reader can outlive an edit or rerun. Only the exact completed preview
     // may retire its own result; a late 404 cannot clobber newer work.
     if (!current || current.status !== 'ready') return false;
@@ -387,7 +414,9 @@ export function createActionCompareSession(
         return;
       }
       activeRun.previewId = previewId;
-      replaceVariant(variantId, (candidate) => ({ ...candidate, previewId }));
+      replaceVariant(variantId, (candidate) => ({ ...candidate, previewId,
+        previewIds: [...new Set([...(candidate.previewIds ?? []), previewId])],
+      }));
     };
 
     let outcome: ActionCompareRunOutcome;
@@ -397,6 +426,12 @@ export function createActionCompareSession(
         variant: cloneJson(variant),
         signal: controller.signal,
         onStarted,
+        onPartial: (result) => {
+          const latest = snapshot.variants.find((candidate) => candidate.id === variantId);
+          if (latest?.draftRevision === draftRevision && latest.status === 'running' && !controller.signal.aborted) {
+            replaceVariant(variantId, (candidate) => ({ ...candidate, result: cloneJson(result) }));
+          }
+        },
       });
     } catch (error) {
       outcome = controller.signal.aborted || aborted(error)
@@ -470,7 +505,7 @@ export function createActionCompareSession(
     cancelActive();
     if (runningId) {
       replaceVariant(runningId, (variant) => variant.status === 'running'
-        ? { ...variant, status: 'cancelled', result: null }
+        ? { ...variant, status: 'cancelled' }
         : variant);
     }
     publish({ sequenceStatus: 'cancelled', activeVariantId: null });
@@ -488,7 +523,7 @@ export function createActionCompareSession(
 
   function useVariant(variantId: string): ActionCompareUseSettings | null {
     const variant = snapshot.variants.find((candidate) => candidate.id === variantId);
-    if (!variant || variant.status !== 'ready') return null;
+    if (!variant || variant.readOnly || variant.status !== 'ready') return null;
     if (variant.baseline && snapshot.context.baseline_mode === 'current_values') return null;
     return {
       variantId: variant.id,
@@ -520,6 +555,7 @@ export function createActionCompareSession(
     getSnapshot: () => snapshot,
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
     addVariant,
+    restoreVariant,
     updateVariant,
     removeVariant,
     retryVariant,
@@ -555,7 +591,7 @@ export function createActionCompareRunner(
   api: ActionComparisonApi,
   requestCostConfirmation: ActionCompareCostConfirmation,
 ): ActionCompareVariantRun {
-  return async ({ context, variant, signal, onStarted }) => {
+  const runChunk: ActionCompareVariantRun = async ({ context, variant, signal, onStarted }) => {
     if (!context.available) {
       return { status: 'failed', error: context.reason?.message ?? 'This action cannot be compared.' };
     }
@@ -648,5 +684,22 @@ export function createActionCompareRunner(
       previewId: started.preview_id,
       result,
     };
+  };
+
+  return async ({ context, variant, signal, onStarted, onPartial }) => {
+    // Ordinary previews retain their 20-row boundary. A comparison owns the
+    // sequence of admitted chunks and their result/consent identities.
+    const result: ActionCompareVariantResult = { rows: {} };
+    let lastPreviewId = '';
+    for (let offset = 0; offset < context.sample_row_ids.length; offset += 20) {
+      if (signal.aborted) return { status: 'cancelled', previewId: lastPreviewId || null };
+      const rows = context.sample_row_ids.slice(offset, offset + 20);
+      const outcome = await runChunk({ context: { ...context, sample_row_ids: rows }, variant, signal, onStarted });
+      if (outcome.status !== 'ready') return outcome;
+      lastPreviewId = outcome.previewId;
+      Object.assign(result.rows, outcome.result.rows);
+      onPartial?.(result);
+    }
+    return { status: 'ready', previewId: lastPreviewId, result };
   };
 }

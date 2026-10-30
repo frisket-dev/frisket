@@ -93,6 +93,55 @@ function deferred<T>() {
 }
 
 describe('action comparison session', () => {
+  it('honors server capacity for five variants and retains the complete expected-row scope', async () => {
+    const seed = context();
+    seed.limits = { max_sample_rows: 100, max_challengers: 5 } as ActionComparisonContext['limits'];
+    seed.sample_row_ids = Array.from({ length: 38 }, (_, index) => 101 + index);
+    const runVariant = vi.fn<ActionCompareVariantRun>(async () => ready('expanded'));
+    const session = createActionCompareSession({ context: seed }, { runVariant });
+    for (let index = 0; index < 5; index += 1) expect(session.addVariant()).not.toBeNull();
+    expect(session.getSnapshot().variants.map((variant) => variant.displayKey)).toEqual(['A', 'B', 'C', 'D', 'E', 'F']);
+    expect(session.addVariant()).toBeNull();
+    await session.runPending();
+    expect(runVariant.mock.calls[0][0].context.sample_row_ids).toHaveLength(38);
+  });
+
+  it('restores shelf values as read-only variants that cannot run or change settings', async () => {
+    const runVariant = vi.fn<ActionCompareVariantRun>();
+    const session = createActionCompareSession({ context: context() }, { runVariant });
+    const restored = session.restoreVariant({
+      savedId: 19, label: 'Last week', draft: context().draft,
+      result: { rows: { 101: { answer: valueCell('Old answer') } } },
+    });
+    expect(restored).not.toBeNull();
+    expect(session.getSnapshot().variants[1]).toMatchObject({
+      displayKey: 'S', readOnly: true, savedId: 19, status: 'ready',
+      result: { rows: { 101: { answer: { value: 'Old answer' } } } },
+    });
+    expect(session.updateVariant(restored!, context().draft)).toBe(false);
+    expect(session.retryVariant(restored!)).toBe(false);
+    expect(session.useVariant(restored!)).toBeNull();
+    await session.runPending();
+    expect(runVariant).not.toHaveBeenCalled();
+  });
+
+  it('retains every preview chunk identity and discards each on removal', async () => {
+    const discardPreview = vi.fn(async () => undefined);
+    const session = createActionCompareSession({ context: context() }, {
+      runVariant: async ({ onStarted }) => {
+        onStarted('first-chunk'); onStarted('second-chunk');
+        return ready('second-chunk');
+      }, discardPreview,
+    });
+    const variantId = session.addVariant()!;
+    await session.runPending();
+    expect(session.getSnapshot().variants[1].previewIds).toEqual(['first-chunk', 'second-chunk']);
+    session.removeVariant(variantId);
+    await Promise.resolve();
+    expect(discardPreview).toHaveBeenCalledWith('first-chunk');
+    expect(discardPreview).toHaveBeenCalledWith('second-chunk');
+  });
+
   it('seeds A without executing, clones only settings, and enforces A plus three challengers', () => {
     const runVariant = vi.fn<ActionCompareVariantRun>();
     const session = createActionCompareSession({ context: context() }, { runVariant });
@@ -343,6 +392,33 @@ describe('actionCompareCellEquality', () => {
 });
 
 describe('createActionCompareRunner', () => {
+  it('runs 38 expected rows in ordinary preview chunks and merges their results', async () => {
+    const seed = context('preview');
+    seed.sample_row_ids = Array.from({ length: 38 }, (_, index) => 101 + index);
+    const requests: number[][] = [];
+    const api = {
+      getContext: vi.fn(),
+      startPreview: vi.fn(async ({ action }: Parameters<ActionComparisonApi['startPreview']>[0]) => {
+        const rows = action.scope.row_ids ?? [];
+        requests.push(rows);
+        return { schema_version: 'frisket.action_preview.v1', preview_id: `chunk-${requests.length}`, total: rows.length };
+      }),
+      getPreview: vi.fn(async (id: string) => ({
+        previewId: id, status: 'done', progress: { done: 20, total: 20, preparation: null },
+        rows: Object.fromEntries(requests[Number(id.split('-')[1]) - 1].map((rowId) => [rowId, { answer: valueCell(`Row ${rowId}`) }])),
+        rowIds: [], sampled: 20, total: 20, error: null, accounting: null,
+      })), cancelPreview: vi.fn(),
+    } as unknown as ActionComparisonApi;
+    const onStarted = vi.fn();
+    const variant = createActionCompareSession({ context: seed }, { runVariant: vi.fn() }).getSnapshot().variants[0];
+    const outcome = await createActionCompareRunner(api, vi.fn())({ context: seed, variant, signal: new AbortController().signal, onStarted });
+    expect(requests.map((rows) => rows.length)).toEqual([20, 18]);
+    expect(requests.flat()).toEqual(seed.sample_row_ids);
+    expect(onStarted.mock.calls.map(([id]) => id)).toEqual(['chunk-1', 'chunk-2']);
+    expect(outcome.status).toBe('ready');
+    if (outcome.status === 'ready') expect(Object.keys(outcome.result.rows)).toHaveLength(38);
+  });
+
   it('executes free starts immediately and polls the exact sample request', async () => {
     const api = {
       getContext: vi.fn().mockResolvedValue(context('preview')),
