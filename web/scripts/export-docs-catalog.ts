@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import type { ActionCatalogPayload } from '../src/api/types';
 import { actionTemplatesFromCatalog } from '../src/actions/model';
+import { customFormParams } from '../src/actions/formLabels';
 import { resolveRibbonTabs } from '../src/workbench/actSurface';
 
 export function docsCatalog(catalog: ActionCatalogPayload) {
@@ -17,8 +18,10 @@ export function docsCatalog(catalog: ActionCatalogPayload) {
       if (item.kind !== 'action') return [];
       const template = byKind.get(item.launcherKind)!;
       const entry = catalog.actions.find((candidate) => candidate.kind === item.launcherKind)!;
+      const auditedParams = customFormParams(item.launcherKind, template.params ?? []);
       return [{ id: item.launcherKind, label: item.label, description: item.description,
-        path: [tab.label, group.caption], params: template.params ?? [],
+        path: [tab.label, group.caption], params: auditedParams ?? [],
+        settingsCoverage: auditedParams ? 'audited' : 'not-audited',
         inputSchema: entry.input_schema, outputSchema: entry.output_schema }];
     })));
   return { version: 1, actions };
