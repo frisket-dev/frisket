@@ -36,6 +36,7 @@ function windowsAzureSignOptions() {
 module.exports = {
   appId: 'dev.frisket.desktop',
   productName: 'Frisket Desktop',
+  protocols: [{ name: 'Frisket guide', schemes: ['frisket'] }],
   extraMetadata: { version: build.version },
   publish: {
     provider: 'generic',
