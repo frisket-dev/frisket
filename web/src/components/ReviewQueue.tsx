@@ -9,12 +9,13 @@ import { useReviewRuns } from './review/useReviewRuns';
 
 export interface ReviewQueueProps {
   runId?: string;
+  reviewExportUrl?(runId: string): string;
   onClose(): void;
   onChanged(remaining: number): void;
 }
 
 /** Run selection and completion sit above the keyed, per-run review session. */
-export function ReviewQueue({ onClose, onChanged, runId }: ReviewQueueProps) {
+export function ReviewQueue({ onClose, onChanged, runId, reviewExportUrl }: ReviewQueueProps) {
   const runs = useReviewRuns(runId);
   const [fieldId, setFieldId] = useState<string | null>(null);
   const [order, setOrder] = useState<ReviewBundleOrder>('shuffle');
@@ -35,6 +36,7 @@ export function ReviewQueue({ onClose, onChanged, runId }: ReviewQueueProps) {
         order={effectiveOrder} onOrderChange={(value) => leave(() => setOrder(value))} statusBusy={runs.statusBusy}
         disabled={busy} hasMore={runs.hasMore} loadingMore={runs.loadingMore}
         onLoadMore={() => { void runs.loadMore(); }}
+        reviewExportUrl={reviewExportUrl}
         onRunStatusChange={(_run, status) => leave(() => { void runs.setRunStatus(status); })}>
         {navigation}
       </ReviewRunControls>

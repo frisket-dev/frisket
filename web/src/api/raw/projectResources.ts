@@ -23,6 +23,10 @@ export function projectBlobUrl(projectId: ProjectId, digest: BlobDigest): string
   return `${currentProjectUrl(projectId)}/blobs/${encodeURIComponent(digest)}`;
 }
 
+export function reviewRunExportUrl(projectId: ProjectId, runId: string): string {
+  return `${currentProjectUrl(projectId)}/evaluation/review.csv?run_id=${encodeURIComponent(runId)}`;
+}
+
 export function embeddingExportArtifactUrl(
   projectId: ProjectId,
   indexId: EmbeddingIndexId,

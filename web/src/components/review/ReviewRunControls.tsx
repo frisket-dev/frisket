@@ -87,6 +87,7 @@ export interface ReviewRunControlsProps {
   onLoadMore?(): void;
   hasMore?: boolean;
   loadingMore?: boolean;
+  reviewExportUrl?(runId: string): string;
 }
 
 /** Controlled run, output-field and ordering controls for ReviewQueue. The
@@ -106,6 +107,7 @@ export function ReviewRunControls({
   onLoadMore,
   hasMore = false,
   loadingMore = false,
+  reviewExportUrl,
 }: ReviewRunControlsProps) {
   const run = runs.find((candidate) => candidate.runId === selectedRunId);
   const counts = run ? selectedCounts(run, selectedFieldId) : null;
@@ -266,7 +268,7 @@ export function ReviewRunControls({
           {!confidenceAvailable && <p className={styles.noConfidence}>No confidence values in this scope.</p>}
         </MenuPop>
       )}
-      {resultsOpen && run && <ReviewResultsPanel run={run} onClose={() => setResultsOpen(false)} />}
+      {resultsOpen && run && <ReviewResultsPanel run={run} exportUrl={reviewExportUrl?.(run.runId)} onClose={() => setResultsOpen(false)} />}
       {counts && (
         <div
           className={styles.progressBar}

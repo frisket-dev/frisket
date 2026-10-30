@@ -2,6 +2,7 @@ import '../Modal.css';
 import { useEffect, useRef } from 'react';
 import type { ReviewRun, ReviewRunCounts } from '../../api/types';
 import { WindowCloseButton } from '../WindowCloseButton';
+import { Download } from 'lucide-react';
 import styles from './ReviewResultsPanel.module.css';
 
 export interface ReviewRunSummaryProps {
@@ -65,11 +66,12 @@ function ResultRow({ label, counts }: { label: string; counts: ReviewRunCounts }
 
 export interface ReviewResultsPanelProps {
   run: ReviewRun;
+  exportUrl?: string;
   onClose(): void;
 }
 
 /** Results intentionally describe this loaded run only; no historical trend is inferred. */
-export function ReviewResultsPanel({ run, onClose }: ReviewResultsPanelProps) {
+export function ReviewResultsPanel({ run, exportUrl, onClose }: ReviewResultsPanelProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -106,6 +108,7 @@ export function ReviewResultsPanel({ run, onClose }: ReviewResultsPanelProps) {
           {run.fields.map((field) => <ResultRow key={field.columnId} label={field.columnName} counts={field} />)}
         </div>
       </section>
+      {exportUrl && <a className="btn" href={exportUrl} download><Download size={15} aria-hidden /> Download results CSV</a>}
     </dialog>
   );
 }
