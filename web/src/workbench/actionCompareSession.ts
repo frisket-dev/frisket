@@ -119,6 +119,7 @@ export interface ActionCompareSession {
   subscribe(listener: () => void): () => void;
   addVariant(fromVariantId?: string): string | null;
   restoreVariant(saved: { savedId: number; label: string; draft: GeneratedActionDraft; result: ActionCompareVariantResult }): string | null;
+  updateContext(context: ActionComparisonContext, capturedSelection?: ActionCompareCapturedSelection | null): Promise<boolean>;
   updateVariant(variantId: string, draft: GeneratedActionDraft): boolean;
   removeVariant(variantId: string): boolean;
   retryVariant(variantId: string): boolean;
@@ -310,7 +311,7 @@ export function createActionCompareSession(
   function addVariant(fromVariantId?: string): string | null {
     if (snapshot.disposed || !snapshot.context.available) return null;
     const challengers = snapshot.variants.filter((variant) => !variant.baseline && !variant.readOnly).length;
-    if (challengers >= snapshot.context.limits.max_challengers) return null;
+    if (challengers >= snapshot.context.limits.max_challengers || snapshot.variants.length >= 32) return null;
     const used = new Set(snapshot.variants.map((variant) => variant.displayKey));
     const displayKey = Array.from({ length: snapshot.context.limits.max_challengers + 1 }, (_, index) => {
       let position = index + 1;
@@ -345,10 +346,13 @@ export function createActionCompareSession(
     if (snapshot.disposed || !snapshot.context.available) return null;
     const existing = snapshot.variants.find((variant) => variant.savedId === saved.savedId);
     if (existing) return existing.id;
-    const count = snapshot.variants.filter((variant) => variant.readOnly).length;
+    if (snapshot.variants.length >= 32) return null;
+    const used = new Set(snapshot.variants.map((variant) => variant.displayKey));
+    let number = 1;
+    while (used.has(number === 1 ? 'S' : `S${number}`)) number += 1;
     const id = createId();
     publish({ variants: [...snapshot.variants, {
-      id, displayKey: count ? `S${count + 1}` : 'S', label: saved.label,
+      id, displayKey: number === 1 ? 'S' : `S${number}`, label: saved.label,
       baseline: false, draft: cloneDraft(saved.draft), draftRevision: 0,
       status: 'ready', previewId: null, previewIds: [], result: cloneJson(saved.result),
       previousResult: null, error: null, readOnly: true, savedId: saved.savedId,
@@ -581,6 +585,24 @@ export function createActionCompareSession(
     previewIds.clear();
   }
 
+  async function updateContext(context: ActionComparisonContext, selection?: ActionCompareCapturedSelection | null): Promise<boolean> {
+    if (snapshot.disposed || context.sheet.id !== snapshot.context.sheet.id
+      || context.draft.action_id !== snapshot.context.draft.action_id
+      || context.expected_output_signature !== snapshot.context.expected_output_signature) return false;
+    await discardPreviews();
+    if (snapshot.disposed) return false;
+    const baseline = firstVariant(context, snapshot.variants[0].id, dependencies.labelForDraft);
+    const variants = snapshot.variants.slice(1).map((variant): ActionCompareVariant => variant.readOnly ? variant : ({
+      ...variant, draft: { ...cloneDraft(variant.draft), scope: cloneJson(context.draft.scope) },
+      draftRevision: variant.draftRevision + 1, status: 'pending', previewId: null, previewIds: [], savedId: undefined,
+      result: null, previousResult: null, error: null,
+    }));
+    publish({ context, variants: [baseline, ...variants], sequenceStatus: 'idle', activeVariantId: null,
+      capturedSelection: selection === undefined ? snapshot.capturedSelection
+        : selection ? { rowIds: [...selection.rowIds], totalCount: selection.totalCount } : null });
+    return true;
+  }
+
   async function dispose(): Promise<void> {
     if (snapshot.disposed) return;
     await discardPreviews();
@@ -593,6 +615,7 @@ export function createActionCompareSession(
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
     addVariant,
     restoreVariant,
+    updateContext,
     updateVariant,
     removeVariant,
     retryVariant,

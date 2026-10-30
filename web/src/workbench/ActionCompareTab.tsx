@@ -61,6 +61,7 @@ export interface ActionCompareTabProps {
   rowScope?: 'sample' | 'all' | 'expected';
   rowScopePending?: boolean;
   rowScopeTotal?: number | null;
+  dataRevision?: number;
   onChangeRowScope?(scope: 'sample' | 'all' | 'expected', lens?: 'each_other' | 'expected'): void;
 }
 
@@ -81,7 +82,7 @@ export function ActionCompareTab({ projectId, session, rowHeight, wrapText, froz
   onUseSettings, renderVariantEditor,
   labelForDraft, describeVariantChanges, onOpenBoundedValue, onOpenStructuredValue,
   className, evaluationApi, onJoinExpected, initialLens, onExpectedAnswersChanged, onShelved,
-  modelField, instructionsField, rowScope, rowScopePending, rowScopeTotal, onChangeRowScope }: ActionCompareTabProps) {
+  modelField, instructionsField, rowScope, rowScopePending, rowScopeTotal, dataRevision, onChangeRowScope }: ActionCompareTabProps) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
@@ -233,7 +234,7 @@ export function ActionCompareTab({ projectId, session, rowHeight, wrapText, froz
     {evaluationApi ? <ComparisonEvaluationWorkspace key={initialLens ?? 'each_other'} api={evaluationApi} state={state} session={session}
       initialLens={initialLens} onJoinExpected={onJoinExpected} onExpectedAnswersChanged={onExpectedAnswersChanged}
       onShelved={onShelved} modelField={modelField} instructionsField={instructionsField}
-      rowScope={rowScope} rowScopePending={rowScopePending} rowScopeTotal={rowScopeTotal} onChangeRowScope={onChangeRowScope}
+      rowScope={rowScope} rowScopePending={rowScopePending} rowScopeTotal={rowScopeTotal} dataRevision={dataRevision} onChangeRowScope={onChangeRowScope}
       renderVariantEditor={renderVariantEditor} onOpenVariant={setEditingId} onUseSettings={onUseSettings}
       renderGrid={(evaluation) => <ActionCompareGrid projectId={projectId} state={state} rowHeight={rowHeight}
         wrapText={wrapText} frozenColumnCount={frozenColumnCount} labelForDraft={labelForDraft}

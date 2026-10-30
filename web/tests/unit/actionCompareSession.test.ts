@@ -101,6 +101,36 @@ function withFreeQuotes(api: ActionComparisonApi): ActionComparisonApi {
 }
 
 describe('action comparison session', () => {
+  it('changes row scope while preserving configured drafts and requiring an explicit new run', async () => {
+    const discardPreview = vi.fn(async () => undefined);
+    const runVariant = vi.fn<ActionCompareVariantRun>(async () => ready('old-scope'));
+    const session = createActionCompareSession({ context: context() }, { runVariant, discardPreview });
+    const b = session.addVariant()!;
+    session.updateVariant(b, { ...context().draft, params: { ...context().draft.params, model: 'chosen/model' } });
+    await session.runPending();
+    const shelf = session.restoreVariant({ savedId: 9, label: 'Earlier', draft: context().draft, result: { rows: {} } });
+    const expanded = context(); expanded.sample_row_ids = [101, 102, 103];
+    expect(await session.updateContext(expanded, { rowIds: [101, 102, 103], totalCount: 3 })).toBe(true);
+    expect(session.getSnapshot().variants.find((variant) => variant.id === b)).toMatchObject({ status: 'pending', result: null, draft: { params: { model: 'chosen/model' } } });
+    expect(session.getSnapshot().variants.find((variant) => variant.id === shelf)).toMatchObject({ savedId: 9, readOnly: true, status: 'ready' });
+    expect(discardPreview).toHaveBeenCalledWith('old-scope');
+    expect(runVariant).toHaveBeenCalledTimes(1);
+    await session.runPending();
+    expect(runVariant.mock.calls[1][0].context.sample_row_ids).toEqual([101, 102, 103]);
+  });
+
+  it('reuses the first free shelf letter after removal and bounds restored variants', () => {
+    const session = createActionCompareSession({ context: context() }, { runVariant: vi.fn() });
+    const saved = (id: number) => ({ savedId: id, label: `Saved ${id}`, draft: context().draft, result: { rows: {} } });
+    const first = session.restoreVariant(saved(1))!;
+    session.restoreVariant(saved(2)); session.removeVariant(first); session.restoreVariant(saved(3));
+    expect(session.getSnapshot().variants.map((variant) => variant.displayKey)).toEqual(['A', 'S2', 'S']);
+    for (let id = 4; id <= 32; id += 1) expect(session.restoreVariant(saved(id))).not.toBeNull();
+    expect(session.getSnapshot().variants).toHaveLength(32);
+    expect(session.restoreVariant(saved(33))).toBeNull();
+    expect(session.addVariant()).toBeNull();
+  });
+
   it('honors server capacity for five variants and retains the complete expected-row scope', async () => {
     const seed = context();
     seed.limits = { max_sample_rows: 100, max_challengers: 5 } as ActionComparisonContext['limits'];

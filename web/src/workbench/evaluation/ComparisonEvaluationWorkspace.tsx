@@ -26,6 +26,7 @@ export interface ComparisonEvaluationWorkspaceProps {
   renderVariantEditor?(props: ActionCompareVariantEditorRenderProps): ReactNode;
   rowScope?: 'sample' | 'all' | 'expected'; rowScopePending?: boolean;
   rowScopeTotal?: number | null;
+  dataRevision?: number;
   onChangeRowScope?(scope: 'sample' | 'all' | 'expected', lens?: 'each_other' | 'expected'): void;
   onOpenVariant(id: string): void; onUseSettings(selection: ActionCompareUseSettings): void;
   renderGrid(evaluation: NonNullable<ActionCompareGridProps['evaluation']>): ReactNode;
@@ -38,7 +39,7 @@ function download(blob: Blob, name: string) {
 }
 
 export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspaceProps) {
-  const e = useComparisonEvaluation(p.api, p.state);
+  const e = useComparisonEvaluation(p.api, p.state, p.dataRevision);
   const { api, onExpectedAnswersChanged } = p;
   const { mutate, setLink, request: evaluationRequest, setError: setEvaluationError } = e;
   const basis = p.state.context.comparison_basis;
@@ -193,9 +194,10 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
       const settings = item.settings as unknown as Partial<GeneratedActionDraft>;
       const draft = settings.action_id && settings.scope && settings.params && settings.output_names
         ? settings as GeneratedActionDraft : p.state.context.draft;
-      p.session.restoreVariant({ savedId: id, label: item.label, draft, result: { rows: Object.fromEntries(Object.entries(item.rows).map(([rowId, cells]) => [rowId,
+      const restored = p.session.restoreVariant({ savedId: id, label: item.label, draft, result: { rows: Object.fromEntries(Object.entries(item.rows).map(([rowId, cells]) => [rowId,
         Object.fromEntries(Object.entries(cells).map(([key, { bounded_value, ...cell }]) => [key, { ...cell, evaluationValue: bounded_value }])),
       ])) } });
+      if (!restored) throw new Error('A comparison can show up to 32 variants. Remove one before restoring another.');
     });
   };
   const shelve = async () => {
@@ -228,9 +230,7 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
       </div>
       <span>Compare to</span>
       <Button aria-pressed={lens === 'each_other'} disabled={p.state.variants.length < 2} title={p.state.variants.length < 2 ? 'Needs two variants' : undefined} onClick={() => { setLens('each_other'); setFilter('all'); }}>Each other</Button>
-      <Button aria-pressed={lens === 'expected'} onClick={() => { setLens('expected'); e.refresh();
-        if (e.link && p.rowScope !== 'expected' && !p.rowScopePending) p.onChangeRowScope?.('expected', 'expected');
-      }}>✓ Expected answers</Button>
+      <Button aria-pressed={lens === 'expected'} onClick={() => { setLens('expected'); e.refresh(); }}>✓ Expected answers</Button>
       {response && lens === 'each_other' && evaluated >= 2 && <Button onClick={() => setQueue({ mode: 'disagreements', rowId: disagreements[0] ?? 0, filter: 'all' })}>Variants disagree · {disagreements.length}</Button>}
       {response && lens === 'expected' && <><Button onClick={() => setResultsOpen(true)}>Results</Button>
         {unscored > 0 && <Button onClick={() => setQueue({ mode: 'score', rowId: response.row_ids[0] ?? 0, filter: 'to_score' })}>{unscored} to score by hand ›</Button>}
@@ -245,7 +245,7 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
         ? `${p.state.context.sample_row_ids.length} of ${p.rowScopeTotal} ${p.rowScope === 'expected' ? 'with expected answers' : 'rows'}`
         : lens === 'expected' && e.link ? `${response?.variants[0]?.scores[field]?.checked ?? 0} with expected answers` : `${p.state.context.sample_row_ids.length} rows`}</span>
       {p.onChangeRowScope && <PanelSelect ariaLabel="Comparison rows" value={p.rowScope ?? 'sample'} disabled={running || p.rowScopePending}
-        options={[{ value: 'sample', label: 'Sample · up to 20 rows' }, { value: 'all', label: 'All · up to 500 rows' }, { value: 'expected', label: 'With expected answers · up to 500 rows', disabled: !e.link }]}
+        options={[{ value: 'sample', label: 'Sample · up to 20 rows' }, { value: 'all', label: 'All · up to 500 rows' }, { value: 'expected', label: 'All rows with expected answers · up to 500', disabled: !e.link }]}
         onValueChange={(value) => p.onChangeRowScope?.(value as 'sample' | 'all' | 'expected', lens)} />}
       {lens === 'expected' && e.link && <>{(['all', 'any_miss', 'best_misses', 'everyone_misses'] as const).map((value) => <Button key={value} aria-pressed={filter === value} disabled={value === 'best_misses' && !bestKey} onClick={() => setFilter(value)}>
         {{ all: 'All', any_miss: 'Any miss', best_misses: 'Best misses', everyone_misses: 'Everyone misses' }[value]}

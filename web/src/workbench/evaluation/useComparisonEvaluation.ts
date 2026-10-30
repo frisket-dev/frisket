@@ -10,7 +10,7 @@ function matchingShelf(items: SavedSummary[], columns: ActionCompareSessionSnaps
   return items.filter((item) => signature(item.output_columns) === outputs);
 }
 
-export function useComparisonEvaluation(api: EvaluationApi | undefined, state: ActionCompareSessionSnapshot) {
+export function useComparisonEvaluation(api: EvaluationApi | undefined, state: ActionCompareSessionSnapshot, dataRevision = 0) {
   const [links, setLinks] = useState<EvaluationLink[]>([]);
   const [items, setItems] = useState<SavedSummary[]>([]);
   const [scoreState, setScoreState] = useState<{ key: string; requestKey: string; response: EvaluationResponse | null }>({ key: '', requestKey: '', response: null });
@@ -26,7 +26,7 @@ export function useComparisonEvaluation(api: EvaluationApi | undefined, state: A
     && candidate.fields.some((field) => outputIds.has(field.output_column_id))) ?? null;
   const requestKey = JSON.stringify(comparisonRequest(state, link?.id ?? null));
   const request = useMemo<EvaluationRequest>(() => JSON.parse(requestKey), [requestKey]);
-  const scoreKey = `${generation}:${requestKey}`;
+  const scoreKey = `${dataRevision}:${generation}:${requestKey}`;
   const loading = Boolean(api && request.variants.length && scoreState.key !== scoreKey);
   const response = scoreState.requestKey === requestKey ? scoreState.response : null;
   const setResponse = useCallback((value: EvaluationResponse) => setScoreState({ key: scoreKey, requestKey, response: value }), [scoreKey, requestKey]);
@@ -46,7 +46,7 @@ export function useComparisonEvaluation(api: EvaluationApi | undefined, state: A
       if (alive) { setLinks(linkResult.links); setItems(matchingShelf(shelfResult.items, outputColumns)); }
     }, (problem) => { if (alive) setError(String(problem.message ?? problem)); });
     return () => { alive = false; };
-  }, [api, sheetId, actionId, generation, outputColumns]);
+  }, [api, sheetId, actionId, generation, dataRevision, outputColumns]);
 
   useEffect(() => {
     const current = ++sequence.current;
