@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, readFileSync, writeFileSync } from 'node:fs';
-import { openAction, openCellDrawer, selectActionSourceColumns, selectRow, sheetColumns, sheetData } from '../helpers';
+import { createProject, importCsv, openAction, openCellDrawer, openImportWorkspace, openProject, selectActionSourceColumns, selectRow, sheetColumns, sheetData, textPdf } from '../helpers';
 import { captureCheckpoint, publishCaptureBundle } from './capture';
 
 test.use({ deviceScaleFactor: 2, viewport: { width: 1600, height: 1000 } });
@@ -438,6 +438,60 @@ test('docs entry: court sample and Extract fields', async ({ page }) => {
     await expect(joinGroup).toHaveCount(1);
     captures.push(await captureCheckpoint(page, { id: 'court-expected-entry', root: joinGroup, annotations: [] }, stage));
     expect(captures.map(capture => capture.id)).toEqual(['court-open-sample', 'court-extract-entry', 'court-compare-entry', 'court-expected-entry']);
+    return captures;
+  });
+});
+
+test('docs workflow: split a PDF packet', async ({ page }) => {
+  test.setTimeout(180_000);
+  const pid = await createProject(page.request, 'PDF packet documentation');
+  const sheet = await importCsv(page.request, pid, 'existing.csv', 'name\nExample\n');
+  await openProject(page, pid, sheet);
+  const output = path.join(process.env.FRISKET_DOCS_PROOF_DIR!, 'pdf-packet');
+  await publishCaptureBundle(output, { appRevision: process.env.FRISKET_DOCS_REVISION!, sample: { id: 'pdf-packet-fixture', revision: 1 } }, async stage => {
+    const captures = [];
+    await page.getByTestId('ribbon-tab-data').click();
+    const importButton = page.getByTestId('ribbon-command-import');
+    await expect(importButton).toBeVisible();
+    const importGroup = importButton.locator('xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " act-ribbon-group ")][1]');
+    captures.push(await captureCheckpoint(page, { id: 'pdf-packet-import-entry', root: importGroup, annotations: [] }, stage));
+    await openImportWorkspace(page);
+    await page.getByTestId('import-mode-pdf_split').click();
+    const workspace = page.getByTestId('import-workspace');
+    await expect(workspace.getByRole('button', { name: 'Choose PDFs' })).toBeVisible();
+    captures.push(await captureCheckpoint(page, { id: 'pdf-packet-choose-files', root: workspace, annotations: [] }, stage));
+    await page.getByTestId('import-file-input').setInputFiles({ name: 'council-packet.pdf', mimeType: 'application/pdf', buffer: textPdf([
+      ['COUNCIL RECORD', 'Record 1', 'Budget discussion'],
+      ['Supporting notes', 'Continuation of record 1'],
+      ['COUNCIL RECORD', 'Record 2', 'Planning discussion'],
+    ]) });
+    const flow = page.getByTestId('pdf-batch-flow');
+    await expect(flow.getByRole('button', { name: 'Check text →' })).toBeEnabled({ timeout: 60_000 });
+    await flow.getByRole('button', { name: 'Check text →' }).click();
+    await expect(flow).toHaveAttribute('data-stage', 'check', { timeout: 60_000 });
+    await flow.getByRole('radio', { name: /^None/ }).click();
+    await expect(flow.getByRole('radio', { name: /^Split into documents/ })).toBeChecked();
+    await expect(flow.getByText('Loading choices…')).toHaveCount(0, { timeout: 60_000 });
+    captures.push(await captureCheckpoint(page, { id: 'pdf-packet-check-text', root: flow, annotations: [] }, stage));
+    await flow.getByRole('button', { name: 'Find documents →' }).click();
+    const review = page.locator('.pdf-packet-review-host');
+    const method = review.getByRole('group', { name: 'How to find document starts' });
+    await expect(method).toBeVisible({ timeout: 90_000 });
+    await method.getByText('Manual', { exact: true }).click();
+    const thirdPage = review.locator('[data-packet-page="3"] .pdf-packet-page-toggle');
+    await expect(thirdPage).toBeVisible();
+    await thirdPage.click();
+    await expect(thirdPage).toHaveAttribute('aria-pressed', 'true');
+    captures.push(await captureCheckpoint(page, { id: 'pdf-packet-find-starts', root: review, annotations: [] }, stage));
+    await review.getByRole('button', { name: /Continue/ }).click();
+    await expect(flow).toHaveAttribute('data-stage', 'destination', { timeout: 60_000 });
+    captures.push(await captureCheckpoint(page, { id: 'pdf-packet-destination', root: flow, annotations: [] }, stage));
+    await flow.getByRole('button', { name: 'Search setup →' }).click();
+    await expect(flow).toHaveAttribute('data-stage', 'search');
+    const semantic = flow.getByRole('checkbox', { name: /Search by meaning/ });
+    if (await semantic.isChecked()) await semantic.uncheck();
+    await expect(flow.getByRole('button', { name: /^Import 2 rows/ })).toBeEnabled({ timeout: 60_000 });
+    captures.push(await captureCheckpoint(page, { id: 'pdf-packet-import-decision', root: flow, annotations: [] }, stage));
     return captures;
   });
 });
