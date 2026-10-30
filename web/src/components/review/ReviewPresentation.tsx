@@ -7,7 +7,15 @@ import styles from './ReviewWorkspace.module.css';
 
 /** Shared full-screen Review frame; controllers retain their own close/save behavior. */
 export function ReviewShell({ children, busy, onClose }: { children: ReactNode; busy: boolean; onClose(): void }) {
-  return <Modal title="Review queue" hideHeader className="review-overlay" testId="review-queue" busy={busy} onClose={onClose}>
+  const dismiss = () => {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active.matches('input, textarea, select, [contenteditable="true"]')) {
+      active.blur();
+      return;
+    }
+    onClose();
+  };
+  return <Modal title="Review queue" hideHeader className="review-overlay" testId="review-queue" busy={busy} onClose={dismiss}>
     {children}
   </Modal>;
 }

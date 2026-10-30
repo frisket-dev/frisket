@@ -148,6 +148,23 @@ it('routes modal Escape through the normal note-save guard', async () => {
   expect(save).toHaveBeenLastCalledWith('9', '3', 'Keep this note');
 });
 
+it('keeps Review open when Escape leaves the note editor', async () => {
+  vi.spyOn(stores.projectApi, 'getReviewBundles').mockResolvedValue(multiPage());
+  vi.spyOn(stores.projectApi, 'setReviewNote').mockResolvedValue();
+  const close = vi.fn();
+  render(<WorkspaceStoresContext.Provider value={stores}>
+    <ReviewSession runId="9" options={options} onChanged={vi.fn()}
+      renderFrame={(content, leave, busy) => <ReviewShell busy={busy} onClose={() => leave(close)}>{content}</ReviewShell>} />
+  </WorkspaceStoresContext.Provider>);
+  const note = await screen.findByTestId('review-note-input');
+  note.focus();
+  fireEvent.change(note, { target: { value: 'Keep this note' } });
+  fireEvent(screen.getByRole('dialog', { name: 'Review queue' }), new Event('cancel', { cancelable: true }));
+  expect(close).not.toHaveBeenCalled();
+  expect(note).not.toHaveFocus();
+  expect(screen.getByRole('dialog', { name: 'Review queue' })).toBeVisible();
+});
+
 it('ignores typing and browser modifiers while J/K navigate fields, not rows', async () => {
   vi.spyOn(stores.projectApi, 'getReviewBundles').mockResolvedValue(multiPage());
   const decide = vi.spyOn(stores.projectApi, 'reviewItem').mockResolvedValue();
