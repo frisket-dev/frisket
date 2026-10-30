@@ -7,7 +7,7 @@ import { setTheme } from '../screenshotHelpers';
 
 export interface CaptureAnnotation {
   id: string;
-  /** 1-based position among the recipe step's settings. */
+  /** 1-based position among the step's visible, annotated controls. */
   number?: number;
   target: WalkthroughTarget | { kind: 'radio'; group: string; value: string };
   label: string;
@@ -32,13 +32,12 @@ export interface CaptureRecord {
   annotations: Array<{ id: string; number: number; label: string; value: string | boolean;
     rect: { x: number; y: number; width: number; height: number } }>;
 }
-export interface CaptureBundle {
-  version: 1;
+export type CaptureMetadata = {
   appRevision: string;
-  sample: { id: string; revision: number };
   replay?: string;
-  captures: CaptureRecord[];
-}
+} & ({ sample: { id: string; revision: number }; fixture?: never }
+  | { fixture: { id: string; revision: number }; sample?: never });
+export type CaptureBundle = CaptureMetadata & { version: 1; captures: CaptureRecord[] };
 
 /** Require one visible candidate across all representations inside the supplied root. */
 export async function resolveCaptureTarget(scope: Page | Locator, target: CaptureAnnotation['target']): Promise<Locator> {
@@ -126,7 +125,7 @@ export async function captureCheckpoint(page: Page, description: CaptureDescript
 }
 
 /** Publish only a complete new bundle; an existing destination is never overwritten. */
-export async function publishCaptureBundle(outputDirectory: string, metadata: Omit<CaptureBundle, 'version' | 'captures'>,
+export async function publishCaptureBundle(outputDirectory: string, metadata: CaptureMetadata,
   capture: (stagingDirectory: string) => Promise<CaptureRecord[]>): Promise<void> {
   const parent = path.dirname(outputDirectory);
   await mkdir(parent, { recursive: true });

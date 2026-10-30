@@ -195,6 +195,9 @@ test('court sample imports and runs the selected filings through strict replay',
   await page.getByRole('menuitem', { name: 'New variant', exact: true }).click();
   const variantEditor = page.getByRole('complementary', { name: 'Configure variant B' });
   await expect(variantEditor).toBeVisible();
+  await expect(variantEditor.getByText('Loading models…')).toHaveCount(0, { timeout: 60_000 });
+  await expect(variantEditor.getByText('Loading choices…')).toHaveCount(0, { timeout: 60_000 });
+  await expect(variantEditor.getByTestId('field-engine').locator('.engine-selector__trigger')).toBeVisible({ timeout: 60_000 });
   captures.push(await captureCheckpoint(page, { id: 'compare-actions-setup', root: variantEditor, annotations: [] }, stage));
   await variantEditor.getByRole('button', { name: 'Close variant editor' }).click();
   await page.getByTestId('workbench-mainView-tab-' + imported.id).click();
@@ -459,7 +462,7 @@ test('docs workflow: split a PDF packet', async ({ page }) => {
   const sheet = await importCsv(page.request, pid, 'existing.csv', 'name\nExample\n');
   await openProject(page, pid, sheet);
   const output = path.join(process.env.FRISKET_DOCS_PROOF_DIR!, 'pdf-packet');
-  await publishCaptureBundle(output, { appRevision: process.env.FRISKET_DOCS_REVISION!, sample: { id: 'pdf-packet-fixture', revision: 1 } }, async stage => {
+  await publishCaptureBundle(output, { appRevision: process.env.FRISKET_DOCS_REVISION!, fixture: { id: 'pdf-packet-fixture', revision: 1 } }, async stage => {
     const captures = [];
     await page.getByTestId('ribbon-tab-data').click();
     const importButton = page.getByTestId('ribbon-command-import');

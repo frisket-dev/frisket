@@ -42,7 +42,7 @@ test('search, Ask, document, export and skill workflows on a disposable project'
   const output = path.join(process.env.FRISKET_DOCS_PROOF_DIR!, 'search-workflows');
   await publishCaptureBundle(output, {
     appRevision: process.env.FRISKET_DOCS_REVISION!,
-    sample: { id: 'search-workflows-fixture', revision: 1 },
+    fixture: { id: 'search-workflows-fixture', revision: 1 },
   }, async stage => {
     const captures: CaptureRecord[] = [];
     const capture = async (id: string, root: ReturnType<typeof page.locator>) => {

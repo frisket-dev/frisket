@@ -26,7 +26,7 @@ async function openCourtDraft(page: Page) {
   await page.getByRole('button', { name: 'Open in Frisket', exact: true }).click();
   const flow = page.getByTestId('pdf-batch-flow');
   await expect(flow).toHaveAttribute('data-stage', 'check', { timeout: 90_000 });
-  await flow.getByRole('radio', { name: /^None/ }).check();
+  await flow.getByRole('radio', { name: /^None/ }).click();
   await expect(flow.getByRole('radio', { name: /^None/ })).toBeChecked();
   await expect(flow.getByText('Loading choices…')).toHaveCount(0, { timeout: 60_000 });
   return flow;
@@ -106,7 +106,7 @@ test('documentation: import one row per PDF page', async ({ page }) => {
   test.setTimeout(180_000);
   const flow = await openCourtDraft(page);
   await publishCaptureBundle(output('workflow-import-pages'), metadata(), async stage => {
-    await flow.getByRole('radio', { name: /^One row per page/ }).check();
+    await flow.getByRole('radio', { name: /^One row per page/ }).click();
     await expect(flow.getByRole('radio', { name: /^One row per page/ })).toBeChecked();
     const count = flow.getByText(/6 files → \d+ rows?/);
     await expect(count).toBeVisible();
