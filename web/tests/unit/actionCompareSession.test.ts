@@ -299,9 +299,10 @@ describe('action comparison session', () => {
     const startPreview = vi.fn(() => admission.promise);
     const api = {
       startPreview,
-      getPreview: vi.fn(),
+      getPreview: vi.fn().mockResolvedValue({ previewId: 'admitted-after-stop', status: 'cancelled',
+        progress: { done: 0, total: 2, preparation: null }, rows: {}, rowIds: [101, 102], sampled: 2, total: 2, error: null, accounting: null }),
       getContext: vi.fn(),
-      cancelPreview: vi.fn(),
+      cancelPreview: vi.fn().mockResolvedValue(undefined),
     } as unknown as ActionComparisonApi;
     const discardPreview = vi.fn(() => discard.promise);
     const session = createActionCompareSession(
@@ -327,7 +328,7 @@ describe('action comparison session', () => {
       schema_version: 'frisket.action_preview.v1', preview_id: 'admitted-after-stop', total: 2,
     });
     await vi.waitFor(() => expect(discardPreview).toHaveBeenCalledWith('admitted-after-stop'));
-    expect(api.getPreview).not.toHaveBeenCalled();
+    expect(api.getPreview).toHaveBeenCalledWith('admitted-after-stop');
     expect(disposed).toBe(false);
     discard.resolve();
     await disposing;
@@ -430,6 +431,30 @@ describe('actionCompareCellEquality', () => {
 });
 
 describe('createActionCompareRunner', () => {
+  it('retains completed paid work when Stop precedes the preview admission response', async () => {
+    const admission = deferred<Awaited<ReturnType<ActionComparisonApi['startPreview']>>>();
+    const api = { quotePreview: vi.fn().mockResolvedValue({ estimate: { cost: 0.1, rows: 2,
+      billed_cost: 100000, policy_id: 'paid', cost_source: 'external', requires_confirmation: true, promise_set_hash: 'approved-late' } }),
+      startPreview: vi.fn(() => admission.promise),
+      getPreview: vi.fn().mockResolvedValue({ previewId: 'late-paid', status: 'cancelled', progress: { done: 1, total: 2, preparation: null },
+        rows: {}, rowIds: [101, 102], sampled: 2, total: 2, error: null, accounting: null }),
+      cancelPreview: vi.fn().mockResolvedValue(undefined),
+    } as unknown as ActionComparisonApi;
+    const captureComparison = vi.fn().mockResolvedValue({ items: [{ id: 82 }] });
+    const discardCaptured = vi.fn(async () => undefined); const discardPreview = vi.fn(async () => undefined);
+    const session = createActionCompareSession({ context: context() }, { discardCaptured, discardPreview,
+      runVariant: createActionCompareRunner(api, vi.fn().mockResolvedValue(true), { captureComparison, discardCapture: discardCaptured } as never) });
+    session.addVariant(); const running = session.runPending();
+    await vi.waitFor(() => expect(api.startPreview).toHaveBeenCalledTimes(1));
+    session.stop(); admission.resolve({ schema_version: 'frisket.action_preview.v1', preview_id: 'late-paid', total: 2 });
+    await running;
+    expect(session.getSnapshot().variants[1]).toMatchObject({ status: 'cancelled', savedId: 82 });
+    expect(captureComparison).toHaveBeenCalledTimes(1);
+    expect(discardPreview).not.toHaveBeenCalled(); expect(discardCaptured).not.toHaveBeenCalled();
+    await session.dispose();
+    expect(discardPreview).toHaveBeenCalledWith('late-paid'); expect(discardCaptured).toHaveBeenCalledWith(82);
+  });
+
   it('waits for terminal cancellation before retaining a partially completed paid chunk', async () => {
     const events: string[] = [];
     const api = withFreeQuotes({

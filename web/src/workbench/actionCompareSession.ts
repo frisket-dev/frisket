@@ -430,9 +430,10 @@ export function createActionCompareSession(
     const onStarted = (previewId: string) => {
       rememberPreview(previewId);
       const current = snapshot.variants.find((candidate) => candidate.id === variantId);
+      const stoppedCurrent = current?.status === 'cancelled' && current.draftRevision === draftRevision;
       if (activeRun?.variantId !== variantId || activeRun.draftRevision !== draftRevision
-        || current?.draftRevision !== draftRevision || current?.status !== 'running'
-        || controller.signal.aborted || sequence.stopRequested) {
+        || current?.draftRevision !== draftRevision || (current?.status !== 'running' && !stoppedCurrent)
+        || ((controller.signal.aborted || sequence.stopRequested) && !stoppedCurrent)) {
         void discardRememberedPreview(previewId).catch(() => undefined);
         return;
       }
@@ -684,7 +685,10 @@ export function createActionCompareRunner(
     }
 
     onStarted(started.preview_id);
-    if (signal.aborted) return { status: 'cancelled', previewId: started.preview_id };
+    if (signal.aborted) {
+      const terminal = await settleCancelledPreview(started.preview_id);
+      return { status: 'cancelled', previewId: started.preview_id, previewTerminal: terminal !== null && terminal.status !== 'running' };
+    }
     let preview: ActionComparisonPreviewSnapshot | null;
     try {
       preview = await pollComparisonPreview(api, started.preview_id, {
