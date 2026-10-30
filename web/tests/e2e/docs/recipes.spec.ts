@@ -360,7 +360,7 @@ test('docs entry: council source details and Transcribe Compare', async ({ page 
     expect(meetings?.rows).toBe(2);
     await expect(page.getByTestId(`workbench-mainView-tab-${audio.id}`)).toBeVisible();
     await expect(page.getByTestId(`workbench-mainView-tab-${meetings.id}`)).toBeVisible();
-    captures.push(await captureCheckpoint(page, { id: 'council-audio-source', annotations: [] }, stage));
+    captures.push(await captureCheckpoint(page, { id: 'council-audio-source', root: page.locator('.workbench-content'), annotations: [] }, stage));
     await page.getByTestId(`workbench-mainView-tab-${meetings.id}`).click();
     await expect(page.getByTestId('grid')).toBeVisible();
     const columns = await sheetColumns(page.request, pid, meetings.id);
