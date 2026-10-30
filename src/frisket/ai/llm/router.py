@@ -987,19 +987,18 @@ class ModelRouter:
         return [
             replace(
                 response,
-                **redact_value(
-                    {
-                        name: getattr(response, name)
-                        for name in (
-                            "content",
-                            "data",
-                            "raw",
-                            "tool_calls",
-                            "output_tool_call",
-                        )
-                    },
-                    secret_values=secret_values,
-                ),
+                **{
+                    name: redact_value(
+                        getattr(response, name), secret_values=secret_values
+                    )
+                    for name in (
+                        "content",
+                        "data",
+                        "raw",
+                        "tool_calls",
+                        "output_tool_call",
+                    )
+                },
             )
             for response in getattr(error, "wire_calls", [])
         ]

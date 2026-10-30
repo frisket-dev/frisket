@@ -157,6 +157,23 @@ async def test_exhausted_malformed_replies_preserve_usage_and_redact_credentials
 
 
 @pytest.mark.asyncio
+async def test_oversized_invalid_data_cannot_break_error_redaction():
+    content = json.dumps({"summary": [SECRET] * 300})
+    async with provider((content, "stop")) as (router, bodies, policy):
+        with pytest.raises(SchemaViolation) as raised:
+            await router.complete(request())
+    assert len(bodies) == len(policy.responses) == len(raised.value.wire_calls) == 2
+    assert sum(call.tokens_out for call in raised.value.wire_calls) == 34
+    serialized = json.dumps([asdict(call) for call in raised.value.wire_calls])
+    assert SECRET not in serialized
+    assert "[TRUNCATED]" in serialized
+    assert [call.raw["id"] for call in raised.value.wire_calls] == [
+        "response-1",
+        "response-2",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_repair_transport_failure_retains_prior_paid_malformed_call():
     async with provider(
         ("]]]}", "stop"), ("provider refused repair", "http-error")
