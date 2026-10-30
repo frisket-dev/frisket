@@ -6,6 +6,7 @@ import { ImportWorkspaceDialog } from '../components/importWorkspace/ImportWorks
 import { SampleProjectOnboarding } from '../workbench/SampleProjectOnboarding';
 import { ChromeBar } from '../workbench/ChromeBar';
 import { useWalkthrough } from '../walkthrough/context';
+import { MEDIA_COMPARE_COMMAND_BY_ACTION } from '../workbench/mediaCompareSelector';
 import { CompareMenu } from '../workbench/CompareMenu';
 import { ActRibbon } from '../workbench/ActRibbon';
 import { ActMenuBar } from '../workbench/ActMenuBar';
@@ -172,7 +173,7 @@ export const WorkspaceActRegion = memo(function WorkspaceActRegion() {
           onRunAction={launchActionFromSurface}
           onCommand={runActCommand}
           onLaunchContribution={revealPluginLauncher}
-          compareSlot={(tab) => <CompareMenu media={tab === 'media'} runs={expectedAnswers.runChoices} actions={expectedAnswers.actionChoices} onCompareRun={compareActionRun} onCompareAction={(kind) => { if (kind === 'media.ocr') runActCommand('ocr-compare'); else if (kind === 'media.transcribe') runActCommand('transcribe-compare'); else if (kind === 'map.find_topic_sections') runActCommand('topic-compare'); else launchActionFromSurface(kind); }} onJoinExpected={() => expectedAnswers.openJoin()} />}
+          compareSlot={(tab) => <CompareMenu media={tab === 'media'} runs={expectedAnswers.runChoices} actions={expectedAnswers.actionChoices} onCompareRun={compareActionRun} onCompareAction={(kind) => { const command = MEDIA_COMPARE_COMMAND_BY_ACTION[kind]; if (command) runActCommand(command); else launchActionFromSurface(kind); }} onJoinExpected={() => expectedAnswers.openJoin()} />}
           onCollapse={() => setRibbonMode('menu')}
         />
       ) : (
@@ -181,7 +182,7 @@ export const WorkspaceActRegion = memo(function WorkspaceActRegion() {
           onRunAction={launchActionFromSurface}
           onCommand={runActCommand}
           onLaunchContribution={revealPluginLauncher}
-          compareSlot={(tab, close) => <CompareMenu inline onDismiss={close} media={tab === 'media'} runs={expectedAnswers.runChoices} actions={expectedAnswers.actionChoices} onCompareRun={compareActionRun} onCompareAction={(kind) => { if (kind === 'media.ocr') runActCommand('ocr-compare'); else if (kind === 'media.transcribe') runActCommand('transcribe-compare'); else if (kind === 'map.find_topic_sections') runActCommand('topic-compare'); else launchActionFromSurface(kind); }} onJoinExpected={() => expectedAnswers.openJoin()} />}
+          compareSlot={(tab, close) => <CompareMenu inline onDismiss={close} media={tab === 'media'} runs={expectedAnswers.runChoices} actions={expectedAnswers.actionChoices} onCompareRun={compareActionRun} onCompareAction={(kind) => { const command = MEDIA_COMPARE_COMMAND_BY_ACTION[kind]; if (command) runActCommand(command); else launchActionFromSurface(kind); }} onJoinExpected={() => expectedAnswers.openJoin()} />}
           onExpandRibbon={() => setRibbonMode('ribbon')}
         />
       )}
