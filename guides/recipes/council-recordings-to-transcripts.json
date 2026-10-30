@@ -1,0 +1,102 @@
+{
+  "id": "council-recordings-to-transcripts",
+  "title": "Turn council recordings into checked transcripts",
+  "material": "recordings",
+  "sample": {
+    "id": "council-recordings",
+    "revision": 1
+  },
+  "steps": [
+    {
+      "id": "import",
+      "title": "Open the recordings and their source details",
+      "settings": []
+    },
+    {
+      "id": "compare-engines",
+      "title": "Compare engines on the same short passage",
+      "actionId": "media.transcribe",
+      "settings": [
+        {
+          "id": "recording"
+        },
+        {
+          "id": "engines"
+        },
+        {
+          "id": "first-seconds",
+          "value": 30,
+          "target": {
+            "kind": "element",
+            "id": "transcribe-compare-duration"
+          }
+        }
+      ],
+      "captureIds": [
+        "council-engine-comparison"
+      ]
+    },
+    {
+      "id": "transcribe",
+      "title": "Transcribe the recordings",
+      "actionId": "media.transcribe",
+      "settings": [
+        {
+          "id": "source",
+          "param": "source",
+          "value": "media",
+          "target": {
+            "kind": "field",
+            "id": "field-source"
+          }
+        },
+        {
+          "id": "engine",
+          "param": "engine",
+          "target": {
+            "kind": "tour",
+            "id": "action-engine-selector"
+          }
+        },
+        {
+          "id": "transcript",
+          "value": "transcript",
+          "target": {
+            "kind": "field",
+            "id": "field-output-text"
+          }
+        },
+        {
+          "id": "segments",
+          "value": "transcript_segments",
+          "target": {
+            "kind": "field",
+            "id": "field-output-segments"
+          }
+        }
+      ],
+      "captureIds": [
+        "council-transcribe-settings"
+      ]
+    },
+    {
+      "id": "check-transcript",
+      "title": "Read the transcript while listening",
+      "settings": [],
+      "captureIds": [
+        "council-timed-transcript",
+        "council-results"
+      ]
+    }
+  ],
+  "testedIn": [],
+  "expect": {
+    "rowCount": 2,
+    "columns": [
+      "transcript",
+      "transcript_segments"
+    ],
+    "qualityStatus": "pending-real-run",
+    "review": "Each transcript belongs to its source recording. Open Document and check that timestamped phrases seek the matching audio; listen before quoting a name, amount or decision."
+  }
+}
