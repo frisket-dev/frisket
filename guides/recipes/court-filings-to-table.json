@@ -141,7 +141,10 @@
           "value": "selected"
         }
       ],
-      "optional": true
+      "optional": true,
+      "captureIds": [
+        "court-preview"
+      ]
     },
     {
       "id": "sample-run",

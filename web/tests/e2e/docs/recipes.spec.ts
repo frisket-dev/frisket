@@ -106,6 +106,19 @@ test('court sample imports and runs the selected filings through strict replay',
     { id: 'instruction', number: 5, target: { kind: 'field', id: 'field-instruction' }, label: 'Instruction', expected: { kind: 'value', value: settings.instruction } },
     { id: 'citations', number: 6, target: { kind: 'field', id: 'field-citation_mode' }, label: 'Citations', labelTarget: page.getByText('Citations', { exact: true }), expected: { kind: 'value', value: 'cite' } },
   ] }, stage));
+  await expect(page.locator('.run-scope-summary')).toContainText('3 selected rows');
+  await page.getByTestId('generated-action-preview').click();
+  const previewGate = page.getByTestId('cost-gate-modal');
+  if (await previewGate.isVisible({ timeout: 2_000 }).catch(() => false)) {
+    const input = page.getByTestId('cost-gate-input');
+    if (await input.isVisible()) await input.fill('confirm');
+    await page.getByTestId('cost-gate-confirm').click();
+  }
+  await expect(page.getByTestId('preview-tab-banner')).toHaveAttribute('data-status', 'done', { timeout: 120_000 });
+  await expect(page.getByTestId('preview-run-for-real-button')).toBeVisible();
+  captures.push(await captureCheckpoint(page, { id: 'court-preview', root: page.getByTestId('workbench-region-mainView'), annotations: [] }, stage));
+  await page.getByTestId('preview-close-button').click();
+  await expect(page.getByTestId('preview-tab-banner')).toHaveCount(0);
   await page.getByTestId('generated-action-run-scope-menu-button').click();
   await expect(page.getByTestId('generated-action-row-scope-selected')).toContainText('3 selected');
   const start = page.waitForResponse(response => response.url().endsWith('/actions/v1/run') && response.request().method() === 'POST', { timeout: 60_000 });
@@ -241,7 +254,7 @@ test('court sample imports and runs the selected filings through strict replay',
   await page.getByTestId('field-engine').locator('.engine-selector__trigger').click();
   await expect(page.getByTestId('engine-selector-dialog')).toBeVisible();
   captures.push(await captureCheckpoint(page, { id: 'court-ocr-engine', root: page.getByTestId('engine-selector-dialog'), annotations: [] }, stage));
-  const required = ['court-check-text', 'court-extract-settings', 'court-extract-fields', 'court-extract-instruction', 'court-sample-run', 'court-expected-join', 'court-comparison', 'court-run-settings', 'court-results', 'court-ocr-settings', 'court-ocr-engine'];
+  const required = ['court-check-text', 'court-extract-settings', 'court-extract-fields', 'court-extract-instruction', 'court-preview', 'court-sample-run', 'court-expected-join', 'court-comparison', 'court-run-settings', 'court-results', 'court-ocr-settings', 'court-ocr-engine'];
   expect(captures.map(item => item.id)).toEqual(required);
   return captures;
   });
