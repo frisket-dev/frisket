@@ -39,10 +39,12 @@ are CC0 recordings with their source links in the Council meetings sheet.
 
 Current checkpoint IDs:
 
-- `court-check-text`, `court-extract-settings`, `court-sample-run`,
+- `court-check-text`, `court-extract-settings`, `court-extract-fields`,
+  `court-extract-instruction`, `court-sample-run`,
   `court-expected-join`, `court-comparison`, `court-run-settings`, `court-results`
 - `council-engine-comparison` (always visible in the recipe),
-  `council-transcribe-settings`, `council-timed-transcript`, `council-results`
+  `council-transcribe-settings`, `council-transcribe-outputs`,
+  `council-timed-transcript`, `council-results`
 
 The court comparison needs a real persisted action with output columns. Select
 the three named sample filings, optionally Preview, then Run on selected before
@@ -52,8 +54,16 @@ Only after comparing this small sample should you run all six filings.
 The court comparison joins the imported Expected sheet by original PDF filename
 and maps only the four extraction fields. Use exact text matching and the date
 rule for `filed_at`. The recordings comparison uses the same first 30 seconds
-with two available engines before the full transcription. Record actual engine
-IDs and results during capture; do not manufacture comparison output.
+with two available engines before the full transcription. The recorded court setup uses source `text`, engine `llm` and model
+`gemini/gemini-3.5-flash-lite`; its filename join uses target `filename`.
+The council comparison uses `faster_whisper` with `base` and
+`openrouter/microsoft/mai-transcribe-2`; full-sheet transcription uses the local
+`faster_whisper` base model. Preserve actual results during capture.
 
 Plans describe supported steps; they do not execute jobs, authorize payment,
 or bypass the app's normal model/download and cost confirmation paths.
+
+PDF import choices use accessible radio targets: `{kind: "radio", group, value}`.
+For these controls, capture resolves the radio group/name and value, checks its
+associated visible option label and checked state, and measures the same control.
+The `None` choice in this recipe does not execute the OCR action.

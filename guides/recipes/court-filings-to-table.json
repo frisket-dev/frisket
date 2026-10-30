@@ -20,23 +20,24 @@
           "id": "ocr-policy",
           "value": "none",
           "target": {
-            "kind": "tour",
-            "id": "pdf-import-ocr-policy"
+            "kind": "radio",
+            "group": "pdf-batch-ocr-policy",
+            "value": "none"
           }
         },
         {
           "id": "organization",
           "value": "keep_documents",
           "target": {
-            "kind": "tour",
-            "id": "pdf-import-organization"
+            "kind": "radio",
+            "group": "pdf-batch-organization",
+            "value": "keep_documents"
           }
         }
       ],
       "captureIds": [
         "court-check-text"
-      ],
-      "actionId": "media.ocr"
+      ]
     },
     {
       "id": "extract",
@@ -49,7 +50,10 @@
           "target": {
             "kind": "field",
             "id": "text-source-columns"
-          }
+          },
+          "value": [
+            "text"
+          ]
         },
         {
           "id": "engine",
@@ -57,7 +61,13 @@
           "target": {
             "kind": "tour",
             "id": "action-engine-selector"
-          }
+          },
+          "value": "llm"
+        },
+        {
+          "id": "model",
+          "param": "model",
+          "value": "gemini/gemini-3.5-flash-lite"
         },
         {
           "id": "fields",
@@ -112,7 +122,9 @@
         }
       ],
       "captureIds": [
-        "court-extract-settings"
+        "court-extract-settings",
+        "court-extract-fields",
+        "court-extract-instruction"
       ]
     },
     {
@@ -151,7 +163,7 @@
     },
     {
       "id": "compare-expected",
-      "title": "Compare the preview with expected answers",
+      "title": "Compare the saved sample with expected answers",
       "actionId": "map.extract",
       "settings": [
         {
@@ -163,7 +175,8 @@
           "value": "pdf_filename"
         },
         {
-          "id": "target-key"
+          "id": "target-key",
+          "value": "filename"
         },
         {
           "id": "field-mappings",

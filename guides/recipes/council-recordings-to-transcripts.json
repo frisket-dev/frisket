@@ -18,10 +18,20 @@
       "actionId": "media.transcribe",
       "settings": [
         {
-          "id": "recording"
+          "id": "recording",
+          "value": "ann-arbor-policy-committee-2022-04-19-excerpt.mp3"
         },
         {
-          "id": "engines"
+          "id": "engines",
+          "value": [
+            {
+              "engine": "faster_whisper",
+              "model_size": "base"
+            },
+            {
+              "engine": "openrouter/microsoft/mai-transcribe-2"
+            }
+          ]
         },
         {
           "id": "first-seconds",
@@ -56,6 +66,16 @@
           "target": {
             "kind": "tour",
             "id": "action-engine-selector"
+          },
+          "value": "faster_whisper"
+        },
+        {
+          "id": "model-size",
+          "param": "model_size",
+          "value": "base",
+          "target": {
+            "kind": "field",
+            "id": "field-model_size"
           }
         },
         {
@@ -76,7 +96,8 @@
         }
       ],
       "captureIds": [
-        "council-transcribe-settings"
+        "council-transcribe-settings",
+        "council-transcribe-outputs"
       ]
     },
     {
