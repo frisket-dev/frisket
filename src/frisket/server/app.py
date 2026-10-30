@@ -795,7 +795,9 @@ def create_app(
         on_commit_ready=enqueue_pdf_import_continuation,
     )
     app.state.pdf_import_service = pdf_import_service
-    register_guide_sample_routes(app, service=GuideSampleService(ws, pdf_import_service))
+    register_guide_sample_routes(
+        app, service=GuideSampleService(ws, pdf_import_service)
+    )
     pdf_import_commit_service = PdfImportCommitService(
         ws, intake=pdf_import_service, text_preparation=search_preparation_service
     )
