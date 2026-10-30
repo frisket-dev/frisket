@@ -69,8 +69,8 @@ describe('Try several', () => {
     const { session, Editor } = fixture(8, null, 'engine');
     render(<Editor session={session} />);
     expect(screen.getByRole('dialog', { name: 'Try several values' })).toBeVisible();
-    fireEvent.change(screen.getByLabelText('Model 1'), { target: { value: 'litellm' } });
-    expect(screen.getByLabelText('Model 1')).toHaveAttribute('data-model-only', 'true');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Model 1' }), { target: { value: 'litellm' } });
+    expect(screen.getByRole('textbox', { name: 'Model 1' })).toHaveAttribute('data-model-only', 'true');
     expect(screen.getByText('Model: Friendly litellm')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Run 1 combinations' }));
     expect(session.getSnapshot().variants[1].draft.params).toMatchObject({ engine: 'litellm', model: 'chosen/model',
@@ -80,7 +80,7 @@ describe('Try several', () => {
     const { session, runPending, Editor } = fixture();
     render(<Editor session={session} />);
     fireEvent.click(screen.getByRole('button', { name: 'Add model' }));
-    fireEvent.change(screen.getByLabelText('Model 2'), { target: { value: 'model-b' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Model 2' }), { target: { value: 'model-b' } });
     fireEvent.click(screen.getByRole('button', { name: 'Add instructions' }));
     fireEvent.change(screen.getByLabelText('Instructions 2'), { target: { value: 'alternative' } });
     fireEvent.click(screen.getByRole('button', { name: 'Add instructions' }));
