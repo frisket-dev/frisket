@@ -14,9 +14,11 @@ export interface ComparisonReviewProps {
   mode: 'inspect' | 'score' | 'disagreements';
   groups: Array<{ key: string; answerText: string; variantKeys: string[];
     verdict: 'match' | 'miss' | 'not_checked' | 'to_score' | 'failed' | 'not_run';
-    canSelect?: boolean; field?: ReviewBundleField }>;
+    canSelect?: boolean; field?: ReviewBundleField; valueContent?: ReactNode }>;
   expectedValue: string;
   expectedField?: ReviewBundleField;
+  expectedContent?: ReactNode;
+  expectedEditable?: boolean;
   rule: ComparisonReviewRule;
   busy: boolean;
   error?: string | null;
@@ -92,17 +94,17 @@ function ComparisonReviewRow(p: ComparisonReviewProps) {
               <button type="button" className={styles.reject} aria-label={`Reject answer ${index + 1}`} title="Reject (→ or D)"
                 aria-pressed={group.verdict === 'miss'} disabled={p.busy || !selectable(group)} onClick={() => p.onReject(group.key)}><X size={16} /></button>
             </div>
-            <div className={styles.value}>{group.field ? <ReviewValue field={group.field} /> : group.answerText || <em>empty answer</em>}</div>
+            <div className={styles.value}>{group.valueContent ?? (group.field ? <ReviewValue field={group.field} /> : group.answerText || <em>empty answer</em>)}</div>
             {p.mode === 'disagreements' && group.field?.boundedValue && <p className={styles.editUnavailable}>Only an excerpt is shown; it cannot be selected as the expected answer.</p>}
           </section>)}
           <section className={styles.field}>
             <span className={styles.fieldHeading}><strong>Expected answer</strong></span>
             {p.mode !== 'disagreements' && <button type="button" className={styles.textButton} aria-label="Edit expected answer"
-              disabled={p.busy || Boolean(p.expectedField?.boundedValue)} onClick={() => setEditing(!editing)}><Pencil size={14} /></button>}
-            {showEditor && !p.expectedField?.boundedValue ? <div className={styles.editor}>
+              disabled={p.busy || p.expectedEditable === false || Boolean(p.expectedField?.boundedValue)} onClick={() => setEditing(!editing)}><Pencil size={14} /></button>}
+            {showEditor && p.expectedEditable !== false && !p.expectedField?.boundedValue ? <div className={styles.editor}>
               <textarea className="form-input form-textarea" aria-label="Expected answer" value={p.expectedValue} disabled={p.busy}
                 onChange={(event) => p.onExpectedChange(event.target.value)} />
-            </div> : <div className={styles.value}>{p.expectedField ? <ReviewValue field={p.expectedField} /> : p.expectedValue || <em>Not checked</em>}</div>}
+            </div> : <div className={styles.value}>{p.expectedContent ?? (p.expectedField ? <ReviewValue field={p.expectedField} /> : p.expectedValue || <em>Not checked</em>)}</div>}
             {p.expectedField?.boundedValue && <p className={styles.editUnavailable}>Only an excerpt is shown; editing is unavailable.</p>}
             <label className={styles.value}>Match rule{' '}
               <select aria-label="Match rule" value={p.rule} disabled={p.busy} onChange={(event) => p.onRuleChange(event.target.value as ComparisonReviewRule)}>

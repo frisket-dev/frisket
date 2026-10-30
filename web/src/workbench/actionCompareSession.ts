@@ -5,10 +5,13 @@ import type {
   ActionComparisonCellOrigin,
   ActionComparisonContext,
   ActionComparisonPreviewSnapshot,
+  ActionComparisonPreviewRequest,
 } from '../api/actionComparison';
 import { ApiError, ConfirmationRequiredError } from '../api/contractErrors';
 import { pollPreviewJob } from '../api/previewJobTransport';
-import { freshActionRequestKey, type GeneratedActionDraft, type JsonValue, type RegisteredActionRequest, type RunEstimate } from '../api/types';
+import { type GeneratedActionDraft, type JsonValue, type RunEstimate } from '../api/types';
+import type { EvaluationApi, EvaluationBoundedValue } from '../api/evaluation';
+import { prepareComparisonQuotePlan } from './evaluation/comparisonQuotePlan';
 import { jsonValuesEqual } from '../actions/canonicalJson';
 
 export type ActionCompareVariantStatus =
@@ -23,6 +26,7 @@ export interface ActionCompareResultCell {
   bounded_value?: ActionComparisonBoundedValue | null;
   origin?: ActionComparisonCellOrigin;
   error?: string | null;
+  evaluationValue?: EvaluationBoundedValue | null;
 }
 
 export interface ActionCompareVariantResult {
@@ -71,22 +75,26 @@ export interface ActionCompareSessionSnapshot {
 
 export type ActionCompareRunOutcome =
   | { status: 'ready'; previewId: string; result: ActionCompareVariantResult }
-  | { status: 'failed'; previewId?: string | null; error: string }
+  | { status: 'failed'; previewId?: string | null; error: string; requiresRequote?: boolean }
   | { status: 'cancelled'; previewId?: string | null }
   | { status: 'unavailable'; previewId?: string | null; error?: string };
 
-export type ActionCompareVariantRun = (args: {
+export type ActionCompareVariantRun = ((args: {
   context: ActionComparisonContext;
   variant: Readonly<ActionCompareVariant>;
   signal: AbortSignal;
   onStarted(previewId: string): void;
   onPartial?(result: ActionCompareVariantResult): void;
-}) => Promise<ActionCompareRunOutcome>;
+  onCaptured?(savedId: number): void;
+}) => Promise<ActionCompareRunOutcome>) & {
+  prepareSequence?(args: { context: ActionComparisonContext; variants: readonly ActionCompareVariant[]; signal: AbortSignal }): Promise<boolean>;
+};
 
 export interface ActionCompareSessionDependencies {
   runVariant: ActionCompareVariantRun;
   cancelPreview?(previewId: string): Promise<void>;
   discardPreview?(previewId: string): Promise<void>;
+  discardCaptured?(savedId: number): Promise<void>;
   createId?(): string;
   labelForDraft?(draft: GeneratedActionDraft, displayKey: string): string;
 }
@@ -210,7 +218,7 @@ export function actionCompareCellEquality(
   left: ActionCompareResultCell | undefined,
   right: ActionCompareResultCell | undefined,
 ): ActionCompareCellEquality {
-  if (!left || !right || left.bounded_value || right.bounded_value) return 'not_comparable';
+  if (!left || !right || left.bounded_value || right.bounded_value || left.evaluationValue || right.evaluationValue) return 'not_comparable';
   const leftSuccessful = left.state === 'value' || left.state === 'null';
   const rightSuccessful = right.state === 'value' || right.state === 'null';
   if (!leftSuccessful || !rightSuccessful) return 'not_comparable';
@@ -229,7 +237,8 @@ export function createActionCompareSession(
   const createId = dependencies.createId ?? defaultId;
   const previewIds = new Set<string>();
   const previewDiscards = new Map<string, Promise<void>>();
-  let activeSequence: { stopRequested: boolean; promise: Promise<void> } | null = null;
+  const capturedIds = new Set<number>();
+  let activeSequence: { stopRequested: boolean; promise: Promise<void>; controller: AbortController; preparing: boolean } | null = null;
   let activeRun: {
     variantId: string;
     draftRevision: number;
@@ -310,6 +319,7 @@ export function createActionCompareSession(
       return key;
     }).find((key) => key !== 'A' && !used.has(key));
     if (!displayKey) return null;
+    if (activeSequence?.preparing) { activeSequence.stopRequested = true; activeSequence.controller.abort(); }
     const source = snapshot.variants.find((variant) => variant.id === fromVariantId) ?? snapshot.variants[0];
     const id = createId();
     const draft = cloneDraft(source.draft);
@@ -349,6 +359,7 @@ export function createActionCompareSession(
   function updateVariant(variantId: string, draft: GeneratedActionDraft): boolean {
     const current = snapshot.variants.find((variant) => variant.id === variantId);
     if (!current || current.baseline || current.readOnly || snapshot.disposed) return false;
+    if (activeSequence?.preparing) { activeSequence.stopRequested = true; activeSequence.controller.abort(); }
     cancelActive(variantId);
     return replaceVariant(variantId, (variant) => ({
       ...variant,
@@ -358,6 +369,7 @@ export function createActionCompareSession(
       status: 'pending',
       previewId: null,
       previewIds: [],
+      savedId: undefined,
       previousResult: variant.result ?? variant.previousResult,
       result: null,
       error: null,
@@ -367,9 +379,13 @@ export function createActionCompareSession(
   function removeVariant(variantId: string): boolean {
     const variant = snapshot.variants.find((candidate) => candidate.id === variantId);
     if (!variant || variant.baseline || snapshot.disposed) return false;
+    if (activeSequence?.preparing) { activeSequence.stopRequested = true; activeSequence.controller.abort(); }
     cancelActive(variantId);
     for (const previewId of variant.previewIds ?? (variant.previewId ? [variant.previewId] : [])) {
       void discardRememberedPreview(previewId).catch(() => undefined);
+    }
+    if (variant.savedId !== undefined && !variant.readOnly) {
+      void dependencies.discardCaptured?.(variant.savedId).then(() => capturedIds.delete(variant.savedId!)).catch(() => undefined);
     }
     publish({ variants: snapshot.variants.filter((candidate) => candidate.id !== variantId) });
     return true;
@@ -378,7 +394,7 @@ export function createActionCompareSession(
   function retryVariant(variantId: string): boolean {
     const current = snapshot.variants.find((variant) => variant.id === variantId);
     if (!current || current.readOnly || !['failed', 'cancelled', 'unavailable'].includes(current.status)) return false;
-    return replaceVariant(variantId, (variant) => ({ ...variant, status: 'pending', previewId: null, previewIds: [], error: null }));
+    return replaceVariant(variantId, (variant) => ({ ...variant, status: 'pending', previewId: null, previewIds: [], savedId: undefined, error: null }));
   }
 
   function markPreviewUnavailable(previewId: string): boolean {
@@ -432,6 +448,15 @@ export function createActionCompareSession(
             replaceVariant(variantId, (candidate) => ({ ...candidate, result: cloneJson(result) }));
           }
         },
+        onCaptured: (savedId) => {
+          capturedIds.add(savedId);
+          const latest = snapshot.variants.find((candidate) => candidate.id === variantId);
+          if (latest?.draftRevision === draftRevision && latest.status === 'running' && !controller.signal.aborted) {
+            replaceVariant(variantId, (candidate) => ({ ...candidate, savedId }));
+          } else {
+            void dependencies.discardCaptured?.(savedId).then(() => capturedIds.delete(savedId)).catch(() => undefined);
+          }
+        },
       });
     } catch (error) {
       outcome = controller.signal.aborted || aborted(error)
@@ -471,20 +496,30 @@ export function createActionCompareSession(
       activeRun = null;
       publish({ activeVariantId: null });
     }
-    return outcome.status === 'cancelled' ? 'stop' : 'continue';
+    return outcome.status === 'cancelled' || (outcome.status === 'failed' && outcome.requiresRequote) ? 'stop' : 'continue';
   }
 
   function runPending(): Promise<void> {
     if (snapshot.disposed) return Promise.resolve();
     if (activeSequence) return activeSequence.promise;
-    const sequence = { stopRequested: false, promise: Promise.resolve() };
+    const sequence = { stopRequested: false, promise: Promise.resolve(), controller: new AbortController(), preparing: true };
     activeSequence = sequence;
     publish({ sequenceStatus: 'running' });
     const variantIds = snapshot.variants.filter((variant) => variant.status === 'pending').map((variant) => variant.id);
     sequence.promise = (async () => {
       let cancelled = false;
+      try {
+        const approved = await dependencies.runVariant.prepareSequence?.({ context: snapshot.context,
+          variants: snapshot.variants.filter((variant) => variant.status === 'pending').map(cloneJson), signal: sequence.controller.signal });
+        if (approved === false || sequence.stopRequested) cancelled = true;
+      } catch (error) {
+        const first = variantIds[0];
+        if (first && !sequence.stopRequested) replaceVariant(first, (variant) => ({ ...variant, status: 'failed', error: error instanceof Error ? error.message : String(error) }));
+        cancelled = true;
+      }
+      sequence.preparing = false;
       for (const variantId of variantIds) {
-        if (sequence.stopRequested) { cancelled = true; break; }
+        if (cancelled || sequence.stopRequested) { cancelled = true; break; }
         if (await runOne(variantId, sequence) === 'stop') { cancelled = true; break; }
       }
       if (activeSequence === sequence) {
@@ -500,7 +535,7 @@ export function createActionCompareSession(
 
   function stop(): void {
     if (!activeSequence && !activeRun) return;
-    if (activeSequence) activeSequence.stopRequested = true;
+    if (activeSequence) { activeSequence.stopRequested = true; activeSequence.controller.abort(); }
     const runningId = activeRun?.variantId;
     cancelActive();
     if (runningId) {
@@ -541,6 +576,8 @@ export function createActionCompareSession(
     stop();
     await activeSequence?.promise;
     await Promise.allSettled([...previewIds].map(discardRememberedPreview));
+    await Promise.allSettled([...capturedIds].map((id) => dependencies.discardCaptured?.(id)));
+    capturedIds.clear();
     previewIds.clear();
   }
 
@@ -590,48 +627,23 @@ const pollComparisonPreview = pollPreviewJob as unknown as GenericPreviewPoll;
 export function createActionCompareRunner(
   api: ActionComparisonApi,
   requestCostConfirmation: ActionCompareCostConfirmation,
+  evaluationApi?: Pick<EvaluationApi, 'captureComparison' | 'discardCapture'>,
 ): ActionCompareVariantRun {
-  const runChunk: ActionCompareVariantRun = async ({ context, variant, signal, onStarted }) => {
+  const runChunk = async ({ context, variant, signal, onStarted }: Parameters<ActionCompareVariantRun>[0], request: ActionComparisonPreviewRequest): Promise<ActionCompareRunOutcome> => {
     if (!context.available) {
       return { status: 'failed', error: context.reason?.message ?? 'This action cannot be compared.' };
     }
     if (variant.draft.scope.kind !== 'sheet_rows') {
       return { status: 'failed', error: 'Action comparison requires a sheet-row action.' };
     }
-    let action: RegisteredActionRequest = {
-      ...cloneDraft(variant.draft),
-      scope: {
-        ...variant.draft.scope,
-        row_ids: [...context.sample_row_ids],
-      },
-      idempotency_key: freshActionRequestKey(variant.draft.action_id),
-    };
     let started: Awaited<ReturnType<ActionComparisonApi['startPreview']>>;
-    while (true) {
+    if (signal.aborted) return { status: 'cancelled' };
+    try { started = await api.startPreview(request); }
+    catch (error) {
       if (signal.aborted) return { status: 'cancelled' };
-      try {
-        started = await api.startPreview({
-          action,
-          comparison: {
-            basis: context.comparison_basis,
-            expected_output_signature: context.expected_output_signature,
-          },
-        });
-        break;
-      } catch (error) {
-        if (signal.aborted) return { status: 'cancelled' };
-        if (!(error instanceof ConfirmationRequiredError)) {
-          return { status: 'failed', error: error instanceof Error ? error.message : String(error) };
-        }
-        const approved = await requestCostConfirmation(error.estimate, error.message, signal);
-        if (!approved || signal.aborted) return { status: 'cancelled' };
-        if (!error.estimate.promise_set_hash) {
-          return { status: 'failed', error: 'The server did not provide the confirmation hash for this preview.' };
-        }
-        // Preserve the exact draft, scope and retry identity that produced this
-        // variant's 402. Only its own confirmation fact is added.
-        action = { ...action, confirmation: error.estimate.promise_set_hash };
-      }
+      if (error instanceof ConfirmationRequiredError) return { status: 'failed', requiresRequote: true,
+        error: 'The comparison quote changed. Retry this variant to approve a fresh comparison quote.' };
+      return { status: 'failed', error: error instanceof Error ? error.message : String(error) };
     }
 
     onStarted(started.preview_id);
@@ -686,20 +698,54 @@ export function createActionCompareRunner(
     };
   };
 
-  return async ({ context, variant, signal, onStarted, onPartial }) => {
+  let quoted: Record<string, { revision: number; context: string; requests: ActionComparisonPreviewRequest[] }> = {};
+  const contextIdentity = (context: ActionComparisonContext) => JSON.stringify([context.comparison_basis, context.sample_row_ids, context.expected_output_signature]);
+  const prepareSequence: NonNullable<ActionCompareVariantRun['prepareSequence']> = async ({ context, variants, signal }) => {
+    quoted = {};
+    const plan = await prepareComparisonQuotePlan({ context, variants, quote: request => api.quotePreview(request, { signal }),
+      confirm: requestCostConfirmation, signal });
+    if (!plan.approved || signal.aborted) return false;
+    quoted = Object.fromEntries(variants.map((variant) => [variant.id, { revision: variant.draftRevision,
+      context: contextIdentity(context), requests: plan.chunks[variant.id] ?? [] }]));
+    return true;
+  };
+  const runner: ActionCompareVariantRun = async ({ context, variant, signal, onStarted, onPartial, onCaptured }) => {
+    if (!quoted[variant.id] && !await prepareSequence({ context, variants: [variant], signal })) return { status: 'cancelled' };
+    const plan = quoted[variant.id];
+    if (!plan || plan.revision !== variant.draftRevision || plan.context !== contextIdentity(context)) return {
+      status: 'failed', requiresRequote: true, error: 'Comparison settings changed. Retry this variant to approve a fresh comparison quote.',
+    };
     // Ordinary previews retain their 20-row boundary. A comparison owns the
     // sequence of admitted chunks and their result/consent identities.
     const result: ActionCompareVariantResult = { rows: {} };
     let lastPreviewId = '';
-    for (let offset = 0; offset < context.sample_row_ids.length; offset += 20) {
+    let capturedId: number | undefined;
+    for (let chunkIndex = 0; chunkIndex < plan.requests.length; chunkIndex += 1) {
       if (signal.aborted) return { status: 'cancelled', previewId: lastPreviewId || null };
-      const rows = context.sample_row_ids.slice(offset, offset + 20);
-      const outcome = await runChunk({ context: { ...context, sample_row_ids: rows }, variant, signal, onStarted });
+      const request = plan.requests[chunkIndex];
+      const rows = request.action.scope.row_ids ?? [];
+      const outcome = await runChunk({ context: { ...context, sample_row_ids: rows }, variant, signal, onStarted }, request);
       if (outcome.status !== 'ready') return outcome;
       lastPreviewId = outcome.previewId;
       Object.assign(result.rows, outcome.result.rows);
       onPartial?.(result);
+      if (evaluationApi) {
+        try {
+          const capture = await evaluationApi.captureComparison({ comparison: {
+            basis: context.comparison_basis, row_ids: rows, link_id: null,
+            variants: [{ key: variant.displayKey, label: variant.label, source: { kind: 'preview', preview_ids: [outcome.previewId] } }],
+          }, variant_keys: [variant.displayKey], ...(capturedId === undefined ? {} : { target_id: capturedId }) });
+          const saved = capture.items[0];
+          if (!saved) throw new Error('The comparison outputs could not be retained.');
+          capturedId = saved.id;
+          onCaptured?.(capturedId);
+        } catch (error) {
+          return { status: 'failed', previewId: lastPreviewId, error: error instanceof Error ? error.message : String(error) };
+        }
+      }
     }
     return { status: 'ready', previewId: lastPreviewId, result };
   };
+  runner.prepareSequence = prepareSequence;
+  return runner;
 }

@@ -92,6 +92,14 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+function withFreeQuotes(api: ActionComparisonApi): ActionComparisonApi {
+  return { ...api, quotePreview: api.quotePreview ?? vi.fn().mockResolvedValue({
+    schema_version: 'frisket.action_compare_quote.v1', estimate: {
+      cost: 0, rows: 2, billed_cost: 0, policy_id: 'test', cost_source: 'free_local', requires_confirmation: false, claims: [],
+    },
+  }) };
+}
+
 describe('action comparison session', () => {
   it('honors server capacity for five variants and retains the complete expected-row scope', async () => {
     const seed = context();
@@ -269,13 +277,13 @@ describe('action comparison session', () => {
     const session = createActionCompareSession(
       { context: context() },
       {
-        runVariant: createActionCompareRunner(api, vi.fn()),
+        runVariant: createActionCompareRunner(withFreeQuotes(api), vi.fn()),
         discardPreview,
       },
     );
     session.addVariant();
     const running = session.runPending();
-    await Promise.resolve();
+    await vi.waitFor(() => expect(startPreview).toHaveBeenCalledTimes(1));
 
     const disposing = session.dispose();
     let disposed = false;
@@ -392,6 +400,48 @@ describe('actionCompareCellEquality', () => {
 });
 
 describe('createActionCompareRunner', () => {
+  it('retains each completed chunk durably before starting the next chunk', async () => {
+    const seed = context('preview');
+    seed.sample_row_ids = Array.from({ length: 38 }, (_, index) => 101 + index);
+    const requests: number[][] = [];
+    const events: string[] = [];
+    const api = withFreeQuotes({
+      startPreview: vi.fn(async ({ action }: Parameters<ActionComparisonApi['startPreview']>[0]) => {
+        const rows = action.scope.kind === 'sheet_rows' ? action.scope.row_ids ?? [] : [];
+        requests.push(rows); events.push(`start-${requests.length}`);
+        return { schema_version: 'frisket.action_preview.v1', preview_id: `chunk-${requests.length}`, total: rows.length };
+      }),
+      getPreview: vi.fn(async (id: string) => ({ previewId: id, status: 'done', progress: { done: 20, total: 20, preparation: null },
+        rows: Object.fromEntries(requests[Number(id.split('-')[1]) - 1].map((rowId) => [rowId, { answer: valueCell(`Row ${rowId}`) }])), rowIds: [], sampled: 20, total: 20, error: null, accounting: null })),
+      cancelPreview: vi.fn(),
+    } as unknown as ActionComparisonApi);
+    const captureComparison = vi.fn(async () => { events.push(`capture-${requests.length}`); return { items: [{ id: 77 }] }; });
+    const onCaptured = vi.fn();
+    const variant = createActionCompareSession({ context: seed }, { runVariant: vi.fn() }).getSnapshot().variants[0];
+    const outcome = await createActionCompareRunner(api, vi.fn(), { captureComparison, discardCapture: vi.fn() } as never)({ context: seed, variant, signal: new AbortController().signal, onStarted: vi.fn(), onCaptured });
+    expect(outcome.status).toBe('ready');
+    expect(events).toEqual(['start-1', 'capture-1', 'start-2', 'capture-2']);
+    expect(captureComparison.mock.calls[0][0]).not.toHaveProperty('target_id');
+    expect(captureComparison.mock.calls[1][0]).toMatchObject({ target_id: 77, comparison: { row_ids: requests[1] } });
+    expect(onCaptured.mock.calls).toEqual([[77], [77]]);
+  });
+
+  it('stops the approved sequence on a new 402 without accepting replacement authority', async () => {
+    const estimate = { cost: 0.1, rows: 2, billed_cost: 100000, policy_id: 'paid', cost_source: 'external', requires_confirmation: true, promise_set_hash: 'quoted' };
+    const api = { quotePreview: vi.fn().mockResolvedValue({ estimate }),
+      startPreview: vi.fn().mockRejectedValue(new ConfirmationRequiredError({ ...estimate, promise_set_hash: 'changed' }, 'New cost')),
+      getPreview: vi.fn(), cancelPreview: vi.fn() } as unknown as ActionComparisonApi;
+    const confirm = vi.fn().mockResolvedValue(true);
+    const session = createActionCompareSession({ context: context() }, { runVariant: createActionCompareRunner(api, confirm) });
+    session.addVariant(); session.addVariant();
+    await session.runPending();
+    expect(api.quotePreview).toHaveBeenCalledTimes(2);
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(api.startPreview).toHaveBeenCalledTimes(1);
+    expect(session.getSnapshot().sequenceStatus).toBe('cancelled');
+    expect(session.getSnapshot().variants.slice(1).map((variant) => variant.status)).toEqual(['failed', 'pending']);
+  });
+
   it('runs 38 expected rows in ordinary preview chunks and merges their results', async () => {
     const seed = context('preview');
     seed.sample_row_ids = Array.from({ length: 38 }, (_, index) => 101 + index);
@@ -411,7 +461,7 @@ describe('createActionCompareRunner', () => {
     } as unknown as ActionComparisonApi;
     const onStarted = vi.fn();
     const variant = createActionCompareSession({ context: seed }, { runVariant: vi.fn() }).getSnapshot().variants[0];
-    const outcome = await createActionCompareRunner(api, vi.fn())({ context: seed, variant, signal: new AbortController().signal, onStarted });
+    const outcome = await createActionCompareRunner(withFreeQuotes(api), vi.fn())({ context: seed, variant, signal: new AbortController().signal, onStarted });
     expect(requests.map((rows) => rows.length)).toEqual([20, 18]);
     expect(requests.flat()).toEqual(seed.sample_row_ids);
     expect(onStarted.mock.calls.map(([id]) => id)).toEqual(['chunk-1', 'chunk-2']);
@@ -434,7 +484,7 @@ describe('createActionCompareRunner', () => {
     } as unknown as ActionComparisonApi;
     const confirm = vi.fn();
     const started = vi.fn();
-    const runner = createActionCompareRunner(api, confirm);
+    const runner = createActionCompareRunner(withFreeQuotes(api), confirm);
 
     const outcome = await runner({
       context: context('preview'),
@@ -483,7 +533,7 @@ describe('createActionCompareRunner', () => {
     const variant = createActionCompareSession({ context: renamed }, { runVariant: vi.fn() })
       .getSnapshot().variants[0];
 
-    const outcome = await createActionCompareRunner(api, vi.fn())({
+    const outcome = await createActionCompareRunner(withFreeQuotes(api), vi.fn())({
       context: renamed, variant, signal: new AbortController().signal, onStarted: vi.fn(),
     });
 
@@ -516,7 +566,7 @@ describe('createActionCompareRunner', () => {
     const variant = createActionCompareSession({ context: base }, { runVariant: vi.fn() })
       .getSnapshot().variants[0];
 
-    const unknown = await createActionCompareRunner(api, vi.fn())({
+    const unknown = await createActionCompareRunner(withFreeQuotes(api), vi.fn())({
       context: base, variant, signal: new AbortController().signal, onStarted: vi.fn(),
     });
     expect(unknown).toEqual({
@@ -532,7 +582,7 @@ describe('createActionCompareRunner', () => {
     const ambiguousVariant = createActionCompareSession(
       { context: ambiguous }, { runVariant: vi.fn() },
     ).getSnapshot().variants[0];
-    const collision = await createActionCompareRunner(api, vi.fn())({
+    const collision = await createActionCompareRunner(withFreeQuotes(api), vi.fn())({
       context: ambiguous, variant: ambiguousVariant,
       signal: new AbortController().signal, onStarted: vi.fn(),
     });
@@ -542,13 +592,12 @@ describe('createActionCompareRunner', () => {
     });
   });
 
-  it('retries only the gated variant with the exact 402 hash and stops when confirmation is declined', async () => {
-    const estimate = { cost: 0.12, rows: 2, promise_set_hash: 'exact-hash' };
+  it('approves quoted work once and sends each exact request with its own hash', async () => {
+    const estimate = { cost: 0.12, rows: 2, billed_cost: 120000, policy_id: 'paid', requires_confirmation: true, promise_set_hash: 'exact-hash' };
     const api = {
       getContext: vi.fn().mockResolvedValue(context('preview')),
-      startPreview: vi.fn()
-        .mockRejectedValueOnce(new ConfirmationRequiredError(estimate, 'Approve this preview'))
-        .mockResolvedValueOnce({ schema_version: 'frisket.action_preview.v1', preview_id: 'p2', total: 2 }),
+      quotePreview: vi.fn().mockResolvedValue({ schema_version: 'frisket.action_compare_quote.v1', estimate }),
+      startPreview: vi.fn().mockResolvedValue({ schema_version: 'frisket.action_preview.v1', preview_id: 'p2', total: 2 }),
       getPreview: vi.fn().mockResolvedValue({
         previewId: 'p2', status: 'done', progress: { done: 2, total: 2, preparation: null },
         rows: {}, rowIds: [101, 102], sampled: 2, total: 2, error: null, accounting: null,
@@ -556,19 +605,19 @@ describe('createActionCompareRunner', () => {
       cancelPreview: vi.fn(),
     } as unknown as ActionComparisonApi;
     const confirm = vi.fn().mockResolvedValue(true);
-    const runner = createActionCompareRunner(api, confirm);
+    const runner = createActionCompareRunner(withFreeQuotes(api), confirm);
     const variant = createActionCompareSession({ context: context('preview') }, { runVariant: vi.fn() })
       .getSnapshot().variants[0];
 
     await runner({ context: context('preview'), variant, signal: new AbortController().signal, onStarted: vi.fn() });
 
-    expect(confirm).toHaveBeenCalledWith(estimate, 'Approve this preview', expect.anything());
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ billed_cost: 120000, rows: 2 }), expect.any(String), expect.anything());
     expect(confirm.mock.calls[0][2]).toBeInstanceOf(AbortSignal);
     expect(confirm.mock.calls[0][2].aborted).toBe(false);
-    const first = api.startPreview.mock.calls[0][0].action;
-    const retry = api.startPreview.mock.calls[1][0].action;
-    expect(retry).toEqual({ ...first, confirmation: 'exact-hash' });
-    expect(retry.idempotency_key).toBe(first.idempotency_key);
+    const quoted = api.quotePreview.mock.calls[0][0].action;
+    const started = api.startPreview.mock.calls[0][0].action;
+    expect(started).toEqual({ ...quoted, confirmation: 'exact-hash' });
+    expect(api.startPreview).toHaveBeenCalledTimes(1);
 
     const declinedApi = {
       ...api,
@@ -576,17 +625,19 @@ describe('createActionCompareRunner', () => {
       getPreview: vi.fn(),
       cancelPreview: vi.fn(),
     } as unknown as ActionComparisonApi;
-    const declined = await createActionCompareRunner(declinedApi, vi.fn().mockResolvedValue(false))({
+    const declined = await createActionCompareRunner(withFreeQuotes(declinedApi), vi.fn().mockResolvedValue(false))({
       context: context('preview'), variant, signal: new AbortController().signal, onStarted: vi.fn(),
     });
     expect(declined).toEqual({ status: 'cancelled' });
+    expect(declinedApi.startPreview).not.toHaveBeenCalled();
     expect(declinedApi.getPreview).not.toHaveBeenCalled();
   });
 
   it('aborts a pending cost confirmation without retrying admission', async () => {
-    const estimate = { cost: 0.12, rows: 2, promise_set_hash: 'exact-hash' };
+    const estimate = { cost: 0.12, rows: 2, billed_cost: 120000, requires_confirmation: true, promise_set_hash: 'exact-hash' };
     const api = {
       getContext: vi.fn(),
+      quotePreview: vi.fn().mockResolvedValue({ schema_version: 'frisket.action_compare_quote.v1', estimate }),
       startPreview: vi.fn().mockRejectedValue(new ConfirmationRequiredError(estimate, 'Approve')),
       getPreview: vi.fn(),
       cancelPreview: vi.fn(),
@@ -602,7 +653,7 @@ describe('createActionCompareRunner', () => {
     });
     const session = createActionCompareSession(
       { context: context() },
-      { runVariant: createActionCompareRunner(api, confirm) },
+      { runVariant: createActionCompareRunner(withFreeQuotes(api), confirm) },
     );
     session.addVariant();
     const running = session.runPending();
@@ -613,7 +664,7 @@ describe('createActionCompareRunner', () => {
 
     expect(confirmationSignal).not.toBeNull();
     expect(confirmationSignal!.aborted).toBe(true);
-    expect(api.startPreview).toHaveBeenCalledTimes(1);
+    expect(api.startPreview).not.toHaveBeenCalled();
     expect(api.getPreview).not.toHaveBeenCalled();
   });
 
@@ -631,7 +682,7 @@ describe('createActionCompareRunner', () => {
       const variant = createActionCompareSession(
         { context: context('preview') }, { runVariant: vi.fn() },
       ).getSnapshot().variants[0];
-      const unavailable = createActionCompareRunner(unavailableApi, vi.fn())({
+      const unavailable = createActionCompareRunner(withFreeQuotes(unavailableApi), vi.fn())({
         context: context('preview'), variant, signal: new AbortController().signal,
         onStarted: vi.fn(),
       });
@@ -649,7 +700,7 @@ describe('createActionCompareRunner', () => {
         }),
         getPreview: vi.fn().mockRejectedValue(new ApiError(403, 'Not allowed.')),
       } as unknown as ActionComparisonApi;
-      const forbidden = expect(createActionCompareRunner(forbiddenApi, vi.fn())({
+      const forbidden = expect(createActionCompareRunner(withFreeQuotes(forbiddenApi), vi.fn())({
         context: context('preview'), variant, signal: new AbortController().signal,
         onStarted: vi.fn(),
       })).rejects.toMatchObject({ status: 403, message: 'Not allowed.' });

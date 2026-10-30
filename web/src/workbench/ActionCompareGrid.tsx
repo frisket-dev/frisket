@@ -8,6 +8,7 @@ import {
 } from '@glideapps/glide-data-grid';
 
 import type { ActionComparisonBoundedValue } from '../api/actionComparison';
+import type { EvaluationResponse } from '../api/evaluation';
 import type { BoundedCellValue, CellValue, ColumnDef, Row } from '../api/types';
 import { buildCell, typeHeaderIcon, withWrapSafeDisplayData } from '../grid/cells';
 import { GridViewport, type GridViewportProps } from '../grid/GridViewport';
@@ -23,6 +24,7 @@ import {
   variantBadgeHeaderIcons,
   variantBadgeIconName,
 } from './variantBadgePresentation';
+import { answerText, scoreLabel } from './evaluation/comparisonEvaluation';
 
 
 
@@ -46,7 +48,9 @@ interface OutputGridColumn {
   variant: ActionCompareVariant;
 }
 
-type CompareGridColumn = SourceGridColumn | OutputGridColumn;
+interface ExpectedGridColumn { kind: 'expected'; id: string; column: ColumnDef; logicalKey: string }
+
+type CompareGridColumn = SourceGridColumn | OutputGridColumn | ExpectedGridColumn;
 
 export interface ActionCompareStructuredValue {
   column: ColumnDef;
@@ -67,6 +71,12 @@ export interface ActionCompareGridProps {
     columnKey: string;
   }): void;
   onOpenStructuredValue?(value: ActionCompareStructuredValue): void;
+  evaluation?: {
+    response: EvaluationResponse | null; field: string; lens: 'each_other' | 'expected'; rowIds: number[];
+    onOpenRow(rowId: number): void;
+    onScoreClick(key: string): void;
+    onRuleClick(): void;
+  };
 }
 
 function displayedCell(
@@ -118,6 +128,9 @@ function rowForCell(
     provenance: {},
   };
   if (cell.bounded_value) row.boundedValues = { [columnId]: boundedForGrid(cell.bounded_value) };
+  else if (cell.evaluationValue) row.boundedValues = { [columnId]: { ...cell.evaluationValue,
+    value_kind: 'text', retrieval_revision: 0, manual_editable: false, manual_edit_byte_limit: 0,
+  } };
   if (cell.state === 'value') row.cells[columnId] = gridValue(cell.value);
   if (cell.state === 'error') row.cellErrors = { [columnId]: cell.error || 'Row failed' };
   return row;
@@ -151,6 +164,7 @@ function withFacts(
 
 function compareColumns(
   state: ActionCompareSessionSnapshot,
+  evaluation?: ActionCompareGridProps['evaluation'],
 ): CompareGridColumn[] {
   const hidden = new Set(state.hiddenColumnKeys);
   const sourceColumns: SourceGridColumn[] = state.context.source_columns
@@ -170,7 +184,7 @@ function compareColumns(
       };
     });
   const outputColumns: OutputGridColumn[] = state.context.output_columns
-    .filter((column) => !hidden.has(`output:${column.logical_key}`))
+    .filter((column) => !hidden.has(`output:${column.logical_key}`) && (!evaluation?.field || column.logical_key === evaluation.field))
     .flatMap((column) => state.variants.map((variant) => {
       const id = `output:${column.logical_key}:${variant.id}`;
       return {
@@ -187,21 +201,23 @@ function compareColumns(
         },
       };
     }));
-  return [...sourceColumns, ...outputColumns];
+  const expectedColumns: ExpectedGridColumn[] = evaluation?.lens === 'expected' && evaluation.response?.link
+    ? state.context.output_columns.filter((column) => column.logical_key === evaluation.field).map((column) => ({
+      kind: 'expected', id: `expected:${column.logical_key}`, logicalKey: column.logical_key,
+      column: { id: `expected:${column.logical_key}`, name: 'expected', type: 'text', format: null },
+    })) : [];
+  return [...sourceColumns, ...expectedColumns, ...outputColumns];
 }
 
 export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, frozenColumnCount,
-  labelForDraft, onOpenBoundedValue, onOpenStructuredValue }: ActionCompareGridProps) {
+  labelForDraft, onOpenBoundedValue, onOpenStructuredValue, evaluation }: ActionCompareGridProps) {
   const { gridTheme, aiColumnTheme, gridCellPalette, differenceTheme } = useGridTheme();
   const variantColumnTheme = useMemo(() => ({
     ...aiColumnTheme,
     headerIconSize: VARIANT_BADGE_PRESENTATION.size,
   }), [aiColumnTheme]);
-  const sampleRowIds = useMemo(() => state.context.sample_row_ids.slice(
-    0,
-    Math.min(20, state.context.limits.max_sample_rows),
-  ), [state.context.limits.max_sample_rows, state.context.sample_row_ids]);
-  const projectedColumns = useMemo(() => compareColumns(state), [state]);
+  const sampleRowIds = evaluation?.rowIds ?? state.context.sample_row_ids;
+  const projectedColumns = useMemo(() => compareColumns(state, evaluation), [state, evaluation]);
   const [widths, setWidths] = useState<Record<string, number>>({});
   const [activeFacts, setActiveFacts] = useState<string | null>(null);
   const outputNames = useMemo(() => new Map(
@@ -218,28 +234,38 @@ export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, froze
     return {
       id: projected.id,
       title: output
-        ? labelForDraft?.(
+        ? `${labelForDraft?.(
           projected.variant.draft,
           projected.variant.displayKey,
-        ) ?? projected.variant.label
-        : projected.column.name,
-      group: output ? `${OUTPUT_GROUP_PREFIX}${projected.logicalKey}` : SOURCE_GROUP,
+        ) ?? projected.variant.label}${evaluation?.lens === 'expected' ? ` · ${scoreLabel(evaluation.response?.variants.find((variant) => variant.key === projected.variant.displayKey)?.scores[projected.logicalKey]?.accuracy)}` : ''}`
+        : projected.kind === 'expected' ? `expected · ${evaluation?.response?.link?.fields.find((field) => field.logical_key === projected.logicalKey)?.rule ?? 'exact'}` : projected.column.name,
+      group: projected.kind !== 'source' ? `${OUTPUT_GROUP_PREFIX}${projected.logicalKey}` : SOURCE_GROUP,
       width: widths[projected.id] ?? (output ? DEFAULT_OUTPUT_WIDTH : DEFAULT_SOURCE_WIDTH),
       ...(icon ? { icon } : {}),
       ...(output ? { themeOverride: variantColumnTheme } : {}),
     };
-  }), [labelForDraft, projectedColumns, variantColumnTheme, widths]);
+  }), [evaluation, labelForDraft, projectedColumns, variantColumnTheme, widths]);
 
   const cellAt = useCallback((projected: CompareGridColumn, rowId: number) => {
     if (projected.kind === 'source') {
       return state.context.source_rows[String(rowId)]?.[projected.sourceName];
+    }
+    if (projected.kind === 'expected') {
+      const value = evaluation?.response?.expected[String(rowId)]?.[projected.logicalKey];
+      return { state: value == null || value === '' ? 'null' : 'value', value,
+        evaluationValue: evaluation?.response?.expected_bounded?.[String(rowId)]?.[projected.logicalKey] } as ActionCompareResultCell;
+    }
+    const evaluated = evaluation?.response?.variants.find((variant) => variant.key === projected.variant.displayKey)?.rows[String(rowId)]?.[projected.logicalKey];
+    if (evaluated) {
+      const { bounded_value, ...cell } = evaluated;
+      return { ...cell, evaluationValue: bounded_value };
     }
     const shown = projected.variant.result ?? projected.variant.previousResult;
     return displayedCell(
       projected.variant,
       shown?.rows[String(rowId)]?.[projected.logicalKey],
     );
-  }, [state.context.source_rows]);
+  }, [evaluation, state.context.source_rows]);
 
   const getCellContent = useCallback((item: Item): GridCell => {
     const [columnIndex, rowIndex] = item;
@@ -270,6 +296,18 @@ export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, froze
         themeOverride: gridCellPalette.empty,
       };
     }
+    if (projected.kind === 'output' && evaluation?.lens === 'expected') {
+      const verdict = evaluation.response?.variants.find((variant) => variant.key === projected.variant.displayKey)?.verdicts[String(rowId)]?.[projected.logicalKey];
+      if (verdict) {
+        const text = cell.state === 'error' ? `! Failed · ${cell.error || 'Action failed'}`
+          : verdict === 'not_run' ? 'not run'
+            : `${verdict === 'match' ? '✓ ' : verdict === 'miss' ? '✗ ' : ''}${cell.evaluationValue?.preview ?? (answerText(cell.value) || 'empty answer')}`;
+        rendered = { kind: GridCellKind.Text, data: answerText(cell.value), displayData: text,
+          allowOverlay: false, readonly: true, allowWrapping: wrapText,
+          ...(verdict === 'miss' ? { themeOverride: { ...gridCellPalette.error, bgCell: gridTheme.bgCellMedium } } : {}),
+        };
+      }
+    }
     let comparison: ReturnType<typeof actionCompareCellEquality> | undefined;
     if (projected.kind === 'output' && !projected.variant.baseline
       && projected.variant.status === 'ready' && projected.variant.result) {
@@ -291,10 +329,10 @@ export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, froze
       rendered,
       facts,
       comparison,
-      state.highlightDifferences && comparison === 'different' ? differenceTheme : undefined,
+      evaluation?.lens !== 'expected' && state.highlightDifferences && comparison === 'different' ? differenceTheme : undefined,
     );
     return rendered;
-  }, [cellAt, differenceTheme, gridCellPalette, projectId, projectedColumns, sampleRowIds,
+  }, [cellAt, differenceTheme, evaluation, gridCellPalette, gridTheme.bgCellMedium, projectId, projectedColumns, sampleRowIds,
     state.highlightDifferences, state.variants, wrapText]);
 
   const onCellActivated = useCallback((item: Item) => {
@@ -302,6 +340,7 @@ export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, froze
     const projected = projectedColumns[columnIndex];
     const rowId = sampleRowIds[rowIndex];
     if (!projected || rowId === undefined) return;
+    if (evaluation && projected.kind !== 'source') { evaluation.onOpenRow(rowId); return; }
     const facts = (getCellContent(item) as ProjectedCompareCell).actionCompareFacts ?? [];
     setActiveFacts(facts.length ? facts.join(' · ') : null);
     const rawCell = cellAt(projected, rowId);
@@ -314,7 +353,7 @@ export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, froze
         value: cell.bounded_value,
         previewId: projected.kind === 'output' ? projected.variant.previewId : null,
         rowId,
-        columnKey: projected.kind === 'output' ? projected.logicalKey : projected.sourceName,
+        columnKey: projected.kind === 'source' ? projected.sourceName : projected.logicalKey,
       });
       return;
     }
@@ -325,7 +364,21 @@ export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, froze
       column: projected.column,
       row: rowForCell(rowId, rowIndex, projected.id, cell),
     });
-  }, [cellAt, getCellContent, onOpenBoundedValue, onOpenStructuredValue, projectedColumns, sampleRowIds]);
+  }, [cellAt, evaluation, getCellContent, onOpenBoundedValue, onOpenStructuredValue, projectedColumns, sampleRowIds]);
+
+  const drawHeader = useCallback<NonNullable<GridViewportProps['drawHeader']>>((args, drawContent) => {
+    drawContent();
+    const projected = projectedColumns[args.columnIndex];
+    if (projected?.kind !== 'output' || evaluation?.lens !== 'expected') return;
+    const score = evaluation.response?.variants.find((variant) => variant.key === projected.variant.displayKey)?.scores[projected.logicalKey];
+    if (score?.accuracy == null) return;
+    const best = evaluation.response?.best[projected.logicalKey]?.includes(projected.variant.displayKey);
+    const { ctx, rect } = args;
+    ctx.save(); ctx.fillStyle = best ? args.theme.accentColor : args.theme.textMedium;
+    ctx.fillRect(rect.x + 8, rect.y + rect.height - 4, (rect.width - 16) * score.accuracy, 2);
+    if (best) { ctx.strokeStyle = args.theme.accentColor; ctx.lineWidth = 2; ctx.strokeRect(rect.x + 1, rect.y + 1, rect.width - 2, rect.height - 2); }
+    ctx.restore();
+  }, [evaluation, projectedColumns]);
 
   const onColumnResize = useCallback<NonNullable<GridViewportProps['onColumnResize']>>((column, newSize) => {
     if (!column.id) return;
@@ -355,6 +408,12 @@ export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, froze
       freezeColumns={frozenColumnCount}
       onColumnResize={onColumnResize}
       onCellActivated={onCellActivated}
+      drawHeader={drawHeader}
+      onHeaderClicked={(index) => {
+        const projected = projectedColumns[index];
+        if (projected?.kind === 'expected') evaluation?.onRuleClick();
+        if (projected?.kind === 'output' && evaluation?.lens === 'expected') evaluation.onScoreClick(projected.variant.displayKey);
+      }}
       getGroupDetails={getGroupDetails}
     />
     {activeFacts && <output className="action-compare-cell-status" aria-live="polite">{activeFacts}</output>}
