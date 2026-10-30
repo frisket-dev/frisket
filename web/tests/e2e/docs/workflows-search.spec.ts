@@ -82,12 +82,20 @@ test('search, Ask, document, export and skill workflows on a disposable project'
     await expect(options.getByRole('checkbox', { name: 'Run actions' })).toBeVisible();
     await expect(options.getByText('Suggest actions')).toBeVisible();
     await capture('workflow-ask-settings', options);
+    await options.getByRole('checkbox', { name: 'Run actions' }).check();
+    await expect(options.getByLabel('Write access')).toBeVisible();
+    await expect(options.getByLabel('Total budget (USD)')).toBeVisible();
+    await expect(options.getByRole('group', { name: 'Skills' })).toBeVisible();
+    await capture('workflow-ask-action-settings', options);
+    await options.getByRole('checkbox', { name: 'Run actions' }).uncheck();
     await dock.getByRole('button', { name: 'Ask options' }).click();
     await dock.getByRole('button', { name: 'Collapse Ask' }).click();
 
     await page.getByTestId(`workbench-mainView-tab-${documentSheet!.id}`).click();
     await expect(page.getByTestId('view-switch-document')).toBeVisible();
-    await capture('workflow-document-entry', page.getByTestId('workbench-region-mainView'));
+    await expect(page.getByTestId('grid')).toBeVisible();
+    await expect(page.getByText('Loading grid…')).toHaveCount(0, { timeout: 30_000 });
+    await capture('workflow-document-entry', page.getByTestId('view-switch-document').locator('xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " workspace-toolbar ")][1]'));
     await page.getByTestId('view-switch-document').click();
     const document = page.getByTestId('document-view');
     await expect(document).toBeVisible();
@@ -129,7 +137,7 @@ test('search, Ask, document, export and skill workflows on a disposable project'
 
     expect(captures.map(item => item.id)).toEqual([
       'workflow-search-entry', 'workflow-search-results', 'workflow-ask-entry',
-      'workflow-ask-sources', 'workflow-ask-settings', 'workflow-document-entry',
+      'workflow-ask-sources', 'workflow-ask-settings', 'workflow-ask-action-settings', 'workflow-document-entry',
       'workflow-document-view', 'workflow-export-entry', 'workflow-export-data',
       'workflow-skills-settings',
     ]);

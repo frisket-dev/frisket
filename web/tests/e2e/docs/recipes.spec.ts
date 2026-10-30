@@ -506,6 +506,14 @@ test('docs workflow: split a PDF packet', async ({ page }) => {
     if (await semantic.isChecked()) await semantic.uncheck();
     await expect(flow.getByRole('button', { name: /^Import 2 rows/ })).toBeEnabled({ timeout: 60_000 });
     captures.push(await captureCheckpoint(page, { id: 'pdf-packet-import-decision', root: flow, annotations: [] }, stage));
+    await flow.getByRole('button', { name: /^Import 2 rows/ }).click();
+    await expect(flow).toHaveCount(0, { timeout: 90_000 });
+    await expect(page.getByTestId('grid')).toBeVisible();
+    await expect.poll(async () => {
+      const sheets = await (await page.request.get(`/api/projects/${pid}/sheets`)).json();
+      return sheets.some((item: { rows: number }) => item.rows === 2);
+    }, { timeout: 30_000 }).toBeTruthy();
+    captures.push(await captureCheckpoint(page, { id: 'pdf-packet-import-result', root: page.getByTestId('grid'), annotations: [] }, stage));
     return captures;
   });
 });
