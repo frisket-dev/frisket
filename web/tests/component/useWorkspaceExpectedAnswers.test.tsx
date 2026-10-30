@@ -64,3 +64,13 @@ it('updates only explicitly changed rules after saving an existing link', async 
   expect(calls.saveLink).toHaveBeenCalledWith(link, 3);
   expect(calls.setRule).toHaveBeenCalledExactlyOnceWith(22, 'number');
 });
+
+it('keeps unavailable links visible for removal but omits their virtual columns and previews', async () => {
+  const api = prepare();
+  calls.getLinks.mockResolvedValue({ links: [{ id: 4, action_id: 'map.ask', target_sheet_id: 1, expected_sheet_id: 2, target_sheet_name: 'Current', expected_sheet_name: 'Other', keys: [], fields: [{ expected_column_id: 22, output_column_id: 11, logical_key: 'answer', rule: 'exact', hidden: false, source: 'import' }], hidden: false, available: false, unavailable_reason: 'Expected sheet was removed' }] });
+  const { result } = renderHook(() => useWorkspaceExpectedAnswers('p', sheets[0], sheets, api, [], [], 0, showError));
+  await waitFor(() => expect(result.current.unavailableLinks).toHaveLength(1));
+  expect(result.current.expectedColumns).toEqual([]);
+  expect(result.current.availableLinks).toEqual([]);
+  expect(calls.previewLink).not.toHaveBeenCalled();
+});

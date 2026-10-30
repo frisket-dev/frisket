@@ -8,6 +8,7 @@ import { actionComparisonKind } from '../grid/actionComparisonCatalog';
 import type { ExpectedGridColumn } from '../grid/SheetGrid';
 import type { ActionRunAnchor } from '../grid/actionRunEntry';
 import type { GridApiPort } from '../api/ports';
+import { isExpectedLinkAvailable } from './expectedLinkAvailability';
 import { MEDIA_COMPARE_COMMAND_BY_ACTION } from '../workbench/mediaCompareSelector';
 
 const EMPTY_LINKS: EvaluationLink[] = [];
@@ -60,7 +61,7 @@ export function useWorkspaceExpectedAnswers(projectId: string, sheet: SheetMeta 
     let live = true;
     if (sheetId) void api.getLinks(Number(sheetId)).then(result => {
       if (live) setLinkResult({ key: linksKey, links: result.links, counts: {} });
-      void Promise.all(result.links.map(async link => {
+      void Promise.all(result.links.filter(isExpectedLinkAvailable).map(async link => {
         try { const preview = await api.previewLink({ target_sheet_id: link.target_sheet_id, expected_sheet_id: link.expected_sheet_id, action_id: link.action_id, keys: link.keys, fields: link.fields, hidden: link.hidden }); return [link.id, preview.matched] as const; } catch { return null; }
       })).then(counts => { if (live) setLinkResult({ key: linksKey, links: result.links, counts: Object.fromEntries(counts.filter((item): item is readonly [number, number] => item !== null)) }); });
     }, error => { if (live) showErrorRef.current(error instanceof Error ? error.message : 'Could not load expected answers.'); });
@@ -78,14 +79,16 @@ export function useWorkspaceExpectedAnswers(projectId: string, sheet: SheetMeta 
   }, [readRuns, otherSignature, join, projectId]);
   const links = linkResult?.key === linksKey ? linkResult.links : EMPTY_LINKS;
   const matchedCounts = linkResult?.key === linksKey ? linkResult.counts : EMPTY_COUNTS;
+  const availableLinks = useMemo(() => links.filter(isExpectedLinkAvailable), [links]);
+  const unavailableLinks = useMemo(() => links.filter(link => !isExpectedLinkAvailable(link)), [links]);
   const currentRuns = currentRunResult?.projectId === projectId && currentRunResult.key === currentSignature ? currentRunResult.runs : EMPTY_RUNS;
   const otherRuns = join && otherRunResult?.projectId === projectId && otherRunResult.join === join && otherRunResult.key === otherSignature ? otherRunResult.runs : EMPTY_RUNS;
   const runs = useMemo(() => [...currentRuns, ...otherRuns], [currentRuns, otherRuns]);
   const runChoices = useMemo(() => runs.filter(item => item.anchor.sheetId === sheet?.id).map(({ anchor, context }) => {
-    const link = links.find(item => item.action_id === context.draft.action_id && item.fields.some(field => context.output_columns.some(output => output.column_id === field.output_column_id)));
+    const link = availableLinks.find(item => item.action_id === context.draft.action_id && item.fields.some(field => context.output_columns.some(output => output.column_id === field.output_column_id)));
     return { anchor, group: context.draft.action_id.startsWith('media.') ? 'media' as const : 'rows' as const, label: entries?.find(item => item.kind === context.draft.action_id)?.title ?? context.draft.action_id,
       ...(link ? { expected: { sheetName: link.expected_sheet_name, rowCount: matchedCounts[link.id] ?? 0 } } : {}) };
-  }), [runs, links, entries, matchedCounts, sheet?.id]);
+  }), [runs, availableLinks, entries, matchedCounts, sheet?.id]);
   const actionChoices = useMemo(() => (entries ?? []).filter(entry => actionComparisonKind(entry) || entry.kind in MEDIA_COMPARE_COMMAND_BY_ACTION).map(entry => {
     const template = templates.find(item => item.kind === entry.kind);
     const requirement = template ? primaryColumnRequirement(template) : null;
@@ -100,14 +103,14 @@ export function useWorkspaceExpectedAnswers(projectId: string, sheet: SheetMeta 
     outputs: context.output_columns.filter((column): column is typeof column & { column_id: number } => column.column_id !== null)
       .map(column => ({ id: column.column_id, name: column.current_name, logicalKey: column.logical_key }))
   })), [runs, entries]);
-  const expectedColumns = useMemo<ExpectedGridColumn[]>(() => links.flatMap(link => link.fields.map(field => ({
+  const expectedColumns = useMemo<ExpectedGridColumn[]>(() => availableLinks.flatMap(link => link.fields.map(field => ({
     id: `expected:${link.id}:${field.expected_column_id}`, link_id: link.id,
     expected_column_id: field.expected_column_id, output_column_id: field.output_column_id,
     logical_key: field.logical_key, rule: field.rule, hidden: field.hidden || link.hidden, source: field.source,
     name: sheets.find(item => Number(item.id) === link.expected_sheet_id)?.columns.find(column => Number(column.id) === field.expected_column_id)?.name ?? field.logical_key,
     sourceColumn: sheets.find(item => Number(item.id) === link.expected_sheet_id)?.columns.find(column => Number(column.id) === field.expected_column_id),
     type: sheets.find(item => Number(item.id) === link.expected_sheet_id)?.columns.find(column => Number(column.id) === field.expected_column_id)?.type ?? 'text',
-  }))), [links, sheets]);
+  }))), [availableLinks, sheets]);
   const projectExpected = useCallback((rowIds: number[]) => api.projectExpected(Number(sheet?.id), rowIds), [api, sheet?.id]);
   const editExpected = useCallback(async (rowId: string, column: ExpectedProjection['columns'][number], cell: ExpectedProjection['rows'][string][string] | undefined, value: CellValue) => {
     if (cell?.source_row_id != null) await projectApi.editCells([{ rowId: String(cell.source_row_id), columnId: String(cell.source_column_id), value }]);
@@ -133,6 +136,7 @@ export function useWorkspaceExpectedAnswers(projectId: string, sheet: SheetMeta 
       if (join?.link) for (const change of changedRules) await api.setRule(change.expected_column_id, change.rule);
     } finally { refresh(); }
   }, [api, join, refresh]);
+  const removeLink = useCallback(async (id: number) => { await api.deleteLink(id); refresh(); }, [api, refresh]);
   const setRule = useCallback(async (columnId: number, rule: EvaluationRule) => { await api.setRule(columnId, rule); refresh(); }, [api, refresh]);
-  return { api, links, runs, runChoices, actionChoices, joinSheets, joinActions, join, openJoin, closeJoin: () => setJoin(null), saveLink, refresh, matchedCounts, expectedColumns, projectExpected, editExpected, setLink, setRule };
+  return { api, links, availableLinks, unavailableLinks, removeLink, runs, runChoices, actionChoices, joinSheets, joinActions, join, openJoin, closeJoin: () => setJoin(null), saveLink, refresh, matchedCounts, expectedColumns, projectExpected, editExpected, setLink, setRule };
 }
