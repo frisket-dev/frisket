@@ -67,3 +67,35 @@ it('renders bounded values without offering to copy or edit an excerpt', () => {
   expect(screen.getByRole('button', { name: 'Accept answer 1' })).toBeDisabled();
   expect(screen.queryByLabelText('Expected answer')).not.toBeInTheDocument();
 });
+it('opens in the shared Review shell and closes through its caller', () => {
+  const p = props();
+  const { container } = render(<ComparisonReview {...p} toolbar={<span>Queue filters</span>} />);
+  expect(screen.getByRole('dialog', { name: 'Review queue' })).toBeVisible();
+  expect(screen.getByText('Queue filters')).toBeVisible();
+  expect(container.querySelector('[data-testid="review-queue"]')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Close comparison review' }));
+  expect(p.onClose).toHaveBeenCalledOnce();
+});
+it('Escape closes Review when not busy', () => {
+  const p = props(); const { rerender } = render(<ComparisonReview {...p} />);
+  fireEvent.keyDown(document.body, { key: 'Escape' }); expect(p.onClose).toHaveBeenCalledOnce();
+  rerender(<ComparisonReview {...p} busy />);
+  fireEvent.keyDown(document.body, { key: 'Escape' }); expect(p.onClose).toHaveBeenCalledOnce();
+});
+
+it('keeps an empty queue in Review with one close control', () => {
+  const p = { ...props(), rowId: 0, total: 0, position: 0, groups: [], source: null, emptyMessage: 'No misses in this field.' };
+  render(<ComparisonReview {...p} />);
+  expect(screen.getByRole('dialog', { name: 'Review queue' })).toHaveTextContent('No misses in this field.');
+  expect(screen.queryByRole('button', { name: /Accept answer/ })).not.toBeInTheDocument();
+  expect(screen.getAllByRole('button', { name: 'Close comparison review' })).toHaveLength(1);
+});
+it('lets a top-layer dialog handle Escape before Review', () => {
+  const p = props(); render(<ComparisonReview {...p} />);
+  const original = document.querySelector.bind(document);
+  const top = document.createElement('dialog');
+  const lookup = vi.spyOn(document, 'querySelector').mockImplementation((selector) =>
+    selector === ':popover-open, :modal' ? top : original(selector));
+  try { fireEvent.keyDown(document.body, { key: 'Escape' }); expect(p.onClose).not.toHaveBeenCalled(); }
+  finally { lookup.mockRestore(); }
+});
