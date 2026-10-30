@@ -56,7 +56,8 @@ test('documentation: native PDF search preparation and OCR comparison setup', as
     expect(admitted.ok()).toBeTruthy();
     expect(admitted.request().postDataJSON().selected_setup_refs).toEqual([]);
     await expect.poll(async () => (await (await page.request.get(`/api/projects/${pid}/search-preparation/${plan.id}`)).json()).status, { timeout: 60_000 }).toBe('complete');
-    await page.getByRole('button', { name: 'Close command palette' }).click();
+    const closePalette = page.getByRole('button', { name: 'Close command palette' });
+    if (await closePalette.isVisible()) await closePalette.click();
     const searched = await openPalette(page);
     await searched.getByTestId('search-mode-select').selectOption('lexical');
     await searched.getByTestId('command-palette-input').fill('bluewharf');

@@ -52,7 +52,8 @@ test('search, Ask, document, export and skill workflows on a disposable project'
 
     const chrome = page.getByTestId('chrome-bar');
     await expect(chrome.getByTestId('chrome-command-pill')).toBeVisible();
-    await capture('workflow-search-entry', chrome);
+    const chromeControls = { left: chrome.getByTestId('chrome-command-pill'), right: chrome.getByTestId('chrome-ask-toggle') };
+    captures.push(await captureCheckpoint(page, { id: 'workflow-search-entry', root: chrome, cropHorizontal: chromeControls, annotations: [] }, stage));
     await chrome.getByTestId('chrome-command-pill').click();
     const palette = page.getByTestId('workbench-region-commandPalette');
     await expect(palette).toBeVisible();
@@ -65,7 +66,7 @@ test('search, Ask, document, export and skill workflows on a disposable project'
     await palette.getByRole('button', { name: 'Close command palette' }).click();
 
     await expect(chrome.getByTestId('chrome-ask-toggle')).toBeVisible();
-    await capture('workflow-ask-entry', chrome);
+    captures.push(await captureCheckpoint(page, { id: 'workflow-ask-entry', root: chrome, cropHorizontal: chromeControls, annotations: [] }, stage));
     await chrome.getByTestId('chrome-ask-toggle').click();
     const dock = page.getByTestId('ask-dock');
     await expect(dock).toBeVisible();

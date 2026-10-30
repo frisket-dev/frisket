@@ -62,8 +62,8 @@ test('clean imported values and join matching rows from another sheet', async ({
     await expect(page.getByTestId('field-join_right_sheet')).toHaveValue(String(rightId));
     await page.getByTestId('field-join_key_left-0').selectOption('agency_clean');
     await page.getByTestId('field-join_key_right-0').selectOption('agency');
-    await expect(page.getByTestId('field-join_how')).toHaveValue('inner');
-    await page.getByTestId('field-target_sheet_name').fill('Payments with regions');
+    await expect(page.getByTestId('field-how')).toHaveValue('inner');
+    await page.getByTestId('field-sheet_name').fill('Payments with regions');
     captures.push(await captureCheckpoint(page, { id: 'table-join-settings', root: page.getByTestId('action-panel'), annotations: [] }, stage));
     await page.getByTestId('generated-action-preview').click();
     await expect(page.getByTestId('preview-tab-banner')).toHaveAttribute('data-status', 'done', { timeout: 60_000 });

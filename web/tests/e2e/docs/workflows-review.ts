@@ -18,7 +18,7 @@ export async function captureReview(page: Page, stage: string, runId: number): P
   await expect(source).toBeVisible();
   await expect(source.getByText('Loading cited sources…')).toHaveCount(0, { timeout: 30_000 });
   captures.push(await captureCheckpoint(page, { id: 'review-queue', root: queue, annotations: [] }, stage));
-  captures.push(await captureCheckpoint(page, { id: 'review-source', root: source, annotations: [] }, stage));
+  captures.push(await captureCheckpoint(page, { id: 'review-source', root: source, maxHeight: 380, annotations: [] }, stage));
   await queue.getByRole('button', { name: 'Accept case_number_2', exact: true }).click();
   await expect(field).toHaveAttribute('data-review-state', 'verified');
   await queue.getByRole('button', { name: 'Results', exact: true }).click();
