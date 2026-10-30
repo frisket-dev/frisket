@@ -2,8 +2,10 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
+import { installDialogPolyfill } from '../support/domPolyfills';
 import { ComparisonReview, type ComparisonReviewProps } from '../../src/workbench/evaluation/ComparisonReview';
 
+installDialogPolyfill();
 afterEach(cleanup);
 function props(): ComparisonReviewProps {
   return { fieldLabel: 'amount', rowId: 7, position: 1, total: 2, mode: 'disagreements',
@@ -66,4 +68,53 @@ it('renders bounded values without offering to copy or edit an excerpt', () => {
   expect(screen.getAllByText('Partial answer')).toHaveLength(2);
   expect(screen.getByRole('button', { name: 'Accept answer 1' })).toBeDisabled();
   expect(screen.queryByLabelText('Expected answer')).not.toBeInTheDocument();
+});
+it('opens in the shared Review shell and closes through its caller', () => {
+  const p = props();
+  const { container } = render(<ComparisonReview {...p} toolbar={<span>Queue filters</span>} />);
+  expect(screen.getByRole('dialog', { name: 'Review queue' })).toBeVisible();
+  expect(screen.getByText('Queue filters')).toBeVisible();
+  expect(container.querySelector('[data-testid="review-queue"]')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Close comparison review' }));
+  expect(p.onClose).toHaveBeenCalledOnce();
+});
+it('Escape closes Review when not busy', () => {
+  const p = props(); const { rerender } = render(<ComparisonReview {...p} />);
+  fireEvent(screen.getByRole('dialog', { name: 'Review queue' }), new Event('cancel', { cancelable: true })); expect(p.onClose).toHaveBeenCalledOnce();
+  rerender(<ComparisonReview {...p} busy />);
+  fireEvent(screen.getByRole('dialog', { name: 'Review queue' }), new Event('cancel', { cancelable: true })); expect(p.onClose).toHaveBeenCalledOnce();
+});
+
+it('keeps an empty queue in Review with one close control', () => {
+  const p = { ...props(), rowId: 0, total: 0, position: 0, groups: [], source: null, emptyMessage: 'No misses in this field.' };
+  render(<ComparisonReview {...p} />);
+  expect(screen.getByRole('dialog', { name: 'Review queue' })).toHaveTextContent('No misses in this field.');
+  expect(screen.queryByRole('button', { name: /Accept answer/ })).not.toBeInTheDocument();
+  expect(screen.getAllByRole('button', { name: 'Close comparison review' })).toHaveLength(1);
+});
+it('keeps shortcuts in Review and defers to a dialog above it', () => {
+  const p = props(); render(<ComparisonReview {...p} />);
+  const review = screen.getByRole('dialog', { name: 'Review queue' });
+  const top = document.createElement('dialog');
+  const original = document.querySelectorAll.bind(document);
+  const lookup = vi.spyOn(document, 'querySelectorAll').mockImplementation((selector) =>
+    selector === ':modal' ? [review] as unknown as NodeListOf<Element> : original(selector));
+  try {
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Close comparison review' }), { key: 'a' });
+    expect(p.onAccept).toHaveBeenCalledOnce();
+    lookup.mockImplementation((selector) => selector === ':modal' ? [review, top] as unknown as NodeListOf<Element> : original(selector));
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Close comparison review' }), { key: 'a' });
+    expect(p.onAccept).toHaveBeenCalledOnce();
+  } finally { lookup.mockRestore(); }
+});
+it('opens as a native modal, focuses Review, and preserves the modal when changing rows', () => {
+  const show = vi.spyOn(HTMLDialogElement.prototype, 'showModal');
+  const p = props(); const { rerender } = render(<ComparisonReview {...p} />);
+  const shell = screen.getByRole('dialog', { name: 'Review queue' });
+  expect(show).toHaveBeenCalledOnce();
+  expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close comparison review' }));
+  rerender(<ComparisonReview {...p} rowId={8} position={2} />);
+  expect(screen.getByRole('dialog', { name: 'Review queue' })).toBe(shell);
+  expect(show).toHaveBeenCalledOnce();
+  show.mockRestore();
 });

@@ -54,10 +54,10 @@ function fixture(capacity = 8, response: EvaluationResponse | null = null, model
     if (!open) return null;
     return <TrySeveral session={live} state={state} response={response} modelField={modelField} instructionsField="instructions"
       onOpenVariant={onOpenVariant} onUse={onUse} onClose={() => setOpen(false)}
-      renderVariantEditor={({ label, draft: value, onDraftChange, lockedParams }) => <label>{label}
-        <input aria-label={label} value={String(value.params[modelField])}
-          onChange={event => onDraftChange({ ...value, params: { ...value.params, [modelField]: event.target.value, source: 'tampered',
-            ...(modelField === 'engine' ? { model: 'chosen/model', execution_target: 'remote', provider_ref: 'chosen-provider' } : {}) } })} />
+      renderVariantEditor={({ label, draft: value, onDraftChange, lockedParams, modelOnly, onModelLabelChange }) => <label>{label}
+        <input aria-label={label} data-model-only={modelOnly} value={String(value.params[modelField])}
+          onChange={event => { onModelLabelChange?.(`Friendly ${event.target.value}`); onDraftChange({ ...value, params: { ...value.params, [modelField]: event.target.value, source: 'tampered',
+            ...(modelField === 'engine' ? { model: 'chosen/model', execution_target: 'remote', provider_ref: 'chosen-provider' } : {}) } }); }} />
         <span>{lockedParams.join(',')}</span>
       </label>} />;
   };
@@ -69,7 +69,9 @@ describe('Try several', () => {
     const { session, Editor } = fixture(8, null, 'engine');
     render(<Editor session={session} />);
     expect(screen.getByRole('dialog', { name: 'Try several values' })).toBeVisible();
-    fireEvent.change(screen.getByLabelText('Model 1'), { target: { value: 'litellm' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Model 1' }), { target: { value: 'litellm' } });
+    expect(screen.getByRole('textbox', { name: 'Model 1' })).toHaveAttribute('data-model-only', 'true');
+    expect(screen.getByText('Model: Friendly litellm')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Run 1 combinations' }));
     expect(session.getSnapshot().variants[1].draft.params).toMatchObject({ engine: 'litellm', model: 'chosen/model',
       execution_target: 'remote', provider_ref: 'chosen-provider', source: 'body', instructions: 'original' });
@@ -78,7 +80,7 @@ describe('Try several', () => {
     const { session, runPending, Editor } = fixture();
     render(<Editor session={session} />);
     fireEvent.click(screen.getByRole('button', { name: 'Add model' }));
-    fireEvent.change(screen.getByLabelText('Model 2'), { target: { value: 'model-b' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Model 2' }), { target: { value: 'model-b' } });
     fireEvent.click(screen.getByRole('button', { name: 'Add instructions' }));
     fireEvent.change(screen.getByLabelText('Instructions 2'), { target: { value: 'alternative' } });
     fireEvent.click(screen.getByRole('button', { name: 'Add instructions' }));
@@ -89,6 +91,10 @@ describe('Try several', () => {
       ['model-b', 'original', 'body'], ['model-b', 'alternative', 'body'], ['model-b', 'third', 'body'],
     ]);
     expect(runPending).toHaveBeenCalledOnce();
+    expect(screen.getByText('Show setup')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Run 6 combinations' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('Show setup'));
+    expect(screen.getByLabelText('Instructions 1')).toBeDisabled();
   });
 
   it('skips an unchecked combination and stays within capacity', () => {

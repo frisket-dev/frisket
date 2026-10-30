@@ -1,10 +1,9 @@
 import './ReviewQueue.css';
 import { useMemo, useState, type ReactNode } from 'react';
-import { WindowCloseButton } from './WindowCloseButton';
 import type { ReviewBundleOrder } from '../api/types';
-import { useEscapeDismiss } from '../hooks/useEscapeDismiss';
 import { ReviewRunControls } from './review/ReviewRunControls';
 import { ReviewSession } from './review/ReviewSession';
+import { ReviewHeader, ReviewShell } from './review/ReviewPresentation';
 import { useReviewRuns } from './review/useReviewRuns';
 
 export interface ReviewQueueProps {
@@ -26,10 +25,9 @@ export function ReviewQueue({ onClose, onChanged, runId, reviewExportUrl }: Revi
   const options = useMemo(() => ({
     fieldId: fieldId ?? undefined, order: effectiveOrder,
   }), [effectiveOrder, fieldId]);
-  useEscapeDismiss(onClose, { typingGuard: true, enabled: !selectedRun });
 
   const toolbar = (navigation: ReactNode, leave: (action: () => void) => void, busy: boolean) => (
-    <div className="review-run-header">
+    <ReviewHeader busy={busy} onClose={() => leave(onClose)}>
       <ReviewRunControls runs={runs.runs} selectedRunId={runs.selectedRunId}
         onSelectedRunChange={(id) => leave(() => { runs.setSelectedRunId(id); setFieldId(null); })}
         selectedFieldId={fieldId} onSelectedFieldChange={(id) => leave(() => setFieldId(id))}
@@ -40,20 +38,22 @@ export function ReviewQueue({ onClose, onChanged, runId, reviewExportUrl }: Revi
         onRunStatusChange={(_run, status) => leave(() => { void runs.setRunStatus(status); })}>
         {navigation}
       </ReviewRunControls>
-      <WindowCloseButton size="compact" disabled={busy} onClick={() => leave(onClose)} label="Close review queue" />
-    </div>
+    </ReviewHeader>
   );
 
-  return <dialog className="review-overlay" data-testid="review-queue" aria-label="Review queue" open
-    onCancel={(event) => { event.preventDefault(); }}>
-    {!selectedRun && toolbar(null, (action) => action(), runs.loading)}
+  if (!runs.loading && selectedRun) return <ReviewSession
+    key={`${selectedRun.runId}:${fieldId ?? ''}:${effectiveOrder}`}
+    runId={selectedRun.runId} options={options} readOnly={selectedRun.reviewStatus === 'complete' || runs.statusBusy}
+    onChanged={onChanged} onClose={onClose} renderToolbar={toolbar}
+    renderFrame={(content, leave, busy, editing) => <ReviewShell busy={busy} onClose={() => { if (!editing) leave(onClose); }}>
+      {runs.error && <p className="panel-error review-load-error" role="alert">{runs.error}</p>}{content}
+    </ReviewShell>}
+    onDecisionSaved={() => { void runs.refreshRun(selectedRun.runId); }} />;
+
+  return <ReviewShell busy={false} onClose={onClose}>
+    {toolbar(null, (action) => action(), runs.loading)}
     {runs.error && <p className="panel-error review-load-error" role="alert">{runs.error}</p>}
     {runs.loading ? <div className="review-empty">Loading runs…</div>
-      : selectedRun ? <ReviewSession
-        key={`${selectedRun.runId}:${fieldId ?? ''}:${effectiveOrder}`}
-        runId={selectedRun.runId} options={options} readOnly={selectedRun.reviewStatus === 'complete' || runs.statusBusy}
-        onChanged={onChanged} onClose={onClose} renderToolbar={toolbar}
-        onDecisionSaved={() => { void runs.refreshRun(selectedRun.runId); }} />
-        : <div className="review-empty" data-testid="review-empty">No results to review yet.</div>}
-  </dialog>;
+      : <div className="review-empty" data-testid="review-empty">No results to review yet.</div>}
+  </ReviewShell>;
 }

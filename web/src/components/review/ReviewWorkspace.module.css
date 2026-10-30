@@ -40,3 +40,9 @@
 .empty { flex: 1; display: grid; place-content: center; color: var(--text-mid); font-size: 13px; }
 @media (max-width: 950px) { .workspace { grid-template-columns: minmax(0, 1fr) minmax(280px, 40%); } .footer, .field { padding-left: 12px; padding-right: 12px; } }
 @media (max-width: 620px) { .workspace { grid-template-columns: 1fr; grid-template-rows: minmax(200px, 45%) minmax(0, 1fr); } .results { border-left: 0; border-top: 1px solid var(--border); } .shortcuts { display: none; } .footer { padding: 8px 12px; } .note { min-height: 36px; height: 36px; } }
+/* Room between the scrollable answer list and the expected-answer editor. */
+.answerList { flex: 0 1 auto; min-height: 96px; padding-bottom: var(--space-12); }
+.expectedAnswer { flex: 0 1 auto; margin-bottom: auto; min-height: 84px; max-height: 40%; overflow-y: auto; border-top: 1px solid var(--border); background: var(--green-bg); }
+.expectedAnswer textarea { max-height: 100px; resize: vertical; }
+.comparisonToolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); }
+.comparisonToolbar > nav { margin-left: auto; }

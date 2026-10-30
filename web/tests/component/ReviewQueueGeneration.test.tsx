@@ -7,6 +7,8 @@ import type { ReviewBundlePage } from '../../src/api/types';
 import { createProjectApi } from '../../src/api/real';
 import { WorkspaceStoresContext } from '../../src/bind/workspaceStoresContext';
 import { ReviewSession } from '../../src/components/review/ReviewSession';
+import { ReviewShell } from '../../src/components/review/ReviewPresentation';
+import { installDialogPolyfill } from '../support/domPolyfills';
 import { createWorkspaceStores, type WorkspaceStores } from '../../src/state/createWorkspaceStores';
 
 vi.mock('../../src/components/review/ReviewSourcePreview', () => ({ ReviewSourcePreview: () => <aside>Source viewer</aside> }));
@@ -48,6 +50,7 @@ function page(name: string): ReviewBundlePage {
 }
 
 beforeEach(() => {
+  installDialogPolyfill();
   vi.stubGlobal('ResizeObserver', class {
     observe() {}
     disconnect() {}
@@ -125,6 +128,41 @@ it('saves a row note on navigation, preserves it across fields, and blocks leavi
   fireEvent.click(screen.getByRole('button', { name: 'Close' }));
   await waitFor(() => expect(close).toHaveBeenCalledOnce());
   expect(save).toHaveBeenLastCalledWith('9', '3', 'Keep this note');
+});
+
+it('routes modal Escape through the normal note-save guard', async () => {
+  vi.spyOn(stores.projectApi, 'getReviewBundles').mockResolvedValue(multiPage());
+  const save = vi.spyOn(stores.projectApi, 'setReviewNote').mockRejectedValueOnce(new Error('offline')).mockResolvedValue();
+  const close = vi.fn();
+  render(<WorkspaceStoresContext.Provider value={stores}>
+    <ReviewSession runId="9" options={options} onChanged={vi.fn()} onClose={close}
+      renderFrame={(content, leave, busy, editing) => <ReviewShell busy={busy} onClose={() => { if (!editing) leave(close); }}>{content}</ReviewShell>} />
+  </WorkspaceStoresContext.Provider>);
+  fireEvent.change(await screen.findByTestId('review-note-input'), { target: { value: 'Keep this note' } });
+  const shell = screen.getByRole('dialog', { name: 'Review queue' });
+  fireEvent(shell, new Event('cancel', { cancelable: true }));
+  await screen.findByRole('alert');
+  expect(close).not.toHaveBeenCalled();
+  fireEvent(shell, new Event('cancel', { cancelable: true }));
+  await waitFor(() => expect(close).toHaveBeenCalledOnce());
+  expect(save).toHaveBeenLastCalledWith('9', '3', 'Keep this note');
+});
+
+it('keeps Review open when Escape leaves the note editor', async () => {
+  vi.spyOn(stores.projectApi, 'getReviewBundles').mockResolvedValue(multiPage());
+  vi.spyOn(stores.projectApi, 'setReviewNote').mockResolvedValue();
+  const close = vi.fn();
+  render(<WorkspaceStoresContext.Provider value={stores}>
+    <ReviewSession runId="9" options={options} onChanged={vi.fn()}
+      renderFrame={(content, leave, busy) => <ReviewShell busy={busy} onClose={() => leave(close)}>{content}</ReviewShell>} />
+  </WorkspaceStoresContext.Provider>);
+  const note = await screen.findByTestId('review-note-input');
+  note.focus();
+  fireEvent.change(note, { target: { value: 'Keep this note' } });
+  fireEvent(screen.getByRole('dialog', { name: 'Review queue' }), new Event('cancel', { cancelable: true }));
+  expect(close).not.toHaveBeenCalled();
+  expect(note).not.toHaveFocus();
+  expect(screen.getByRole('dialog', { name: 'Review queue' })).toBeVisible();
 });
 
 it('ignores typing and browser modifiers while J/K navigate fields, not rows', async () => {

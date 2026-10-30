@@ -1,6 +1,6 @@
 /* ---- review overlay ----------------------------------------------------------- */
 
-.review-overlay {
+.modal-card.review-overlay {
   position: fixed;
   inset: 0;
   width: 100%;

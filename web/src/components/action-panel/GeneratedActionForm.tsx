@@ -42,6 +42,7 @@ import { dedupeDefaultColumnName, existingColumnByName,
   handleAutoResizeTextareaInput, resizeTextareaToContent } from './formControlHelpers';
 import { generatedActionCustomizationFor } from './generatedActionCustomizations';
 import { SelectorField } from '../../engine-selector/SelectorField';
+import { selectorUpdates } from '../../engine-selector/selectorUpdates';
 import { selectorReadinessMessage } from '../../engine-selector/selectorProjection';
 import type { SelectorChoice } from '../../api/selectorChoices';
 import type { HttpSelectorChoicesQuery } from '../../api/selectorChoices';
@@ -906,18 +907,8 @@ function GeneratedActionFormContents({
         ? numeric : value;
     writeFields({ [name]: normalized });
   };
-  const selectorUpdates = (field: string, choice: SelectorChoice): Record<string, CanonicalFieldValue> | null => {
-    const authored = choice.authored_selection;
-    return authored.kind === 'engine'
-      ? { [field]: authored.engine }
-      : authored.kind === 'model'
-        ? { [field]: authored.model }
-        : authored.kind === 'engine_model' && modelSelectorParam
-          ? { [field]: authored.engine, [modelSelectorParam]: authored.model }
-          : null;
-  };
   const updateSelectorSelection = (field: string, choice: SelectorChoice) => {
-    const updates = selectorUpdates(field, choice);
+    const updates = selectorUpdates(field, modelSelectorParam, choice);
     if (!updates) return;
     Object.keys(updates).forEach(markFieldTouched);
     setParamsEdited(true);
@@ -928,7 +919,7 @@ function GeneratedActionFormContents({
     // A combined choice may already have a compatible schema-default leaf;
     // never overwrite an explicit conflicting or orphaned authored selection.
     if (!choice?.is_default) return;
-    const updates = selectorUpdates(field, choice);
+    const updates = selectorUpdates(field, modelSelectorParam, choice);
     const entries = Object.entries(updates ?? {});
     // Saved optional defaults are display/readiness metadata, not authored
     // request values. Required leaves still need the served default; a fresh

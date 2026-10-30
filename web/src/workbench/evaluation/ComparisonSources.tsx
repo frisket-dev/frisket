@@ -12,9 +12,8 @@ function cellValue(value: unknown): CellValue {
 /** Current inputs and real persisted evidence use Review's normal renderers. */
 export function ComparisonSources({ state, rowId, field }: { state: ActionCompareSessionSnapshot; rowId: number; field: string }) {
   const { context } = state;
-  const bundle = useMemo<ReviewBundle>(() => {
+  const bundle = useMemo(() => {
     const basis = context.comparison_basis;
-    const runId = basis.kind === 'run' ? String(basis.run_id) : '';
     const fields: ReviewBundleField[] = basis.kind === 'run' ? context.output_columns.flatMap((column) => {
       if (column.column_id == null) return [];
       const cell = context.baseline_rows?.[String(rowId)]?.[column.logical_key];
@@ -36,14 +35,16 @@ export function ComparisonSources({ state, rowId, field }: { state: ActionCompar
         } } : {}),
       };
     });
-    return { id: `comparison:${context.sheet.id}:${rowId}`, runId, sheetId: String(context.sheet.id),
+    const inputs = { sources, sheetId: String(context.sheet.id), rowId: String(rowId), rowIndex: context.sample_row_ids.indexOf(rowId) };
+    if (basis.kind !== 'run' || !fields.length) return inputs;
+    return { id: `comparison:${context.sheet.id}:${rowId}`, runId: String(basis.run_id), sheetId: String(context.sheet.id),
       sheetName: context.sheet.name, rowId: String(rowId), rowIndex: context.sample_row_ids.indexOf(rowId),
       actionKind: context.draft.action_id, actionName: context.draft.action_id, model: '', confidence: null,
       source: Object.fromEntries(sources.map((source) => [source.columnName, source.value])), sources,
       context: '', fields, evidence: [],
-    };
+    } satisfies ReviewBundle;
   }, [context, rowId]);
-  if (!bundle.fields.length) return <ReviewInputSources bundle={bundle} />;
+  if (!('fields' in bundle)) return <ReviewInputSources bundle={bundle} />;
   return <ReviewSourcePreview bundle={bundle} activeField={bundle.fields.find((item) => item.outputKey === field)}
     sourceEntries={Object.entries(bundle.source)} />;
 }

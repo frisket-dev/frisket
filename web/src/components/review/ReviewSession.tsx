@@ -2,11 +2,13 @@ import { isResearchAction } from '../research/researchAction';
 import { Button } from '../Button';
 import { TextArea } from '../FormControls';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Check, ChevronLeft, ChevronRight, Pencil, X } from 'lucide-react';
+import { Check, ChevronRight } from 'lucide-react';
 import type { CellValue, ReviewBundleField } from '../../api/types';
 import { useEscapeDismiss } from '../../hooks/useEscapeDismiss';
 import { handleAutoResizeTextareaInput, resizeTextareaToContent } from '../action-panel/formControlHelpers';
 import { ReviewSourcePreview } from './ReviewSourcePreview';
+import { ReviewDecisionControls, ReviewNavigation, ReviewWorkspace } from './ReviewPresentation';
+import { useReviewShortcuts } from './useReviewShortcuts';
 import { ReviewValue } from './ReviewValue';
 import { ReviewExcerpt } from './ReviewExcerpt';
 import { ReviewResearch } from './ReviewResearch';
@@ -18,14 +20,12 @@ import styles from './ReviewWorkspace.module.css';
 export interface ReviewSessionProps extends ReviewSessionOptions {
   onClose?(): void;
   renderToolbar?(navigation: ReactNode, leave: (action: () => void) => void, busy: boolean): ReactNode;
+  renderFrame?(content: ReactNode, leave: (action: () => void) => void, busy: boolean, editing: boolean): ReactNode;
 }
 
 function RowNavigation({ controller: c }: { controller: ReviewSessionController }) {
-  return <nav className={styles.navigation} aria-label="Review rows">
-    <span data-testid="review-page-status">{c.page?.total ? c.position : 0} / {c.page?.total ?? 0}</span>
-    <button className="icon-btn" aria-label="Previous row" disabled={c.busy || !c.canPrevious} onClick={() => c.moveRow(-1)}><ChevronLeft size={15} /></button>
-    <button className="icon-btn" aria-label="Next row" disabled={c.busy || !c.canNext} onClick={() => c.moveRow(1)}><ChevronRight size={15} /></button>
-  </nav>;
+  return <ReviewNavigation label="Review rows" position={c.page?.total ? c.position : 0} total={c.page?.total ?? 0}
+    busy={c.busy} canPrevious={c.canPrevious} canNext={c.canNext} onPrevious={() => c.moveRow(-1)} onNext={() => c.moveRow(1)} />;
 }
 
 function FieldDecision({ field, controller: c, onSelectItem, selectableItemIndices }: {
@@ -52,18 +52,13 @@ function FieldDecision({ field, controller: c, onSelectItem, selectableItemIndic
       </span>
       {field.confidence !== null && <small className={styles.confidence}>Confidence {field.confidence.toFixed(2)}</small>}
     </button>
-    <div className={styles.verdict} role="group" aria-label={`Decision for ${field.columnName}`}>
-      <button type="button" aria-label={`Accept ${field.columnName}`} title="Accept (← or A)"
-        aria-pressed={field.reviewDecision === 'accept'} disabled={c.busy || c.readOnly}
-        className={styles.accept} onClick={() => c.toggle(field, 'accept')}><Check size={16} /></button>
-      <button type="button" aria-label={`Reject ${field.columnName}`} title="Reject (→ or D)"
-        aria-pressed={field.reviewState === 'rejected'} disabled={c.busy || c.readOnly}
-        className={styles.reject} onClick={() => c.toggle(field, 'reject')}><X size={16} /></button>
-      <button type="button" aria-label={`Edit ${field.columnName}`}
-        aria-pressed={editing || field.reviewDecision === 'edit'} disabled={c.busy || c.readOnly || !editable || editUnavailable}
-        title={editUnavailable ? editUnavailableMessage : 'Edit (E) — counts as incorrect'}
-        className={styles.edit} onClick={() => c.startEdit(field)}><Pencil size={14} /></button>
-    </div>
+    <ReviewDecisionControls label={`Decision for ${field.columnName}`} acceptLabel={`Accept ${field.columnName}`}
+      rejectLabel={`Reject ${field.columnName}`} acceptPressed={field.reviewDecision === 'accept'}
+      rejectPressed={field.reviewState === 'rejected'} acceptDisabled={c.busy || c.readOnly} rejectDisabled={c.busy || c.readOnly}
+      onAccept={() => c.toggle(field, 'accept')} onReject={() => c.toggle(field, 'reject')}
+      edit={{ label: `Edit ${field.columnName}`, pressed: editing || field.reviewDecision === 'edit',
+        disabled: c.busy || c.readOnly || !editable || editUnavailable,
+        title: editUnavailable ? editUnavailableMessage : 'Edit (E) — counts as incorrect', onClick: () => c.startEdit(field) }} />
     <div className={styles.value} onClick={(event) => {
       const target = event.target;
       if (!c.busy && (!(target instanceof Element) || !target.closest('a, button, input, select, textarea, [role="button"]'))) c.selectField(field.id);
@@ -116,34 +111,18 @@ function ReviewFooter({ controller: c }: { controller: ReviewSessionController }
   </footer>;
 }
 
-export function ReviewSession({ onClose, renderToolbar, ...options }: ReviewSessionProps) {
+export function ReviewSession({ onClose, renderToolbar, renderFrame, ...options }: ReviewSessionProps) {
   const c = useReviewSession(options);
   const [selectedItem, setSelectedItem] = useState<ReviewItemSelection | null>(null);
   const [itemLocations, setItemLocations] = useState<ReviewItemLocation[]>([]);
-  useEscapeDismiss(() => { if (onClose && !c.editingId) c.leave(onClose); }, { enabled: !!onClose, typingGuard: true });
-  useEffect(() => {
-    const handler = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.repeat || event.isComposing || event.ctrlKey || event.metaKey || event.altKey || c.busy || c.editingId) return;
-      const target = event.target instanceof HTMLElement ? event.target : null;
-      if (target?.closest('input, textarea, select, [contenteditable="true"], [role="menu"], [role="listbox"]')) return;
-      if (document.querySelector(':popover-open, :modal')) return;
-      switch (event.key.toLowerCase()) {
-        case 'arrowdown': case 's': case 'j': c.moveField(1); break;
-        case 'arrowup': case 'w': case 'k': c.moveField(-1); break;
-        case 'arrowleft': if (c.field) c.toggle(c.field, 'accept'); break;
-        case 'arrowright': case 'd': case 'r': if (c.field) c.toggle(c.field, 'reject'); break;
-        case 'a': if (event.shiftKey) c.acceptRemaining(); else if (c.field) c.toggle(c.field, 'accept'); break;
-        case 'e': c.startEdit(); break;
-        default: return;
-      }
-      event.preventDefault();
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [c]);
+  useEscapeDismiss(() => { if (onClose && !c.editingId) c.leave(onClose); }, { enabled: !!onClose && !renderFrame, typingGuard: true });
+  useReviewShortcuts({ disabled: c.busy || Boolean(c.editingId), onMove: (delta) => c.moveField(delta),
+    onAccept: () => { if (c.field) c.toggle(c.field, 'accept'); },
+    onReject: () => { if (c.field) c.toggle(c.field, 'reject'); },
+    onEdit: () => c.startEdit(), onAcceptRemaining: () => c.acceptRemaining() });
 
   const navigation = <RowNavigation controller={c} />;
-  return <>
+  const content = <>
     {renderToolbar ? renderToolbar(navigation, c.leave, c.busy && !c.loading) : navigation}
     {c.problem && <div className={styles.notice} role="alert">{c.problem}
       {c.loading === false && c.canRetryPageLoad && <Button onClick={c.retry}>Retry</Button>}
@@ -152,10 +131,9 @@ export function ReviewSession({ onClose, renderToolbar, ...options }: ReviewSess
     {c.readOnly && <p className={styles.notice}>Review complete. Reopen it to make more decisions.</p>}
     {c.loading && !c.page ? <div className={styles.empty}>Loading review…</div>
       : !c.bundle ? <div className={styles.empty} data-testid="review-empty">No results to review.</div>
-        : <main className={styles.workspace} data-testid="review-card" aria-busy={c.busy}>
-          <ReviewSourcePreview bundle={c.bundle} activeField={c.field} selectedItem={selectedItem} onItemLocations={setItemLocations}
-            sourceEntries={Object.entries(c.bundle.source) as Array<[string, CellValue]>} />
-          <section className={styles.results} data-testid="review-output-panel" aria-label="Result fields">
+        : <ReviewWorkspace testId="review-card" label="Result fields" busy={c.busy}
+          source={<ReviewSourcePreview bundle={c.bundle} activeField={c.field} selectedItem={selectedItem} onItemLocations={setItemLocations}
+            sourceEntries={Object.entries(c.bundle.source) as Array<[string, CellValue]>} />}>
             <div className={styles.resultsHeader}>Results <span>{c.bundle.fields.length} {c.bundle.fields.length === 1 ? 'field' : 'fields'}</span></div>
             <div className={styles.fields} data-testid="review-bundle-fields">
               {c.bundle.fields.map((field) => <FieldDecision key={field.id} field={field} controller={c}
@@ -163,7 +141,7 @@ export function ReviewSession({ onClose, renderToolbar, ...options }: ReviewSess
                 onSelectItem={(index) => { c.selectField(field.id); setSelectedItem({ fieldId: field.id, index }); }} />)}
             </div>
             <ReviewFooter controller={c} />
-          </section>
-        </main>}
+        </ReviewWorkspace>}
   </>;
+  return renderFrame ? renderFrame(content, c.leave, c.busy && !c.loading, Boolean(c.editingId)) : content;
 }

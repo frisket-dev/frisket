@@ -7,7 +7,7 @@ import styles from './ReviewSourcePreview.module.css';
 
 /** Typed input fallback for runs without stored citations. These are explicitly
  * current values; saved evidence remains the authoritative run-time source. */
-export function ReviewInputSources({ bundle }: { bundle: ReviewBundle }) {
+export function ReviewInputSources({ bundle }: { bundle: Pick<ReviewBundle, 'sources' | 'rowId' | 'rowIndex' | 'sheetId'> }) {
   const sources = bundle.sources ?? [];
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = sources.find((source) => source.columnId === selectedId) ?? sources[0];

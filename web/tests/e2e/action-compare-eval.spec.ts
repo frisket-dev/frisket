@@ -103,6 +103,28 @@ async function openFirstComparisonRow(page: import('@playwright/test').Page, exp
   await expect(page.getByTestId('comparison-review')).toBeVisible();
 }
 
+async function expectFullScreenReview(page: import('@playwright/test').Page, onOpen = true) {
+  const dialog = page.getByRole('dialog', { name: 'Review queue', exact: true });
+  await expect(dialog).toBeVisible();
+  const box = await dialog.boundingBox();
+  const viewport = page.viewportSize()!;
+  expect(box).not.toBeNull();
+  expect(box!.x).toBe(0);
+  expect(box!.y).toBe(0);
+  expect(box!.width).toBe(viewport.width);
+  expect(box!.height).toBe(viewport.height);
+  await expect.poll(() => dialog.evaluate(element => element.matches(':modal'))).toBe(true);
+  if (onOpen) await expect.poll(() => dialog.evaluate(element => element.contains(document.activeElement))).toBe(true);
+  // Native dialogs can tab into browser chrome. Exercise existing header controls
+  // from a known enabled control, after the real Review content is ready.
+  const close = dialog.getByRole('button', { name: /^Close (comparison review|review queue)$/ });
+  await expect(close).toBeEnabled();
+  await close.focus();
+  await page.keyboard.press('Shift+Tab');
+  await expect.poll(() => dialog.evaluate(element => element.contains(document.activeElement))).toBe(true);
+  return dialog;
+}
+
 async function downloadedText(download: import('@playwright/test').Download) {
   const stream = await download.createReadStream();
   if (!stream) throw new Error('Download produced no readable stream');
@@ -224,18 +246,30 @@ test('join expected answers and compare 38 rows across five variants', async ({ 
   await page.getByRole('button', { name: 'Close results', exact: true }).click();
 
   await page.getByRole('group', { name: 'Comparison field' }).getByRole('button', { name: 'plaintiff', exact: true }).click();
+  const comparisonGrid = await page.getByTestId('action-compare-grid').elementHandle();
   await openFirstComparisonRow(page);
+  await expectFullScreenReview(page);
+  expect(await comparisonGrid!.evaluate(element => element.isConnected)).toBe(true);
+  await expect(page.getByTestId('action-compare-toolbar')).toHaveCount(1);
   await expect(page.getByTestId('comparison-review').getByRole('button', { name: /Answer 1, variants A, B, C/ })).toBeVisible();
   await expect(page.getByTestId('comparison-review').getByRole('button', { name: 'Accept answer 1', exact: true })).toBeDisabled();
   await expect(page.getByTestId('comparison-review')).toContainText('Public notice 1: Reporter 1 v Agency 1.');
   await expect(page.getByText('Loading cited sources…', { exact: true })).toHaveCount(0);
   await capture(page, '13a-inspect-grouped-misses.png');
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.setViewportSize({ width: 1024, height: 900 });
+  await expectFullScreenReview(page, false);
+  await capture(page, '13c-comparison-review-1024.png');
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await page.getByRole('button', { name: 'Close comparison review', exact: true }).focus();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'Review queue', exact: true })).toHaveCount(0);
+  expect(await comparisonGrid!.evaluate(element => element.isConnected)).toBe(true);
 
   await page.getByRole('group', { name: 'Comparison field' }).getByRole('button', { name: 'summary', exact: true }).click();
   await page.getByRole('button', { name: /to score by hand/ }).click();
   const review = page.getByTestId('comparison-review');
   await expect(review).toBeVisible();
+  await expectFullScreenReview(page);
   await expect(review.getByRole('button', { name: /Answer 1, variants A, B, E/ })).toBeVisible();
   await expect(review.getByRole('button', { name: /Answer 2, variants C, D/ })).toBeInViewport();
   await expect(review.getByRole('button', { name: /Answer 1, variants A, B, E/ })).toBeInViewport();
@@ -257,7 +291,15 @@ test('join expected answers and compare 38 rows across five variants', async ({ 
     return data.rows[1].cells[expectedColumn('summary')];
   }).toBe('A corrected public expected narrative.');
   await capture(page, '05b-hand-scoring-and-live-edit.png');
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  const pendingEdit = 'Pending edit saved when comparison Review closes.';
+  await review.getByLabel('Expected answer', { exact: true }).fill(pendingEdit);
+  await page.getByRole('button', { name: 'Close comparison review', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Review queue', exact: true })).toHaveCount(0);
+  expect(await comparisonGrid!.evaluate(element => element.isConnected)).toBe(true);
+  await expect(page.getByLabel('Comparison rows', { exact: true })).toHaveValue('expected');
+  await expect(page.getByRole('group', { name: 'Comparison field' }).getByRole('button', { name: 'summary', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(async () => (await sheetData(page.request, scenario.projectId, scenario.expectedSheetId, 0, 2)).rows[1].cells[expectedColumn('summary')]).toBe(pendingEdit);
+  expect(previewStarts).toBe(8);
   console.log('evaluation milestone: grouped hand scores reuse only the same row; expected edits write ordinary sheet');
 
   const [csvDownload] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: '⤓ CSV', exact: true }).click()]);
@@ -363,7 +405,7 @@ test('disagreement rejection stays unchecked and acceptance creates an ordinary 
   await capture(page, '14-disagreement-queue.png');
   expect(latest!.link!.fields[0].rule).toBe('exact');
   expect(latest!.link!.fields[0].source).toBe('disagreements');
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.getByRole('button', { name: 'Close comparison review', exact: true }).click();
   await page.getByRole('button', { name: '✓ Expected answers', exact: true }).click();
   await expect(page.getByTestId('action-compare-grid')).toBeVisible();
   await expect(page.getByText('Scoring…', { exact: true })).toHaveCount(0);
@@ -395,11 +437,12 @@ test('Try several preserves engine and model selection and scores the chosen fie
   const matrix = page.getByRole('region', { name: 'Try several values', exact: true });
   await expect(matrix).toBeInViewport();
   await matrix.getByRole('button', { name: 'Add model', exact: true }).click();
-  await expect(matrix.getByTestId('engine-selector')).toHaveCount(2);
-  await matrix.getByTestId('engine-selector').nth(1).click();
+  const modelChoices = matrix.getByRole('group', { name: 'Models', exact: true }).getByRole('button');
+  await expect(modelChoices).toHaveCount(2);
+  await modelChoices.nth(1).click();
   await page.getByTestId('engine-selector-dialog').getByRole('button', { name: /Claude Haiku 4.5/ }).click();
-  await expect(matrix.getByTestId('engine-selector').nth(1)).toContainText('Claude Haiku 4.5');
-  await expect(matrix.getByLabel('Score on', { exact: true }).locator('option[value="summary"]')).toBeDisabled();
+  await expect(modelChoices.nth(1)).toContainText('Claude Haiku 4.5');
+  await expect(matrix.getByLabel('Score on', { exact: true }).locator('option[value="summary"]')).toHaveJSProperty('disabled', true);
   await capture(page, '11a-try-several-setup.png');
   await matrix.getByRole('button', { name: 'Run 2 combinations', exact: true }).click();
   await approveComparisonConsent(page, 76);
@@ -410,7 +453,15 @@ test('Try several preserves engine and model selection and scores the chosen fie
   expect((selected.settings as { params: { model: string } }).params.model).toBe('anthropic/claude-haiku-4-5');
   expect(selected.scores.plaintiff.matches).toBe(38);
   expect(latest!.variants.find(variant => variant.key === 'B')!.scores.plaintiff.matches).toBe(28);
+  await expect(matrix.getByText('Show setup', { exact: true })).toBeVisible();
+  await expect(matrix.getByRole('button', { name: 'Add model', exact: true })).toBeHidden();
+  await expect(matrix.getByTestId('try-several-grid')).toBeInViewport();
+  await expect(matrix.getByRole('button', { name: 'Use best', exact: true })).toBeInViewport();
   await capture(page, '11-try-several-scored.png');
+  await page.setViewportSize({ width: 1024, height: 900 });
+  await expect(matrix.getByRole('button', { name: 'Use best', exact: true })).toBeInViewport();
+  await capture(page, '11c-try-several-results-1024.png');
+  await page.setViewportSize({ width: 1600, height: 900 });
   await matrix.getByRole('button', { name: 'Use best', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Try several values', exact: true })).toHaveCount(0);
   const replacement = page.getByTestId('generated-action-form');
@@ -418,4 +469,35 @@ test('Try several preserves engine and model selection and scores the chosen fie
   await expect(replacement.getByTestId('engine-selector')).toContainText('Claude Haiku 4.5');
   await capture(page, '11b-try-several-use-best.png');
   console.log('evaluation milestone: model matrix preserved full engine/model selection, scored one field and opened Replace');
+});
+
+
+test('ordinary Review keeps its full-screen decisions and saves a pending row note on close', async ({ page }) => {
+  test.setTimeout(120_000);
+  const scenario = await createEvaluationScenario(page);
+  await openProject(page, scenario.projectId, scenario.targetSheetId);
+  await page.getByTestId('review-queue-button').click();
+  await expect(page.getByTestId('review-field-plaintiff')).toBeVisible();
+  const dialog = await expectFullScreenReview(page);
+  const plaintiff = dialog.getByTestId('review-field-plaintiff');
+  await expect(plaintiff).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Edit plaintiff', exact: true })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Accept plaintiff', exact: true }).click();
+  await expect(plaintiff).toHaveAttribute('data-review-state', 'verified');
+  await capture(page, '16-ordinary-review.png');
+  await page.setViewportSize({ width: 1024, height: 900 });
+  await expectFullScreenReview(page, false);
+  await capture(page, '16b-ordinary-review-1024.png');
+  const note = 'Ordinary Review retains its own row note and yes/no decisions.';
+  await dialog.getByTestId('review-note-input').fill(note);
+  await dialog.getByRole('button', { name: 'Close review queue', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByTestId('grid')).toBeVisible();
+  await expect.poll(async () => {
+    const response = await page.request.get(`/api/projects/${scenario.projectId}/review/bundles?run_id=${scenario.baselineRunId}&include_reviewed=true&limit=100`);
+    return (await response.json()).bundles.some((bundle: { review_note: string | null }) => bundle.review_note === note);
+  }).toBe(true);
+  const links = await page.request.get(`/api/projects/${scenario.projectId}/evaluation/links?sheet_id=${scenario.targetSheetId}`);
+  expect(links.ok()).toBeTruthy();
+  expect((await links.json()).links).toHaveLength(0);
 });

@@ -15,6 +15,8 @@ import { FieldValue } from '../components/rowInspection/FieldValue';
 import { GeneratedActionParamsEditor } from '../components/action-panel/GeneratedActionForm';
 import { currentSelectorChoice, selectorQueryKey } from '../engine-selector/selectorProjection';
 import { useSelectorChoices, type SelectorChoicesLoader } from '../engine-selector/useSelectorChoices';
+import { SelectorField } from '../engine-selector/SelectorField';
+import { selectorUpdates } from '../engine-selector/selectorUpdates';
 import { ActionCompareTab, type ActionCompareVariantEditorRenderProps } from '../workbench/ActionCompareTab';
 import type { ActionCompareStructuredValue } from '../workbench/ActionCompareGrid';
 import {
@@ -59,6 +61,20 @@ function VariantEditor({ editor, sheetId }: { editor: ActionCompareVariantEditor
   const template = snapshot.resolvedTemplates.find(template => template.kind === editor.draft.action_id);
   if (!entry || !isGeneratedActionCatalogEntry(entry) || !template || !sheet) {
     return <p role="status">These action settings are not available.</p>;
+  }
+  if (editor.modelOnly) {
+    const field = actionCompareSelectorField(entry);
+    const query = actionCompareSelectorQuery(entry, editor.draft);
+    const modelField = Object.entries(entry.ui_hints.semantic_controls).find(([, control]) => control === 'model')?.[0];
+    if (!field || !query) return <p role="status">Model selection is not available.</p>;
+    return <SelectorField projectId={chromePreferences.projectId} label={editor.label} query={query}
+      recentNamespace={`${chromePreferences.projectId ?? 'none'}:action:${entry.kind}:${field}`}
+      disabled={!chromePreferences.projectId || editor.modelDisabled}
+      onCurrentChoiceChange={(choice) => { if (choice?.label) editor.onModelLabelChange?.(choice.label); }}
+      onSelect={(choice) => {
+        const updates = selectorUpdates(field, modelField, choice);
+        if (updates) editor.onDraftChange({ ...editor.draft, params: { ...editor.draft.params, ...updates } });
+      }} />;
   }
   return <GeneratedActionParamsEditor projectId={chromePreferences.projectId} catalogEntry={entry}
     actionTemplate={template} sheet={sheet} draft={editor.draft} onDraftChange={editor.onDraftChange}

@@ -3,6 +3,7 @@ import { GridCellKind, type GridCell, type GridColumn, type Item } from '@glidea
 import type { EvaluationResponse } from '../../api/evaluation';
 import type { GeneratedActionDraft } from '../../api/types';
 import { Button } from '../../components/Button';
+import { FormField, TextArea } from '../../components/FormControls';
 import { PanelSelect } from '../../components/PanelSelect';
 import { Modal } from '../../components/Modal';
 import { GridViewport } from '../../grid/GridViewport';
@@ -22,7 +23,7 @@ export interface TrySeveralProps {
   scoring?: boolean;
 }
 
-type Model = { id: number; draft: GeneratedActionDraft };
+type Model = { id: number; draft: GeneratedActionDraft; label?: string };
 type Instructions = { id: number; value: string };
 const cellKey = (model: number, instruction: number) => `${model}:${instruction}`;
 const routingFields = (modelField: string) => new Set([modelField, 'model', 'engine', 'provider', 'provider_ref', 'execution_target']);
@@ -93,7 +94,7 @@ export function TrySeveral({ session, state, response, modelField, instructionsF
     const model = models[row];
     const instruction = instructions[column - 1];
     let text = '';
-    if (column === 0) text = `${String(model?.draft.params[modelField] ?? '')}${modelField !== 'model' && model?.draft.params.model ? ` · ${String(model.draft.params.model)}` : ''}`;
+    if (column === 0) text = model?.label ?? `${String(model?.draft.params[modelField] ?? '')}${modelField !== 'model' && model?.draft.params.model ? ` · ${String(model.draft.params.model)}` : ''}`;
     else if (model && instruction) {
       const key = cellKey(model.id, instruction.id);
       const id = created?.[key];
@@ -136,35 +137,39 @@ export function TrySeveral({ session, state, response, modelField, instructionsF
     setError('');
     void session.runPending();
   }
-  return <Modal title="Try several values" onClose={onClose} closeLabel="Close try several" size="wide" testId="comparison-try-several"><section className="comparison-try-several" aria-label="Try several values">
-    <p>Choose models and instructions, then run the selected combinations. This also runs other pending variants.</p>
-    <fieldset disabled={locked}><legend>Models</legend>{models.map((model, index) => <div key={model.id}>
-      {renderVariantEditor?.({ variantId: `try-several-model-${model.id}`, label: `Model ${index + 1}`,
+  const setup = <div className="form-stack">
+    <p className="modal-body-text">Choose models and instructions, then run the selected combinations. This also runs other pending variants.</p>
+    <div role="group" aria-label="Models" className="form-stack">{models.map((model, index) => <div key={model.id} className="form-field" role="group" aria-label={`Model ${index + 1}`}><span className="form-field-label">Model {index + 1}</span>
+      {renderVariantEditor?.({ variantId: `try-several-model-${model.id}`, label: `Model ${index + 1}`, modelOnly: true, modelDisabled: locked,
+        onModelLabelChange: label => setModels(previous => previous.find(item => item.id === model.id)?.label === label ? previous : previous.map(item => item.id === model.id ? { ...item, label } : item)),
         draft: model.draft, lockedParams: Object.keys(baseline.draft.params).filter(key => !routingFields(modelField).has(key)),
         structureLocked: true, lockReason: 'Fixed for this comparison',
         onDraftChange: draft => setModels(previous => previous.map(item => item.id === model.id
           ? { ...item, draft: selectedModelDraft(baseline.draft, draft, modelField) } : item)),
         onDuplicate: () => {}, onDismiss: () => {},
       })}
-    </div>)}</fieldset>
+    </div>)}</div>
     <Button type="button" disabled={locked || !renderVariantEditor} onClick={() => {
       setModels(previous => [...previous, { id: nextId, draft: baseline.draft }]); setNextId(nextId + 1);
     }}>Add model</Button>
-    {instructions.map((instruction, index) => <label key={instruction.id}>Instructions {index + 1}
-      <textarea aria-label={`Instructions ${index + 1}`} disabled={locked} value={instruction.value}
+    {instructions.map((instruction, index) => <FormField key={instruction.id} label={`Instructions ${index + 1}`}>
+      <TextArea aria-label={`Instructions ${index + 1}`} disabled={locked} value={instruction.value}
         onChange={event => setInstructions(previous => previous.map(item => item.id === instruction.id ? { ...item, value: event.target.value } : item))} />
-    </label>)}
+    </FormField>)}
     <Button type="button" disabled={locked} onClick={() => {
       setInstructions(previous => [...previous, { id: nextId, value: instructions[0].value }]); setNextId(nextId + 1);
     }}>Add instructions</Button>
-    {!created && <fieldset><legend>Combinations to run</legend>{models.flatMap((model, modelIndex) => instructions.map((instruction, instructionIndex) => {
+    {!created && <div role="group" aria-label="Combinations to run" className="form-stack"><span className="form-label">Combinations to run</span>{models.flatMap((model, modelIndex) => instructions.map((instruction, instructionIndex) => {
       const key = cellKey(model.id, instruction.id);
-      return <label key={key}><input type="checkbox" checked={!skipped.includes(key)} disabled={locked}
+      return <label className="form-check" key={key}><input type="checkbox" checked={!skipped.includes(key)} disabled={locked}
         onChange={event => setSkipped(previous => event.target.checked ? previous.filter(item => item !== key) : [...previous, key])} />
         Model {modelIndex + 1} · Instructions {instructionIndex + 1}</label>;
-    }))}</fieldset>}
-    {fields.length > 0 && <PanelSelect ariaLabel="Score on" value={activeField} onValueChange={setField}
-      options={fields.map(candidate => ({ value: candidate.logical_key, label: candidate.logical_key, disabled: !fieldAvailable(candidate.logical_key) }))} />}
+    }))}</div>}
+  </div>;
+  return <Modal title="Try several values" onClose={onClose} closeLabel="Close try several" size="wide" testId="comparison-try-several"><section className="form-stack" aria-label="Try several values">
+    {created ? <details><summary>Show setup</summary>{setup}</details> : setup}
+    {fields.length > 0 && <FormField label="Score on"><PanelSelect ariaLabel="Score on" value={activeField} onValueChange={setField}
+      options={fields.map(candidate => ({ value: candidate.logical_key, label: candidate.logical_key, disabled: !fieldAvailable(candidate.logical_key) }))} /></FormField>}
     <div style={{ height: Math.max(120, 40 + models.length * 42) }} data-testid="try-several-grid">
       <GridViewport columns={columns} rows={models.length} getCellContent={getCellContent}
         onCellClicked={([column, row]) => {
