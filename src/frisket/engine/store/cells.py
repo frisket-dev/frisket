@@ -463,8 +463,10 @@ def add_row_with_undo(
 ) -> int:
     """Append one hand-entered row and its undo op atomically."""
     cur = project.db.cursor()
+    owns_transaction = not project.db.in_transaction
     try:
-        cur.execute("BEGIN IMMEDIATE")
+        if owns_transaction:
+            cur.execute("BEGIN IMMEDIATE")
         base = cur.execute(
             "SELECT COALESCE(MAX(position),0) FROM rows WHERE sheet_id=?",
             (sheet_id,),
@@ -501,10 +503,12 @@ def add_row_with_undo(
                 if name in column_ids and value is not None
             ),
         )
-        project.db.commit()
+        if owns_transaction:
+            project.db.commit()
         return row_id
     except Exception:
-        project.db.rollback()
+        if owns_transaction:
+            project.db.rollback()
         raise
 
 

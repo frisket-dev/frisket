@@ -124,8 +124,9 @@ def test_duplicate_expected_keys_block_ambiguous_truth(env):
     e.project.add_rows(e.expected, [{"id": "a", "answer": "different"}], e.ec)
     preview = e.service.preview_link("p", e.body)
     assert preview["ambiguous_target"] == 1
-    with pytest.raises(RouteError, match="ambiguous"):
+    with pytest.raises(RouteError, match="ambiguous") as error:
         e.service.save_link("p", e.body)
+    assert f"ambiguous target row IDs: [{e.rows[0]}]" in error.value.detail
 
 
 def test_manual_score_reuses_only_same_row_unchanged_inputs(env):
@@ -591,14 +592,16 @@ def test_equal_counts_with_disjoint_scored_rows_cannot_choose_winner(env):
     assert e.service.score("p", e.request)["best"]["answer"] == []
 
 
-def test_join_ambiguity_created_after_save_refuses_reads(env):
+def test_join_ambiguity_refuses_scoring_and_marks_projection_unavailable(env):
     e = env
     join(e)
     e.project.add_rows(e.expected, [{"id": "a", "answer": "conflict"}], e.ec)
     with pytest.raises(RouteError, match="ambiguous"):
         e.service.score("p", e.request)
-    with pytest.raises(RouteError, match="ambiguous"):
-        e.service.projection("p", e.sheet, e.rows)
+    projection = e.service.projection("p", e.sheet, e.rows)
+    assert not projection["links"][0]["available"]
+    assert "ambiguous" in projection["links"][0]["unavailable_reason"]
+    assert projection["columns"] == []
 
 
 def test_expected_row_scope_counts_checked_matches_and_limits_only_returned_ids(env):
@@ -787,3 +790,171 @@ def test_hand_value_hash_preserves_types_while_normalizing_integral_numbers():
     assert value_hash({"items": [925000.0, 0.0]}) == value_hash({"items": [925000, 0]})
     assert value_hash(False) != value_hash(0)
     assert value_hash("925000") != value_hash(925000)
+
+
+@pytest.mark.parametrize("unavailable", ["sheet", "output"])
+def test_unavailable_links_remain_manageable_and_preserve_healthy_projection(
+    env, unavailable
+):
+    e = env
+    broken = join(e)
+    other_output = e.project.add_column(e.sheet, "other")
+    other_sheet = e.project.add_sheet("Other known answers")
+    other_cols = {
+        name: e.project.add_column(other_sheet, name) for name in ("id", "other")
+    }
+    e.project.add_rows(other_sheet, [{"id": "a", "other": "healthy"}], other_cols)
+    healthy_body = {
+        **e.body,
+        "expected_sheet_id": other_sheet,
+        "keys": [
+            {"expected_column_id": other_cols["id"], "target_column_id": e.cols["id"]}
+        ],
+        "fields": [
+            {
+                "expected_column_id": other_cols["other"],
+                "output_column_id": other_output,
+                "logical_key": "other",
+                "rule": "exact",
+                "hidden": False,
+                "source": "import",
+            }
+        ],
+    }
+    healthy = e.service.save_link("p", healthy_body)
+    # Undo hides the imported source sheet or deactivates produced output columns.
+    if unavailable == "sheet":
+        e.project.db.execute("UPDATE sheets SET hidden=1 WHERE id=?", (e.expected,))
+    else:
+        e.project.db.execute(
+            "UPDATE columns SET active=0,hidden=1 WHERE id=?", (e.cols["answer"],)
+        )
+    e.project.db.commit()
+    listed = {link["id"]: link for link in e.service.links("p", e.sheet)["links"]}
+    assert not listed[broken["id"]]["available"]
+    assert listed[broken["id"]]["unavailable_reason"]
+    assert listed[broken["id"]]["expected_sheet_name"] == "Known"
+    assert listed[healthy["id"]]["available"]
+    projected = e.service.projection("p", e.sheet, e.rows)
+    assert {column["link_id"] for column in projected["columns"]} == {healthy["id"]}
+    assert (
+        projected["rows"][str(e.rows[0])][projected["columns"][0]["id"]]["value"]
+        == "healthy"
+    )
+    with pytest.raises(RouteError) as error:
+        e.service.score("p", e.request)
+    assert error.value.status_code == 409
+    with pytest.raises(RouteError) as error:
+        e.service.expected_rows("p", {"link_id": broken["id"]})
+    assert error.value.status_code == 409
+    e.service.delete_link("p", broken["id"])
+    assert [link["id"] for link in e.service.links("p", e.sheet)["links"]] == [
+        healthy["id"]
+    ]
+
+
+def test_first_disagreement_answer_undoes_its_row_not_an_unrelated_edit(env):
+    from frisket.engine.executor import run_action_spec
+
+    e = env
+    e.service._edit_cell("p", e.project, e.rows[0], e.cols["answer"], "keep this edit")
+    prior_op = int(
+        e.project.db.execute("SELECT value FROM meta WHERE key='op_cursor'").fetchone()[
+            0
+        ]
+    )
+    link = e.service.expected_answer(
+        "p",
+        {
+            "basis": e.basis,
+            "link_id": None,
+            "row_id": e.rows[0],
+            "logical_key": "answer",
+            "value": "yes",
+            "rule": "exact",
+        },
+    )
+    saved_op = int(
+        e.project.db.execute("SELECT value FROM meta WHERE key='op_cursor'").fetchone()[
+            0
+        ]
+    )
+    assert saved_op != prior_op
+    assert (
+        e.project.db.execute("SELECT kind FROM ops WHERE id=?", (saved_op,)).fetchone()[
+            0
+        ]
+        == "add_row"
+    )
+    result = run_action_spec(
+        e.project,
+        {
+            "action_id": "operation.undo",
+            "scope": {"kind": "project"},
+            "params": {},
+            "idempotency_key": "undo-first-expected-answer",
+        },
+        project_id="p",
+    )
+    assert result.status == "completed", result.errors
+    assert e.project.row_count(link["expected_sheet_id"]) == 0
+    assert (
+        e.project.get_values(e.sheet, e.cols["answer"])[e.rows[0]] == "keep this edit"
+    )
+    assert (
+        e.project.db.execute(
+            "SELECT status FROM ops WHERE id=?", (prior_op,)
+        ).fetchone()[0]
+        == "applied"
+    )
+
+
+def test_score_also_reclaims_abandoned_unkept_captures(env):
+    e = env
+    saved = e.service.capture("p", {"comparison": e.request, "variant_keys": ["A"]})[
+        "items"
+    ][0]
+    e.project.db.execute(
+        "UPDATE saved_compare_variants SET last_used_at=datetime('now','-8 days') WHERE id=?",
+        (saved["id"],),
+    )
+    e.project.db.commit()
+    e.service.score("p", e.request)
+    with pytest.raises(RouteError, match="not found"):
+        e.service.saved("p", saved["id"])
+
+
+def test_expected_variant_key_is_reserved_for_full_expected_value_reads(env):
+    from pydantic import ValidationError
+
+    from frisket.contracts.http.evaluation import EvaluationRequest
+
+    env.request["variants"][0]["key"] = "expected"
+    with pytest.raises(ValidationError, match="reserved"):
+        EvaluationRequest.model_validate(env.request)
+
+
+def test_new_expected_row_rolls_back_if_it_would_make_target_keys_ambiguous(env):
+    e = env
+    link = join(e)
+    duplicate_targets = e.project.add_rows(
+        e.sheet,
+        [{"id": "new", "source": "one"}, {"id": "new", "source": "two"}],
+        e.cols,
+    )
+    before_rows = e.project.row_count(e.expected)
+    before_ops = e.project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
+    with pytest.raises(RouteError, match="ambiguous"):
+        e.service.expected_answer(
+            "p",
+            {
+                "basis": e.basis,
+                "link_id": link["id"],
+                "row_id": duplicate_targets[0],
+                "logical_key": "answer",
+                "value": "new truth",
+                "rule": "exact",
+            },
+        )
+    assert e.project.row_count(e.expected) == before_rows
+    assert e.project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == before_ops

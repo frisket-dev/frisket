@@ -53,6 +53,8 @@ def save_expected_answer(service, pid, raw):
     if link is None and body["value"] in (None, ""):
         raise RouteError(422, "Save a nonblank expected answer first")
     with store.write_transaction(project):
+        if link is not None:
+            links.link_payload(project, link)
         if link is None:
             name = f"{context['sheet']['name']} · expected"
             existing_names = {row["name"] for row in project.sheets()}
@@ -141,9 +143,9 @@ def save_expected_answer(service, pid, raw):
                 body["value"],
                 expected_column["id"],
             )
-            source_row = project.add_rows(
-                link["expected_sheet_id"], [record], column_ids, commit=False
-            )[0]
+            source_row = project.add_row_with_undo(
+                link["expected_sheet_id"], record, column_ids
+            )
             # A target key can become ambiguous since the last edit.
             links.require_unambiguous(links.row_matches(project, link)[1])
             inserted = True

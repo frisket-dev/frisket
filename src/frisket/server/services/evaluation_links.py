@@ -37,14 +37,45 @@ def column(project, column_id, sheet_id):
     return result
 
 
-def link_payload(project, value):
+def link_payload(project, value, *, tolerant=False):
     if value is None:
         raise RouteError(404, "Expected answer link was not found")
-    return {
-        **value,
-        "target_sheet_name": sheet(project, value["target_sheet_id"])["name"],
-        "expected_sheet_name": sheet(project, value["expected_sheet_id"])["name"],
-    }
+    payload = {**value, "available": True, "unavailable_reason": None}
+    for side in ("target", "expected"):
+        row = project.db.execute(
+            "SELECT name FROM sheets WHERE id=?", (value[f"{side}_sheet_id"],)
+        ).fetchone()
+        payload[f"{side}_sheet_name"] = (
+            row[0] if row else f"Missing sheet {value[f'{side}_sheet_id']}"
+        )
+    try:
+        validate(
+            project,
+            {
+                key: item
+                for key, item in value.items()
+                if key in ExpectedLinkInput.model_fields
+            },
+        )
+    except RouteError as exc:
+        if not tolerant:
+            raise RouteError(
+                409, f"Expected answer link is unavailable: {exc.detail}"
+            ) from exc
+        payload["available"] = False
+        payload["unavailable_reason"] = str(exc.detail)
+    return payload
+
+
+def readable_link(project, value):
+    payload = link_payload(project, value, tolerant=True)
+    if payload["available"]:
+        try:
+            require_unambiguous(row_matches(project, payload)[1])
+        except RouteError as exc:
+            payload["available"] = False
+            payload["unavailable_reason"] = str(exc.detail)
+    return payload
 
 
 def validate(project, raw, *, preview=False):
@@ -139,12 +170,22 @@ def row_matches(project, body):
 def require_unambiguous(preview):
     if preview["ambiguous_expected"] or preview["ambiguous_target"]:
         raise RouteError(
-            409, "Expected answer keys are ambiguous; add another key column"
+            409,
+            "Expected answer keys are ambiguous; add another key column. "
+            f"Ambiguous expected row IDs: {preview['ambiguous_expected_row_ids']}; "
+            f"ambiguous target row IDs: {preview['ambiguous_target_row_ids']}",
         )
 
 
 def resolve(project, link, row_ids):
-    body = validate(project, link)
+    body = validate(
+        project,
+        {
+            key: value
+            for key, value in link.items()
+            if key in ExpectedLinkInput.model_fields
+        },
+    )
     mapping, preview = row_matches(project, body)
     require_unambiguous(preview)
     rows = {str(row_id): {} for row_id in row_ids}
@@ -175,18 +216,20 @@ def projection(project, sheet_id, row_ids):
     sheet(project, sheet_id)
     if set(project.visible_row_ids(sheet_id, row_ids)) != set(row_ids):
         raise RouteError(422, "Projection rows must belong to the target sheet")
-    links = [link_payload(project, item) for item in store.links(project, sheet_id)]
+    links = [
+        link_payload(project, item, tolerant=True)
+        for item in store.links(project, sheet_id)
+    ]
     columns, rows = [], {str(row_id): {} for row_id in row_ids}
     for link in links:
-        cells = resolve(
-            project,
-            {
-                key: value
-                for key, value in link.items()
-                if key not in {"id", "target_sheet_name", "expected_sheet_name"}
-            },
-            row_ids,
-        )
+        if not link["available"]:
+            continue
+        try:
+            cells = resolve(project, link, row_ids)
+        except RouteError as exc:
+            link["available"] = False
+            link["unavailable_reason"] = str(exc.detail)
+            continue
         for field in link["fields"]:
             virtual_id = f"expected:{link['id']}:{field['expected_column_id']}"
             descriptor = column(
@@ -215,6 +258,7 @@ def checked_rows(project, link_id, limit):
     link = store.link(project, link_id)
     if link is None:
         raise RouteError(404, "Expected answer link was not found")
+    link_payload(project, link)
     body = validate(project, {key: value for key, value in link.items() if key != "id"})
     mapping, preview = row_matches(project, body)
     require_unambiguous(preview)

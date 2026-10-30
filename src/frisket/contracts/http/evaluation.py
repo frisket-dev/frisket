@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import Field, JsonValue, model_validator
+from pydantic import Field, JsonValue, field_validator, model_validator
 
 from frisket.contracts.http.action_compare import ActionCompareBasis
 from frisket.contracts.http.models import NonNullQueryWireModel, WireModel
@@ -29,7 +29,10 @@ class ExpectedField(WireModel):
     expected_column_id: PositiveId
     output_column_id: PositiveId
     logical_key: str = Field(min_length=1)
-    rule: Rule = "exact"
+    rule: Rule = Field(
+        default="exact",
+        description="Initial rule for a new expected column. Existing columns keep their stored rule; change it through the rule endpoint.",
+    )
     hidden: bool = False
     source: Literal["import", "disagreements"] = "import"
 
@@ -70,6 +73,8 @@ class ExpectedLink(ExpectedLinkInput):
     id: PositiveId
     expected_sheet_name: str
     target_sheet_name: str
+    available: bool = True
+    unavailable_reason: str | None = None
 
 
 class ExpectedLinks(WireModel):
@@ -157,6 +162,13 @@ class EvaluationVariantInput(WireModel):
     key: str = Field(min_length=1, max_length=32)
     label: str = Field(min_length=1, max_length=300)
     source: VariantRef
+
+    @field_validator("key")
+    @classmethod
+    def reserve_expected(cls, value):
+        if value == "expected":
+            raise ValueError("Variant key 'expected' is reserved")
+        return value
 
 
 class EvaluationRequest(WireModel):
@@ -251,7 +263,10 @@ class ExpectedAnswerRequest(WireModel):
     row_id: PositiveId
     logical_key: str
     value: JsonValue
-    rule: Rule = "exact"
+    rule: Rule = Field(
+        default="exact",
+        description="Initial rule for a new expected column. Existing columns keep their stored rule; change it through the rule endpoint.",
+    )
 
 
 class ShelfSaveRequest(WireModel):

@@ -63,7 +63,7 @@ class EvaluationService:
             links.sheet(project, sheet_id)
             return {
                 "links": [
-                    links.link_payload(project, item)
+                    links.readable_link(project, item)
                     for item in store.links(project, sheet_id)
                 ]
             }
@@ -140,6 +140,8 @@ class EvaluationService:
         request = _body(EvaluationRequest, raw)
         self._touch_comparison(pid, request)
         project = self.workspace.get(pid)
+        with store.write_transaction(project):
+            store.purge_stale_captures(project)
         with read_transaction(project.db):
             project, context, result = scoring.prepare(self, pid, request)
             current = source_fingerprints(

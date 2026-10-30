@@ -74,3 +74,23 @@ def test_failed_stamp_rolls_back_tables_and_preserves_old_stamp(tmp_path):
         assert not project.db.execute(
             "SELECT 1 FROM sqlite_master WHERE name='expected_answer_links'"
         ).fetchone()
+
+
+def test_undoable_row_preserves_caller_owned_transaction(tmp_path):
+    from frisket.engine.store.evaluation import write_transaction
+
+    with closing(Project.create(tmp_path / "project")) as project:
+        sheet = project.add_sheet("Expected")
+        column = project.add_column(sheet, "answer")
+        first = project.add_row_with_undo(sheet, {"answer": "kept"}, {"answer": column})
+        assert not project.db.in_transaction
+        before = project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
+        with pytest.raises(RuntimeError, match="abort"):
+            with write_transaction(project):
+                project.add_row_with_undo(
+                    sheet, {"answer": "rolled back"}, {"answer": column}
+                )
+                assert project.db.in_transaction
+                raise RuntimeError("abort")
+        assert project.get_values(sheet, column) == {first: "kept"}
+        assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == before
