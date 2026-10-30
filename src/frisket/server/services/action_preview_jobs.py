@@ -78,6 +78,7 @@ class PreviewJob:
     receipt: Receipt | None = None
     on_finished: PreviewFinished | None = None
     preparation_message: str | None = None
+    comparison_context: dict[str, Any] | None = None
 
 
 class ActionPreviewJobRegistry:
@@ -108,6 +109,7 @@ class ActionPreviewJobRegistry:
         on_finished: PreviewFinished | None = None,
         preparation_message: str | None = None,
         replacement_key: str | None = None,
+        comparison_context: dict[str, Any] | None = None,
     ) -> PreviewJob:
         """Replace the prior job in the same project and replacement lane.
 
@@ -139,6 +141,7 @@ class ActionPreviewJobRegistry:
 
             job = PreviewJob(
                 receipt=receipt,
+                comparison_context=comparison_context,
                 on_finished=on_finished,
                 preparation_message=preparation_message,
                 id=uuid.uuid4().hex,
@@ -260,7 +263,10 @@ class ActionPreviewJobRegistry:
         with self._lock:
             if _job_cancelled(job):
                 job.status = "cancelled"
-                discard = True
+                if job.comparison_context is not None:
+                    job.result = result
+                else:
+                    discard = True
             else:
                 job.status = "done"
                 job.result = result

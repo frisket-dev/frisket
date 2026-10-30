@@ -44,7 +44,7 @@ ActionCompareBasis = Annotated[
 class ActionCompareContextRequest(WireModel):
     source: ActionCompareBasis
     sample_row_ids: list[Annotated[int, Field(gt=0)]] = Field(
-        min_length=1, max_length=20
+        min_length=1, max_length=500
     )
 
 
@@ -54,8 +54,8 @@ class ActionCompareReason(WireModel):
 
 
 class ActionCompareLimits(WireModel):
-    max_sample_rows: Literal[20]
-    max_challengers: Literal[3]
+    max_sample_rows: Literal[500]
+    max_challengers: Literal[19]
 
 
 class ActionCompareSheet(WireModel):
