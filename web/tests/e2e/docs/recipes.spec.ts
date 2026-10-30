@@ -59,7 +59,7 @@ test('court sample imports and runs the selected filings through strict replay',
   await selector.getByText('Gemini 3.5 Flash-Lite', { exact: true }).click();
   await expect(selector).toBeHidden();
   const plan = JSON.parse(readFileSync(path.resolve('../guides/recipes/court-filings-to-table.json'), 'utf8'));
-  const settings = Object.fromEntries(plan.steps.find((step: { id: string }) => step.id === 'extract').settings.map((setting: { id: string, value: unknown }) => [setting.id, setting.value])) as Record<string, any>;
+  const settings = Object.fromEntries(plan.steps.find((step: { id: string }) => step.id === 'extract').settings.map((setting: { id: string, value: unknown }) => [setting.id, setting.value])) as { fields: Array<{ name: string; type: string; description: string }>; instruction: string };
   while (await page.getByLabel(/Field \d+ name/).count() < settings.fields.length) await page.getByTestId('generated-action-form').getByRole('button', { name: 'Add column' }).click();
   for (const [index, field] of settings.fields.entries()) {
     await page.getByLabel(`Field ${index + 1} name`).fill(field.name);
@@ -150,12 +150,59 @@ test('court sample imports and runs the selected filings through strict replay',
   await expect(join).toHaveCount(0);
   await page.getByTestId('ribbon-tab-analyze').click();
   await page.getByTestId('compare-menu-trigger').click();
+  const scoreResponse = page.waitForResponse(response => response.url().endsWith('/evaluation/score') && response.ok(), { timeout: 30_000 });
   await page.getByRole('menuitem', { name: /vs expected/ }).click();
   await expect(page.getByTestId('action-compare-toolbar')).toBeVisible();
   for (const name of ['case_number', 'filed_at', 'plaintiff', 'defendant_as_filed']) {
     await page.getByRole('group', { name: 'Comparison field' }).getByRole('button', { name, exact: true }).click();
   }
-  captures.push(await captureCheckpoint(page, { id: 'court-comparison', annotations: [] }, stage));
+  const score = await (await scoreResponse).json();
+  expect(score.row_ids).toHaveLength(3);
+  await expect(page.getByText('Join a sheet of expected answers to check this action.')).toHaveCount(0, { timeout: 30_000 });
+  await expect(page.getByText('Scoring…')).toHaveCount(0, { timeout: 30_000 });
+  captures.push(await captureCheckpoint(page, { id: 'court-comparison', root: page.getByRole('region', { name: 'Action comparison' }), annotations: [] }, stage));
+  await page.getByTestId('workbench-mainView-tab-' + imported.id).click();
+  await openAction(page, 'map.extract');
+  await selectActionSourceColumns(page, 'text');
+  await page.getByTestId('output-fields-label').click();
+  await expect(page.getByTestId('text-source-columns-menu')).toBeHidden();
+  await page.getByTestId('field-engine').locator('.engine-selector__trigger').click();
+  await page.getByTestId('engine-selector-dialog').getByText('Gemini 3.5 Flash-Lite', { exact: true }).click();
+  await expect(page.getByTestId('engine-selector-dialog')).toBeHidden();
+  while (await page.getByLabel(/Field \d+ name/).count() < settings.fields.length) await page.getByTestId('generated-action-form').getByRole('button', { name: 'Add column' }).click();
+  for (const [index, field] of settings.fields.entries()) {
+    await page.getByLabel(`Field ${index + 1} name`).fill(field.name);
+    await page.getByLabel(`Field ${index + 1} type`).selectOption(field.type);
+    await page.getByLabel(`Field ${index + 1} description`).fill(field.description);
+  }
+  await page.getByTestId('field-instruction').fill(settings.instruction);
+  await page.getByTestId('field-citation_mode').selectOption('cite');
+  await expect(page.getByTestId('field-engine')).toContainText('Gemini 3.5 Flash-Lite');
+  captures.push(await captureCheckpoint(page, { id: 'court-run-settings', root: page.getByTestId('action-panel'), annotations: [] }, stage));
+  await page.getByTestId('generated-action-run-scope-menu-button').click();
+  const fullStart = page.waitForResponse(response => response.url().endsWith('/actions/v1/run') && response.request().method() === 'POST', { timeout: 60_000 });
+  await page.getByTestId('generated-action-row-scope-all').click();
+  if (await page.getByTestId('generated-action-run').isVisible({ timeout: 2_000 }).catch(() => false)) await page.getByTestId('generated-action-run').click();
+  const fullGate = page.getByTestId('cost-gate-modal');
+  if (await fullGate.isVisible({ timeout: 2_000 }).catch(() => false)) {
+    await page.getByTestId('cost-gate-input').fill('confirm');
+    await page.getByTestId('cost-gate-confirm').click();
+  }
+  const fullResponse = await fullStart;
+  expect(fullResponse.ok()).toBeTruthy();
+  const { run_id: fullRunId } = await fullResponse.json();
+  await expect.poll(async () => {
+    const status = await page.request.get(`/api/projects/${pid}/actions/runs/${fullRunId}/status`);
+    const { run } = await status.json();
+    if (['failed', 'cancelled', 'stalled', 'orphaned'].includes(run.status)) throw new Error(`Extract run ${fullRunId} ${run.status}`);
+    return [run.status, run.completed_rows, run.failed_rows];
+  }, { timeout: 120_000 }).toEqual(['completed', 6, 0]);
+  captures.push(await captureCheckpoint(page, { id: 'court-results', root: page.getByTestId('grid'), annotations: [] }, stage));
+  await openAction(page, 'media.ocr');
+  captures.push(await captureCheckpoint(page, { id: 'court-ocr-settings', root: page.getByTestId('action-panel'), annotations: [] }, stage));
+  await page.getByTestId('field-engine').locator('.engine-selector__trigger').click();
+  await expect(page.getByTestId('engine-selector-dialog')).toBeVisible();
+  captures.push(await captureCheckpoint(page, { id: 'court-ocr-engine', root: page.getByTestId('engine-selector-dialog'), annotations: [] }, stage));
   const required = ['court-check-text', 'court-extract-settings', 'court-extract-fields', 'court-extract-instruction', 'court-sample-run', 'court-expected-join', 'court-comparison', 'court-run-settings', 'court-results', 'court-ocr-settings', 'court-ocr-engine'];
   expect(captures.map(item => item.id)).toEqual(required);
   return captures;
@@ -164,6 +211,9 @@ test('court sample imports and runs the selected filings through strict replay',
 
 test('council sample opens the real transcription comparison', async ({ page }) => {
   test.setTimeout(240_000);
+  const output = path.join(process.env.FRISKET_DOCS_PROOF_DIR!, 'council');
+  await publishCaptureBundle(output, { appRevision: process.env.FRISKET_DOCS_REVISION!, sample: { id: 'council-recordings', revision: 1 }, replay: 'whisper-base-local;recorded-mai-transcribe-2' }, async stage => {
+  const captures = [];
   await page.goto('/learn/council-recordings?revision=1');
   await page.getByRole('button', { name: 'Open in Frisket' }).click();
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 90_000 });
@@ -185,14 +235,12 @@ test('council sample opens the real transcription comparison', async ({ page }) 
   const gate = page.getByTestId('cost-gate-modal');
   if (await gate.isVisible({ timeout: 10_000 }).catch(() => false)) await page.getByTestId('cost-gate-confirm').click();
   await expect(page.locator('[data-testid="transcribe-compare-engine-column"][data-run-status="done"]')).toHaveCount(2, { timeout: 120_000 });
-  await page.screenshot({ path: path.join(process.env.FRISKET_DOCS_PROOF_DIR!, 'council-comparison.png') });
-});
-
-test('council full-sheet transcription uses the installed Whisper base model', async ({ page }) => {
-  test.setTimeout(300_000);
-  await page.goto('/learn/council-recordings?revision=1');
-  await page.getByRole('button', { name: 'Open in Frisket' }).click();
-  await expect(page.getByTestId('grid')).toBeVisible({ timeout: 90_000 });
+  await compare.getByText(/out there today/i).scrollIntoViewIfNeeded();
+  captures.push(await captureCheckpoint(page, { id: 'council-engine-comparison', root: compare, annotations: [
+    { id: 'first-seconds', number: 3, target: { kind: 'element', id: 'transcribe-compare-duration' }, label: 'First seconds', expected: { kind: 'value', value: '30' } },
+  ] }, stage));
+  await page.getByTestId('transcribe-compare-maintab-close').click();
+  await page.getByTestId('transcribe-compare-discard-confirm').click();
   await openAction(page, 'media.transcribe');
   await page.getByTestId('field-source').selectOption('media');
   const engine = page.getByTestId('field-engine');
@@ -209,7 +257,19 @@ test('council full-sheet transcription uses the installed Whisper base model', a
   await page.getByTestId('field-output-segments').blur();
   await expect(engine).toContainText('Whisper (multilingual transcription)');
   await expect(page.getByText('Loading models…')).toHaveCount(0);
-  await page.screenshot({ path: path.join(process.env.FRISKET_DOCS_PROOF_DIR!, 'council-settings.png') });
+  const form = page.getByTestId('generated-action-form');
+  const engineTarget = form.locator('[data-tour="action-engine-selector"]');
+  await page.getByTestId('field-source').scrollIntoViewIfNeeded();
+  captures.push(await captureCheckpoint(page, { id: 'council-transcribe-settings', annotations: [
+    { id: 'source', number: 1, target: { kind: 'field', id: 'field-source' }, label: 'Media', expected: { kind: 'value', value: 'media' } },
+    { id: 'engine', number: 2, target: { kind: 'tour', id: 'action-engine-selector' }, label: 'Whisper (multilingual transcription)', labelTarget: engineTarget.locator('strong'), expected: { kind: 'text', value: (await engineTarget.innerText()).trim() } },
+    { id: 'model-size', number: 3, target: { kind: 'field', id: 'field-model_size' }, label: 'Model size', expected: { kind: 'value', value: 'base' } },
+  ] }, stage));
+  await page.getByTestId('field-output-segments').scrollIntoViewIfNeeded();
+  captures.push(await captureCheckpoint(page, { id: 'council-transcribe-outputs', annotations: [
+    { id: 'transcript', number: 4, target: { kind: 'field', id: 'field-output-text' }, label: 'Transcript', expected: { kind: 'value', value: 'transcript' } },
+    { id: 'segments', number: 5, target: { kind: 'field', id: 'field-output-segments' }, label: 'Timestamped segments', expected: { kind: 'value', value: 'transcript_segments' } },
+  ] }, stage));
   const pid = new URL(page.url()).pathname.split('/')[2];
   const start = page.waitForResponse(response => response.url().endsWith('/actions/v1/run') && response.request().method() === 'POST', { timeout: 60_000 });
   await page.getByTestId('generated-action-run').click();
@@ -236,6 +296,10 @@ test('council full-sheet transcription uses the installed Whisper base model', a
   await segment.click();
   await expect(segment).toHaveAttribute('data-active', 'true');
   await expect.poll(() => transcript.locator('audio').evaluate((el: HTMLAudioElement) => el.currentTime)).toBeGreaterThanOrEqual(Math.max(0, seconds - 1));
-  await page.screenshot({ path: path.join(process.env.FRISKET_DOCS_PROOF_DIR!, 'council-timed.png') });
-
+  captures.push(await captureCheckpoint(page, { id: 'council-timed-transcript', root: transcript, annotations: [] }, stage));
+  await page.getByTestId('view-switch-grid').click();
+  captures.push(await captureCheckpoint(page, { id: 'council-results', root: page.getByTestId('grid'), annotations: [] }, stage));
+  expect(captures.map(item => item.id)).toEqual(['council-engine-comparison', 'council-transcribe-settings', 'council-transcribe-outputs', 'council-timed-transcript', 'council-results']);
+  return captures;
+  });
 });
