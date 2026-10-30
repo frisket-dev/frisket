@@ -2,12 +2,28 @@
 
 from frisket.authoring import column_types
 from frisket.contracts.http.evaluation import ExpectedAnswerRequest
+from frisket.engine.executor.joined_table import _pair_mode
 from frisket.engine.store import evaluation as store
 from frisket.engine.store.artifact_timeline import TimelineError
 from frisket.features.temporal_ingress import preflight_typed_rows_for_persistence
 from frisket.server.route_errors import RouteError
 from frisket.server.services import evaluation_links as links
 from frisket.server.services.evaluation_values import full_column
+
+
+def _copied_key(value, expected_type, target_type):
+    if _pair_mode(expected_type, target_type) not in {"cross", "numeric"}:
+        return value
+    if expected_type == "text":
+        return str(value)
+    if expected_type == "integer" and not isinstance(value, bool):
+        return int(value)
+    if expected_type == "number" and not isinstance(value, (int, float)):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return float(value)
+    return value
 
 
 def save_expected_answer(service, pid, raw):
@@ -155,6 +171,18 @@ def save_expected_answer(service, pid, raw):
                             422,
                             "Target row needs a complete join key before adding expected answers",
                         )
+                target_type = (
+                    "integer"
+                    if pair["target_column_id"] is None
+                    else project.get_column(pair["target_column_id"])["type"]
+                )
+                try:
+                    value = _copied_key(value, ec["type"], target_type)
+                except (TypeError, ValueError, OverflowError) as exc:
+                    raise RouteError(
+                        422,
+                        f"Join key {ec['name']!r} cannot be represented as {ec['type']}",
+                    ) from exc
                 record[ec["name"]], column_ids[ec["name"]] = value, ec["id"]
             expected_column = links.column(
                 project, field["expected_column_id"], link["expected_sheet_id"]
@@ -197,8 +225,12 @@ def save_expected_answer(service, pid, raw):
             source_row = project.add_row_with_undo(
                 link["expected_sheet_id"], record, column_ids
             )
-            # A target key can become ambiguous since the last edit.
-            links.require_unambiguous(links.row_matches(project, link)[1])
+            matched, preview = links.row_matches(project, link)
+            links.require_unambiguous(preview)
+            if matched.get(body["row_id"]) != source_row:
+                raise RouteError(
+                    409, "Converted expected key does not match the target row"
+                )
             inserted = True
         else:
             inserted = False

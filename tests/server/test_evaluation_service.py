@@ -723,6 +723,15 @@ def test_hand_score_reports_stale_saved_source_without_blocking_current_answer(e
     current, historical = e.service.score("p", e.request)["variants"]
     assert current["stale_source_row_ids"] == []
     assert historical["stale_source_row_ids"] == [e.rows[0]]
+    assert historical["verdicts"][str(e.rows[0])]["answer"] == "not_run"
+    assert historical["scores"]["answer"]["remaining"] == 0
+    assert historical["scores"]["answer"]["attempted"] == 0
+    assert historical["scores"]["answer"]["scored"] == 0
+    assert historical["scores"]["answer"]["accuracy"] is None
+    assert historical["scores"]["answer"]["coverage"] == 0
+    previews = e.service.score("p", e.request)["rule_previews"]["answer"]
+    assert all(previews[rule]["B"]["attempted"] == 0 for rule in previews)
+    assert previews["hand"]["B"]["remaining"] == 0
     result = e.service.judgment(
         "p",
         {
@@ -734,7 +743,7 @@ def test_hand_score_reports_stale_saved_source_without_blocking_current_answer(e
         },
     )
     assert result["variants"][0]["verdicts"][str(e.rows[0])]["answer"] == "match"
-    assert result["variants"][1]["verdicts"][str(e.rows[0])]["answer"] == "unscored"
+    assert result["variants"][1]["verdicts"][str(e.rows[0])]["answer"] == "not_run"
     with pytest.raises(RouteError, match="source"):
         e.service.judgment(
             "p",
@@ -1057,3 +1066,116 @@ def test_new_expected_rows_follow_column_type_validation_before_persistence(env)
         "2026-03-12",
         "2026-03-13",
     ]
+
+
+@pytest.mark.parametrize(
+    "target_type,expected_type", [("integer", "text"), ("text", "integer")]
+)
+def test_new_expected_row_copies_cross_type_keys_and_round_trips(
+    env, target_type, expected_type
+):
+    e = env
+    target_key = e.project.add_column(e.sheet, "typed_key", target_type)
+    for row_id, number in zip(e.rows, (1, 2), strict=True):
+        e.service._edit_cell(
+            "p",
+            e.project,
+            row_id,
+            target_key,
+            number if target_type == "integer" else str(number),
+        )
+    expected_sheet = e.project.add_sheet("Typed expected keys")
+    expected_key = e.project.add_column(expected_sheet, "typed_key", expected_type)
+    expected_answer = e.project.add_column(expected_sheet, "answer")
+    e.project.add_rows(
+        expected_sheet,
+        [{"typed_key": 1 if expected_type == "integer" else "1", "answer": "first"}],
+        {"typed_key": expected_key, "answer": expected_answer},
+    )
+    link = e.service.save_link(
+        "p",
+        {
+            **e.body,
+            "expected_sheet_id": expected_sheet,
+            "keys": [
+                {"expected_column_id": expected_key, "target_column_id": target_key}
+            ],
+            "fields": [
+                {
+                    "expected_column_id": expected_answer,
+                    "output_column_id": e.cols["answer"],
+                    "logical_key": "answer",
+                    "rule": "exact",
+                    "hidden": False,
+                    "source": "import",
+                }
+            ],
+        },
+    )
+    e.service.expected_answer(
+        "p",
+        {
+            "basis": e.basis,
+            "link_id": link["id"],
+            "row_id": e.rows[1],
+            "logical_key": "answer",
+            "value": "second",
+            "rule": "exact",
+        },
+    )
+    projected = e.service.projection("p", e.sheet, [e.rows[1]])
+    cell = projected["rows"][str(e.rows[1])][projected["columns"][0]["id"]]
+    assert cell["value"] == "second" and cell["checked"]
+    assert e.project.get_values(expected_sheet, expected_key)[
+        cell["source_row_id"]
+    ] == (2 if expected_type == "integer" else "2")
+
+
+def test_new_expected_row_rolls_back_a_key_that_cannot_round_trip(env):
+    e = env
+    expected_sheet = e.project.add_sheet("Numeric expected keys")
+    expected_key = e.project.add_column(expected_sheet, "id", "integer")
+    expected_answer = e.project.add_column(expected_sheet, "answer")
+    e.service._edit_cell("p", e.project, e.rows[0], e.cols["id"], "1")
+    e.service._edit_cell("p", e.project, e.rows[1], e.cols["id"], "002")
+    e.project.add_rows(
+        expected_sheet,
+        [{"id": 1, "answer": "first"}],
+        {"id": expected_key, "answer": expected_answer},
+    )
+    link = e.service.save_link(
+        "p",
+        {
+            **e.body,
+            "expected_sheet_id": expected_sheet,
+            "keys": [
+                {"expected_column_id": expected_key, "target_column_id": e.cols["id"]}
+            ],
+            "fields": [
+                {
+                    "expected_column_id": expected_answer,
+                    "output_column_id": e.cols["answer"],
+                    "logical_key": "answer",
+                    "rule": "exact",
+                    "hidden": False,
+                    "source": "import",
+                }
+            ],
+        },
+    )
+    before_ops = e.project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
+    with pytest.raises(RouteError) as error:
+        e.service.expected_answer(
+            "p",
+            {
+                "basis": e.basis,
+                "link_id": link["id"],
+                "row_id": e.rows[1],
+                "logical_key": "answer",
+                "value": "second",
+                "rule": "exact",
+            },
+        )
+    assert error.value.status_code == 409
+    assert e.project.row_count(expected_sheet) == 1
+    assert e.project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == before_ops

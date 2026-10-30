@@ -257,11 +257,14 @@ def score_prepared(project, result, current_fingerprints):
         projections = {rule: {} for rule in RULES}
         for variant in result["variants"]:
             by_rule, states = {rule: [] for rule in RULES}, []
+            stale_rows = set(variant["stale_source_row_ids"])
             for row_id in row_ids:
                 rid = str(row_id)
                 cell = variant["rows"].get(rid, {}).get(key, {"state": "missing"})
                 expected = result["expected"].get(rid, {}).get(key)
                 state, answer = cell["state"], cell.get("value")
+                if row_id in stale_rows:
+                    state = "missing"
                 hand = None
                 if (
                     field
