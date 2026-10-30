@@ -136,11 +136,15 @@ function WorkspaceView({ model }: { model: WorkspaceViewModel }) {
   );  const actHandle = useMemo<WorkspaceActHandle>(
     () => ({
       actRibbonTabs: model.actRibbonTabs,
+      expectedAnswers: model.expectedAnswers,
+      compareActionRun: model.compareActionRun,
       launchActionFromSurface: model.launchActionFromSurface,
       runActionFromSurface: model.runActionFromSurface,
     }),
     [
       model.actRibbonTabs,
+      model.expectedAnswers,
+      model.compareActionRun,
       model.launchActionFromSurface,
       model.runActionFromSurface,
     ],
@@ -156,7 +160,7 @@ function WorkspaceView({ model }: { model: WorkspaceViewModel }) {
             <WorkspaceHostContextContext.Provider value={model.workbenchHostContext}>
               <WorkspaceMainViewModelContext.Provider value={model.mainViewModel}>
                 <WorkspaceOverlayModelContext.Provider value={model.overlayModel}>
-                  <WorkspaceViewContent pdfSplitDialog={model.pdfSplitDialog} pdfRowMenuElement={model.pdfRowMenuElement} />
+                  <WorkspaceViewContent pdfSplitDialog={model.pdfSplitDialog} pdfRowMenuElement={model.pdfRowMenuElement} expectedJoinDialog={model.expectedJoinDialog} />
                 </WorkspaceOverlayModelContext.Provider>
               </WorkspaceMainViewModelContext.Provider>
             </WorkspaceHostContextContext.Provider>
@@ -168,7 +172,7 @@ function WorkspaceView({ model }: { model: WorkspaceViewModel }) {
   );
 }
 
-function WorkspaceViewContent({ pdfSplitDialog, pdfRowMenuElement }: { pdfSplitDialog: WorkspaceViewModel['pdfSplitDialog']; pdfRowMenuElement: WorkspaceViewModel['pdfRowMenuElement'] }) {
+function WorkspaceViewContent({ pdfSplitDialog, pdfRowMenuElement, expectedJoinDialog }: { pdfSplitDialog: WorkspaceViewModel['pdfSplitDialog']; pdfRowMenuElement: WorkspaceViewModel['pdfRowMenuElement']; expectedJoinDialog: WorkspaceViewModel['expectedJoinDialog'] }) {
   return (
     <div className="app">
       <div className="workbench-shell" data-testid="workbench-shell">
@@ -190,6 +194,7 @@ function WorkspaceViewContent({ pdfSplitDialog, pdfRowMenuElement }: { pdfSplitD
         <WorkspaceActionDrawerRegion />
       </div>
       <WorkspaceOverlayRegion />
+      {expectedJoinDialog}
       {pdfRowMenuElement}
       {pdfSplitDialog}
     </div>

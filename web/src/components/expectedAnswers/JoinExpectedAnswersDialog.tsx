@@ -8,7 +8,7 @@ import { StageStepper } from '../StageStepper';
 export type ExpectedRule = 'exact' | 'ignore_case' | 'number' | 'date' | 'set' | 'hand';
 export interface JoinColumn { id: number; name: string }
 export interface JoinSheet { id: number; name: string; columns: JoinColumn[] }
-export interface JoinAction { id: string; label: string; targetSheetId: number; outputs: Array<JoinColumn & { logicalKey: string }> }
+export interface JoinAction { id: string; actionId: string; label: string; targetSheetId: number; outputs: Array<JoinColumn & { logicalKey: string }> }
 export interface ExpectedLinkDraft {
   target_sheet_id: number; expected_sheet_id: number; action_id: string;
   keys: Array<{ expected_column_id: number; target_column_id: number | null }>;
@@ -36,7 +36,9 @@ const steps = [{ id: 'sheets', label: 'Sheets', testId: 'join-step-sheets' }, { 
 export function JoinExpectedAnswersDialog({ sheets, actions, initialActionId, initialLink, initialStep = 'sheets', onPreview, onSave, onImport, onClose }: Props) {
   const [step, setStep] = useState(initialStep);
   const [sheetId, setSheetId] = useState(initialLink?.expected_sheet_id ?? 0);
-  const [actionId, setActionId] = useState(initialLink?.action_id ?? initialActionId ?? '');
+  const [actionId, setActionId] = useState(() => initialLink
+    ? actions.find(item => item.actionId === initialLink.action_id && initialLink.fields.every(field => item.outputs.some(output => output.id === field.output_column_id)))?.id ?? ''
+    : initialActionId ?? '');
   const [keys, setKeys] = useState(initialLink?.keys ?? [{ expected_column_id: 0, target_column_id: 0 }]);
   const [fields, setFields] = useState(initialLink?.fields ?? []);
   const [preview, setPreview] = useState<JoinPreview | null>(null);
@@ -50,7 +52,7 @@ export function JoinExpectedAnswersDialog({ sheets, actions, initialActionId, in
   const keyIds = new Set(keys.map((key) => key.expected_column_id));
   const remaining = sheet?.columns.filter((column) => !keyIds.has(column.id)) ?? [];
   const draft = useMemo<ExpectedLinkDraft | null>(() => action && sheet ? {
-    action_id: action.id, target_sheet_id: action.targetSheetId, expected_sheet_id: sheet.id,
+    action_id: action.actionId, target_sheet_id: action.targetSheetId, expected_sheet_id: sheet.id,
     keys, fields, hidden: initialLink?.hidden ?? false,
   } : null, [action, sheet, keys, fields, initialLink]);
   const validKeys = !!draft && keys.length > 0 && keys.every((key) => key.expected_column_id > 0 && (key.target_column_id === null ? !!initialLink?.keys.some((item) => item.target_column_id === null) : key.target_column_id > 0))

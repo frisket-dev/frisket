@@ -25,6 +25,7 @@ interface ComparisonTarget {
   sheetId: string;
   selection: ActionCompareCapturedSelection | null;
   sampleRowIds?: number[];
+  initialLens?: 'each_other' | 'expected';
 }
 
 interface ActionCompareHistoryMenuTarget {
@@ -80,6 +81,7 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
   const entries = useSelector(catalog.store, state => state.catalog?.actions);
   const tab = useSelector(compareView.store, state => state.action);
   const api = useMemo(() => createActionComparisonApi(actionPreviewRunErrorFromContract, projectId), [projectId]);
+  const [initialLens, setInitialLens] = useState<'each_other' | 'expected'>('each_other');
   const [session, setSession] = useState<ActionCompareSession | null>(null);
   const sessionRef = useRef<ActionCompareSession | null>(null);
   const [pendingTarget, setPendingTarget] = useState<ComparisonTarget | null>(null);
@@ -157,6 +159,7 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
         runVariant: createActionCompareRunner(api, requestCostConfirmation),
         cancelPreview: id => api.cancelPreview(id), discardPreview: id => api.discardPreview(id),
       });
+      setInitialLens(target.initialLens ?? 'each_other');
       sessionRef.current = next;
       setSession(next); setPendingTarget(null);
       openCompareTabTransition({ setOpenSplit }, workView, compareView, 'action');
@@ -198,9 +201,9 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
     source: { kind: 'run', run_id: Number(anchor.runId), column_id: Number(anchor.columnId) },
     sheetId: anchor.sheetId, selection: captureSelection(anchor.sheetId),
   }), [captureSelection]);
-  const compareActionRun = useCallback((anchor: ActionRunAnchor) => {
+  const compareActionRun = useCallback((anchor: ActionRunAnchor, expected = false) => {
     try {
-      requestTarget(targetForRun(anchor));
+      requestTarget({ ...targetForRun(anchor), initialLens: expected ? 'expected' : 'each_other' });
     } catch (error) {
       showError(error instanceof Error ? error.message : 'Could not capture the comparison selection.');
     }
@@ -308,11 +311,11 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
   return useMemo(() => ({ actionCompareSession: session, actionCompareOpen: tab.open, actionCompareActive: tab.active,
     actionCompareCloseWarn: tab.closeWarn, actionComparePendingTarget: pendingTarget,
     actionCompareHistoryMenuTarget: historyMenuTarget,
-    openActionCompare, compareActionRun, restoreActionRunSettings, loadActionRunEntry, useActionCompareSettings,
+    openActionCompare, compareActionRun, restoreActionRunSettings, loadActionRunEntry, useActionCompareSettings, initialLens,
     openActionCompareHistory, closeActionCompareHistory, returnToActionCompare, closeActionCompare,
     cancelActionCompareClose, cancelActionCompareRetarget, confirmActionCompareRetarget,
   }), [cancelActionCompareClose, cancelActionCompareRetarget, closeActionCompare, compareActionRun,
     closeActionCompareHistory, confirmActionCompareRetarget, historyMenuTarget, loadActionRunEntry, openActionCompare,
     openActionCompareHistory, pendingTarget, returnToActionCompare, session, tab.active,
-    restoreActionRunSettings, tab.closeWarn, tab.open, useActionCompareSettings]);
+    initialLens, restoreActionRunSettings, tab.closeWarn, tab.open, useActionCompareSettings]);
 }

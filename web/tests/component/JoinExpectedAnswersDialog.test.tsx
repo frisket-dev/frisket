@@ -8,7 +8,7 @@ import { installDialogPolyfill } from '../support/domPolyfills';
 beforeAll(installDialogPolyfill);
 afterEach(cleanup);
 const sheets = [{ id: 1, name: 'Target', columns: [{ id: 11, name: 'id' }, { id: 12, name: 'answer' }] }, { id: 2, name: 'Expected', columns: [{ id: 21, name: 'id' }, { id: 22, name: 'answer' }] }];
-const actions = [{ id: 'ask', label: 'Ask', targetSheetId: 1, outputs: [{ id: 12, name: 'answer', logicalKey: 'answer' }] }];
+const actions = [{ id: 'run1', actionId: 'ask', label: 'Ask', targetSheetId: 1, outputs: [{ id: 12, name: 'answer', logicalKey: 'answer' }] }];
 const preview = { matched: 2, not_found: 0, ambiguous_expected: 0, ambiguous_target: 0, unmatched_expected_row_ids: [] };
 const link: ExpectedLinkDraft = { action_id: 'ask', target_sheet_id: 1, expected_sheet_id: 2, keys: [{ expected_column_id: 21, target_column_id: 11 }], fields: [], hidden: false };
 
@@ -26,4 +26,13 @@ it('blocks ambiguous matching in either direction and defaults an exact-name fie
   await waitFor(() => expect(screen.getByRole('button', { name: 'Join' })).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: 'Join' }));
   await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ fields: [expect.objectContaining({ expected_column_id: 22, output_column_id: 12, rule: 'exact' })] })));
+});
+
+it('edits the output family belonging to an existing link when two runs share an action', async () => {
+  const second = { id: 'run2', actionId: 'ask', label: 'Ask · second run', targetSheetId: 1, outputs: [{ id: 13, name: 'other answer', logicalKey: 'other' }] };
+  const existing: ExpectedLinkDraft = { ...link, fields: [{ expected_column_id: 22, output_column_id: 13, logical_key: 'other', rule: 'hand', hidden: false, source: 'import' }] };
+  render(<JoinExpectedAnswersDialog sheets={sheets} actions={[...actions, second]} initialLink={existing} initialStep="columns" onPreview={vi.fn().mockResolvedValue(preview)} onSave={vi.fn()} onImport={vi.fn()} onClose={vi.fn()} />);
+  expect(screen.getByLabelText('Role for answer')).toHaveValue('13');
+  expect(screen.getByLabelText('Match rule for answer')).toHaveValue('hand');
+  expect(screen.getByRole('option', { name: 'Expected · other answer' })).toBeInTheDocument();
 });

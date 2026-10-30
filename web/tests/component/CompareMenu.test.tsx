@@ -19,3 +19,10 @@ it('keeps expected answers out of the media menu', () => {
   fireEvent.click(screen.getByTestId('compare-menu-trigger'));
   expect(screen.queryByText('EXPECTED ANSWERS')).not.toBeInTheDocument();
 });
+it('offers Compare choices inside the compact menu and dismisses after selection', () => {
+  const close = vi.fn(); const action = vi.fn();
+  render(<div role="menu"><CompareMenu inline onDismiss={close} runs={[]} actions={[{ kind: 'map.ask', label: 'Ask rows', group: 'rows' }]} onCompareRun={vi.fn()} onCompareAction={action} onJoinExpected={vi.fn()} /></div>);
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Ask rows' }));
+  expect(close).toHaveBeenCalledOnce();
+  expect(action).toHaveBeenCalledWith('map.ask');
+});

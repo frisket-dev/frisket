@@ -6,6 +6,7 @@ import { ImportWorkspaceDialog } from '../components/importWorkspace/ImportWorks
 import { SampleProjectOnboarding } from '../workbench/SampleProjectOnboarding';
 import { ChromeBar } from '../workbench/ChromeBar';
 import { useWalkthrough } from '../walkthrough/context';
+import { CompareMenu } from '../workbench/CompareMenu';
 import { ActRibbon } from '../workbench/ActRibbon';
 import { ActMenuBar } from '../workbench/ActMenuBar';
 import { ProjectExportModals, ProjectMenu } from '../components/TopNav';
@@ -111,11 +112,13 @@ export const WorkspaceActRegion = memo(function WorkspaceActRegion() {
     runActCommand,
     revealPluginLauncher,
     onImported,
+    refreshSheets,
+    invalidateProjectData,
     showError,
     setRibbonMode,
     setActiveRibbonTab,
   } = useWorkspaceShell();
-  const { actRibbonTabs, launchActionFromSurface, runActionFromSurface } = useWorkspaceAct();
+  const { actRibbonTabs, launchActionFromSurface, runActionFromSurface, expectedAnswers, compareActionRun } = useWorkspaceAct();
   const chrome = useChromeHandle();
   const ribbonMode = useSelector(chrome.store, (s) => s.ribbonMode);
   const activeRibbonTab = useSelector(chrome.store, (s) => s.activeRibbonTab);
@@ -169,6 +172,7 @@ export const WorkspaceActRegion = memo(function WorkspaceActRegion() {
           onRunAction={launchActionFromSurface}
           onCommand={runActCommand}
           onLaunchContribution={revealPluginLauncher}
+          compareSlot={(tab) => <CompareMenu media={tab === 'media'} runs={expectedAnswers.runChoices} actions={expectedAnswers.actionChoices} onCompareRun={compareActionRun} onCompareAction={(kind) => { if (kind === 'media.ocr') runActCommand('ocr-compare'); else if (kind === 'media.transcribe') runActCommand('transcribe-compare'); else if (kind === 'map.find_topic_sections') runActCommand('topic-compare'); else launchActionFromSurface(kind); }} onJoinExpected={() => expectedAnswers.openJoin()} />}
           onCollapse={() => setRibbonMode('menu')}
         />
       ) : (
@@ -177,6 +181,7 @@ export const WorkspaceActRegion = memo(function WorkspaceActRegion() {
           onRunAction={launchActionFromSurface}
           onCommand={runActCommand}
           onLaunchContribution={revealPluginLauncher}
+          compareSlot={(tab, close) => <CompareMenu inline onDismiss={close} media={tab === 'media'} runs={expectedAnswers.runChoices} actions={expectedAnswers.actionChoices} onCompareRun={compareActionRun} onCompareAction={(kind) => { if (kind === 'media.ocr') runActCommand('ocr-compare'); else if (kind === 'media.transcribe') runActCommand('transcribe-compare'); else if (kind === 'map.find_topic_sections') runActCommand('topic-compare'); else launchActionFromSurface(kind); }} onJoinExpected={() => expectedAnswers.openJoin()} />}
           onExpandRibbon={() => setRibbonMode('ribbon')}
         />
       )}
@@ -188,7 +193,7 @@ export const WorkspaceActRegion = memo(function WorkspaceActRegion() {
         initialFiles={importDialogFiles}
         initialPreparationBatchId={importPreparationBatchId}
         onClose={closeImportDialog}
-        onImported={onImported}
+        onImported={expectedAnswers.join ? () => { invalidateProjectData(); void refreshSheets(); expectedAnswers.refresh(); } : onImported}
         onError={showError}
         onLaunchDownload={runActionFromSurface}
         onExtractEntities={() => runActionFromSurface(MENTIONS_EXTRACT_ACTION_KIND)}

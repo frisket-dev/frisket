@@ -99,7 +99,7 @@ describe('resolveRibbonTabs placement invariants', () => {
       group.items.filter((item) => item.kind === 'action' && item.launcherKind === canonical)
         .map(() => ({ tab: tab.id, group: group.caption })),
     ));
-    expect(occurrences).toEqual([{ tab: 'tables', group: 'TABLES' }]);
+    expect(occurrences).toEqual([{ tab: 'tables', group: 'JOIN' }]);
     expect(tabs.flatMap((tab) => tab.groups.flatMap((group) => group.items)))
       .not.toContainEqual(expect.objectContaining({ launcherKind: retired }));
   });
