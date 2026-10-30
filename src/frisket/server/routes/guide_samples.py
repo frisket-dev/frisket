@@ -93,7 +93,7 @@ def register_guide_sample_routes(app: FastAPI, *, service: GuideSampleService) -
         )
 
     @app.post(
-        "/api/projects/{pid}/guide-samples/{sample_id}/prepare",
+        "/api/projects/{pid}/import/guide-samples/{sample_id}/prepare",
         response_model=GuideSampleLaunchResponse,
     )
     def prepare_guide_sample(

@@ -26,12 +26,12 @@ def test_catalog_download_and_launch_are_same_inputs(tmp_path):
         assert client.get("/api/projects").json() == before
         pid = client.post("/api/projects", json={"name": sample}).json()["id"]
         result = client.post(
-            f"/api/projects/{pid}/guide-samples/{sample}/prepare",
+            f"/api/projects/{pid}/import/guide-samples/{sample}/prepare",
             json={"revision": 1, "operation_id": sample},
         ).json()
         assert (
             client.post(
-                f"/api/projects/{pid}/guide-samples/{sample}/prepare",
+                f"/api/projects/{pid}/import/guide-samples/{sample}/prepare",
                 json={"revision": 1, "operation_id": sample},
             ).json()
             == result
@@ -63,7 +63,7 @@ def test_concurrent_launch_and_conflict(tmp_path):
         results = list(
             pool.map(
                 lambda _: client.post(
-                    f"/api/projects/{pid}/guide-samples/council-recordings/prepare",
+                    f"/api/projects/{pid}/import/guide-samples/council-recordings/prepare",
                     json=body,
                 ),
                 range(2),
@@ -74,7 +74,7 @@ def test_concurrent_launch_and_conflict(tmp_path):
     assert len(client.get("/api/projects").json()) == 1
     assert (
         client.post(
-            f"/api/projects/{pid}/guide-samples/court-filings/prepare", json=body
+            f"/api/projects/{pid}/import/guide-samples/court-filings/prepare", json=body
         ).status_code
         == 409
     )
@@ -102,12 +102,13 @@ def test_pdf_retry_and_discard_do_not_duplicate(tmp_path, monkeypatch):
     with TestClient(app, raise_server_exceptions=False) as failing:
         assert (
             failing.post(
-                f"/api/projects/{pid}/guide-samples/court-filings/prepare", json=body
+                f"/api/projects/{pid}/import/guide-samples/court-filings/prepare",
+                json=body,
             ).status_code
             == 500
         )
     response = client.post(
-        f"/api/projects/{pid}/guide-samples/court-filings/prepare", json=body
+        f"/api/projects/{pid}/import/guide-samples/court-filings/prepare", json=body
     )
     assert response.status_code == 200
     result = response.json()
@@ -122,7 +123,7 @@ def test_pdf_retry_and_discard_do_not_duplicate(tmp_path, monkeypatch):
     )
     assert (
         client.post(
-            f"/api/projects/{pid}/guide-samples/court-filings/prepare", json=body
+            f"/api/projects/{pid}/import/guide-samples/court-filings/prepare", json=body
         ).status_code
         == 409
     )
@@ -136,7 +137,7 @@ def test_prepare_retries_a_lost_csv_response_without_duplicate_sheet(
     app = create_app(tmp_path)
     client = TestClient(app, raise_server_exceptions=False)
     pid = client.post("/api/projects", json={"name": "retry"}).json()["id"]
-    url = f"/api/projects/{pid}/guide-samples/council-recordings/prepare"
+    url = f"/api/projects/{pid}/import/guide-samples/council-recordings/prepare"
     body = {"revision": 1, "operation_id": "retry"}
     original = ImportCsvUploadService.upload_csv
     calls = 0
@@ -172,7 +173,7 @@ def test_pdf_creation_response_loss_reuses_bound_draft(tmp_path, monkeypatch):
         return result
 
     monkeypatch.setattr(pdf, "create", lose_response)
-    url = f"/api/projects/{pid}/guide-samples/court-filings/prepare"
+    url = f"/api/projects/{pid}/import/guide-samples/court-filings/prepare"
     body = {"revision": 1, "operation_id": "pdf-create"}
     assert client.post(url, json=body).status_code == 500
     assert client.post(url, json=body).status_code == 200
@@ -236,3 +237,68 @@ def test_pdf_creation_recovers_process_exit_before_manifest(tmp_path):
     )
     assert draft["state"] == "open"
     assert len(pdf.list(pid)) == 1
+
+
+def test_prepare_retries_after_expected_sheet_before_pdf_draft(tmp_path, monkeypatch):
+    app = create_app(tmp_path)
+    client = TestClient(app, raise_server_exceptions=False)
+    pid = client.post("/api/projects", json={"name": "court retry"}).json()["id"]
+    pdf = app.state.pdf_import_service
+    original = pdf.create
+    attempts = 0
+
+    def fail_once(*args, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("failure after Expected")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(pdf, "create", fail_once)
+    url = f"/api/projects/{pid}/import/guide-samples/court-filings/prepare"
+    body = {"revision": 1, "operation_id": "after-expected"}
+    assert client.post(url, json=body).status_code == 500
+    assert len(client.get(f"/api/projects/{pid}/sheets").json()) == 1
+    assert client.post(url, json=body).status_code == 200
+    assert len(client.get(f"/api/projects/{pid}/sheets").json()) == 1
+
+
+def test_prepare_retries_after_meetings_sheet_before_audio(tmp_path, monkeypatch):
+    from frisket.server.services.import_files import ImportFilesUploadService
+
+    app = create_app(tmp_path)
+    client = TestClient(app, raise_server_exceptions=False)
+    pid = client.post("/api/projects", json={"name": "audio retry"}).json()["id"]
+    original = ImportFilesUploadService.upload_files
+    attempts = 0
+
+    def fail_once(self, *args, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("failure after Council meetings")
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(ImportFilesUploadService, "upload_files", fail_once)
+    url = f"/api/projects/{pid}/import/guide-samples/council-recordings/prepare"
+    body = {"revision": 1, "operation_id": "after-meetings"}
+    assert client.post(url, json=body).status_code == 500
+    assert len(client.get(f"/api/projects/{pid}/sheets").json()) == 1
+    assert client.post(url, json=body).status_code == 200
+    assert len(client.get(f"/api/projects/{pid}/sheets").json()) == 2
+
+
+def test_prepare_respects_import_admission(tmp_path):
+    class FullAdmission:
+        def try_acquire(self):
+            return None
+
+    client = TestClient(create_app(tmp_path, import_admission=FullAdmission()))
+    pid = client.post("/api/projects", json={"name": "admission"}).json()["id"]
+    result = client.post(
+        f"/api/projects/{pid}/import/guide-samples/court-filings/prepare",
+        json={"revision": 1, "operation_id": "at-capacity"},
+    )
+    assert result.status_code == 429
+    assert result.headers["retry-after"] == "1"
+    assert client.get(f"/api/projects/{pid}/sheets").json() == []

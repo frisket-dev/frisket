@@ -1767,7 +1767,7 @@ export const HTTP_CONTRACT_ARTIFACT = {
     {
       "id": "tenant.prepare_guide_sample.post",
       "method": "POST",
-      "path": "/api/projects/{pid}/guide-samples/{sample_id}/prepare",
+      "path": "/api/projects/{pid}/import/guide-samples/{sample_id}/prepare",
       "request": {
         "mediaType": "application/json",
         "required": true
