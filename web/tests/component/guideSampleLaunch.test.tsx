@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { GuideSampleLaunch } from '../../src/components/GuideSampleLaunch';
 import { parsePathname, routePath } from '../../src/routes';
@@ -64,4 +64,30 @@ it('retains the operation after a reload before retry', async () => {
   fireEvent.click(await screen.findByRole('button', { name: 'Open in Frisket' }));
   await waitFor(() => expect(api.launch).toHaveBeenCalledTimes(2));
   expect(api.launch.mock.calls[1][2]).toBe(operation);
+});
+
+
+it('does not navigate when a launch finishes after the user leaves', async () => {
+  let finish!: (value: unknown) => void;
+  api.launch.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+  const view = render(<GuideSampleLaunch sampleId="court-filings" />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Open in Frisket' }));
+  view.unmount();
+  history.pushState(null, '', '/settings/personal/profile');
+  await act(async () => {
+    finish({ project_id: 'project-1', destination: { kind: 'sheet', sheet_id: 1 } });
+  });
+  expect(location.pathname).toBe('/settings/personal/profile');
+});
+
+it('does not navigate if the location changes before the component unmounts', async () => {
+  let finish!: (value: unknown) => void;
+  api.launch.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+  render(<GuideSampleLaunch sampleId="court-filings" />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Open in Frisket' }));
+  history.pushState(null, '', '/settings/personal/profile');
+  await act(async () => {
+    finish({ project_id: 'project-1', destination: { kind: 'sheet', sheet_id: 1 } });
+  });
+  expect(location.pathname).toBe('/settings/personal/profile');
 });

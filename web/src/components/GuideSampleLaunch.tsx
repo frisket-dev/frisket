@@ -13,6 +13,11 @@ export function GuideSampleLaunch({ sampleId }: { sampleId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const opening = useRef(false);
+  const active = useRef(false);
+  useEffect(() => {
+    active.current = true;
+    return () => { active.current = false; };
+  }, []);
   const cancel = () => {
     window.history.replaceState(null, '', window.location.pathname);
     navigate({ kind: 'picker' });
@@ -42,8 +47,12 @@ export function GuideSampleLaunch({ sampleId }: { sampleId: string }) {
       url.searchParams.set('operation_id', operationId);
       window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
     }
+    const attemptLocation = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    const stillHere = () => active.current
+      && `${window.location.pathname}${window.location.search}${window.location.hash}` === attemptLocation;
     try {
       const result = await guideSamplesApi.launch(sampleId, revision, operationId, sample.title);
+      if (!stillHere()) return;
       const project = `/p/${encodeURIComponent(result.project_id)}`;
       const destination = result.destination;
       const path = destination.kind === 'pdf_import_draft'
@@ -52,6 +61,7 @@ export function GuideSampleLaunch({ sampleId }: { sampleId: string }) {
       window.history.pushState(null, '', path);
       window.dispatchEvent(new PopStateEvent('popstate'));
     } catch (problem) {
+      if (!stillHere()) return;
       setError(problem instanceof Error ? problem.message : String(problem));
       opening.current = false;
       setBusy(false);
