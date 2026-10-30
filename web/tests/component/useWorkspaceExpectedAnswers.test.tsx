@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
+import { ApiError } from '../../src/api/contractErrors';
 import type { GridApiPort } from '../../src/api/ports';
 import type { ActionCatalogEntry, SheetMeta } from '../../src/api/types';
 import { useWorkspaceExpectedAnswers } from '../../src/workspace/useWorkspaceExpectedAnswers';
@@ -93,4 +94,23 @@ it('keeps same-sheet links during refresh without leaking them across sheet swit
   expect(result.current.links).toEqual([]);
   rerender({ project: 'other-project', current: sheets[0] });
   expect(result.current.links).toEqual([]);
+});
+
+
+it('discovers a run after its pending context becomes available on completion', async () => {
+  const api = prepare();
+  calls.getContext.mockRejectedValueOnce(new ApiError(409, 'Run is still pending'))
+    .mockResolvedValueOnce({ available: true, draft: { action_id: 'map.ask' },
+      sheet: { id: 1, name: 'Current' },
+      output_columns: [{ column_id: 11, current_name: 'answer', logical_key: 'answer' }] });
+  const { result, rerender } = renderHook(({ version }) => useWorkspaceExpectedAnswers('p', sheets[0], sheets, api, [], [], version, showError),
+    { initialProps: { version: 0 } });
+  await waitFor(() => expect(calls.getContext).toHaveBeenCalledTimes(1));
+  expect(result.current.joinActions).toEqual([]);
+  rerender({ version: 1 });
+  await waitFor(() => expect(result.current.joinActions).toEqual([expect.objectContaining({ actionId: 'map.ask' })]));
+  expect(calls.getContext).toHaveBeenCalledTimes(2);
+  rerender({ version: 2 });
+  await act(async () => { await Promise.resolve(); });
+  expect(calls.getContext).toHaveBeenCalledTimes(2);
 });
