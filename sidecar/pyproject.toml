@@ -38,12 +38,12 @@ classify-clef = [
 # One extra per engine so a partial install still serves what it has
 # (/capabilities reflects only what imports cleanly).
 #
-# Surya 2 is a 650M document VLM served through an OpenAI-compatible inference
+# Surya 2.5 is a 689M document VLM served through an OpenAI-compatible inference
 # backend. ``SuryaInferenceManager`` auto-selects vLLM on NVIDIA or llama.cpp
 # elsewhere; operators may instead point ``SURYA_INFERENCE_URL`` at an existing
 # backend. Keep this local/team extra out of the hosted Modal export below.
 ocr = [
-    "surya-ocr==0.22.1",
+    "surya-ocr==0.23.0",
 ]
 # Both LightOnOCR 3 sizes share the Qwen3.5 runtime. Weights download only
 # when selected; keep this optional profile out of the default CPU image.
@@ -130,7 +130,7 @@ rerank = [
 embed = [
     "fastembed>=0.4",
 ]
-# `all` deliberately excludes ocr, ocr-paddle, and convert-chandra. Surya 2's
+# `all` deliberately excludes ocr, ocr-paddle, and convert-chandra. Surya 2.5's
 # huggingface-hub>=1.5 and pillow<11 requirements cannot resolve with fastembed;
 # the other two engines remain large or coexistence-sensitive as noted above.
 all = ["frisket-models[convert,ner,transcribe,rerank,embed]"]
@@ -144,11 +144,10 @@ build-backend = "uv_build"
 # the repository policy here so its lock remains valid when the parent
 # pyproject.toml is intentionally absent from the image build.
 exclude-newer = "1 week"
-# The user-requested Indra release landed inside the normal one-week
-# quarantine. Keep the exception to this one exact package and release day;
-# the package version and uv.lock hashes remain pinned.
-exclude-newer-package = { indra-ocr = "2026-10-13" }
-# Surya 2 and Chandra can coexist, but neither resolves with FastEmbed's
+# User-requested releases inside the normal one-week quarantine. Exceptions
+# stay scoped to each package and release day; versions and hashes are pinned.
+exclude-newer-package = { indra-ocr = "2026-10-13", surya-ocr = "2026-10-30" }
+# Surya 2.5 and Chandra can coexist, but neither resolves with FastEmbed's
 # dependency bounds. ``all`` includes FastEmbed, so keep those combinations
 # explicitly separate while allowing operators to install both OCR engines.
 conflicts = [

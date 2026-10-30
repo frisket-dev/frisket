@@ -4,7 +4,7 @@ integrations/deepl.py + google_translate.py: the same injectable-async-client
 shape over ``OpContext.http`` so tests replay ``httpx.MockTransport`` and
 never touch the network.
 
-Datalab (github.com/datalab-to) is the vendor behind the Surya 2 and Chandra
+Datalab (github.com/datalab-to) is the vendor behind the Surya 2.5 and Chandra
 models Frisket offers as local/team sidecar engines. This module adds Datalab's
 paid hosted OCR REST API as a separate credential-gated option: no
 local/sidecar compute, billed per page, key resolved via
