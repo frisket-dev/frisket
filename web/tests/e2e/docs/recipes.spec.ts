@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, readFileSync, writeFileSync } from 'node:fs';
-import { openAction, selectActionSourceColumns, selectRow, sheetData } from '../helpers';
+import { openAction, openCellDrawer, selectActionSourceColumns, selectRow, sheetColumns, sheetData } from '../helpers';
 import { captureCheckpoint, publishCaptureBundle } from './capture';
 
 test.use({ deviceScaleFactor: 2, viewport: { width: 1600, height: 1000 } });
@@ -340,5 +340,76 @@ test('council sample opens the real transcription comparison', async ({ page }) 
   captures.push(await captureCheckpoint(page, { id: 'council-results', root: page.getByTestId('grid'), annotations: [] }, stage));
   expect(captures.map(item => item.id)).toEqual(['council-engine-comparison', 'council-transcribe-settings', 'council-transcribe-outputs', 'council-timed-transcript', 'council-results']);
   return captures;
+  });
+});
+
+
+test('docs entry: council source details and Transcribe Compare', async ({ page }) => {
+  test.setTimeout(120_000);
+  const output = path.join(process.env.FRISKET_DOCS_PROOF_DIR!, 'entry-council');
+  await publishCaptureBundle(output, { appRevision: process.env.FRISKET_DOCS_REVISION!, sample: { id: 'council-recordings', revision: 1 } }, async stage => {
+    const captures = [];
+    await page.goto('/learn/council-recordings?revision=1');
+    await page.getByRole('button', { name: 'Open in Frisket' }).click();
+    await expect(page.getByTestId('grid')).toBeVisible({ timeout: 90_000 });
+    const pid = new URL(page.url()).pathname.split('/')[2];
+    const sheets = await (await page.request.get(`/api/projects/${pid}/sheets`)).json();
+    const audio = sheets.find((sheet: { name: string }) => sheet.name === 'Council audio');
+    const meetings = sheets.find((sheet: { name: string }) => sheet.name === 'Council meetings');
+    expect(audio?.rows).toBe(2);
+    expect(meetings?.rows).toBe(2);
+    await expect(page.getByTestId(`workbench-mainView-tab-${audio.id}`)).toBeVisible();
+    await expect(page.getByTestId(`workbench-mainView-tab-${meetings.id}`)).toBeVisible();
+    captures.push(await captureCheckpoint(page, { id: 'council-audio-source', annotations: [] }, stage));
+    await page.getByTestId(`workbench-mainView-tab-${meetings.id}`).click();
+    await expect(page.getByTestId('grid')).toBeVisible();
+    const columns = await sheetColumns(page.request, pid, meetings.id);
+    await openCellDrawer(page, columns, 'audio_filename', 0);
+    const drawer = page.getByTestId('row-drawer');
+    await expect(drawer).toBeVisible();
+    await expect(drawer.getByTestId('row-field-source_url')).toBeVisible();
+    await drawer.getByTestId('row-field-source_url').scrollIntoViewIfNeeded();
+    await expect(drawer).toContainText('PolicyCommittee-2022-04-19.ogg');
+    await expect(drawer).toContainText('CC0-1.0');
+    captures.push(await captureCheckpoint(page, { id: 'council-source-details', root: drawer, annotations: [] }, stage));
+    await page.getByTestId(`workbench-mainView-tab-${audio.id}`).click();
+    await page.getByTestId('ribbon-tab-media').click();
+    const ribbon = page.getByTestId('act-ribbon');
+    await expect(ribbon.getByTestId('ribbon-command-transcribe-compare')).toBeVisible();
+    captures.push(await captureCheckpoint(page, { id: 'council-compare-entry', root: ribbon, annotations: [] }, stage));
+    expect(captures.map(capture => capture.id)).toEqual(['council-audio-source', 'council-source-details', 'council-compare-entry']);
+    return captures;
+  });
+});
+
+test('docs entry: court sample and Extract fields', async ({ page }) => {
+  test.setTimeout(180_000);
+  const output = path.join(process.env.FRISKET_DOCS_PROOF_DIR!, 'entry-court');
+  await publishCaptureBundle(output, { appRevision: process.env.FRISKET_DOCS_REVISION!, sample: { id: 'court-filings', revision: 1 } }, async stage => {
+    const captures = [];
+    await page.goto('/learn/court-filings?revision=1');
+    const card = page.locator('.picker-card');
+    await expect(card.getByRole('heading', { name: 'Open Court filings?' })).toBeVisible();
+    await expect(card.getByRole('button', { name: 'Open in Frisket' })).toBeVisible();
+    captures.push(await captureCheckpoint(page, { id: 'court-open-sample', root: card, annotations: [] }, stage));
+    await card.getByRole('button', { name: 'Open in Frisket' }).click();
+    const flow = page.getByTestId('pdf-batch-flow');
+    await expect(flow).toHaveAttribute('data-stage', 'check', { timeout: 90_000 });
+    await flow.getByRole('radio', { name: /^None/ }).click();
+    await expect(flow.getByRole('radio', { name: /^None/ })).toBeChecked();
+    await expect(flow.getByRole('radio', { name: /^Keep documents/ })).toBeChecked();
+    await flow.getByRole('button', { name: 'Continue →' }).click();
+    await flow.getByRole('button', { name: 'Search setup →' }).click();
+    const semantic = flow.getByRole('checkbox', { name: /Search by meaning/ });
+    if (await semantic.isChecked()) await semantic.uncheck();
+    await flow.getByRole('button', { name: /^Import/ }).click();
+    await expect(flow).toHaveCount(0, { timeout: 90_000 });
+    await expect(page.getByTestId('grid')).toBeVisible();
+    await page.getByTestId('ribbon-tab-analyze').click();
+    const ribbon = page.getByTestId('act-ribbon');
+    await expect(ribbon.getByTestId('ribbon-action-map.extract')).toBeVisible();
+    captures.push(await captureCheckpoint(page, { id: 'court-extract-entry', root: ribbon, annotations: [] }, stage));
+    expect(captures.map(capture => capture.id)).toEqual(['court-open-sample', 'court-extract-entry']);
+    return captures;
   });
 });

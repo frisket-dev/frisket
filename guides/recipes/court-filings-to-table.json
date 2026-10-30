@@ -10,7 +10,10 @@
     {
       "id": "import",
       "title": "Bring in the filings",
-      "settings": []
+      "settings": [],
+      "captureIds": [
+        "court-open-sample"
+      ]
     },
     {
       "id": "check-text",
@@ -122,6 +125,7 @@
         }
       ],
       "captureIds": [
+        "court-extract-entry",
         "court-extract-settings",
         "court-extract-fields",
         "court-extract-instruction"
