@@ -462,7 +462,7 @@ test('comparison opens bounded current and preview values plus inline JSON', asy
   await previewReader.getByRole('button', { name: 'Next' }).click();
   await expect(previewReader.getByRole('status').filter({ hasText: /Characters 16385–/ })).toBeVisible();
   await shoot(page, '10-large-preview-artifact-reader.png');
-  await page.getByRole('navigation', { name: 'Comparison review rows' }).getByRole('button', { name: 'Close' }).click();
+  await page.getByRole('button', { name: 'Close comparison review', exact: true }).click();
 
   await page.getByRole('group', { name: 'Comparison field' }).getByRole('button', { name: 'metadata', exact: true }).click();
   await activateComparisonCell(page, 1, 0);
@@ -471,7 +471,7 @@ test('comparison opens bounded current and preview values plus inline JSON', asy
   await expect(structured.getByTestId('json-object').first()).toContainText('LV-001');
   await expect(structured.getByTestId('json-object').first()).toContainText('2027-02-01');
   await shoot(page, '11-inline-json-reader.png');
-  await page.getByRole('navigation', { name: 'Comparison review rows' }).getByRole('button', { name: 'Close' }).click();
+  await page.getByRole('button', { name: 'Close comparison review', exact: true }).click();
 
   await page.getByTestId('action-compare-maintab-close').click();
   await page.getByTestId('action-compare-discard-confirm').click();

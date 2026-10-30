@@ -113,8 +113,14 @@ async function expectFullScreenReview(page: import('@playwright/test').Page, onO
   expect(box!.y).toBe(0);
   expect(box!.width).toBe(viewport.width);
   expect(box!.height).toBe(viewport.height);
+  await expect.poll(() => dialog.evaluate(element => element.matches(':modal'))).toBe(true);
   if (onOpen) await expect.poll(() => dialog.evaluate(element => element.contains(document.activeElement))).toBe(true);
-  await page.keyboard.press('Tab');
+  // Native dialogs can tab into browser chrome. Exercise existing header controls
+  // from a known enabled control, after the real Review content is ready.
+  const close = dialog.getByRole('button', { name: /^Close (comparison review|review queue)$/ });
+  await expect(close).toBeEnabled();
+  await close.focus();
+  await page.keyboard.press('Shift+Tab');
   await expect.poll(() => dialog.evaluate(element => element.contains(document.activeElement))).toBe(true);
   return dialog;
 }
@@ -471,6 +477,7 @@ test('ordinary Review keeps its full-screen decisions and saves a pending row no
   const scenario = await createEvaluationScenario(page);
   await openProject(page, scenario.projectId, scenario.targetSheetId);
   await page.getByTestId('review-queue-button').click();
+  await expect(page.getByTestId('review-field-plaintiff')).toBeVisible();
   const dialog = await expectFullScreenReview(page);
   const plaintiff = dialog.getByTestId('review-field-plaintiff');
   await expect(plaintiff).toBeVisible();
