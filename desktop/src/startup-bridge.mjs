@@ -22,3 +22,13 @@ export function installStartupBridge({ ipcMain, pageUrl, findWindow, snapshot, r
 export function canRetryStartup({ visible, busy, cleanupFailed, quitting, retryable }) {
   return visible && !busy && !cleanupFailed && !quitting && retryable;
 }
+
+/** Fixed native windows can retain minimum/maximum constraints at their old size. */
+export function resizeStartupWindow(window, height) {
+  window.setResizable(true);
+  try {
+    window.setContentSize(360, height);
+  } finally {
+    window.setResizable(false);
+  }
+}
