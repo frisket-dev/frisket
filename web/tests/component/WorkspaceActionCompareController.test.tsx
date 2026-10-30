@@ -702,3 +702,16 @@ it('preserves configured variant drafts when the user changes row scope', async 
   expect(session.getSnapshot().variants.find(item => item.id === variant)).toMatchObject({ status: 'pending', draft: { params: { instruction: 'Keep this instruction' } } });
   expect(view.result.current.actionComparePendingTarget).toBeNull();
 });
+it('defaults the expected lens to 20 rows when no rows are selected', async () => {
+  const ids = Array.from({ length: 38 }, (_, index) => index + 1);
+  vi.mocked(harness!.stores.projectApi.getSheetData).mockImplementation(async (_sheet, _offset, limit) => ({
+    rows: ids.slice(0, limit).map((id, index) => row({}, { id: String(id), index })), columns: [], total: ids.length,
+  }));
+  vi.mocked(harness!.api.getContext).mockImplementation(async ({ sample_row_ids }) => comparisonContext({ runId: 42, sampleRowIds: sample_row_ids }));
+  const view = renderController([], 0);
+  act(() => view.result.current.compareActionRun({ sheetId: '7', runId: '42', columnId: '101' }, true));
+  await waitFor(() => expect(view.result.current.actionCompareSession).not.toBeNull());
+  expect(harness!.stores.projectApi.getSheetData).toHaveBeenCalledWith('7', 0, 20, expect.anything());
+  expect(view.result.current.actionCompareSession!.getSnapshot().context.sample_row_ids).toEqual(ids.slice(0, 20));
+  expect(view.result.current.rowScope).toBe('sample');
+});
