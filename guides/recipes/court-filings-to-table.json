@@ -202,7 +202,9 @@
         }
       ],
       "captureIds": [
+        "court-expected-entry",
         "court-expected-join",
+        "court-compare-entry",
         "court-comparison"
       ]
     },

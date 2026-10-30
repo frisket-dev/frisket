@@ -377,7 +377,9 @@ test('docs entry: council source details and Transcribe Compare', async ({ page 
     const ribbon = page.getByTestId('act-ribbon');
     await expect(ribbon.getByTestId('ribbon-command-transcribe-compare')).toBeVisible();
     captures.push(await captureCheckpoint(page, { id: 'council-compare-entry', root: ribbon, annotations: [] }, stage));
-    expect(captures.map(capture => capture.id)).toEqual(['council-audio-source', 'council-source-details', 'council-compare-entry']);
+    await expect(ribbon.getByTestId('ribbon-action-media.transcribe')).toBeVisible();
+    captures.push(await captureCheckpoint(page, { id: 'council-transcribe-entry', root: ribbon, annotations: [] }, stage));
+    expect(captures.map(capture => capture.id)).toEqual(['council-audio-source', 'council-source-details', 'council-compare-entry', 'council-transcribe-entry']);
     return captures;
   });
 });
@@ -409,7 +411,12 @@ test('docs entry: court sample and Extract fields', async ({ page }) => {
     const ribbon = page.getByTestId('act-ribbon');
     await expect(ribbon.getByTestId('ribbon-action-map.extract')).toBeVisible();
     captures.push(await captureCheckpoint(page, { id: 'court-extract-entry', root: ribbon, annotations: [] }, stage));
-    expect(captures.map(capture => capture.id)).toEqual(['court-open-sample', 'court-extract-entry']);
+    await expect(ribbon.getByTestId('compare-menu-trigger')).toBeVisible();
+    captures.push(await captureCheckpoint(page, { id: 'court-compare-entry', root: ribbon, annotations: [] }, stage));
+    await page.getByTestId('ribbon-tab-tables').click();
+    await expect(ribbon.getByRole('button', { name: 'Join expected answers', exact: true })).toBeVisible();
+    captures.push(await captureCheckpoint(page, { id: 'court-expected-entry', root: ribbon, annotations: [] }, stage));
+    expect(captures.map(capture => capture.id)).toEqual(['court-open-sample', 'court-extract-entry', 'court-compare-entry', 'court-expected-entry']);
     return captures;
   });
 });
