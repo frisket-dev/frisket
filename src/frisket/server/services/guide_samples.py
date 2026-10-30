@@ -70,11 +70,38 @@ def files(sample_id: str, revision: int = 1) -> list[SampleFile]:
     ]
 
 
+def sample_metadata(sample_id: str, revision: int = 1) -> dict:
+    info = metadata(sample_id, revision).copy()
+    assets = files(sample_id, revision)
+    provenance = {
+        item.filename: {
+            "source_url": item.source_url,
+            "license": item.license,
+            "author": item.author,
+        }
+        for item in SAMPLE_COUNCIL_AUDIO
+    }
+    info["files"] = [
+        {
+            "filename": item.name,
+            "media_type": item.mime,
+            "size": len(item.data),
+            **provenance.get(item.name, {}),
+        }
+        for item in assets
+    ]
+    info["total_bytes"] = sum(len(item.data) for item in assets)
+    return info
+
+
 def download(sample_id: str, revision: int = 1) -> bytes:
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for item in files(sample_id, revision):
-            archive.writestr(item.name, item.data)
+            entry = zipfile.ZipInfo(item.name, date_time=(1980, 1, 1, 0, 0, 0))
+            entry.compress_type = zipfile.ZIP_DEFLATED
+            entry.external_attr = 0o100644 << 16
+            archive.writestr(entry, item.data)
     return output.getvalue()
 
 

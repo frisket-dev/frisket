@@ -8,12 +8,10 @@ from fastapi import FastAPI, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-from frisket.sample_content.audio import SAMPLE_COUNCIL_AUDIO
 from frisket.server.services.guide_samples import (
     GuideSampleService,
     download,
-    files,
-    metadata,
+    sample_metadata,
 )
 
 
@@ -66,30 +64,6 @@ class GuideSampleLaunchRequest(BaseModel):
     operation_id: str = Field(min_length=1, max_length=128)
 
 
-def _metadata(sample_id: str, revision: int = 1) -> dict:
-    info = metadata(sample_id, revision).copy()
-    assets = files(sample_id, revision)
-    provenance = {
-        x.filename: {
-            "source_url": x.source_url,
-            "license": x.license,
-            "author": x.author,
-        }
-        for x in SAMPLE_COUNCIL_AUDIO
-    }
-    info["files"] = [
-        {
-            "filename": f.name,
-            "media_type": f.mime,
-            "size": len(f.data),
-            **provenance.get(f.name, {}),
-        }
-        for f in assets
-    ]
-    info["total_bytes"] = sum(len(f.data) for f in assets)
-    return info
-
-
 def register_guide_sample_routes(app: FastAPI, *, service: GuideSampleService) -> None:
     @app.get(
         "/api/guide-samples",
@@ -98,7 +72,10 @@ def register_guide_sample_routes(app: FastAPI, *, service: GuideSampleService) -
     )
     def list_guide_samples() -> dict:
         return {
-            "samples": [_metadata("court-filings"), _metadata("council-recordings")]
+            "samples": [
+                sample_metadata("court-filings"),
+                sample_metadata("council-recordings"),
+            ]
         }
 
     @app.get(
@@ -107,7 +84,7 @@ def register_guide_sample_routes(app: FastAPI, *, service: GuideSampleService) -
         response_model_exclude_none=True,
     )
     def get_guide_sample(sample_id: str, revision: int = 1) -> dict:
-        return _metadata(sample_id, revision)
+        return sample_metadata(sample_id, revision)
 
     @app.get("/api/guide-samples/{sample_id}/download")
     def download_guide_sample(sample_id: str, revision: int = 1) -> Response:
