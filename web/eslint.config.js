@@ -62,6 +62,7 @@ export default defineConfig([
       'src/api/raw/cellValue.ts',
       'src/api/raw/mapPointsArrow.ts',
       'src/api/raw/skillMarkdownUpload.ts',
+      'src/api/raw/evaluationDownloads.ts',
       '**/*.{test,spec}.{ts,tsx}',
       '**/__tests__/**',
       '**/tests/**',

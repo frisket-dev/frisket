@@ -1,6 +1,7 @@
 import type { ActionComparisonSource } from './actionComparison';
 import type { JsonValue } from './types';
 import { httpContract } from './httpContract';
+import { downloadEvaluation } from './raw/evaluationDownloads';
 
 export type EvaluationRule = 'exact' | 'ignore_case' | 'number' | 'date' | 'set' | 'hand';
 export type EvaluationVerdict = 'match' | 'miss' | 'unchecked' | 'unscored' | 'not_run';
@@ -27,7 +28,12 @@ export interface EvaluationRequest {
 export interface EvaluationCell {
   state: 'value' | 'null' | 'missing' | 'error' | 'pending' | 'cancelled';
   value?: JsonValue; error?: string | null;
+  bounded_value?: EvaluationBoundedValue | null;
+  value_hash?: string | null;
 }
+export interface EvaluationBoundedValue { preview: string; total_characters: number; total_bytes: number; truncated: true }
+export interface EvaluationCellRequest { comparison: EvaluationRequest; variant_key: string; row_id: number; logical_key: string }
+export interface EvaluationCaptureRequest { comparison: EvaluationRequest; variant_keys: string[]; target_id?: number | null }
 export interface EvaluationAggregate {
   checked: number; attempted: number; matches: number; misses: number; failed: number;
   scored: number; remaining: number; accuracy: number | null; coverage: number;
@@ -42,6 +48,7 @@ export interface EvaluationVariant {
 export interface EvaluationResponse {
   sheet_id: number; action_id: string; output_columns: EvaluationOutput[]; row_ids: number[];
   link: EvaluationLink | null; expected: Record<string, Record<string, JsonValue>>;
+  expected_bounded?: Record<string, Record<string, EvaluationBoundedValue>>;
   variants: EvaluationVariant[]; best: Record<string, string[]>;
   rule_previews: Record<string, Record<EvaluationRule, Record<string, EvaluationAggregate>>>;
 }
@@ -80,6 +87,9 @@ export interface EvaluationApi {
   deleteLink(id: number): Promise<void>;
   projectExpected(sheetId: number, rowIds: number[]): Promise<ExpectedProjection>;
   score(request: EvaluationRequest): Promise<EvaluationResponse>;
+  getCell(request: EvaluationCellRequest): Promise<EvaluationCell>;
+  captureComparison(request: EvaluationCaptureRequest): Promise<{ items: SavedSummary[] }>;
+  discardCapture(id: number): Promise<void>;
   setRule(columnId: number, rule: EvaluationRule): Promise<{ expected_column_id: number; rule: EvaluationRule }>;
   setJudgment(input: EvaluationJudgment): Promise<EvaluationResponse>;
   saveExpectedAnswer(input: ExpectedAnswerWrite): Promise<EvaluationLink>;
@@ -110,23 +120,28 @@ export function createEvaluationApi(
       ...base, body: { sheet_id: sheetId, row_ids: rowIds },
     }),
     score: body => httpContract('tenant.evaluation_score.post', { ...base, body }),
-    setRule: (columnId, rule) => httpContract('tenant.evaluation_rule.put', {
+    getCell: body => httpContract('tenant.evaluation_cell.post', { ...base, body }),
+    captureComparison: body => httpContract('tenant.evaluation_capture.post', { ...base, body }),
+    discardCapture: async id => { await httpContract('tenant.evaluation_capture_discard.delete', {
+      ...base, pathParams: { pid: projectId, saved_id: id },
+    }); },
+    setRule: (columnId, rule) => httpContract('tenant.evaluation_rule_update.put', {
       ...base, pathParams: { pid: projectId, expected_column_id: columnId }, body: { rule },
     }),
     setJudgment: body => httpContract('tenant.evaluation_judgment.put', { ...base, body }),
     saveExpectedAnswer: body => httpContract('tenant.evaluation_expected_answer.post', { ...base, body }),
-    getShelf: (sheetId, actionId) => httpContract('tenant.evaluation_shelf.get', {
+    getShelf: (sheetId, actionId) => httpContract('tenant.evaluation_shelf_list.get', {
       ...base, query: { sheet_id: sheetId, action_id: actionId },
     }),
     saveShelf: body => httpContract('tenant.evaluation_shelf_save.post', { ...base, body }),
-    getShelfItem: id => httpContract('tenant.evaluation_shelf_item.get', { ...base, pathParams: { pid: projectId, saved_id: id } }),
+    getShelfItem: id => httpContract('tenant.evaluation_shelf_get.get', { ...base, pathParams: { pid: projectId, saved_id: id } }),
     renameShelfItem: (id, label) => httpContract('tenant.evaluation_shelf_rename.patch', {
       ...base, pathParams: { pid: projectId, saved_id: id }, body: { label },
     }),
     deleteShelfItem: async id => { await httpContract('tenant.evaluation_shelf_delete.delete', {
       ...base, pathParams: { pid: projectId, saved_id: id },
     }); },
-    downloadCsv: body => httpContract('tenant.evaluation_download_csv.post', { ...base, body }),
-    downloadSettings: body => httpContract('tenant.evaluation_download_settings.post', { ...base, body }),
+    downloadCsv: body => downloadEvaluation(projectId, 'download.csv', body, errorFactory),
+    downloadSettings: body => downloadEvaluation(projectId, 'settings.json', body, errorFactory),
   };
 }
