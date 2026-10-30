@@ -167,6 +167,7 @@ export function ActRibbon({
                         className="act-ribbon-primary"
                         key={itemKey(item)}
                         data-testid={itemTestId(item)}
+                        title={item.kind === 'action' ? item.description : undefined}
                         {...itemDataAttrs(item)}
                         onClick={() => onItemClick(item)}
                       >
@@ -187,6 +188,7 @@ export function ActRibbon({
                           className="act-ribbon-secondary"
                           key={itemKey(item)}
                           data-testid={itemTestId(item)}
+                          title={item.kind === 'action' ? item.description : undefined}
                           {...itemDataAttrs(item)}
                           onClick={() => onItemClick(item)}
                         >

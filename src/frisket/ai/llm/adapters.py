@@ -127,6 +127,24 @@ def _tool_result_content(content: Any) -> str:
     return content if isinstance(content, str) else json.dumps(content)
 
 
+def _parse_response(
+    response: LLMResponse, schema: dict | None, mechanism: str | None
+) -> LLMResponse:
+    # A truncated generation is incomplete regardless of whether its prefix
+    # parses. Let the completer report the limit with usage intact, without repair.
+    if schema is None or response.output_limited or mechanism == NATIVE_TOOL:
+        return response
+    text = response.content or ""
+    if mechanism == PROSE_JSON:
+        text = _extract_prose_json(text)
+    try:
+        response.data = _parse_structured(text, schema)
+    except SchemaViolation as error:
+        error.wire_calls = [response]
+        raise
+    return response
+
+
 def _anthropic_schema(schema: dict) -> dict:
     """Lower Claude's documented subset; the completer validates the original.
 
@@ -310,22 +328,11 @@ class AnthropicAdapter:
                     )
             elif btype == "text":
                 content = block["text"]
-        if req.schema is not None and mechanism == PROSE_JSON:
-            # No tool_use block to read `data` off -- the schema was asked
-            # for in prose (this branch's whole point). Same tolerant
-            # fenced/unfenced extraction OpenAICompatAdapter's PROSE_JSON
-            # path uses; an unparseable/no-match result is a real
-            # SchemaViolation, not a silent None (mirrors `_parse_structured`).
-            data = _parse_structured(
-                _extract_prose_json(content) if content is not None else "", req.schema
-            )
-        elif req.schema is not None and mechanism == NATIVE_STRICT:
-            data = _parse_structured(content or "", req.schema)
         if tool_calls is not None and not tool_calls:
             tool_calls = None  # "no calls this turn" stays None, not []
         stop_reason = out.get("stop_reason")
         cost, cost_source = cost_of_with_source(req.model, tokens_in, tokens_out)
-        return LLMResponse(
+        response = LLMResponse(
             content=content,
             data=data,
             tokens_in=tokens_in,
@@ -338,6 +345,7 @@ class AnthropicAdapter:
             output_tool_call=output_tool_call,
             output_limited=stop_reason == "max_tokens",
         )
+        return _parse_response(response, req.schema, mechanism)
 
     def _messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
@@ -529,6 +537,9 @@ class OpenAICompatAdapter:
             ]
             body["tool_choice"] = "auto"
 
+        if req.model.startswith("openrouter/") and "response_format" in body:
+            body["provider"] = {"require_parameters": True}
+
         resp = await client.post(
             f"{self.base_url}/chat/completions",
             json=body,
@@ -547,15 +558,6 @@ class OpenAICompatAdapter:
         choice = out["choices"][0]
         message = choice["message"]
         content = message.get("content")
-        # PROSE_JSON: the wire text is free prose that may wrap the JSON in a
-        # fence or surrounding sentences -- extract before parsing.
-        # `content` on the returned LLMResponse stays the RAW wire text (the
-        # repair loop's corrective turn echoes it verbatim, same as every
-        # other mechanism).
-        text_for_parse = (
-            _extract_prose_json(content) if mechanism == PROSE_JSON else content
-        )
-        data = _parse_structured(text_for_parse, req.schema) if req.schema else None
         # Named tool_calls round-trip the same way as the Anthropic
         # tool_use blocks above -- a list of {"name","args","id"}, collected
         # even though today's callers dispatch one tool per turn (OpenAI's
@@ -578,9 +580,9 @@ class OpenAICompatAdapter:
         cost, cost_source = cost_of_with_source(
             cost_model or req.model, tokens_in, tokens_out
         )
-        return LLMResponse(
+        response = LLMResponse(
             content=content,
-            data=data,
+            data=None,
             tokens_in=tokens_in,
             tokens_out=tokens_out,
             cost=cost,
@@ -593,6 +595,7 @@ class OpenAICompatAdapter:
             tool_calls=tool_calls,
             output_limited=choice.get("finish_reason") == "length",
         )
+        return _parse_response(response, req.schema, mechanism)
 
     def _messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []

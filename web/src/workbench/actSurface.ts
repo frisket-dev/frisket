@@ -364,7 +364,7 @@ export type ActMenuCommand =
   | 'topic-compare';
 
 export type ResolvedActItem =
-  | { kind: 'action'; launcherKind: string; label: string; Icon: LucideIcon; primary: boolean }
+  | { kind: 'action'; launcherKind: string; label: string; description: string; Icon: LucideIcon; primary: boolean }
   | { kind: 'command'; command: ActMenuCommand; label: string; Icon: LucideIcon; primary: boolean }
   // A plugin launcher: host-owned reveal of a plugin panel / view's primary
   // placement. Ingested into the LIBRARY group.
@@ -458,6 +458,7 @@ function resolveContextualGroup(
       kind: 'action',
       launcherKind: kind,
       label: labelForKind(kind, template),
+      description: template.actionDescription ?? template.description,
       Icon: iconForKind(kind, template),
       primary: kind === group.primary,
     });
@@ -513,6 +514,7 @@ function unassignedItems(templates: readonly ActionTemplate[]): ResolvedActItem[
     kind: 'action',
     launcherKind: template.kind,
     label: labelForKind(template.kind, template),
+    description: template.actionDescription ?? template.description,
     Icon: iconForKind(template.kind, template),
     primary: index === 0,
   }));
@@ -601,6 +603,7 @@ function resolvedItemsForGroup(
       kind: 'action',
       launcherKind: template.kind,
       label: labelForKind(template.kind, template),
+      description: template.actionDescription ?? template.description,
       Icon: iconForKind(template.kind, template),
       primary: template.placement!.primary === true,
     });

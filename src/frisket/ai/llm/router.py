@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Literal, Protocol
 
 import httpx
 
-from frisket.redaction import canonical_error_code, redact_text
+from frisket.redaction import canonical_error_code, redact_text, redact_value
 
 from .adapters import AnthropicAdapter, OpenAICompatAdapter
 from .cache import CacheMiss, ResponseCache, request_key
@@ -30,6 +30,7 @@ from .types import (
     LLMRequest,
     LLMResponse,
     ModelTrace,
+    OutputLimitReached,
     SchemaViolation,
     provider_from_model_id,
     validate_credential_source,
@@ -628,11 +629,29 @@ class ModelRouter:
             self.cache_misses += 1
             raise CacheMiss(key)
 
-        resp = await self._call_with_retry(
-            req, credential_source=credential_source, trace=trace
-        )
+        try:
+            resp = await self._call_with_retry(
+                req, credential_source=credential_source, trace=trace
+            )
+        except SchemaViolation as error:
+            for response in error.wire_calls:
+                self._finish_live_response(req, response, credential_source)
+            raise
+        self._finish_live_response(req, resp, credential_source)
+        if (
+            self.cache is not None
+            and self.cache_mode in ("replay", "fresh")
+            and not (resp.output_limited and req.schema is not None)
+        ):
+            self.cache.put(key, resp)
+        return resp
+
+    def _finish_live_response(
+        self, req: LLMRequest, resp: LLMResponse, credential_source: str
+    ) -> None:
+        """Provider usage exists even when the returned text is invalid JSON."""
         if resp.actual_accounting is None:
-            resp.provider = provider
+            resp.provider = provider_from_model_id(req.model)
             resp.credential_source = credential_source
             # This seam still holds the canonical endpoint-qualified identity after
             # the local adapter receives its stripped wire model. Stamp the fact for
@@ -642,9 +661,6 @@ class ModelRouter:
             )
         if self.model_call_policy is not None:
             self.model_call_policy.after_live(req, resp, credential_source)
-        if self.cache is not None and self.cache_mode in ("replay", "fresh"):
-            self.cache.put(key, resp)
-        return resp
 
     async def _call_with_retry(
         self,
@@ -746,7 +762,7 @@ class ModelRouter:
                 safe_error.post_egress_ambiguous = bool(
                     safe_error.retryable and not retry_is_proven_safe
                 )
-                _record(
+                duration_ms = _record(
                     attempt,
                     t0,
                     outcome="error",
@@ -755,6 +771,9 @@ class ModelRouter:
                     retryable=safe_error.retryable,
                     chaos=chaos_error,
                 )
+                for response in getattr(safe_error, "wire_calls", []):
+                    response.duration_ms = duration_ms
+                    response.model = req.model
                 # A SchemaViolation is never blind-retried here with the
                 # identical body (`SchemaViolation.retryable=False`) — the
                 # StructuredCompleter owns schema repair for every
@@ -913,7 +932,12 @@ class ModelRouter:
     def _safe_llm_error(error: LLMError, secret_values: tuple[str, ...]) -> LLMError:
         detail = redact_text(error, secret_values=secret_values)
         if isinstance(error, SchemaViolation):
-            return SchemaViolation(
+            error_type = (
+                OutputLimitReached
+                if isinstance(error, OutputLimitReached)
+                else SchemaViolation
+            )
+            return error_type(
                 detail,
                 raw_text=(
                     redact_text(
@@ -925,6 +949,7 @@ class ModelRouter:
                     if error.raw_text is not None
                     else None
                 ),
+                wire_calls=ModelRouter._safe_wire_calls(error, secret_values),
             )
         provider_code = error.provider_code
         if provider_code is not None:
@@ -943,7 +968,7 @@ class ModelRouter:
             post_egress_ambiguous = True
         if transport_kind is None and isinstance(error.__cause__, httpx.ConnectError):
             transport_kind = "connect"
-        return LLMError(
+        safe_error = LLMError(
             detail,
             status=error.status,
             retryable=error.retryable,
@@ -955,6 +980,32 @@ class ModelRouter:
             transport_kind=transport_kind,
             post_egress_ambiguous=post_egress_ambiguous,
         )
+        if getattr(error, "wire_calls", None):
+            safe_error.wire_calls = ModelRouter._safe_wire_calls(error, secret_values)
+        return safe_error
+
+    @staticmethod
+    def _safe_wire_calls(
+        error: LLMError, secret_values: tuple[str, ...]
+    ) -> list[LLMResponse]:
+        return [
+            replace(
+                response,
+                **{
+                    name: redact_value(
+                        getattr(response, name), secret_values=secret_values
+                    )
+                    for name in (
+                        "content",
+                        "data",
+                        "raw",
+                        "tool_calls",
+                        "output_tool_call",
+                    )
+                },
+            )
+            for response in getattr(error, "wire_calls", [])
+        ]
 
     @staticmethod
     def _safe_transport_error(

@@ -89,6 +89,9 @@ def request_key(req: LLMRequest, recipe_version: str = "1") -> str:
         canonical_dict["native_tool_history"] = 1
     if req.reasoning_policy is not None:
         canonical_dict["reasoning_policy"] = req.reasoning_policy
+    # Do not replay results from before OpenRouter required format support.
+    if req.model.startswith("openrouter/") and req.schema is not None:
+        canonical_dict["openrouter_parameter_support"] = 1
     canonical = json.dumps(canonical_dict, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(canonical.encode()).hexdigest()
 
