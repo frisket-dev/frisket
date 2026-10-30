@@ -73,6 +73,7 @@ export interface PdfBatchImportFlowProps {
   files?: readonly File[];
   resumeDraftId?: string | null;
   newlyAdmittedDraft?: boolean;
+  initialCheckText?: boolean;
   warnings?: readonly string[];
   initialOrganization?: PdfImportChoices['organization'];
   destinationSheets: readonly PdfBatchDestinationSheet[];
@@ -131,6 +132,7 @@ export function PdfBatchImportFlow({
   files = [],
   resumeDraftId = null,
   newlyAdmittedDraft = false,
+  initialCheckText = false,
   warnings = [],
   initialOrganization = 'keep_documents',
   destinationSheets,
@@ -142,6 +144,7 @@ export function PdfBatchImportFlow({
   onError,
 }: PdfBatchImportFlowProps) {
   const [snapshot, setSnapshot] = useState<PdfImportSnapshot | null>(null);
+  const arrivalPending = useRef(initialCheckText);
   const [stage, setStage] = useState<PdfBatchStage>('add');
   const [reviewSnapshot, setReviewSnapshot] = useState<PdfPacketSplitSnapshot | null>(null);
   const organizationChosen = useRef(false);
@@ -453,6 +456,14 @@ export function PdfBatchImportFlow({
       if (refreshController.current === controller) refreshController.current = null;
     }
   }, [activeIntake, api, completeImportHandoff, projectId, publish, registerCommittedUpload, reportError]);
+
+  useEffect(() => {
+    if (!arrivalPending.current || !snapshot || snapshot.state !== 'open' || !snapshot.can_review_text) return;
+    arrivalPending.current = false;
+    const category = PDF_CHECK_CATEGORY_ORDER.find((item) => (snapshot.category_counts[item] ?? 0) > 0);
+    if (category) setSelectedCategory(category);
+    setStage('check');
+  }, [snapshot]);
 
   const refreshStatus = useCallback(async () => {
     await refresh(snapshot);
@@ -920,7 +931,9 @@ export function PdfBatchImportFlow({
   };
 
   if (!snapshot) {
-    return <div className="pdf-batch-loading" role="status"><LoaderCircle className="spin" size={18} /> Preparing file import…</div>;
+    return error
+      ? <div className="panel-error" role="alert">{error}</div>
+      : <div className="pdf-batch-loading" role="status"><LoaderCircle className="spin" size={18} /> Preparing file import…</div>;
   }
 
   if (snapshot.state === 'cancelling' || snapshot.state === 'cancelled') {

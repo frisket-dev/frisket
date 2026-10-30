@@ -1,6 +1,6 @@
 import '../workbench/contributions.css';
 import './WorkspaceChrome.css';
-import { memo, useEffect, useMemo } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { MENTIONS_EXTRACT_ACTION_KIND } from '../components/mentionsPanelModel';
 import { ImportWorkspaceDialog } from '../components/importWorkspace/ImportWorkspaceDialog';
 import { SampleProjectOnboarding } from '../workbench/SampleProjectOnboarding';
@@ -147,7 +147,14 @@ export const WorkspaceActRegion = memo(function WorkspaceActRegion() {
     state.status === 'ready'
       && state.resolvedTemplates.some((template) => template.kind === 'frisket.ftm.ftm_import'),
   );
-  const closeImportDialog = actSurface.closeImportDialog;
+  const [guideDraftId, setGuideDraftId] = useState(() => new URLSearchParams(window.location.search).get('guideDraft'));
+  const closeImportDialog = () => {
+    setGuideDraftId(null);
+    const url = new URL(window.location.href);
+    url.searchParams.delete('guideDraft');
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+    actSurface.closeImportDialog();
+  };
   useEffect(() => {
     // Command tabs appear before catalog-backed tabs; keep the saved selection
     // until the catalog has settled so loading cannot overwrite it.
@@ -187,7 +194,8 @@ export const WorkspaceActRegion = memo(function WorkspaceActRegion() {
         />
       )}
       <ImportWorkspaceDialog
-        open={importDialogOpen}
+        open={importDialogOpen || Boolean(guideDraftId)}
+        initialPdfDraftId={guideDraftId}
         entryMode={importDialogEntryMode}
         initialTableFile={importDialogTableFile}
         initialTableRerunDraftId={importDialogTableRerunDraftId}
