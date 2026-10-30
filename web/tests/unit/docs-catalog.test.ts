@@ -3,7 +3,7 @@ import { docsCatalog } from '../../scripts/export-docs-catalog';
 import { servedActionCatalog } from '../support/servedActionCatalog';
 
 it('exports visible action labels and placements through the actual frontend projection', () => {
-  const catalog = docsCatalog(servedActionCatalog());
+  const catalog = docsCatalog(servedActionCatalog(), 'a'.repeat(40));
   const extract = catalog.actions.find((action) => action.id === 'map.extract');
   expect(extract).toMatchObject({ label: 'Extract fields', path: ['Analyze', 'EXTRACT'] });
   expect(extract?.inputSchema).toBeDefined();
@@ -15,7 +15,7 @@ it('exports visible action labels and placements through the actual frontend pro
 }, 30000);
 
 it('exports the controls rendered by the Extract, OCR, and Transcribe forms', () => {
-  const actions = docsCatalog(servedActionCatalog()).actions;
+  const actions = docsCatalog(servedActionCatalog(), 'a'.repeat(40)).actions;
   const settings = (id: string) => actions.find((action) => action.id === id)!.params;
   expect(settings('map.extract')).toEqual(expect.arrayContaining([
     expect.objectContaining({ name: 'fields', label: 'Columns it creates' }),
@@ -36,3 +36,7 @@ it('exports the controls rendered by the Extract, OCR, and Transcribe forms', ()
     expect.objectContaining({ name: 'vad', label: 'Voice Activity Detection' }),
   ]));
 }, 30000);
+
+it('rejects an invalid catalog revision', () => {
+  expect(() => docsCatalog(servedActionCatalog(), 'not-a-sha')).toThrow('full lowercase Git SHA');
+});

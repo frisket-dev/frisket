@@ -46,6 +46,11 @@ def build_bundle(
         raise ValueError("No recipe plans")
     unique(recipes, "recipe")
     raw_catalog = read_json(catalog)
+    if (
+        raw_catalog.get("version") != 1
+        or raw_catalog.get("appRevision") != app_revision
+    ):
+        raise ValueError("Catalog revision mismatch")
     actions = [
         {
             **action,
@@ -73,6 +78,19 @@ def build_bundle(
             if step.get("actionId") and step["actionId"] not in actions_by_id:
                 raise ValueError(f"Unknown user-facing action: {step['actionId']}")
             unique(step.get("settings", []), f"setting in {recipe['id']}/{step['id']}")
+            for setting in step.get("settings", []):
+                param = setting.get("param")
+                if param is not None:
+                    action = actions_by_id.get(step.get("actionId"))
+                    properties = (
+                        action.get("inputSchema", {}).get("properties", {})
+                        if action
+                        else {}
+                    )
+                    if param not in properties:
+                        raise ValueError(
+                            f"Unknown action parameter: {step.get('actionId')}/{param}"
+                        )
             for identity in step.get("captureIds", []):
                 expected_sample = (sample["id"], sample["revision"])
                 if (
@@ -158,6 +176,22 @@ def build_bundle(
     missing = required_captures.keys() - captures_by_id.keys()
     if missing:
         raise ValueError(f"Missing recipe captures: {', '.join(sorted(missing))}")
+
+    for recipe in recipes:
+        for step in recipe["steps"]:
+            annotation_ids = {
+                annotation["id"]
+                for capture_id in step.get("captureIds", [])
+                for annotation in captures_by_id[capture_id].get("annotations", [])
+            }
+            for setting in step.get("settings", []):
+                if (
+                    setting.get("target") is not None
+                    and setting["id"] not in annotation_ids
+                ):
+                    raise ValueError(
+                        f"Missing capture annotation for {recipe['id']}/{step['id']}/{setting['id']}"
+                    )
 
     result = {
         "version": 1,

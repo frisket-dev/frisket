@@ -7,5 +7,6 @@ temporary=$(mktemp -d)
 trap 'rm -r -- "$temporary"' EXIT
 "$root/web/node_modules/.bin/esbuild" "$root/web/scripts/export-docs-catalog.ts" \
   --bundle --platform=node --format=esm --outfile="$temporary/catalog.mjs" >&2
+cd "$root"
 PYTHONPATH="$root/src${PYTHONPATH:+:$PYTHONPATH}" "$python" \
-  "$root/scripts/ci/gen_action_presentation_catalog_fixture.py" | node "$temporary/catalog.mjs"
+  "$root/scripts/ci/gen_action_presentation_catalog_fixture.py" | node "$temporary/catalog.mjs" "$@"

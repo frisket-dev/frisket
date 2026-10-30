@@ -36,7 +36,13 @@ def inputs(tmp_path):
             {
                 "id": "extract",
                 "actionId": "map.extract",
-                "settings": [{"id": "prompt"}],
+                "settings": [
+                    {
+                        "id": "prompt",
+                        "param": "instruction",
+                        "target": {"kind": "field", "id": "field-instruction"},
+                    }
+                ],
                 "captureIds": ["setup"],
             }
         ],
@@ -46,14 +52,17 @@ def inputs(tmp_path):
     write_json(
         catalog,
         {
+            "version": 1,
+            "appRevision": SHA,
             "actions": [
                 {
                     "id": "map.extract",
                     "label": "Extract fields",
                     "path": ["Analyze", "EXTRACT"],
                     "params": [],
+                    "inputSchema": {"properties": {"instruction": {"type": "string"}}},
                 }
-            ]
+            ],
         },
     )
     samples = tmp_path / "samples.json"
@@ -148,3 +157,37 @@ def test_failed_copy_cleans_staging_and_preserves_absent_output(inputs, monkeypa
         module.build_bundle(**inputs)
     assert not inputs["output"].exists()
     assert not list(inputs["output"].parent.glob(".output-*"))
+
+
+@pytest.mark.parametrize("failure", ["catalog-revision", "parameter", "annotation"])
+def test_rejects_stale_catalog_or_missing_setting_binding(inputs, failure):
+    if failure == "catalog-revision":
+        catalog = json.loads(inputs["catalog"].read_text())
+        catalog["appRevision"] = "b" * 40
+        write_json(inputs["catalog"], catalog)
+    elif failure == "parameter":
+        plan = inputs["plans"] / "guide.json"
+        recipe = json.loads(plan.read_text())
+        recipe["steps"][0]["settings"][0]["param"] = "renamed"
+        write_json(plan, recipe)
+    else:
+        capture = inputs["captures"][0] / "bundle.json"
+        bundle = json.loads(capture.read_text())
+        bundle["captures"][0]["annotations"] = []
+        write_json(capture, bundle)
+    with pytest.raises(ValueError):
+        module.build_bundle(**inputs)
+    assert not inputs["output"].exists()
+
+
+def test_result_capture_without_annotations_is_valid(inputs):
+    plan = inputs["plans"] / "guide.json"
+    recipe = json.loads(plan.read_text())
+    recipe["steps"][0]["settings"] = []
+    write_json(plan, recipe)
+    capture = inputs["captures"][0] / "bundle.json"
+    bundle = json.loads(capture.read_text())
+    bundle["captures"][0]["annotations"] = []
+    write_json(capture, bundle)
+    module.build_bundle(**inputs)
+    assert (inputs["output"] / "guideBundle.json").exists()
