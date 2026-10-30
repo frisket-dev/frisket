@@ -2015,6 +2015,7 @@ function useSheetGridController({
       childSheet,
       sheet.id,
       gridColumns,
+      expectedById,
       previewAt,
     ],
   );

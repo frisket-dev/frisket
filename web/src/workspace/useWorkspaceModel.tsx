@@ -818,11 +818,12 @@ export function useWorkspaceModel({
   const catalogEntries = useSelector(actionCatalog.store, (state) => state.catalog?.actions);
   const [expectedHeader, setExpectedHeader] = useState<ExpectedProjection['columns'][number] | null>(null);
   const expectedAnswers = useWorkspaceExpectedAnswers(project.id, sheet, sheets, projectApi, catalogEntries, actActionTemplates, dataVersion, showError);
+  const { openJoin: openExpectedJoin } = expectedAnswers;
   const runActCommand = useCallback(
     (command: ActMenuCommand) => {
       switch (command) {
         case 'join-expected':
-          expectedAnswers.openJoin();
+          openExpectedJoin();
           return;
         case 'split-pdfs':
           setPdfSplitFileColumn(null);
@@ -857,7 +858,7 @@ export function useWorkspaceModel({
           return;
       }
     },
-    [dispatchCommand, expectedAnswers.openJoin],
+    [dispatchCommand, openExpectedJoin],
   );
 
   const contributions = useWorkspaceContributionController({
@@ -927,12 +928,13 @@ export function useWorkspaceModel({
     selection={pdfSplitSelection}
     view={pdfSplitView} getSheetRows={getPdfSplitRows} onClose={() => setPdfSplitOpen(false)} onApply={applyExistingPdfSplit} /> : null;
 
+  const { loadActionRunEntry } = actionCompare;
   const loadRunWithExpected = useCallback(async (anchor: import('../grid/actionRunEntry').ActionRunAnchor) => {
-    const details = await actionCompare.loadActionRunEntry(anchor);
+    const details = await loadActionRunEntry(anchor);
     const run = expectedAnswers.runs.find(item => item.anchor.runId === anchor.runId && item.anchor.sheetId === anchor.sheetId);
     const link = expectedAnswers.availableLinks.find(item => item.action_id === run?.context.draft.action_id && item.fields.some(field => run.context.output_columns.some(output => output.column_id === field.output_column_id)));
     return details && link ? { ...details, expected: { sheetName: link.expected_sheet_name, rowCount: expectedAnswers.matchedCounts[link.id] ?? 0 } } : details;
-  }, [actionCompare.loadActionRunEntry, expectedAnswers.runs, expectedAnswers.availableLinks, expectedAnswers.matchedCounts]);
+  }, [loadActionRunEntry, expectedAnswers.runs, expectedAnswers.availableLinks, expectedAnswers.matchedCounts]);
 
   const gridContribution = useMemo(() => activePreviewView?.result?.kind === 'table'
     ? <PreviewTable result={activePreviewView.result} /> : sheet ? (
