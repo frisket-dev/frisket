@@ -164,10 +164,28 @@ class EvaluationRequest(WireModel):
         return self
 
 
+class EvaluationBoundedValue(WireModel):
+    preview: str = Field(max_length=2048)
+    total_characters: int
+    total_bytes: int
+    truncated: Literal[True] = True
+
+
 class EvaluationCell(WireModel):
     state: Literal["value", "null", "missing", "error", "pending", "cancelled"]
     value: JsonValue = None
     error: str | None = None
+    bounded_value: EvaluationBoundedValue | None = None
+    value_hash: str | None = None
+
+
+class EvaluationVariantSnapshot(WireModel):
+    sheet_id: PositiveId
+    action_id: str
+    output_columns: list[EvaluationOutput]
+    settings: JsonValue
+    rows: dict[str, dict[str, EvaluationCell]]
+    source_fingerprints: dict[str, str]
 
 
 class EvaluationAggregate(WireModel):
@@ -200,6 +218,9 @@ class EvaluationResponse(WireModel):
     row_ids: list[int]
     link: ExpectedLink | None
     expected: dict[str, dict[str, JsonValue]]
+    expected_bounded: dict[str, dict[str, EvaluationBoundedValue]] = Field(
+        default_factory=dict
+    )
     variants: list[EvaluationVariant]
     best: dict[str, list[str]]
     rule_previews: dict[str, dict[str, dict[str, EvaluationAggregate]]]
@@ -227,6 +248,17 @@ class ShelfSaveRequest(WireModel):
     variant_keys: list[str] = Field(min_length=1, max_length=32)
 
 
+class ComparisonCaptureRequest(ShelfSaveRequest):
+    target_id: PositiveId | None = None
+
+
+class EvaluationCellRequest(WireModel):
+    comparison: EvaluationRequest
+    variant_key: str
+    row_id: PositiveId
+    logical_key: str
+
+
 class ShelfRename(WireModel):
     label: str = Field(min_length=1, max_length=300)
 
@@ -239,6 +271,7 @@ class SavedComparisonSummary(WireModel):
     output_columns: list[EvaluationOutput]
     row_count: int
     saved_at: str
+    kept: bool
 
 
 class SavedComparison(SavedComparisonSummary):

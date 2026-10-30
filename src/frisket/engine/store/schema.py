@@ -18,6 +18,7 @@ from pathlib import Path
 
 from .citation_text import CITATION_TEXT_SCHEMA_SQL
 from .extraction_layouts import EXTRACTION_LAYOUTS_SCHEMA_SQL
+from .evaluation import EVALUATION_SCHEMA_SQL
 from .pdf_split_schema import PDF_SPLIT_SCHEMA_SQL
 from .document_text import (
     DOCUMENT_TEXT_SCHEMA_SQL,
@@ -2491,6 +2492,7 @@ CREATE INDEX IF NOT EXISTS idx_project_qa_research_operations_unsettled
 # of the one authoritative fresh-bundle schema and therefore of its digest.
 SCHEMA += "\n" + CITATION_TEXT_SCHEMA_SQL + "\n"
 SCHEMA += "\n" + EXTRACTION_LAYOUTS_SCHEMA_SQL + "\n"
+SCHEMA += "\n" + EVALUATION_SCHEMA_SQL + "\n"
 SCHEMA += "\n" + DOCUMENT_TEXT_SCHEMA_SQL + "\n"
 SCHEMA += "\n" + DOCUMENT_TEXT_SELECTION_VIEW_SQL + "\n"
 SCHEMA += "\n" + PDF_SPLIT_SCHEMA_SQL + "\n"
