@@ -21,7 +21,7 @@ it('reuses the operation for project creation and preparation on retry', async (
   }
   for (const index of [1, 3]) {
     const [url, init] = fetch.mock.calls[index];
-    expect(url).toBe('/api/projects/p/guide-samples/council-recordings/prepare');
+    expect(url).toBe('/api/projects/p/import/guide-samples/council-recordings/prepare');
     expect(JSON.parse(init.body)).toEqual({ revision: 1, operation_id: 'operation-1' });
   }
 });
