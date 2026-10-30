@@ -964,6 +964,150 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
+      "id": "tenant.evaluation_capture.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/evaluation/capture",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
+      "id": "tenant.evaluation_capture_discard.delete",
+      "method": "DELETE",
+      "path": "/api/projects/{pid}/evaluation/capture/{saved_id}",
+      "request": null
+    },
+    {
+      "id": "tenant.evaluation_cell.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/evaluation/cell",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
+      "id": "tenant.evaluation_expected_answer.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/evaluation/expected-answer",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
+      "id": "tenant.evaluation_judgment.put",
+      "method": "PUT",
+      "path": "/api/projects/{pid}/evaluation/judgment",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
+      "id": "tenant.evaluation_link_create.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/evaluation/links",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
+      "id": "tenant.evaluation_link_delete.delete",
+      "method": "DELETE",
+      "path": "/api/projects/{pid}/evaluation/links/{link_id}",
+      "request": null
+    },
+    {
+      "id": "tenant.evaluation_link_preview.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/evaluation/links/preview",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
+      "id": "tenant.evaluation_link_update.put",
+      "method": "PUT",
+      "path": "/api/projects/{pid}/evaluation/links/{link_id}",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
+      "id": "tenant.evaluation_links.get",
+      "method": "GET",
+      "path": "/api/projects/{pid}/evaluation/links",
+      "request": null
+    },
+    {
+      "id": "tenant.evaluation_projection.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/evaluation/projection",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
+      "id": "tenant.evaluation_rule_update.put",
+      "method": "PUT",
+      "path": "/api/projects/{pid}/evaluation/rules/{expected_column_id}",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
+      "id": "tenant.evaluation_score.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/evaluation/score",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
+      "id": "tenant.evaluation_shelf_delete.delete",
+      "method": "DELETE",
+      "path": "/api/projects/{pid}/evaluation/shelf/{saved_id}",
+      "request": null
+    },
+    {
+      "id": "tenant.evaluation_shelf_get.get",
+      "method": "GET",
+      "path": "/api/projects/{pid}/evaluation/shelf/{saved_id}",
+      "request": null
+    },
+    {
+      "id": "tenant.evaluation_shelf_list.get",
+      "method": "GET",
+      "path": "/api/projects/{pid}/evaluation/shelf",
+      "request": null
+    },
+    {
+      "id": "tenant.evaluation_shelf_rename.patch",
+      "method": "PATCH",
+      "path": "/api/projects/{pid}/evaluation/shelf/{saved_id}",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
+      "id": "tenant.evaluation_shelf_save.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/evaluation/shelf",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
       "id": "tenant.evidence_viewer.get",
       "method": "GET",
       "path": "/api/projects/{pid}/evidence/links/{evidence_link_id}/viewer",
@@ -2347,6 +2491,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
+      "id": "tenant.v1_action_compare_preview_quote.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/actions/v1/compare-preview-quote",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
       "id": "tenant.v1_action_compare_preview_start.post",
       "method": "POST",
       "path": "/api/projects/{pid}/actions/v1/compare-preview",
@@ -2610,8 +2763,8 @@ type HttpActionCompareContextResponse_ActionCompareDraftSource = ({
 });
 
 type HttpActionCompareContextResponse_ActionCompareLimits = ({
-  "max_challengers": (3) & (number);
-  "max_sample_rows": (20) & (number);
+  "max_challengers": (19) & (number);
+  "max_sample_rows": (500) & (number);
 });
 
 type HttpActionCompareContextResponse_ActionCompareOriginSummary = ({
@@ -2753,6 +2906,35 @@ export type HttpActionComparePreviewRequest = ({
   [key: string]: (HttpActionComparePreviewRequest_JsonValue);
 });
   "comparison": (HttpActionComparePreviewRequest_ActionComparePreviewAdmission);
+});
+
+type HttpActionCompareQuoteResponse_ActionEstimate = ({
+  "audio_seconds"?: (((number)) | ((null)));
+  "avg_input_tokens"?: (((number)) | ((null)));
+  "billed_cost": (((number)) | ((null)));
+  "billing_label"?: (((string)) | ((null)));
+  "claims"?: (((Array<(HttpActionCompareQuoteResponse_ActionEstimateClaim)>)) | ((null)));
+  "cost": (((number)) | ((null)));
+  "cost_source": (string);
+  "engine"?: (((string)) | ((null)));
+  "policy_id": (string);
+  "pricing_key"?: (((string)) | ((null)));
+  "promise_set_hash"?: (((string)) | ((null)));
+  "remote_capability"?: (((string)) | ((null)));
+  "requires_confirmation"?: (((boolean)) | ((null)));
+  "rows": (number);
+  "venue_label"?: (((string)) | ((null)));
+  "warning"?: (((string)) | ((null)));
+});
+
+type HttpActionCompareQuoteResponse_ActionEstimateClaim = ({
+  "display": (string);
+  "field": (string);
+});
+
+export type HttpActionCompareQuoteResponse = ({
+  "estimate": (HttpActionCompareQuoteResponse_ActionEstimate);
+  "schema_version": ("frisket.action_compare_quote.v1") & (string);
 });
 
 export type HttpActionError = ({
@@ -5243,6 +5425,70 @@ export type HttpColumnValuesPreviewResponse = ({
   [key: string]: (HttpColumnValuesPreviewResponse_JsonValue) | (number) | (((HttpColumnValuesPreviewResponse_NumberColumnDistribution)) | ((HttpColumnValuesPreviewResponse_IntegerColumnDistribution)) | ((HttpColumnValuesPreviewResponse_DateColumnDistribution)) | ((null))) | (string) | (boolean) | (((HttpColumnValuesPreviewResponse_ListFacetPreview)) | ((null))) | ("frisket.column_values_preview.v1") & (string) | (((string)) | ((null))) | (Array<(HttpColumnValuesPreviewResponse_ColumnValueCount)>) | undefined;
 });
 
+type HttpComparisonCaptureRequest_ActionCompareDraftSource = ({
+  "draft": (HttpComparisonCaptureRequest_ActionDraft);
+  "kind": ("draft") & (string);
+});
+
+type HttpComparisonCaptureRequest_ActionCompareRunSource = ({
+  "column_id": (number);
+  "kind": ("run") & (string);
+  "run_id": (number);
+});
+
+type HttpComparisonCaptureRequest_ActionDraft = ({
+  "action_id": (string);
+  "output_names": ({
+  [key: string]: (string);
+});
+  "params": ({
+  [key: string]: (HttpComparisonCaptureRequest_JsonValue);
+});
+  "scope": (HttpComparisonCaptureRequest_ActionDraftScope);
+  "sheet_name"?: (((string)) | ((null)));
+});
+
+type HttpComparisonCaptureRequest_ActionDraftScope = ({
+  "kind": ("sheet_rows") & (string);
+  "row_ids"?: (((Array<(number)>)) | ((null)));
+  "sheet_id": (number);
+});
+
+type HttpComparisonCaptureRequest_CurrentVariantRef = ({
+  "kind": ("current") & (string);
+});
+
+type HttpComparisonCaptureRequest_EvaluationRequest = ({
+  "basis": (((HttpComparisonCaptureRequest_ActionCompareDraftSource)) | ((HttpComparisonCaptureRequest_ActionCompareRunSource)));
+  "link_id"?: (((number)) | ((null)));
+  "row_ids": (Array<(number)>);
+  "variants": (Array<(HttpComparisonCaptureRequest_EvaluationVariantInput)>);
+});
+
+type HttpComparisonCaptureRequest_EvaluationVariantInput = ({
+  "key": (string);
+  "label": (string);
+  "source": (((HttpComparisonCaptureRequest_CurrentVariantRef)) | ((HttpComparisonCaptureRequest_PreviewVariantRef)) | ((HttpComparisonCaptureRequest_SavedVariantRef)));
+});
+
+type HttpComparisonCaptureRequest_JsonValue = JsonValue;
+
+type HttpComparisonCaptureRequest_PreviewVariantRef = ({
+  "kind": ("preview") & (string);
+  "preview_ids": (Array<(string)>);
+});
+
+type HttpComparisonCaptureRequest_SavedVariantRef = ({
+  "kind": ("saved") & (string);
+  "saved_id": (number);
+});
+
+export type HttpComparisonCaptureRequest = ({
+  "comparison": (HttpComparisonCaptureRequest_EvaluationRequest);
+  "target_id"?: (((number)) | ((null)));
+  "variant_keys": (Array<(string)>);
+});
+
 export type HttpCreateProjectInviteRequest = ({
   "email": (string);
   "role"?: ("viewer" | "editor") & (string);
@@ -5725,6 +5971,339 @@ export type HttpError = ({
   "detail": (HttpError_JsonValue);
 });
 
+type HttpEvaluationCell_EvaluationBoundedValue = ({
+  "preview": (string);
+  "total_bytes": (number);
+  "total_characters": (number);
+  "truncated"?: (true) & (boolean);
+});
+
+type HttpEvaluationCell_JsonValue = JsonValue;
+
+export type HttpEvaluationCell = ({
+  "bounded_value"?: (((HttpEvaluationCell_EvaluationBoundedValue)) | ((null)));
+  "error"?: (((string)) | ((null)));
+  "state": ("value" | "null" | "missing" | "error" | "pending" | "cancelled") & (string);
+  "value"?: (HttpEvaluationCell_JsonValue);
+  "value_hash"?: (((string)) | ((null)));
+});
+
+type HttpEvaluationCellRequest_ActionCompareDraftSource = ({
+  "draft": (HttpEvaluationCellRequest_ActionDraft);
+  "kind": ("draft") & (string);
+});
+
+type HttpEvaluationCellRequest_ActionCompareRunSource = ({
+  "column_id": (number);
+  "kind": ("run") & (string);
+  "run_id": (number);
+});
+
+type HttpEvaluationCellRequest_ActionDraft = ({
+  "action_id": (string);
+  "output_names": ({
+  [key: string]: (string);
+});
+  "params": ({
+  [key: string]: (HttpEvaluationCellRequest_JsonValue);
+});
+  "scope": (HttpEvaluationCellRequest_ActionDraftScope);
+  "sheet_name"?: (((string)) | ((null)));
+});
+
+type HttpEvaluationCellRequest_ActionDraftScope = ({
+  "kind": ("sheet_rows") & (string);
+  "row_ids"?: (((Array<(number)>)) | ((null)));
+  "sheet_id": (number);
+});
+
+type HttpEvaluationCellRequest_CurrentVariantRef = ({
+  "kind": ("current") & (string);
+});
+
+type HttpEvaluationCellRequest_EvaluationRequest = ({
+  "basis": (((HttpEvaluationCellRequest_ActionCompareDraftSource)) | ((HttpEvaluationCellRequest_ActionCompareRunSource)));
+  "link_id"?: (((number)) | ((null)));
+  "row_ids": (Array<(number)>);
+  "variants": (Array<(HttpEvaluationCellRequest_EvaluationVariantInput)>);
+});
+
+type HttpEvaluationCellRequest_EvaluationVariantInput = ({
+  "key": (string);
+  "label": (string);
+  "source": (((HttpEvaluationCellRequest_CurrentVariantRef)) | ((HttpEvaluationCellRequest_PreviewVariantRef)) | ((HttpEvaluationCellRequest_SavedVariantRef)));
+});
+
+type HttpEvaluationCellRequest_JsonValue = JsonValue;
+
+type HttpEvaluationCellRequest_PreviewVariantRef = ({
+  "kind": ("preview") & (string);
+  "preview_ids": (Array<(string)>);
+});
+
+type HttpEvaluationCellRequest_SavedVariantRef = ({
+  "kind": ("saved") & (string);
+  "saved_id": (number);
+});
+
+export type HttpEvaluationCellRequest = ({
+  "comparison": (HttpEvaluationCellRequest_EvaluationRequest);
+  "logical_key": (string);
+  "row_id": (number);
+  "variant_key": (string);
+});
+
+type HttpEvaluationJudgmentRequest_ActionCompareDraftSource = ({
+  "draft": (HttpEvaluationJudgmentRequest_ActionDraft);
+  "kind": ("draft") & (string);
+});
+
+type HttpEvaluationJudgmentRequest_ActionCompareRunSource = ({
+  "column_id": (number);
+  "kind": ("run") & (string);
+  "run_id": (number);
+});
+
+type HttpEvaluationJudgmentRequest_ActionDraft = ({
+  "action_id": (string);
+  "output_names": ({
+  [key: string]: (string);
+});
+  "params": ({
+  [key: string]: (HttpEvaluationJudgmentRequest_JsonValue);
+});
+  "scope": (HttpEvaluationJudgmentRequest_ActionDraftScope);
+  "sheet_name"?: (((string)) | ((null)));
+});
+
+type HttpEvaluationJudgmentRequest_ActionDraftScope = ({
+  "kind": ("sheet_rows") & (string);
+  "row_ids"?: (((Array<(number)>)) | ((null)));
+  "sheet_id": (number);
+});
+
+type HttpEvaluationJudgmentRequest_CurrentVariantRef = ({
+  "kind": ("current") & (string);
+});
+
+type HttpEvaluationJudgmentRequest_EvaluationRequest = ({
+  "basis": (((HttpEvaluationJudgmentRequest_ActionCompareDraftSource)) | ((HttpEvaluationJudgmentRequest_ActionCompareRunSource)));
+  "link_id"?: (((number)) | ((null)));
+  "row_ids": (Array<(number)>);
+  "variants": (Array<(HttpEvaluationJudgmentRequest_EvaluationVariantInput)>);
+});
+
+type HttpEvaluationJudgmentRequest_EvaluationVariantInput = ({
+  "key": (string);
+  "label": (string);
+  "source": (((HttpEvaluationJudgmentRequest_CurrentVariantRef)) | ((HttpEvaluationJudgmentRequest_PreviewVariantRef)) | ((HttpEvaluationJudgmentRequest_SavedVariantRef)));
+});
+
+type HttpEvaluationJudgmentRequest_JsonValue = JsonValue;
+
+type HttpEvaluationJudgmentRequest_PreviewVariantRef = ({
+  "kind": ("preview") & (string);
+  "preview_ids": (Array<(string)>);
+});
+
+type HttpEvaluationJudgmentRequest_SavedVariantRef = ({
+  "kind": ("saved") & (string);
+  "saved_id": (number);
+});
+
+export type HttpEvaluationJudgmentRequest = ({
+  "comparison": (HttpEvaluationJudgmentRequest_EvaluationRequest);
+  "logical_key": (string);
+  "row_id": (number);
+  "variant_key": (string);
+  "verdict": ((("match" | "miss") & (string)) | ((null)));
+});
+
+type HttpEvaluationRequest_ActionCompareDraftSource = ({
+  "draft": (HttpEvaluationRequest_ActionDraft);
+  "kind": ("draft") & (string);
+});
+
+type HttpEvaluationRequest_ActionCompareRunSource = ({
+  "column_id": (number);
+  "kind": ("run") & (string);
+  "run_id": (number);
+});
+
+type HttpEvaluationRequest_ActionDraft = ({
+  "action_id": (string);
+  "output_names": ({
+  [key: string]: (string);
+});
+  "params": ({
+  [key: string]: (HttpEvaluationRequest_JsonValue);
+});
+  "scope": (HttpEvaluationRequest_ActionDraftScope);
+  "sheet_name"?: (((string)) | ((null)));
+});
+
+type HttpEvaluationRequest_ActionDraftScope = ({
+  "kind": ("sheet_rows") & (string);
+  "row_ids"?: (((Array<(number)>)) | ((null)));
+  "sheet_id": (number);
+});
+
+type HttpEvaluationRequest_CurrentVariantRef = ({
+  "kind": ("current") & (string);
+});
+
+type HttpEvaluationRequest_EvaluationVariantInput = ({
+  "key": (string);
+  "label": (string);
+  "source": (((HttpEvaluationRequest_CurrentVariantRef)) | ((HttpEvaluationRequest_PreviewVariantRef)) | ((HttpEvaluationRequest_SavedVariantRef)));
+});
+
+type HttpEvaluationRequest_JsonValue = JsonValue;
+
+type HttpEvaluationRequest_PreviewVariantRef = ({
+  "kind": ("preview") & (string);
+  "preview_ids": (Array<(string)>);
+});
+
+type HttpEvaluationRequest_SavedVariantRef = ({
+  "kind": ("saved") & (string);
+  "saved_id": (number);
+});
+
+export type HttpEvaluationRequest = ({
+  "basis": (((HttpEvaluationRequest_ActionCompareDraftSource)) | ((HttpEvaluationRequest_ActionCompareRunSource)));
+  "link_id"?: (((number)) | ((null)));
+  "row_ids": (Array<(number)>);
+  "variants": (Array<(HttpEvaluationRequest_EvaluationVariantInput)>);
+});
+
+type HttpEvaluationResponse_CurrentVariantRef = ({
+  "kind": ("current") & (string);
+});
+
+type HttpEvaluationResponse_EvaluationAggregate = ({
+  "accuracy": (((number)) | ((null)));
+  "attempted": (number);
+  "checked": (number);
+  "coverage": (number);
+  "failed": (number);
+  "matches": (number);
+  "misses": (number);
+  "remaining": (number);
+  "scored": (number);
+});
+
+type HttpEvaluationResponse_EvaluationBoundedValue = ({
+  "preview": (string);
+  "total_bytes": (number);
+  "total_characters": (number);
+  "truncated"?: (true) & (boolean);
+});
+
+type HttpEvaluationResponse_EvaluationCell = ({
+  "bounded_value"?: (((HttpEvaluationResponse_EvaluationBoundedValue)) | ((null)));
+  "error"?: (((string)) | ((null)));
+  "state": ("value" | "null" | "missing" | "error" | "pending" | "cancelled") & (string);
+  "value"?: (HttpEvaluationResponse_JsonValue);
+  "value_hash"?: (((string)) | ((null)));
+});
+
+type HttpEvaluationResponse_EvaluationOutput = ({
+  "column_id": (((number)) | ((null)));
+  "current_name": (string);
+  "logical_key": (string);
+});
+
+type HttpEvaluationResponse_EvaluationVariant = ({
+  "key": (string);
+  "label": (string);
+  "rows": ({
+  [key: string]: ({
+  [key: string]: (HttpEvaluationResponse_EvaluationCell);
+});
+});
+  "scores": ({
+  [key: string]: (HttpEvaluationResponse_EvaluationAggregate);
+});
+  "settings": (HttpEvaluationResponse_JsonValue);
+  "source": (((HttpEvaluationResponse_CurrentVariantRef)) | ((HttpEvaluationResponse_PreviewVariantRef)) | ((HttpEvaluationResponse_SavedVariantRef)));
+  "source_fingerprints": ({
+  [key: string]: (string);
+});
+  "verdicts": ({
+  [key: string]: ({
+  [key: string]: ("match" | "miss" | "unchecked" | "unscored" | "not_run") & (string);
+});
+});
+});
+
+type HttpEvaluationResponse_ExpectedField = ({
+  "expected_column_id": (number);
+  "hidden"?: (boolean);
+  "logical_key": (string);
+  "output_column_id": (number);
+  "rule"?: ("exact" | "ignore_case" | "number" | "date" | "set" | "hand") & (string);
+  "source"?: ("import" | "disagreements") & (string);
+});
+
+type HttpEvaluationResponse_ExpectedKey = ({
+  "expected_column_id": (number);
+  "target_column_id": (((number)) | ((null)));
+});
+
+type HttpEvaluationResponse_ExpectedLink = ({
+  "action_id": (string);
+  "expected_sheet_id": (number);
+  "expected_sheet_name": (string);
+  "fields": (Array<(HttpEvaluationResponse_ExpectedField)>);
+  "hidden"?: (boolean);
+  "id": (number);
+  "keys": (Array<(HttpEvaluationResponse_ExpectedKey)>);
+  "target_sheet_id": (number);
+  "target_sheet_name": (string);
+});
+
+type HttpEvaluationResponse_JsonValue = JsonValue;
+
+type HttpEvaluationResponse_PreviewVariantRef = ({
+  "kind": ("preview") & (string);
+  "preview_ids": (Array<(string)>);
+});
+
+type HttpEvaluationResponse_SavedVariantRef = ({
+  "kind": ("saved") & (string);
+  "saved_id": (number);
+});
+
+export type HttpEvaluationResponse = ({
+  "action_id": (string);
+  "best": ({
+  [key: string]: (Array<(string)>);
+});
+  "expected": ({
+  [key: string]: ({
+  [key: string]: (HttpEvaluationResponse_JsonValue);
+});
+});
+  "expected_bounded"?: ({
+  [key: string]: ({
+  [key: string]: (HttpEvaluationResponse_EvaluationBoundedValue);
+});
+});
+  "link": (((HttpEvaluationResponse_ExpectedLink)) | ((null)));
+  "output_columns": (Array<(HttpEvaluationResponse_EvaluationOutput)>);
+  "row_ids": (Array<(number)>);
+  "rule_previews": ({
+  [key: string]: ({
+  [key: string]: ({
+  [key: string]: (HttpEvaluationResponse_EvaluationAggregate);
+});
+});
+});
+  "sheet_id": (number);
+  "variants": (Array<(HttpEvaluationResponse_EvaluationVariant)>);
+});
+
 type HttpEvidenceViewerResponse_EvidenceArtifactReference = ({
   "artifact_kind": (string);
   "blob": (((HttpEvidenceViewerResponse_EvidenceBlobReference)) | ((null)));
@@ -5934,6 +6513,229 @@ export type HttpEvidenceViewerResponse = ({
   "link": (HttpEvidenceViewerResponse_EvidenceViewerLink);
   "schema_version": ("frisket.evidence_viewer.v1") & (string);
   "warnings": (Array<(string)>);
+});
+
+type HttpExpectedAnswerRequest_ActionCompareDraftSource = ({
+  "draft": (HttpExpectedAnswerRequest_ActionDraft);
+  "kind": ("draft") & (string);
+});
+
+type HttpExpectedAnswerRequest_ActionCompareRunSource = ({
+  "column_id": (number);
+  "kind": ("run") & (string);
+  "run_id": (number);
+});
+
+type HttpExpectedAnswerRequest_ActionDraft = ({
+  "action_id": (string);
+  "output_names": ({
+  [key: string]: (string);
+});
+  "params": ({
+  [key: string]: (HttpExpectedAnswerRequest_JsonValue);
+});
+  "scope": (HttpExpectedAnswerRequest_ActionDraftScope);
+  "sheet_name"?: (((string)) | ((null)));
+});
+
+type HttpExpectedAnswerRequest_ActionDraftScope = ({
+  "kind": ("sheet_rows") & (string);
+  "row_ids"?: (((Array<(number)>)) | ((null)));
+  "sheet_id": (number);
+});
+
+type HttpExpectedAnswerRequest_JsonValue = JsonValue;
+
+export type HttpExpectedAnswerRequest = ({
+  "basis": (((HttpExpectedAnswerRequest_ActionCompareDraftSource)) | ((HttpExpectedAnswerRequest_ActionCompareRunSource)));
+  "link_id"?: (((number)) | ((null)));
+  "logical_key": (string);
+  "row_id": (number);
+  "rule"?: ("exact" | "ignore_case" | "number" | "date" | "set" | "hand") & (string);
+  "value": (HttpExpectedAnswerRequest_JsonValue);
+});
+
+export type HttpExpectedJoinPreview = ({
+  "ambiguous_expected": (number);
+  "ambiguous_expected_row_ids": (Array<(number)>);
+  "ambiguous_target": (number);
+  "ambiguous_target_row_ids": (Array<(number)>);
+  "matched": (number);
+  "not_found": (number);
+  "unmatched_expected_row_ids": (Array<(number)>);
+});
+
+type HttpExpectedLink_ExpectedField = ({
+  "expected_column_id": (number);
+  "hidden"?: (boolean);
+  "logical_key": (string);
+  "output_column_id": (number);
+  "rule"?: ("exact" | "ignore_case" | "number" | "date" | "set" | "hand") & (string);
+  "source"?: ("import" | "disagreements") & (string);
+});
+
+type HttpExpectedLink_ExpectedKey = ({
+  "expected_column_id": (number);
+  "target_column_id": (((number)) | ((null)));
+});
+
+export type HttpExpectedLink = ({
+  "action_id": (string);
+  "expected_sheet_id": (number);
+  "expected_sheet_name": (string);
+  "fields": (Array<(HttpExpectedLink_ExpectedField)>);
+  "hidden"?: (boolean);
+  "id": (number);
+  "keys": (Array<(HttpExpectedLink_ExpectedKey)>);
+  "target_sheet_id": (number);
+  "target_sheet_name": (string);
+});
+
+type HttpExpectedLinkInput_ExpectedField = ({
+  "expected_column_id": (number);
+  "hidden"?: (boolean);
+  "logical_key": (string);
+  "output_column_id": (number);
+  "rule"?: ("exact" | "ignore_case" | "number" | "date" | "set" | "hand") & (string);
+  "source"?: ("import" | "disagreements") & (string);
+});
+
+type HttpExpectedLinkInput_ExpectedKey = ({
+  "expected_column_id": (number);
+  "target_column_id": (((number)) | ((null)));
+});
+
+export type HttpExpectedLinkInput = ({
+  "action_id": (string);
+  "expected_sheet_id": (number);
+  "fields": (Array<(HttpExpectedLinkInput_ExpectedField)>);
+  "hidden"?: (boolean);
+  "keys": (Array<(HttpExpectedLinkInput_ExpectedKey)>);
+  "target_sheet_id": (number);
+});
+
+type HttpExpectedLinkPreviewInput_ExpectedField = ({
+  "expected_column_id": (number);
+  "hidden"?: (boolean);
+  "logical_key": (string);
+  "output_column_id": (number);
+  "rule"?: ("exact" | "ignore_case" | "number" | "date" | "set" | "hand") & (string);
+  "source"?: ("import" | "disagreements") & (string);
+});
+
+type HttpExpectedLinkPreviewInput_ExpectedKey = ({
+  "expected_column_id": (number);
+  "target_column_id": (((number)) | ((null)));
+});
+
+export type HttpExpectedLinkPreviewInput = ({
+  "action_id": (string);
+  "expected_sheet_id": (number);
+  "fields"?: (Array<(HttpExpectedLinkPreviewInput_ExpectedField)>);
+  "hidden"?: (boolean);
+  "keys": (Array<(HttpExpectedLinkPreviewInput_ExpectedKey)>);
+  "target_sheet_id": (number);
+});
+
+type HttpExpectedLinks_ExpectedField = ({
+  "expected_column_id": (number);
+  "hidden"?: (boolean);
+  "logical_key": (string);
+  "output_column_id": (number);
+  "rule"?: ("exact" | "ignore_case" | "number" | "date" | "set" | "hand") & (string);
+  "source"?: ("import" | "disagreements") & (string);
+});
+
+type HttpExpectedLinks_ExpectedKey = ({
+  "expected_column_id": (number);
+  "target_column_id": (((number)) | ((null)));
+});
+
+type HttpExpectedLinks_ExpectedLink = ({
+  "action_id": (string);
+  "expected_sheet_id": (number);
+  "expected_sheet_name": (string);
+  "fields": (Array<(HttpExpectedLinks_ExpectedField)>);
+  "hidden"?: (boolean);
+  "id": (number);
+  "keys": (Array<(HttpExpectedLinks_ExpectedKey)>);
+  "target_sheet_id": (number);
+  "target_sheet_name": (string);
+});
+
+export type HttpExpectedLinks = ({
+  "links": (Array<(HttpExpectedLinks_ExpectedLink)>);
+});
+
+type HttpExpectedProjection_ExpectedField = ({
+  "expected_column_id": (number);
+  "hidden"?: (boolean);
+  "logical_key": (string);
+  "output_column_id": (number);
+  "rule"?: ("exact" | "ignore_case" | "number" | "date" | "set" | "hand") & (string);
+  "source"?: ("import" | "disagreements") & (string);
+});
+
+type HttpExpectedProjection_ExpectedKey = ({
+  "expected_column_id": (number);
+  "target_column_id": (((number)) | ((null)));
+});
+
+type HttpExpectedProjection_ExpectedLink = ({
+  "action_id": (string);
+  "expected_sheet_id": (number);
+  "expected_sheet_name": (string);
+  "fields": (Array<(HttpExpectedProjection_ExpectedField)>);
+  "hidden"?: (boolean);
+  "id": (number);
+  "keys": (Array<(HttpExpectedProjection_ExpectedKey)>);
+  "target_sheet_id": (number);
+  "target_sheet_name": (string);
+});
+
+type HttpExpectedProjection_ExpectedProjectedCell = ({
+  "checked": (boolean);
+  "source_column_id": (number);
+  "source_row_id": (((number)) | ((null)));
+  "value": (HttpExpectedProjection_JsonValue);
+});
+
+type HttpExpectedProjection_ExpectedProjectionColumn = ({
+  "expected_column_id": (number);
+  "hidden": (boolean);
+  "id": (string);
+  "link_id": (number);
+  "logical_key": (string);
+  "name": (string);
+  "output_column_id": (number);
+  "rule": ("exact" | "ignore_case" | "number" | "date" | "set" | "hand") & (string);
+  "source": ("import" | "disagreements") & (string);
+});
+
+type HttpExpectedProjection_JsonValue = JsonValue;
+
+export type HttpExpectedProjection = ({
+  "columns": (Array<(HttpExpectedProjection_ExpectedProjectionColumn)>);
+  "links": (Array<(HttpExpectedProjection_ExpectedLink)>);
+  "rows": ({
+  [key: string]: ({
+  [key: string]: (HttpExpectedProjection_ExpectedProjectedCell);
+});
+});
+});
+
+export type HttpExpectedProjectionRequest = ({
+  "row_ids": (Array<(number)>);
+  "sheet_id": (number);
+});
+
+export type HttpExpectedRuleChange = ({
+  "rule": ("exact" | "ignore_case" | "number" | "date" | "set" | "hand") & (string);
+});
+
+export type HttpExpectedRuleSetting = ({
+  "expected_column_id": (number);
+  "rule": ("exact" | "ignore_case" | "number" | "date" | "set" | "hand") & (string);
 });
 
 type HttpExtractionDocumentResponse_Box = ({
@@ -6951,6 +7753,11 @@ export type HttpInline_1f4a92d17785b699 = ({
   "thread_id": (string);
 });
 
+export type HttpInline_1f9be32fb968425b = ({
+  "expected_column_id": (number);
+  "pid": (string);
+});
+
 export type HttpInline_23cd5f2df57b1133 = ({
   "user_id": (number);
 });
@@ -7839,6 +8646,10 @@ export type HttpInline_9d162aa16be8fbce = ({
   "runs_offset"?: (number);
 });
 
+export type HttpInline_9e2cdbf885f6fda5 = ({
+  "sheet_id": (number);
+});
+
 export type HttpInline_9e7b45d6a7a78694 = ({
   "hits_limit"?: (number);
   "limit"?: (number);
@@ -8278,6 +9089,11 @@ export type HttpInline_b4103d934a90c0d4 = ({
   "pid": (string);
 });
 
+export type HttpInline_b4fba50c46a3827d = ({
+  "action_id": (string);
+  "sheet_id": (number);
+});
+
 export type HttpInline_bba1a4e3df1f7401 = ({
   "column_id": (number);
   "pid": (string);
@@ -8386,6 +9202,11 @@ export type HttpInline_c775a438f1aaffc0 = ({
   "pull_id": (number);
 });
 
+export type HttpInline_c9a2f2dc803f9a8b = ({
+  "pid": (string);
+  "saved_id": (number);
+});
+
 export type HttpInline_c9f18fae6ecff1c4 = ({
   "email": (string);
 });
@@ -8399,6 +9220,11 @@ export type HttpInline_ca8048e52b1f7635 = ({
 
 export type HttpInline_cd5e2492515e7874 = ({
   "index_id": (string);
+  "pid": (string);
+});
+
+export type HttpInline_ce68e9d2cd5c4c55 = ({
+  "link_id": (number);
   "pid": (string);
 });
 
@@ -12418,6 +13244,87 @@ export type HttpSampleProjectSeedResponse = ({
   "sheet_name": (string);
 });
 
+type HttpSavedComparison_EvaluationBoundedValue = ({
+  "preview": (string);
+  "total_bytes": (number);
+  "total_characters": (number);
+  "truncated"?: (true) & (boolean);
+});
+
+type HttpSavedComparison_EvaluationCell = ({
+  "bounded_value"?: (((HttpSavedComparison_EvaluationBoundedValue)) | ((null)));
+  "error"?: (((string)) | ((null)));
+  "state": ("value" | "null" | "missing" | "error" | "pending" | "cancelled") & (string);
+  "value"?: (HttpSavedComparison_JsonValue);
+  "value_hash"?: (((string)) | ((null)));
+});
+
+type HttpSavedComparison_EvaluationOutput = ({
+  "column_id": (((number)) | ((null)));
+  "current_name": (string);
+  "logical_key": (string);
+});
+
+type HttpSavedComparison_JsonValue = JsonValue;
+
+export type HttpSavedComparison = ({
+  "action_id": (string);
+  "id": (number);
+  "kept": (boolean);
+  "label": (string);
+  "output_columns": (Array<(HttpSavedComparison_EvaluationOutput)>);
+  "row_count": (number);
+  "rows": ({
+  [key: string]: ({
+  [key: string]: (HttpSavedComparison_EvaluationCell);
+});
+});
+  "saved_at": (string);
+  "settings": (HttpSavedComparison_JsonValue);
+  "sheet_id": (number);
+  "source_fingerprints": ({
+  [key: string]: (string);
+});
+});
+
+type HttpSavedComparisonSummary_EvaluationOutput = ({
+  "column_id": (((number)) | ((null)));
+  "current_name": (string);
+  "logical_key": (string);
+});
+
+export type HttpSavedComparisonSummary = ({
+  "action_id": (string);
+  "id": (number);
+  "kept": (boolean);
+  "label": (string);
+  "output_columns": (Array<(HttpSavedComparisonSummary_EvaluationOutput)>);
+  "row_count": (number);
+  "saved_at": (string);
+  "sheet_id": (number);
+});
+
+type HttpSavedComparisons_EvaluationOutput = ({
+  "column_id": (((number)) | ((null)));
+  "current_name": (string);
+  "logical_key": (string);
+});
+
+type HttpSavedComparisons_SavedComparisonSummary = ({
+  "action_id": (string);
+  "id": (number);
+  "kept": (boolean);
+  "label": (string);
+  "output_columns": (Array<(HttpSavedComparisons_EvaluationOutput)>);
+  "row_count": (number);
+  "saved_at": (string);
+  "sheet_id": (number);
+});
+
+export type HttpSavedComparisons = ({
+  "items": (Array<(HttpSavedComparisons_SavedComparisonSummary)>);
+});
+
 type HttpSavedLens_JsonValue = JsonValue;
 
 export type HttpSavedLens = ({
@@ -13392,6 +14299,73 @@ export type HttpSheetRowLocation = ({
   "row_id": (number);
   "schema_version": ("frisket.sheet_row_location.v1") & (string);
   "sheet_id": (number);
+});
+
+export type HttpShelfRename = ({
+  "label": (string);
+});
+
+type HttpShelfSaveRequest_ActionCompareDraftSource = ({
+  "draft": (HttpShelfSaveRequest_ActionDraft);
+  "kind": ("draft") & (string);
+});
+
+type HttpShelfSaveRequest_ActionCompareRunSource = ({
+  "column_id": (number);
+  "kind": ("run") & (string);
+  "run_id": (number);
+});
+
+type HttpShelfSaveRequest_ActionDraft = ({
+  "action_id": (string);
+  "output_names": ({
+  [key: string]: (string);
+});
+  "params": ({
+  [key: string]: (HttpShelfSaveRequest_JsonValue);
+});
+  "scope": (HttpShelfSaveRequest_ActionDraftScope);
+  "sheet_name"?: (((string)) | ((null)));
+});
+
+type HttpShelfSaveRequest_ActionDraftScope = ({
+  "kind": ("sheet_rows") & (string);
+  "row_ids"?: (((Array<(number)>)) | ((null)));
+  "sheet_id": (number);
+});
+
+type HttpShelfSaveRequest_CurrentVariantRef = ({
+  "kind": ("current") & (string);
+});
+
+type HttpShelfSaveRequest_EvaluationRequest = ({
+  "basis": (((HttpShelfSaveRequest_ActionCompareDraftSource)) | ((HttpShelfSaveRequest_ActionCompareRunSource)));
+  "link_id"?: (((number)) | ((null)));
+  "row_ids": (Array<(number)>);
+  "variants": (Array<(HttpShelfSaveRequest_EvaluationVariantInput)>);
+});
+
+type HttpShelfSaveRequest_EvaluationVariantInput = ({
+  "key": (string);
+  "label": (string);
+  "source": (((HttpShelfSaveRequest_CurrentVariantRef)) | ((HttpShelfSaveRequest_PreviewVariantRef)) | ((HttpShelfSaveRequest_SavedVariantRef)));
+});
+
+type HttpShelfSaveRequest_JsonValue = JsonValue;
+
+type HttpShelfSaveRequest_PreviewVariantRef = ({
+  "kind": ("preview") & (string);
+  "preview_ids": (Array<(string)>);
+});
+
+type HttpShelfSaveRequest_SavedVariantRef = ({
+  "kind": ("saved") & (string);
+  "saved_id": (number);
+});
+
+export type HttpShelfSaveRequest = ({
+  "comparison": (HttpShelfSaveRequest_EvaluationRequest);
+  "variant_keys": (Array<(string)>);
 });
 
 export type HttpSkillDeleteRequest = ({
@@ -16508,6 +17482,276 @@ export type HttpContractOperationMap = {
       readonly "503": HttpError;
     };
   };
+  readonly "tenant.evaluation_capture.post": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpComparisonCaptureRequest;
+    readonly responses: {
+      readonly "200": HttpSavedComparisons;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.evaluation_capture_discard.delete": {
+    readonly pathParams: HttpInline_c9a2f2dc803f9a8b;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "204": undefined;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.evaluation_cell.post": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpEvaluationCellRequest;
+    readonly responses: {
+      readonly "200": HttpEvaluationCell;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.evaluation_expected_answer.post": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpExpectedAnswerRequest;
+    readonly responses: {
+      readonly "200": HttpExpectedLink;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.evaluation_judgment.put": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpEvaluationJudgmentRequest;
+    readonly responses: {
+      readonly "200": HttpEvaluationResponse;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.evaluation_link_create.post": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpExpectedLinkInput;
+    readonly responses: {
+      readonly "200": HttpExpectedLink;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.evaluation_link_delete.delete": {
+    readonly pathParams: HttpInline_ce68e9d2cd5c4c55;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "204": undefined;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.evaluation_link_preview.post": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpExpectedLinkPreviewInput;
+    readonly responses: {
+      readonly "200": HttpExpectedJoinPreview;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.evaluation_link_update.put": {
+    readonly pathParams: HttpInline_ce68e9d2cd5c4c55;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpExpectedLinkInput;
+    readonly responses: {
+      readonly "200": HttpExpectedLink;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.evaluation_links.get": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_9e2cdbf885f6fda5;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpExpectedLinks;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.evaluation_projection.post": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpExpectedProjectionRequest;
+    readonly responses: {
+      readonly "200": HttpExpectedProjection;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.evaluation_rule_update.put": {
+    readonly pathParams: HttpInline_1f9be32fb968425b;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpExpectedRuleChange;
+    readonly responses: {
+      readonly "200": HttpExpectedRuleSetting;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.evaluation_score.post": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpEvaluationRequest;
+    readonly responses: {
+      readonly "200": HttpEvaluationResponse;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.evaluation_shelf_delete.delete": {
+    readonly pathParams: HttpInline_c9a2f2dc803f9a8b;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "204": undefined;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.evaluation_shelf_get.get": {
+    readonly pathParams: HttpInline_c9a2f2dc803f9a8b;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpSavedComparison;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.evaluation_shelf_list.get": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_b4fba50c46a3827d;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpSavedComparisons;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.evaluation_shelf_rename.patch": {
+    readonly pathParams: HttpInline_c9a2f2dc803f9a8b;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpShelfRename;
+    readonly responses: {
+      readonly "200": HttpSavedComparisonSummary;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.evaluation_shelf_save.post": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpShelfSaveRequest;
+    readonly responses: {
+      readonly "200": HttpSavedComparisons;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
   readonly "tenant.evidence_viewer.get": {
     readonly pathParams: HttpInline_841c7d86b3cf748c;
     readonly query: HttpInline_85aeb6f0ad4a1736;
@@ -19135,6 +20379,22 @@ export type HttpContractOperationMap = {
       readonly "403": HttpError;
       readonly "404": HttpError;
       readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.v1_action_compare_preview_quote.post": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpActionComparePreviewRequest;
+    readonly responses: {
+      readonly "200": HttpActionCompareQuoteResponse;
+      readonly "400": HttpActionPreviewErrorResponse;
+      readonly "401": HttpError;
+      readonly "402": HttpActionPreviewErrorResponse;
+      readonly "403": HttpError;
+      readonly "404": HttpActionPreviewErrorResponse;
+      readonly "409": HttpActionPreviewErrorResponse;
       readonly "422": HttpError;
       readonly "500": HttpError;
     };
