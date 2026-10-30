@@ -108,19 +108,37 @@ def build_bundle(
         bundle = read_json(capture_directory / "bundle.json")
         if bundle["version"] != 1 or bundle["appRevision"] != app_revision:
             raise ValueError(f"Capture revision mismatch: {capture_directory}")
-        sample = bundle["sample"]
-        published_sample = samples_by_id.get(sample["id"])
-        if (
-            not published_sample
-            or type(sample["revision"]) is not int
-            or published_sample["revision"] != sample["revision"]
+        if ("sample" in bundle) == ("fixture" in bundle):
+            raise ValueError(f"Capture needs exactly one source: {capture_directory}")
+        source_kind = "sample" if "sample" in bundle else "fixture"
+        source = bundle[source_kind]
+        if not isinstance(source, dict):
+            raise ValueError(f"Invalid capture source: {capture_directory}")
+        source_id, revision = source.get("id"), source.get("revision")
+        if source_kind == "sample":
+            published_sample = (
+                samples_by_id.get(source_id) if isinstance(source_id, str) else None
+            )
+            if (
+                not published_sample
+                or type(revision) is not int
+                or published_sample["revision"] != revision
+            ):
+                raise ValueError(
+                    f"Unknown capture sample revision: {capture_directory}"
+                )
+        elif (
+            not isinstance(source_id, str)
+            or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", source_id)
+            or type(revision) is not int
+            or revision <= 0
         ):
-            raise ValueError(f"Unknown capture sample revision: {capture_directory}")
+            raise ValueError(f"Invalid capture fixture: {capture_directory}")
         for record in bundle["captures"]:
             identity = record["id"]
-            if (
-                identity in required_captures
-                and (sample["id"], sample["revision"]) != required_captures[identity]
+            if identity in required_captures and (
+                source_kind != "sample"
+                or (source_id, revision) != required_captures[identity]
             ):
                 raise ValueError(f"Capture sample mismatch: {identity}")
             image = (capture_directory / record["image"]).resolve()
@@ -173,9 +191,13 @@ def build_bundle(
             relative = f"assets/docs/{app_revision[:12]}/{identity}.png"
             records.append(
                 {
-                    **record,
+                    **{
+                        k: v
+                        for k, v in record.items()
+                        if k not in ("sample", "fixture")
+                    },
                     "image": "/" + relative,
-                    "sample": sample,
+                    source_kind: source,
                     **({"replay": bundle["replay"]} if bundle.get("replay") else {}),
                 }
             )

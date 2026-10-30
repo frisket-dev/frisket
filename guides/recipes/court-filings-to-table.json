@@ -10,7 +10,10 @@
     {
       "id": "import",
       "title": "Bring in the filings",
-      "settings": []
+      "settings": [],
+      "captureIds": [
+        "court-open-sample"
+      ]
     },
     {
       "id": "check-text",
@@ -122,6 +125,7 @@
         }
       ],
       "captureIds": [
+        "court-extract-entry",
         "court-extract-settings",
         "court-extract-fields",
         "court-extract-instruction"
@@ -137,7 +141,10 @@
           "value": "selected"
         }
       ],
-      "optional": true
+      "optional": true,
+      "captureIds": [
+        "court-preview"
+      ]
     },
     {
       "id": "sample-run",
@@ -198,7 +205,9 @@
         }
       ],
       "captureIds": [
+        "court-expected-entry",
         "court-expected-join",
+        "court-compare-entry",
         "court-comparison"
       ]
     },
