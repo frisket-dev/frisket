@@ -7,6 +7,7 @@ from typing import Annotated, Literal
 from pydantic import Field, JsonValue
 
 from frisket.contracts.http.models import WireModel
+from frisket.contracts.http.action_estimate_validation import ActionEstimate
 
 
 class ActionDraftScope(WireModel):
@@ -147,6 +148,11 @@ class ActionComparePreviewAdmission(WireModel):
     expected_output_signature: str = Field(min_length=1)
 
 
+class ActionCompareQuoteResponse(WireModel):
+    schema_version: Literal["frisket.action_compare_quote.v1"]
+    estimate: ActionEstimate
+
+
 class ActionComparePreviewRequest(WireModel):
     action: dict[str, JsonValue]
     comparison: ActionComparePreviewAdmission
@@ -157,6 +163,7 @@ __all__ = [
     "ActionCompareContextRequest",
     "ActionCompareContextResponse",
     "ActionComparePreviewRequest",
+    "ActionCompareQuoteResponse",
     "ActionDraft",
     "ActionDraftScope",
 ]

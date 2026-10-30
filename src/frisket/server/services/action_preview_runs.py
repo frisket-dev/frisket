@@ -544,6 +544,7 @@ class ActionPreviewRunService:
         request_context: Any = None,
         on_finished: Callable[[], None] | None = None,
         comparison: dict[str, Any] | None = None,
+        quote_only: bool = False,
     ) -> ActionPreviewRunResponse:
         kind = action_id_from_request(body) if isinstance(body, dict) else None
         if not action_available_in_edition(kind, self._workspace.edition):
@@ -749,6 +750,22 @@ class ActionPreviewRunService:
         except CostGate as exc:
             from frisket.engine.executor.action_support import _claims_gate_details
 
+            if quote_only:
+                details = _claims_gate_details(exc)
+                if not isinstance(exc.estimate_details, dict) or not details.get(
+                    "promise_set_hash"
+                ):
+                    return _error_response(
+                        409,
+                        _preview_error(
+                            "preview_quote_unavailable",
+                            "The preview did not provide a complete confirmation quote.",
+                            plan.action_kind,
+                        ),
+                    )
+                return _comparison_quote_response(
+                    {**exc.estimate_details, **details, "requires_confirmation": True}
+                )
             return _error_response(
                 402,
                 _preview_error(
@@ -830,6 +847,24 @@ class ActionPreviewRunService:
             return _error_response(
                 400,
                 _preview_error("invalid_preview", str(exc), plan.action_kind),
+            )
+
+        if quote_only:
+            from frisket.engine.runner.confirmation_context import (
+                BILLED_COST_KEY,
+                POLICY_ID_KEY,
+            )
+
+            estimate = dict(prepared.est or {})
+            if POLICY_ID_KEY not in estimate or BILLED_COST_KEY not in estimate:
+                estimate = validation.confirmation_estimate(
+                    prepared.recipe,
+                    plan.runner_spec,
+                    estimate,
+                    policy=runner.pricing_policy,
+                )
+            return _comparison_quote_response(
+                {**estimate, "rows": sample_total, "requires_confirmation": False}
             )
 
         comparison_context = None
@@ -1038,6 +1073,30 @@ class ActionPreviewRunService:
             comparison=comparison,
         )
 
+    def quote_compare_preview(
+        self, project_id: str, body: dict[str, Any], *, request_context: Any = None
+    ) -> ActionPreviewRunResponse:
+        action = body.get("action") if isinstance(body, dict) else None
+        comparison = body.get("comparison") if isinstance(body, dict) else None
+        if not isinstance(action, dict) or not isinstance(comparison, dict):
+            return _error_response(
+                400,
+                _preview_error(
+                    "invalid_comparison_request",
+                    "Compare quote requires action and comparison objects.",
+                    None,
+                ),
+            )
+        # A quote must not be suppressed by a caller-supplied echo.
+        action = {key: value for key, value in action.items() if key != "confirmation"}
+        return self.start_preview(
+            project_id,
+            action,
+            request_context=request_context,
+            comparison=comparison,
+            quote_only=True,
+        )
+
     def evaluation_preview(self, project_id: str, preview_id: str) -> dict[str, Any]:
         """Read a finished comparison preview using its full, job-owned values."""
         self._workspace.get(project_id)
@@ -1176,6 +1235,27 @@ class ActionPreviewRunService:
             return artifact.path.open("rb"), artifact
         except FileNotFoundError:
             return None
+
+
+def _comparison_quote_response(estimate: dict[str, Any]) -> ActionPreviewRunResponse:
+    from frisket.contracts.http.action_estimate_validation import ActionEstimate
+
+    # Keep the same closed, rated money/claims schema as normal action estimates.
+    fields = {
+        key: value
+        for key, value in estimate.items()
+        if key in ActionEstimate.model_fields
+    }
+    quote = ActionEstimate.model_validate(fields).model_dump(
+        mode="json", exclude_unset=True
+    )
+    return ActionPreviewRunResponse(
+        status_code=200,
+        payload={
+            "schema_version": "frisket.action_compare_quote.v1",
+            "estimate": quote,
+        },
+    )
 
 
 def _job_payload(job: PreviewJob) -> dict[str, Any]:

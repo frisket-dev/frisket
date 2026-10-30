@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import copy
 import json
 from typing import Any
 
@@ -1239,4 +1240,65 @@ def test_preview_input_change_during_execution_invalidates_identity(
             fingerprint
             != source_fingerprints(project, sheet_id, [source_id], rows)[str(rows[0])]
         )
+        service._registry.shutdown()
+
+
+def test_compare_quote_is_write_free_and_its_confirmation_starts_same_preview(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
+    app = create_app(
+        tmp_path / "quote-workspace",
+        router=_router(),
+        serve_spa=False,
+        enable_provider_config=False,
+    )
+    with TestClient(app) as client:
+        pid = client.post("/api/projects", json={"name": "Quote"}).json()["id"]
+        workspace = app.state.workspace
+        project = workspace.get(pid)
+        sheet_id = project.add_sheet("Stories")
+        source = project.add_column(sheet_id, "text", type="text")
+        rows = project.add_rows(sheet_id, [{"text": "Alpha"}], {"text": source})
+        context = ActionCompareService(workspace).context(
+            pid,
+            {
+                "source": {"kind": "draft", "draft": _ask_draft(sheet_id, rows)},
+                "sample_row_ids": rows,
+            },
+        )
+        body = {
+            "action": {**context["draft"], "idempotency_key": "eval-quote"},
+            "comparison": {
+                "basis": context["comparison_basis"],
+                "expected_output_signature": context["expected_output_signature"],
+            },
+        }
+        service = ActionPreviewRunService(workspace)
+        quoted = service.quote_compare_preview(pid, body)
+        assert quoted.status_code == 200, quoted.payload
+        assert not service._registry._jobs
+        wire_quote = client.post(
+            f"/api/projects/{pid}/actions/v1/compare-preview-quote", json=body
+        )
+        assert wire_quote.status_code == 200, wire_quote.text
+        assert wire_quote.json()["estimate"] == quoted.payload["estimate"]
+        estimate = quoted.payload["estimate"]
+        assert estimate["rows"] == 1
+        assert "billed_cost" in estimate and estimate["policy_id"]
+        assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
+        assert estimate["requires_confirmation"]
+        if estimate["requires_confirmation"]:
+            assert estimate["promise_set_hash"]
+            stale = copy.deepcopy(body)
+            stale["action"]["params"]["question"] = (
+                "A different question with different words"
+            )
+            stale["action"]["confirmation"] = estimate["promise_set_hash"]
+            assert service.start_compare_preview(pid, stale).status_code == 402
+            assert not service._registry._jobs
+            body["action"]["confirmation"] = estimate["promise_set_hash"]
+        started = service.start_compare_preview(pid, body)
+        assert started.status_code == 202, started.payload
         service._registry.shutdown()
