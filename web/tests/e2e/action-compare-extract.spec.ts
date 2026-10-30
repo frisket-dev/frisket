@@ -454,7 +454,8 @@ test('comparison opens bounded current and preview values plus inline JSON', asy
   await activateComparisonCell(page, 2, 0);
   const review = page.getByTestId('comparison-review');
   await expect(review).toBeVisible();
-  const previewReader = review.getByTestId('bounded-text-reader').filter({ hasText: 'Current disposition' });
+  const previewGroup = review.getByRole('button', { name: /^Answer \d+, variants B,/ }).locator('..');
+  const previewReader = previewGroup.getByTestId('bounded-text-reader');
   await expect(previewReader).toBeVisible();
   await expect(previewReader.getByTestId('bounded-text-window')).toContainText('Current disposition');
   await expect(previewReader.getByRole('status').filter({ hasText: /Characters 1–/ })).toBeVisible();
