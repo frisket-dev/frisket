@@ -1,85 +1,85 @@
-import type { ActionComparisonSource } from './actionComparison';
-import type { JsonValue } from './types';
+import { sourceForWire, type ActionComparisonSource } from './actionComparison';
+import type {
+  HttpComparisonCaptureRequest, HttpEvaluationCell, HttpEvaluationCellRequest,
+  HttpEvaluationJudgmentRequest, HttpEvaluationRequest, HttpEvaluationResponse,
+  HttpExpectedAnswerRequest, HttpExpectedJoinPreview, HttpExpectedLink, HttpExpectedLinkInput,
+  HttpExpectedProjection, HttpExpectedRuleSetting, HttpSavedComparison, HttpSavedComparisonSummary,
+} from '../generated/openHttpContracts';
 import { httpContract } from './httpContract';
 import { downloadEvaluation } from './raw/evaluationDownloads';
 
-export type EvaluationRule = 'exact' | 'ignore_case' | 'number' | 'date' | 'set' | 'hand';
-export type EvaluationVerdict = 'match' | 'miss' | 'unchecked' | 'unscored' | 'not_run';
-export interface EvaluationOutput { logical_key: string; column_id: number | null; current_name: string }
-export interface EvaluationField {
-  expected_column_id: number; output_column_id: number; logical_key: string;
-  rule: EvaluationRule; hidden: boolean; source: 'import' | 'disagreements';
-}
-export interface EvaluationLinkInput {
-  target_sheet_id: number; expected_sheet_id: number; action_id: string;
-  keys: { expected_column_id: number; target_column_id: number | null }[];
+// API wire shapes come from the server schema. The UI requires field defaults
+// that Pydantic always supplies in responses, so those are normalized below.
+export type EvaluationRule = HttpExpectedRuleSetting['rule'];
+export type EvaluationVerdict = HttpEvaluationResponse['variants'][number]['verdicts'][string][string];
+export type EvaluationOutput = HttpEvaluationResponse['output_columns'][number];
+export type EvaluationField = Required<HttpExpectedLink['fields'][number]>;
+export type EvaluationLinkInput = Omit<HttpExpectedLinkInput, 'fields' | 'hidden'> & {
   fields: EvaluationField[]; hidden: boolean;
-}
-export interface EvaluationLink extends EvaluationLinkInput {
-  id: number; expected_sheet_name: string; target_sheet_name: string;
-}
-export type EvaluationVariantRef = { kind: 'current' }
-  | { kind: 'preview'; preview_ids: string[] } | { kind: 'saved'; saved_id: number };
-export interface EvaluationRequest {
-  basis: ActionComparisonSource; row_ids: number[];
-  variants: { key: string; label: string; source: EvaluationVariantRef }[];
-  link_id: number | null;
-}
-export interface EvaluationCell {
-  state: 'value' | 'null' | 'missing' | 'error' | 'pending' | 'cancelled';
-  value?: JsonValue; error?: string | null;
-  bounded_value?: EvaluationBoundedValue | null;
-  value_hash?: string | null;
-}
-export interface EvaluationBoundedValue { preview: string; total_characters: number; total_bytes: number; truncated: true }
-export interface EvaluationCellRequest { comparison: EvaluationRequest; variant_key: string; row_id: number; logical_key: string }
-export interface EvaluationCaptureRequest { comparison: EvaluationRequest; variant_keys: string[]; target_id?: number | null }
-export interface EvaluationAggregate {
-  checked: number; attempted: number; matches: number; misses: number; failed: number;
-  scored: number; remaining: number; accuracy: number | null; coverage: number;
-}
-export interface EvaluationVariant {
-  key: string; label: string; source: EvaluationVariantRef; settings: JsonValue;
+};
+export type EvaluationLink = Omit<HttpExpectedLink, 'fields' | 'hidden'> & {
+  fields: EvaluationField[]; hidden: boolean;
+};
+export type EvaluationVariantRef = HttpEvaluationRequest['variants'][number]['source'];
+export type EvaluationRequest = Omit<HttpEvaluationRequest, 'basis' | 'link_id'> & {
+  basis: ActionComparisonSource; link_id: number | null;
+};
+export type EvaluationBoundedValue = Required<NonNullable<HttpEvaluationCell['bounded_value']>>;
+export type EvaluationCell = Omit<HttpEvaluationCell, 'bounded_value'> & { bounded_value?: EvaluationBoundedValue | null };
+export type EvaluationCellRequest = Omit<HttpEvaluationCellRequest, 'comparison'> & { comparison: EvaluationRequest };
+export type EvaluationCaptureRequest = Omit<HttpComparisonCaptureRequest, 'comparison'> & { comparison: EvaluationRequest };
+export type EvaluationAggregate = HttpEvaluationResponse['variants'][number]['scores'][string];
+export type EvaluationVariant = Omit<HttpEvaluationResponse['variants'][number], 'rows'> & {
   rows: Record<string, Record<string, EvaluationCell>>;
-  source_fingerprints: Record<string, string>;
-  verdicts: Record<string, Record<string, EvaluationVerdict>>;
-  scores: Record<string, EvaluationAggregate>;
-}
-export interface EvaluationResponse {
-  sheet_id: number; action_id: string; output_columns: EvaluationOutput[]; row_ids: number[];
-  link: EvaluationLink | null; expected: Record<string, Record<string, JsonValue>>;
+};
+export type EvaluationResponse = Omit<HttpEvaluationResponse, 'link' | 'variants' | 'expected_bounded'> & {
+  link: EvaluationLink | null; variants: EvaluationVariant[];
   expected_bounded?: Record<string, Record<string, EvaluationBoundedValue>>;
-  variants: EvaluationVariant[]; best: Record<string, string[]>;
-  rule_previews: Record<string, Record<EvaluationRule, Record<string, EvaluationAggregate>>>;
+};
+export type EvaluationJoinPreview = HttpExpectedJoinPreview;
+export type ExpectedProjection = Omit<HttpExpectedProjection, 'links'> & { links: EvaluationLink[] };
+export type SavedSummary = HttpSavedComparisonSummary;
+export type SavedItem = Omit<HttpSavedComparison, 'rows'> & {
+  rows: Record<string, Record<string, EvaluationCell>>;
+};
+export type EvaluationJudgment = Omit<HttpEvaluationJudgmentRequest, 'comparison'> & { comparison: EvaluationRequest };
+export type ExpectedAnswerWrite = Omit<HttpExpectedAnswerRequest, 'basis' | 'link_id' | 'rule'> & {
+  basis: ActionComparisonSource; link_id: number | null; rule: EvaluationRule;
+};
+
+function normalizeLink(link: HttpExpectedLink): EvaluationLink {
+  return { ...link, hidden: link.hidden ?? false, fields: link.fields.map(field => ({
+    ...field, rule: field.rule ?? 'exact', hidden: field.hidden ?? false, source: field.source ?? 'import',
+  })) };
 }
-export interface EvaluationJoinPreview {
-  matched: number; not_found: number; ambiguous_expected: number; ambiguous_target: number;
-  unmatched_expected_row_ids: number[]; ambiguous_expected_row_ids: number[]; ambiguous_target_row_ids: number[];
+
+function wireRequest(request: EvaluationRequest): HttpEvaluationRequest {
+  return { ...request, basis: sourceForWire(request.basis) };
 }
-export interface ExpectedProjection {
-  links: EvaluationLink[];
-  columns: { id: string; link_id: number; expected_column_id: number; output_column_id: number;
-    logical_key: string; name: string; rule: EvaluationRule; hidden: boolean; source: 'import' | 'disagreements' }[];
-  rows: Record<string, Record<string, {
-    value: JsonValue; source_row_id: number | null; source_column_id: number; checked: boolean;
-  }>>;
+
+function normalizeBounded(value: NonNullable<HttpEvaluationCell['bounded_value']>): EvaluationBoundedValue {
+  return { ...value, truncated: true };
 }
-export interface SavedSummary {
-  id: number; label: string; sheet_id: number; action_id: string;
-  output_columns: EvaluationOutput[]; row_count: number; saved_at: string;
+
+function normalizeCell(cell: HttpEvaluationCell): EvaluationCell {
+  const { bounded_value, ...rest } = cell;
+  return { ...rest, ...(bounded_value === undefined ? {} : { bounded_value: bounded_value ? normalizeBounded(bounded_value) : null }) };
 }
-export interface SavedItem extends SavedSummary {
-  settings: JsonValue; rows: Record<string, Record<string, EvaluationCell>>;
-  source_fingerprints: Record<string, string>;
+
+function normalizeRows(rows: Record<string, Record<string, HttpEvaluationCell>>): Record<string, Record<string, EvaluationCell>> {
+  return Object.fromEntries(Object.entries(rows).map(([row, cells]) => [row,
+    Object.fromEntries(Object.entries(cells).map(([key, cell]) => [key, normalizeCell(cell)]))]));
 }
-export interface EvaluationJudgment {
-  comparison: EvaluationRequest; variant_key: string; row_id: number; logical_key: string;
-  verdict: 'match' | 'miss' | null;
+
+function normalizeResponse(response: HttpEvaluationResponse): EvaluationResponse {
+  const { expected_bounded, ...rest } = response;
+  return { ...rest, link: response.link ? normalizeLink(response.link) : null,
+    variants: response.variants.map(variant => ({ ...variant, rows: normalizeRows(variant.rows) })),
+    ...(expected_bounded ? { expected_bounded: Object.fromEntries(Object.entries(expected_bounded).map(
+      ([row, cells]) => [row, Object.fromEntries(Object.entries(cells).map(([key, value]) => [key, normalizeBounded(value)]))],
+    )) } : {}) };
 }
-export interface ExpectedAnswerWrite {
-  basis: ActionComparisonSource; link_id: number | null; row_id: number; logical_key: string;
-  value: JsonValue; rule: EvaluationRule;
-}
+
 export interface EvaluationApi {
   getLinks(sheetId: number): Promise<{ links: EvaluationLink[] }>;
   previewLink(input: EvaluationLinkInput): Promise<EvaluationJoinPreview>;
@@ -108,33 +108,33 @@ export function createEvaluationApi(
 ): EvaluationApi {
   const base = { pathParams: { pid: projectId }, query: {}, errorFactory };
   return {
-    getLinks: sheetId => httpContract('tenant.evaluation_links.get', { ...base, query: { sheet_id: sheetId } }),
+    getLinks: sheetId => httpContract('tenant.evaluation_links.get', { ...base, query: { sheet_id: sheetId } }, wire => ({ links: wire.links.map(normalizeLink) })),
     previewLink: body => httpContract('tenant.evaluation_link_preview.post', { ...base, body }),
     saveLink: (body, id) => id === undefined
-      ? httpContract('tenant.evaluation_link_create.post', { ...base, body })
-      : httpContract('tenant.evaluation_link_update.put', { ...base, pathParams: { pid: projectId, link_id: id }, body }),
+      ? httpContract('tenant.evaluation_link_create.post', { ...base, body }, normalizeLink)
+      : httpContract('tenant.evaluation_link_update.put', { ...base, pathParams: { pid: projectId, link_id: id }, body }, normalizeLink),
     deleteLink: async id => { await httpContract('tenant.evaluation_link_delete.delete', {
       ...base, pathParams: { pid: projectId, link_id: id },
     }); },
     projectExpected: (sheetId, rowIds) => httpContract('tenant.evaluation_projection.post', {
       ...base, body: { sheet_id: sheetId, row_ids: rowIds },
-    }),
-    score: body => httpContract('tenant.evaluation_score.post', { ...base, body }),
-    getCell: body => httpContract('tenant.evaluation_cell.post', { ...base, body }),
-    captureComparison: body => httpContract('tenant.evaluation_capture.post', { ...base, body }),
+    }, wire => ({ ...wire, links: wire.links.map(normalizeLink) })),
+    score: body => httpContract('tenant.evaluation_score.post', { ...base, body: wireRequest(body) }, normalizeResponse),
+    getCell: body => httpContract('tenant.evaluation_cell.post', { ...base, body: { ...body, comparison: wireRequest(body.comparison) } }, normalizeCell),
+    captureComparison: body => httpContract('tenant.evaluation_capture.post', { ...base, body: { ...body, comparison: wireRequest(body.comparison) } }),
     discardCapture: async id => { await httpContract('tenant.evaluation_capture_discard.delete', {
       ...base, pathParams: { pid: projectId, saved_id: id },
     }); },
     setRule: (columnId, rule) => httpContract('tenant.evaluation_rule_update.put', {
       ...base, pathParams: { pid: projectId, expected_column_id: columnId }, body: { rule },
     }),
-    setJudgment: body => httpContract('tenant.evaluation_judgment.put', { ...base, body }),
-    saveExpectedAnswer: body => httpContract('tenant.evaluation_expected_answer.post', { ...base, body }),
+    setJudgment: body => httpContract('tenant.evaluation_judgment.put', { ...base, body: { ...body, comparison: wireRequest(body.comparison) } }, normalizeResponse),
+    saveExpectedAnswer: body => httpContract('tenant.evaluation_expected_answer.post', { ...base, body: { ...body, basis: sourceForWire(body.basis) } }, normalizeLink),
     getShelf: (sheetId, actionId) => httpContract('tenant.evaluation_shelf_list.get', {
       ...base, query: { sheet_id: sheetId, action_id: actionId },
     }),
-    saveShelf: body => httpContract('tenant.evaluation_shelf_save.post', { ...base, body }),
-    getShelfItem: id => httpContract('tenant.evaluation_shelf_get.get', { ...base, pathParams: { pid: projectId, saved_id: id } }),
+    saveShelf: body => httpContract('tenant.evaluation_shelf_save.post', { ...base, body: { ...body, comparison: wireRequest(body.comparison) } }),
+    getShelfItem: id => httpContract('tenant.evaluation_shelf_get.get', { ...base, pathParams: { pid: projectId, saved_id: id } }, wire => ({ ...wire, rows: normalizeRows(wire.rows) })),
     renameShelfItem: (id, label) => httpContract('tenant.evaluation_shelf_rename.patch', {
       ...base, pathParams: { pid: projectId, saved_id: id }, body: { label },
     }),
