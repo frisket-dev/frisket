@@ -7,8 +7,14 @@ import type { EvaluationResponse } from '../../src/api/evaluation';
 import type { ActionCompareSession, ActionCompareSessionSnapshot, ActionCompareVariant } from '../../src/workbench/actionCompareSession';
 import { TrySeveral } from '../../src/workbench/evaluation/TrySeveral';
 
+type MockGridProps = {
+  columns: Array<{ title: string }>; rows: number;
+  getCellContent(item: [number, number]): { displayData: string };
+  onCellClicked?(item: [number, number]): void;
+};
+
 vi.mock('../../src/grid/GridViewport', () => ({
-  GridViewport: ({ columns, rows, getCellContent, onCellClicked }: any) => <div data-testid="matrix">
+  GridViewport: ({ columns, rows, getCellContent, onCellClicked }: MockGridProps) => <div data-testid="matrix">
     {Array.from({ length: rows }, (_, row) => columns.map((column: { title: string }, col: number) =>
       <button type="button" key={`${row}-${col}`} onClick={() => onCellClicked?.([col, row])}>
         {column.title}: {getCellContent([col, row]).displayData}
