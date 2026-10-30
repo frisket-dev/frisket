@@ -693,3 +693,53 @@ def test_expected_row_scope_accepts_any_mapped_field_and_resolves_keys_once(
         "total": 1,
     }
     assert calls == [e.sheet]
+
+
+def test_hand_score_reports_stale_saved_source_without_blocking_current_answer(env):
+    e = env
+    join(e)
+    e.service.set_rule("p", e.ec["answer"], "hand")
+    preview(e, "old", {str(e.rows[0]): {"answer": {"state": "value", "value": "YES"}}})
+    old = {
+        "key": "B",
+        "label": "Old",
+        "source": {"kind": "preview", "preview_ids": ["old"]},
+    }
+    e.request["variants"] = [old]
+    saved = e.service.capture("p", {"comparison": e.request, "variant_keys": ["B"]})[
+        "items"
+    ][0]
+    old["source"] = {"kind": "saved", "saved_id": saved["id"]}
+    e.request["variants"] = [
+        {"key": "A", "label": "Current", "source": {"kind": "current"}},
+        old,
+    ]
+    e.service._edit_cell(
+        "p", e.project, e.rows[0], e.cols["source"], "updated document"
+    )
+    current, historical = e.service.score("p", e.request)["variants"]
+    assert current["stale_source_row_ids"] == []
+    assert historical["stale_source_row_ids"] == [e.rows[0]]
+    result = e.service.judgment(
+        "p",
+        {
+            "comparison": e.request,
+            "variant_key": "A",
+            "row_id": e.rows[0],
+            "logical_key": "answer",
+            "verdict": "match",
+        },
+    )
+    assert result["variants"][0]["verdicts"][str(e.rows[0])]["answer"] == "match"
+    assert result["variants"][1]["verdicts"][str(e.rows[0])]["answer"] == "unscored"
+    with pytest.raises(RouteError, match="source"):
+        e.service.judgment(
+            "p",
+            {
+                "comparison": e.request,
+                "variant_key": "B",
+                "row_id": e.rows[0],
+                "logical_key": "answer",
+                "verdict": "match",
+            },
+        )

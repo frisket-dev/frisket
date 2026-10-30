@@ -239,6 +239,14 @@ def score_prepared(project, result, current_fingerprints):
         else {}
     )
     row_ids = result["row_ids"]
+    for variant in result["variants"]:
+        captured = variant["source_fingerprints"]
+        variant["stale_source_row_ids"] = [
+            row_id
+            for row_id in row_ids
+            if str(row_id) in captured
+            and captured[str(row_id)] != current_fingerprints.get(str(row_id))
+        ]
     for output in result["output_columns"]:
         key = output["logical_key"]
         field = fields.get(key)

@@ -217,6 +217,7 @@ class EvaluationVariant(WireModel):
     settings: JsonValue
     rows: dict[str, dict[str, EvaluationCell]]
     source_fingerprints: dict[str, str]
+    stale_source_row_ids: list[int] = Field(default_factory=list)
     verdicts: dict[str, dict[str, Verdict]]
     scores: dict[str, EvaluationAggregate]
 
