@@ -140,6 +140,27 @@ async def test_malformed_then_repaired_keeps_both_calls_and_does_not_cache_failu
 
 
 @pytest.mark.asyncio
+async def test_explicit_retry_after_output_limit_reaches_provider(tmp_path):
+    cache = ResponseCache(tmp_path / "cache.db")
+    try:
+        async with provider(
+            ('{"summary":"cut off', "length"),
+            ('{"summary":"Recovered"}', "stop"),
+            cache=cache,
+        ) as (router, bodies, policy):
+            with pytest.raises(OutputLimitReached):
+                await router.complete(request())
+            assert cache.get(request_key(request())) is None
+            result = await router.complete(request())
+        assert len(bodies) == len(policy.responses) == 2
+        assert result.data == {"summary": "Recovered"}
+        assert not result.cached
+        assert cache.get(request_key(request())).data == result.data
+    finally:
+        cache.close()
+
+
+@pytest.mark.asyncio
 async def test_exhausted_malformed_replies_preserve_usage_and_redact_credentials():
     async with provider((f"]]]}}]] {SECRET}", "stop")) as (router, bodies, policy):
         with pytest.raises(SchemaViolation) as raised:

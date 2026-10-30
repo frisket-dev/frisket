@@ -638,7 +638,11 @@ class ModelRouter:
                 self._finish_live_response(req, response, credential_source)
             raise
         self._finish_live_response(req, resp, credential_source)
-        if self.cache is not None and self.cache_mode in ("replay", "fresh"):
+        if (
+            self.cache is not None
+            and self.cache_mode in ("replay", "fresh")
+            and not resp.output_limited
+        ):
             self.cache.put(key, resp)
         return resp
 
