@@ -1,0 +1,560 @@
+[
+  {
+    "filename": "RV-CV-2026-00418_alvarez-v-northstar_complaint.pdf",
+    "response": {
+      "content": "{\n  \"case_number\": {\n    \"value\": \"RV-CV-2026-00418\",\n    \"evidence\": [\n      {\n        \"source\": \"text\",\n        \"segment_indices\": null,\n        \"page\": 1,\n        \"page_start\": 1,\n        \"page_end\": 1,\n        \"bbox\": null,\n        \"quote\": \"Case No. RV-CV-2026-00418.\",\n        \"snippet\": \"Case No. RV-CV-2026-00418. Filed January 29, 2026.\",\n        \"grounding_method\": \"EXACT\"\n      }\n    ],\n    \"warnings\": []\n  },\n  \"filed_at\": {\n    \"value\": \"2026-01-29\",\n    \"evidence\": [\n      {\n        \"source\": \"text\",\n        \"segment_indices\": null,\n        \"page\": 1,\n        \"page_start\": 1,\n        \"page_end\": 1,\n        \"bbox\": null,\n        \"quote\": \"Filed January 29, 2026.\",\n        \"snippet\": \"Case No. RV-CV-2026-00418. Filed January 29, 2026.\",\n        \"grounding_method\": \"EXACT\"\n      }\n    ],\n    \"warnings\": []\n  },\n  \"plaintiff\": {\n    \"value\": \"Daniel Alvarez\",\n    \"evidence\": [\n      {\n        \"source\": \"text\",\n        \"segment_indices\": null,\n        \"page\": 1,\n        \"page_start\": 1,\n        \"page_end\": 1,\n        \"bbox\": null,\n        \"quote\": \"Daniel Alvarez\",\n        \"snippet\": \"Daniel Alvarez, Plaintiff, v. Northstar Civil LLC, Defendant.\",\n        \"grounding_method\": \"EXACT\"\n      }\n    ],\n    \"warnings\": []\n  },\n  \"defendant_as_filed\": {\n    \"value\": \"Northstar Civil LLC\",\n    \"evidence\": [\n      {\n        \"source\": \"text\",\n        \"segment_indices\": null,\n        \"page\": 1,\n        \"page_start\": 1,\n        \"page_end\": 1,\n        \"bbox\": null,\n        \"quote\": \"Northstar Civil LLC\",\n        \"snippet\": \"Daniel Alvarez, Plaintiff, v. Northstar Civil LLC, Defendant.\",\n        \"grounding_method\": \"EXACT\"\n      }\n    ],\n    \"warnings\": []\n  }\n}",
+      "data": {
+        "case_number": {
+          "value": "RV-CV-2026-00418",
+          "evidence": [
+            {
+              "source": "text",
+              "segment_indices": null,
+              "page": 1,
+              "page_start": 1,
+              "page_end": 1,
+              "bbox": null,
+              "quote": "Case No. RV-CV-2026-00418.",
+              "snippet": "Case No. RV-CV-2026-00418. Filed January 29, 2026.",
+              "grounding_method": "EXACT"
+            }
+          ],
+          "warnings": []
+        },
+        "filed_at": {
+          "value": "2026-01-29",
+          "evidence": [
+            {
+              "source": "text",
+              "segment_indices": null,
+              "page": 1,
+              "page_start": 1,
+              "page_end": 1,
+              "bbox": null,
+              "quote": "Filed January 29, 2026.",
+              "snippet": "Case No. RV-CV-2026-00418. Filed January 29, 2026.",
+              "grounding_method": "EXACT"
+            }
+          ],
+          "warnings": []
+        },
+        "plaintiff": {
+          "value": "Daniel Alvarez",
+          "evidence": [
+            {
+              "source": "text",
+              "segment_indices": null,
+              "page": 1,
+              "page_start": 1,
+              "page_end": 1,
+              "bbox": null,
+              "quote": "Daniel Alvarez",
+              "snippet": "Daniel Alvarez, Plaintiff, v. Northstar Civil LLC, Defendant.",
+              "grounding_method": "EXACT"
+            }
+          ],
+          "warnings": []
+        },
+        "defendant_as_filed": {
+          "value": "Northstar Civil LLC",
+          "evidence": [
+            {
+              "source": "text",
+              "segment_indices": null,
+              "page": 1,
+              "page_start": 1,
+              "page_end": 1,
+              "bbox": null,
+              "quote": "Northstar Civil LLC",
+              "snippet": "Daniel Alvarez, Plaintiff, v. Northstar Civil LLC, Defendant.",
+              "grounding_method": "EXACT"
+            }
+          ],
+          "warnings": []
+        }
+      },
+      "tokens_in": 652,
+      "tokens_out": 620,
+      "cost": 0.0017456,
+      "model": "gemini/gemini-3.5-flash-lite",
+      "cost_source": "pricing_data",
+      "cached": false,
+      "provider": "gemini",
+      "credential_source": "local",
+      "raw": {
+        "id": "0dLkat-6FrOOytMPqIeY8Qw",
+        "finish_reason": "stop"
+      },
+      "tool_calls": null,
+      "output_tool_call": null,
+      "duration_ms": 2282,
+      "output_limited": false,
+      "actual_accounting": null
+    }
+  },
+  {
+    "filename": "RV-CV-2026-00502_water-alliance_records-petition.pdf",
+    "response": {
+      "content": "{\n  \"case_number\": {\n    \"value\": \"RV-CV-2026-00502\",\n    \"evidence\": [\n      {\n        \"source\": \"text\",\n        \"segment_indices\": null,\n        \"page\": 1,\n        \"page_start\": 1,\n        \"page_end\": 1,\n        \"bbox\": null,\n        \"quote\": \"Case No. RV-CV-2026-00502.\",\n        \"snippet\": \"Riverton Water Alliance v. Riverton Water Authority\\nCase No. RV-CV-2026-00502.\",\n        \"grounding_method\": \"EXACT\"\n      }\n    ],\n    \"warnings\": []\n  },\n  \"filed_at\": {\n    \"value\": \"2026-02-06\",\n    \"evidence\": [\n      {\n        \"source\": \"text\",\n        \"segment_indices\": null,\n        \"page\": 1,\n        \"page_start\": 1,\n        \"page_end\": 1,\n        \"bbox\": null,\n        \"quote\": \"Filed February 6, 2026.\",\n        \"snippet\": \"Case No. RV-CV-2026-00502. Filed February 6, 2026.\",\n        \"grounding_method\": \"EXACT\"\n      }\n    ],\n    \"warnings\": []\n  },\n  \"plaintiff\": {\n    \"value\": \"Riverton Water Alliance\",\n    \"evidence\": [\n      {\n        \"source\": \"text\",\n        \"segment_indices\": null,\n        \"page\": 1,\n        \"page_start\": 1,\n        \"page_end\": 1,\n        \"bbox\": null,\n        \"quote\": \"Riverton Water Alliance\",\n        \"snippet\": \"VERIFIED PETITION FOR DISCLOSURE OF PUBLIC RECORDS\\nRiverton Water Alliance v. Riverton Water Authority\",\n        \"grounding_method\": \"EXACT\"\n      }\n    ],\n    \"warnings\": []\n  },\n  \"defendant_as_filed\": {\n    \"value\": \"Riverton Water Authority\",\n    \"evidence\": [\n      {\n        \"source\": \"text\",\n        \"segment_indices\": null,\n        \"page\": 1,\n        \"page_start\": 1,\n        \"page_end\": 1,\n        \"bbox\": null,\n        \"quote\": \"Riverton Water Authority\",\n        \"snippet\": \"Riverton Water Alliance v. Riverton Water Authority\\nCase No. RV-CV-2026-00502.\",\n        \"grounding_method\": \"EXACT\"\n      }\n    ],\n    \"warnings\": []\n  }\n}",
+      "data": {
+        "case_number": {
+          "value": "RV-CV-2026-00502",
+          "evidence": [
+            {
+              "source": "text",
+              "segment_indices": null,
+              "page": 1,
+              "page_start": 1,
+              "page_end": 1,
+              "bbox": null,
+              "quote": "Case No. RV-CV-2026-00502.",
+              "snippet": "Riverton Water Alliance v. Riverton Water Authority\nCase No. RV-CV-2026-00502.",
+              "grounding_method": "EXACT"
+            }
+          ],
+          "warnings": []
+        },
+        "filed_at": {
+          "value": "2026-02-06",
+          "evidence": [
+            {
+              "source": "text",
+              "segment_indices": null,
+              "page": 1,
+              "page_start": 1,
+              "page_end": 1,
+              "bbox": null,
+              "quote": "Filed February 6, 2026.",
+              "snippet": "Case No. RV-CV-2026-00502. Filed February 6, 2026.",
+              "grounding_method": "EXACT"
+            }
+          ],
+          "warnings": []
+        },
+        "plaintiff": {
+          "value": "Riverton Water Alliance",
+          "evidence": [
+            {
+              "source": "text",
+              "segment_indices": null,
+              "page": 1,
+              "page_start": 1,
+              "page_end": 1,
+              "bbox": null,
+              "quote": "Riverton Water Alliance",
+              "snippet": "VERIFIED PETITION FOR DISCLOSURE OF PUBLIC RECORDS\nRiverton Water Alliance v. Riverton Water Authority",
+              "grounding_method": "EXACT"
+            }
+          ],
+          "warnings": []
+        },
+        "defendant_as_filed": {
+          "value": "Riverton Water Authority",
+          "evidence": [
+            {
+              "source": "text",
+              "segment_indices": null,
+              "page": 1,
+              "page_start": 1,
+              "page_end": 1,
+              "bbox": null,
+              "quote": "Riverton Water Authority",
+              "snippet": "Riverton Water Alliance v. Riverton Water Authority\nCase No. RV-CV-2026-00502.",
+              "grounding_method": "EXACT"
+            }
+          ],
+          "warnings": []
+        }
+      },
+      "tokens_in": 562,
+      "tokens_out": 648,
+      "cost": 0.0017886,
+      "model": "gemini/gemini-3.5-flash-lite",
+      "cost_source": "pricing_data",
+      "cached": false,
+      "provider": "gemini",
+      "credential_source": "local",
+      "raw": {
+        "id": "09Lkav3KLKeF1sgP_pPKmQw",
+        "finish_reason": "stop"
+      },
+      "tool_calls": null,
+      "output_tool_call": null,
+      "duration_ms": 2293,
+      "output_limited": false,
+      "actual_accounting": null
+    }
+  },
+  {
+    "filename": "RV-CV-2026-00611_meridian-v-riverton_injunction-motion.pdf",
+    "response": {
+      "content": "{\n  \"case_number\": {\n    \"value\": \"RV-CV-2026-00611\",\n    \"evidence\": [\n      {\n        \"source\": \"text\",\n        \"segment_indices\": null,\n        \"page\": 1,\n        \"page_start\": 1,\n        \"page_end\": 1,\n        \"bbox\": null,\n        \"quote\": \"Case No. RV-CV-2026-00611\",\n        \"snippet\": \"Meridian Food Services v. City of Riverton\\nCase No. RV-CV-2026-00611.\",\n        \"grounding_method\": \"EXACT\"\n      }\n    ],\n    \"warnings\": []\n  },\n  \"filed_at\": {\n    \"value\": \"2026-02-24\",\n    \"evidence\": [\n      {\n        \"source\": \"text\",\n        \"segment_indices\": null,\n        \"page\": 1,\n        \"page_start\": 1,\n        \"page_end\": 1,\n        \"bbox\": null,\n        \"quote\": \"Filed February 24, 2026.\",\n        \"snippet\": \"Case No. RV-CV-2026-00611. Filed February 24, 2026.\",\n        \"grounding_method\": \"EXACT\"\n      }\n    ],\n    \"warnings\": []\n  },\n  \"plaintiff\": {\n    \"value\": \"Meridian Food Services\",\n    \"evidence\": [\n      {\n        \"source\": \"text\",\n        \"segment_indices\": null,\n        \"page\": 1,\n        \"page_start\": 1,\n        \"page_end\": 1,\n        \"bbox\": null,\n        \"quote\": \"Meridian Food Services\",\n        \"snippet\": \"Meridian Food Services v. City of Riverton\",\n        \"grounding_method\": \"EXACT\"\n      }\n    ],\n    \"warnings\": []\n  },\n  \"defendant_as_filed\": {\n    \"value\": \"City of Riverton\",\n    \"evidence\": [\n      {\n        \"source\": \"text\",\n        \"segment_indices\": null,\n        \"page\": 1,\n        \"page_start\": 1,\n        \"page_end\": 1,\n        \"bbox\": null,\n        \"quote\": \"City of Riverton\",\n        \"snippet\": \"Meridian Food Services v. City of Riverton\",\n        \"grounding_method\": \"EXACT\"\n      }\n    ],\n    \"warnings\": []\n  }\n}",
+      "data": {
+        "case_number": {
+          "value": "RV-CV-2026-00611",
+          "evidence": [
+            {
+              "source": "text",
+              "segment_indices": null,
+              "page": 1,
+              "page_start": 1,
+              "page_end": 1,
+              "bbox": null,
+              "quote": "Case No. RV-CV-2026-00611",
+              "snippet": "Meridian Food Services v. City of Riverton\nCase No. RV-CV-2026-00611.",
+              "grounding_method": "EXACT"
+            }
+          ],
+          "warnings": []
+        },
+        "filed_at": {
+          "value": "2026-02-24",
+          "evidence": [
+            {
+              "source": "text",
+              "segment_indices": null,
+              "page": 1,
+              "page_start": 1,
+              "page_end": 1,
+              "bbox": null,
+              "quote": "Filed February 24, 2026.",
+              "snippet": "Case No. RV-CV-2026-00611. Filed February 24, 2026.",
+              "grounding_method": "EXACT"
+            }
+          ],
+          "warnings": []
+        },
+        "plaintiff": {
+          "value": "Meridian Food Services",
+          "evidence": [
+            {
+              "source": "text",
+              "segment_indices": null,
+              "page": 1,
+              "page_start": 1,
+              "page_end": 1,
+              "bbox": null,
+              "quote": "Meridian Food Services",
+              "snippet": "Meridian Food Services v. City of Riverton",
+              "grounding_method": "EXACT"
+            }
+          ],
+          "warnings": []
+        },
+        "defendant_as_filed": {
+          "value": "City of Riverton",
+          "evidence": [
+            {
+              "source": "text",
+              "segment_indices": null,
+              "page": 1,
+              "page_start": 1,
+              "page_end": 1,
+              "bbox": null,
+              "quote": "City of Riverton",
+              "snippet": "Meridian Food Services v. City of Riverton",
+              "grounding_method": "EXACT"
+            }
+          ],
+          "warnings": []
+        }
+      },
+      "tokens_in": 532,
+      "tokens_out": 618,
+      "cost": 0.0017046,
+      "model": "gemini/gemini-3.5-flash-lite",
+      "cost_source": "pricing_data",
+      "cached": false,
+      "provider": "gemini",
+      "credential_source": "local",
+      "raw": {
+        "id": "1tLkaq6lBfejuMYP_ob8mAg",
+        "finish_reason": "stop"
+      },
+      "tool_calls": null,
+      "output_tool_call": null,
+      "duration_ms": 2084,
+      "output_limited": false,
+      "actual_accounting": null
+    }
+  },
+  {
+    "filename": "RV-CV-2026-00689_patel-v-cedar-bridge_complaint.pdf",
+    "response": {
+      "content": "{\n  \"case_number\": {\n    \"value\": \"RV-CV-2026-00689\",\n    \"evidence\": [\n      {\n        \"source\": \"text\",\n        \"segment_indices\": null,\n        \"page\": 1,\n        \"page_start\": 1,\n        \"page_end\": 1,\n        \"bbox\": null,\n        \"quote\": \"Case No. RV-CV-2026-00689.\",\n        \"snippet\": \"Leena Patel v. Cedar Bridge Security Inc.\\nCase No. RV-CV-2026-00689. Filed March 3, 2026.\",\n        \"grounding_method\": \"EXACT\"\n      }\n    ],\n    \"warnings\": []\n  },\n  \"filed_at\": {\n    \"value\": \"2026-03-03\",\n    \"evidence\": [\n      {\n        \"source\": \"text\",\n        \"segment_indices\": null,\n        \"page\": 1,\n        \"page_start\": 1,\n        \"page_end\": 1,\n        \"bbox\": null,\n        \"quote\": \"Filed March 3, 2026.\",\n        \"snippet\": \"Leena Patel v. Cedar Bridge Security Inc.\\nCase No. RV-CV-2026-00689. Filed March 3, 2026.\",\n        \"grounding_method\": \"EXACT\"\n      }\n    ],\n    \"warnings\": []\n  },\n  \"plaintiff\": {\n    \"value\": \"Leena Patel\",\n    \"evidence\": [\n      {\n        \"source\": \"text\",\n        \"segment_indices\": null,\n        \"page\": 1,\n        \"page_start\": 1,\n        \"page_end\": 1,\n        \"bbox\": null,\n        \"quote\": \"Leena Patel\",\n        \"snippet\": \"Leena Patel v. Cedar Bridge Security Inc.\",\n        \"grounding_method\": \"EXACT\"\n      }\n    ],\n    \"warnings\": []\n  },\n  \"defendant_as_filed\": {\n    \"value\": \"Cedar Bridge Security Inc.\",\n    \"evidence\": [\n      {\n        \"source\": \"text\",\n        \"segment_indices\": null,\n        \"page\": 1,\n        \"page_start\": 1,\n        \"page_end\": 1,\n        \"bbox\": null,\n        \"quote\": \"Cedar Bridge Security Inc.\",\n        \"snippet\": \"Leena Patel v. Cedar Bridge Security Inc.\",\n        \"grounding_method\": \"EXACT\"\n      }\n    ],\n    \"warnings\": []\n  }\n}",
+      "data": {
+        "case_number": {
+          "value": "RV-CV-2026-00689",
+          "evidence": [
+            {
+              "source": "text",
+              "segment_indices": null,
+              "page": 1,
+              "page_start": 1,
+              "page_end": 1,
+              "bbox": null,
+              "quote": "Case No. RV-CV-2026-00689.",
+              "snippet": "Leena Patel v. Cedar Bridge Security Inc.\nCase No. RV-CV-2026-00689. Filed March 3, 2026.",
+              "grounding_method": "EXACT"
+            }
+          ],
+          "warnings": []
+        },
+        "filed_at": {
+          "value": "2026-03-03",
+          "evidence": [
+            {
+              "source": "text",
+              "segment_indices": null,
+              "page": 1,
+              "page_start": 1,
+              "page_end": 1,
+              "bbox": null,
+              "quote": "Filed March 3, 2026.",
+              "snippet": "Leena Patel v. Cedar Bridge Security Inc.\nCase No. RV-CV-2026-00689. Filed March 3, 2026.",
+              "grounding_method": "EXACT"
+            }
+          ],
+          "warnings": []
+        },
+        "plaintiff": {
+          "value": "Leena Patel",
+          "evidence": [
+            {
+              "source": "text",
+              "segment_indices": null,
+              "page": 1,
+              "page_start": 1,
+              "page_end": 1,
+              "bbox": null,
+              "quote": "Leena Patel",
+              "snippet": "Leena Patel v. Cedar Bridge Security Inc.",
+              "grounding_method": "EXACT"
+            }
+          ],
+          "warnings": []
+        },
+        "defendant_as_filed": {
+          "value": "Cedar Bridge Security Inc.",
+          "evidence": [
+            {
+              "source": "text",
+              "segment_indices": null,
+              "page": 1,
+              "page_start": 1,
+              "page_end": 1,
+              "bbox": null,
+              "quote": "Cedar Bridge Security Inc.",
+              "snippet": "Leena Patel v. Cedar Bridge Security Inc.",
+              "grounding_method": "EXACT"
+            }
+          ],
+          "warnings": []
+        }
+      },
+      "tokens_in": 505,
+      "tokens_out": 633,
+      "cost": 0.0017339999999999999,
+      "model": "gemini/gemini-3.5-flash-lite",
+      "cost_source": "pricing_data",
+      "cached": false,
+      "provider": "gemini",
+      "credential_source": "local",
+      "raw": {
+        "id": "2NLkavvuDsyE1sgPheTu8AM",
+        "finish_reason": "stop"
+      },
+      "tool_calls": null,
+      "output_tool_call": null,
+      "duration_ms": 2025,
+      "output_limited": false,
+      "actual_accounting": null
+    }
+  },
+  {
+    "filename": "RV-CV-2026-00725_eastbank_change-order_subpoena-motion.pdf",
+    "response": {
+      "content": "{\n  \"case_number\": {\n    \"value\": \"RV-CV-2026-00725\",\n    \"evidence\": [\n      {\n        \"source\": \"text\",\n        \"segment_indices\": null,\n        \"page\": 1,\n        \"page_start\": 1,\n        \"page_end\": 1,\n        \"bbox\": null,\n        \"quote\": \"Case No. RV-CV-2026-00725.\",\n        \"snippet\": \"MOTION TO QUASH THIRD-PARTY SUBPOENA\\nEastbank Infrastructure v. City of Riverton\\nCase No. RV-CV-2026-00725. Filed March 12, 2026.\",\n        \"grounding_method\": \"EXACT\"\n      }\n    ],\n    \"warnings\": []\n  },\n  \"filed_at\": {\n    \"value\": \"2026-03-12\",\n    \"evidence\": [\n      {\n        \"source\": \"text\",\n        \"segment_indices\": null,\n        \"page\": 1,\n        \"page_start\": 1,\n        \"page_end\": 1,\n        \"bbox\": null,\n        \"quote\": \"Filed March 12, 2026.\",\n        \"snippet\": \"MOTION TO QUASH THIRD-PARTY SUBPOENA\\nEastbank Infrastructure v. City of Riverton\\nCase No. RV-CV-2026-00725. Filed March 12, 2026.\",\n        \"grounding_method\": \"EXACT\"\n      }\n    ],\n    \"warnings\": []\n  },\n  \"plaintiff\": {\n    \"value\": \"Eastbank Infrastructure\",\n    \"evidence\": [\n      {\n        \"source\": \"text\",\n        \"segment_indices\": null,\n        \"page\": 1,\n        \"page_start\": 1,\n        \"page_end\": 1,\n        \"bbox\": null,\n        \"quote\": \"Eastbank Infrastructure\",\n        \"snippet\": \"MOTION TO QUASH THIRD-PARTY SUBPOENA\\nEastbank Infrastructure v. City of Riverton\\nCase No. RV-CV-2026-00725. Filed March 12, 2026.\",\n        \"grounding_method\": \"EXACT\"\n      }\n    ],\n    \"warnings\": []\n  },\n  \"defendant_as_filed\": {\n    \"value\": \"City of Riverton\",\n    \"evidence\": [\n      {\n        \"source\": \"text\",\n        \"segment_indices\": null,\n        \"page\": 1,\n        \"page_start\": 1,\n        \"page_end\": 1,\n        \"bbox\": null,\n        \"quote\": \"City of Riverton\",\n        \"snippet\": \"MOTION TO QUASH THIRD-PARTY SUBPOENA\\nEastbank Infrastructure v. City of Riverton\\nCase No. RV-CV-2026-00725. Filed March 12, 2026.\",\n        \"grounding_method\": \"EXACT\"\n      }\n    ],\n    \"warnings\": []\n  }\n}",
+      "data": {
+        "case_number": {
+          "value": "RV-CV-2026-00725",
+          "evidence": [
+            {
+              "source": "text",
+              "segment_indices": null,
+              "page": 1,
+              "page_start": 1,
+              "page_end": 1,
+              "bbox": null,
+              "quote": "Case No. RV-CV-2026-00725.",
+              "snippet": "MOTION TO QUASH THIRD-PARTY SUBPOENA\nEastbank Infrastructure v. City of Riverton\nCase No. RV-CV-2026-00725. Filed March 12, 2026.",
+              "grounding_method": "EXACT"
+            }
+          ],
+          "warnings": []
+        },
+        "filed_at": {
+          "value": "2026-03-12",
+          "evidence": [
+            {
+              "source": "text",
+              "segment_indices": null,
+              "page": 1,
+              "page_start": 1,
+              "page_end": 1,
+              "bbox": null,
+              "quote": "Filed March 12, 2026.",
+              "snippet": "MOTION TO QUASH THIRD-PARTY SUBPOENA\nEastbank Infrastructure v. City of Riverton\nCase No. RV-CV-2026-00725. Filed March 12, 2026.",
+              "grounding_method": "EXACT"
+            }
+          ],
+          "warnings": []
+        },
+        "plaintiff": {
+          "value": "Eastbank Infrastructure",
+          "evidence": [
+            {
+              "source": "text",
+              "segment_indices": null,
+              "page": 1,
+              "page_start": 1,
+              "page_end": 1,
+              "bbox": null,
+              "quote": "Eastbank Infrastructure",
+              "snippet": "MOTION TO QUASH THIRD-PARTY SUBPOENA\nEastbank Infrastructure v. City of Riverton\nCase No. RV-CV-2026-00725. Filed March 12, 2026.",
+              "grounding_method": "EXACT"
+            }
+          ],
+          "warnings": []
+        },
+        "defendant_as_filed": {
+          "value": "City of Riverton",
+          "evidence": [
+            {
+              "source": "text",
+              "segment_indices": null,
+              "page": 1,
+              "page_start": 1,
+              "page_end": 1,
+              "bbox": null,
+              "quote": "City of Riverton",
+              "snippet": "MOTION TO QUASH THIRD-PARTY SUBPOENA\nEastbank Infrastructure v. City of Riverton\nCase No. RV-CV-2026-00725. Filed March 12, 2026.",
+              "grounding_method": "EXACT"
+            }
+          ],
+          "warnings": []
+        }
+      },
+      "tokens_in": 532,
+      "tokens_out": 747,
+      "cost": 0.0020271,
+      "model": "gemini/gemini-3.5-flash-lite",
+      "cost_source": "pricing_data",
+      "cached": false,
+      "provider": "gemini",
+      "credential_source": "local",
+      "raw": {
+        "id": "2tLkatG3FdfNytMPvJbZmQw",
+        "finish_reason": "stop"
+      },
+      "tool_calls": null,
+      "output_tool_call": null,
+      "duration_ms": 2404,
+      "output_limited": false,
+      "actual_accounting": null
+    }
+  },
+  {
+    "filename": "RV-CV-2026-00804_chen-v-bright-harbor_class-action.pdf",
+    "response": {
+      "content": "{\n  \"case_number\": {\n    \"value\": \"RV-CV-2026-00804\",\n    \"evidence\": [\n      {\n        \"source\": \"text\",\n        \"segment_indices\": null,\n        \"page\": 1,\n        \"page_start\": 1,\n        \"page_end\": 1,\n        \"bbox\": null,\n        \"quote\": \"Case No. RV-CV-2026-00804.\",\n        \"snippet\": \"Case No. RV-CV-2026-00804.\",\n        \"grounding_method\": \"EXACT\"\n      }\n    ],\n    \"warnings\": []\n  },\n  \"filed_at\": {\n    \"value\": \"2026-03-26\",\n    \"evidence\": [\n      {\n        \"source\": \"text\",\n        \"segment_indices\": null,\n        \"page\": 1,\n        \"page_start\": 1,\n        \"page_end\": 1,\n        \"bbox\": null,\n        \"quote\": \"Filed March 26, 2026.\",\n        \"snippet\": \"Filed March 26, 2026.\",\n        \"grounding_method\": \"EXACT\"\n      }\n    ],\n    \"warnings\": []\n  },\n  \"plaintiff\": {\n    \"value\": \"Mei Chen\",\n    \"evidence\": [\n      {\n        \"source\": \"text\",\n        \"segment_indices\": null,\n        \"page\": 1,\n        \"page_start\": 1,\n        \"page_end\": 1,\n        \"bbox\": null,\n        \"quote\": \"Mei Chen\",\n        \"snippet\": \"Mei Chen, individually and on behalf of a proposed class, v. Bright Harbor Systems and\",\n        \"grounding_method\": \"EXACT\"\n      }\n    ],\n    \"warnings\": []\n  },\n  \"defendant_as_filed\": {\n    \"value\": \"Bright Harbor Systems and\\nRiverton Public Library\",\n    \"evidence\": [\n      {\n        \"source\": \"text\",\n        \"segment_indices\": null,\n        \"page\": 1,\n        \"page_start\": 1,\n        \"page_end\": 1,\n        \"bbox\": null,\n        \"quote\": \"Bright Harbor Systems and\\nRiverton Public Library\",\n        \"snippet\": \"Mei Chen, individually and on behalf of a proposed class, v. Bright Harbor Systems and\\nRiverton Public Library\",\n        \"grounding_method\": \"EXACT\"\n      }\n    ],\n    \"warnings\": []\n  }\n}",
+      "data": {
+        "case_number": {
+          "value": "RV-CV-2026-00804",
+          "evidence": [
+            {
+              "source": "text",
+              "segment_indices": null,
+              "page": 1,
+              "page_start": 1,
+              "page_end": 1,
+              "bbox": null,
+              "quote": "Case No. RV-CV-2026-00804.",
+              "snippet": "Case No. RV-CV-2026-00804.",
+              "grounding_method": "EXACT"
+            }
+          ],
+          "warnings": []
+        },
+        "filed_at": {
+          "value": "2026-03-26",
+          "evidence": [
+            {
+              "source": "text",
+              "segment_indices": null,
+              "page": 1,
+              "page_start": 1,
+              "page_end": 1,
+              "bbox": null,
+              "quote": "Filed March 26, 2026.",
+              "snippet": "Filed March 26, 2026.",
+              "grounding_method": "EXACT"
+            }
+          ],
+          "warnings": []
+        },
+        "plaintiff": {
+          "value": "Mei Chen",
+          "evidence": [
+            {
+              "source": "text",
+              "segment_indices": null,
+              "page": 1,
+              "page_start": 1,
+              "page_end": 1,
+              "bbox": null,
+              "quote": "Mei Chen",
+              "snippet": "Mei Chen, individually and on behalf of a proposed class, v. Bright Harbor Systems and",
+              "grounding_method": "EXACT"
+            }
+          ],
+          "warnings": []
+        },
+        "defendant_as_filed": {
+          "value": "Bright Harbor Systems and\nRiverton Public Library",
+          "evidence": [
+            {
+              "source": "text",
+              "segment_indices": null,
+              "page": 1,
+              "page_start": 1,
+              "page_end": 1,
+              "bbox": null,
+              "quote": "Bright Harbor Systems and\nRiverton Public Library",
+              "snippet": "Mei Chen, individually and on behalf of a proposed class, v. Bright Harbor Systems and\nRiverton Public Library",
+              "grounding_method": "EXACT"
+            }
+          ],
+          "warnings": []
+        }
+      },
+      "tokens_in": 636,
+      "tokens_out": 622,
+      "cost": 0.0017458,
+      "model": "gemini/gemini-3.5-flash-lite",
+      "cost_source": "pricing_data",
+      "cached": false,
+      "provider": "gemini",
+      "credential_source": "local",
+      "raw": {
+        "id": "3NLkasO2N4vjytMP_tWt2Qw",
+        "finish_reason": "stop"
+      },
+      "tool_calls": null,
+      "output_tool_call": null,
+      "duration_ms": 2146,
+      "output_limited": false,
+      "actual_accounting": null
+    }
+  }
+]

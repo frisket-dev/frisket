@@ -1,0 +1,4562 @@
+[
+  {
+    "filename": "RV-CV-2026-00418_alvarez-v-northstar_complaint.pdf",
+    "recipe_version": "1",
+    "request": {
+      "model": "gemini/gemini-3.5-flash-lite",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You extract structured data from documents for an investigative journalist. Extract only what is actually present; use empty lists/nulls when absent. Never fabricate."
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "text: COMPLAINT AND DEMAND FOR JURY TRIAL\nDaniel Alvarez, Plaintiff, v. Northstar Civil LLC, Defendant.\nCase No. RV-CV-2026-00418. Filed January 29, 2026.\nPlaintiff Daniel Alvarez alleges that Northstar Civil LLC failed to pay wages and\nretaliated after he reported unsafe masonry work at the Riverton Transit Authority\ndepot. Alvarez worked as a site foreman from September 2025 through January 8, 2026.\nNorthstar was performing city work under contracts CTR-2025-118 and CTR-2026-014.\nAlvarez says he warned project manager Caleb Ward on December 19 that an unsupported\nparapet could fall into the east maintenance bay. He alleges that Ward ordered the crew\nto continue demolition before an engineer arrived. The complaint does not allege that\nany Transit Authority employee gave that instruction.\nPage 1 of 2\n\nFACTUAL ALLEGATIONS\nOn December 22, Alvarez sent photographs to Northstar safety director Michelle Dorsey.\nThree days later, Northstar removed him from the depot schedule. Payroll records\nattached as Exhibit A list 84 hours of unpaid overtime between October 6 and December\n14.\nNorthstar told Alvarez in a January 5 letter that he was reassigned because his\ncertification had expired. Alvarez alleges the certification remained valid through May\n2026 and attaches a copy as Exhibit B.\nCOUNT I - Unpaid wages. Plaintiff seeks $38,420 in wages, statutory penalties, and\nattorney fees.\nCOUNT II - Retaliation. Plaintiff seeks reinstatement or front pay, compensatory\ndamages, and punitive damages. The total demand is not less than $845,000.\nPlaintiff requests a jury trial. Counsel: Simone Park, Park and Iqbal LLP, 44 Monroe\nStreet, Riverton.\nPage 2 of 2"
+            },
+            {
+              "type": "text",
+              "text": "\nExtraction instructions:\nRead only the supplied filing. Copy names and case numbers exactly. Use YYYY-MM-DD for dates. Extract only facts explicitly stated in the source; leave missing values blank. A requested hearing or remedy is not a court decision. Do not use outside knowledge."
+            },
+            {
+              "type": "text",
+              "text": "\nOutput and citation requirements:\nFor each extracted field, return an object with `value`, optional `evidence`, and optional `warnings`. Evidence items may cite an input `source` label, page, bbox in normalized page coordinates, quote, snippet, and grounding_method. Do not invent evidence. Cite verbatim supporting passages and include `source` when there are several labeled inputs; return separate evidence items for separate passages. Valid source labels for this request are exactly [\"text\"]. Copy one of those exact strings into `source`; headings and text inside an input are not source labels. Do not return `segment_indices` unless numbered transcript segments are shown in the input."
+            }
+          ]
+        }
+      ],
+      "schema": {
+        "type": "object",
+        "properties": {
+          "case_number": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "description": "The case number exactly as printed in the filing."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "evidence": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "A citation hint, never permission to choose a stored source or evidence ID.",
+                      "properties": {
+                        "source": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Source"
+                        },
+                        "segment_indices": {
+                          "anyOf": [
+                            {
+                              "default": [],
+                              "items": {
+                                "type": "integer"
+                              },
+                              "title": "Segment Indices",
+                              "type": "array"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "page": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page"
+                        },
+                        "page_start": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page Start"
+                        },
+                        "page_end": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page End"
+                        },
+                        "bbox": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/$defs/EvidenceBox"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null
+                        },
+                        "quote": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Quote"
+                        },
+                        "snippet": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Snippet"
+                        },
+                        "grounding_method": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Grounding Method"
+                        }
+                      },
+                      "title": "EvidenceClaim",
+                      "type": "object"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "warnings": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          "filed_at": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "description": "The filing date in ISO format YYYY-MM-DD. Leave blank if absent."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "evidence": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "A citation hint, never permission to choose a stored source or evidence ID.",
+                      "properties": {
+                        "source": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Source"
+                        },
+                        "segment_indices": {
+                          "anyOf": [
+                            {
+                              "default": [],
+                              "items": {
+                                "type": "integer"
+                              },
+                              "title": "Segment Indices",
+                              "type": "array"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "page": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page"
+                        },
+                        "page_start": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page Start"
+                        },
+                        "page_end": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page End"
+                        },
+                        "bbox": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/$defs/EvidenceBox"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null
+                        },
+                        "quote": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Quote"
+                        },
+                        "snippet": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Snippet"
+                        },
+                        "grounding_method": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Grounding Method"
+                        }
+                      },
+                      "title": "EvidenceClaim",
+                      "type": "object"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "warnings": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          "plaintiff": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "description": "The plaintiff or petitioner exactly as filed."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "evidence": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "A citation hint, never permission to choose a stored source or evidence ID.",
+                      "properties": {
+                        "source": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Source"
+                        },
+                        "segment_indices": {
+                          "anyOf": [
+                            {
+                              "default": [],
+                              "items": {
+                                "type": "integer"
+                              },
+                              "title": "Segment Indices",
+                              "type": "array"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "page": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page"
+                        },
+                        "page_start": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page Start"
+                        },
+                        "page_end": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page End"
+                        },
+                        "bbox": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/$defs/EvidenceBox"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null
+                        },
+                        "quote": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Quote"
+                        },
+                        "snippet": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Snippet"
+                        },
+                        "grounding_method": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Grounding Method"
+                        }
+                      },
+                      "title": "EvidenceClaim",
+                      "type": "object"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "warnings": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          "defendant_as_filed": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "description": "The defendant or respondent exactly as filed."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "evidence": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "A citation hint, never permission to choose a stored source or evidence ID.",
+                      "properties": {
+                        "source": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Source"
+                        },
+                        "segment_indices": {
+                          "anyOf": [
+                            {
+                              "default": [],
+                              "items": {
+                                "type": "integer"
+                              },
+                              "title": "Segment Indices",
+                              "type": "array"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "page": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page"
+                        },
+                        "page_start": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page Start"
+                        },
+                        "page_end": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page End"
+                        },
+                        "bbox": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/$defs/EvidenceBox"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null
+                        },
+                        "quote": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Quote"
+                        },
+                        "snippet": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Snippet"
+                        },
+                        "grounding_method": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Grounding Method"
+                        }
+                      },
+                      "title": "EvidenceClaim",
+                      "type": "object"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "warnings": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "case_number",
+          "filed_at",
+          "plaintiff",
+          "defendant_as_filed"
+        ],
+        "additionalProperties": false,
+        "$defs": {
+          "EvidenceBox": {
+            "additionalProperties": false,
+            "description": "A claimed rectangle; coordinate normalization and verification are host work.",
+            "properties": {
+              "x0": {
+                "title": "X0",
+                "type": "number"
+              },
+              "y0": {
+                "title": "Y0",
+                "type": "number"
+              },
+              "x1": {
+                "title": "X1",
+                "type": "number"
+              },
+              "y1": {
+                "title": "Y1",
+                "type": "number"
+              },
+              "space": {
+                "anyOf": [
+                  {
+                    "default": "page_normalized",
+                    "title": "Space",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "page_width": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Page Width"
+              },
+              "page_height": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Page Height"
+              }
+            },
+            "required": [
+              "x0",
+              "y0",
+              "x1",
+              "y1"
+            ],
+            "title": "EvidenceBox",
+            "type": "object"
+          }
+        }
+      },
+      "max_tokens": 32768,
+      "temperature": 0.0,
+      "params": {},
+      "mechanism": null,
+      "tools": null,
+      "reasoning_policy": null
+    }
+  },
+  {
+    "filename": "RV-CV-2026-00502_water-alliance_records-petition.pdf",
+    "recipe_version": "1",
+    "request": {
+      "model": "gemini/gemini-3.5-flash-lite",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You extract structured data from documents for an investigative journalist. Extract only what is actually present; use empty lists/nulls when absent. Never fabricate."
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "text: VERIFIED PETITION FOR DISCLOSURE OF PUBLIC RECORDS\nRiverton Water Alliance v. Riverton Water Authority\nCase No. RV-CV-2026-00502. Filed February 6, 2026.\nThe Alliance requested scoring rules, validation reports, error logs, and staff\ninstructions related to contract CTR-2026-021 with Harbor Analytics. The Authority\nproduced the signed contract and 312 pages of email but withheld the scoring rules as a\ntrade secret.\nPetitioner alleges that the rules determine whether household lead-test results receive\nimmediate manual review and therefore operate as public policy rather than merely vendor\nsoftware.\nPage 1 of 2\n\nREQUESTS AND RESPONSE\nThe records request was submitted November 25, 2025. Records officer Hannah Price\nacknowledged it on December 1 and estimated production by December 22. The Authority\nproduced its first batch on January 9, 2026.\nOn January 16, deputy director Evan Bell invoked the trade-secret exemption for 41 pages\nsupplied by Harbor Analytics. Harbor submitted a declaration from chief scientist Nora\nVale stating that disclosure would reveal proprietary matching weights.\nThe Alliance asks the court to review the withheld records privately, order disclosure\nof any instructions used by public employees, and award reasonable attorney fees. It\ndoes not seek customer names, addresses, or individual laboratory results.\nVerified by Maya Okafor, executive director of Riverton Water Alliance, under penalty of\nperjury.\nPage 2 of 2"
+            },
+            {
+              "type": "text",
+              "text": "\nExtraction instructions:\nRead only the supplied filing. Copy names and case numbers exactly. Use YYYY-MM-DD for dates. Extract only facts explicitly stated in the source; leave missing values blank. A requested hearing or remedy is not a court decision. Do not use outside knowledge."
+            },
+            {
+              "type": "text",
+              "text": "\nOutput and citation requirements:\nFor each extracted field, return an object with `value`, optional `evidence`, and optional `warnings`. Evidence items may cite an input `source` label, page, bbox in normalized page coordinates, quote, snippet, and grounding_method. Do not invent evidence. Cite verbatim supporting passages and include `source` when there are several labeled inputs; return separate evidence items for separate passages. Valid source labels for this request are exactly [\"text\"]. Copy one of those exact strings into `source`; headings and text inside an input are not source labels. Do not return `segment_indices` unless numbered transcript segments are shown in the input."
+            }
+          ]
+        }
+      ],
+      "schema": {
+        "type": "object",
+        "properties": {
+          "case_number": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "description": "The case number exactly as printed in the filing."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "evidence": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "A citation hint, never permission to choose a stored source or evidence ID.",
+                      "properties": {
+                        "source": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Source"
+                        },
+                        "segment_indices": {
+                          "anyOf": [
+                            {
+                              "default": [],
+                              "items": {
+                                "type": "integer"
+                              },
+                              "title": "Segment Indices",
+                              "type": "array"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "page": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page"
+                        },
+                        "page_start": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page Start"
+                        },
+                        "page_end": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page End"
+                        },
+                        "bbox": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/$defs/EvidenceBox"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null
+                        },
+                        "quote": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Quote"
+                        },
+                        "snippet": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Snippet"
+                        },
+                        "grounding_method": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Grounding Method"
+                        }
+                      },
+                      "title": "EvidenceClaim",
+                      "type": "object"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "warnings": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          "filed_at": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "description": "The filing date in ISO format YYYY-MM-DD. Leave blank if absent."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "evidence": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "A citation hint, never permission to choose a stored source or evidence ID.",
+                      "properties": {
+                        "source": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Source"
+                        },
+                        "segment_indices": {
+                          "anyOf": [
+                            {
+                              "default": [],
+                              "items": {
+                                "type": "integer"
+                              },
+                              "title": "Segment Indices",
+                              "type": "array"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "page": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page"
+                        },
+                        "page_start": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page Start"
+                        },
+                        "page_end": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page End"
+                        },
+                        "bbox": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/$defs/EvidenceBox"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null
+                        },
+                        "quote": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Quote"
+                        },
+                        "snippet": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Snippet"
+                        },
+                        "grounding_method": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Grounding Method"
+                        }
+                      },
+                      "title": "EvidenceClaim",
+                      "type": "object"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "warnings": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          "plaintiff": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "description": "The plaintiff or petitioner exactly as filed."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "evidence": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "A citation hint, never permission to choose a stored source or evidence ID.",
+                      "properties": {
+                        "source": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Source"
+                        },
+                        "segment_indices": {
+                          "anyOf": [
+                            {
+                              "default": [],
+                              "items": {
+                                "type": "integer"
+                              },
+                              "title": "Segment Indices",
+                              "type": "array"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "page": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page"
+                        },
+                        "page_start": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page Start"
+                        },
+                        "page_end": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page End"
+                        },
+                        "bbox": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/$defs/EvidenceBox"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null
+                        },
+                        "quote": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Quote"
+                        },
+                        "snippet": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Snippet"
+                        },
+                        "grounding_method": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Grounding Method"
+                        }
+                      },
+                      "title": "EvidenceClaim",
+                      "type": "object"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "warnings": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          "defendant_as_filed": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "description": "The defendant or respondent exactly as filed."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "evidence": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "A citation hint, never permission to choose a stored source or evidence ID.",
+                      "properties": {
+                        "source": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Source"
+                        },
+                        "segment_indices": {
+                          "anyOf": [
+                            {
+                              "default": [],
+                              "items": {
+                                "type": "integer"
+                              },
+                              "title": "Segment Indices",
+                              "type": "array"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "page": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page"
+                        },
+                        "page_start": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page Start"
+                        },
+                        "page_end": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page End"
+                        },
+                        "bbox": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/$defs/EvidenceBox"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null
+                        },
+                        "quote": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Quote"
+                        },
+                        "snippet": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Snippet"
+                        },
+                        "grounding_method": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Grounding Method"
+                        }
+                      },
+                      "title": "EvidenceClaim",
+                      "type": "object"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "warnings": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "case_number",
+          "filed_at",
+          "plaintiff",
+          "defendant_as_filed"
+        ],
+        "additionalProperties": false,
+        "$defs": {
+          "EvidenceBox": {
+            "additionalProperties": false,
+            "description": "A claimed rectangle; coordinate normalization and verification are host work.",
+            "properties": {
+              "x0": {
+                "title": "X0",
+                "type": "number"
+              },
+              "y0": {
+                "title": "Y0",
+                "type": "number"
+              },
+              "x1": {
+                "title": "X1",
+                "type": "number"
+              },
+              "y1": {
+                "title": "Y1",
+                "type": "number"
+              },
+              "space": {
+                "anyOf": [
+                  {
+                    "default": "page_normalized",
+                    "title": "Space",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "page_width": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Page Width"
+              },
+              "page_height": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Page Height"
+              }
+            },
+            "required": [
+              "x0",
+              "y0",
+              "x1",
+              "y1"
+            ],
+            "title": "EvidenceBox",
+            "type": "object"
+          }
+        }
+      },
+      "max_tokens": 32768,
+      "temperature": 0.0,
+      "params": {},
+      "mechanism": null,
+      "tools": null,
+      "reasoning_policy": null
+    }
+  },
+  {
+    "filename": "RV-CV-2026-00611_meridian-v-riverton_injunction-motion.pdf",
+    "recipe_version": "1",
+    "request": {
+      "model": "gemini/gemini-3.5-flash-lite",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You extract structured data from documents for an investigative journalist. Extract only what is actually present; use empty lists/nulls when absent. Never fabricate."
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "text: MOTION FOR PRELIMINARY INJUNCTION\nMeridian Food Services v. City of Riverton\nCase No. RV-CV-2026-00611. Filed February 24, 2026.\nMeridian asks the court to prevent Riverton from withholding $214,600 under shelter meal\ncontract CTR-2026-033. The city says January invoices included 3,120 breakfasts that\ndelivery logs do not support. Meridian says the meals were prepared and offered at a\ntemporary kitchen during a two-day closure.\nThe company argues that immediate withholding would prevent it from meeting March\npayroll for 46 kitchen and delivery employees.\nPage 1 of 2\n\nARGUMENT\nMeridian contends that the contract defines a delivered meal as one made available at an\napproved service location. It cites a January 12 email in which Human Services\nsupervisor Dana Wu approved the temporary kitchen at 18 Harbor Avenue.\nThe city responds that residents were not transported to Harbor Avenue and that only 406\nmeals were collected there. Its opposition attaches shelter sign-in sheets and a\ndeclaration from commissioner Andre Cole.\nMeridian requests release of the disputed payment into escrow pending arbitration. The\ncompany also seeks costs and any further relief the court considers just. A hearing is\nscheduled for March 6 before Judge Naomi Vega.\nPage 2 of 2"
+            },
+            {
+              "type": "text",
+              "text": "\nExtraction instructions:\nRead only the supplied filing. Copy names and case numbers exactly. Use YYYY-MM-DD for dates. Extract only facts explicitly stated in the source; leave missing values blank. A requested hearing or remedy is not a court decision. Do not use outside knowledge."
+            },
+            {
+              "type": "text",
+              "text": "\nOutput and citation requirements:\nFor each extracted field, return an object with `value`, optional `evidence`, and optional `warnings`. Evidence items may cite an input `source` label, page, bbox in normalized page coordinates, quote, snippet, and grounding_method. Do not invent evidence. Cite verbatim supporting passages and include `source` when there are several labeled inputs; return separate evidence items for separate passages. Valid source labels for this request are exactly [\"text\"]. Copy one of those exact strings into `source`; headings and text inside an input are not source labels. Do not return `segment_indices` unless numbered transcript segments are shown in the input."
+            }
+          ]
+        }
+      ],
+      "schema": {
+        "type": "object",
+        "properties": {
+          "case_number": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "description": "The case number exactly as printed in the filing."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "evidence": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "A citation hint, never permission to choose a stored source or evidence ID.",
+                      "properties": {
+                        "source": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Source"
+                        },
+                        "segment_indices": {
+                          "anyOf": [
+                            {
+                              "default": [],
+                              "items": {
+                                "type": "integer"
+                              },
+                              "title": "Segment Indices",
+                              "type": "array"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "page": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page"
+                        },
+                        "page_start": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page Start"
+                        },
+                        "page_end": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page End"
+                        },
+                        "bbox": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/$defs/EvidenceBox"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null
+                        },
+                        "quote": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Quote"
+                        },
+                        "snippet": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Snippet"
+                        },
+                        "grounding_method": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Grounding Method"
+                        }
+                      },
+                      "title": "EvidenceClaim",
+                      "type": "object"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "warnings": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          "filed_at": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "description": "The filing date in ISO format YYYY-MM-DD. Leave blank if absent."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "evidence": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "A citation hint, never permission to choose a stored source or evidence ID.",
+                      "properties": {
+                        "source": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Source"
+                        },
+                        "segment_indices": {
+                          "anyOf": [
+                            {
+                              "default": [],
+                              "items": {
+                                "type": "integer"
+                              },
+                              "title": "Segment Indices",
+                              "type": "array"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "page": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page"
+                        },
+                        "page_start": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page Start"
+                        },
+                        "page_end": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page End"
+                        },
+                        "bbox": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/$defs/EvidenceBox"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null
+                        },
+                        "quote": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Quote"
+                        },
+                        "snippet": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Snippet"
+                        },
+                        "grounding_method": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Grounding Method"
+                        }
+                      },
+                      "title": "EvidenceClaim",
+                      "type": "object"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "warnings": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          "plaintiff": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "description": "The plaintiff or petitioner exactly as filed."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "evidence": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "A citation hint, never permission to choose a stored source or evidence ID.",
+                      "properties": {
+                        "source": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Source"
+                        },
+                        "segment_indices": {
+                          "anyOf": [
+                            {
+                              "default": [],
+                              "items": {
+                                "type": "integer"
+                              },
+                              "title": "Segment Indices",
+                              "type": "array"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "page": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page"
+                        },
+                        "page_start": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page Start"
+                        },
+                        "page_end": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page End"
+                        },
+                        "bbox": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/$defs/EvidenceBox"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null
+                        },
+                        "quote": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Quote"
+                        },
+                        "snippet": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Snippet"
+                        },
+                        "grounding_method": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Grounding Method"
+                        }
+                      },
+                      "title": "EvidenceClaim",
+                      "type": "object"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "warnings": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          "defendant_as_filed": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "description": "The defendant or respondent exactly as filed."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "evidence": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "A citation hint, never permission to choose a stored source or evidence ID.",
+                      "properties": {
+                        "source": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Source"
+                        },
+                        "segment_indices": {
+                          "anyOf": [
+                            {
+                              "default": [],
+                              "items": {
+                                "type": "integer"
+                              },
+                              "title": "Segment Indices",
+                              "type": "array"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "page": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page"
+                        },
+                        "page_start": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page Start"
+                        },
+                        "page_end": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page End"
+                        },
+                        "bbox": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/$defs/EvidenceBox"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null
+                        },
+                        "quote": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Quote"
+                        },
+                        "snippet": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Snippet"
+                        },
+                        "grounding_method": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Grounding Method"
+                        }
+                      },
+                      "title": "EvidenceClaim",
+                      "type": "object"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "warnings": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "case_number",
+          "filed_at",
+          "plaintiff",
+          "defendant_as_filed"
+        ],
+        "additionalProperties": false,
+        "$defs": {
+          "EvidenceBox": {
+            "additionalProperties": false,
+            "description": "A claimed rectangle; coordinate normalization and verification are host work.",
+            "properties": {
+              "x0": {
+                "title": "X0",
+                "type": "number"
+              },
+              "y0": {
+                "title": "Y0",
+                "type": "number"
+              },
+              "x1": {
+                "title": "X1",
+                "type": "number"
+              },
+              "y1": {
+                "title": "Y1",
+                "type": "number"
+              },
+              "space": {
+                "anyOf": [
+                  {
+                    "default": "page_normalized",
+                    "title": "Space",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "page_width": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Page Width"
+              },
+              "page_height": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Page Height"
+              }
+            },
+            "required": [
+              "x0",
+              "y0",
+              "x1",
+              "y1"
+            ],
+            "title": "EvidenceBox",
+            "type": "object"
+          }
+        }
+      },
+      "max_tokens": 32768,
+      "temperature": 0.0,
+      "params": {},
+      "mechanism": null,
+      "tools": null,
+      "reasoning_policy": null
+    }
+  },
+  {
+    "filename": "RV-CV-2026-00689_patel-v-cedar-bridge_complaint.pdf",
+    "recipe_version": "1",
+    "request": {
+      "model": "gemini/gemini-3.5-flash-lite",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You extract structured data from documents for an investigative journalist. Extract only what is actually present; use empty lists/nulls when absent. Never fabricate."
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "text: EMPLOYMENT DISCRIMINATION COMPLAINT\nLeena Patel v. Cedar Bridge Security Inc.\nCase No. RV-CV-2026-00689. Filed March 3, 2026.\nLeena Patel worked for Cedar Bridge Security as a scheduling coordinator on the Riverton\nschool account, contract CTR-2025-077. She alleges the company terminated her after she\ncomplained that supervisors assigned fewer shifts to guards who requested religious\naccommodations.\nPatel says she raised the issue with operations director Grant Mercer on January 7 and\nwas dismissed on January 20 for alleged mishandling of attendance records.\nPage 1 of 2\n\nCLAIMS FOR RELIEF\nCount I alleges religious discrimination under the Riverton Human Rights Act. Count II\nalleges retaliation. Count III alleges failure to preserve scheduling records after\nreceiving notice of an administrative complaint.\nPatel seeks back pay, lost benefits, compensatory damages, punitive damages, and an\norder requiring Cedar Bridge to preserve shift assignments, supervisor messages, and\naccess logs. No specific dollar amount is stated.\nThe complaint references staffing reports submitted to the School District but does not\nname the district as a defendant. Counsel: Alice Mendez, Workers Justice Center.\nPage 2 of 2"
+            },
+            {
+              "type": "text",
+              "text": "\nExtraction instructions:\nRead only the supplied filing. Copy names and case numbers exactly. Use YYYY-MM-DD for dates. Extract only facts explicitly stated in the source; leave missing values blank. A requested hearing or remedy is not a court decision. Do not use outside knowledge."
+            },
+            {
+              "type": "text",
+              "text": "\nOutput and citation requirements:\nFor each extracted field, return an object with `value`, optional `evidence`, and optional `warnings`. Evidence items may cite an input `source` label, page, bbox in normalized page coordinates, quote, snippet, and grounding_method. Do not invent evidence. Cite verbatim supporting passages and include `source` when there are several labeled inputs; return separate evidence items for separate passages. Valid source labels for this request are exactly [\"text\"]. Copy one of those exact strings into `source`; headings and text inside an input are not source labels. Do not return `segment_indices` unless numbered transcript segments are shown in the input."
+            }
+          ]
+        }
+      ],
+      "schema": {
+        "type": "object",
+        "properties": {
+          "case_number": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "description": "The case number exactly as printed in the filing."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "evidence": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "A citation hint, never permission to choose a stored source or evidence ID.",
+                      "properties": {
+                        "source": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Source"
+                        },
+                        "segment_indices": {
+                          "anyOf": [
+                            {
+                              "default": [],
+                              "items": {
+                                "type": "integer"
+                              },
+                              "title": "Segment Indices",
+                              "type": "array"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "page": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page"
+                        },
+                        "page_start": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page Start"
+                        },
+                        "page_end": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page End"
+                        },
+                        "bbox": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/$defs/EvidenceBox"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null
+                        },
+                        "quote": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Quote"
+                        },
+                        "snippet": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Snippet"
+                        },
+                        "grounding_method": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Grounding Method"
+                        }
+                      },
+                      "title": "EvidenceClaim",
+                      "type": "object"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "warnings": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          "filed_at": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "description": "The filing date in ISO format YYYY-MM-DD. Leave blank if absent."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "evidence": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "A citation hint, never permission to choose a stored source or evidence ID.",
+                      "properties": {
+                        "source": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Source"
+                        },
+                        "segment_indices": {
+                          "anyOf": [
+                            {
+                              "default": [],
+                              "items": {
+                                "type": "integer"
+                              },
+                              "title": "Segment Indices",
+                              "type": "array"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "page": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page"
+                        },
+                        "page_start": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page Start"
+                        },
+                        "page_end": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page End"
+                        },
+                        "bbox": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/$defs/EvidenceBox"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null
+                        },
+                        "quote": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Quote"
+                        },
+                        "snippet": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Snippet"
+                        },
+                        "grounding_method": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Grounding Method"
+                        }
+                      },
+                      "title": "EvidenceClaim",
+                      "type": "object"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "warnings": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          "plaintiff": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "description": "The plaintiff or petitioner exactly as filed."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "evidence": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "A citation hint, never permission to choose a stored source or evidence ID.",
+                      "properties": {
+                        "source": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Source"
+                        },
+                        "segment_indices": {
+                          "anyOf": [
+                            {
+                              "default": [],
+                              "items": {
+                                "type": "integer"
+                              },
+                              "title": "Segment Indices",
+                              "type": "array"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "page": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page"
+                        },
+                        "page_start": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page Start"
+                        },
+                        "page_end": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page End"
+                        },
+                        "bbox": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/$defs/EvidenceBox"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null
+                        },
+                        "quote": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Quote"
+                        },
+                        "snippet": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Snippet"
+                        },
+                        "grounding_method": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Grounding Method"
+                        }
+                      },
+                      "title": "EvidenceClaim",
+                      "type": "object"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "warnings": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          "defendant_as_filed": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "description": "The defendant or respondent exactly as filed."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "evidence": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "A citation hint, never permission to choose a stored source or evidence ID.",
+                      "properties": {
+                        "source": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Source"
+                        },
+                        "segment_indices": {
+                          "anyOf": [
+                            {
+                              "default": [],
+                              "items": {
+                                "type": "integer"
+                              },
+                              "title": "Segment Indices",
+                              "type": "array"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "page": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page"
+                        },
+                        "page_start": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page Start"
+                        },
+                        "page_end": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page End"
+                        },
+                        "bbox": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/$defs/EvidenceBox"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null
+                        },
+                        "quote": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Quote"
+                        },
+                        "snippet": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Snippet"
+                        },
+                        "grounding_method": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Grounding Method"
+                        }
+                      },
+                      "title": "EvidenceClaim",
+                      "type": "object"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "warnings": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "case_number",
+          "filed_at",
+          "plaintiff",
+          "defendant_as_filed"
+        ],
+        "additionalProperties": false,
+        "$defs": {
+          "EvidenceBox": {
+            "additionalProperties": false,
+            "description": "A claimed rectangle; coordinate normalization and verification are host work.",
+            "properties": {
+              "x0": {
+                "title": "X0",
+                "type": "number"
+              },
+              "y0": {
+                "title": "Y0",
+                "type": "number"
+              },
+              "x1": {
+                "title": "X1",
+                "type": "number"
+              },
+              "y1": {
+                "title": "Y1",
+                "type": "number"
+              },
+              "space": {
+                "anyOf": [
+                  {
+                    "default": "page_normalized",
+                    "title": "Space",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "page_width": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Page Width"
+              },
+              "page_height": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Page Height"
+              }
+            },
+            "required": [
+              "x0",
+              "y0",
+              "x1",
+              "y1"
+            ],
+            "title": "EvidenceBox",
+            "type": "object"
+          }
+        }
+      },
+      "max_tokens": 32768,
+      "temperature": 0.0,
+      "params": {},
+      "mechanism": null,
+      "tools": null,
+      "reasoning_policy": null
+    }
+  },
+  {
+    "filename": "RV-CV-2026-00725_eastbank_change-order_subpoena-motion.pdf",
+    "recipe_version": "1",
+    "request": {
+      "model": "gemini/gemini-3.5-flash-lite",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You extract structured data from documents for an investigative journalist. Extract only what is actually present; use empty lists/nulls when absent. Never fabricate."
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "text: MOTION TO QUASH THIRD-PARTY SUBPOENA\nEastbank Infrastructure v. City of Riverton\nCase No. RV-CV-2026-00725. Filed March 12, 2026.\nEastbank moves to quash a subpoena issued to engineering consultant Larkspur Group\nduring a dispute over bridge contract CTR-2025-162. Eastbank seeks a $925,000 change\norder for corroded expansion joints and a 63-day extension.\nThe city subpoena requests every photograph, field note, draft report, and message\nconcerning the Monroe Avenue bridge from January 2023 through bid opening.\nPage 1 of 2\n\nThe contractor argues that the request is overbroad and includes privileged material\nprepared after the dispute began. Riverton responds that six photographs taken before\nbidding may show the same corrosion Eastbank later called an unforeseen condition.\nAt a March 11 conference, Judge Samuel Ortiz directed Larkspur Group to preserve the\nrecords and proposed a private review of documents created after February 22, 2026.\nEastbank asks the court to limit production to pre-bid inspection material and to\nrequire the city to pay the consultant\u2019s retrieval costs. The city estimates those costs\nat $7,800; Eastbank estimates $31,000.\nPage 2 of 2"
+            },
+            {
+              "type": "text",
+              "text": "\nExtraction instructions:\nRead only the supplied filing. Copy names and case numbers exactly. Use YYYY-MM-DD for dates. Extract only facts explicitly stated in the source; leave missing values blank. A requested hearing or remedy is not a court decision. Do not use outside knowledge."
+            },
+            {
+              "type": "text",
+              "text": "\nOutput and citation requirements:\nFor each extracted field, return an object with `value`, optional `evidence`, and optional `warnings`. Evidence items may cite an input `source` label, page, bbox in normalized page coordinates, quote, snippet, and grounding_method. Do not invent evidence. Cite verbatim supporting passages and include `source` when there are several labeled inputs; return separate evidence items for separate passages. Valid source labels for this request are exactly [\"text\"]. Copy one of those exact strings into `source`; headings and text inside an input are not source labels. Do not return `segment_indices` unless numbered transcript segments are shown in the input."
+            }
+          ]
+        }
+      ],
+      "schema": {
+        "type": "object",
+        "properties": {
+          "case_number": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "description": "The case number exactly as printed in the filing."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "evidence": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "A citation hint, never permission to choose a stored source or evidence ID.",
+                      "properties": {
+                        "source": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Source"
+                        },
+                        "segment_indices": {
+                          "anyOf": [
+                            {
+                              "default": [],
+                              "items": {
+                                "type": "integer"
+                              },
+                              "title": "Segment Indices",
+                              "type": "array"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "page": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page"
+                        },
+                        "page_start": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page Start"
+                        },
+                        "page_end": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page End"
+                        },
+                        "bbox": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/$defs/EvidenceBox"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null
+                        },
+                        "quote": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Quote"
+                        },
+                        "snippet": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Snippet"
+                        },
+                        "grounding_method": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Grounding Method"
+                        }
+                      },
+                      "title": "EvidenceClaim",
+                      "type": "object"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "warnings": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          "filed_at": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "description": "The filing date in ISO format YYYY-MM-DD. Leave blank if absent."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "evidence": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "A citation hint, never permission to choose a stored source or evidence ID.",
+                      "properties": {
+                        "source": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Source"
+                        },
+                        "segment_indices": {
+                          "anyOf": [
+                            {
+                              "default": [],
+                              "items": {
+                                "type": "integer"
+                              },
+                              "title": "Segment Indices",
+                              "type": "array"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "page": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page"
+                        },
+                        "page_start": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page Start"
+                        },
+                        "page_end": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page End"
+                        },
+                        "bbox": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/$defs/EvidenceBox"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null
+                        },
+                        "quote": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Quote"
+                        },
+                        "snippet": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Snippet"
+                        },
+                        "grounding_method": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Grounding Method"
+                        }
+                      },
+                      "title": "EvidenceClaim",
+                      "type": "object"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "warnings": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          "plaintiff": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "description": "The plaintiff or petitioner exactly as filed."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "evidence": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "A citation hint, never permission to choose a stored source or evidence ID.",
+                      "properties": {
+                        "source": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Source"
+                        },
+                        "segment_indices": {
+                          "anyOf": [
+                            {
+                              "default": [],
+                              "items": {
+                                "type": "integer"
+                              },
+                              "title": "Segment Indices",
+                              "type": "array"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "page": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page"
+                        },
+                        "page_start": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page Start"
+                        },
+                        "page_end": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page End"
+                        },
+                        "bbox": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/$defs/EvidenceBox"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null
+                        },
+                        "quote": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Quote"
+                        },
+                        "snippet": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Snippet"
+                        },
+                        "grounding_method": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Grounding Method"
+                        }
+                      },
+                      "title": "EvidenceClaim",
+                      "type": "object"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "warnings": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          "defendant_as_filed": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "description": "The defendant or respondent exactly as filed."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "evidence": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "A citation hint, never permission to choose a stored source or evidence ID.",
+                      "properties": {
+                        "source": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Source"
+                        },
+                        "segment_indices": {
+                          "anyOf": [
+                            {
+                              "default": [],
+                              "items": {
+                                "type": "integer"
+                              },
+                              "title": "Segment Indices",
+                              "type": "array"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "page": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page"
+                        },
+                        "page_start": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page Start"
+                        },
+                        "page_end": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page End"
+                        },
+                        "bbox": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/$defs/EvidenceBox"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null
+                        },
+                        "quote": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Quote"
+                        },
+                        "snippet": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Snippet"
+                        },
+                        "grounding_method": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Grounding Method"
+                        }
+                      },
+                      "title": "EvidenceClaim",
+                      "type": "object"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "warnings": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "case_number",
+          "filed_at",
+          "plaintiff",
+          "defendant_as_filed"
+        ],
+        "additionalProperties": false,
+        "$defs": {
+          "EvidenceBox": {
+            "additionalProperties": false,
+            "description": "A claimed rectangle; coordinate normalization and verification are host work.",
+            "properties": {
+              "x0": {
+                "title": "X0",
+                "type": "number"
+              },
+              "y0": {
+                "title": "Y0",
+                "type": "number"
+              },
+              "x1": {
+                "title": "X1",
+                "type": "number"
+              },
+              "y1": {
+                "title": "Y1",
+                "type": "number"
+              },
+              "space": {
+                "anyOf": [
+                  {
+                    "default": "page_normalized",
+                    "title": "Space",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "page_width": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Page Width"
+              },
+              "page_height": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Page Height"
+              }
+            },
+            "required": [
+              "x0",
+              "y0",
+              "x1",
+              "y1"
+            ],
+            "title": "EvidenceBox",
+            "type": "object"
+          }
+        }
+      },
+      "max_tokens": 32768,
+      "temperature": 0.0,
+      "params": {},
+      "mechanism": null,
+      "tools": null,
+      "reasoning_policy": null
+    }
+  },
+  {
+    "filename": "RV-CV-2026-00804_chen-v-bright-harbor_class-action.pdf",
+    "recipe_version": "1",
+    "request": {
+      "model": "gemini/gemini-3.5-flash-lite",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You extract structured data from documents for an investigative journalist. Extract only what is actually present; use empty lists/nulls when absent. Never fabricate."
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "text: CLASS-ACTION COMPLAINT\nMei Chen, individually and on behalf of a proposed class, v. Bright Harbor Systems and\nRiverton Public Library\nCase No. RV-CV-2026-00804. Filed March 26, 2026.\nThe complaint challenges collection of patron request data during software pilot\nCTR-2026-041. Plaintiff Mei Chen submitted a request to digitize neighborhood\nassociation newsletters. She alleges the request text, library card identifier, and\ndevice address were transmitted to Bright Harbor without adequate notice.\nThe library says the pilot used randomly generated patron identifiers and that no\nreading history was supplied.\nPage 1 of 3\n\nALLEGED DATA PRACTICES\nContract section 7.4 permits Bright Harbor to retain de-identified usage data for\nproduct improvement. The complaint alleges that device addresses and precise timestamps\ncan be combined with other records to identify patrons.\nAn attached privacy notice says request text may be processed by a service provider but\ndoes not name Bright Harbor. Plaintiff alleges she first learned the vendor\u2019s identity\nfrom a February ethics filing.\nThe proposed class includes Riverton library patrons whose digitization requests were\nprocessed after February 10, 2026. Plaintiff asserts claims for breach of confidence,\nunjust enrichment, and violation of the Riverton Consumer Data Act.\nPage 2 of 3\n\nRELIEF REQUESTED\nPlaintiff seeks a declaration describing which fields were transmitted, deletion of data\nnot required for library operations, improved notice, statutory damages where available,\nand attorney fees.\nThe complaint does not allege that Bright Harbor sold patron data or that any request\nwas made public. It asks for an independent technical audit to determine whether\nretained records can reasonably be linked back to individuals.\nCounsel: Priya Nwosu and Benjamin Lee, Digital Rights Clinic, 8 College Square,\nRiverton.\nPage 3 of 3"
+            },
+            {
+              "type": "text",
+              "text": "\nExtraction instructions:\nRead only the supplied filing. Copy names and case numbers exactly. Use YYYY-MM-DD for dates. Extract only facts explicitly stated in the source; leave missing values blank. A requested hearing or remedy is not a court decision. Do not use outside knowledge."
+            },
+            {
+              "type": "text",
+              "text": "\nOutput and citation requirements:\nFor each extracted field, return an object with `value`, optional `evidence`, and optional `warnings`. Evidence items may cite an input `source` label, page, bbox in normalized page coordinates, quote, snippet, and grounding_method. Do not invent evidence. Cite verbatim supporting passages and include `source` when there are several labeled inputs; return separate evidence items for separate passages. Valid source labels for this request are exactly [\"text\"]. Copy one of those exact strings into `source`; headings and text inside an input are not source labels. Do not return `segment_indices` unless numbered transcript segments are shown in the input."
+            }
+          ]
+        }
+      ],
+      "schema": {
+        "type": "object",
+        "properties": {
+          "case_number": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "description": "The case number exactly as printed in the filing."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "evidence": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "A citation hint, never permission to choose a stored source or evidence ID.",
+                      "properties": {
+                        "source": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Source"
+                        },
+                        "segment_indices": {
+                          "anyOf": [
+                            {
+                              "default": [],
+                              "items": {
+                                "type": "integer"
+                              },
+                              "title": "Segment Indices",
+                              "type": "array"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "page": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page"
+                        },
+                        "page_start": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page Start"
+                        },
+                        "page_end": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page End"
+                        },
+                        "bbox": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/$defs/EvidenceBox"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null
+                        },
+                        "quote": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Quote"
+                        },
+                        "snippet": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Snippet"
+                        },
+                        "grounding_method": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Grounding Method"
+                        }
+                      },
+                      "title": "EvidenceClaim",
+                      "type": "object"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "warnings": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          "filed_at": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "description": "The filing date in ISO format YYYY-MM-DD. Leave blank if absent."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "evidence": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "A citation hint, never permission to choose a stored source or evidence ID.",
+                      "properties": {
+                        "source": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Source"
+                        },
+                        "segment_indices": {
+                          "anyOf": [
+                            {
+                              "default": [],
+                              "items": {
+                                "type": "integer"
+                              },
+                              "title": "Segment Indices",
+                              "type": "array"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "page": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page"
+                        },
+                        "page_start": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page Start"
+                        },
+                        "page_end": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page End"
+                        },
+                        "bbox": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/$defs/EvidenceBox"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null
+                        },
+                        "quote": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Quote"
+                        },
+                        "snippet": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Snippet"
+                        },
+                        "grounding_method": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Grounding Method"
+                        }
+                      },
+                      "title": "EvidenceClaim",
+                      "type": "object"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "warnings": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          "plaintiff": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "description": "The plaintiff or petitioner exactly as filed."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "evidence": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "A citation hint, never permission to choose a stored source or evidence ID.",
+                      "properties": {
+                        "source": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Source"
+                        },
+                        "segment_indices": {
+                          "anyOf": [
+                            {
+                              "default": [],
+                              "items": {
+                                "type": "integer"
+                              },
+                              "title": "Segment Indices",
+                              "type": "array"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "page": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page"
+                        },
+                        "page_start": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page Start"
+                        },
+                        "page_end": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page End"
+                        },
+                        "bbox": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/$defs/EvidenceBox"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null
+                        },
+                        "quote": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Quote"
+                        },
+                        "snippet": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Snippet"
+                        },
+                        "grounding_method": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Grounding Method"
+                        }
+                      },
+                      "title": "EvidenceClaim",
+                      "type": "object"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "warnings": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          "defendant_as_filed": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "description": "The defendant or respondent exactly as filed."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "evidence": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "A citation hint, never permission to choose a stored source or evidence ID.",
+                      "properties": {
+                        "source": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Source"
+                        },
+                        "segment_indices": {
+                          "anyOf": [
+                            {
+                              "default": [],
+                              "items": {
+                                "type": "integer"
+                              },
+                              "title": "Segment Indices",
+                              "type": "array"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "page": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page"
+                        },
+                        "page_start": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page Start"
+                        },
+                        "page_end": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Page End"
+                        },
+                        "bbox": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/$defs/EvidenceBox"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null
+                        },
+                        "quote": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Quote"
+                        },
+                        "snippet": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Snippet"
+                        },
+                        "grounding_method": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Grounding Method"
+                        }
+                      },
+                      "title": "EvidenceClaim",
+                      "type": "object"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "warnings": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "case_number",
+          "filed_at",
+          "plaintiff",
+          "defendant_as_filed"
+        ],
+        "additionalProperties": false,
+        "$defs": {
+          "EvidenceBox": {
+            "additionalProperties": false,
+            "description": "A claimed rectangle; coordinate normalization and verification are host work.",
+            "properties": {
+              "x0": {
+                "title": "X0",
+                "type": "number"
+              },
+              "y0": {
+                "title": "Y0",
+                "type": "number"
+              },
+              "x1": {
+                "title": "X1",
+                "type": "number"
+              },
+              "y1": {
+                "title": "Y1",
+                "type": "number"
+              },
+              "space": {
+                "anyOf": [
+                  {
+                    "default": "page_normalized",
+                    "title": "Space",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "page_width": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Page Width"
+              },
+              "page_height": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Page Height"
+              }
+            },
+            "required": [
+              "x0",
+              "y0",
+              "x1",
+              "y1"
+            ],
+            "title": "EvidenceBox",
+            "type": "object"
+          }
+        }
+      },
+      "max_tokens": 32768,
+      "temperature": 0.0,
+      "params": {},
+      "mechanism": null,
+      "tools": null,
+      "reasoning_policy": null
+    }
+  }
+]

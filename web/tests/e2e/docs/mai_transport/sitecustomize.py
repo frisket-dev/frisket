@@ -17,10 +17,8 @@ _original_post = httpx.AsyncClient.post
 async def _post(self, url, *args, **kwargs):
     if str(url) != 'https://openrouter.ai/api/v1/audio/transcriptions':
         return await _original_post(self, url, *args, **kwargs)
-    fixture_path = os.environ.get('FRISKET_DOCS_MAI_FIXTURE')
-    if not fixture_path:
-        raise RuntimeError('MAI replay fixture is required for docs capture')
-    fixture = json.loads(Path(fixture_path).read_text())
+    fixture_path = Path(os.environ.get('FRISKET_DOCS_MAI_FIXTURE', Path(__file__).resolve().parents[1] / 'fixtures' / 'mai-30s-recording.json'))
+    fixture = json.loads(fixture_path.read_text())
     body = kwargs.get('json')
     if not isinstance(body, dict) or not isinstance(body.get('input_audio'), dict):
         raise RuntimeError('MAI replay expected JSON input_audio')

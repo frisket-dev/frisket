@@ -7,8 +7,12 @@ import { setTheme } from '../screenshotHelpers';
 
 export interface CaptureAnnotation {
   id: string;
+  /** 1-based position among the recipe step's settings. */
+  number?: number;
   target: WalkthroughTarget | { kind: 'radio'; group: string; value: string };
   label: string;
+  /** Explicit visible label when the target is a composite control or heading. */
+  labelTarget?: Locator;
   expected: { kind: 'value' | 'text' | 'checked'; value: string | boolean };
 }
 export interface CaptureDescription {
@@ -66,6 +70,8 @@ async function actualValue(locator: Locator, kind: CaptureAnnotation['expected']
 export async function captureCheckpoint(page: Page, description: CaptureDescription, directory: string): Promise<CaptureRecord> {
   if (!/^[a-z0-9-]+$/.test(description.id)) throw new Error(`Unsafe capture id: ${description.id}`);
   if (new Set(description.annotations.map((a) => a.id)).size !== description.annotations.length) throw new Error('Duplicate annotation IDs');
+  const numbers = description.annotations.map((a, i) => a.number ?? i + 1);
+  if (numbers.some((n) => !Number.isSafeInteger(n) || n < 1) || new Set(numbers).size !== numbers.length) throw new Error('Invalid annotation numbers');
   await setTheme(page, 'light');
   await page.evaluate(async () => { await document.fonts.ready; });
   const scale = await page.evaluate(() => window.devicePixelRatio);
@@ -77,17 +83,23 @@ export async function captureCheckpoint(page: Page, description: CaptureDescript
   const annotations: CaptureRecord['annotations'] = [];
   for (const [index, annotation] of description.annotations.entries()) {
     const target = await resolveCaptureTarget(scope, annotation.target);
-    const label = await target.evaluate((element) => {
-      const control = element as HTMLInputElement;
-      return Array.from(control.labels ?? []).map((item) => (control.type === 'radio' ? item.querySelector('strong')?.textContent : item.textContent)?.trim()).filter(Boolean).join(' ')
-        || element.getAttribute('aria-label') || '';
-    });
+    const label = annotation.labelTarget
+      ? await (async () => {
+        const labelTarget = annotation.labelTarget!;
+        if (await labelTarget.count() !== 1 || !await labelTarget.isVisible()) throw new Error(`Capture ${description.id} target ${annotation.id}: label must resolve to one visible element`);
+        return (await labelTarget.innerText()).trim();
+      })()
+      : await target.evaluate((element) => {
+        const control = element as HTMLInputElement;
+        return Array.from(control.labels ?? []).map((item) => (control.type === 'radio' ? item.querySelector('strong')?.textContent : item.textContent)?.trim()).filter(Boolean).join(' ')
+          || element.getAttribute('aria-label') || '';
+      });
     if (label !== annotation.label) throw new Error(`Capture ${description.id} target ${annotation.id}: expected label ${JSON.stringify(annotation.label)}, got ${JSON.stringify(label)}`);
     const value = await actualValue(target, annotation.expected.kind);
     if (value !== annotation.expected.value) throw new Error(`Capture ${description.id} target ${annotation.id}: expected ${JSON.stringify(annotation.expected.value)}, got ${JSON.stringify(value)}`);
     const box = await target.boundingBox();
     if (!box || box.x < crop.x - 0.5 || box.y < crop.y - 0.5 || box.x + box.width > crop.x + crop.width + 0.5 || box.y + box.height > crop.y + crop.height + 0.5) throw new Error(`Capture target ${annotation.id} is outside its crop`);
-    annotations.push({ id: annotation.id, number: index + 1, label, value,
+    annotations.push({ id: annotation.id, number: numbers[index], label, value,
       rect: { x: (box.x - crop.x) / crop.width, y: (box.y - crop.y) / crop.height, width: box.width / crop.width, height: box.height / crop.height } });
   }
   const image = `${description.id}.png`;
