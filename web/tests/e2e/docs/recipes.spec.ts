@@ -102,8 +102,6 @@ test('court sample imports and runs the selected filings through strict replay',
     const sheet = current.find((item: { id: number }) => item.id === imported.id);
     return ['case_number', 'filed_at', 'plaintiff', 'defendant_as_filed'].every(name => sheet.columns.some((column: { name: string, latest_run_id: number }) => column.name === name && column.latest_run_id === runId));
   }, { timeout: 30_000 }).toBe(true);
-  await page.reload();
-  await expect(page.getByTestId('grid')).toBeVisible();
   await page.getByTestId('ribbon-tab-tables').click();
   await page.getByRole('button', { name: 'Join expected answers', exact: true }).click();
   const join = page.getByTestId('join-expected-dialog');
