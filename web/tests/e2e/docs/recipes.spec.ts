@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { copyFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { createProject, importCsv, openAction, openCellDrawer, openImportWorkspace, openProject, selectActionSourceColumns, selectRow, sheetColumns, sheetData, textPdf } from '../helpers';
 import { captureCheckpoint, publishCaptureBundle } from './capture';
+import { captureReview } from './workflows-review';
 
 test.use({ deviceScaleFactor: 2, viewport: { width: 1600, height: 1000 } });
 test.skip(!process.env.FRISKET_DOCS_PROOF_DIR, 'Run through the isolated documentation capture harness');
@@ -173,6 +174,7 @@ test('court sample imports and runs the selected filings through strict replay',
   await expect(join).toHaveCount(0);
   await page.getByTestId('ribbon-tab-analyze').click();
   await page.getByTestId('compare-menu-trigger').click();
+  captures.push(await captureCheckpoint(page, { id: 'compare-actions-entry', root: page.getByRole('menu'), annotations: [] }, stage));
   let score: import('../../../src/api/evaluation').EvaluationResponse | null = null;
   page.on('response', async response => {
     if (response.url().endsWith('/evaluation/score') && response.ok()) score = await response.json();
@@ -189,6 +191,12 @@ test('court sample imports and runs the selected filings through strict replay',
   await expect(page.getByText('Join a sheet of expected answers to check this action.')).toHaveCount(0, { timeout: 30_000 });
   await expect(page.getByText('Scoring…')).toHaveCount(0, { timeout: 30_000 });
   captures.push(await captureCheckpoint(page, { id: 'court-comparison', root: page.getByRole('region', { name: 'Action comparison' }), annotations: [] }, stage));
+  await page.getByRole('button', { name: '+ ⌄', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'New variant', exact: true }).click();
+  const variantEditor = page.getByRole('complementary', { name: 'Configure variant B' });
+  await expect(variantEditor).toBeVisible();
+  captures.push(await captureCheckpoint(page, { id: 'compare-actions-setup', root: variantEditor, annotations: [] }, stage));
+  await variantEditor.getByRole('button', { name: 'Close variant editor' }).click();
   await page.getByTestId('workbench-mainView-tab-' + imported.id).click();
   await openAction(page, 'map.extract');
   await selectActionSourceColumns(page, 'text');
@@ -242,8 +250,10 @@ test('court sample imports and runs the selected filings through strict replay',
     return { filename, fields: Object.fromEntries(['case_number', 'filed_at', 'plaintiff', 'defendant_as_filed'].map(name => [name, { actual: row.cells[actualColumns[`${name}_2`]], expected: answer.cells[expectedColumns[name]] }])) };
   });
   expect(review).toHaveLength(6);
+  expect(review.every(row => row.fields.case_number.actual === row.fields.case_number.expected)).toBeTruthy();
   writeFileSync(path.join(stage, 'court-review.json'), JSON.stringify({ runId: fullRunId, rows: review }, null, 2));
   captures.push(await captureCheckpoint(page, { id: 'court-results', root: page.getByTestId('grid'), annotations: [] }, stage));
+  captures.push(...await captureReview(page, stage, fullRunId));
   await openAction(page, 'media.ocr');
   await expect(page.getByText('Loading models…')).toHaveCount(0, { timeout: 60_000 });
   await expect(page.getByText('Loading choices…')).toHaveCount(0, { timeout: 60_000 });
@@ -253,7 +263,7 @@ test('court sample imports and runs the selected filings through strict replay',
   await expect(page.getByTestId('engine-selector-dialog')).toBeVisible();
   captures.push(await captureCheckpoint(page, { id: 'court-ocr-engine', root: page.getByTestId('engine-selector-dialog'), annotations: [] }, stage));
   const required = ['court-check-text', 'court-extract-settings', 'court-extract-fields', 'court-extract-instruction', 'court-preview', 'court-sample-run', 'court-expected-join', 'court-comparison', 'court-run-settings', 'court-results', 'court-ocr-settings', 'court-ocr-engine'];
-  expect(captures.map(item => item.id)).toEqual(required);
+  expect(captures.map(item => item.id).filter(id => required.includes(id))).toEqual(required);
   return captures;
   });
 });
