@@ -293,4 +293,4 @@ class SchemaViolation(LLMError):
 
 
 class OutputLimitReached(SchemaViolation):
-    """A schema-valid response that may be incomplete due to an output limit."""
+    """An incomplete structured response stopped by the provider's output limit."""
