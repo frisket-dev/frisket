@@ -129,6 +129,7 @@ export function useWorkspaceExpectedAnswers(projectId: string, sheet: SheetMeta 
     await api.saveLink(input, id); refresh();
   }, [api, refresh]);
   const openJoin = useCallback((actionId?: string, link?: EvaluationLink, step?: 'columns') => setJoin({ actionId, link, step }), []);
+  const closeJoin = useCallback(() => setJoin(null), []);
   const saveLink = useCallback(async (input: EvaluationLinkInput, changedRules: Array<{ expected_column_id: number; rule: EvaluationRule }>) => {
     await api.saveLink(input, join?.link?.id);
     try {
@@ -139,5 +140,10 @@ export function useWorkspaceExpectedAnswers(projectId: string, sheet: SheetMeta 
   }, [api, join, refresh]);
   const removeLink = useCallback(async (id: number) => { await api.deleteLink(id); refresh(); }, [api, refresh]);
   const setRule = useCallback(async (columnId: number, rule: EvaluationRule) => { await api.setRule(columnId, rule); refresh(); }, [api, refresh]);
-  return { api, revision, links, availableLinks, unavailableLinks, removeLink, runs, runChoices, actionChoices, joinSheets, joinActions, join, openJoin, closeJoin: () => setJoin(null), saveLink, refresh, matchedCounts, expectedColumns, projectExpected, editExpected, setLink, setRule };
+  return useMemo(() => ({ api, revision, links, availableLinks, unavailableLinks, removeLink, runs, runChoices,
+    actionChoices, joinSheets, joinActions, join, openJoin, closeJoin, saveLink, refresh, matchedCounts,
+    expectedColumns, projectExpected, editExpected, setLink, setRule }),
+  [api, revision, links, availableLinks, unavailableLinks, removeLink, runs, runChoices, actionChoices,
+    joinSheets, joinActions, join, openJoin, closeJoin, saveLink, refresh, matchedCounts, expectedColumns,
+    projectExpected, editExpected, setLink, setRule]);
 }
