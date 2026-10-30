@@ -47,7 +47,7 @@ def comparison_csv(result):
                         if state == "error"
                         else cell.get("value")
                         if state in {"value", "null"}
-                        else None
+                        else "#NOT_RUN"
                     )
                     verdict = variant["verdicts"][rid][key]
                     row.extend(

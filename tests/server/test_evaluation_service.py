@@ -479,3 +479,112 @@ def test_score_display_is_bounded_but_full_cell_and_exports_are_exact(env):
         == text
     )
     assert text in e.service.download_csv("p", e.request)
+
+
+def test_capture_cleanup_preserves_kept_and_recently_used_results(env):
+    e = env
+    captures = [
+        e.service.capture("p", {"comparison": e.request, "variant_keys": ["A"]})[
+            "items"
+        ][0]["id"]
+        for _ in range(3)
+    ]
+    kept, active, abandoned = captures
+    e.request["variants"][0]["source"] = {"kind": "saved", "saved_id": kept}
+    e.service.shelve("p", {"comparison": e.request, "variant_keys": ["A"]})
+    e.project.db.execute(
+        "UPDATE saved_compare_variants SET last_used_at=datetime('now','-8 days')"
+    )
+    e.project.db.commit()
+    e.request["variants"][0]["source"] = {"kind": "saved", "saved_id": active}
+    e.service.score("p", e.request)
+    e.request["variants"][0]["source"] = {"kind": "current"}
+    e.service.capture("p", {"comparison": e.request, "variant_keys": ["A"]})
+    assert e.service.saved("p", kept)["kept"]
+    assert e.service.saved("p", active)["id"] == active
+    with pytest.raises(RouteError, match="not found"):
+        e.service.saved("p", abandoned)
+
+
+def test_not_run_csv_sentinel_distinguishes_empty_answer_and_unchecked(env):
+    e = env
+    join(e)
+    preview(
+        e, "partial", {str(e.rows[0]): {"answer": {"state": "null", "value": None}}}
+    )
+    e.request["variants"] = [
+        {
+            "key": "P",
+            "label": "Partial",
+            "source": {"kind": "preview", "preview_ids": ["partial"]},
+        }
+    ]
+    rows = list(csv.DictReader(io.StringIO(e.service.download_csv("p", e.request))))
+    assert rows[0]["answer_P"] == ""
+    assert rows[0]["answer_P_match"] == "no"
+    assert rows[1]["answer_P"] == "#NOT_RUN"
+    assert rows[1]["answer_P_match"] == ""
+
+
+def test_manual_empty_expectation_still_requires_judgment(env):
+    e = env
+    link = join(e)
+    e.service.expected_answer(
+        "p",
+        {
+            "basis": e.basis,
+            "link_id": link["id"],
+            "row_id": e.rows[0],
+            "logical_key": "answer",
+            "value": "[empty]",
+            "rule": "exact",
+        },
+    )
+    e.service.set_rule("p", e.ec["answer"], "hand")
+    preview(e, "empty", {str(e.rows[0]): {"answer": {"state": "null", "value": None}}})
+    e.request["variants"] = [
+        {
+            "key": "E",
+            "label": "Empty",
+            "source": {"kind": "preview", "preview_ids": ["empty"]},
+        }
+    ]
+    assert (
+        e.service.score("p", e.request)["variants"][0]["verdicts"][str(e.rows[0])][
+            "answer"
+        ]
+        == "unscored"
+    )
+    result = e.service.judgment(
+        "p",
+        {
+            "comparison": e.request,
+            "variant_key": "E",
+            "row_id": e.rows[0],
+            "logical_key": "answer",
+            "verdict": "miss",
+        },
+    )
+    assert result["variants"][0]["verdicts"][str(e.rows[0])]["answer"] == "miss"
+
+
+def test_equal_counts_with_disjoint_scored_rows_cannot_choose_winner(env):
+    e = env
+    join(e)
+    preview(e, "a", {str(e.rows[0]): {"answer": {"state": "value", "value": "yes"}}})
+    preview(e, "b", {str(e.rows[1]): {"answer": {"state": "value", "value": "yes"}}})
+    e.request["variants"] = [
+        {"key": key, "label": key, "source": {"kind": "preview", "preview_ids": [key]}}
+        for key in ("a", "b")
+    ]
+    assert e.service.score("p", e.request)["best"]["answer"] == []
+
+
+def test_join_ambiguity_created_after_save_refuses_reads(env):
+    e = env
+    join(e)
+    e.project.add_rows(e.expected, [{"id": "a", "answer": "conflict"}], e.ec)
+    with pytest.raises(RouteError, match="ambiguous"):
+        e.service.score("p", e.request)
+    with pytest.raises(RouteError, match="ambiguous"):
+        e.service.projection("p", e.sheet, e.rows)

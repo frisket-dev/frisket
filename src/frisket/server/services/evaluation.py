@@ -117,8 +117,21 @@ class EvaluationService:
     def score(self, pid, raw):
         return bound(self._score_full(pid, raw))
 
+    def _touch_comparison(self, pid, request, extra_ids=()):
+        ids = [
+            variant["source"]["saved_id"]
+            for variant in request["variants"]
+            if variant["source"]["kind"] == "saved"
+        ]
+        ids.extend(extra_ids)
+        if ids:
+            project = self.workspace.get(pid)
+            with store.write_transaction(project):
+                store.touch_saved(project, ids)
+
     def _score_full(self, pid, raw):
         request = _body(EvaluationRequest, raw)
+        self._touch_comparison(pid, request)
         project = self.workspace.get(pid)
         with read_transaction(project.db):
             project, context, result = scoring.prepare(self, pid, request)
@@ -232,6 +245,12 @@ class EvaluationService:
             for variant in body["comparison"]["variants"]
             if variant["key"] in body["variant_keys"]
         ]
+        self._touch_comparison(
+            pid, body["comparison"], [target_id] if target_id is not None else []
+        )
+        project = self.workspace.get(pid)
+        with store.write_transaction(project):
+            store.purge_stale_captures(project)
         if target_id is None:
             return self.shelve(pid, body, kept=False)
         project = self.workspace.get(pid)
@@ -322,6 +341,9 @@ class EvaluationService:
         return {"items": [_summary(store.saved(project, row[0])) for row in rows]}
 
     def saved(self, pid, saved_id):
+        project = self.workspace.get(pid)
+        with store.write_transaction(project):
+            store.touch_saved(project, [saved_id])
         return bound(self._saved_full(pid, saved_id))
 
     def _saved_full(self, pid, saved_id):

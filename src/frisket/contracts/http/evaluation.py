@@ -88,7 +88,7 @@ class ExpectedJoinPreview(WireModel):
 
 class ExpectedProjectionRequest(WireModel):
     sheet_id: PositiveId
-    row_ids: list[PositiveId] = Field(max_length=1000)
+    row_ids: list[PositiveId] = Field(max_length=500)
 
 
 class ExpectedProjectionColumn(WireModel):
@@ -151,7 +151,7 @@ class EvaluationVariantInput(WireModel):
 
 class EvaluationRequest(WireModel):
     basis: ActionCompareBasis
-    row_ids: list[PositiveId] = Field(min_length=1, max_length=1000)
+    row_ids: list[PositiveId] = Field(min_length=1, max_length=500)
     variants: list[EvaluationVariantInput] = Field(min_length=1, max_length=32)
     link_id: PositiveId | None = None
 

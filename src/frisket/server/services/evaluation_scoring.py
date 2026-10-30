@@ -52,7 +52,15 @@ def aggregate(verdicts, states, checked, rule):
 
 
 def _signature(columns):
-    return sorted((column["logical_key"], column["current_name"]) for column in columns)
+    return sorted(
+        (
+            column["logical_key"],
+            ("column", column["column_id"])
+            if column.get("column_id") is not None
+            else ("name", column["current_name"]),
+        )
+        for column in columns
+    )
 
 
 def settings_key(settings):

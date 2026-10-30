@@ -45,7 +45,8 @@ CREATE TABLE IF NOT EXISTS saved_compare_variants (
   rows_json TEXT NOT NULL CHECK (json_valid(rows_json)),
   fingerprints_json TEXT NOT NULL CHECK (json_valid(fingerprints_json)),
   kept INTEGER NOT NULL DEFAULT 0 CHECK (kept IN (0,1)),
-  saved_at TEXT NOT NULL DEFAULT (datetime('now'))
+  saved_at TEXT NOT NULL DEFAULT (datetime('now')),
+  last_used_at TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_saved_compare_variants_group
   ON saved_compare_variants(sheet_id,action_id,id);
@@ -185,6 +186,7 @@ def saved(project, saved_id):
         ("fingerprints_json", "source_fingerprints"),
     ):
         result[public] = json.loads(result.pop(stored))
+    result.pop("last_used_at", None)
     result["row_count"] = len(result["rows"])
     result["kept"] = bool(result["kept"])
     return result
@@ -203,7 +205,7 @@ def save_variant(
     kept=True,
 ):
     cursor = project.db.execute(
-        "INSERT INTO saved_compare_variants(sheet_id,action_id,label,output_columns_json,settings_json,rows_json,fingerprints_json,kept) VALUES (?,?,?,?,?,?,?,?)",
+        "INSERT INTO saved_compare_variants(sheet_id,action_id,label,output_columns_json,settings_json,rows_json,fingerprints_json,kept,last_used_at) VALUES (?,?,?,?,?,?,?,?,datetime('now'))",
         (
             sheet_id,
             action_id,
@@ -216,3 +218,17 @@ def save_variant(
         ),
     )
     return cursor.lastrowid
+
+
+def touch_saved(project, saved_ids):
+    for saved_id in set(saved_ids):
+        project.db.execute(
+            "UPDATE saved_compare_variants SET last_used_at=datetime('now') WHERE id=?",
+            (saved_id,),
+        )
+
+
+def purge_stale_captures(project):
+    project.db.execute(
+        "DELETE FROM saved_compare_variants WHERE kept=0 AND last_used_at < datetime('now','-7 days')"
+    )
