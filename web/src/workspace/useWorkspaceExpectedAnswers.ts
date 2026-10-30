@@ -24,7 +24,6 @@ function useRunDiscovery(
 ) {
   const [result, setResult] = useState<{ key: string; owner: string; scope: object | null; runs: Run[] } | null>(null);
   const completion = useRef(completionSignal);
-  completion.current = completionSignal;
   const notifyCompletion = useRef<(() => void) | null>(null);
   useEffect(() => {
     if (!enabled) return;
@@ -50,7 +49,10 @@ function useRunDiscovery(
     void read();
     return () => { live = false; notifyCompletion.current = null; };
   }, [enabled, readRuns, signature, owner, scope]);
-  useEffect(() => { notifyCompletion.current?.(); }, [completionSignal]);
+  useEffect(() => {
+    completion.current = completionSignal;
+    notifyCompletion.current?.();
+  }, [completionSignal]);
   return enabled && result?.key === signature && result.owner === owner && result.scope === scope ? result.runs : EMPTY_RUNS;
 }
 export function useWorkspaceExpectedAnswers(projectId: string, sheet: SheetMeta | undefined, sheets: SheetMeta[],
