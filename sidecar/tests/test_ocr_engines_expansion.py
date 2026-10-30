@@ -60,7 +60,7 @@ def _expansion_registry() -> Registry:
                 "/ocr",
                 [],
                 lambda: _stub_ocr,
-                models=["datalab-to/surya-ocr-2"],
+                models=["datalab-to/surya-ocr-2.5"],
             ),
             Engine(
                 "paddleocr-vl",
@@ -102,7 +102,7 @@ def test_default_registry_registers_all_public_sidecar_ocr_engines():
         assert by_name[name].route == "/ocr"
         # Each gates capabilities on a real import/configuration condition.
         assert by_name[name].modules
-    assert by_name["surya2"].models == ["datalab-to/surya-ocr-2"]
+    assert by_name["surya2"].models == ["datalab-to/surya-ocr-2.5"]
 
 
 def test_local_ocr_engines_have_truthful_install_boundaries():
@@ -122,6 +122,7 @@ def test_capabilities_lists_all_public_sidecar_ocr_engines(client):
     for name in ("dots.mocr", "glm-ocr", "surya2", "paddleocr-vl", "pp-ocrv6"):
         assert by_name[name]["route"] == "/ocr"
         assert by_name[name]["available"] is True
+    assert by_name["surya2"]["models"] == ["datalab-to/surya-ocr-2.5"]
 
 
 def test_dots_mocr_ocr_routing_returns_pages(client):
@@ -196,8 +197,11 @@ def test_dots_mocr_missing_extra_is_503_with_install_hint(client):
     assert "not installed" in resp.json()["detail"]
 
 
-def test_surya2_adapter_uses_v2_manager_and_html_block_schema(monkeypatch):
-    """Pin the breaking 0.22 API without starting or contacting a backend."""
+@pytest.mark.parametrize("with_confidence", [True, False])
+def test_surya2_adapter_uses_v2_manager_and_html_block_schema(
+    monkeypatch, with_confidence
+):
+    """Pin the 0.23 API without starting or contacting a backend."""
     from frisket_models import engines
 
     calls: dict[str, object] = {}
@@ -215,7 +219,7 @@ def test_surya2_adapter_uses_v2_manager_and_html_block_schema(monkeypatch):
         def __call__(self, images, *, full_page):
             calls["images"] = images
             calls["full_page"] = full_page
-            return [
+            results = [
                 SimpleNamespace(
                     blocks=[
                         SimpleNamespace(
@@ -239,6 +243,11 @@ def test_surya2_adapter_uses_v2_manager_and_html_block_schema(monkeypatch):
                     ]
                 )
             ]
+
+            if not with_confidence:
+                for block in results[0].blocks:
+                    del block.confidence
+            return results
 
     class Image:
         @staticmethod
@@ -272,12 +281,12 @@ def test_surya2_adapter_uses_v2_manager_and_html_block_schema(monkeypatch):
                 {
                     "text": "Hello Frisket",
                     "bbox": [[0, 0], [9, 0], [9, 9], [0, 9]],
-                    "score": 0.95,
+                    **({"score": 0.95} if with_confidence else {}),
                 },
                 {
                     "text": "Second & final",
                     "bbox": [[10, 20], [30, 20], [30, 40], [10, 40]],
-                    "score": 0.8765,
+                    **({"score": 0.8765} if with_confidence else {}),
                 },
             ],
         }
@@ -347,7 +356,7 @@ def test_pp_ocrv6_real():
 
 @pytest.mark.real
 def test_surya2_real():
-    """Real Surya 2 smoke; requires the ``ocr`` extra and an upstream backend."""
+    """Real Surya 2.5 smoke; requires the ``ocr`` extra and an upstream backend."""
     pytest.importorskip("surya")
     from PIL import Image, ImageDraw
 

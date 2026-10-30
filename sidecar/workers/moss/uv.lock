@@ -122,7 +122,7 @@ requires-dist = [
     { name = "safetensors", marker = "extra == 'classify-clef'", specifier = ">=0.7.0" },
     { name = "safetensors", marker = "extra == 'ocr-lighton'", specifier = ">=0.7" },
     { name = "sentence-transformers", marker = "extra == 'rerank'", specifier = ">=3.0" },
-    { name = "surya-ocr", marker = "extra == 'ocr'", specifier = "==0.22.1" },
+    { name = "surya-ocr", marker = "extra == 'ocr'", specifier = "==0.23.0" },
     { name = "torch", marker = "extra == 'classify'", specifier = "==2.14.0" },
     { name = "torch", marker = "extra == 'classify-clef'", specifier = ">=2.11.0" },
     { name = "torch", marker = "extra == 'ocr-lighton'", specifier = ">=2.11.0" },
