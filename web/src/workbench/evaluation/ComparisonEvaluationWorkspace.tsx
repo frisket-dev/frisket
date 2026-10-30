@@ -287,19 +287,26 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
     {lens === 'expected' && sourceUnavailable && e.link && <div>
       <UnavailableExpectedLinks links={[e.link]} onRemove={(id) => { void e.mutate(async () => { await p.api.deleteLink(id); p.onExpectedAnswersChanged?.(); }); }} />
       <Button onClick={p.onJoinExpected}>Edit join…</Button></div>}
-    {queue ? <>
-      {queue.mode !== 'disagreements' && <div className="comparison-field-toolbar"><Button disabled={scoreBusy} aria-pressed={queue.filter === 'to_score'} onClick={() => setQueue({ ...queue, filter: 'to_score' })}>To score · {response?.row_ids.filter((rowId) => response.variants.some((variant) => variant.verdicts[String(rowId)]?.[field] === 'unscored')).length ?? 0}</Button>
-        <Button disabled={scoreBusy} aria-pressed={queue.filter === 'misses'} onClick={() => setQueue({ ...queue, filter: 'misses' })}>Misses · {response ? filteredEvaluationRows(response, field, 'any_miss').length : 0}</Button></div>}
-      {queueRow === undefined ? <div className="comparison-empty-queue"><p>{queue.mode === 'disagreements' ? 'No disagreements in this field.' : queue.filter === 'to_score' ? 'No answers left to score.' : 'No misses in this field.'}</p><Button onClick={() => void closeQueue()}>Back to comparison</Button></div>
-        : <ComparisonReview fieldLabel={currentField?.current_name ?? field} rowId={queueRow} position={queueRows.indexOf(queueRow) + 1} total={queueRows.length}
-          mode={queue.mode} groups={reviewGroups} expectedValue={expectedText} rule={rule} busy={e.saving || e.loading} error={e.error}
-          expectedContent={boundedExpected ? loaded?.expected ? <FocusedAnswerValue text={expectedText} /> : <p>Loading full expected answer…</p>
-            : expectedValue != null && expectedValue !== '' ? <ComparisonAnswerValue state={p.state} rowId={queueRow} field={field} value={expectedValue} /> : undefined}
-          expectedEditable={!boundedExpected}
-          source={<ComparisonSources state={p.state} rowId={queueRow} field={field} />}
-          onExpectedChange={expectedChanged} onRuleChange={(next) => void changeRule(next)} onAccept={(key) => void decide(key, true)} onReject={(key) => void decide(key, false)}
-          onPrevious={() => void moveQueue(-1)} onNext={() => void moveQueue(1)} onClose={() => void closeQueue()} />}
-    </> : p.renderGrid({ response, field, lens, rowIds: rows,
+    {queue && <ComparisonReview fieldLabel={currentField?.current_name ?? field} rowId={queueRow ?? 0}
+      position={queueRow === undefined ? 0 : queueRows.indexOf(queueRow) + 1} total={queueRows.length}
+      mode={queue.mode} groups={reviewGroups} expectedValue={expectedText} rule={rule} busy={scoreBusy} error={e.error}
+      toolbar={<>
+        <PanelSelect ariaLabel="Review field" value={field} disabled={scoreBusy}
+          options={p.state.context.output_columns.map(column => ({ value: column.logical_key, label: column.current_name }))}
+          onValueChange={(next) => { void flushExpected().then(saved => { if (saved) { setDraft(null); setField(next); } }); }} />
+        {queue.mode !== 'disagreements' && <PanelSelect ariaLabel="Review answers" value={queue.filter} disabled={scoreBusy}
+          options={[{ value: 'all', label: 'All answers' }, { value: 'to_score', label: 'To score by hand' }, { value: 'misses', label: 'Misses' }]}
+          onValueChange={(next) => { void flushExpected().then(saved => { if (saved) setQueue({ ...queue, filter: next as 'all' | 'misses' | 'to_score' }); }); }} />}
+      </>}
+      emptyMessage={queueRow === undefined ? queue.mode === 'disagreements' ? 'No disagreements in this field.'
+        : queue.filter === 'to_score' ? 'No answers left to score.' : 'No matching answers in this field.' : undefined}
+      expectedContent={boundedExpected ? loaded?.expected ? <FocusedAnswerValue text={expectedText} /> : <p>Loading full expected answer…</p>
+        : queueRow !== undefined && expectedValue != null && expectedValue !== '' ? <ComparisonAnswerValue state={p.state} rowId={queueRow} field={field} value={expectedValue} /> : undefined}
+      expectedEditable={!boundedExpected}
+      source={queueRow === undefined ? null : <ComparisonSources state={p.state} rowId={queueRow} field={field} />}
+      onExpectedChange={expectedChanged} onRuleChange={(next) => void changeRule(next)} onAccept={(key) => void decide(key, true)} onReject={(key) => void decide(key, false)}
+      onPrevious={() => void moveQueue(-1)} onNext={() => void moveQueue(1)} onClose={() => void closeQueue()} />}
+    {p.renderGrid({ response, field, lens, rowIds: rows,
       onOpenRow: (rowId) => setQueue({ mode: rule === 'hand' ? 'score' : 'inspect', rowId, filter: 'all' }),
       onScoreClick: (key) => { if (!scoreBusy) setFilter(`variant:${key}`); }, onRuleClick: () => { if (!scoreBusy) setRuleOpen(true); } })}
     {!queue && p.state.variants.length === 1 && <div className="comparison-try-baseline"><strong>B · try to beat A</strong><Button onClick={() => { const id = p.session.addVariant(); if (id) p.onOpenVariant(id); }}>Another model ▾</Button><Button onClick={() => { const id = p.session.addVariant(); if (id) p.onOpenVariant(id); }}>Edit instructions</Button><Button disabled={!modelField || !instructionsField} onClick={() => setSeveralOpen(true)}>Try several…</Button></div>}
