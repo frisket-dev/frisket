@@ -28,13 +28,12 @@ test('court sample imports and runs the selected filings through strict replay',
   await expect(flow.getByRole('radio', { name: /^Keep documents/ })).toBeChecked();
   await expect(flow.getByText('Loading choices…')).toHaveCount(0, { timeout: 60_000 });
   await expect(flow.getByText('6 files → 6 rows')).toBeVisible();
-  const output = path.join(process.env.FRISKET_DOCS_PROOF_DIR!, `court-check-text-proof-${Date.now()}`);
-  await publishCaptureBundle(output, { appRevision: process.env.FRISKET_DOCS_REVISION!, sample: { id: 'court-filings', revision: 1 } }, async stage => [
-    await captureCheckpoint(page, { id: 'court-check-text', root: flow, annotations: [
+  const output = path.join(process.env.FRISKET_DOCS_PROOF_DIR!, 'court');
+  await publishCaptureBundle(output, { appRevision: process.env.FRISKET_DOCS_REVISION!, sample: { id: 'court-filings', revision: 1 }, replay: 'recorded-gemini-3.5-flash-lite' }, async stage => {
+    const captures = [await captureCheckpoint(page, { id: 'court-check-text', root: flow, annotations: [
       { id: 'ocr-policy', target: { kind: 'radio', group: 'pdf-batch-ocr-policy', value: 'none' }, label: 'None', expected: { kind: 'checked', value: true } },
       { id: 'organization', target: { kind: 'radio', group: 'pdf-batch-organization', value: 'keep_documents' }, label: 'Keep documents', expected: { kind: 'checked', value: true } },
-    ] }, stage),
-  ]);
+    ] }, stage)];
   await flow.getByRole('button', { name: 'Continue →' }).click();
   await flow.getByRole('button', { name: 'Search setup →' }).click();
   await flow.getByRole('checkbox', { name: /Search by meaning/ }).uncheck();
@@ -77,7 +76,27 @@ test('court sample imports and runs the selected filings through strict replay',
   const authoredPath = path.join(process.env.FRISKET_DOCS_PROOF_DIR!, 'authored-requests.json');
   execFileSync(process.env.FRISKET_E2E_PYTHON!, [path.resolve('tests/e2e/docs/render_court_requests.py'), process.env.FRISKET_E2E_WS!, pid, String(imported.id), path.resolve('../guides/recipes/court-filings-to-table.json'), authoredPath, paramsPath], { env: process.env, stdio: 'inherit', timeout: 60_000 });
   expect(JSON.parse(readFileSync(authoredPath, 'utf8'))).toEqual(JSON.parse(readFileSync(path.join(process.env.FRISKET_DOCS_PROOF_DIR!, 'llm-requests.json'), 'utf8')));
-  await page.screenshot({ path: path.join(process.env.FRISKET_DOCS_PROOF_DIR!, 'extract-settings.png') });
+  const source = page.getByTestId('text-source-columns');
+  const engineTarget = page.locator('[data-tour="action-engine-selector"]');
+  await source.scrollIntoViewIfNeeded();
+  await expect(source.getByRole('button', { name: 'Remove text' })).toBeVisible();
+  await expect(engineTarget).toContainText('Gemini 3.5 Flash-Lite');
+  captures.push(await captureCheckpoint(page, { id: 'court-extract-settings', annotations: [
+    { id: 'source', number: 1, target: { kind: 'field', id: 'text-source-columns' }, label: 'Source', labelTarget: page.getByText('Source', { exact: true }), expected: { kind: 'text', value: (await source.innerText()).trim() } },
+    { id: 'engine', number: 2, target: { kind: 'tour', id: 'action-engine-selector' }, label: 'Gemini 3.5 Flash-Lite', labelTarget: engineTarget.locator('strong'), expected: { kind: 'text', value: (await engineTarget.innerText()).trim() } },
+  ] }, stage));
+  const fieldsLabel = page.getByTestId('output-fields-label');
+  await fieldsLabel.scrollIntoViewIfNeeded();
+  captures.push(await captureCheckpoint(page, { id: 'court-extract-fields', annotations: [
+    { id: 'fields', number: 4, target: { kind: 'field', id: 'output-fields-label' }, label: 'Columns it creates', labelTarget: fieldsLabel, expected: { kind: 'text', value: 'Columns it creates' } },
+  ] }, stage));
+  const instruction = page.getByTestId('field-instruction');
+  const citations = page.getByTestId('field-citation_mode');
+  await citations.scrollIntoViewIfNeeded();
+  captures.push(await captureCheckpoint(page, { id: 'court-extract-instruction', annotations: [
+    { id: 'instruction', number: 5, target: { kind: 'field', id: 'field-instruction' }, label: 'Instruction', expected: { kind: 'value', value: settings.instruction } },
+    { id: 'citations', number: 6, target: { kind: 'field', id: 'field-citation_mode' }, label: 'Citations', labelTarget: page.getByText('Citations', { exact: true }), expected: { kind: 'value', value: 'cite' } },
+  ] }, stage));
   await page.getByTestId('generated-action-run-scope-menu-button').click();
   await expect(page.getByTestId('generated-action-row-scope-selected')).toContainText('3 selected');
   const start = page.waitForResponse(response => response.url().endsWith('/actions/v1/run') && response.request().method() === 'POST', { timeout: 60_000 });
@@ -104,6 +123,7 @@ test('court sample imports and runs the selected filings through strict replay',
     const sheet = current.find((item: { id: number }) => item.id === imported.id);
     return ['case_number', 'filed_at', 'plaintiff', 'defendant_as_filed'].every(name => sheet.columns.some((column: { name: string, latest_run_id: number }) => column.name === name && column.latest_run_id === runId));
   }, { timeout: 30_000 }).toBe(true);
+  captures.push(await captureCheckpoint(page, { id: 'court-sample-run', annotations: [] }, stage));
   await page.getByTestId('ribbon-tab-tables').click();
   await page.getByRole('button', { name: 'Join expected answers', exact: true }).click();
   const join = page.getByTestId('join-expected-dialog');
@@ -125,7 +145,7 @@ test('court sample imports and runs the selected filings through strict replay',
     await join.getByLabel(`Role for ${name}`, { exact: true }).selectOption({ label: `Expected · ${name}` });
   }
   await join.getByLabel('Match rule for filed_at').selectOption('date');
-  await page.screenshot({ path: path.join(process.env.FRISKET_DOCS_PROOF_DIR!, 'join-expected.png') });
+  captures.push(await captureCheckpoint(page, { id: 'court-expected-join', root: join, annotations: [] }, stage));
   await join.getByRole('button', { name: 'Join', exact: true }).click();
   await expect(join).toHaveCount(0);
   await page.getByTestId('ribbon-tab-analyze').click();
@@ -135,7 +155,11 @@ test('court sample imports and runs the selected filings through strict replay',
   for (const name of ['case_number', 'filed_at', 'plaintiff', 'defendant_as_filed']) {
     await page.getByRole('group', { name: 'Comparison field' }).getByRole('button', { name, exact: true }).click();
   }
-  await page.screenshot({ path: path.join(process.env.FRISKET_DOCS_PROOF_DIR!, 'comparison.png') });
+  captures.push(await captureCheckpoint(page, { id: 'court-comparison', annotations: [] }, stage));
+  const required = ['court-check-text', 'court-extract-settings', 'court-extract-fields', 'court-extract-instruction', 'court-sample-run', 'court-expected-join', 'court-comparison', 'court-run-settings', 'court-results', 'court-ocr-settings', 'court-ocr-engine'];
+  expect(captures.map(item => item.id)).toEqual(required);
+  return captures;
+  });
 });
 
 test('council sample opens the real transcription comparison', async ({ page }) => {
