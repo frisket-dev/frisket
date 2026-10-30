@@ -5,8 +5,8 @@ import type { GridApiPort } from '../../src/api/ports';
 import type { ActionCatalogEntry, SheetMeta } from '../../src/api/types';
 import { useWorkspaceExpectedAnswers } from '../../src/workspace/useWorkspaceExpectedAnswers';
 
-const calls = vi.hoisted(() => ({ getLinks: vi.fn(), previewLink: vi.fn(), getContext: vi.fn() }));
-vi.mock('../../src/api/evaluation', () => ({ createEvaluationApi: () => ({ getLinks: calls.getLinks, previewLink: calls.previewLink }) }));
+const calls = vi.hoisted(() => ({ getLinks: vi.fn(), previewLink: vi.fn(), getContext: vi.fn(), saveLink: vi.fn(), setRule: vi.fn() }));
+vi.mock('../../src/api/evaluation', () => ({ createEvaluationApi: () => ({ getLinks: calls.getLinks, previewLink: calls.previewLink, saveLink: calls.saveLink, setRule: calls.setRule }) }));
 vi.mock('../../src/api/actionComparison', () => ({ createActionComparisonApi: () => ({ getContext: calls.getContext }) }));
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 const sheets: SheetMeta[] = [
@@ -51,4 +51,16 @@ it('offers the existing Translate engine comparison only when its catalog action
   const { result } = renderHook(() => useWorkspaceExpectedAnswers('p', sheets[0], sheets, api, entries, [], 0, showError));
   expect(result.current.actionChoices).toEqual([expect.objectContaining({ kind: 'map.translate', group: 'rows' })]);
   expect(result.current.actionChoices).not.toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'media.to_markdown' })]));
+});
+
+it('updates only explicitly changed rules after saving an existing link', async () => {
+  const api = prepare();
+  calls.saveLink.mockResolvedValue({}); calls.setRule.mockResolvedValue({});
+  const { result } = renderHook(() => useWorkspaceExpectedAnswers('p', sheets[0], sheets, api, [], [], 0, showError));
+  await waitFor(() => expect(result.current.links).toHaveLength(1));
+  const link = result.current.links[0];
+  act(() => result.current.openJoin(undefined, link, 'columns'));
+  await act(async () => result.current.saveLink(link, [{ expected_column_id: 22, rule: 'number' }]));
+  expect(calls.saveLink).toHaveBeenCalledWith(link, 3);
+  expect(calls.setRule).toHaveBeenCalledExactlyOnceWith(22, 'number');
 });

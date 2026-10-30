@@ -23,7 +23,7 @@ interface Props {
   sheets: JoinSheet[]; actions: JoinAction[]; initialActionId?: string; initialLink?: ExpectedLinkDraft;
   initialStep?: 'sheets' | 'keys' | 'columns';
   onPreview(draft: ExpectedLinkDraft): Promise<JoinPreview>;
-  onSave(draft: ExpectedLinkDraft): Promise<void>;
+  onSave(draft: ExpectedLinkDraft, changedRules: Array<{ expected_column_id: number; rule: ExpectedRule }>): Promise<void>;
   onImport(): void; onClose(): void;
 }
 const rules: Array<{ value: ExpectedRule; label: string }> = [
@@ -41,6 +41,7 @@ export function JoinExpectedAnswersDialog({ sheets, actions, initialActionId, in
     : initialActionId ?? '');
   const [keys, setKeys] = useState(initialLink?.keys ?? [{ expected_column_id: 0, target_column_id: 0 }]);
   const [fields, setFields] = useState(initialLink?.fields ?? []);
+  const [changedRules, setChangedRules] = useState<Record<number, ExpectedRule>>({});
   const [preview, setPreview] = useState<JoinPreview | null>(null);
   const [previewError, setPreviewError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -81,7 +82,9 @@ export function JoinExpectedAnswersDialog({ sheets, actions, initialActionId, in
   async function save() {
     if (!draft || !canAdvance || !validFields || saving) return;
     setSaving(true); setError('');
-    try { await onSave(draft); onClose(); } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not join expected answers.'); } finally { setSaving(false); }
+    const updates = fields.flatMap(field => changedRules[field.expected_column_id] === field.rule
+      ? [{ expected_column_id: field.expected_column_id, rule: field.rule }] : []);
+    try { await onSave(draft, updates); onClose(); } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not join expected answers.'); } finally { setSaving(false); }
   }
   const options = (columns: JoinColumn[]) => [{ value: '', label: 'Choose a column' }, ...columns.map((column) => ({ value: String(column.id), label: column.name }))];
   return <Modal title={initialLink ? 'Edit expected answers join' : 'Join expected answers'} onClose={onClose} busy={saving} testId="join-expected-dialog" closeLabel="Close">
@@ -89,9 +92,9 @@ export function JoinExpectedAnswersDialog({ sheets, actions, initialActionId, in
     <div className="modal-body">
       {step === 'sheets' && <>
         <p>Import known answers as an ordinary sheet, then join them to an action.</p>
-        <FormField label="Expected sheet"><PanelSelect ariaLabel="Expected sheet" value={sheetId || ''} onValueChange={(value) => { setSheetId(Number(value)); setKeys([{ expected_column_id: 0, target_column_id: 0 }]); setFields([]); }} options={[{ value: '', label: 'Choose a sheet' }, ...sheets.filter((item) => item.id !== action?.targetSheetId).map((item) => ({ value: String(item.id), label: item.name }))]} /></FormField>
+        <FormField label="Expected sheet"><PanelSelect ariaLabel="Expected sheet" value={sheetId || ''} onValueChange={(value) => { setSheetId(Number(value)); setKeys([{ expected_column_id: 0, target_column_id: 0 }]); setFields([]); setChangedRules({}); }} options={[{ value: '', label: 'Choose a sheet' }, ...sheets.filter((item) => item.id !== action?.targetSheetId).map((item) => ({ value: String(item.id), label: item.name }))]} /></FormField>
         <Button type="button" onClick={onImport}>Import a sheet…</Button>
-        <FormField label="Action to check"><PanelSelect ariaLabel="Action to check" value={actionId} onValueChange={(value) => { setActionId(value); setKeys([{ expected_column_id: 0, target_column_id: 0 }]); setFields([]); }} options={[{ value: '', label: 'Choose an action' }, ...actions.map((item) => ({ value: item.id, label: item.label }))]} /></FormField>
+        <FormField label="Action to check"><PanelSelect ariaLabel="Action to check" value={actionId} onValueChange={(value) => { setActionId(value); setKeys([{ expected_column_id: 0, target_column_id: 0 }]); setFields([]); setChangedRules({}); }} options={[{ value: '', label: 'Choose an action' }, ...actions.map((item) => ({ value: item.id, label: item.label }))]} /></FormField>
         {target && <p>Target sheet: {target.name}</p>}
       </>}
       {step === 'keys' && <><p>Rows match when all of these are equal.</p>
@@ -113,7 +116,12 @@ export function JoinExpectedAnswersDialog({ sheets, actions, initialActionId, in
             const output = action?.outputs.find((item) => item.id === Number(value));
             setFields([...fields.filter((item) => item.expected_column_id !== column.id), ...(output ? [{ expected_column_id: column.id, output_column_id: output.id, logical_key: output.logicalKey, rule: field?.rule ?? 'exact', hidden: field?.hidden ?? false, source: field?.source ?? 'import' as const }] : [])]);
           }} />
-          {field && <PanelSelect ariaLabel={`Match rule for ${column.name}`} value={field.rule} options={rules} onValueChange={(value) => setFields(fields.map((item) => item.expected_column_id === column.id ? { ...item, rule: value as ExpectedRule } : item))} />}
+          {field && <PanelSelect ariaLabel={`Match rule for ${column.name}`} value={field.rule} options={rules} onValueChange={(value) => {
+            const rule = value as ExpectedRule;
+            const original = initialLink?.fields.find(item => item.expected_column_id === column.id)?.rule ?? 'exact';
+            setChangedRules(current => { const next = { ...current }; if (rule === original) delete next[column.id]; else next[column.id] = rule; return next; });
+            setFields(fields.map((item) => item.expected_column_id === column.id ? { ...item, rule } : item));
+          }} />}
         </div>;
       })}{!validFields && fields.length > 0 && <p role="alert">Choose a different output for each expected column.</p>}</>}
       {error && <p role="alert">{error}</p>}

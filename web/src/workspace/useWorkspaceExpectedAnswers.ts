@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createActionComparisonApi, type ActionComparisonContext } from '../api/actionComparison';
 import { actionPreviewRunErrorFromContract } from '../api/contractErrors';
-import { createEvaluationApi, type EvaluationLink, type EvaluationLinkInput, type ExpectedProjection } from '../api/evaluation';
+import { createEvaluationApi, type EvaluationLink, type EvaluationLinkInput, type EvaluationRule, type ExpectedProjection } from '../api/evaluation';
 import type { ActionCatalogEntry, ActionTemplate, CellValue, JsonValue, SheetMeta } from '../api/types';
 import { compatibleSourceColumns, primaryColumnRequirement } from '../actions/model';
 import { actionComparisonKind } from '../grid/actionComparisonCatalog';
@@ -120,6 +120,14 @@ export function useWorkspaceExpectedAnswers(projectId: string, sheet: SheetMeta 
     await api.saveLink(input, id); refresh();
   }, [api, refresh]);
   const openJoin = useCallback((actionId?: string, link?: EvaluationLink, step?: 'columns') => setJoin({ actionId, link, step }), []);
-  const saveLink = useCallback(async (input: EvaluationLinkInput) => { await api.saveLink(input, join?.link?.id); refresh(); }, [api, join, refresh]);
-  return { api, links, runs, runChoices, actionChoices, joinSheets, joinActions, join, openJoin, closeJoin: () => setJoin(null), saveLink, refresh, matchedCounts, expectedColumns, projectExpected, editExpected, setLink };
+  const saveLink = useCallback(async (input: EvaluationLinkInput, changedRules: Array<{ expected_column_id: number; rule: EvaluationRule }>) => {
+    await api.saveLink(input, join?.link?.id);
+    try {
+      // Link updates intentionally preserve existing rules. Only explicit edits
+      // may change their separate authority; untouched fields can be stale.
+      if (join?.link) for (const change of changedRules) await api.setRule(change.expected_column_id, change.rule);
+    } finally { refresh(); }
+  }, [api, join, refresh]);
+  const setRule = useCallback(async (columnId: number, rule: EvaluationRule) => { await api.setRule(columnId, rule); refresh(); }, [api, refresh]);
+  return { api, links, runs, runChoices, actionChoices, joinSheets, joinActions, join, openJoin, closeJoin: () => setJoin(null), saveLink, refresh, matchedCounts, expectedColumns, projectExpected, editExpected, setLink, setRule };
 }

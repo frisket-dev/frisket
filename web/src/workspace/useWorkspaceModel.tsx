@@ -945,6 +945,7 @@ export function useWorkspaceModel({
         const run = expectedAnswers.runs.find(item => item.context.draft.action_id === link?.action_id && item.context.output_columns.some(output => output.column_id === expectedHeader.output_column_id));
         return link && <ExpectedColumnMenu column={expectedHeader} link={link} onClose={() => setExpectedHeader(null)}
           onChange={(next) => expectedAnswers.setLink(next, link.id)}
+          onRuleChange={(rule) => expectedAnswers.setRule(expectedHeader.expected_column_id, rule)}
           onEditJoin={() => { setExpectedHeader(null); expectedAnswers.openJoin(undefined, link, 'columns'); }}
           onCompare={() => { setExpectedHeader(null); if (run) actionCompare.compareActionRun(run.anchor, true); }} />;
       })()}
