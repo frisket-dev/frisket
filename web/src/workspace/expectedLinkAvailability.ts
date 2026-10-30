@@ -1,10 +1,10 @@
 import type { EvaluationLink } from '../api/evaluation';
 
-/** Older servers omit availability; existing links remain available by default. */
+/** Availability comes from the expected-link response, independently per link. */
 export function isExpectedLinkAvailable(link: EvaluationLink): boolean {
-  return (link as EvaluationLink & { available?: boolean }).available !== false;
+  return link.available !== false;
 }
 export function expectedLinkUnavailableReason(link: EvaluationLink): string {
-  return (link as EvaluationLink & { unavailable_reason?: string | null }).unavailable_reason
+  return link.unavailable_reason
     || 'This expected answers link is unavailable.';
 }
