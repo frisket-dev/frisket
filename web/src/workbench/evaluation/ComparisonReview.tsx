@@ -4,6 +4,7 @@ import type { ReviewBundleField } from '../../api/types';
 import { Button } from '../../components/Button';
 import { FormField, TextArea } from '../../components/FormControls';
 import { PanelSelect } from '../../components/PanelSelect';
+import { VariantBadge } from '../VariantBadge';
 import { ReviewValue } from '../../components/review/ReviewValue';
 import { ReviewDecisionControls, ReviewHeader, ReviewNavigation, ReviewShell, ReviewWorkspace } from '../../components/review/ReviewPresentation';
 import { useReviewShortcuts } from '../../components/review/useReviewShortcuts';
@@ -80,7 +81,7 @@ function ComparisonReviewRow(p: ComparisonReviewProps) {
           {p.groups.map((group, index) => <section key={group.key} className={styles.field} data-selected={index === selected}>
             <button type="button" className={styles.fieldSelect} aria-label={`Answer ${index + 1}, variants ${group.variantKeys.join(", ")}, ${verdictLabels[group.verdict]}`} aria-pressed={index === selected} onClick={() => setSelected(index)}>
               <span className={styles.fieldHeading}><strong>Answer {index + 1}</strong>
-                {group.variantKeys.map((key) => <small key={key}>{key}</small>)} <small>{verdictLabels[group.verdict]}</small></span>
+                {group.variantKeys.map((key) => <VariantBadge key={key} label={key} />)} <small>{verdictLabels[group.verdict]}</small></span>
               {group.variantNotes && <small>{group.variantNotes}</small>}
             </button>
             <ReviewDecisionControls label={`Decision for answer ${index + 1}`} acceptLabel={`Accept answer ${index + 1}`}
