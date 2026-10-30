@@ -169,8 +169,14 @@ async function expectComparisonRows(page: Page, text: string, scope: 'sample' | 
 
 async function approveCostGateIfShown(page: Page): Promise<void> {
   const gate = page.getByTestId('cost-gate-modal');
-  if (!await gate.isVisible({ timeout: 1_000 }).catch(() => false)) return;
-  await page.getByTestId('cost-gate-input').fill('confirm');
+  // Quote preparation is asynchronous. Wait for either consent or a free
+  // preview to finish, so a late cost gate cannot be missed.
+  const requiresConsent = await Promise.race([
+    gate.waitFor({ state: 'visible', timeout: 60_000 }).then(() => true),
+    expect(page.getByTestId('action-compare-variant-B')).toHaveAttribute('data-status', 'ready', { timeout: 60_000 }).then(() => false),
+  ]);
+  if (!requiresConsent) return;
+  await expect(page.getByTestId('cost-gate-estimate')).toBeVisible();
   await page.getByTestId('cost-gate-confirm').click();
 }
 
