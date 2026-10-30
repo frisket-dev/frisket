@@ -293,6 +293,7 @@ export interface ParentRowFilter {
 
 export type ExpectedGridColumn = ExpectedProjection['columns'][number] & { type?: ColumnDef['type'] };
 const EMPTY_EXPECTED_COLUMNS: ExpectedGridColumn[] = [];
+const EMPTY_EXPECTED_ROWS: ExpectedProjection['rows'] = {};
 
 export interface SheetGridProps {
   scopeRowIds?: number[] | null;
@@ -999,6 +1000,7 @@ function useGridHeaderHandlers(
     anchor: ActionRunAnchor;
     status: 'loading' | 'ready' | 'error';
     details: ActionRunEntryDetails | null;
+    loader: SheetGridProps['loadActionRunEntry'];
   }>>({});
   const entryLoads = useRef(new Set<string>());
   const hoverCloseTimer = useRef<number | null>(null);
@@ -1006,7 +1008,6 @@ function useGridHeaderHandlers(
   useEffect(() => {
     entryRevision.current += 1;
     entryLoads.current.clear();
-    setEntryCache({});
   }, [loadActionRunEntry]);
 
   const anchorForGroup = useCallback((group: ColumnGroupModel): ActionRunAnchor | null => {
@@ -1024,12 +1025,12 @@ function useGridHeaderHandlers(
     if (!anchor) return;
     const key = `${anchor.sheetId}:${anchor.runId}:${anchor.columnId}`;
     const cached = entryCache[key];
-    if (cached?.status === 'loading' || cached?.status === 'ready' || entryLoads.current.has(key)) return;
+    if ((cached?.loader === loadActionRunEntry && (cached.status === 'loading' || cached.status === 'ready')) || entryLoads.current.has(key)) return;
     entryLoads.current.add(key);
     const revision = entryRevision.current;
     setEntryCache((entries) => ({
       ...entries,
-      [key]: { anchor, status: 'loading', details: null },
+      [key]: { anchor, status: 'loading', details: null, loader: loadActionRunEntry },
     }));
     void loadActionRunEntry(anchor).then(
       (details) => {
@@ -1037,7 +1038,7 @@ function useGridHeaderHandlers(
         entryLoads.current.delete(key);
         setEntryCache((entries) => ({
           ...entries,
-          [key]: { anchor, status: 'ready', details },
+          [key]: { anchor, status: 'ready', details, loader: loadActionRunEntry },
         }));
       },
       () => {
@@ -1045,7 +1046,7 @@ function useGridHeaderHandlers(
         entryLoads.current.delete(key);
         setEntryCache((entries) => ({
           ...entries,
-          [key]: { anchor, status: 'error', details: null },
+          [key]: { anchor, status: 'error', details: null, loader: loadActionRunEntry },
         }));
       },
     );
@@ -1185,7 +1186,8 @@ function useGridHeaderHandlers(
   const activeEntryKey = activeGroupAnchor
     ? `${activeGroupAnchor.sheetId}:${activeGroupAnchor.runId}:${activeGroupAnchor.columnId}`
     : null;
-  const activeEntry = activeEntryKey ? entryCache[activeEntryKey] : undefined;
+  const cachedEntry = activeEntryKey ? entryCache[activeEntryKey] : undefined;
+  const activeEntry = cachedEntry?.loader === loadActionRunEntry ? cachedEntry : undefined;
 
   return {
     activeEntry,
@@ -1419,7 +1421,7 @@ function useSheetGridController({
     ? Math.max(0, Math.floor(pendingImportRowCount))
     : 0;
   const rowCount = realRowCount + placeholderRowCount;
-  const [expectedRows, setExpectedRows] = useState<ExpectedProjection['rows']>({});
+  const [expectedResult, setExpectedResult] = useState<{ key: string; columns: ExpectedGridColumn[]; loader: SheetGridProps['projectExpected']; rows: ExpectedProjection['rows'] } | null>(null);
   const [expectedRange, setExpectedRange] = useState({ start: 0, end: 40 });
   const visibleExpectedIds = useMemo(() => {
     const ids: number[] = [];
@@ -1429,26 +1431,21 @@ function useSheetGridController({
     return ids;
   }, [cache, cache.version, expectedRange, realRowCount]);
   const visibleExpectedKey = visibleExpectedIds.join(',');
+  const expectedRequestKey = `${sheet.id}:${dataVersion}:${visibleExpectedKey}`;
   useEffect(() => {
-    if (!projectExpected || !expectedColumns.length || !visibleExpectedKey) { setExpectedRows({}); return; }
+    if (!projectExpected || !expectedColumns.length || !visibleExpectedKey) return;
     let active = true;
-    void projectExpected(visibleExpectedKey.split(',').map(Number)).then(result => { if (active) setExpectedRows(result.rows); }, () => { if (active) setExpectedRows({}); });
+    void projectExpected(visibleExpectedKey.split(',').map(Number)).then(
+      result => { if (active) setExpectedResult({ key: expectedRequestKey, columns: expectedColumns, loader: projectExpected, rows: result.rows }); },
+      () => { if (active) setExpectedResult({ key: expectedRequestKey, columns: expectedColumns, loader: projectExpected, rows: {} }); },
+    );
     return () => { active = false; };
-  }, [projectExpected, expectedColumns, visibleExpectedKey, dataVersion]);
+  }, [projectExpected, expectedColumns, visibleExpectedKey, expectedRequestKey]);
+  const expectedRows = expectedResult?.key === expectedRequestKey && expectedResult.columns === expectedColumns && expectedResult.loader === projectExpected
+    ? expectedResult.rows : EMPTY_EXPECTED_ROWS;
   const expectedById = useMemo(() => new Map(expectedColumns.map(column => [column.id, column])), [expectedColumns]);
-  const columnsForRedraw = useRef<ColumnDef[]>([]);
   const gridRef = useRef<DataEditorRef | null>(null);
   const visibleRegion = useRef<Rectangle>({ x: 0, y: 0, width: 1, height: 1 });
-  useEffect(() => {
-    const cells: Array<{ cell: Item }> = [];
-    const range = visibleRegion.current;
-    for (let index = 0; index < expectedColumns.length; index++) {
-      const columnIndex = columnsForRedraw.current.findIndex(column => column.id === expectedColumns[index].id);
-      if (columnIndex < 0) continue;
-      for (let row = range.y; row < range.y + range.height; row++) cells.push({ cell: [columnIndex, row] });
-    }
-    if (cells.length) gridRef.current?.updateCells(cells);
-  }, [expectedRows, expectedColumns]);
   const selectedItem = useRef<Item | null>(null);
   const lastOpenedItem = useRef<{ item: Item; at: number } | null>(null);
   const lastEntityMentionToggle = useRef<{ key: string; at: number } | null>(null);
@@ -1506,7 +1503,16 @@ function useSheetGridController({
       activeSort,
       expectedColumns,
     );
-  columnsForRedraw.current = gridColumns;
+  useEffect(() => {
+    const cells: Array<{ cell: Item }> = [];
+    const range = visibleRegion.current;
+    for (let index = 0; index < expectedColumns.length; index++) {
+      const columnIndex = gridColumns.findIndex(column => column.id === expectedColumns[index].id);
+      if (columnIndex < 0) continue;
+      for (let row = range.y; row < range.y + range.height; row++) cells.push({ cell: [columnIndex, row] });
+    }
+    if (cells.length) gridRef.current?.updateCells(cells);
+  }, [expectedRows, expectedColumns, gridColumns]);
   const runActive = liveRun?.sheetId === sheet.id && isActiveRunStatus(liveRun.status);
   const backgroundRunActive = backgroundLiveRun?.sheetId === sheet.id
     && isActiveRunStatus(backgroundLiveRun.status);
@@ -2259,7 +2265,7 @@ function useSheetGridController({
       const value = editableValue(newValue);
       const expected = expectedById.get(def.id);
       if (expected && row && value !== undefined && onExpectedEdit) {
-        void onExpectedEdit(row.id, expected, expectedRows[row.id]?.[def.id], value).then(() => { setExpectedRows({}); cache.refresh(); }, () => cache.refresh());
+        void onExpectedEdit(row.id, expected, expectedRows[row.id]?.[def.id], value).then(() => { setExpectedResult(null); cache.refresh(); }, () => cache.refresh());
         return;
       }
       if (!row || row.boundedValues?.[def.id] || value === undefined) return;

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import './JoinExpectedAnswersDialog.css';
 import { Button } from '../Button';
 import { FormField } from '../FormControls';
@@ -40,11 +40,13 @@ export function JoinExpectedAnswersDialog({ sheets, actions, initialActionId, in
   const [actionId, setActionId] = useState(() => initialLink
     ? actions.find(item => item.actionId === initialLink.action_id && initialLink.fields.every(field => item.outputs.some(output => output.id === field.output_column_id)))?.id ?? ''
     : initialActionId ?? '');
-  const [keys, setKeys] = useState(initialLink?.keys ?? [{ expected_column_id: 0, target_column_id: 0 }]);
-  const [fields, setFields] = useState(initialLink?.fields ?? []);
+  const [keys, setKeysState] = useState(initialLink?.keys ?? [{ expected_column_id: 0, target_column_id: 0 }]);
+  const [fields, setFieldsState] = useState(initialLink?.fields ?? []);
   const [changedRules, setChangedRules] = useState<Record<number, ExpectedRule>>({});
-  const [preview, setPreview] = useState<JoinPreview | null>(null);
-  const [previewError, setPreviewError] = useState('');
+  const [draftRevision, setDraftRevision] = useState(0);
+  const setKeys = (next: ExpectedLinkDraft['keys']) => { setKeysState(next); setDraftRevision(value => value + 1); };
+  const setFields = (next: ExpectedLinkDraft['fields']) => { setFieldsState(next); setDraftRevision(value => value + 1); };
+  const [previewResult, setPreviewResult] = useState<{ key: string; value: JoinPreview | null; error: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [showUnmatched, setShowUnmatched] = useState(false);
@@ -53,21 +55,27 @@ export function JoinExpectedAnswersDialog({ sheets, actions, initialActionId, in
   const target = sheets.find((item) => item.id === action?.targetSheetId);
   const keyIds = new Set(keys.map((key) => key.expected_column_id));
   const remaining = sheet?.columns.filter((column) => !keyIds.has(column.id)) ?? [];
-  const draft = useMemo<ExpectedLinkDraft | null>(() => action && sheet ? {
-    action_id: action.actionId, target_sheet_id: action.targetSheetId, expected_sheet_id: sheet.id,
-    keys, fields, hidden: initialLink?.hidden ?? false,
-  } : null, [action, sheet, keys, fields, initialLink]);
+  const targetSheetId = action?.targetSheetId;
+  const actionKind = action?.actionId;
+  const hidden = initialLink?.hidden ?? false;
+  const draftKey = actionKind && targetSheetId && sheetId ? JSON.stringify({
+    action_id: actionKind, target_sheet_id: targetSheetId, expected_sheet_id: sheetId,
+    keys, fields, hidden,
+  }) : '';
+  const draft = draftKey ? JSON.parse(draftKey) as ExpectedLinkDraft : null;
+  const previewKey = `${draftRevision}:${draftKey}`;
   const validKeys = !!draft && keys.length > 0 && keys.every((key) => key.expected_column_id > 0 && (key.target_column_id === null ? !!initialLink?.keys.some((item) => item.target_column_id === null) : key.target_column_id > 0))
     && new Set(keys.map((key) => key.expected_column_id)).size === keys.length
     && new Set(keys.map((key) => key.target_column_id)).size === keys.length;
   // A pending or failed preview cannot authorize advancing, and late results cannot replace newer ones.
   useEffect(() => {
-    setPreview(null); setPreviewError('');
-    if (!draft || !validKeys) return;
+    if (!draftKey || !validKeys) return;
     let active = true;
-    onPreview(draft).then((result) => { if (active) setPreview(result); }, (reason: unknown) => { if (active) setPreviewError(reason instanceof Error ? reason.message : 'Could not preview matching rows.'); });
+    onPreview(JSON.parse(draftKey) as ExpectedLinkDraft).then((result) => { if (active) setPreviewResult({ key: previewKey, value: result, error: '' }); }, (reason: unknown) => { if (active) setPreviewResult({ key: previewKey, value: null, error: reason instanceof Error ? reason.message : 'Could not preview matching rows.' }); });
     return () => { active = false; };
-  }, [draft, validKeys, onPreview]);
+  }, [draftKey, previewKey, validKeys, onPreview]);
+  const preview = previewResult?.key === previewKey && validKeys ? previewResult.value : null;
+  const previewError = previewResult?.key === previewKey && validKeys ? previewResult.error : '';
   const canAdvance = !!preview && !preview.ambiguous_expected && !preview.ambiguous_target;
   const mappedOutputIds = fields.map((field) => field.output_column_id);
   const validFields = fields.length > 0 && new Set(mappedOutputIds).size === mappedOutputIds.length;

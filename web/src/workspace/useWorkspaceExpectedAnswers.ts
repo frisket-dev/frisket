@@ -10,6 +10,9 @@ import type { ActionRunAnchor } from '../grid/actionRunEntry';
 import type { GridApiPort } from '../api/ports';
 import { MEDIA_COMPARE_COMMAND_BY_ACTION } from '../workbench/mediaCompareSelector';
 
+const EMPTY_LINKS: EvaluationLink[] = [];
+const EMPTY_COUNTS: Record<number, number> = {};
+const EMPTY_RUNS: Run[] = [];
 interface Run { anchor: ActionRunAnchor; context: ActionComparisonContext }
 export function useWorkspaceExpectedAnswers(projectId: string, sheet: SheetMeta | undefined, sheets: SheetMeta[],
   projectApi: GridApiPort, entries: ActionCatalogEntry[] | undefined, templates: ActionTemplate[], dataVersion: number,
@@ -17,10 +20,9 @@ export function useWorkspaceExpectedAnswers(projectId: string, sheet: SheetMeta 
   void dataVersion; // Grid projection refreshes independently of run discovery.
   const api = useMemo(() => createEvaluationApi(actionPreviewRunErrorFromContract, projectId), [projectId]);
   const comparisonApi = useMemo(() => createActionComparisonApi(actionPreviewRunErrorFromContract, projectId), [projectId]);
-  const [links, setLinks] = useState<EvaluationLink[]>([]);
-  const [matchedCounts, setMatchedCounts] = useState<Record<number, number>>({});
-  const [currentRuns, setCurrentRuns] = useState<Run[]>([]);
-  const [otherRuns, setOtherRuns] = useState<Run[]>([]);
+  const [linkResult, setLinkResult] = useState<{ key: string; links: EvaluationLink[]; counts: Record<number, number> } | null>(null);
+  const [currentRunResult, setCurrentRunResult] = useState<{ key: string; projectId: string; runs: Run[] } | null>(null);
+  const [otherRunResult, setOtherRunResult] = useState<{ key: string; projectId: string; runs: Run[]; join: object } | null>(null);
   const [revision, setRevision] = useState(0);
   const [join, setJoin] = useState<{ actionId?: string; link?: EvaluationLink; step?: 'columns' } | null>(null);
   const refresh = useCallback(() => setRevision((value) => value + 1), []);
@@ -34,7 +36,7 @@ export function useWorkspaceExpectedAnswers(projectId: string, sheet: SheetMeta 
   const currentSignature = JSON.stringify(sheet ? [identity(sheet)] : []);
   const otherSignature = JSON.stringify(join ? sheets.filter(item => item.id !== sheetId).map(identity) : []);
   const showErrorRef = useRef(showError);
-  showErrorRef.current = showError;
+  useEffect(() => { showErrorRef.current = showError; }, [showError]);
   const readRuns = useCallback(async (signature: string): Promise<Run[]> => {
     const targets = JSON.parse(signature) as Array<{ id: string; rowCount: number; anchors: ActionRunAnchor[] }>;
     const groups = await Promise.all(targets.map(async target => {
@@ -53,29 +55,31 @@ export function useWorkspaceExpectedAnswers(projectId: string, sheet: SheetMeta 
     }));
     return groups.flat();
   }, [projectApi, comparisonApi]);
+  const linksKey = `${projectId}:${sheetId ?? ''}:${revision}`;
   useEffect(() => {
     let live = true;
-    setLinks([]); setMatchedCounts({});
     if (sheetId) void api.getLinks(Number(sheetId)).then(result => {
-      if (live) setLinks(result.links);
+      if (live) setLinkResult({ key: linksKey, links: result.links, counts: {} });
       void Promise.all(result.links.map(async link => {
         try { const preview = await api.previewLink({ target_sheet_id: link.target_sheet_id, expected_sheet_id: link.expected_sheet_id, action_id: link.action_id, keys: link.keys, fields: link.fields, hidden: link.hidden }); return [link.id, preview.matched] as const; } catch { return null; }
-      })).then(counts => { if (live) setMatchedCounts(Object.fromEntries(counts.filter((item): item is readonly [number, number] => item !== null))); });
+      })).then(counts => { if (live) setLinkResult({ key: linksKey, links: result.links, counts: Object.fromEntries(counts.filter((item): item is readonly [number, number] => item !== null)) }); });
     }, error => { if (live) showErrorRef.current(error instanceof Error ? error.message : 'Could not load expected answers.'); });
     return () => { live = false; };
-  }, [api, sheetId, revision]);
+  }, [api, sheetId, linksKey]);
   useEffect(() => {
     let live = true;
-    setCurrentRuns([]);
-    void readRuns(currentSignature).then(result => { if (live) setCurrentRuns(result); });
+    void readRuns(currentSignature).then(result => { if (live) setCurrentRunResult({ key: currentSignature, projectId, runs: result }); });
     return () => { live = false; };
-  }, [readRuns, currentSignature]);
+  }, [readRuns, currentSignature, projectId]);
   useEffect(() => {
     let live = true;
-    setOtherRuns([]);
-    if (join) void readRuns(otherSignature).then(result => { if (live) setOtherRuns(result); });
+    if (join) void readRuns(otherSignature).then(result => { if (live) setOtherRunResult({ key: otherSignature, projectId, runs: result, join }); });
     return () => { live = false; };
-  }, [readRuns, otherSignature, Boolean(join)]);
+  }, [readRuns, otherSignature, join, projectId]);
+  const links = linkResult?.key === linksKey ? linkResult.links : EMPTY_LINKS;
+  const matchedCounts = linkResult?.key === linksKey ? linkResult.counts : EMPTY_COUNTS;
+  const currentRuns = currentRunResult?.projectId === projectId && currentRunResult.key === currentSignature ? currentRunResult.runs : EMPTY_RUNS;
+  const otherRuns = join && otherRunResult?.projectId === projectId && otherRunResult.join === join && otherRunResult.key === otherSignature ? otherRunResult.runs : EMPTY_RUNS;
   const runs = useMemo(() => [...currentRuns, ...otherRuns], [currentRuns, otherRuns]);
   const runChoices = useMemo(() => runs.filter(item => item.anchor.sheetId === sheet?.id).map(({ anchor, context }) => {
     const link = links.find(item => item.action_id === context.draft.action_id && item.fields.some(field => context.output_columns.some(output => output.column_id === field.output_column_id)));

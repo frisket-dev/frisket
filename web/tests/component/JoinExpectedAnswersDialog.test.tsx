@@ -51,3 +51,18 @@ it('submits only deliberately changed match rules when editing an existing link'
   fireEvent.click(screen.getByRole('button', { name: 'Join' }));
   await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.anything(), [{ expected_column_id: 22, rule: 'number' }]));
 });
+
+it('does not reuse an old preview when key choices are changed and restored', async () => {
+  const requests: Array<(result: typeof preview) => void> = [];
+  const onPreview = vi.fn(() => new Promise<typeof preview>((resolve) => requests.push(resolve)));
+  render(<JoinExpectedAnswersDialog sheets={sheets} actions={actions} initialLink={link} initialStep="keys" onPreview={onPreview} onSave={vi.fn()} onImport={vi.fn()} onClose={vi.fn()} />);
+  await waitFor(() => expect(requests).toHaveLength(1));
+  fireEvent.change(screen.getByLabelText('Target key 1'), { target: { value: '12' } });
+  await waitFor(() => expect(requests).toHaveLength(2));
+  fireEvent.change(screen.getByLabelText('Target key 1'), { target: { value: '11' } });
+  await waitFor(() => expect(requests).toHaveLength(3));
+  requests[0](preview);
+  expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled();
+  requests[2](preview);
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Next' })).toBeEnabled());
+});
