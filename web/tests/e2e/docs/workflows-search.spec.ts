@@ -80,6 +80,7 @@ test('search, Ask, document, export and skill workflows on a disposable project'
     await sources.getByRole('checkbox', { name: 'Council documents' }).check();
     await sources.getByRole('button', { name: 'Use sources' }).click();
     await expect(dock.getByText('Council documents')).toBeVisible();
+    await expect(dock.getByText('Loading choices…')).toHaveCount(0, { timeout: 60_000 });
     await capture('workflow-ask-panel', dock);
     await dock.getByRole('button', { name: 'Ask options' }).click();
     const options = page.getByRole('dialog', { name: 'Ask settings' });
