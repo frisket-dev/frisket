@@ -347,9 +347,8 @@ test('council sample opens the real transcription comparison', async ({ page }) 
   await expect(page.getByTestId('field-model_size')).toHaveValue('base');
   await page.getByTestId('field-output-text').fill('transcript');
   await page.getByTestId('field-output-segments').fill('transcript_segments');
-  await page.getByTestId('field-output-segments').blur();
-  await page.keyboard.press('Escape');
-  await page.getByTestId('action-panel').locator('.form-hint').first().click();
+  await page.getByTestId('field-output-segments').press('Escape');
+  await expect(page.getByTestId('field-output-segments')).toHaveAttribute('aria-expanded', 'false');
   await expect(page.getByTestId('action-title-menu')).toHaveCount(0);
   await expect(engine).toContainText('Whisper (multilingual transcription)');
   await expect(page.getByText('Loading models…')).toHaveCount(0);
