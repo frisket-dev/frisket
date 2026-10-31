@@ -297,6 +297,7 @@ test('court sample imports and runs the selected filings through strict replay',
   await page.getByTestId('compare-menu-trigger').click();
   const expectedChoices = page.getByRole('menuitem', { name: /Extract structured fields vs expected/ });
   await expect(expectedChoices).toHaveCount(2);
+  score = null;
   await expectedChoices.last().click();
   const replaceComparison = page.getByRole('alertdialog', { name: 'Start a new comparison?' });
   await expect(replaceComparison).toBeVisible();
@@ -304,8 +305,16 @@ test('court sample imports and runs the selected filings through strict replay',
   const fullComparison = page.getByRole('region', { name: 'Action comparison' });
   await expect(fullComparison.getByText('Scoring…')).toHaveCount(0, { timeout: 30_000 });
   await fullComparison.getByRole('group', { name: 'Comparison field' }).getByRole('button', { name: 'plaintiff_2', exact: true }).click();
-  await expect.poll(() => (score as { expected?: Record<string, Record<string, unknown>> } | null)?.expected?.[String(initialData.rows[5].id)]?.plaintiff, { timeout: 30_000 }).toBe('Mei Chen and proposed library patron class');
-  await fullComparison.getByRole('button', { name: 'Any miss', exact: true }).click();
+  const missedRow = String(initialData.rows[5].id);
+  await expect.poll(() => {
+    const current = score as import('../../../src/api/evaluation').EvaluationResponse | null;
+    return [current?.expected?.[missedRow]?.plaintiff, current?.variants.find(variant => variant.key === 'A')?.verdicts?.[missedRow]?.plaintiff,
+      current?.link?.fields.find(field => field.logical_key === 'plaintiff')?.output_column_id];
+  }, { timeout: 30_000 }).toEqual(['Mei Chen and proposed library patron class', 'miss', Number(actualColumns.plaintiff_2)]);
+  const misses = fullComparison.getByRole('button', { name: 'Any miss', exact: true });
+  await misses.click();
+  await expect(misses).toHaveAttribute('aria-pressed', 'true');
+  await expect(fullComparison.locator('canvas').first()).toBeVisible();
   captures.push(await captureCheckpoint(page, { id: 'court-comparison-misses', root: fullComparison, annotations: [] }, stage));
   await page.getByTestId('workbench-mainView-tab-' + imported.id).click();
   await openAction(page, 'media.ocr');
