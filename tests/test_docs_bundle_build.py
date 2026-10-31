@@ -110,7 +110,80 @@ def test_composes_projection_and_publishes_image(inputs):
     assert bundle["actions"][0]["uiPath"] == ["Analyze", "EXTRACT", "Extract fields"]
     assert bundle["actions"][0]["name"] == "Extract fields"
     assert bundle["captures"][0]["image"] == f"/assets/docs/{SHA[:12]}/setup.png"
+    assert "highlights" not in bundle["captures"][0]
     assert (output / bundle["captures"][0]["image"].lstrip("/")).read_bytes() == PNG
+
+
+def test_capture_highlights_are_preserved_without_number_or_value(inputs):
+    path = inputs["captures"][0] / "bundle.json"
+    bundle = json.loads(path.read_text())
+    highlights = [
+        {
+            "id": "media-tab",
+            "label": "Media",
+            "rect": {"x": 0.1, "y": 0.2, "width": 0.3, "height": 0.4},
+        }
+    ]
+    bundle["captures"][0]["highlights"] = highlights
+    write_json(path, bundle)
+    module.build_bundle(**inputs)
+    result = json.loads((inputs["output"] / "guideBundle.json").read_text())
+    capture = result["captures"][0]
+    assert capture["highlights"] == highlights
+    assert capture["annotations"] == bundle["captures"][0]["annotations"]
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "list",
+        "id",
+        "label",
+        "duplicate",
+        "rect",
+        "nan",
+        "inf",
+        "bool",
+        "width",
+        "height",
+        "x",
+        "y",
+    ],
+)
+def test_invalid_capture_highlights_never_publish(inputs, failure):
+    path = inputs["captures"][0] / "bundle.json"
+    bundle = json.loads(path.read_text())
+    highlight = {
+        "id": "media-tab",
+        "label": "Media",
+        "rect": {"x": 0.1, "y": 0.2, "width": 0.3, "height": 0.4},
+    }
+    highlights = [highlight]
+    if failure == "list":
+        highlights = None
+    elif failure in ("id", "label"):
+        highlight[failure] = ""
+    elif failure == "duplicate":
+        highlights.append(highlight.copy())
+    elif failure == "rect":
+        del highlight["rect"]
+    else:
+        key, value = {
+            "nan": ("x", float("nan")),
+            "inf": ("y", float("inf")),
+            "bool": ("width", True),
+            "width": ("width", 0),
+            "height": ("height", -0.1),
+            "x": ("x", 0.9),
+            "y": ("y", 0.9),
+        }[failure]
+        highlight["rect"][key] = value
+    bundle["captures"][0]["highlights"] = highlights
+    write_json(path, bundle)
+    with pytest.raises(ValueError, match="highlight"):
+        module.build_bundle(**inputs)
+    assert not inputs["output"].exists()
+    assert not list(inputs["output"].parent.glob(".output-*"))
 
 
 @pytest.mark.parametrize(

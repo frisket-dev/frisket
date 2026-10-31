@@ -183,6 +183,34 @@ def build_bundle(
                     or rect["y"] + rect["height"] > 1.000001
                 ):
                     raise ValueError(f"Invalid annotation geometry: {identity}")
+            highlights = record.get("highlights", [])
+            if not isinstance(highlights, list) or any(
+                not isinstance(highlight, dict)
+                or any(
+                    not isinstance(highlight.get(key), str)
+                    or not highlight[key].strip()
+                    for key in ("id", "label")
+                )
+                for highlight in highlights
+            ):
+                raise ValueError(f"Invalid capture highlights: {identity}")
+            unique(highlights, f"highlight in {identity}")
+            for highlight in highlights:
+                rect = highlight.get("rect")
+                if (
+                    not isinstance(rect, dict)
+                    or any(
+                        type(rect.get(key)) not in (int, float)
+                        or not math.isfinite(rect[key])
+                        or not 0 <= rect[key] <= 1
+                        for key in ("x", "y", "width", "height")
+                    )
+                    or rect["width"] <= 0
+                    or rect["height"] <= 0
+                    or rect["x"] + rect["width"] > 1.000001
+                    or rect["y"] + rect["height"] > 1.000001
+                ):
+                    raise ValueError(f"Invalid highlight geometry: {identity}")
             # Capture IDs become filenames, so limit them to ordinary guide slugs.
             if not identity or any(
                 c not in "abcdefghijklmnopqrstuvwxyz0123456789-" for c in identity
