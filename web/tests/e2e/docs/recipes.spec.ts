@@ -157,12 +157,14 @@ test('court sample imports and runs the selected filings through strict replay',
   await join.getByLabel('Expected sheet', { exact: true }).selectOption(String(expected.id));
   await expect(join.getByLabel('Action to check').locator('option')).toHaveCount(2);
   await join.getByLabel('Action to check').selectOption({ index: 1 });
+  captures.push(await captureCheckpoint(page, { id: 'court-expected-sheet', root: join, annotations: [] }, stage));
   await join.getByRole('button', { name: 'Next', exact: true }).click();
   const expectedId = (name: string) => String(expected.columns.find((column: { name: string }) => column.name === name).id);
   const targetId = (name: string) => String(target.columns.find((column: { name: string }) => column.name === name).id);
   await join.getByLabel('Expected key 1').selectOption(expectedId('pdf_filename'));
   await join.getByLabel('Target key 1').selectOption(targetId('filename'));
   await expect(join.getByRole('status')).toContainText('6 matched · 0 not found');
+  captures.push(await captureCheckpoint(page, { id: 'court-expected-keys', root: join, annotations: [] }, stage));
   await join.getByRole('button', { name: 'Next', exact: true }).click();
   for (const name of ['case_number', 'filed_at', 'plaintiff', 'defendant_as_filed']) {
     await join.getByLabel(`Role for ${name}`, { exact: true }).selectOption({ label: `Expected · ${name}` });
