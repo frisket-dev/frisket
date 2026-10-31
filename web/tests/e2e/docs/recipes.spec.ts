@@ -108,6 +108,10 @@ test('court sample imports and runs the selected filings through strict replay',
     { id: 'citations', number: 5, target: { kind: 'field', id: 'field-citation_mode' }, label: 'Citations', labelTarget: page.getByText('Citations', { exact: true }), expected: { kind: 'value', value: 'cite' } },
   ] }, stage));
   await expect(page.locator('.run-scope-summary')).toContainText('3 selected rows');
+  await page.getByTestId('generated-action-run-scope-menu-button').click();
+  await expect(page.getByTestId('generated-action-menu-compare')).toBeVisible();
+  captures.push(await captureCheckpoint(page, { id: 'compare-actions-run-menu', root: page.getByTestId('action-panel'), annotations: [] }, stage));
+  await page.getByTestId('generated-action-run-scope-menu-button').click();
   await page.getByTestId('generated-action-preview').click();
   const previewGate = page.getByTestId('cost-gate-modal');
   if (await previewGate.isVisible({ timeout: 2_000 }).catch(() => false)) {
@@ -221,6 +225,7 @@ test('court sample imports and runs the selected filings through strict replay',
   await expect(page.getByTestId('field-engine')).toContainText('Gemini 3.5 Flash-Lite');
   await page.getByTestId('generated-action-run-scope-menu-button').click();
   await expect(page.getByTestId('generated-action-row-scope-all')).toBeVisible();
+  await page.getByTestId('generated-action-row-scope-all').hover();
   captures.push(await captureCheckpoint(page, { id: 'court-run-settings', root: page.getByTestId('action-panel'), annotations: [] }, stage));
   const fullStart = page.waitForResponse(response => response.url().endsWith('/actions/v1/run') && response.request().method() === 'POST', { timeout: 60_000 });
   await page.getByTestId('generated-action-row-scope-all').click();
