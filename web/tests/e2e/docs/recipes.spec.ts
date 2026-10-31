@@ -298,6 +298,9 @@ test('court sample imports and runs the selected filings through strict replay',
   const expectedChoices = page.getByRole('menuitem', { name: /Extract structured fields vs expected/ });
   await expect(expectedChoices).toHaveCount(2);
   await expectedChoices.last().click();
+  const replaceComparison = page.getByRole('alertdialog', { name: 'Start a new comparison?' });
+  await expect(replaceComparison).toBeVisible();
+  await replaceComparison.getByRole('button', { name: 'Discard', exact: true }).click();
   const fullComparison = page.getByRole('region', { name: 'Action comparison' });
   await expect(fullComparison.getByText('Scoring…')).toHaveCount(0, { timeout: 30_000 });
   await fullComparison.getByRole('button', { name: 'Any miss', exact: true }).click();
