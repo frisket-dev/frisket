@@ -97,6 +97,7 @@ test('documentation: native PDF search preparation and OCR comparison setup', as
     const prepare = receipt.getByTestId('search-preparation-decision-prepare');
     await expect(prepare).toHaveText('Make searchable');
     await expect(prepare).toBeEnabled();
+    await receipt.getByRole('heading', { name: 'Make these files searchable' }).scrollIntoViewIfNeeded();
     captures.push(await captureCheckpoint(page, { id: 'search-prepare-plan', root: receipt, annotations: [] }, stage));
     const decision = page.waitForResponse(result => result.request().method() === 'POST' && new URL(result.url()).pathname === `/api/projects/${pid}/search-preparation/${plan.id}/decision`);
     await prepare.click();
