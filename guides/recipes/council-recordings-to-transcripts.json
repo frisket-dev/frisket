@@ -141,7 +141,7 @@
       "settings": [],
       "captureIds": [
         "council-document-entry",
-        "council-document-player",
+        "council-document-list",
         "council-timed-transcript",
         "council-results"
       ]

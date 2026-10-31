@@ -303,8 +303,9 @@ test('court sample imports and runs the selected filings through strict replay',
   await replaceComparison.getByRole('button', { name: 'Discard', exact: true }).click();
   const fullComparison = page.getByRole('region', { name: 'Action comparison' });
   await expect(fullComparison.getByText('Scoring…')).toHaveCount(0, { timeout: 30_000 });
+  await fullComparison.getByRole('group', { name: 'Comparison field' }).getByRole('button', { name: 'plaintiff_2', exact: true }).click();
+  await expect.poll(() => (score as { expected?: Record<string, Record<string, unknown>> } | null)?.expected?.[String(initialData.rows[5].id)]?.plaintiff, { timeout: 30_000 }).toBe('Mei Chen and proposed library patron class');
   await fullComparison.getByRole('button', { name: 'Any miss', exact: true }).click();
-  await expect(fullComparison).toContainText('Mei Chen', { timeout: 30_000 });
   captures.push(await captureCheckpoint(page, { id: 'court-comparison-misses', root: fullComparison, annotations: [] }, stage));
   await page.getByTestId('workbench-mainView-tab-' + imported.id).click();
   await openAction(page, 'media.ocr');
