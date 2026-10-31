@@ -51,7 +51,7 @@
           ]
         }
       ],
-      "captureIds": ["council-compare-engine-picker", "council-compare-engines"]
+      "captureIds": ["council-compare-engine-picker", "council-compare-engines", "council-compare-whisper-settings"]
     },
     {
       "id": "compare-excerpt",
@@ -140,6 +140,8 @@
       "title": "Read the transcript while listening",
       "settings": [],
       "captureIds": [
+        "council-document-entry",
+        "council-document-player",
         "council-timed-transcript",
         "council-results"
       ]

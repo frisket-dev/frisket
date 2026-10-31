@@ -285,12 +285,12 @@ test('council sample opens the real transcription comparison', async ({ page }) 
   await expect(compare).toBeVisible();
   await expect(page.getByTestId('transcribe-compare-duration')).toHaveValue('600');
   await expect(page.getByTestId('transcribe-compare-dropzone')).toBeVisible();
-  captures.push(await captureCheckpoint(page, { id: 'council-compare-empty', root: compare, annotations: [] }, stage));
+  captures.push(await captureCheckpoint(page, { id: 'council-compare-empty', root: compare, maxHeight: 420, annotations: [] }, stage));
   const filename = 'ann-arbor-policy-committee-2022-04-19-excerpt.mp3';
   const audio = execFileSync(process.env.FRISKET_E2E_PYTHON!, ['-c', 'import sys; from frisket.sample_content.audio import council_audio_bytes; sys.stdout.buffer.write(council_audio_bytes(sys.argv[1]))', filename], { env: process.env, maxBuffer: 20 * 1024 * 1024 });
   await page.getByTestId('transcribe-compare-file-input').setInputFiles({ name: filename, mimeType: 'audio/mpeg', buffer: audio });
   await expect(compare).toContainText(filename);
-  captures.push(await captureCheckpoint(page, { id: 'council-compare-file', root: compare, annotations: [] }, stage));
+  captures.push(await captureCheckpoint(page, { id: 'council-compare-file', root: compare, maxHeight: 220, annotations: [] }, stage));
   const columns = page.getByTestId('transcribe-compare-engine-column');
   await expect(columns).toHaveCount(2);
   await expect(page.getByTestId('transcribe-compare-engine-chips')).toContainText('Whisper');
@@ -308,15 +308,16 @@ test('council sample opens the real transcription comparison', async ({ page }) 
   await whisper.getByTestId('transcribe-compare-variant-gear').click();
   const options = page.getByTestId('transcribe-compare-configure');
   await expect(options.getByTestId('transcribe-compare-model-pill-base')).toHaveAttribute('aria-pressed', 'true');
-  captures.push(await captureCheckpoint(page, { id: 'council-compare-engines', root: compare, annotations: [] }, stage));
+  captures.push(await captureCheckpoint(page, { id: 'council-compare-engines', root: compare, maxHeight: 350, annotations: [] }, stage));
+  captures.push(await captureCheckpoint(page, { id: 'council-compare-whisper-settings', root: options, annotations: [] }, stage));
   await page.keyboard.press('Escape');
   await page.getByTestId('transcribe-compare-duration').fill('30');
   await expect(page.getByTestId('transcribe-compare-duration')).toHaveValue('30');
-  captures.push(await captureCheckpoint(page, { id: 'council-compare-duration', root: compare, annotations: [
+  captures.push(await captureCheckpoint(page, { id: 'council-compare-duration', root: compare, maxHeight: 160, annotations: [
     { id: 'first-seconds', number: 1, target: { kind: 'element', id: 'transcribe-compare-duration' }, label: 'First seconds', expected: { kind: 'value', value: '30' } },
   ] }, stage));
   await expect(page.getByTestId('transcribe-compare-run')).toBeEnabled();
-  captures.push(await captureCheckpoint(page, { id: 'council-compare-run', root: compare, annotations: [] }, stage));
+  captures.push(await captureCheckpoint(page, { id: 'council-compare-run', root: compare, maxHeight: 160, annotations: [] }, stage));
   page.on('response', response => { if (response.url().includes('/transcribe/compare-scratch') && !response.ok()) void response.text().then(body => console.log('DOCS_TRANSCRIBE_ERROR', response.status(), body)); });
   await page.getByTestId('transcribe-compare-run').click();
   const gate = page.getByTestId('cost-gate-modal');
@@ -346,8 +347,10 @@ test('council sample opens the real transcription comparison', async ({ page }) 
   await expect(page.getByTestId('field-model_size')).toHaveValue('base');
   await page.getByTestId('field-output-text').fill('transcript');
   await page.getByTestId('field-output-segments').fill('transcript_segments');
+  await page.getByTestId('field-output-segments').blur();
   await page.keyboard.press('Escape');
-  await page.getByTestId('action-panel').getByText('Transcribe', { exact: true }).click();
+  await page.getByTestId('action-panel').locator('.form-hint').first().click();
+  await expect(page.getByTestId('action-title-menu')).toHaveCount(0);
   await expect(engine).toContainText('Whisper (multilingual transcription)');
   await expect(page.getByText('Loading models…')).toHaveCount(0);
   const form = page.getByTestId('generated-action-form');
@@ -377,10 +380,13 @@ test('council sample opens the real transcription comparison', async ({ page }) 
     if (['failed', 'cancelled', 'stalled', 'orphaned'].includes(run.status)) throw new Error(`Transcribe run ${runId} ${run.status}: ${run.public_status?.error ?? ''}`);
     return [run.status, run.completed_rows, run.failed_rows];
   }, { timeout: 240_000 }).toEqual(['completed', 2, 0]);
-  await page.getByTestId('view-switch-document').click();
+  const documentEntry = page.getByTestId('view-switch-document');
+  captures.push(await captureCheckpoint(page, { id: 'council-document-entry', root: documentEntry.locator('xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " workspace-toolbar ")][1]'), annotations: [] }, stage));
+  await documentEntry.click();
   await page.getByTestId('document-list-item').filter({ hasText: 'ann-arbor-policy-committee-2022-04-19' }).click();
   const transcript = page.getByTestId('document-temporal-transcript');
   await expect(transcript).toBeVisible({ timeout: 30_000 });
+  captures.push(await captureCheckpoint(page, { id: 'council-document-player', root: transcript, maxHeight: 160, annotations: [] }, stage));
   const segment = transcript.getByTestId('document-transcript-segment').nth(1);
   const marker = (await segment.locator('.evidence-temporal-segment-marker').innerText()).trim();
   const parts = marker.split(':').map(Number);
@@ -393,7 +399,7 @@ test('council sample opens the real transcription comparison', async ({ page }) 
   captures.push(await captureCheckpoint(page, { id: 'council-timed-transcript', root: transcript, annotations: [] }, stage));
   await page.getByTestId('view-switch-grid').click();
   captures.push(await captureCheckpoint(page, { id: 'council-results', root: page.getByTestId('grid'), annotations: [] }, stage));
-  expect(captures.map(item => item.id).filter(id => id !== 'council-compare-estimate')).toEqual(['council-compare-empty', 'council-compare-file', 'council-compare-engine-picker', 'council-compare-engines', 'council-compare-duration', 'council-compare-run', 'council-engine-comparison', 'council-compare-source', 'council-transcribe-settings', 'council-transcribe-outputs', 'council-timed-transcript', 'council-results']);
+  expect(captures.map(item => item.id).filter(id => id !== 'council-compare-estimate')).toEqual(['council-compare-empty', 'council-compare-file', 'council-compare-engine-picker', 'council-compare-engines', 'council-compare-whisper-settings', 'council-compare-duration', 'council-compare-run', 'council-engine-comparison', 'council-compare-source', 'council-transcribe-settings', 'council-transcribe-outputs', 'council-document-entry', 'council-document-player', 'council-timed-transcript', 'council-results']);
   return captures;
   });
 });
