@@ -297,8 +297,10 @@ test('council sample opens the real transcription comparison', async ({ page }) 
   await expect(page.getByTestId('transcribe-compare-engine-chips')).toContainText('MAI-Transcribe');
   await page.getByTestId('transcribe-compare-engine-chip-remove-openrouter/microsoft/mai-transcribe-2').click();
   await page.getByTestId('transcribe-compare-add-engine').click();
-  await page.getByTestId('transcribe-compare-configure-engine').click();
+  await page.getByTestId('transcribe-compare-configure-engine').locator('.engine-selector__trigger').click();
   const compareSelector = page.getByTestId('engine-selector-dialog');
+  await expect(compareSelector).toBeVisible();
+  captures.push(await captureCheckpoint(page, { id: 'council-compare-engine-picker', root: compareSelector, annotations: [] }, stage));
   await compareSelector.getByText('Microsoft MAI-Transcribe 2 (OpenRouter)', { exact: true }).click();
   await expect(compareSelector).toBeHidden();
   await page.keyboard.press('Escape');
@@ -387,7 +389,7 @@ test('council sample opens the real transcription comparison', async ({ page }) 
   captures.push(await captureCheckpoint(page, { id: 'council-timed-transcript', root: transcript, annotations: [] }, stage));
   await page.getByTestId('view-switch-grid').click();
   captures.push(await captureCheckpoint(page, { id: 'council-results', root: page.getByTestId('grid'), annotations: [] }, stage));
-  expect(captures.map(item => item.id).filter(id => id !== 'council-compare-estimate')).toEqual(['council-compare-empty', 'council-compare-file', 'council-compare-engines', 'council-compare-duration', 'council-compare-run', 'council-engine-comparison', 'council-transcribe-settings', 'council-transcribe-outputs', 'council-timed-transcript', 'council-results']);
+  expect(captures.map(item => item.id).filter(id => id !== 'council-compare-estimate')).toEqual(['council-compare-empty', 'council-compare-file', 'council-compare-engine-picker', 'council-compare-engines', 'council-compare-duration', 'council-compare-run', 'council-engine-comparison', 'council-transcribe-settings', 'council-transcribe-outputs', 'council-timed-transcript', 'council-results']);
   return captures;
   });
 });

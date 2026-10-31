@@ -51,7 +51,7 @@
           ]
         }
       ],
-      "captureIds": ["council-compare-engines"]
+      "captureIds": ["council-compare-engine-picker", "council-compare-engines"]
     },
     {
       "id": "compare-excerpt",
