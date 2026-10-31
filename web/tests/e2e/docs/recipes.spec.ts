@@ -264,6 +264,16 @@ test('court sample imports and runs the selected filings through strict replay',
   writeFileSync(path.join(stage, 'court-review.json'), JSON.stringify({ runId: fullRunId, rows: review }, null, 2));
   captures.push(await captureCheckpoint(page, { id: 'court-results', root: page.getByTestId('grid'), maxHeight: 300, annotations: [] }, stage));
   captures.push(...await captureReview(page, stage, fullRunId));
+  await page.getByTestId('view-switch-document').click();
+  const documentView = page.getByTestId('document-view');
+  await expect(documentView.getByTestId('document-pdf')).toBeVisible();
+  await documentView.getByTestId('document-show-alongside').click();
+  const alongside = documentView.getByTestId('document-alongside-pane');
+  await alongside.getByTestId('document-alongside-column-select').selectOption(actualColumns.case_number_2);
+  await expect(alongside.getByTestId('document-alongside-value')).not.toBeEmpty();
+  await expect(documentView.getByTestId('document-pdf-page').first().locator('canvas')).toBeVisible();
+  captures.push(await captureCheckpoint(page, { id: 'court-document-alongside', root: documentView, annotations: [] }, stage));
+  await page.getByTestId('view-switch-grid').click();
   await openAction(page, 'media.ocr');
   await expect(page.getByText('Loading models…')).toHaveCount(0, { timeout: 60_000 });
   await expect(page.getByText('Loading choices…')).toHaveCount(0, { timeout: 60_000 });
