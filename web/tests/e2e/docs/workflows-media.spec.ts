@@ -92,6 +92,11 @@ test('documentation: native PDF search preparation and OCR comparison setup', as
     if (await thumbnail.count()) {
       await expect.poll(() => thumbnail.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
     }
+    const previewBox = await preview.boundingBox();
+    const textBox = await preview.locator('.pdf-packet-text-card').boundingBox();
+    expect(previewBox).not.toBeNull();
+    expect(textBox).not.toBeNull();
+    expect(textBox!.x + textBox!.width).toBeLessThanOrEqual(previewBox!.x + previewBox!.width + 1);
     const semantic = receipt.getByTestId('search-preparation-semantic-model');
     if (await semantic.isVisible().catch(() => false) && await semantic.isChecked()) await semantic.uncheck();
     const prepare = receipt.getByTestId('search-preparation-decision-prepare');

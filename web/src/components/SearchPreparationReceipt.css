@@ -103,8 +103,10 @@
 }
 
 .search-preparation-text-preview {
+  container-type: inline-size;
   display: grid;
   gap: 10px;
+  min-width: 0;
 }
 .search-preparation-text-preview > header > div { display: grid; gap: 2px; }
 .search-preparation-text-preview > header strong { font-size: 16px; font-weight: 600; }
@@ -126,6 +128,10 @@
   border: 0;
   border-radius: var(--radius-6);
   background: var(--bg);
+}
+
+@container (max-width: 540px) {
+  .search-preparation-text-preview .pdf-packet-page-and-text { grid-template-columns: 1fr; }
 }
 
 .search-preparation-setting { margin-bottom: 14px; }
