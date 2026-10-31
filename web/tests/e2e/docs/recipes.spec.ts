@@ -334,7 +334,8 @@ test('council sample opens the real transcription comparison', async ({ page }) 
     { id: 'first-seconds', number: 1, target: { kind: 'element', id: 'transcribe-compare-duration' }, label: 'First seconds', expected: { kind: 'value', value: '30' } },
   ] }, stage));
   await expect(page.getByTestId('transcribe-compare-run')).toBeEnabled();
-  captures.push(await captureCheckpoint(page, { id: 'council-compare-run', root: compare, maxHeight: 160, annotations: [] }, stage));
+  const compareRun = page.getByTestId('transcribe-compare-run');
+  captures.push(await captureCheckpoint(page, { id: 'council-compare-run', root: compare, maxHeight: 160, annotations: [], highlights: [{ id: 'run', label: (await compareRun.innerText()).trim(), target: compareRun }] }, stage));
   page.on('response', response => { if (response.url().includes('/transcribe/compare-scratch') && !response.ok()) void response.text().then(body => console.log('DOCS_TRANSCRIBE_ERROR', response.status(), body)); });
   await page.getByTestId('transcribe-compare-run').click();
   const gate = page.getByTestId('cost-gate-modal');
@@ -343,12 +344,12 @@ test('council sample opens the real transcription comparison', async ({ page }) 
     await page.getByTestId('cost-gate-confirm').click();
   }
   await expect(page.locator('[data-testid="transcribe-compare-engine-column"][data-run-status="done"]')).toHaveCount(2, { timeout: 120_000 });
-  await compare.getByText(/out there today/i).scrollIntoViewIfNeeded();
+  await compare.locator('.ocr-compare-engine-text').evaluateAll(elements => elements.forEach(element => { element.scrollTop = 0; }));
   captures.push(await captureCheckpoint(page, { id: 'council-engine-comparison', root: compare, annotations: [] }, stage));
   await compare.getByTestId('transcribe-compare-source-toggle').click();
   const sourcePeek = compare.getByTestId('transcribe-compare-source-peek');
   await expect(sourcePeek.locator('audio')).toBeVisible();
-  captures.push(await captureCheckpoint(page, { id: 'council-compare-source', root: sourcePeek, annotations: [] }, stage));
+  captures.push(await captureCheckpoint(page, { id: 'council-compare-source', root: sourcePeek.locator('audio'), annotations: [] }, stage));
   await page.getByTestId('transcribe-compare-maintab-close').click();
   await page.getByTestId('transcribe-compare-discard-confirm').click();
   await openAction(page, 'media.transcribe');
@@ -397,11 +398,12 @@ test('council sample opens the real transcription comparison', async ({ page }) 
     return [run.status, run.completed_rows, run.failed_rows];
   }, { timeout: 240_000 }).toEqual(['completed', 2, 0]);
   const documentEntry = page.getByTestId('view-switch-document');
-  captures.push(await captureCheckpoint(page, { id: 'council-document-entry', root: documentEntry.locator('xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " workspace-toolbar ")][1]'), annotations: [] }, stage));
+  captures.push(await captureCheckpoint(page, { id: 'council-document-entry', root: documentEntry.locator('xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " workspace-toolbar ")][1]'), annotations: [], highlights: [{ id: 'document', label: (await documentEntry.innerText()).trim(), target: documentEntry }] }, stage));
   await documentEntry.click();
   await page.getByTestId('document-list-item').filter({ hasText: 'ann-arbor-policy-committee-2022-04-19' }).click();
   const transcript = page.getByTestId('document-temporal-transcript');
   await expect(transcript).toBeVisible({ timeout: 30_000 });
+  captures.push(await captureCheckpoint(page, { id: 'council-document-list', root: page.getByTestId('document-view'), maxHeight: 320, annotations: [] }, stage));
   captures.push(await captureCheckpoint(page, { id: 'council-document-player', root: transcript, maxHeight: 160, annotations: [] }, stage));
   const segment = transcript.getByTestId('document-transcript-segment').nth(1);
   const marker = (await segment.locator('.evidence-temporal-segment-marker').innerText()).trim();
@@ -415,7 +417,7 @@ test('council sample opens the real transcription comparison', async ({ page }) 
   captures.push(await captureCheckpoint(page, { id: 'council-timed-transcript', root: transcript, annotations: [] }, stage));
   await page.getByTestId('view-switch-grid').click();
   captures.push(await captureCheckpoint(page, { id: 'council-results', root: page.getByTestId('grid'), annotations: [] }, stage));
-  expect(captures.map(item => item.id).filter(id => id !== 'council-compare-estimate')).toEqual(['council-compare-empty', 'council-compare-file', 'council-compare-engine-picker', 'council-compare-engines', 'council-compare-whisper-settings', 'council-compare-duration', 'council-compare-run', 'council-engine-comparison', 'council-compare-source', 'council-transcribe-settings', 'council-transcribe-outputs', 'council-document-entry', 'council-document-player', 'council-timed-transcript', 'council-results']);
+  expect(captures.map(item => item.id).filter(id => id !== 'council-compare-estimate')).toEqual(['council-compare-empty', 'council-compare-file', 'council-compare-engine-picker', 'council-compare-engines', 'council-compare-whisper-settings', 'council-compare-duration', 'council-compare-run', 'council-engine-comparison', 'council-compare-source', 'council-transcribe-settings', 'council-transcribe-outputs', 'council-document-entry', 'council-document-list', 'council-document-player', 'council-timed-transcript', 'council-results']);
   return captures;
   });
 });
@@ -538,6 +540,12 @@ test('docs workflow: split a PDF packet', async ({ page }) => {
     await similarity.fill('50');
     await expect(review.locator('[data-packet-page][data-suggested], [data-packet-page][data-unsure]').first()).toBeVisible({ timeout: 60_000 });
     captures.push(await captureCheckpoint(page, { id: 'pdf-packet-visual', root: review, annotations: [] }, stage));
+    const suggested = review.locator('.packet-review-card');
+    await expect(suggested).toBeVisible();
+    await suggested.getByRole('button', { name: /^Suggested/ }).click();
+    if (await suggested.getByRole('button', { name: 'Continue', exact: true }).isVisible()) await suggested.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(suggested.getByRole('button', { name: 'Accept', exact: true })).toBeVisible();
+    captures.push(await captureCheckpoint(page, { id: 'pdf-packet-suggestions', root: suggested, annotations: [] }, stage));
     await method.getByText('Manual', { exact: true }).click();
     const thirdPage = review.locator('[data-packet-page="3"] .pdf-packet-page-toggle');
     await expect(thirdPage).toBeVisible();

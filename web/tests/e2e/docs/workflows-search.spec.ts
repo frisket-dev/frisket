@@ -3,7 +3,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { createProject, importCsv, openProject, textPdf } from '../helpers';
-import { captureCheckpoint, publishCaptureBundle, type CaptureRecord } from './capture';
+import { captureCheckpoint, captureRibbon, publishCaptureBundle, type CaptureRecord } from './capture';
 
 test.use({ deviceScaleFactor: 2, viewport: { width: 1600, height: 1000 } });
 test.skip(!process.env.FRISKET_DOCS_PROOF_DIR, 'Run through the isolated documentation capture harness');
@@ -111,6 +111,8 @@ test('search, Ask, document, export and skill workflows on a disposable project'
     await page.getByTestId('view-switch-grid').click();
     await page.getByTestId(`workbench-mainView-tab-${sheetId}`).click();
     await expect(page.getByTestId('grid')).toBeVisible();
+    await page.getByTestId('ribbon-tab-data').click();
+    captures.push(await captureRibbon(page, 'workflow-export-ribbon', page.getByTestId('ribbon-tab-data'), page.getByTestId('ribbon-command-export-csv'), stage));
     await page.getByTestId('switch-project').click();
     const projectMenu = page.getByTestId('project-menu');
     await projectMenu.getByTestId('export-menu-open').click();
@@ -155,7 +157,7 @@ test('search, Ask, document, export and skill workflows on a disposable project'
       'workflow-search-entry', 'workflow-search-results', 'workflow-ask-entry',
       'workflow-ask-sources', 'workflow-ask-panel', 'workflow-ask-settings', 'workflow-ask-action-settings',
       'workflow-document-entry',
-      'workflow-document-view', 'workflow-export-entry', 'workflow-export-data',
+      'workflow-document-view', 'workflow-export-ribbon', 'workflow-export-entry', 'workflow-export-data',
       'workflow-skills-settings', 'workflow-ask-action-limits',
     ]);
     return captures;

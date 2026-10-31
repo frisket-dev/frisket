@@ -49,7 +49,14 @@ export type CaptureBundle = CaptureMetadata & { version: 1; captures: CaptureRec
 export async function captureRibbon(page: Page, id: string, tab: Locator, action: Locator, directory: string): Promise<CaptureRecord> {
   if (await tab.getAttribute('aria-selected') !== 'true') throw new Error(`Capture ${id}: ribbon tab is not selected`);
   const label = async (target: Locator) => (await target.innerText()).replace(/\s+/g, ' ').trim();
-  return captureCheckpoint(page, { id, root: page.getByTestId('act-ribbon'), annotations: [], highlights: [
+  const ribbon = page.getByTestId('act-ribbon');
+  const lastGroup = ribbon.locator('.act-ribbon-group').last();
+  const lastTab = ribbon.getByRole('tab').last();
+  const groupBox = await lastGroup.boundingBox();
+  const tabBox = await lastTab.boundingBox();
+  if (!groupBox || !tabBox) throw new Error(`Capture ${id}: ribbon boundaries are missing`);
+  const right = groupBox.x + groupBox.width >= tabBox.x + tabBox.width ? lastGroup : lastTab;
+  return captureCheckpoint(page, { id, root: ribbon, cropHorizontal: { left: ribbon.getByRole('tab').first(), right }, annotations: [], highlights: [
     { id: 'tab', label: await label(tab), target: tab },
     { id: 'action', label: await label(action), target: action },
   ] }, directory);
