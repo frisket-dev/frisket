@@ -1113,3 +1113,36 @@ def test_local_whisper_and_gateway_turbo_never_share_an_engine_identity():
     assert "faster_whisper" not in gateway_engines
     assert "whisper-turbo" in gateway_engines
     assert "whisper-turbo" not in local_engines
+
+
+def test_exact_transcription_support_precedes_same_target_wildcard(monkeypatch):
+    from frisket.execution.resolver import preferred_static_choice
+    from frisket.execution.targets import CAPABILITY_TRANSCRIBE
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    provider = StaticExecutionTargetProvider()
+    mai = preferred_static_choice(
+        "openrouter/microsoft/mai-transcribe-2",
+        {"clean": True, "diarize": True},
+        provider,
+        capability=CAPABILITY_TRANSCRIBE,
+    )
+    assert isinstance(mai, tuple)
+    assert mai[0].id == "remote-api:openrouter"
+    assert mai[1].options.clean and mai[1].options.diarization_mode == "optional"
+    unsupported = preferred_static_choice(
+        "openrouter/microsoft/mai-transcribe-2",
+        {"vad": True},
+        provider,
+        capability=CAPABILITY_TRANSCRIBE,
+    )
+    assert isinstance(unsupported, Refusal)
+    unknown = preferred_static_choice(
+        "openrouter/example/unknown",
+        {},
+        provider,
+        capability=CAPABILITY_TRANSCRIBE,
+    )
+    assert isinstance(unknown, tuple)
+    assert unknown[0].id == "remote-api:openrouter"
+    assert unknown[1].options.clean is False

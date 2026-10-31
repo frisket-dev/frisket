@@ -86,6 +86,7 @@ type ImportWorkspaceDialogProps = ImportHandlers & {
   initialTableFile?: File | null;
   initialTableRerunDraftId?: string | null;
   initialFiles?: File[] | null;
+  initialPdfDraftId?: string | null;
   initialPreparationBatchId?: string | null;
   /** The resolved `ner` catalog entry, for its engine availability. Absent
    *  (no catalog yet) means the prompt simply does not offer. */
@@ -105,11 +106,11 @@ export function ImportWorkspaceDialog({ open, ...props }: ImportWorkspaceDialogP
   // reopen at the same entry point. Plans, choices, warnings, and requests
   // remain below this boundary and are discarded when `open` becomes false.
   const [lastMode, setLastMode] = useState<ImportMode>('csv');
-  const initialMode = props.entryMode ?? lastMode;
+  const initialMode = props.initialPdfDraftId ? 'files' : (props.entryMode ?? lastMode);
 
   return open ? (
     <OpenImportWorkspaceSession
-      key={props.initialPreparationBatchId ?? props.initialTableRerunDraftId ?? 'import'}
+      key={props.initialPdfDraftId ?? props.initialPreparationBatchId ?? props.initialTableRerunDraftId ?? 'import'}
       {...props}
       initialMode={initialMode}
       onSessionModeChange={setLastMode}
@@ -123,6 +124,7 @@ function OpenImportWorkspaceSession({
   initialTableFile = null,
   initialTableRerunDraftId = null,
   initialFiles = null,
+  initialPdfDraftId = null,
   initialPreparationBatchId = null,
   onClose,
   onImported,
@@ -159,7 +161,7 @@ function OpenImportWorkspaceSession({
     const id = Number(route.store.get().sheetId);
     return Number.isSafeInteger(id) && id > 0 ? id : null;
   });
-  const [pdfBatchResumeId, setPdfBatchResumeId] = useState<string | null>(null);
+  const [pdfBatchResumeId, setPdfBatchResumeId] = useState<string | null>(initialPdfDraftId);
   const [pdfBatchNewlyAdmitted, setPdfBatchNewlyAdmitted] = useState(false);
   const [pdfBatchWarnings, setPdfBatchWarnings] = useState<string[]>([]);
   const pdfBatchActive = pdfBatchFiles !== null || pdfBatchResumeId !== null;
@@ -940,6 +942,7 @@ function OpenImportWorkspaceSession({
                   projectId={projectId}
                   files={pdfBatchFiles ?? undefined}
                   resumeDraftId={pdfBatchResumeId}
+                  initialCheckText={Boolean(initialPdfDraftId && pdfBatchResumeId === initialPdfDraftId)}
                   newlyAdmittedDraft={pdfBatchNewlyAdmitted}
                   warnings={pdfBatchWarnings}
                   initialOrganization={pdfBatchOrganization}

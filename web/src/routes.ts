@@ -32,6 +32,7 @@ import {
 export type Route =
   | { kind: 'picker' }
   | { kind: 'admin' }
+  | { kind: 'learn'; sampleId: string }
   | SettingsRoute
   | {
       kind: 'project';
@@ -115,6 +116,7 @@ function parseParts(parts: string[]): ParsedRoute {
     };
   }
   if (parts[0] === 'settings') return parseGlobalSettings(parts);
+  if (parts[0] === 'learn' && parts[1] && parts.length === 2) return { route: { kind: 'learn', sampleId: parts[1] } };
   if (parts[0] === 'admin') return { route: { kind: 'admin' } };
   if (parts[0] === 'p' && parts[1]) {
     let cursor = 2;
@@ -227,6 +229,8 @@ export function routePath(r: Route): string {
       return '/';
     case 'admin':
       return '/admin';
+    case 'learn':
+      return `/learn/${encodeURIComponent(r.sampleId)}`;
     case 'settings':
       if (r.scope === 'project' && r.projectId) {
         return `/p/${encodeURIComponent(r.projectId)}/settings/project/${encodeURIComponent(r.section)}`;

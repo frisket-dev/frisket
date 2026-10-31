@@ -726,6 +726,12 @@ def _ranked_static_candidates(
             or (
                 support.engine.endswith("/*")
                 and engine_id.startswith(support.engine[:-1])
+                # The wildcard is a fallback for unknown models. A concrete
+                # row on this same target owns the model's option contract.
+                and not any(
+                    exact.capability == capability and exact.engine == engine_id
+                    for exact in target.engines
+                )
             )
         )
     ]

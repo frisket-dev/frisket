@@ -1,0 +1,255 @@
+{
+  "id": "court-filings-to-table",
+  "title": "Turn court filings into a checked table",
+  "material": "pdfs",
+  "sample": {
+    "id": "court-filings",
+    "revision": 1
+  },
+  "steps": [
+    {
+      "id": "import",
+      "title": "Bring in the filings",
+      "settings": [],
+      "captureIds": [
+        "court-open-sample"
+      ]
+    },
+    {
+      "id": "check-text",
+      "title": "Check the text and keep each filing together",
+      "settings": [
+        {
+          "id": "ocr-policy",
+          "value": "none",
+          "target": {
+            "kind": "radio",
+            "group": "pdf-batch-ocr-policy",
+            "value": "none"
+          }
+        },
+        {
+          "id": "organization",
+          "value": "keep_documents",
+          "target": {
+            "kind": "radio",
+            "group": "pdf-batch-organization",
+            "value": "keep_documents"
+          }
+        }
+      ],
+      "captureIds": [
+        "court-check-text"
+      ]
+    },
+    {
+      "id": "extract",
+      "title": "Describe the fields to extract",
+      "actionId": "map.extract",
+      "settings": [
+        {
+          "id": "source",
+          "param": "source",
+          "target": {
+            "kind": "field",
+            "id": "text-source-columns"
+          },
+          "value": [
+            "text"
+          ]
+        },
+        {
+          "id": "engine",
+          "param": "engine",
+          "target": {
+            "kind": "tour",
+            "id": "action-engine-selector"
+          },
+          "value": "llm"
+        },
+        {
+          "id": "model",
+          "param": "model",
+          "docsHidden": true,
+          "value": "gemini/gemini-3.5-flash-lite"
+        },
+        {
+          "id": "fields",
+          "param": "fields",
+          "value": [
+            {
+              "name": "case_number",
+              "type": "text",
+              "description": "The case number exactly as printed in the filing."
+            },
+            {
+              "name": "filed_at",
+              "type": "date",
+              "description": "The filing date in ISO format YYYY-MM-DD. Leave blank if absent."
+            },
+            {
+              "name": "plaintiff",
+              "type": "text",
+              "description": "The plaintiff or petitioner exactly as filed."
+            },
+            {
+              "name": "defendant_as_filed",
+              "type": "text",
+              "description": "The defendant or respondent exactly as filed."
+            }
+          ],
+          "target": {
+            "kind": "field",
+            "id": "output-fields-label"
+          }
+        },
+        {
+          "id": "instruction",
+          "param": "instruction",
+          "value": "Read only the supplied filing. Copy names and case numbers exactly. Use YYYY-MM-DD for dates. Extract only facts explicitly stated in the source; leave missing values blank. A requested hearing or remedy is not a court decision. Do not use outside knowledge.",
+          "target": {
+            "kind": "field",
+            "id": "field-instruction"
+          }
+        },
+        {
+          "id": "citations",
+          "param": "grounding",
+          "value": {
+            "enabled": true,
+            "citation_required": false
+          },
+          "target": {
+            "kind": "field",
+            "id": "field-citation_mode"
+          }
+        }
+      ],
+      "captureIds": [
+        "court-extract-entry",
+        "court-extract-settings",
+        "court-extract-fields",
+        "court-extract-instruction"
+      ]
+    },
+    {
+      "id": "preview",
+      "title": "Preview the selected sample (optional)",
+      "actionId": "map.extract",
+      "settings": [
+        {
+          "id": "scope",
+          "value": "selected"
+        }
+      ],
+      "optional": true,
+      "captureIds": [
+        "court-preview"
+      ]
+    },
+    {
+      "id": "sample-run",
+      "title": "Extract a small selected sample",
+      "actionId": "map.extract",
+      "settings": [
+        {
+          "id": "scope",
+          "value": "selected"
+        },
+        {
+          "id": "sample-filenames",
+          "value": [
+            "RV-CV-2026-00418_alvarez-v-northstar_complaint.pdf",
+            "RV-CV-2026-00502_water-alliance_records-petition.pdf",
+            "RV-CV-2026-00611_meridian-v-riverton_injunction-motion.pdf"
+          ]
+        }
+      ],
+      "captureIds": [
+        "court-sample-run"
+      ]
+    },
+    {
+      "id": "compare-expected",
+      "title": "Compare the saved sample with expected answers",
+      "actionId": "map.extract",
+      "settings": [
+        {
+          "id": "expected-sheet",
+          "value": "Expected"
+        },
+        {
+          "id": "expected-key",
+          "value": "pdf_filename"
+        },
+        {
+          "id": "target-key",
+          "value": "filename"
+        },
+        {
+          "id": "field-mappings",
+          "value": {
+            "case_number": "case_number",
+            "filed_at": "filed_at",
+            "plaintiff": "plaintiff",
+            "defendant_as_filed": "defendant_as_filed"
+          }
+        },
+        {
+          "id": "matching-rules",
+          "value": {
+            "case_number": "exact",
+            "filed_at": "date",
+            "plaintiff": "exact",
+            "defendant_as_filed": "exact"
+          }
+        }
+      ],
+      "captureIds": [
+        "court-expected-entry",
+        "court-expected-join",
+        "court-compare-entry",
+        "court-comparison"
+      ]
+    },
+    {
+      "id": "run",
+      "title": "Run the checked settings on all filings",
+      "actionId": "map.extract",
+      "settings": [
+        {
+          "id": "scope",
+          "value": "all"
+        }
+      ],
+      "captureIds": [
+        "court-run-settings"
+      ]
+    },
+    {
+      "id": "check-results",
+      "title": "Check the values against the filings",
+      "settings": [],
+      "captureIds": [
+        "court-results"
+      ]
+    }
+  ],
+  "testedIn": [],
+  "expect": {
+    "rowCount": 6,
+    "key": "pdf_filename",
+    "columns": [
+      "case_number",
+      "filed_at",
+      "plaintiff",
+      "defendant_as_filed"
+    ],
+    "expectedFile": "expected.csv",
+    "expectedKind": "independently-authored-answer-key",
+    "qualityStatus": "pending-real-run",
+    "review": "Compare these four extracted fields against expected.csv and the source PDFs. Other docket columns are companion metadata, not facts to infer from a filing.",
+    "expectedSheet": "Expected",
+    "sampleRowCount": 3
+  }
+}

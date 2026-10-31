@@ -96,6 +96,8 @@ from frisket.server.services.document_priority import DocumentPriorityService
 from frisket.server.routes.pdf_packet_splits import register_pdf_packet_split_routes
 from frisket.server.routes.pdf_packet_sources import register_pdf_packet_source_routes
 from frisket.server.routes.pdf_imports import register_pdf_import_routes
+from frisket.server.routes.guide_samples import register_guide_sample_routes
+from frisket.server.services.guide_samples import GuideSampleService
 from frisket.server.routes.table_imports import register_table_import_routes
 from frisket.server.services.table_imports import FrozenTableImport, TableImportService
 from frisket.server.services.pdf_imports import FrozenPdfImport, PdfImportService
@@ -793,6 +795,9 @@ def create_app(
         on_commit_ready=enqueue_pdf_import_continuation,
     )
     app.state.pdf_import_service = pdf_import_service
+    register_guide_sample_routes(
+        app, service=GuideSampleService(ws, pdf_import_service)
+    )
     pdf_import_commit_service = PdfImportCommitService(
         ws, intake=pdf_import_service, text_preparation=search_preparation_service
     )

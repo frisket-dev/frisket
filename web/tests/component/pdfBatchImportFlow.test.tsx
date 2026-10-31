@@ -1804,3 +1804,55 @@ it('refreshes files as text checking finishes without changing the selected samp
   expect(screen.getByTitle('folder/first.pdf')).toHaveClass('active');
   expect(api.startOcrPreview).not.toHaveBeenCalled();
 });
+
+describe('guide draft arrival', () => {
+  it('opens an existing ready draft at Check text without creating or committing', async () => {
+    const { api } = createApi();
+    render(<PdfBatchImportFlow projectId="project-1" resumeDraftId="draft-1" initialCheckText
+      destinationSheets={[]} api={api} onContextChange={vi.fn()} registerCloseGuard={vi.fn()}
+      onImported={vi.fn()} onDiscarded={vi.fn()} onError={vi.fn()} />);
+    await waitFor(() => expect(screen.getByTestId('pdf-batch-flow')).toHaveAttribute('data-stage', 'check'));
+    expect(api.get).toHaveBeenCalled();
+    expect(api.create).not.toHaveBeenCalled();
+    expect(api.commit).not.toHaveBeenCalled();
+  });
+
+  it('enters Check text again for a different resumed draft', async () => {
+    const { api } = createApi();
+    vi.mocked(api.get).mockImplementation(async (_projectId, draftId) => (
+      snapshot(1, { id: draftId, draft_id: draftId })
+    ));
+    const props = { destinationSheets: [], api, onContextChange: vi.fn(), registerCloseGuard: vi.fn(),
+      onImported: vi.fn(), onDiscarded: vi.fn(), onError: vi.fn(), initialCheckText: true };
+    const view = render(<PdfBatchImportFlow {...props} projectId="project-1" resumeDraftId="draft-1" />);
+    await waitFor(() => expect(screen.getByTestId('pdf-batch-flow')).toHaveAttribute('data-stage', 'check'));
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expect(screen.getByTestId('pdf-batch-flow')).toHaveAttribute('data-stage', 'add');
+    view.rerender(<PdfBatchImportFlow {...props} projectId="project-2" resumeDraftId="draft-2" />);
+    await waitFor(() => expect(screen.getByTestId('pdf-batch-flow')).toHaveAttribute('data-stage', 'check'));
+    expect(api.commit).not.toHaveBeenCalled();
+  });
+
+  it('waits for analysis readiness before entering Check text', async () => {
+    const pending = snapshot(1, { can_review_text: false, analysis: { files_done: 0, files_total: 2, sealed: false } });
+    const { api } = createApi(pending);
+    vi.mocked(api.analyze).mockResolvedValue(snapshot(2));
+    render(<PdfBatchImportFlow projectId="project-1" resumeDraftId="draft-1" initialCheckText
+      destinationSheets={[]} api={api} onContextChange={vi.fn()} registerCloseGuard={vi.fn()}
+      onImported={vi.fn()} onDiscarded={vi.fn()} onError={vi.fn()} />);
+    await waitFor(() => expect(screen.getByTestId('pdf-batch-flow')).toHaveAttribute('data-stage', 'add'));
+    await waitFor(() => expect(screen.getByTestId('pdf-batch-flow')).toHaveAttribute('data-stage', 'check'), { timeout: 4000 });
+    expect(api.commit).not.toHaveBeenCalled();
+  });
+});
+
+ it('shows a failed draft load and leaves creation and commit untouched', async () => {
+  const { api } = createApi();
+  vi.mocked(api.get).mockRejectedValue(new Error('Draft unavailable'));
+  render(<PdfBatchImportFlow projectId="project-1" resumeDraftId="draft-1" initialCheckText
+    destinationSheets={[]} api={api} onContextChange={vi.fn()} registerCloseGuard={vi.fn()}
+    onImported={vi.fn()} onDiscarded={vi.fn()} onError={vi.fn()} />);
+  expect(await screen.findByRole('alert')).toHaveTextContent('Draft unavailable');
+  expect(api.create).not.toHaveBeenCalled();
+  expect(api.commit).not.toHaveBeenCalled();
+ });

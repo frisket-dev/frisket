@@ -17,6 +17,7 @@ import { WorkspaceStoresProvider } from './bind/WorkspaceStoresProvider';
 import { useShellIdentity } from './shellIdentity';
 import { useEditionModule } from './editions/module';
 import { Workspace } from './workspace/Workspace';
+import { GuideSampleLaunch } from './components/GuideSampleLaunch';
 
 const LazySignIn = lazy(() => (
   import('./components/SignIn').then(({ SignIn }) => ({ default: SignIn }))
@@ -115,6 +116,8 @@ export default function App() {
   );
   const content = (() => {
     switch (route.kind) {
+    case 'learn':
+      return withDiagnostics(<GuideSampleLaunch key={route.sampleId} sampleId={route.sampleId} />);
     case 'settings':
       if (route.scope === 'project' && route.projectId) {
         return withDiagnostics(

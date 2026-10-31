@@ -648,3 +648,39 @@ def test_scratch_confirmation_is_bound_to_bytes_and_interval(tmp_path, monkeypat
         ).status_code
         == 402
     )
+
+
+@pytest.mark.parametrize("clean", [None, False, True])
+def test_mai_transcription_compare_estimate_uses_model_specific_options(
+    tmp_path, monkeypatch, clean
+):
+    monkeypatch.setattr(
+        "frisket.server.services.scratch_transcribe.probe_for_ingest",
+        lambda *args, **kwargs: {"kind": "audio", "duration_seconds": 30.0},
+    )
+    router = ModelRouter(keys={"openrouter": "test-key"}, cache=None, cache_mode="off")
+    client = TestClient(
+        create_app(
+            tmp_path / "ws",
+            router=router,
+            executor_deps_factory=lambda _pid, _request: ExecutorDeps(
+                consent_coverage=ConsentCoverage("test:scratch", Decimal("0"))
+            ),
+        )
+    )
+    pid = client.post("/api/projects", json={"name": "MAI compare"}).json()["id"]
+    response = client.post(
+        f"/api/projects/{pid}/transcribe/compare-scratch/estimate",
+        **_multipart(
+            {
+                "engine": "openrouter/microsoft/mai-transcribe-2",
+                "time_limit_seconds": 30,
+                "language": None,
+                "diarize": False,
+                **({"clean": clean} if clean is not None else {}),
+            }
+        ),
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["estimate"]["audio_seconds"] == 30
+    assert response.json()["estimate"]["requires_confirmation"] is True
