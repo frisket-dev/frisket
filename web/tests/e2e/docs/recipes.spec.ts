@@ -295,7 +295,9 @@ test('court sample imports and runs the selected filings through strict replay',
   await selectRow(page, 5);
   await page.getByTestId('ribbon-tab-analyze').click();
   await page.getByTestId('compare-menu-trigger').click();
-  await page.getByRole('menuitem', { name: /case_number_2.*vs expected/ }).click();
+  const expectedChoices = page.getByRole('menuitem', { name: /Extract structured fields vs expected/ });
+  await expect(expectedChoices).toHaveCount(2);
+  await expectedChoices.last().click();
   const fullComparison = page.getByRole('region', { name: 'Action comparison' });
   await expect(fullComparison.getByText('Scoring…')).toHaveCount(0, { timeout: 30_000 });
   await fullComparison.getByRole('button', { name: 'Any miss', exact: true }).click();
