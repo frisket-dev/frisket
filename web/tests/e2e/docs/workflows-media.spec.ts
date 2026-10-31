@@ -44,14 +44,14 @@ test('documentation: compare two local OCR settings on one real page', async ({ 
     await page.keyboard.press('Escape');
     await expect(compare.getByTestId('ocr-compare-engine-column')).toHaveCount(2, { timeout: 90_000 });
     await expect(compare.getByTestId('ocr-compare-run')).toBeEnabled({ timeout: 60_000 });
-    const setup = await captureCheckpoint(page, { id: 'ocr-compare-ready', root: compare, annotations: [] }, stage);
+    const setup = await captureCheckpoint(page, { id: 'ocr-compare-ready', root: compare, maxHeight: 220, annotations: [] }, stage);
     await compare.getByTestId('ocr-compare-run').click();
     const results = compare.locator('[data-testid="ocr-compare-engine-column"][data-run-status="done"]');
     await expect(results).toHaveCount(2, { timeout: 120_000 });
     await compare.getByTestId('ocr-compare-mode-survey').click();
     await expect(results.first()).toContainText(/harbor|bluewharf/i);
     await expect(results.nth(1)).toContainText(/harbor|bluewharf/i);
-    return [setup, await captureCheckpoint(page, { id: 'ocr-compare-results', root: compare, annotations: [] }, stage)];
+    return [setup, await captureCheckpoint(page, { id: 'ocr-compare-results', root: compare, maxHeight: 280, annotations: [] }, stage)];
   });
 });
 

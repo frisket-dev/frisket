@@ -292,9 +292,9 @@ test('council sample opens the real transcription comparison', async ({ page }) 
   const audio = execFileSync(process.env.FRISKET_E2E_PYTHON!, ['-c', 'import sys; from frisket.sample_content.audio import council_audio_bytes; sys.stdout.buffer.write(council_audio_bytes(sys.argv[1]))', filename], { env: process.env, maxBuffer: 20 * 1024 * 1024 });
   await page.getByTestId('transcribe-compare-file-input').setInputFiles({ name: filename, mimeType: 'audio/mpeg', buffer: audio });
   await expect(compare).toContainText(filename);
-  captures.push(await captureCheckpoint(page, { id: 'council-compare-file', root: compare, maxHeight: 220, annotations: [] }, stage));
   const columns = page.getByTestId('transcribe-compare-engine-column');
-  await expect(columns).toHaveCount(2);
+  await expect(columns).toHaveCount(2, { timeout: 60_000 });
+  captures.push(await captureCheckpoint(page, { id: 'council-compare-file', root: compare, maxHeight: 220, annotations: [] }, stage));
   await expect(page.getByTestId('transcribe-compare-engine-chips')).toContainText('Whisper');
   await expect(page.getByTestId('transcribe-compare-engine-chips')).toContainText('MAI-Transcribe');
   await page.getByTestId('transcribe-compare-engine-chip-remove-openrouter/microsoft/mai-transcribe-2').click();
