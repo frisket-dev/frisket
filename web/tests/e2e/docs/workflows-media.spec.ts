@@ -86,6 +86,12 @@ test('documentation: native PDF search preparation and OCR comparison setup', as
     expect(plan.status).toBe('needs_consent');
     const receipt = page.getByTestId('search-preparation-receipt');
     await expect(receipt).toBeVisible();
+    const preview = receipt.getByTestId('search-preparation-text-preview');
+    await expect(preview.getByText('bluewharf', { exact: false })).toBeVisible();
+    const thumbnail = preview.locator('img');
+    if (await thumbnail.count()) {
+      await expect.poll(() => thumbnail.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
+    }
     const semantic = receipt.getByTestId('search-preparation-semantic-model');
     if (await semantic.isVisible().catch(() => false) && await semantic.isChecked()) await semantic.uncheck();
     const prepare = receipt.getByTestId('search-preparation-decision-prepare');
