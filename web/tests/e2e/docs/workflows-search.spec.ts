@@ -92,8 +92,6 @@ test('search, Ask, document, export and skill workflows on a disposable project'
     await expect(options.getByLabel('Total budget (USD)')).toBeVisible();
     await expect(options.getByRole('group', { name: 'Skills' })).toBeVisible();
     await capture('workflow-ask-action-settings', options);
-    await options.getByRole('group', { name: 'Skills' }).scrollIntoViewIfNeeded();
-    await capture('workflow-ask-action-limits', options);
     await options.getByRole('checkbox', { name: 'Run actions' }).uncheck();
     await dock.getByRole('button', { name: 'Ask options' }).click();
     await dock.getByRole('button', { name: 'Collapse Ask' }).click();
@@ -142,12 +140,23 @@ test('search, Ask, document, export and skill workflows on a disposable project'
     await expect(editor).toHaveValue(/name: check-council-records/);
     await capture('workflow-skills-settings', skills);
 
+    await openProject(page, pid, sheetId);
+    await page.getByTestId('chrome-ask-toggle').click();
+    const reopenedDock = page.getByTestId('ask-dock');
+    await reopenedDock.getByRole('button', { name: 'Ask options' }).click();
+    const reopenedOptions = page.getByRole('dialog', { name: 'Ask settings' });
+    await reopenedOptions.getByRole('checkbox', { name: 'Run actions' }).check();
+    const availableSkills = reopenedOptions.getByRole('group', { name: 'Skills' });
+    await expect(availableSkills.getByRole('checkbox', { name: /check-council-records/ })).toBeVisible();
+    await availableSkills.scrollIntoViewIfNeeded();
+    await capture('workflow-ask-action-limits', reopenedOptions);
+
     expect(captures.map(item => item.id)).toEqual([
       'workflow-search-entry', 'workflow-search-results', 'workflow-ask-entry',
       'workflow-ask-sources', 'workflow-ask-panel', 'workflow-ask-settings', 'workflow-ask-action-settings',
-      'workflow-ask-action-limits', 'workflow-document-entry',
+      'workflow-document-entry',
       'workflow-document-view', 'workflow-export-entry', 'workflow-export-data',
-      'workflow-skills-settings',
+      'workflow-skills-settings', 'workflow-ask-action-limits',
     ]);
     return captures;
   });
