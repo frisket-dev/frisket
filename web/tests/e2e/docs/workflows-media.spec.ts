@@ -15,13 +15,6 @@ test.beforeAll(() => {
 
 test('documentation: compare two local OCR settings on one real page', async ({ page }) => {
   test.setTimeout(180_000);
-  page.on('response', async response => {
-    if (!response.url().endsWith('/selector-choices') || !response.ok()) return;
-    const payload = await response.json();
-    const choices = payload.groups?.flatMap((group: { choices: Array<{ authored_selection?: { engine?: string }; can_run?: boolean; label?: string; status?: unknown }> }) => group.choices) ?? [];
-    const rapid = choices.find((choice: { authored_selection?: { engine?: string } }) => choice.authored_selection?.engine === 'rapidocr');
-    if (rapid) console.log('OCR_READINESS', JSON.stringify({ label: rapid.label, can_run: rapid.can_run, status: rapid.status }));
-  });
   const pid = await createProject(page.request, 'OCR comparison documentation');
   const sheet = await importCsv(page.request, pid, 'seed.csv', 'name\nExample\n');
   await openProject(page, pid, sheet);
@@ -49,8 +42,9 @@ test('documentation: compare two local OCR settings on one real page', async ({ 
     await dpi.fill('150');
     await expect(dpi).toHaveValue('150');
     await page.keyboard.press('Escape');
-    const setup = await captureCheckpoint(page, { id: 'ocr-compare-ready', root: compare, annotations: [] }, stage);
+    await expect(compare.getByTestId('ocr-compare-engine-column')).toHaveCount(2, { timeout: 90_000 });
     await expect(compare.getByTestId('ocr-compare-run')).toBeEnabled({ timeout: 60_000 });
+    const setup = await captureCheckpoint(page, { id: 'ocr-compare-ready', root: compare, annotations: [] }, stage);
     await compare.getByTestId('ocr-compare-run').click();
     const results = compare.locator('[data-testid="ocr-compare-engine-column"][data-run-status="done"]');
     await expect(results).toHaveCount(2, { timeout: 120_000 });
