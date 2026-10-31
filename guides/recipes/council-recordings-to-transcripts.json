@@ -78,7 +78,7 @@
       "id": "compare-results",
       "title": "Inspect the comparison",
       "settings": [],
-      "captureIds": ["council-engine-comparison"]
+      "captureIds": ["council-engine-comparison", "council-compare-source"]
     },
     {
       "id": "transcribe",
