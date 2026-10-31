@@ -24,6 +24,8 @@ export interface CaptureDescription {
   /** Limit empty canvas/pane space or crop horizontally to visible controls. */
   maxHeight?: number;
   cropHorizontal?: { left: Locator; right: Locator };
+  /** Visible ribbon controls, measured for the site's optional outlines. */
+  highlights?: Array<{ id: string; label: string; target: Locator }>;
   annotations: CaptureAnnotation[];
 }
 export interface CaptureRecord {
@@ -32,6 +34,7 @@ export interface CaptureRecord {
   width: number;
   height: number;
   scale: number;
+  highlights?: Array<{ id: string; label: string; rect: { x: number; y: number; width: number; height: number } }>;
   annotations: Array<{ id: string; number: number; label: string; value: string | boolean;
     rect: { x: number; y: number; width: number; height: number } }>;
 }
@@ -41,6 +44,16 @@ export type CaptureMetadata = {
 } & ({ sample: { id: string; revision: number }; fixture?: never }
   | { fixture: { id: string; revision: number }; sample?: never });
 export type CaptureBundle = CaptureMetadata & { version: 1; captures: CaptureRecord[] };
+
+/** Full ribbon context with measured active tab and command. */
+export async function captureRibbon(page: Page, id: string, tab: Locator, action: Locator, directory: string): Promise<CaptureRecord> {
+  if (await tab.getAttribute('aria-selected') !== 'true') throw new Error(`Capture ${id}: ribbon tab is not selected`);
+  const label = async (target: Locator) => (await target.innerText()).replace(/\s+/g, ' ').trim();
+  return captureCheckpoint(page, { id, root: page.getByTestId('act-ribbon'), annotations: [], highlights: [
+    { id: 'tab', label: await label(tab), target: tab },
+    { id: 'action', label: await label(action), target: action },
+  ] }, directory);
+}
 
 /** Require one visible candidate across all representations inside the supplied root. */
 export async function resolveCaptureTarget(scope: Page | Locator, target: CaptureAnnotation['target']): Promise<Locator> {
@@ -107,6 +120,16 @@ export async function captureCheckpoint(page: Page, description: CaptureDescript
     crop = { ...crop, x, width: end - x };
   }
   const annotations: CaptureRecord['annotations'] = [];
+  const highlights: NonNullable<CaptureRecord['highlights']> = [];
+  for (const highlight of description.highlights ?? []) {
+    if (highlights.some(item => item.id === highlight.id)) throw new Error('Duplicate highlight IDs');
+    if (await highlight.target.count() !== 1 || !await highlight.target.isVisible()) throw new Error(`Capture ${description.id}: highlight ${highlight.id} must be unique and visible`);
+    const text = (await highlight.target.innerText()).replace(/\s+/g, ' ').trim();
+    if (text !== highlight.label) throw new Error(`Capture ${description.id}: expected highlight ${JSON.stringify(highlight.label)}, got ${JSON.stringify(text)}`);
+    const box = await highlight.target.boundingBox();
+    if (!box || box.x < crop.x - 0.5 || box.y < crop.y - 0.5 || box.x + box.width > crop.x + crop.width + 0.5 || box.y + box.height > crop.y + crop.height + 0.5) throw new Error(`Capture highlight ${highlight.id} is outside its crop`);
+    highlights.push({ id: highlight.id, label: highlight.label, rect: { x: (box.x - crop.x) / crop.width, y: (box.y - crop.y) / crop.height, width: box.width / crop.width, height: box.height / crop.height } });
+  }
   for (const [index, annotation] of description.annotations.entries()) {
     const target = await resolveCaptureTarget(scope, annotation.target);
     const label = annotation.labelTarget
@@ -137,7 +160,7 @@ export async function captureCheckpoint(page: Page, description: CaptureDescript
   const width = png.readUInt32BE(16);
   const height = png.readUInt32BE(20);
   if (!width || !height) throw new Error(`Empty PNG for capture ${description.id}`);
-  return { id: description.id, image, width, height, scale, annotations };
+  return { id: description.id, image, width, height, scale, annotations, ...(highlights.length ? { highlights } : {}) };
 }
 
 /** Publish only a complete new bundle; an existing destination is never overwritten. */

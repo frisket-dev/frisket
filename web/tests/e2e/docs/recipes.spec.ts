@@ -3,7 +3,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { createProject, importCsv, openAction, openCellDrawer, openImportWorkspace, openProject, selectActionSourceColumns, selectRow, sheetColumns, sheetData, textPdf } from '../helpers';
-import { captureCheckpoint, publishCaptureBundle } from './capture';
+import { captureCheckpoint, captureRibbon, publishCaptureBundle } from './capture';
 import { captureReview } from './workflows-review';
 
 test.use({ deviceScaleFactor: 2, viewport: { width: 1600, height: 1000 } });
@@ -283,24 +283,48 @@ test('council sample opens the real transcription comparison', async ({ page }) 
   await page.getByTestId('ribbon-command-transcribe-compare').click();
   const compare = page.getByTestId('transcribe-compare-tab');
   await expect(compare).toBeVisible();
+  await expect(page.getByTestId('transcribe-compare-duration')).toHaveValue('600');
+  await expect(page.getByTestId('transcribe-compare-dropzone')).toBeVisible();
+  captures.push(await captureCheckpoint(page, { id: 'council-compare-empty', root: compare, annotations: [] }, stage));
   const filename = 'ann-arbor-policy-committee-2022-04-19-excerpt.mp3';
   const audio = execFileSync(process.env.FRISKET_E2E_PYTHON!, ['-c', 'import sys; from frisket.sample_content.audio import council_audio_bytes; sys.stdout.buffer.write(council_audio_bytes(sys.argv[1]))', filename], { env: process.env, maxBuffer: 20 * 1024 * 1024 });
   await page.getByTestId('transcribe-compare-file-input').setInputFiles({ name: filename, mimeType: 'audio/mpeg', buffer: audio });
-  await page.getByTestId('transcribe-compare-duration').fill('30');
-  await expect(page.getByTestId('transcribe-compare-duration')).toHaveValue('30');
+  await expect(compare).toContainText(filename);
+  captures.push(await captureCheckpoint(page, { id: 'council-compare-file', root: compare, annotations: [] }, stage));
   const columns = page.getByTestId('transcribe-compare-engine-column');
   await expect(columns).toHaveCount(2);
   await expect(page.getByTestId('transcribe-compare-engine-chips')).toContainText('Whisper');
   await expect(page.getByTestId('transcribe-compare-engine-chips')).toContainText('MAI-Transcribe');
+  await page.getByTestId('transcribe-compare-engine-chip-remove-openrouter/microsoft/mai-transcribe-2').click();
+  await page.getByTestId('transcribe-compare-add-engine').click();
+  await page.getByTestId('transcribe-compare-configure-engine').click();
+  const compareSelector = page.getByTestId('engine-selector-dialog');
+  await compareSelector.getByText('Microsoft MAI-Transcribe 2 (OpenRouter)', { exact: true }).click();
+  await expect(compareSelector).toBeHidden();
+  await page.keyboard.press('Escape');
+  const whisper = page.locator('[data-testid="transcribe-compare-engine-chip"][data-engine-id="faster_whisper"]').first();
+  await whisper.getByTestId('transcribe-compare-variant-gear').click();
+  const options = page.getByTestId('transcribe-compare-configure');
+  await expect(options.getByTestId('transcribe-compare-model-pill-base')).toHaveAttribute('aria-pressed', 'true');
+  captures.push(await captureCheckpoint(page, { id: 'council-compare-engines', root: compare, annotations: [] }, stage));
+  await page.keyboard.press('Escape');
+  await page.getByTestId('transcribe-compare-duration').fill('30');
+  await expect(page.getByTestId('transcribe-compare-duration')).toHaveValue('30');
+  captures.push(await captureCheckpoint(page, { id: 'council-compare-duration', root: compare, annotations: [
+    { id: 'first-seconds', number: 1, target: { kind: 'element', id: 'transcribe-compare-duration' }, label: 'First seconds', expected: { kind: 'value', value: '30' } },
+  ] }, stage));
+  await expect(page.getByTestId('transcribe-compare-run')).toBeEnabled();
+  captures.push(await captureCheckpoint(page, { id: 'council-compare-run', root: compare, annotations: [] }, stage));
   page.on('response', response => { if (response.url().includes('/transcribe/compare-scratch') && !response.ok()) void response.text().then(body => console.log('DOCS_TRANSCRIBE_ERROR', response.status(), body)); });
   await page.getByTestId('transcribe-compare-run').click();
   const gate = page.getByTestId('cost-gate-modal');
-  if (await gate.isVisible({ timeout: 10_000 }).catch(() => false)) await page.getByTestId('cost-gate-confirm').click();
+  if (await gate.isVisible({ timeout: 10_000 }).catch(() => false)) {
+    captures.push(await captureCheckpoint(page, { id: 'council-compare-estimate', root: gate, annotations: [] }, stage));
+    await page.getByTestId('cost-gate-confirm').click();
+  }
   await expect(page.locator('[data-testid="transcribe-compare-engine-column"][data-run-status="done"]')).toHaveCount(2, { timeout: 120_000 });
   await compare.getByText(/out there today/i).scrollIntoViewIfNeeded();
-  captures.push(await captureCheckpoint(page, { id: 'council-engine-comparison', root: compare, annotations: [
-    { id: 'first-seconds', number: 3, target: { kind: 'element', id: 'transcribe-compare-duration' }, label: 'First seconds', expected: { kind: 'value', value: '30' } },
-  ] }, stage));
+  captures.push(await captureCheckpoint(page, { id: 'council-engine-comparison', root: compare, annotations: [] }, stage));
   await page.getByTestId('transcribe-compare-maintab-close').click();
   await page.getByTestId('transcribe-compare-discard-confirm').click();
   await openAction(page, 'media.transcribe');
@@ -316,7 +340,8 @@ test('council sample opens the real transcription comparison', async ({ page }) 
   await expect(page.getByTestId('field-model_size')).toHaveValue('base');
   await page.getByTestId('field-output-text').fill('transcript');
   await page.getByTestId('field-output-segments').fill('transcript_segments');
-  await page.getByTestId('field-output-segments').blur();
+  await page.keyboard.press('Escape');
+  await page.getByTestId('action-panel').getByText('Transcribe', { exact: true }).click();
   await expect(engine).toContainText('Whisper (multilingual transcription)');
   await expect(page.getByText('Loading models…')).toHaveCount(0);
   const form = page.getByTestId('generated-action-form');
@@ -362,7 +387,7 @@ test('council sample opens the real transcription comparison', async ({ page }) 
   captures.push(await captureCheckpoint(page, { id: 'council-timed-transcript', root: transcript, annotations: [] }, stage));
   await page.getByTestId('view-switch-grid').click();
   captures.push(await captureCheckpoint(page, { id: 'council-results', root: page.getByTestId('grid'), annotations: [] }, stage));
-  expect(captures.map(item => item.id)).toEqual(['council-engine-comparison', 'council-transcribe-settings', 'council-transcribe-outputs', 'council-timed-transcript', 'council-results']);
+  expect(captures.map(item => item.id).filter(id => id !== 'council-compare-estimate')).toEqual(['council-compare-empty', 'council-compare-file', 'council-compare-engines', 'council-compare-duration', 'council-compare-run', 'council-engine-comparison', 'council-transcribe-settings', 'council-transcribe-outputs', 'council-timed-transcript', 'council-results']);
   return captures;
   });
 });
@@ -400,13 +425,9 @@ test('docs entry: council source details and Transcribe Compare', async ({ page 
     await page.getByTestId('ribbon-tab-media').click();
     const ribbon = page.getByTestId('act-ribbon');
     await expect(ribbon.getByTestId('ribbon-command-transcribe-compare')).toBeVisible();
-    const compareGroup = ribbon.getByTestId('ribbon-command-transcribe-compare').locator('xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " act-ribbon-group ")][1]');
-    await expect(compareGroup).toHaveCount(1);
-    captures.push(await captureCheckpoint(page, { id: 'council-compare-entry', root: compareGroup, annotations: [] }, stage));
+    captures.push(await captureRibbon(page, 'council-compare-entry', page.getByTestId('ribbon-tab-media'), ribbon.getByTestId('ribbon-command-transcribe-compare'), stage));
     await expect(ribbon.getByTestId('ribbon-action-media.transcribe')).toBeVisible();
-    const transcriptsGroup = ribbon.getByTestId('ribbon-action-media.transcribe').locator('xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " act-ribbon-group ")][1]');
-    await expect(transcriptsGroup).toHaveCount(1);
-    captures.push(await captureCheckpoint(page, { id: 'council-transcribe-entry', root: transcriptsGroup, annotations: [] }, stage));
+    captures.push(await captureRibbon(page, 'council-transcribe-entry', page.getByTestId('ribbon-tab-media'), ribbon.getByTestId('ribbon-action-media.transcribe'), stage));
     expect(captures.map(capture => capture.id)).toEqual(['council-audio-source', 'council-source-details', 'council-compare-entry', 'council-transcribe-entry']);
     return captures;
   });
@@ -438,18 +459,12 @@ test('docs entry: court sample and Extract fields', async ({ page }) => {
     await page.getByTestId('ribbon-tab-analyze').click();
     const ribbon = page.getByTestId('act-ribbon');
     await expect(ribbon.getByTestId('ribbon-action-map.extract')).toBeVisible();
-    const extractGroup = ribbon.getByTestId('ribbon-action-map.extract').locator('xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " act-ribbon-group ")][1]');
-    await expect(extractGroup).toHaveCount(1);
-    captures.push(await captureCheckpoint(page, { id: 'court-extract-entry', root: extractGroup, annotations: [] }, stage));
+    captures.push(await captureRibbon(page, 'court-extract-entry', page.getByTestId('ribbon-tab-analyze'), ribbon.getByTestId('ribbon-action-map.extract'), stage));
     await expect(ribbon.getByTestId('compare-menu-trigger')).toBeVisible();
-    const compareGroup = ribbon.getByTestId('compare-menu-trigger').locator('xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " act-ribbon-group ")][1]');
-    await expect(compareGroup).toHaveCount(1);
-    captures.push(await captureCheckpoint(page, { id: 'court-compare-entry', root: compareGroup, annotations: [] }, stage));
+    captures.push(await captureRibbon(page, 'court-compare-entry', page.getByTestId('ribbon-tab-analyze'), ribbon.getByTestId('compare-menu-trigger'), stage));
     await page.getByTestId('ribbon-tab-tables').click();
     await expect(ribbon.getByRole('button', { name: 'Join expected answers', exact: true })).toBeVisible();
-    const joinGroup = ribbon.getByRole('button', { name: 'Join expected answers', exact: true }).locator('xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " act-ribbon-group ")][1]');
-    await expect(joinGroup).toHaveCount(1);
-    captures.push(await captureCheckpoint(page, { id: 'court-expected-entry', root: joinGroup, annotations: [] }, stage));
+    captures.push(await captureRibbon(page, 'court-expected-entry', page.getByTestId('ribbon-tab-tables'), ribbon.getByRole('button', { name: 'Join expected answers', exact: true }), stage));
     expect(captures.map(capture => capture.id)).toEqual(['court-open-sample', 'court-extract-entry', 'court-compare-entry', 'court-expected-entry']);
     return captures;
   });
@@ -466,8 +481,7 @@ test('docs workflow: split a PDF packet', async ({ page }) => {
     await page.getByTestId('ribbon-tab-data').click();
     const importButton = page.getByTestId('ribbon-command-import');
     await expect(importButton).toBeVisible();
-    const importGroup = importButton.locator('xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " act-ribbon-group ")][1]');
-    captures.push(await captureCheckpoint(page, { id: 'pdf-packet-import-entry', root: importGroup, annotations: [] }, stage));
+    captures.push(await captureRibbon(page, 'pdf-packet-import-entry', page.getByTestId('ribbon-tab-data'), importButton, stage));
     await openImportWorkspace(page);
     await page.getByTestId('import-mode-pdf_split').click();
     const workspace = page.getByTestId('import-workspace');
@@ -490,6 +504,12 @@ test('docs workflow: split a PDF packet', async ({ page }) => {
     const review = page.locator('.pdf-packet-review-host');
     const method = review.getByRole('group', { name: 'How to find document starts' });
     await expect(method).toBeVisible({ timeout: 90_000 });
+    await method.getByText('Visual', { exact: true }).click();
+    const similarity = review.getByRole('slider', { name: /How similar/ });
+    await expect(similarity).toBeVisible();
+    await similarity.fill('50');
+    await expect(review.locator('[data-packet-page][data-suggested], [data-packet-page][data-unsure]').first()).toBeVisible({ timeout: 60_000 });
+    captures.push(await captureCheckpoint(page, { id: 'pdf-packet-visual', root: review, annotations: [] }, stage));
     await method.getByText('Manual', { exact: true }).click();
     const thirdPage = review.locator('[data-packet-page="3"] .pdf-packet-page-toggle');
     await expect(thirdPage).toBeVisible();

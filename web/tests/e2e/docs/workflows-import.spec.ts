@@ -5,7 +5,7 @@ import {
   commitTableImport, createProject, importCsv, openImportWorkspace, openProject,
   previewTableFile, sheetData, uniqueName,
 } from '../helpers';
-import { captureCheckpoint, publishCaptureBundle } from './capture';
+import { captureCheckpoint, captureRibbon, publishCaptureBundle } from './capture';
 
 test.use({ deviceScaleFactor: 2, viewport: { width: 1600, height: 1000 } });
 test.skip(!process.env.FRISKET_DOCS_PROOF_DIR, 'Run through the isolated documentation capture harness');
@@ -137,6 +137,7 @@ test('documentation: split PDFs already in a sheet', async ({ page }) => {
   await expect.poll(async () => (await sheetData(page.request, pid, sheet.id)).total).toBe(6);
   await publishCaptureBundle(output('workflow-split-existing-pdfs'), metadata(), async stage => {
     await page.getByTestId('ribbon-tab-ctx-pdf').click();
+    const entry = await captureRibbon(page, 'pdf-split-entry', page.getByTestId('ribbon-tab-ctx-pdf'), page.getByTestId('ribbon-command-split-pdfs'), stage);
     await page.getByTestId('ribbon-command-split-pdfs').click();
     const dialog = page.getByRole('dialog', { name: 'Split PDFs', exact: true });
     await expect(dialog).toBeVisible();
@@ -145,6 +146,6 @@ test('documentation: split PDFs already in a sheet', async ({ page }) => {
     await expect(dialog.getByText('Checking text…')).toHaveCount(0, { timeout: 90_000 });
     await expect(dialog.getByRole('heading', { name: /Carry over columns/ })).toBeVisible();
     await expect(dialog.getByRole('button', { name: /^(Create|Check text)/ })).toBeEnabled({ timeout: 90_000 });
-    return [await captureCheckpoint(page, { id: 'split-existing-pdf-setup', root: dialog, annotations: [] }, stage)];
+    return [entry, await captureCheckpoint(page, { id: 'split-existing-pdf-setup', root: dialog, annotations: [] }, stage)];
   });
 });

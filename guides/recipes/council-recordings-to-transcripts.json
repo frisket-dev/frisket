@@ -17,14 +17,27 @@
       ]
     },
     {
-      "id": "compare-engines",
-      "title": "Compare engines on the same short passage",
+      "id": "compare-open",
+      "title": "Open Transcribe Compare",
       "actionId": "media.transcribe",
+      "settings": [],
+      "captureIds": ["council-compare-entry", "council-compare-empty"]
+    },
+    {
+      "id": "compare-recording",
+      "title": "Add the recording",
       "settings": [
         {
           "id": "recording",
           "value": "ann-arbor-policy-committee-2022-04-19-excerpt.mp3"
-        },
+        }
+      ],
+      "captureIds": ["council-compare-file"]
+    },
+    {
+      "id": "compare-engines",
+      "title": "Choose the engines",
+      "settings": [
         {
           "id": "engines",
           "value": [
@@ -36,7 +49,14 @@
               "engine": "openrouter/microsoft/mai-transcribe-2"
             }
           ]
-        },
+        }
+      ],
+      "captureIds": ["council-compare-engines"]
+    },
+    {
+      "id": "compare-excerpt",
+      "title": "Choose the passage length",
+      "settings": [
         {
           "id": "first-seconds",
           "value": 30,
@@ -46,10 +66,19 @@
           }
         }
       ],
-      "captureIds": [
-        "council-compare-entry",
-        "council-engine-comparison"
-      ]
+      "captureIds": ["council-compare-duration"]
+    },
+    {
+      "id": "compare-run",
+      "title": "Run the comparison",
+      "settings": [],
+      "captureIds": ["council-compare-run"]
+    },
+    {
+      "id": "compare-results",
+      "title": "Inspect the comparison",
+      "settings": [],
+      "captureIds": ["council-engine-comparison"]
     },
     {
       "id": "transcribe",

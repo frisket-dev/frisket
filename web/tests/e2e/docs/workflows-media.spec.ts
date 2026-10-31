@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { createProject, importCsv, openPalette, openProject, textPdf } from '../helpers';
-import { captureCheckpoint, publishCaptureBundle } from './capture';
+import { captureCheckpoint, captureRibbon, publishCaptureBundle } from './capture';
 
 test.use({ deviceScaleFactor: 2, viewport: { width: 1600, height: 1000 } });
 test.skip(!process.env.FRISKET_DOCS_PROOF_DIR, 'Run through the isolated documentation capture harness');
@@ -11,6 +11,45 @@ test.beforeAll(() => {
   expect(process.env.FRISKET_DOCS_REVISION).toBe(git('rev-parse', 'HEAD'));
   const overlay = process.env.FRISKET_DOCS_PACKAGE_OVERLAY === '1' ? ['M web/package.json'] : [];
   expect(git('status', '--porcelain', '--untracked-files=no').split('\n').filter(Boolean).filter(change => !overlay.includes(change))).toEqual([]);
+});
+
+test('documentation: compare two local OCR settings on one real page', async ({ page }) => {
+  test.setTimeout(180_000);
+  const pid = await createProject(page.request, 'OCR comparison documentation');
+  const sheet = await importCsv(page.request, pid, 'seed.csv', 'name\nExample\n');
+  await openProject(page, pid, sheet);
+  await publishCaptureBundle(path.join(process.env.FRISKET_DOCS_PROOF_DIR!, 'ocr-local-comparison'), {
+    appRevision: process.env.FRISKET_DOCS_REVISION!, fixture: { id: 'ocr-local-fixture', revision: 1 },
+  }, async stage => {
+    await page.getByTestId('ribbon-tab-media').click();
+    await page.getByTestId('ribbon-command-ocr-compare').click();
+    const compare = page.getByTestId('ocr-compare-tab');
+    await expect(compare).toBeVisible();
+    const rapid = compare.locator('[data-testid="ocr-compare-variant-chip"][data-engine-id="rapidocr"]').first();
+    await expect(rapid).toBeVisible({ timeout: 60_000 });
+    for (const other of await compare.locator('[data-testid="ocr-compare-variant-chip"]:not([data-engine-id="rapidocr"])').all()) {
+      await other.getByTestId('ocr-compare-variant-remove').click();
+    }
+    await compare.getByTestId('ocr-compare-file-input').setInputFiles({ name: 'harbor.pdf', mimeType: 'application/pdf', buffer: textPdf([
+      ['HARBOR REPORT', 'The bluewharf contract covers dredging.'],
+    ], { fontSize: 18, leading: 24 }) });
+    await rapid.getByTestId('ocr-compare-variant-gear').click();
+    const options = compare.getByTestId('ocr-compare-configure');
+    await expect(options).toBeVisible();
+    await options.getByTestId('ocr-compare-duplicate').click();
+    await expect(compare.locator('[data-testid="ocr-compare-variant-chip"][data-engine-id="rapidocr"]')).toHaveCount(2);
+    const dpi = compare.getByTestId('ocr-compare-dpi-stepper');
+    await dpi.fill('150');
+    await expect(dpi).toHaveValue('150');
+    await page.keyboard.press('Escape');
+    const setup = await captureCheckpoint(page, { id: 'ocr-compare-ready', root: compare, annotations: [] }, stage);
+    await compare.getByTestId('ocr-compare-run').click();
+    const results = compare.locator('[data-testid="ocr-compare-engine-column"][data-run-status="done"]');
+    await expect(results).toHaveCount(2, { timeout: 120_000 });
+    await expect(results.first()).toContainText(/harbor|bluewharf/i);
+    await expect(results.nth(1)).toContainText(/harbor|bluewharf/i);
+    return [setup, await captureCheckpoint(page, { id: 'ocr-compare-results', root: compare, annotations: [] }, stage)];
+  });
 });
 
 test('documentation: native PDF search preparation and OCR comparison setup', async ({ page }) => {
@@ -67,7 +106,7 @@ test('documentation: native PDF search preparation and OCR comparison setup', as
     await page.getByTestId('ribbon-tab-media').click();
     const ocr = page.getByTestId('ribbon-command-ocr-compare');
     await expect(ocr).toBeVisible();
-    captures.push(await captureCheckpoint(page, { id: 'ocr-compare-entry', root: ocr.locator('xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " act-ribbon-group ")][1]'), annotations: [] }, stage));
+    captures.push(await captureRibbon(page, 'ocr-compare-entry', page.getByTestId('ribbon-tab-media'), ocr, stage));
     await ocr.click();
     const compare = page.getByTestId('ocr-compare-tab');
     await expect(compare).toBeVisible();
