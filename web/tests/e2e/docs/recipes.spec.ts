@@ -18,7 +18,7 @@ test.beforeAll(() => {
 });
 
 test('court sample imports and runs the selected filings through strict replay', async ({ page }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(240_000);
   await page.goto('/learn/court-filings?revision=1');
   await expect(page.getByText('court filings', { exact: false }).first()).toBeVisible();
   await page.getByRole('button', { name: /open/i }).click();
@@ -274,6 +274,34 @@ test('court sample imports and runs the selected filings through strict replay',
   await expect(documentView.getByTestId('document-pdf-page').first().locator('canvas')).toBeVisible();
   captures.push(await captureCheckpoint(page, { id: 'court-document-alongside', root: documentView, annotations: [] }, stage));
   await page.getByTestId('view-switch-grid').click();
+  await page.getByTestId('ribbon-tab-tables').click();
+  await page.getByRole('button', { name: 'Join expected answers', exact: true }).click();
+  const fullJoin = page.getByTestId('join-expected-dialog');
+  await fullJoin.getByLabel('Expected sheet', { exact: true }).selectOption(String(expected.id));
+  const fullAction = fullJoin.getByLabel('Action to check');
+  await expect(fullAction.locator(`option[value^="${fullRunId}:"]`)).toHaveCount(1, { timeout: 30_000 });
+  await fullAction.selectOption({ value: await fullAction.locator(`option[value^="${fullRunId}:"]`).getAttribute('value') ?? '' });
+  await fullJoin.getByRole('button', { name: 'Next', exact: true }).click();
+  await fullJoin.getByLabel('Expected key 1').selectOption(expectedId('pdf_filename'));
+  await fullJoin.getByLabel('Target key 1').selectOption(targetId('filename'));
+  await expect(fullJoin.getByRole('status')).toContainText('6 matched · 0 not found');
+  await fullJoin.getByRole('button', { name: 'Next', exact: true }).click();
+  for (const name of ['case_number', 'filed_at', 'plaintiff', 'defendant_as_filed']) {
+    await fullJoin.getByLabel(`Role for ${name}`, { exact: true }).selectOption({ label: `Expected · ${name}_2` });
+  }
+  await fullJoin.getByLabel('Match rule for filed_at').selectOption('date');
+  await fullJoin.getByRole('button', { name: 'Join', exact: true }).click();
+  await expect(fullJoin).toHaveCount(0);
+  await selectRow(page, 5);
+  await page.getByTestId('ribbon-tab-analyze').click();
+  await page.getByTestId('compare-menu-trigger').click();
+  await page.getByRole('menuitem', { name: /case_number_2.*vs expected/ }).click();
+  const fullComparison = page.getByRole('region', { name: 'Action comparison' });
+  await expect(fullComparison.getByText('Scoring…')).toHaveCount(0, { timeout: 30_000 });
+  await fullComparison.getByRole('button', { name: 'Any miss', exact: true }).click();
+  await expect(fullComparison).toContainText('Mei Chen', { timeout: 30_000 });
+  captures.push(await captureCheckpoint(page, { id: 'court-comparison-misses', root: fullComparison, annotations: [] }, stage));
+  await page.getByTestId('workbench-mainView-tab-' + imported.id).click();
   await openAction(page, 'media.ocr');
   await expect(page.getByText('Loading models…')).toHaveCount(0, { timeout: 60_000 });
   await expect(page.getByText('Loading choices…')).toHaveCount(0, { timeout: 60_000 });
