@@ -552,6 +552,7 @@ def test_org_owner_fallback_satisfies_the_strongest_base_project_role(
     (
         "/api/projects/proof/import/files/prepare",
         "/api/projects/proof/import/pdf-imports/pdf-test/analyze",
+        "/api/projects/proof/import/guide-samples/court-filings/prepare",
     ),
 )
 @pytest.mark.parametrize("role", ("viewer", "editor"))

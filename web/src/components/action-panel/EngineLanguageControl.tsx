@@ -1,3 +1,4 @@
+import { FORM_LABELS } from '../../actions/formLabels';
 import { PanelSelect } from '../PanelSelect';
 import { LabelChipsInput } from './LabelChipsInput';
 import { fallbackLanguageLabel } from '../../actions/transcribeEngineCatalog';
@@ -15,11 +16,11 @@ export function EngineLanguageControl({
   declaration,
   value,
   onChange,
-  label = 'Language',
+  label = FORM_LABELS.language,
   autoLabel = 'Auto (detect)',
   testIdPrefix = 'transcribe',
   fixedNoun = 'transcribes',
-  multiLabel = 'Expected languages',
+  multiLabel = FORM_LABELS.expectedLanguages,
 }: {
   declaration: LanguageDeclaration | undefined;
   value: string;

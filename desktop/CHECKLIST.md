@@ -26,3 +26,15 @@ Electron harness. [Code signing](https://www.electronjs.org/docs/latest/tutorial
 Later conveniences: remember window bounds, report data-folder open failures,
 and prune superseded runtime environments. None requires a new runtime manager
 for the beta.
+
+### Installed guide-link smoke
+
+On a machine with a newly installed build that includes guide samples, verify OS
+registration and delivery using `frisket://learn/court-filings?revision=1`.
+Open the link with Frisket closed (on macOS, `open 'frisket://learn/court-filings?revision=1'`;
+on Windows, use Run or a browser link), then repeat while Frisket is open and
+while it is still preparing. Each should reach the guide's Open/Cancel screen;
+no project should be created until Open is chosen. Cancel and confirm no sample
+was created. Also try `frisket://app/` externally and confirm it does not
+navigate the workspace. This checks the installed OS association as well as
+cold and warm delivery; the Node tests alone do not check packaging or OS routing.

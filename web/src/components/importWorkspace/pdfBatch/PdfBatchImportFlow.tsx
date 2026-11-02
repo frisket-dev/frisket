@@ -73,6 +73,7 @@ export interface PdfBatchImportFlowProps {
   files?: readonly File[];
   resumeDraftId?: string | null;
   newlyAdmittedDraft?: boolean;
+  initialCheckText?: boolean;
   warnings?: readonly string[];
   initialOrganization?: PdfImportChoices['organization'];
   destinationSheets: readonly PdfBatchDestinationSheet[];
@@ -131,6 +132,7 @@ export function PdfBatchImportFlow({
   files = [],
   resumeDraftId = null,
   newlyAdmittedDraft = false,
+  initialCheckText = false,
   warnings = [],
   initialOrganization = 'keep_documents',
   destinationSheets,
@@ -142,6 +144,8 @@ export function PdfBatchImportFlow({
   onError,
 }: PdfBatchImportFlowProps) {
   const [snapshot, setSnapshot] = useState<PdfImportSnapshot | null>(null);
+  const arrivalPending = useRef(initialCheckText);
+  const publishedSnapshot = useRef<PdfImportSnapshot | null>(null);
   const [stage, setStage] = useState<PdfBatchStage>('add');
   const [reviewSnapshot, setReviewSnapshot] = useState<PdfPacketSplitSnapshot | null>(null);
   const organizationChosen = useRef(false);
@@ -206,7 +210,16 @@ export function PdfBatchImportFlow({
   const publish = useCallback((next: PdfImportSnapshot) => {
     if (currentDraft.current && next.draft_id !== currentDraft.current) return;
     currentDraft.current = next.draft_id;
-    setSnapshot((current) => newerSnapshot(current, next));
+    const accepted = newerSnapshot(publishedSnapshot.current, next);
+    if (accepted !== next) return;
+    publishedSnapshot.current = next;
+    setSnapshot(next);
+    if (arrivalPending.current && next.state === 'open' && next.can_review_text) {
+      arrivalPending.current = false;
+      const category = PDF_CHECK_CATEGORY_ORDER.find((item) => (next.category_counts[item] ?? 0) > 0);
+      if (category) setSelectedCategory(category);
+      setStage('check');
+    }
   }, []);
 
   const reportError = useCallback((problem: unknown) => {
@@ -292,6 +305,8 @@ export function PdfBatchImportFlow({
     lifecycleController.current?.abort();
     lifecycleController.current = controller;
     currentDraft.current = null;
+    publishedSnapshot.current = null;
+    arrivalPending.current = initialCheckText;
     const selectedFiles = filterPdfBatchFiles(filesProp.current);
     const sourceFolder = selectedFolderName(selectedFiles);
     const intakeSelection = configureIntake(selectedFiles);
@@ -370,7 +385,7 @@ export function PdfBatchImportFlow({
       if (generation.current === epoch) generation.current += 1;
       if (!committed.current) abortIntake();
     };
-  }, [abortIntake, api, clearPreview, configureIntake, projectId, publish, reportError, resumeDraftId, newlyAdmittedDraft, runFreshIntake]);
+  }, [abortIntake, api, clearPreview, configureIntake, projectId, publish, reportError, resumeDraftId, newlyAdmittedDraft, runFreshIntake, initialCheckText]);
 
   const registerCommittedUpload = useCallback(async (
     importRef: string | null | undefined,
@@ -920,7 +935,9 @@ export function PdfBatchImportFlow({
   };
 
   if (!snapshot) {
-    return <div className="pdf-batch-loading" role="status"><LoaderCircle className="spin" size={18} /> Preparing file import…</div>;
+    return error
+      ? <div className="panel-error" role="alert">{error}</div>
+      : <div className="pdf-batch-loading" role="status"><LoaderCircle className="spin" size={18} /> Preparing file import…</div>;
   }
 
   if (snapshot.state === 'cancelling' || snapshot.state === 'cancelled') {

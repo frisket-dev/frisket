@@ -444,3 +444,61 @@ def test_option_free_route_candidate_can_pin_an_option_required_engine():
     assert candidate is not None and candidate[1].engine == "opus_mt"
     assert isinstance(option_checked, Refusal)
     assert option_checked.family == "no_capable_target"
+
+
+def test_exact_transcription_restriction_keeps_model_specific_support(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    composition = ExecutionComposition(
+        facts=CompositionFacts(),
+        provider=StaticExecutionTargetProvider(),
+        credential_use_context=CredentialUseContext.open(),
+    ).restricted_to(
+        ExactExecutionMatch(
+            target_id="remote-api:openrouter",
+            capability=CAPABILITY_TRANSCRIBE,
+            engine="openrouter/microsoft/mai-transcribe-2",
+        )
+    )
+    target = composition.resolution_targets()[0]
+    assert len(target.engines) == 1
+    assert target.engines[0].options.clean is True
+    result = resolve(
+        composition.resolution_request(
+            "openrouter/microsoft/mai-transcribe-2",
+            capability=CAPABILITY_TRANSCRIBE,
+            options={"clean": True},
+        ),
+        composition.provider_for_resolution(),
+        composition.facts,
+    )
+    assert isinstance(result, Resolution)
+    assert result.support.options.clean is True
+
+
+def test_metered_projection_preserves_exact_transcription_support():
+    from frisket.execution.credential_use import CredentialOwner
+    from frisket.execution.price_book import PlatformMetered
+
+    match = ExactExecutionMatch(
+        target_id="remote-api:openrouter",
+        capability=CAPABILITY_TRANSCRIBE,
+        engine="openrouter/microsoft/mai-transcribe-2",
+    )
+    owner = CredentialOwner.deployment("test")
+    composition = ExecutionComposition(
+        facts=CompositionFacts(edition="hosted", funding=PlatformMetered()),
+        provider=StaticExecutionTargetProvider(),
+        credential_use_context=CredentialUseContext(
+            cost_posture="platform_metered",
+            consented_owner=owner,
+            selected_owner=owner,
+            deployment_owner=owner,
+        ),
+        included=(match,),
+    )
+    target = next(
+        t for t in composition.resolution_targets() if t.id == match.target_id
+    )
+    supports = [s for s in target.engines if s.capability == CAPABILITY_TRANSCRIBE]
+    assert len(supports) == 1
+    assert supports[0].engine == match.engine and supports[0].options.clean is True

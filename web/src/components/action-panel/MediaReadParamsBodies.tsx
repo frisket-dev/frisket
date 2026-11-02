@@ -1,3 +1,4 @@
+import { FORM_LABELS } from '../../actions/formLabels';
 import { Button } from '../Button';
 import { useEffect, useRef } from 'react';
 import {
@@ -29,20 +30,20 @@ export function OcrParamsBody({ params, setParams, engine, Field }:
   }, [engine, params, setParams]);
   const offersPositionChoice = engine?.ocr_options?.keep_text_position === true;
   return <>
-    <Field name="source" label="Document" />
+    <Field name="source" label={FORM_LABELS.document} />
     <Field name="engine" />
     {engine?.language ? <EngineLanguageControl declaration={engine.language}
       value={typeof params.language === 'string' ? params.language : ''} fixedNoun="reads" testIdPrefix="ocr"
       onChange={(language) => setParams({ ...params, language: language || null })} />
       : <Field name="language" />}
-    <Field name="dpi" label="PDF render resolution (DPI)" />
+    <Field name="dpi" label={FORM_LABELS.pdfDpi} />
     {offersPositionChoice && <label className="form-check" htmlFor="ocr-keep-text-position">
       <input id="ocr-keep-text-position" type="checkbox" data-testid="ocr-keep-text-position"
         checked={params.keep_text_position ?? true}
         onChange={(event) => setParams({ ...params, keep_text_position: event.target.checked })} />
-      Keep text position
+      {FORM_LABELS.keepTextPosition}
     </label>}
-    <Field name="searchable_pdf" label="Create searchable PDF" />
+    <Field name="searchable_pdf" label={FORM_LABELS.searchablePdf} />
     <p className="form-hint">Extracted text and text blocks are saved separately.
       Searchable PDFs require an engine that returns text geometry.</p>
   </>;
@@ -106,7 +107,7 @@ export function TranscribeParamsBody({ params, setParams, setEditorProblem, engi
     return () => setEditorProblem?.(null);
   }, [setEditorProblem, unsupportedSavedOption]);
   return <>
-    <Field name="source" label="Media" />
+    <Field name="source" label={FORM_LABELS.media} />
     <Field name="engine" />
     {unavailableReason && <p className="form-hint" data-testid="transcribe-option-availability">{unavailableReason}</p>}
     {unsupportedSavedKeys.length > 0 && <Button type="button"
@@ -135,7 +136,7 @@ export function TranscribeParamsBody({ params, setParams, setEditorProblem, engi
         setParams(next);
       }} />
     {support.model_size && modelSizes.length > 0 && <div className="param-row">
-      <label className="form-label" htmlFor="transcribe-model-size">Model size</label>
+      <label className="form-label" htmlFor="transcribe-model-size">{FORM_LABELS.modelSize}</label>
       <PanelSelect id="transcribe-model-size" testId="field-model_size" value={modelSize}
         options={modelSizeOptions} onValueChange={(next) => {
           const updated = { ...params };
@@ -145,7 +146,7 @@ export function TranscribeParamsBody({ params, setParams, setEditorProblem, engi
         }} />
     </div>}
     {support.vad && <>
-      <Field name="vad" label="Voice Activity Detection" />
+      <Field name="vad" label={FORM_LABELS.vad} />
       <p className="form-hint">Only transcribe when speech is detected (reduces hallucinations)</p>
     </>}
     {support.context && <Field name="context" />}

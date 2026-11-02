@@ -1,3 +1,4 @@
+import { FORM_LABELS } from '../../actions/formLabels';
 import '../PanelPrimitives.css';
 import '../ActionPanel.css';
 import { useEffect, useState } from 'react';
@@ -86,7 +87,7 @@ export function ExtractParamsBody({ params, setParams, errors, Field, engine,
     <Field name="instruction" />
     <Field name="include_confidence" />
     <label className="field-group form-field">
-      <span className="form-label">Citations</span>
+      <span className="form-label">{FORM_LABELS.citations}</span>
       <PanelSelect testId="field-citation_mode" value={citationMode}
         disabled={pdfInput && !citationRequired}
         onValueChange={setCitationMode}
@@ -102,7 +103,7 @@ export function ExtractParamsBody({ params, setParams, errors, Field, engine,
     </label>
     <details className="action-advanced"><summary>Advanced</summary>
       {groundingEnabled && <>
-        <Field name="source_document_columns" label="Citation sources" />
+        <Field name="source_document_columns" label={FORM_LABELS.citationSources} />
         <p className="form-hint">Optional columns to check citations against. Leave empty to use the action’s source inputs.</p>
       </>}
       <Field name="context" />

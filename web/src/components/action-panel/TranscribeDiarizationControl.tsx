@@ -1,3 +1,4 @@
+import { FORM_LABELS } from '../../actions/formLabels';
 import { TextInput } from '../FormControls';
 import { useState } from 'react';
 import { SegmentedToggle } from '../PanelPrimitives';
@@ -95,7 +96,7 @@ export function TranscribeDiarizationControl({
             onParamsChange((m) => setTranscribeDiarization(m, declaration, checked));
           }}
         />
-        Identify speakers
+        {FORM_LABELS.identifySpeakers}
       </label>
       {unavailable && <p className="form-hint" id="transcribe-diarize-unavailable"
         data-testid="transcribe-diarize-unavailable">
@@ -105,7 +106,7 @@ export function TranscribeDiarizationControl({
         <>
           {declaration.speaker_hint === 'count' && (
             <div className="param-row" data-testid="transcribe-speaker-count-row">
-              <span className="form-label">Speaker count</span>
+              <span className="form-label">{FORM_LABELS.speakerCount}</span>
               <div className="unit-input">
                 <SegmentedToggle
                   testId="transcribe-speaker-count-mode"
@@ -140,7 +141,7 @@ export function TranscribeDiarizationControl({
                   <TextInput
                     inputMode="numeric"
                     placeholder="Auto"
-                    aria-label="Exact speaker count"
+                    aria-label={FORM_LABELS.exactSpeakers}
                     data-testid="transcribe-num-speakers"
                     value={params.num_speakers ?? ''}
                     onChange={(e) => setSpeakerField('num_speakers', e.target.value)}
@@ -150,7 +151,7 @@ export function TranscribeDiarizationControl({
                     <TextInput
                       inputMode="numeric"
                       placeholder="Min"
-                      aria-label="Minimum speakers"
+                      aria-label={FORM_LABELS.minSpeakers}
                       data-testid="transcribe-min-speakers"
                       value={params.min_speakers ?? ''}
                       onChange={(e) => setSpeakerField('min_speakers', e.target.value)}
@@ -159,7 +160,7 @@ export function TranscribeDiarizationControl({
                     <TextInput
                       inputMode="numeric"
                       placeholder="Max"
-                      aria-label="Maximum speakers"
+                      aria-label={FORM_LABELS.maxSpeakers}
                       data-testid="transcribe-max-speakers"
                       value={params.max_speakers ?? ''}
                       onChange={(e) => setSpeakerField('max_speakers', e.target.value)}

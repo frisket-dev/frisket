@@ -1,3 +1,4 @@
+import { FORM_LABELS } from '../../actions/formLabels';
 import '../PanelPrimitives.css';
 import '../ActionPanel.css';
 import { Button } from '../Button';
@@ -297,7 +298,7 @@ export function OutputFieldsEditor({
     <>
       <div className="form-label-row">
         <span className="form-label" data-testid="output-fields-label">
-          {usesFieldNameDestination ? 'Output details' : 'Columns it creates'}
+          {usesFieldNameDestination ? FORM_LABELS.outputDetails : FORM_LABELS.outputColumns}
         </span>
         <div className="control-row">
           {!usesFieldNameDestination && !outputFieldsReadOnly && !structureLocked

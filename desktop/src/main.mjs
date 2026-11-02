@@ -14,6 +14,7 @@ import { createUpdater } from './updater.mjs';
 import { createUpdateProgress } from './update-progress.mjs';
 import { updatePreferences } from './update-preferences.mjs';
 import { createBackendStopper, shutdownDesktop } from './shutdown.mjs';
+import { createLaunchIntents, installLaunchDelivery } from './launch-intent.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const desktopRoot = path.resolve(here, '..');
@@ -36,6 +37,28 @@ let recoveryTask;
 let cleanupFailed = false;
 let updates;
 let updatesStarted = false;
+const launchIntents = createLaunchIntents({
+  navigate: async destination => {
+    if (quitting || startupVisible || !mainWindow || mainWindow.isDestroyed()) return;
+    await mainWindow.loadURL(destination);
+    if (!quitting && !startupVisible && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  },
+});
+const ownsInstance = installLaunchDelivery({
+  app, intents: launchIntents, argv: process.argv,
+  focus: () => {
+    if (quitting) return;
+    const window = startupVisible ? startupWindow : mainWindow;
+    if (!window || window.isDestroyed()) return;
+    if (window.isMinimized()) window.restore();
+    window.show();
+    window.focus();
+  },
+});
 const updateProgress = createUpdateProgress({
   BrowserWindow, getParent: () => mainWindow, pagePath: path.join(desktopRoot, 'ui', 'update.html'),
   createQuitMenu: () => Menu.buildFromTemplate([{
@@ -145,6 +168,8 @@ function createStartupCard(parent) {
 }
 
 async function showStartup() {
+  launchIntents.setReady(false);
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.stop();
   startupVisible = true;
   openingHome = false;
   detailsOpen = false;
@@ -188,6 +213,8 @@ function startupPageUrl() {
 }
 
 async function openHome(window) {
+  launchIntents.setReady(false);
+  window.webContents.stop();
   openingHome = true;
   const area = (Number.isFinite(homeBounds.x) && Number.isFinite(homeBounds.y) ? screen.getDisplayMatching(homeBounds) : screen.getPrimaryDisplay()).workArea;
   const bounds = { ...homeBounds, width: Math.min(homeBounds.width, area.width), height: Math.min(homeBounds.height, area.height) };
@@ -207,6 +234,7 @@ async function openHome(window) {
     retiringStartup = false;
   }
   startupWindow = undefined;
+  launchIntents.setReady(true);
 }
 
 async function openStartupDetails() {
@@ -377,7 +405,7 @@ function setupUpdates() {
 }
 
 app.whenReady().then(async () => {
-  if (!app.requestSingleInstanceLock()) { app.quit(); return; }
+  if (!ownsInstance) return;
   // The existing UI copies text, but never needs clipboard reads or device access.
   const canWriteClipboard = (contents, permission, requestingUrl) =>
     permission === 'clipboard-sanitized-write' &&
@@ -388,13 +416,6 @@ app.whenReady().then(async () => {
     canWriteClipboard(contents, permission, requestingOrigin));
   session.defaultSession.on('will-download', (_event, item) => {
     item.setSaveDialogOptions({ defaultPath: item.getFilename() });
-  });
-  app.on('second-instance', () => {
-    if (quitting || !mainWindow || mainWindow.isDestroyed()) return;
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    const window = startupVisible ? startupWindow : mainWindow;
-    window?.show();
-    window?.focus();
   });
   setupUpdates();
   installMenu();

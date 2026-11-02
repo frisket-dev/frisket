@@ -96,3 +96,7 @@ describe('shared sign-in destination', () => {
     expect(resumePendingSignIn(location('/'), memory)).toBeNull();
   });
 });
+
+it('preserves a sample route and revision through sign-in', () => {
+  expect(authReturnTo(location('/learn/court-filings', '?revision=1'))).toBe('/learn/court-filings?revision=1');
+});

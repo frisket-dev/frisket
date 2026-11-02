@@ -1060,3 +1060,78 @@ def test_production_asgi_entrypoint_requires_run_queue_locator(
     monkeypatch.setenv("FRISKET_DATA_DIR", str(tmp_path / "data"))
     with pytest.raises(ValueError, match="FRISKET_RUN_QUEUE_DATABASE_URL"):
         create_team_app_from_env()
+
+
+def test_project_creation_idempotency_replays_and_binds_actor_and_payload(tmp_path):
+    app = _app(tmp_path)
+    with TestClient(app) as alice, TestClient(app) as bob:
+        _login(alice, app, "alice@example.com")
+        _login(bob, app, "bob@example.com")
+        headers = {"Idempotency-Key": "guide-operation"}
+        first = alice.post(
+            "/api/projects", headers=headers, json={"name": "Court filings"}
+        )
+        replay = alice.post(
+            "/api/projects", headers=headers, json={"name": "Court filings"}
+        )
+        assert first.status_code == replay.status_code == 200
+        assert first.json()["id"] == replay.json()["id"]
+        assert (
+            alice.post(
+                "/api/projects", headers=headers, json={"name": "Other"}
+            ).status_code
+            == 409
+        )
+        other = bob.post(
+            "/api/projects", headers=headers, json={"name": "Court filings"}
+        )
+        assert other.status_code == 200 and other.json()["id"] != first.json()["id"]
+
+
+def test_project_creation_retry_after_lost_result_reuses_intent(tmp_path, monkeypatch):
+    import frisket.team.app as team_app
+
+    app = _app(tmp_path)
+    complete = team_app._complete_project_intent
+    calls = 0
+
+    def lost_result(*args, **kwargs):
+        nonlocal calls
+        result = complete(*args, **kwargs)
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("lost result")
+        return result
+
+    monkeypatch.setattr(team_app, "_complete_project_intent", lost_result)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        _login(client, app, "alice@example.com")
+        headers = {"Idempotency-Key": "lost-result"}
+        assert (
+            client.post(
+                "/api/projects", headers=headers, json={"name": "Lost"}
+            ).status_code
+            == 500
+        )
+        recovered = client.post("/api/projects", headers=headers, json={"name": "Lost"})
+        assert recovered.status_code == 200
+        assert len(client.get("/api/projects").json()) == 1
+
+
+def test_project_creation_simultaneous_same_key_creates_one_project(tmp_path):
+    app = _app(tmp_path)
+    with TestClient(app) as client:
+        _login(client, app, "alice@example.com")
+
+        def create(_):
+            return client.post(
+                "/api/projects",
+                headers={"Idempotency-Key": "parallel"},
+                json={"name": "Concurrent"},
+            )
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            responses = list(executor.map(create, range(2)))
+        assert [r.status_code for r in responses] == [200, 200]
+        assert responses[0].json()["id"] == responses[1].json()["id"]
+        assert len(client.get("/api/projects").json()) == 1

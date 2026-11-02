@@ -11,7 +11,7 @@ def test_indra_runtime_profile_is_exact_pinned_and_packaged() -> None:
     assert sidecar["project"]["optional-dependencies"]["ocr-indra"] == [
         "indra-ocr==0.3.1"
     ]
-    assert sidecar["tool"]["uv"]["exclude-newer-package"] == {"indra-ocr": "2026-10-13"}
+    assert sidecar["tool"]["uv"]["exclude-newer-package"]["indra-ocr"] == "2026-10-13"
 
     constraints = (root / "sidecar" / "indra-ocr-constraints.txt").read_text(
         encoding="utf-8"

@@ -1,25 +1,30 @@
 import type { WalkthroughTarget } from './walkthroughs';
 
-function elementsWithTestId(testId: string): HTMLElement[] {
-  return Array.from(document.querySelectorAll<HTMLElement>('[data-testid]')).filter(
-    (element) => element.dataset.testid === testId,
-  );
+/** Ordered selector alternatives shared by tours and documentation capture. */
+export function walkthroughTargetCandidates(target: WalkthroughTarget): string[] {
+  const testId = (id: string) => `[data-testid=${JSON.stringify(id)}]`;
+  switch (target.kind) {
+    case 'completed-run': return walkthroughTargetCandidates(target.target);
+    case 'action-tab': return [testId(`ribbon-tab-${target.id}`), testId(`menubar-menu-${target.id}`)];
+    case 'action': return [testId(`ribbon-action-${target.id}`), testId(`menu-action-${target.id}`)];
+    case 'command': return [testId(`ribbon-command-${target.id}`), testId(`menu-command-${target.id}`)];
+    case 'discover-tab': return [testId(`discover-tab-${target.id}`), testId(`discover-rail-icon-${target.id}`)];
+    case 'sheet': return ['[data-testid^="workbench-mainView-tab-"]'];
+    case 'grid-column': return [testId(`grid-column-${target.id}`)];
+    case 'view': return [testId(`view-switch-${target.id}`)];
+    case 'tour': return [`[data-tour=${JSON.stringify(target.id)}]`];
+    case 'local-endpoint': return [`[data-tour=${JSON.stringify(target.part === 'row' ? 'local-endpoint-row' : 'local-endpoint-guidance')}]`];
+    case 'field':
+    case 'element': return [testId(target.id)];
+  }
 }
 
-function elementsWithTourAnchor(anchor: string): HTMLElement[] {
-  return Array.from(document.querySelectorAll<HTMLElement>('[data-tour]')).filter(
-    (element) => element.dataset.tour === anchor,
-  );
-}
-
-function localEndpointPart(
-  label: string,
-  part: 'row' | 'guidance',
-): HTMLElement | null {
-  const anchor = part === 'row' ? 'local-endpoint-row' : 'local-endpoint-guidance';
-  return elementsWithTourAnchor(anchor).find((element) => (
-    element.dataset.endpointLabel === label && isAvailable(element)
-  )) ?? null;
+/** Match additional semantic attributes after finding selector candidates. */
+export function matchesWalkthroughTarget(element: HTMLElement, target: WalkthroughTarget): boolean {
+  if (target.kind === 'completed-run') return matchesWalkthroughTarget(element, target.target);
+  if (target.kind === 'sheet') return element.querySelector<HTMLElement>('.workbench-mainView-tab-name')?.textContent?.trim() === target.id;
+  if (target.kind === 'local-endpoint') return element.dataset.endpointLabel === target.label;
+  return true;
 }
 
 function isAvailable(element: HTMLElement): boolean {
@@ -33,69 +38,17 @@ function isAvailable(element: HTMLElement): boolean {
   return true;
 }
 
-function firstAvailable(testIds: readonly string[]): HTMLElement | null {
-  for (const testId of testIds) {
-    const match = elementsWithTestId(testId).find(isAvailable);
-    if (match) return match;
-  }
-  return null;
-}
-
-function latestRunCompletedSuccessfully(): boolean {
-  const status = firstAvailable(['run-watcher-toggle']);
-  if (!status || status.dataset.runStatus !== 'complete') return false;
-  const failedRows = Number(status.dataset.runFailedRows);
-  return Number.isFinite(failedRows) && failedRows === 0;
-}
-
-function sheetTabWithName(name: string): HTMLElement | null {
-  return Array.from(
-    document.querySelectorAll<HTMLElement>('[data-testid^="workbench-mainView-tab-"]'),
-  ).find((element) => (
-    isAvailable(element)
-    && element.querySelector<HTMLElement>('.workbench-mainView-tab-name')?.textContent?.trim() === name
-  )) ?? null;
-}
-
 /** Resolve semantic walkthrough targets against either action-navigation density. */
 export function resolveWalkthroughTarget(target: WalkthroughTarget): HTMLElement | null {
-  switch (target.kind) {
-    case 'completed-run':
-      return latestRunCompletedSuccessfully()
-        ? resolveWalkthroughTarget(target.target)
-        : null;
-    case 'action-tab':
-      return firstAvailable([
-        `ribbon-tab-${target.id}`,
-        `menubar-menu-${target.id}`,
-      ]);
-    case 'action':
-      return firstAvailable([
-        `ribbon-action-${target.id}`,
-        `menu-action-${target.id}`,
-      ]);
-    case 'command':
-      return firstAvailable([
-        `ribbon-command-${target.id}`,
-        `menu-command-${target.id}`,
-      ]);
-    case 'discover-tab':
-      return firstAvailable([
-        `discover-tab-${target.id}`,
-        `discover-rail-icon-${target.id}`,
-      ]);
-    case 'sheet':
-      return sheetTabWithName(target.id);
-    case 'grid-column':
-      return firstAvailable([`grid-column-${target.id}`]);
-    case 'view':
-      return firstAvailable([`view-switch-${target.id}`]);
-    case 'tour':
-      return elementsWithTourAnchor(target.id).find(isAvailable) ?? null;
-    case 'local-endpoint':
-      return localEndpointPart(target.label, target.part);
-    case 'field':
-    case 'element':
-      return firstAvailable([target.id]);
+  if (target.kind === 'completed-run') {
+    const status = resolveWalkthroughTarget({ kind: 'element', id: 'run-watcher-toggle' });
+    const failedRows = Number(status?.dataset.runFailedRows);
+    if (!status || status.dataset.runStatus !== 'complete' || !Number.isFinite(failedRows) || failedRows !== 0) return null;
   }
+  for (const selector of walkthroughTargetCandidates(target)) {
+    const found = Array.from(document.querySelectorAll<HTMLElement>(selector))
+      .find((element) => isAvailable(element) && matchesWalkthroughTarget(element, target));
+    if (found) return found;
+  }
+  return null;
 }

@@ -557,6 +557,14 @@ class ExecutionComposition:
                     capability=match.capability,
                     engine=match.engine,
                 )
+                and not (
+                    support.engine.endswith("/*")
+                    and any(
+                        exact.capability == match.capability
+                        and exact.engine == match.engine
+                        for exact in target.engines
+                    )
+                )
             )
             if supports:
                 rows.append(replace(target, engines=supports))
@@ -633,6 +641,11 @@ class ExecutionComposition:
                     supports.extend(
                         replace(support, engine=match.engine)
                         for match in matching_matches
+                        if not any(
+                            exact.capability == match.capability
+                            and exact.engine == match.engine
+                            for exact in target.engines
+                        )
                     )
                 elif matching_matches:
                     supports.append(support)

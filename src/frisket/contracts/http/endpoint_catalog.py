@@ -235,6 +235,9 @@ _TENANT_ADMIN: tuple[RouteSpec, ...] = (("external_pricing", "GET"),)
 _TENANT_SESSION: tuple[RouteSpec, ...] = (
     ("actions_schema", "GET"),
     ("create_project", "POST"),
+    ("list_guide_samples", "GET"),
+    ("get_guide_sample", "GET"),
+    ("download_guide_sample", "GET"),
     ("diagnose", "GET"),
     (
         "get_action_registry_artifact",
@@ -815,6 +818,7 @@ _TENANT_EDITOR: tuple[RouteSpec, ...] = (
         "runtime_projection_status",
         "POST",
     ),
+    ("prepare_guide_sample", "POST"),
     ("seed_sample_project", "POST"),
     ("set_project_model_route", "PATCH"),
     (
@@ -964,6 +968,10 @@ _BROWSER_CLIENT_IDS = (
             "tenant.create_notification_channel.post",
             "tenant.create_notification_route.post",
             "tenant.create_project.post",
+            "tenant.list_guide_samples.get",
+            "tenant.get_guide_sample.get",
+            "tenant.download_guide_sample.get",
+            "tenant.prepare_guide_sample.post",
             "tenant.create_view.post",
             "tenant.create_watch.post",
             "tenant.delete_watch.delete",

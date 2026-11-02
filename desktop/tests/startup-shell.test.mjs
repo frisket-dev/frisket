@@ -4,14 +4,15 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import vm from 'node:vm';
+import { createLaunchIntents, installLaunchDelivery } from '../src/launch-intent.mjs';
 
-async function shell(windowsNewlines = false) {
+async function shell(windowsNewlines = false, argv = []) {
   const windows = [];
   const shutdowns = [];
   class Window extends EventEmitter {
     constructor(options) {
       super(); this.options = options; this.bounds = { x: 10, y: 10, width: options.width, height: options.height };
-      this.webContents = Object.assign(new EventEmitter(), { setWindowOpenHandler() {}, getURL: () => this.url, send() {} });
+      this.webContents = Object.assign(new EventEmitter(), { setWindowOpenHandler() {}, getURL: () => this.url, send() {}, stop() {} });
       windows.push(this);
     }
     async loadFile(file) { this.url = `file://${file}`; }
@@ -25,6 +26,7 @@ async function shell(windowsNewlines = false) {
     getBounds() { return this.bounds; }
     setOpacity(value) { this.opacity = value; }
     isDestroyed() { return Boolean(this.destroyed); }
+    isMinimized() { return false; }
     close() {
       let prevented = false;
       this.emit('close', { preventDefault() { prevented = true; } });
@@ -34,11 +36,12 @@ async function shell(windowsNewlines = false) {
   const app = Object.assign(new EventEmitter(), {
     getVersion: () => '1.0.0', getPath: () => '/tmp/profile', setPath() {},
     commandLine: { hasSwitch: () => true }, enableSandbox() {},
-    whenReady: () => new Promise(() => {}),
+    whenReady: () => new Promise(() => {}), requestSingleInstanceLock: () => true,
   });
   let clock = 0;
   const context = vm.createContext({
-    app, BrowserWindow: Window, process: { platform: 'linux', arch: 'x64' },
+    app, BrowserWindow: Window, process: { platform: 'linux', arch: 'x64', argv },
+    createLaunchIntents, installLaunchDelivery,
     path, fileURLToPath: () => '/app/src/main.mjs', pathToFileURL: value => ({ href: `file://${value}` }),
     mkdirSync() {}, mkdir: async () => {}, writeFile: async () => {},
     protocol: { registerSchemesAsPrivileged() {} },
@@ -101,4 +104,14 @@ test('shell fixture accepts Windows checkout line endings', async () => {
   assert.equal(windows[0].url, 'frisket://app/');
   assert.equal(windows[1].destroyed, true);
   assert.equal(shutdowns.length, 0);
+});
+
+
+test('cold-start guide intent reaches the workbench after startup', async () => {
+  const { windows, proof } = await shell(false, ['frisket://learn/court-filings?revision=1']);
+  await proof.showStartup();
+  await proof.openHome();
+  assert.equal(windows[0].url, 'frisket://app/learn/court-filings?revision=1');
+  assert.equal(windows[0].visible, true);
+  assert.equal(windows[1].destroyed, true);
 });

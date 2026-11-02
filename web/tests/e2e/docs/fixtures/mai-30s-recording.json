@@ -1,0 +1,51 @@
+{
+  "model": "openrouter/microsoft/mai-transcribe-2",
+  "clip_sha256": "e167893155d2412df11cde759b1d2ddd9d981eef83fd26d308c535b185479351",
+  "request": {
+    "model": "microsoft/mai-transcribe-2",
+    "response_format": "verbose_json",
+    "input_audio": {
+      "format": "mp3"
+    },
+    "timestamp_granularities": [
+      "segment"
+    ],
+    "provider": {
+      "options": {
+        "azure": {
+          "diarization": {
+            "enabled": false
+          },
+          "enhancedMode": {
+            "modelOptions": {
+              "transcribeStyle": "verbatim"
+            }
+          }
+        }
+      }
+    }
+  },
+  "response": {
+    "text": "Andy Buchek and Mary Beth McGowan, but the three of us here in Washington, again, echo everything that Andrea and Andy have said. Looking forward to working with you, uh, to implement your agenda. So, um, looking forward to it. Thanks.\nYeah, and then, um, just missing from our Lansing team, um, Jamie Zaneski was not able to be here. She's out ill today, so, um, she regrets that, um, but will be an important part of our team as well. So, thank you.",
+    "usage": {
+      "seconds": 30,
+      "cost": 0.0008333333333333334
+    },
+    "language": "en",
+    "duration": 29.99,
+    "segments": [
+      {
+        "id": 0,
+        "start": 0,
+        "end": 12.24,
+        "text": "Andy Buchek and Mary Beth McGowan, but the three of us here in Washington, again, echo everything that Andrea and Andy have said. Looking forward to working with you, uh, to implement your agenda. So, um, looking forward to it. Thanks."
+      },
+      {
+        "id": 1,
+        "start": 13.16,
+        "end": 29.99,
+        "text": "Yeah, and then, um, just missing from our Lansing team, um, Jamie Zaneski was not able to be here. She's out ill today, so, um, she regrets that, um, but will be an important part of our team as well. So, thank you."
+      }
+    ]
+  }
+}

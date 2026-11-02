@@ -91,6 +91,15 @@ export function useWorkspaceModel({
   const history = useSelector(projectData.store, (state) => state.history);
   const reviewCount = useSelector(projectData.store, (state) => state.reviewCount);
   const run = useSelector(job.store, (state) => state.run);
+  const actionJobs = useSelector(job.store, (state) => state.actionJobs.jobs);
+  const completionSignal = JSON.stringify([
+    ...(run && ['complete', 'partial', 'failed', 'cancelled'].includes(run.status) ? [`${run.runId}:${run.status}`] : []),
+    ...actionJobs.flatMap((item) => {
+      const status = item.progress?.status ?? item.status;
+      const runId = item.progress?.runId ?? item.runId;
+      return runId && ['done', 'complete', 'completed', 'partial', 'failed', 'cancelled'].includes(status) ? [`${runId}:${status}`] : [];
+    }),
+  ].sort());
   const requestCostConfirmation = job.requestCostConfirmation;
 
   const gridView = useGridViewHandle();
@@ -817,7 +826,7 @@ export function useWorkspaceModel({
   }, [selection, sheet]);
   const catalogEntries = useSelector(actionCatalog.store, (state) => state.catalog?.actions);
   const [expectedHeader, setExpectedHeader] = useState<ExpectedProjection['columns'][number] | null>(null);
-  const expectedAnswers = useWorkspaceExpectedAnswers(project.id, sheet, sheets, projectApi, catalogEntries, actActionTemplates, dataVersion, showError);
+  const expectedAnswers = useWorkspaceExpectedAnswers(project.id, sheet, sheets, projectApi, catalogEntries, actActionTemplates, completionSignal, showError);
   const { openJoin: openExpectedJoin } = expectedAnswers;
   const runActCommand = useCallback(
     (command: ActMenuCommand) => {
