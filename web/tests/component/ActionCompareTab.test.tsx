@@ -114,6 +114,25 @@ describe('ActionCompareTab', () => {
     expect(screen.getByRole('dialog', { name: 'Configure variant B' })).toBeInTheDocument();
   });
 
+  it('does not compare an unrun baseline but compares a successful null', async () => {
+    const session = createActionCompareSession({ context: fixture() }, {
+      runVariant: async () => ({ status: 'ready', previewId: 'b', result: { rows: { 10: { party: cell('Other party') } } } }),
+    });
+    session.addVariant();
+    await session.runPending();
+    const state = session.getSnapshot();
+    const baseline = state.variants[0];
+    const pending = { ...state, variants: [{ ...baseline, status: 'pending' as const, result: null, previousResult: null }, ...state.variants.slice(1)] };
+    const view = render(<ActionCompareGrid projectId="p1" state={pending} {...gridPreferences} />);
+    const unrun = editor.props!.getCellContent([2, 0]);
+    expect(actionCompareGridCellFacts(unrun)).toContain('Not compared');
+    expect(actionCompareGridCellFacts(unrun)).not.toContain('Differs from A');
+    const completedNull = { ...pending, variants: [{ ...pending.variants[0], status: 'ready' as const,
+      result: { rows: { 10: { party: cell(null) } } } }, ...pending.variants.slice(1)] };
+    view.rerender(<ActionCompareGrid projectId="p1" state={completedNull} {...gridPreferences} />);
+    expect(actionCompareGridCellFacts(editor.props!.getCellContent([2, 0]))).toContain('Differs from A');
+  });
+
   it('updates differences when displayed current values change and are undone', async () => {
     const session = createActionCompareSession({ context: fixture() }, {
       runVariant: async () => ({ status: 'ready', previewId: 'b', result: { rows: { 10: { party: cell('Other party') } } } }),

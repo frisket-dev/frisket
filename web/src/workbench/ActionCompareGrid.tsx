@@ -267,10 +267,7 @@ export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, froze
       return { ...cell, evaluationValue: bounded_value };
     }
     const shown = projected.variant.result ?? projected.variant.previousResult;
-    return displayedCell(
-      projected.variant,
-      shown?.rows[String(rowId)]?.[projected.logicalKey],
-    );
+    return shown?.rows[String(rowId)]?.[projected.logicalKey];
   }, [evaluation, state.context.source_rows]);
 
   const getCellContent = useCallback((item: Item): GridCell => {
