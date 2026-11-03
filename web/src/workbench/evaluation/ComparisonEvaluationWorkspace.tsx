@@ -36,6 +36,13 @@ export interface ComparisonEvaluationWorkspaceProps {
   renderGrid(evaluation: NonNullable<ActionCompareGridProps['evaluation']>): ReactNode;
 }
 
+function EvaluationGrid({ render, evaluation }: {
+  render: ComparisonEvaluationWorkspaceProps['renderGrid'];
+  evaluation: NonNullable<ActionCompareGridProps['evaluation']>;
+}) {
+  return <>{render(evaluation)}</>;
+}
+
 function download(blob: Blob, name: string) {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a'); anchor.href = url; anchor.download = name; anchor.click();
@@ -309,13 +316,13 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
       source={queueRow === undefined ? null : <ComparisonSources state={p.state} rowId={queueRow} field={field} />}
       onExpectedChange={expectedChanged} onRuleChange={(next) => void changeRule(next)} onAccept={(key) => void decide(key, true)} onReject={(key) => void decide(key, false)}
       onPrevious={() => void moveQueue(-1)} onNext={() => void moveQueue(1)} onClose={() => void closeQueue()} />}
-    {p.renderGrid({ response, field, lens, rowIds: rows,
+    <EvaluationGrid render={p.renderGrid} evaluation={{ response, field, lens, rowIds: rows,
       onOpenRow: (rowId, nextField) => { void flushExpected().then(saved => {
         if (!saved) return;
         const nextRule = e.link?.fields.find(item => item.logical_key === nextField)?.rule ?? unlinkedRules[nextField] ?? 'exact';
         setField(nextField); setFilter('all'); setQueue({ mode: nextRule === 'hand' ? 'score' : 'inspect', rowId, filter: 'all' });
       }); },
-      onScoreClick: (key, nextField) => { if (!scoreBusy) void flushExpected().then(saved => { if (saved) { setField(nextField); setFilter(`variant:${key}`); setQueue(null); } }); }, onRuleClick: () => { if (!scoreBusy) setRuleOpen(true); } })}
+      onScoreClick: (key, nextField) => { if (!scoreBusy) void flushExpected().then(saved => { if (saved) { setField(nextField); setFilter(`variant:${key}`); setQueue(null); } }); }, onRuleClick: () => { if (!scoreBusy) setRuleOpen(true); } }} />
     {!queue && p.state.variants.length === 1 && <div className="comparison-try-baseline"><strong>B · try to beat A</strong><Button onClick={() => { const id = p.session.addVariant(); if (id) p.onOpenVariant(id); }}>Another model ▾</Button><Button onClick={() => { const id = p.session.addVariant(); if (id) p.onOpenVariant(id); }}>Edit instructions</Button><Button disabled={!modelField || !instructionsField} onClick={() => setSeveralOpen(true)}>Try several…</Button></div>}
     {!queue && <footer className="comparison-footer"><Button disabled={!evaluated || running || e.saving} onClick={() => void shelve()}>🗄 Shelve</Button>
       {lens === 'each_other' && evaluated >= 2 && <Button onClick={() => setQueue({ mode: 'disagreements', rowId: disagreements[0] ?? 0, filter: 'all' })}>Check the {disagreements.length} disagreements</Button>}
