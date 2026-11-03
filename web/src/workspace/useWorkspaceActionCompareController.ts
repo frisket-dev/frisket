@@ -258,6 +258,11 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
     openCompareTabTransition({ setOpenSplit }, workView, compareView, 'action');
   }, [setOpenSplit, workView, compareView]);
 
+  const cancelActionCompareSetup = useCallback(() => {
+    setActionCompareSetup(null);
+    if (!sessionRef.current) compareView.close('action');
+  }, [compareView]);
+
   const openActionCompare = useCallback((draft: GeneratedActionDraft,
     capturedSelection?: ActionCompareCapturedSelection | null) => {
     if (draft.scope.kind !== 'sheet_rows') { showError('This action needs a sheet to compare.'); return; }
@@ -383,14 +388,14 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
     if (pendingTarget) void openTarget(pendingTarget);
   }, [openTarget, pendingTarget]);
 
-  return useMemo(() => ({ actionCompareSetup, startActionCompareSetup, actionCompareSession: session, actionCompareOpen: tab.open, actionCompareActive: tab.active,
+  return useMemo(() => ({ actionCompareSetup, startActionCompareSetup, cancelActionCompareSetup, actionCompareSession: session, actionCompareOpen: tab.open, actionCompareActive: tab.active,
     actionCompareCloseWarn: tab.closeWarn, actionComparePendingTarget: pendingTarget,
     rowScopePending: rowScopeBusy || pendingTarget !== null,
     actionCompareHistoryMenuTarget: historyMenuTarget,
     openActionCompare, compareActionRun, restoreActionRunSettings, loadActionRunEntry, useActionCompareSettings, initialLens, rowScope, rowScopeTotal, changeActionCompareRowScope,
     openActionCompareHistory, closeActionCompareHistory, returnToActionCompare, closeActionCompare,
     cancelActionCompareClose, cancelActionCompareRetarget, confirmActionCompareRetarget,
-  }), [actionCompareSetup, startActionCompareSetup, cancelActionCompareClose, cancelActionCompareRetarget, closeActionCompare, compareActionRun,
+  }), [actionCompareSetup, startActionCompareSetup, cancelActionCompareSetup, cancelActionCompareClose, cancelActionCompareRetarget, closeActionCompare, compareActionRun,
     closeActionCompareHistory, confirmActionCompareRetarget, historyMenuTarget, loadActionRunEntry, openActionCompare,
     openActionCompareHistory, pendingTarget, returnToActionCompare, session, tab.active,
     initialLens, rowScope, rowScopeTotal, rowScopeBusy, changeActionCompareRowScope, restoreActionRunSettings, tab.closeWarn, tab.open, useActionCompareSettings]);

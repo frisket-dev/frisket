@@ -45,6 +45,7 @@ export interface RunScopeFooterProps {
   onBackfill?(targetColumnName: string): void;
   canRun: boolean;
   canPreview?: boolean;
+  showPreview?: boolean;
   running?: boolean;
   runningLabel?: string;
   disabledReason?: string;
@@ -79,6 +80,7 @@ export function RunScopeFooter({
   onBackfill,
   canRun,
   canPreview = canRun,
+  showPreview = true,
   running = false,
   runningLabel = 'Running…',
   disabledReason,
@@ -150,7 +152,7 @@ export function RunScopeFooter({
           : `${selectedCount.toLocaleString()} selected rows will run`)}
       </p>
       <div className="run-actions-row">
-        <Button
+        {showPreview && <Button
           type="button"
 
           disabled={!canPreview || !scopeAvailable}
@@ -159,7 +161,7 @@ export function RunScopeFooter({
           onClick={() => onPreview(effectiveScope)}
         >
           <Eye size={13} /> {previewLabel}
-        </Button>
+        </Button>}
           <div className="run-scope-control">
             <div className="run-scope-button-row">
             <Button

@@ -280,6 +280,23 @@ afterEach(() => {
 });
 
 describe('GeneratedActionForm', () => {
+  it('submits comparison setup without exposing or executing run controls', async () => {
+    const entry = meteredEntry();
+    const onCompare = vi.fn(); const onExecute = vi.fn();
+    render(<GeneratedActionForm catalogEntry={entry} actionTemplate={generatedTemplate(entry)} sheet={SHEET}
+      initialDraft={{ action_id: entry.kind, scope: { kind: 'sheet_rows', sheet_id: 7 },
+        params: { source: 'raw', model: 'ready-model' }, output_names: {} }}
+      launchMode={{ kind: 'compare-setup', contextLabel: 'Comparison setup', capturedSelectedRowIds: [] }}
+      running={false} resolveParams={resolveStaticParams} onExecute={onExecute} onCompare={onCompare} onClose={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('field-model'));
+    await waitFor(() => expect(screen.getByRole('button', { name: /Compare/ })).toBeEnabled());
+    expect(screen.queryByTestId('generated-action-preview')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Choose run scope' })).not.toBeInTheDocument();
+    fireEvent.submit(screen.getByTestId('generated-action-form'));
+    expect(onCompare).toHaveBeenCalledOnce();
+    expect(onExecute).not.toHaveBeenCalled();
+  });
+
   it('keeps the newest metered quote when an older request settles late', async () => {
     const older = deferred<RunEstimate>();
     const newer = deferred<RunEstimate>();

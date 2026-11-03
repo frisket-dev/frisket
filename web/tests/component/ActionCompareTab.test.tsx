@@ -10,6 +10,7 @@ import {
 import type { ActionComparisonCell, ActionComparisonContext } from '../../src/api/actionComparison';
 import { createActionCompareSession } from '../../src/workbench/actionCompareSession';
 import { ActionCompareTab } from '../../src/workbench/ActionCompareTab';
+import { PanelSelect } from '../../src/components/PanelSelect';
 import { ActionCompareGrid } from '../../src/workbench/ActionCompareGrid';
 import type { EvaluationResponse } from '../../src/api/evaluation';
 
@@ -82,6 +83,37 @@ function fixture(): ActionComparisonContext {
 const gridPreferences = { rowHeight: 48, wrapText: false, frozenColumnCount: 1 } as const;
 
 describe('ActionCompareTab', () => {
+  it('shows blank unrun cells and progress only after an explicit run', async () => {
+    let finish!: (value: { status: 'cancelled' }) => void;
+    const runner = vi.fn(() => new Promise<{ status: 'cancelled' }>(resolve => { finish = resolve; }));
+    const session = createActionCompareSession({ context: fixture() }, { runVariant: runner });
+    session.addVariant();
+    render(<ActionCompareTab projectId="p1" {...gridPreferences} session={session} onUseSettings={vi.fn()} />);
+    expect(editor.props!.getCellContent([2, 0])).toMatchObject({ kind: GridCellKind.Text, data: '', displayData: '' });
+    expect(runner).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: /Run comparison/ }));
+    await act(async () => { await Promise.resolve(); });
+    expect(runner).toHaveBeenCalledOnce();
+    expect(editor.props!.getCellContent([2, 0])).toMatchObject({ kind: GridCellKind.Custom, data: { kind: 'frisket-pending' } });
+    await act(async () => { finish({ status: 'cancelled' }); });
+  });
+
+  it('keeps the variant editor open while choosing a nested picker option', () => {
+    const session = createActionCompareSession({ context: fixture() }, { runVariant: vi.fn() });
+    session.addVariant();
+    render(<ActionCompareTab projectId="p1" {...gridPreferences} session={session} onUseSettings={vi.fn()}
+      renderVariantEditor={({ draft, onDraftChange }) => <PanelSelect ariaLabel="Model" value={String(draft.params.model)}
+        options={[{ value: 'local/qwen', label: 'Qwen' }, { value: 'local/other', label: 'Other model' }]}
+        onValueChange={value => onDraftChange({ ...draft, params: { ...draft.params, model: value } })} />} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Settings for variant B' }));
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Model' }));
+    const option = within(screen.getByRole('listbox')).getByRole('option', { name: 'Other model' });
+    fireEvent.pointerDown(option);
+    fireEvent.click(option);
+    expect(session.getSnapshot().variants[1].draft.params.model).toBe('local/other');
+    expect(screen.getByRole('dialog', { name: 'Configure variant B' })).toBeInTheDocument();
+  });
+
   it('routes output cell and score clicks with their actual field', () => {
     const context = fixture();
     context.output_columns[1].hidden = false;

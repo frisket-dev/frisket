@@ -132,11 +132,10 @@ function ActionCompareSetup({ kind }: { kind: string }) {
   if (!entry || !isGeneratedActionCatalogEntry(entry) || !template) return <p role="status">Loading comparison settings…</p>;
   return <section className="action-compare" aria-label="Action comparison">
     {model.actionComparePendingTarget && <CompareDiscardDialog title="Start a new comparison?" description="Starting another comparison discards these settings and preview results." testId="action-compare-retarget" onCancel={model.cancelActionCompareRetarget} onDiscard={model.confirmActionCompareRetarget} />}
-    <h2>Compare · Variant A settings</h2>
     <GeneratedActionForm projectId={chromePreferences.projectId} catalogEntry={entry} actionTemplate={template}
       sheet={model.sheet ?? null} running={false} resolveParams={resolveParams} onExecute={() => undefined}
-      onClose={model.closeActionCompare} onCompare={model.openActionCompare}
-      launchMode={{ kind: 'compare-setup', contextLabel: 'Comparison setup', capturedSelectedRowIds: [] }} />
+      onClose={model.cancelActionCompareSetup} onCompare={model.openActionCompare}
+      launchMode={{ kind: 'compare-setup', contextLabel: 'Variant A · comparison setup', capturedSelectedRowIds: [] }} />
   </section>;
 }
 

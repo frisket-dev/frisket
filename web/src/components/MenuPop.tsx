@@ -48,7 +48,7 @@ export function AnchoredMenu({
   const menuRef = suppliedRef ?? internalRef;
   const [portalRoot, setPortalRoot] = useState<Element | null>(null);
   useLayoutEffect(() => {
-    setPortalRoot(anchorRef.current?.closest('dialog') ?? document.body);
+    setPortalRoot(anchorRef.current?.closest('dialog, [role="dialog"]') ?? document.body);
   }, [anchorRef]);
   const position = useAnchoredPosition(anchorRef, { enabled: true, width, align, gap: 4 });
   useNativePopover(menuRef, onClose, {
