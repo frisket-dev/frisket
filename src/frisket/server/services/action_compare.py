@@ -251,7 +251,10 @@ class ActionCompareService:
                 "These settings change the comparison source inputs.",
             )
         if action.get("action_id") == "map.translate":
-            candidate = type(basis.params).model_validate(candidate_params)
+            try:
+                candidate = type(basis.params).model_validate(candidate_params)
+            except ValidationError as exc:
+                return _refusal("comparison_settings_mismatch", str(exc))
             if candidate.target_language != basis.params.target_language:
                 return _refusal(
                     "comparison_settings_mismatch",
