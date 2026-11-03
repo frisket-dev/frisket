@@ -116,7 +116,7 @@ export function PreviewValueReader({ value, previewId, onUnavailable }: {
 export function WorkspaceActionCompareView() {
   const model = useMainViewModel();
   const { actionCompareSession: session } = model;
-  if (model.actionCompareSetup) return <ActionCompareSetup kind={model.actionCompareSetup} />;
+  if (model.actionCompareSetup) return <ActionCompareSetup key={`${model.actionCompareSetup}:${model.sheet?.id ?? "none"}`} kind={model.actionCompareSetup} />;
   if (!session) return null;
   return <ActionCompareContents key={session.getSnapshot().context.sample_fingerprint} />;
 }

@@ -74,8 +74,8 @@ export interface ActionCompareGridProps {
   onOpenStructuredValue?(value: ActionCompareStructuredValue): void;
   evaluation?: {
     response: EvaluationResponse | null; field: string; lens: 'each_other' | 'expected'; rowIds: number[];
-    onOpenRow(rowId: number): void;
-    onScoreClick(key: string): void;
+    onOpenRow(rowId: number, field: string): void;
+    onScoreClick(key: string, field: string): void;
     onRuleClick(): void;
   };
 }
@@ -350,7 +350,7 @@ export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, froze
     const projected = projectedColumns[columnIndex];
     const rowId = sampleRowIds[rowIndex];
     if (!projected || rowId === undefined) return;
-    if (evaluation && projected.kind !== 'source') { evaluation.onOpenRow(rowId); return; }
+    if (evaluation && projected.kind !== 'source') { evaluation.onOpenRow(rowId, projected.logicalKey); return; }
     const facts = (getCellContent(item) as ProjectedCompareCell).actionCompareFacts ?? [];
     setActiveFacts(facts.length ? facts.join(' · ') : null);
     const rawCell = cellAt(projected, rowId);
@@ -422,7 +422,7 @@ export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, froze
       onHeaderClicked={(index) => {
         const projected = projectedColumns[index];
         if (projected?.kind === 'expected') evaluation?.onRuleClick();
-        if (projected?.kind === 'output' && evaluation?.lens === 'expected') evaluation.onScoreClick(projected.variant.displayKey);
+        if (projected?.kind === 'output' && evaluation?.lens === 'expected') evaluation.onScoreClick(projected.variant.displayKey, projected.logicalKey);
       }}
       getGroupDetails={getGroupDetails}
     />

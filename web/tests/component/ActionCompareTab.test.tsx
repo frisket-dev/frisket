@@ -82,6 +82,19 @@ function fixture(): ActionComparisonContext {
 const gridPreferences = { rowHeight: 48, wrapText: false, frozenColumnCount: 1 } as const;
 
 describe('ActionCompareTab', () => {
+  it('routes output cell and score clicks with their actual field', () => {
+    const context = fixture();
+    context.output_columns[1].hidden = false;
+    const session = createActionCompareSession({ context }, { runVariant: vi.fn() });
+    const onOpenRow = vi.fn(); const onScoreClick = vi.fn();
+    render(<ActionCompareGrid projectId="p1" state={session.getSnapshot()} {...gridPreferences}
+      evaluation={{ response: null, field: 'party', lens: 'expected', rowIds: [10], onOpenRow, onScoreClick, onRuleClick: vi.fn() }} />);
+    act(() => editor.props!.onCellActivated?.([2, 0]));
+    act(() => editor.props!.onHeaderClicked?.(2, {} as never));
+    expect(onOpenRow).toHaveBeenCalledWith(10, 'note');
+    expect(onScoreClick).toHaveBeenCalledWith('A', 'note');
+  });
+
   it('keeps boxed variant badges with compact score labels in the expected lens', () => {
     const context = fixture();
     context.limits = { max_sample_rows: 20, max_challengers: 5 } as unknown as ActionComparisonContext['limits'];

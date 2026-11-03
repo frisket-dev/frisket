@@ -279,7 +279,8 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
     </div>
     {e.error && <div className="action-compare-notice" role="alert">{e.error}<Button onClick={e.refresh}>Retry</Button></div>}
     <div className="comparison-field-toolbar">
-      <div role="group" aria-label="Comparison field">{p.state.context.output_columns.map((column) => <Button key={column.logical_key} aria-pressed={field === column.logical_key} onClick={() => void selectField(column.logical_key)}>{column.current_name}</Button>)}</div>
+      <span>Scoring field</span>
+      <div role="group" aria-label="Scoring field">{p.state.context.output_columns.map((column) => <Button key={column.logical_key} aria-pressed={field === column.logical_key} onClick={() => void selectField(column.logical_key)}>{column.current_name}</Button>)}</div>
       {lens === 'expected' && e.link && <>{(['all', 'any_miss', 'best_misses', 'everyone_misses'] as const).map((value) => <Button key={value} aria-pressed={filter === value} disabled={scoreBusy || (value === 'best_misses' && !bestKey)} onClick={() => setFilter(value)}>
         {{ all: 'All', any_miss: 'Any miss', best_misses: 'Best misses', everyone_misses: 'Everyone misses' }[value]}
       </Button>)}</>}
@@ -309,8 +310,12 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
       onExpectedChange={expectedChanged} onRuleChange={(next) => void changeRule(next)} onAccept={(key) => void decide(key, true)} onReject={(key) => void decide(key, false)}
       onPrevious={() => void moveQueue(-1)} onNext={() => void moveQueue(1)} onClose={() => void closeQueue()} />}
     {p.renderGrid({ response, field, lens, rowIds: rows,
-      onOpenRow: (rowId) => setQueue({ mode: rule === 'hand' ? 'score' : 'inspect', rowId, filter: 'all' }),
-      onScoreClick: (key) => { if (!scoreBusy) setFilter(`variant:${key}`); }, onRuleClick: () => { if (!scoreBusy) setRuleOpen(true); } })}
+      onOpenRow: (rowId, nextField) => { void flushExpected().then(saved => {
+        if (!saved) return;
+        const nextRule = e.link?.fields.find(item => item.logical_key === nextField)?.rule ?? unlinkedRules[nextField] ?? 'exact';
+        setField(nextField); setFilter('all'); setQueue({ mode: nextRule === 'hand' ? 'score' : 'inspect', rowId, filter: 'all' });
+      }); },
+      onScoreClick: (key, nextField) => { if (!scoreBusy) void flushExpected().then(saved => { if (saved) { setField(nextField); setFilter(`variant:${key}`); setQueue(null); } }); }, onRuleClick: () => { if (!scoreBusy) setRuleOpen(true); } })}
     {!queue && p.state.variants.length === 1 && <div className="comparison-try-baseline"><strong>B · try to beat A</strong><Button onClick={() => { const id = p.session.addVariant(); if (id) p.onOpenVariant(id); }}>Another model ▾</Button><Button onClick={() => { const id = p.session.addVariant(); if (id) p.onOpenVariant(id); }}>Edit instructions</Button><Button disabled={!modelField || !instructionsField} onClick={() => setSeveralOpen(true)}>Try several…</Button></div>}
     {!queue && <footer className="comparison-footer"><Button disabled={!evaluated || running || e.saving} onClick={() => void shelve()}>🗄 Shelve</Button>
       {lens === 'each_other' && evaluated >= 2 && <Button onClick={() => setQueue({ mode: 'disagreements', rowId: disagreements[0] ?? 0, filter: 'all' })}>Check the {disagreements.length} disagreements</Button>}

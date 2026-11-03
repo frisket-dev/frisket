@@ -173,7 +173,7 @@ export function ActionCompareTab({ projectId, session, rowHeight, wrapText, froz
         }
       </CompareToolbar>
 
-      {editing && renderVariantEditor && <AnchoredMenu anchorRef={editingAnchor} onClose={() => setEditingId(null)} width={380} role="dialog" className="action-compare-editor" aria-label={`Configure variant ${editing.displayKey}`}>
+      {editing && renderVariantEditor && <AnchoredMenu key={editing.id} anchorRef={editingAnchor} onClose={() => setEditingId(null)} width={380} role="dialog" className="action-compare-editor" aria-label={`Configure variant ${editing.displayKey}`}>
         <header><strong><VariantBadge label={editing.displayKey} /> {editingLabel}</strong>
           <WindowCloseButton size="inline" label="Close variant editor" onClick={() => setEditingId(null)} /></header>
         <div className="action-compare-editor-body">

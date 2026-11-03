@@ -79,7 +79,7 @@ async function setup({ joined = true, two = false, bestB = false, hand = false, 
     const state = useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot);
     return <ComparisonEvaluationWorkspace variantMenuHost={menuHost} api={api} state={state} session={session} initialLens={joined ? 'expected' : 'each_other'}
       dataRevision={revision} onJoinExpected={onJoinExpected} onExpectedAnswersChanged={changed} onOpenVariant={onOpenVariant} onUseSettings={vi.fn()}
-      renderGrid={(evaluation) => <button onClick={() => evaluation.onOpenRow(101)}>Open row</button>} />;
+      renderGrid={(evaluation) => <><button onClick={() => evaluation.onOpenRow(101, 'answer')}>Open row</button><button onClick={() => evaluation.onOpenRow(101, 'other')}>Open other field</button><button onClick={() => evaluation.onScoreClick('A', 'other')}>Score other field</button></>} />;
   }
   const view = render(<Host />);
   await waitFor(() => expect(api.score).toHaveBeenCalled());
@@ -87,6 +87,16 @@ async function setup({ joined = true, two = false, bestB = false, hand = false, 
 }
 
 describe('comparison evaluation workspace', () => {
+  it('selects the field of the clicked cell and score', async () => {
+    await setup({ secondField: true });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Results' })).toHaveProperty('disabled', false));
+    fireEvent.click(screen.getByRole('button', { name: 'Score other field' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'other' }).getAttribute('aria-pressed')).toBe('true'));
+    fireEvent.click(screen.getByRole('button', { name: 'answer' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open other field' }));
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Review field' })).toHaveProperty('value', 'other'));
+  });
+
   it('opens a copy of A for editing without running a model', async () => {
     const { session, runVariant, onOpenVariant } = await setup({ joined: false });
     const original = session.getSnapshot().variants[0].draft;
@@ -216,7 +226,7 @@ describe('comparison evaluation workspace', () => {
     expect(api.score).toHaveBeenLastCalledWith(expect.objectContaining({ row_ids: [101], variants: [expect.objectContaining({ key: 'A', source: { kind: 'current' } })] }));
     expect(runVariant).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Open row' }));
-    fireEvent.change(screen.getByRole('combobox', { name: 'Review answers' }), { target: { value: 'to_score' } });
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Review answers' }), { target: { value: 'to_score' } });
     expect(await screen.findByText('No answers left to score.')).toBeTruthy();
   });
   it('shelves live durable captures together with the current baseline', async () => {
