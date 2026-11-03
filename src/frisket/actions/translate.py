@@ -8,6 +8,8 @@ from pydantic import Field, StrictStr, field_validator, model_validator
 
 from frisket.actions.core import (
     ActionCategory,
+    ActionComparison,
+    ActionComparisonKind,
     _validate_model_rows_source,
     action,
     model_rows,
@@ -180,6 +182,10 @@ TRANSLATE = action(
     title="Translate rows",
     description="Translate selected row content, optionally saving its detected source language.",
     category=ActionCategory.TEXT,
+    comparison=ActionComparison(
+        ActionComparisonKind.ROW_OVERLAY,
+        structural_params=("target_language", "save_detected_language"),
+    ),
     examples=(TranslateParams(source=["text"], model="anthropic/claude-haiku-4-5"),),
     run=model_rows(
         translate_prompt,
