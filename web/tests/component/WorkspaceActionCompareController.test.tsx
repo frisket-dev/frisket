@@ -191,6 +191,18 @@ function renderController(selectedRowIds: readonly string[] = ['11', '12', '13']
 }
 
 describe('useWorkspaceActionCompareController', () => {
+  it('opens a blank action directly in comparison setup without calling a model', () => {
+    const view = renderController();
+    act(() => view.result.current.startActionCompareSetup('map.ask'));
+    expect(view.result.current.actionCompareOpen).toBe(true);
+    expect(view.result.current.actionCompareActive).toBe(true);
+    expect(view.result.current.actionCompareSetup).toBe('map.ask');
+    expect(view.result.current.actionCompareSession).toBeNull();
+    expect(harness!.runActionFromSurface).not.toHaveBeenCalled();
+    expect(harness!.api.getContext).not.toHaveBeenCalled();
+    expect(harness!.api.startPreview).not.toHaveBeenCalled();
+  });
+
   it('cancels only its own pending cost gate when the comparison signal aborts', async () => {
     const jobs = harness!.stores.job;
     const confirm = createActionCompareCostConfirmation(jobs);

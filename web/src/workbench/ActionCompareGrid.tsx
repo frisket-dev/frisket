@@ -84,8 +84,9 @@ function displayedCell(
   variant: ActionCompareVariant,
   cell: ActionCompareResultCell | undefined,
 ): ActionCompareResultCell {
-  if (cell) return cell;
-  if (variant.status === 'pending' || variant.status === 'running') return { state: 'pending' };
+  if (cell && cell.state !== 'pending') return cell;
+  if (variant.status === 'running') return { state: 'pending' };
+  if (variant.status === 'pending') return { state: 'null' };
   if (variant.status === 'cancelled') return { state: 'cancelled' };
   if (variant.status === 'failed' || variant.status === 'unavailable') {
     return { state: 'error', error: variant.error ?? 'Preview failed' };
@@ -184,9 +185,8 @@ function compareColumns(
         },
       };
     });
-  const outputColumns: OutputGridColumn[] = state.context.output_columns
-    .filter((column) => !hidden.has(`output:${column.logical_key}`) && (!evaluation?.field || column.logical_key === evaluation.field))
-    .flatMap((column) => state.variants.map((variant) => {
+  const outputColumns: OutputGridColumn[] = state.variants
+    .flatMap((variant) => state.context.output_columns.filter((column) => !hidden.has(`output:${column.logical_key}`)).map((column) => {
       const id = `output:${column.logical_key}:${variant.id}`;
       return {
         kind: 'output' as const,
@@ -223,11 +223,11 @@ export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, froze
   const [widths, setWidths] = useState<Record<string, number>>({});
   const [activeFacts, setActiveFacts] = useState<string | null>(null);
   const outputNames = useMemo(() => new Map(
-    state.context.output_columns.map((column) => [
-      `${OUTPUT_GROUP_PREFIX}${column.logical_key}`,
-      column.current_name,
+    state.variants.map((variant) => [
+      `${OUTPUT_GROUP_PREFIX}${variant.id}`,
+      `${variant.displayKey} · ${labelForDraft?.(variant.draft, variant.displayKey) ?? variant.label}`,
     ]),
-  ), [state.context.output_columns]);
+  ).set(`${OUTPUT_GROUP_PREFIX}expected`, 'Expected answers'), [state.variants, labelForDraft]);
   const columns = useMemo<GridColumn[]>(() => projectedColumns.map((projected) => {
     const output = projected.kind === 'output';
     const icon = output
@@ -240,14 +240,9 @@ export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, froze
     return {
       id: projected.id,
       title: output
-        ? evaluation?.lens === 'expected'
-          ? `${variantBadgeIconName(projected.variant.displayKey) ? '' : `${projected.variant.displayKey} · `}${scoreLabel(score?.accuracy)}${partialHand ? ` · ${score.scored}/${score.scored + score.remaining} scored` : ''}`
-          : `${variantBadgeIconName(projected.variant.displayKey) ? '' : `${projected.variant.displayKey} · `}${labelForDraft?.(
-          projected.variant.draft,
-          projected.variant.displayKey,
-        ) ?? projected.variant.label}`
+        ? `${projected.column.name}${evaluation?.lens === 'expected' && projected.logicalKey === evaluation.field && score ? ` · ${scoreLabel(score.accuracy)}${partialHand ? ` · ${score.scored}/${score.scored + score.remaining} scored` : ''}` : ''}`
         : projected.kind === 'expected' ? `expected · ${field?.rule ?? 'exact'}${checked != null ? ` · ${checked} checked` : ''}` : projected.column.name,
-      group: projected.kind !== 'source' ? `${OUTPUT_GROUP_PREFIX}${projected.logicalKey}` : SOURCE_GROUP,
+      group: projected.kind === 'output' ? `${OUTPUT_GROUP_PREFIX}${projected.variant.id}` : projected.kind === 'expected' ? `${OUTPUT_GROUP_PREFIX}expected` : SOURCE_GROUP,
       width: widths[projected.id] ?? (partialHand || projected.kind === 'expected' ? 240 : output ? DEFAULT_OUTPUT_WIDTH : DEFAULT_SOURCE_WIDTH),
       ...(icon ? { icon } : {}),
       ...(projected.kind === 'expected' ? { themeOverride: { bgHeader: evaluationColors.expected, textHeader: evaluationColors.match } }
@@ -298,6 +293,9 @@ export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, froze
       pending: cell.state === 'pending',
       wrap: wrapText,
     }));
+    if (projected.kind === 'output' && projected.variant.status === 'pending' && cell.state === 'null' && rendered.kind === GridCellKind.Text) {
+      rendered = { ...rendered, data: '', displayData: '', copyData: '' };
+    }
     if (status && rendered.kind === GridCellKind.Text) {
       rendered = {
         ...rendered,

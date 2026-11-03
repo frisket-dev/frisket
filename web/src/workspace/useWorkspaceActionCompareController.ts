@@ -95,6 +95,7 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
   const activeTarget = useRef<ComparisonTarget | null>(null);
   const [initialLens, setInitialLens] = useState<'each_other' | 'expected'>('each_other');
   const [session, setSession] = useState<ActionCompareSession | null>(null);
+  const [actionCompareSetup, setActionCompareSetup] = useState<string | null>(null);
   const sessionRef = useRef<ActionCompareSession | null>(null);
   const [pendingTarget, setPendingTarget] = useState<ComparisonTarget | null>(null);
   const [historyMenuTarget, setHistoryMenuTarget] = useState<ActionCompareHistoryMenuTarget | null>(null);
@@ -126,15 +127,16 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
     return session.subscribe(publish);
   }, [session, compareView]);
   useEffect(() => {
-    if (!tab.open && (sessionRef.current || operation.current.targetPending)) {
+    if (!tab.open && (sessionRef.current || operation.current.targetPending || actionCompareSetup)) {
       operation.current = { revision: operation.current.revision + 1, targetPending: false };
       const current = sessionRef.current;
       sessionRef.current = null;
       activeTarget.current = null;
       setSession(null);
+      setActionCompareSetup(null);
       void current?.dispose();
     }
-  }, [tab.open]);
+  }, [tab.open, actionCompareSetup]);
 
   const readContext = useCallback(async (target: ComparisonTarget) => {
     const scope = target.rowScope ?? (target.selection ? 'all' : 'sample');
@@ -199,12 +201,12 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
       setRowScope(resolvedScope);
       activeTarget.current = target;
       sessionRef.current = next;
-      setSession(next); setPendingTarget(null);
+      setSession(next); setPendingTarget(null); setActionCompareSetup(null);
       openCompareTabTransition({ setOpenSplit }, workView, compareView, 'action');
       return next;
     } catch (error) {
       if (operation.current.revision === revision) {
-        compareView.close('action');
+        if (!actionCompareSetup) compareView.close('action');
         showError(error instanceof Error ? error.message : 'Could not open comparison.');
       }
       return null;
@@ -213,7 +215,7 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
         operation.current = { revision, targetPending: false };
       }
     }
-  }, [api, evaluationApi, compareView, readContext, requestCostConfirmation, setOpenSplit, showError, workView]);
+  }, [actionCompareSetup, api, evaluationApi, compareView, readContext, requestCostConfirmation, setOpenSplit, showError, workView]);
 
   const requestTarget = useCallback((target: ComparisonTarget) => {
     const existing = sessionRef.current?.getSnapshot();
@@ -250,6 +252,11 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
       }
     })();
   }, [readContext, rowScope, showError]);
+
+  const startActionCompareSetup = useCallback((kind: string) => {
+    setActionCompareSetup(kind);
+    openCompareTabTransition({ setOpenSplit }, workView, compareView, 'action');
+  }, [setOpenSplit, workView, compareView]);
 
   const openActionCompare = useCallback((draft: GeneratedActionDraft,
     capturedSelection?: ActionCompareCapturedSelection | null) => {
@@ -357,7 +364,7 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
   const closeActionCompare = useCallback(() => {
     operation.current = { revision: operation.current.revision + 1, targetPending: false };
     const current = sessionRef.current;
-    sessionRef.current = null; activeTarget.current = null; setSession(null); setPendingTarget(null); setRowScopeBusy(false);
+    sessionRef.current = null; activeTarget.current = null; setSession(null); setActionCompareSetup(null); setPendingTarget(null); setRowScopeBusy(false);
     compareView.close('action');
     void current?.dispose();
   }, [compareView]);
@@ -370,20 +377,20 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
     compareView.setCloseWarn('action', false);
   }, [compareView]);
   const cancelActionCompareRetarget = useCallback(() => {
-    setPendingTarget(null);
+    setPendingTarget(null); setActionCompareSetup(null);
   }, []);
   const confirmActionCompareRetarget = useCallback(() => {
     if (pendingTarget) void openTarget(pendingTarget);
   }, [openTarget, pendingTarget]);
 
-  return useMemo(() => ({ actionCompareSession: session, actionCompareOpen: tab.open, actionCompareActive: tab.active,
+  return useMemo(() => ({ actionCompareSetup, startActionCompareSetup, actionCompareSession: session, actionCompareOpen: tab.open, actionCompareActive: tab.active,
     actionCompareCloseWarn: tab.closeWarn, actionComparePendingTarget: pendingTarget,
     rowScopePending: rowScopeBusy || pendingTarget !== null,
     actionCompareHistoryMenuTarget: historyMenuTarget,
     openActionCompare, compareActionRun, restoreActionRunSettings, loadActionRunEntry, useActionCompareSettings, initialLens, rowScope, rowScopeTotal, changeActionCompareRowScope,
     openActionCompareHistory, closeActionCompareHistory, returnToActionCompare, closeActionCompare,
     cancelActionCompareClose, cancelActionCompareRetarget, confirmActionCompareRetarget,
-  }), [cancelActionCompareClose, cancelActionCompareRetarget, closeActionCompare, compareActionRun,
+  }), [actionCompareSetup, startActionCompareSetup, cancelActionCompareClose, cancelActionCompareRetarget, closeActionCompare, compareActionRun,
     closeActionCompareHistory, confirmActionCompareRetarget, historyMenuTarget, loadActionRunEntry, openActionCompare,
     openActionCompareHistory, pendingTarget, returnToActionCompare, session, tab.active,
     initialLens, rowScope, rowScopeTotal, rowScopeBusy, changeActionCompareRowScope, restoreActionRunSettings, tab.closeWarn, tab.open, useActionCompareSettings]);

@@ -137,6 +137,7 @@ export interface WorkspaceActHandle {
   actRibbonTabs: WorkspaceViewModel['actRibbonTabs'];
   expectedAnswers: WorkspaceViewModel['expectedAnswers'];
   compareActionRun: WorkspaceViewModel['compareActionRun'];
+  startActionCompareSetup: WorkspaceViewModel['startActionCompareSetup'];
   launchActionFromSurface: WorkspaceViewModel['launchActionFromSurface'];
   runActionFromSurface: WorkspaceViewModel['runActionFromSurface'];
 }

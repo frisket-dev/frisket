@@ -72,19 +72,32 @@ async function setup({ joined = true, two = false, bestB = false, hand = false, 
   if (secondField) context.output_columns.push({ ...context.output_columns[0], logical_key: 'other', current_name: 'other', column_id: 14 });
   const session = createActionCompareSession({ context }, { runVariant });
   if (two) { session.addVariant(); await session.runPending(); }
-  const onJoinExpected = vi.fn(); const changed = vi.fn();
+  const onJoinExpected = vi.fn(); const changed = vi.fn(); const onOpenVariant = vi.fn();
+  const menuHost = document.createElement('div');
+  document.body.appendChild(menuHost);
   function Host({ revision = 0 }: { revision?: number }) {
     const state = useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot);
-    return <ComparisonEvaluationWorkspace api={api} state={state} session={session} initialLens={joined ? 'expected' : 'each_other'}
-      dataRevision={revision} onJoinExpected={onJoinExpected} onExpectedAnswersChanged={changed} onOpenVariant={vi.fn()} onUseSettings={vi.fn()}
+    return <ComparisonEvaluationWorkspace variantMenuHost={menuHost} api={api} state={state} session={session} initialLens={joined ? 'expected' : 'each_other'}
+      dataRevision={revision} onJoinExpected={onJoinExpected} onExpectedAnswersChanged={changed} onOpenVariant={onOpenVariant} onUseSettings={vi.fn()}
       renderGrid={(evaluation) => <button onClick={() => evaluation.onOpenRow(101)}>Open row</button>} />;
   }
   const view = render(<Host />);
   await waitFor(() => expect(api.score).toHaveBeenCalled());
-  return { api, session, runVariant, response, onJoinExpected, changed, rerenderRevision: (revision: number) => view.rerender(<Host revision={revision} />) };
+  return { api, session, runVariant, response, onJoinExpected, changed, onOpenVariant, rerenderRevision: (revision: number) => view.rerender(<Host revision={revision} />) };
 }
 
 describe('comparison evaluation workspace', () => {
+  it('opens a copy of A for editing without running a model', async () => {
+    const { session, runVariant, onOpenVariant } = await setup({ joined: false });
+    const original = session.getSnapshot().variants[0].draft;
+    fireEvent.click(screen.getByRole('button', { name: /Another model/ }));
+    const variants = session.getSnapshot().variants;
+    expect(variants).toHaveLength(2);
+    expect(variants[1].draft).toEqual(original);
+    expect(onOpenVariant).toHaveBeenCalledWith(variants[1].id);
+    expect(runVariant).not.toHaveBeenCalled();
+  });
+
   it('opens the shared Review shell and returns to the preserved comparison', async () => {
     const { session } = await setup({ joined: false, two: true });
     const original = session.getSnapshot();

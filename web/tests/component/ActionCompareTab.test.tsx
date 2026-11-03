@@ -94,7 +94,7 @@ describe('ActionCompareTab', () => {
       labelForDraft={() => 'A model name that would obscure the score'} evaluation={{ response, field: 'party', lens: 'expected', rowIds: [10, 11],
         onOpenRow: vi.fn(), onRuleClick: vi.fn(), onScoreClick: vi.fn() }} />);
     const headers = editor.props!.columns.filter((column) => String(column.id).startsWith('output:'));
-    expect(headers.map((column) => [column.icon, column.title])).toEqual(['A', 'B', 'C', 'D', 'E'].map((key) => [`variantBadge${key}`, '74%']));
+    expect(headers.map((column) => [column.icon, column.title])).toEqual(['A', 'B', 'C', 'D', 'E'].map((key) => [`variantBadge${key}`, 'party · 74%']));
     expect(typeof editor.props!.headerIcons?.variantBadgeE).toBe('function');
   });
 
@@ -104,7 +104,7 @@ describe('ActionCompareTab', () => {
       variants: [{ key: 'A', rows: {}, scores: { party: { accuracy: 1, scored: 1, remaining: 37, checked: 38 } }, verdicts: {} }], best: {} } as unknown as EvaluationResponse;
     render(<ActionCompareGrid projectId="p1" state={session.getSnapshot()} {...gridPreferences}
       evaluation={{ response, field: 'party', lens: 'expected', rowIds: [10, 11], onOpenRow: vi.fn(), onRuleClick: vi.fn(), onScoreClick: vi.fn() }} />);
-    expect(editor.props!.columns.find((column) => String(column.id).startsWith('output:party:'))).toMatchObject({ title: '100% · 1/38 scored', width: 240 });
+    expect(editor.props!.columns.find((column) => String(column.id).startsWith('output:party:'))).toMatchObject({ title: 'party · 100% · 1/38 scored', width: 240 });
     expect(editor.props!.columns.find((column) => column.id === 'expected:party')).toMatchObject({ title: 'expected · hand · 38 checked', width: 240 });
   });
 
@@ -157,7 +157,7 @@ describe('ActionCompareTab', () => {
     expect(grid.columns[1].width).toBe(170);
     expect(screen.getByTestId('action-compare-grid')).toHaveClass('grid-host');
     expect(grid.columns.map((column) => column.title)).toEqual([
-      'body', 'Current values', 'Claude Sonnet 4.5', 'Gemini 2.5 Pro',
+      'body', 'party', 'party', 'party',
     ]);
     expect(grid.columns.map((column) => column.icon)).toEqual([
       'typeText', 'variantBadgeA', 'variantBadgeB', 'variantBadgeC',
@@ -169,7 +169,7 @@ describe('ActionCompareTab', () => {
     });
     expect(variantBSvg).toContain('>B</text>');
     expect(variantBSvg).toContain('stroke="#123456"');
-    expect(grid.getGroupDetails?.(grid.columns[1].group!)).toMatchObject({ name: 'party', icon: 'aiBolt' });
+    expect(grid.getGroupDetails?.(grid.columns[1].group!)).toMatchObject({ name: 'A · Current values', icon: 'aiBolt' });
     expect(grid.getGroupDetails?.('')).toEqual({ name: '' });
 
     fireEvent.mouseEnter(screen.getByTestId('action-compare-variant-B'));
@@ -205,8 +205,7 @@ describe('ActionCompareTab', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'note' }));
     expect(editor.props!.columns.map((column) => column.title)).toEqual([
-      'body', 'Current values', 'Claude Sonnet 4.5', 'Gemini 2.5 Pro',
-      'Current values', 'Claude Sonnet 4.5', 'Gemini 2.5 Pro',
+      'body', 'party', 'note', 'party', 'note', 'party', 'note',
     ]);
 
     act(() => editor.props!.onColumnResize?.(editor.props!.columns[0], 287));
@@ -222,11 +221,11 @@ describe('ActionCompareTab', () => {
 
     const b = session.getSnapshot().variants.find((variant) => variant.displayKey === 'B')!;
     act(() => session.updateVariant(b.id, { ...b.draft, params: { ...b.draft.params, model: 'new/model' } }));
-    const previous = editor.props!.getCellContent([2, 0]);
+    const previous = editor.props!.getCellContent([3, 0]);
     expect(previous).toMatchObject({ displayData: 'Other party', style: 'faded' });
     expect(actionCompareGridCellFacts(previous)).toContain('Previous settings');
     expect(actionCompareGridCellFacts(previous)).not.toContain('Differs from A');
-    act(() => editor.props!.onCellActivated?.([2, 0]));
+    act(() => editor.props!.onCellActivated?.([3, 0]));
     expect(screen.getByText('Previous settings')).toBeInTheDocument();
   });
 
@@ -245,17 +244,14 @@ describe('ActionCompareTab', () => {
       renderVariantEditor={renderVariantEditor} />);
 
     expect(editor.props!.getCellContent([2, 0])).toMatchObject({
-      kind: GridCellKind.Custom,
-      data: { kind: 'frisket-pending' },
+      kind: GridCellKind.Text, data: '', displayData: '',
     });
 
     expect(screen.queryByRole('button', { name: 'Use settings from variant A' })).not.toBeInTheDocument();
     fireEvent.click(within(screen.getByTestId('action-compare-variant-B')).getByRole('button', { name: 'Configure variant B' }));
     expect(screen.getByText('Editor for B')).toBeInTheDocument();
-    const editorPanel = screen.getByRole('complementary', { name: 'Configure variant B' });
-    expect(editorPanel.parentElement)
-      .toHaveClass('action-compare-toolbar-shell');
-    expect(editorPanel).toHaveStyle({ maxHeight: '448px' });
+    const editorPanel = screen.getByRole('dialog', { name: 'Configure variant B' });
+    expect(editorPanel).toHaveClass('action-compare-editor');
     expect(within(editorPanel).getByRole('button', { name: 'Close variant editor' })
       .closest('.action-compare-editor-body')).toBeNull();
     expect(screen.getByText('Editor for B').closest('.action-compare-editor-body')).toBeInTheDocument();
@@ -406,7 +402,7 @@ describe('ActionCompareTab', () => {
       session={session} onUseSettings={vi.fn()} />);
     const grid = editor.props!;
 
-    for (const columnIndex of [2, 5, 8]) {
+    for (const columnIndex of [4, 5, 6]) {
       expect(grid.getCellContent([columnIndex, 0])).toMatchObject({
         kind: GridCellKind.Text,
         data: '',
@@ -416,13 +412,10 @@ describe('ActionCompareTab', () => {
       });
       expect(grid.getCellContent([columnIndex, 0])).not.toHaveProperty('style');
     }
-    for (const columnIndex of [3, 6, 9]) {
-      expect(grid.getCellContent([columnIndex, 0])).toMatchObject({
-        kind: GridCellKind.Custom,
-        data: { kind: 'frisket-pending' },
-      });
+    for (const columnIndex of [7, 8, 9]) {
+      expect(grid.getCellContent([columnIndex, 0]).kind).not.toBe(GridCellKind.Custom);
     }
-    for (const columnIndex of [1, 4, 7]) {
+    for (const columnIndex of [1, 2, 3]) {
       expect(grid.getCellContent([columnIndex, 1])).toMatchObject({
         kind: GridCellKind.Text,
         data: '',
@@ -441,11 +434,11 @@ describe('ActionCompareTab', () => {
       kind: GridCellKind.Text,
       displayData: '—',
     });
-    expect(grid.getCellContent([4, 0])).toMatchObject({
+    expect(grid.getCellContent([2, 0])).toMatchObject({
       kind: GridCellKind.Boolean,
       data: undefined,
     });
-    expect(grid.getCellContent([7, 0])).toMatchObject({
+    expect(grid.getCellContent([3, 0])).toMatchObject({
       kind: GridCellKind.Bubble,
       data: [],
     });

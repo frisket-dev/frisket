@@ -193,7 +193,7 @@ interface GeneratedActionLaunchModeBase {
 
 export type GeneratedActionLaunchMode = GeneratedActionLaunchModeBase & (
   | {
-      kind: 'use-new-comparison-variant';
+      kind: 'use-new-comparison-variant' | 'compare-setup';
     }
   | {
       kind: 'edit-existing' | 'use-comparison-variant';
@@ -561,7 +561,7 @@ function GeneratedActionFormContents({
   const paramsOnly = editorPolicy?.mode === 'params-only';
   const replacementLaunch = launchMode?.kind === 'edit-existing'
     || launchMode?.kind === 'use-comparison-variant';
-  const editComparePrimary = launchMode?.kind === 'edit-existing' && Boolean(onCompare);
+  const editComparePrimary = (launchMode?.kind === 'edit-existing' || launchMode?.kind === 'compare-setup') && Boolean(onCompare);
   const structureLocked = editorPolicy?.structureLocked === true;
   const lockReason = editorPolicy?.lockReason ?? 'Fixed for this comparison.';
   const lockedParamsInput = editorPolicy?.lockedParams;

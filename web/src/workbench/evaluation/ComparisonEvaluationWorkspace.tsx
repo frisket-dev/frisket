@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import type { EvaluationApi, EvaluationCell, EvaluationResponse, EvaluationRule } from '../../api/evaluation';
 import type { GeneratedActionDraft, JsonValue } from '../../api/types';
 import { Button } from '../../components/Button';
@@ -22,6 +23,7 @@ import { isExpectedLinkAvailable } from '../../workspace/expectedLinkAvailabilit
 import './evaluation.css';
 
 export interface ComparisonEvaluationWorkspaceProps {
+  variantMenuHost?: HTMLElement | null;
   api: EvaluationApi; state: ActionCompareSessionSnapshot; session: ActionCompareSession;
   initialLens?: 'each_other' | 'expected'; onJoinExpected?(): void; onExpectedAnswersChanged?(): void; onShelved?(): void;
   modelField?: string | null; instructionsField?: string | null;
@@ -247,8 +249,7 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
   };
 
   return <>
-    <div className="comparison-evaluation-toolbar">
-      <div className="comparison-add-menu">
+    {p.variantMenuHost && createPortal(<div className="comparison-add-menu">
         <Button ref={menuAnchor} aria-expanded={menu} onClick={() => setMenu(!menu)}>+ ⌄</Button>
         {menu && <AnchoredMenu anchorRef={menuAnchor} onClose={() => setMenu(false)} width={380} className="comparison-menu" dismissOnFocusOutside>
           <button className="menu-item" role="menuitem" onClick={() => { const id = p.session.addVariant(); setMenu(false); if (id) p.onOpenVariant(id); }}>New variant</button>
@@ -258,7 +259,14 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
           {!e.items.length && <span className="comparison-menu-heading">No shelved results</span>}
           <button className="menu-item" role="menuitem" onClick={() => { setShelfOpen(true); setMenu(false); }}>Manage shelf…</button>
         </AnchoredMenu>}
-      </div>
+      </div>, p.variantMenuHost)}
+    <div className="comparison-evaluation-toolbar">
+      <span>{p.rowScopeTotal && p.rowScopeTotal > p.state.context.sample_row_ids.length
+        ? `${p.state.context.sample_row_ids.length} of ${p.rowScopeTotal} ${p.rowScope === 'expected' ? 'with expected answers' : 'rows'}`
+        : lens === 'expected' && e.link ? `${response?.variants[0]?.scores[field]?.checked ?? 0} with expected answers` : `${p.state.context.sample_row_ids.length} rows`}</span>
+      {p.onChangeRowScope && <PanelSelect ariaLabel="Comparison rows" value={p.rowScope ?? 'sample'} disabled={running || p.rowScopePending}
+        options={[{ value: 'sample', label: 'Sample · up to 20 rows' }, { value: 'all', label: 'All · up to 500 rows' }, { value: 'expected', label: 'All rows with expected answers · up to 500', disabled: !e.link || sourceUnavailable }]}
+        onValueChange={(value) => { void flushExpected().then((saved) => { if (saved) p.onChangeRowScope?.(value as 'sample' | 'all' | 'expected', lens); }); }} />}
       <span>Compare to</span>
       <Button aria-pressed={lens === 'each_other'} disabled={p.state.variants.length < 2} title={p.state.variants.length < 2 ? 'Needs two variants' : undefined} onClick={() => { setLens('each_other'); setFilter('all'); }}>Each other</Button>
       <Button aria-pressed={lens === 'expected'} onClick={() => { setLens('expected'); e.refresh(); }}>✓ Expected answers</Button>
@@ -272,12 +280,6 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
     {e.error && <div className="action-compare-notice" role="alert">{e.error}<Button onClick={e.refresh}>Retry</Button></div>}
     <div className="comparison-field-toolbar">
       <div role="group" aria-label="Comparison field">{p.state.context.output_columns.map((column) => <Button key={column.logical_key} aria-pressed={field === column.logical_key} onClick={() => void selectField(column.logical_key)}>{column.current_name}</Button>)}</div>
-      <span>{p.rowScopeTotal && p.rowScopeTotal > p.state.context.sample_row_ids.length
-        ? `${p.state.context.sample_row_ids.length} of ${p.rowScopeTotal} ${p.rowScope === 'expected' ? 'with expected answers' : 'rows'}`
-        : lens === 'expected' && e.link ? `${response?.variants[0]?.scores[field]?.checked ?? 0} with expected answers` : `${p.state.context.sample_row_ids.length} rows`}</span>
-      {p.onChangeRowScope && <PanelSelect ariaLabel="Comparison rows" value={p.rowScope ?? 'sample'} disabled={running || p.rowScopePending}
-        options={[{ value: 'sample', label: 'Sample · up to 20 rows' }, { value: 'all', label: 'All · up to 500 rows' }, { value: 'expected', label: 'All rows with expected answers · up to 500', disabled: !e.link || sourceUnavailable }]}
-        onValueChange={(value) => { void flushExpected().then((saved) => { if (saved) p.onChangeRowScope?.(value as 'sample' | 'all' | 'expected', lens); }); }} />}
       {lens === 'expected' && e.link && <>{(['all', 'any_miss', 'best_misses', 'everyone_misses'] as const).map((value) => <Button key={value} aria-pressed={filter === value} disabled={scoreBusy || (value === 'best_misses' && !bestKey)} onClick={() => setFilter(value)}>
         {{ all: 'All', any_miss: 'Any miss', best_misses: 'Best misses', everyone_misses: 'Everyone misses' }[value]}
       </Button>)}</>}

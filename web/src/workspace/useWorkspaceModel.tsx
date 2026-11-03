@@ -1325,6 +1325,8 @@ export function useWorkspaceModel({
     executeRegisteredAction,
     openOcrCompareTab,
     openActionCompare: actionCompare.openActionCompare,
+    actionCompareSetup: actionCompare.actionCompareSetup,
+    startActionCompareSetup: actionCompare.startActionCompareSetup,
     openActionCompareHistory: actionCompare.openActionCompareHistory,
     returnToActionCompare: actionCompare.returnToActionCompare,
     doStepTo,
