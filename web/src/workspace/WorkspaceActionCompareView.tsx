@@ -12,7 +12,7 @@ import { BoundedTextReader } from '../components/BoundedTextReader';
 import { LargeCellValue } from '../components/LargeCellValue';
 import { Modal } from '../components/Modal';
 import { FieldValue } from '../components/rowInspection/FieldValue';
-import { GeneratedActionParamsEditor } from '../components/action-panel/GeneratedActionForm';
+import { GeneratedActionForm, GeneratedActionParamsEditor } from '../components/action-panel/GeneratedActionForm';
 import { currentSelectorChoice, selectorQueryKey } from '../engine-selector/selectorProjection';
 import { useSelectorChoices, type SelectorChoicesLoader } from '../engine-selector/useSelectorChoices';
 import { SelectorField } from '../engine-selector/SelectorField';
@@ -116,8 +116,27 @@ export function PreviewValueReader({ value, previewId, onUnavailable }: {
 export function WorkspaceActionCompareView() {
   const model = useMainViewModel();
   const { actionCompareSession: session } = model;
+  if (model.actionCompareSetup) return <ActionCompareSetup key={`${model.actionCompareSetup}:${model.sheet?.id ?? "none"}`} kind={model.actionCompareSetup} />;
   if (!session) return null;
   return <ActionCompareContents key={session.getSnapshot().context.sample_fingerprint} />;
+}
+
+function ActionCompareSetup({ kind }: { kind: string }) {
+  const model = useMainViewModel();
+  const { projectApi, chromePreferences } = useWorkspaceStores();
+  const catalog = useActionCatalogHandle();
+  const snapshot = useSelector(catalog.store, state => state);
+  const entry = snapshot.catalog?.actions.find(item => item.kind === kind);
+  const template = snapshot.resolvedTemplates.find(item => item.kind === kind);
+  const resolveParams = useCallback((request: Parameters<typeof projectApi.resolveActionParams>[0]) => projectApi.resolveActionParams(request), [projectApi]);
+  if (!entry || !isGeneratedActionCatalogEntry(entry) || !template) return <p role="status">Loading comparison settings…</p>;
+  return <section className="action-compare" aria-label="Action comparison">
+    {model.actionComparePendingTarget && <CompareDiscardDialog title="Start a new comparison?" description="Starting another comparison discards these settings and preview results." testId="action-compare-retarget" onCancel={model.cancelActionCompareRetarget} onDiscard={model.confirmActionCompareRetarget} />}
+    <GeneratedActionForm projectId={chromePreferences.projectId} catalogEntry={entry} actionTemplate={template}
+      sheet={model.sheet ?? null} running={false} resolveParams={resolveParams} onExecute={() => undefined}
+      onClose={model.cancelActionCompareSetup} onCompare={model.openActionCompare}
+      launchMode={{ kind: 'compare-setup', contextLabel: 'Variant A · comparison setup', capturedSelectedRowIds: [] }} />
+  </section>;
 }
 
 function ActionCompareContents() {

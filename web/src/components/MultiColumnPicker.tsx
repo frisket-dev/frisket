@@ -13,6 +13,7 @@ import { DropdownIndicator } from './DropdownIndicator';
 import { MenuPop } from './MenuPop';
 import { RemovableChip } from './RemovableChip';
 import { useAnchoredPosition } from '../hooks/useAnchoredPosition';
+import { overlayPortalRoot } from '../hooks/overlayPortalRoot';
 import { useNativePopover } from '../hooks/useNativePopover';
 
 export interface MultiColumnOption {
@@ -39,6 +40,7 @@ export function MultiColumnPicker({
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState('');
   const boxRef = useRef<HTMLDivElement | null>(null);
+  const [portalRoot, setPortalRoot] = useState<Element | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const menuPos = useAnchoredPosition(boxRef, {
@@ -104,6 +106,7 @@ export function MultiColumnPicker({
           if ((event.target as HTMLElement).closest('button')) return;
           if (!open) {
             event.preventDefault();
+            setPortalRoot(overlayPortalRoot(boxRef.current));
             setOpen(true);
           }
         }}
@@ -147,7 +150,7 @@ export function MultiColumnPicker({
         )}
         <DropdownIndicator className="multi-col-caret" />
       </div>
-      {open && !disabled &&
+      {open && !disabled && portalRoot &&
         createPortal(
           <MenuPop
             ref={menuRef}
@@ -186,7 +189,7 @@ export function MultiColumnPicker({
               );
             })}
           </MenuPop>,
-          document.body,
+          portalRoot,
         )}
     </>
   );

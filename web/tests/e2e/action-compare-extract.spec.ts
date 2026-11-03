@@ -274,7 +274,7 @@ async function addComparisonVariant(page: Page): Promise<void> {
 }
 
 async function expectComparisonRows(page: Page, text: string, scope: 'sample' | 'all'): Promise<void> {
-  const toolbar = page.locator('.comparison-field-toolbar');
+  const toolbar = page.locator('.comparison-evaluation-toolbar');
   await expect(toolbar.getByText(text, { exact: true })).toBeVisible();
   await expect(page.getByRole('combobox', { name: 'Comparison rows' })).toHaveValue(scope);
 }
@@ -311,7 +311,7 @@ async function columnValues(
 
 async function configureVariant(page: Page, key: 'B' | 'C', settings: ExtractSettings) {
   await addComparisonVariant(page);
-  const editor = page.getByRole('complementary', { name: `Configure variant ${key}` });
+  const editor = page.getByRole('dialog', { name: `Configure variant ${key}` });
   await expect(editor).toBeVisible();
   await expect(editor.getByTestId('engine-selector')).toContainText('Gemini 3.5 Flash-Lite');
   if (key === 'B') await shoot(page, '02a-extract-editor-model.png');
@@ -334,7 +334,7 @@ async function configureVariant(page: Page, key: 'B' | 'C', settings: ExtractSet
 
 async function configureLargeValueVariant(page: Page, settings: ExtractSettings) {
   await addComparisonVariant(page);
-  const editor = page.getByRole('complementary', { name: 'Configure variant B' });
+  const editor = page.getByRole('dialog', { name: 'Configure variant B' });
   await expect(editor).toBeVisible();
   const rows = editor.getByTestId('output-field-row');
   await expect(rows).toHaveCount(settings.fields.length);
@@ -392,7 +392,7 @@ test('Extract compares two typed fields across A/B/C and opens Use settings', as
   await expect(page.getByTestId('action-compare-variant-C'))
     .toHaveAttribute('data-status', 'ready', { timeout: 60_000 });
   await expectComparisonCell(page, 0, 0, '24-CV-0187');
-  await expectComparisonCell(page, 2, 0, 'CV 24-CV-0187');
+  await expectComparisonCell(page, 4, 0, 'CV 24-CV-0187');
   await shoot(page, '05-extract-abc-results.png');
   await page.getByTestId('action-compare-variant-C').hover();
   await expect(page.getByRole('tooltip')).toContainText('case_number');
@@ -451,7 +451,7 @@ test('comparison opens bounded current and preview values plus inline JSON', asy
 
   // Output cells open the comparison Review, where long values use the
   // ordinary bounded reader and fields are selected one at a time.
-  await activateComparisonCell(page, 2, 0);
+  await activateComparisonCell(page, 3, 0);
   const review = page.getByTestId('comparison-review');
   await expect(review).toBeVisible();
   const previewGroup = review.getByRole('button', { name: /^Answer \d+, variants B,/ }).locator('..');
@@ -464,8 +464,8 @@ test('comparison opens bounded current and preview values plus inline JSON', asy
   await shoot(page, '10-large-preview-artifact-reader.png');
   await page.getByRole('button', { name: 'Close comparison review', exact: true }).click();
 
-  await page.getByRole('group', { name: 'Comparison field' }).getByRole('button', { name: 'metadata', exact: true }).click();
-  await activateComparisonCell(page, 1, 0);
+  await page.getByRole('group', { name: 'Scoring field' }).getByRole('button', { name: 'metadata', exact: true }).click();
+  await activateComparisonCell(page, 2, 0);
   const structured = page.getByTestId('comparison-review');
   await expect(structured.getByTestId('json-object').first()).toContainText('docket');
   await expect(structured.getByTestId('json-object').first()).toContainText('LV-001');
@@ -478,7 +478,9 @@ test('comparison opens bounded current and preview values plus inline JSON', asy
   await expect(page.getByTestId('action-compare-toolbar')).toHaveCount(0);
 });
 
-test('fresh Ask can enter Compare before any action executes', async ({ page }) => {
+for (const entry of ['action', 'compare'] as const) test(`fresh Ask enters Compare from ${entry} before any action executes`, async ({ page }) => {
+  let previewStarts = 0;
+  page.on('request', request => { if (request.url().endsWith('/actions/v1/compare-preview') && request.method() === 'POST') previewStarts += 1; });
   test.setTimeout(120_000);
   const pid = await createProject(page.request, uniqueName('e2e-action-compare-fresh-ask'));
   await prepareOwnModelReplay(page.request, pid);
@@ -489,7 +491,12 @@ test('fresh Ask can enter Compare before any action executes', async ({ page }) 
   const beforeHistory = await historyTotal(page.request, pid);
 
   await openProject(page, pid, sheetId);
-  await openAction(page, 'map.ask');
+  if (entry === 'action') await openAction(page, 'map.ask');
+  else {
+    await page.getByTestId('ribbon-tab-analyze').click();
+    await page.getByTestId('compare-menu-trigger').click();
+    await page.getByRole('menuitem', { name: 'Ask a question of each row', exact: true }).click();
+  }
   const form = page.getByTestId('generated-action-form');
   const source = form.getByTestId('text-source-columns');
   await expect(form.getByTestId('text-source-mode-columns')).toHaveAttribute('aria-pressed', 'true');
@@ -505,10 +512,14 @@ test('fresh Ask can enter Compare before any action executes', async ({ page }) 
     .locator('[data-engine-selector-choice="replay-model"]').click();
   await expect(trigger).toContainText('Gemini 3.5 Flash-Lite');
   await form.getByTestId('field-output-answer').fill('current_hearing');
-  await form.getByTestId('generated-action-run-scope-menu-button').click();
-  await expect(page.getByTestId('generated-action-menu-compare')).toBeVisible();
-  await shoot(page, '07-fresh-ask-compare-entry.png');
-  await page.getByTestId('generated-action-menu-compare').click();
+  if (entry === 'action') {
+    await form.getByTestId('generated-action-run-scope-menu-button').click();
+    await expect(page.getByTestId('generated-action-menu-compare')).toBeVisible();
+    await shoot(page, '07-fresh-ask-compare-entry.png');
+    await page.getByTestId('generated-action-menu-compare').click();
+  } else {
+    await form.getByRole('button', { name: 'Compare…', exact: true }).click();
+  }
 
   await expect(page.getByTestId('action-compare-toolbar')).toBeVisible({ timeout: 20_000 });
   await expect(page.getByTestId('action-compare-variant-A')).toHaveAttribute('data-status', 'pending');
@@ -516,13 +527,14 @@ test('fresh Ask can enter Compare before any action executes', async ({ page }) 
   expect((await sheetColumns(page.request, pid, sheetId)).map((column) => column.name))
     .toEqual(['case_text']);
   expect(await historyTotal(page.request, pid)).toBe(beforeHistory);
-  await shoot(page, '08-fresh-ask-before-run.png');
+  expect(previewStarts).toBe(0);
+  await shoot(page, `08-fresh-ask-before-run-${entry}.png`);
 
   // The fresh-action drawer remains open behind comparison until it is explicitly
   // dismissed. Close it before opening the comparison's own variant editor.
-  await page.getByTestId('action-drawer-close').click();
+  if (entry === 'action') await page.getByTestId('action-drawer-close').click();
   await addComparisonVariant(page);
-  const editor = page.getByRole('complementary', { name: 'Configure variant B' });
+  const editor = page.getByRole('dialog', { name: 'Configure variant B' });
   await editor.getByLabel('Question', { exact: true }).fill(ASK_QUESTION_B);
   await editor.getByRole('button', { name: 'Close variant editor' }).click();
   await page.getByRole('button', { name: 'Run comparison', exact: true }).click();
@@ -531,9 +543,12 @@ test('fresh Ask can enter Compare before any action executes', async ({ page }) 
     .toHaveAttribute('data-status', 'ready', { timeout: 60_000 });
   await expect(page.getByTestId('action-compare-variant-B'))
     .toHaveAttribute('data-status', 'ready', { timeout: 60_000 });
-  await expectComparisonCell(page, 0, 0, ASK_ANSWERS_A[0]);
-  await expectComparisonCell(page, 1, 0, ASK_ANSWERS_B[0]);
-  await shoot(page, '12-fresh-ask-preview-results.png');
+  await activateComparisonCell(page, 1, 0);
+  const review = page.getByTestId('comparison-review');
+  await expect(review.getByRole('button', { name: /^Answer 1, variants A,/ }).locator('..')).toContainText(ASK_ANSWERS_A[0]);
+  await expect(review.getByRole('button', { name: /^Answer 2, variants B,/ }).locator('..')).toContainText(ASK_ANSWERS_B[0]);
+  await shoot(page, `12-fresh-ask-preview-results-${entry}.png`);
+  await page.getByRole('button', { name: 'Close comparison review', exact: true }).click();
 
   await page.getByRole('button', { name: 'Use settings from variant B' }).click();
   const useForm = page.getByTestId('generated-action-form');

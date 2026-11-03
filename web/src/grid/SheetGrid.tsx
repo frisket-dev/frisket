@@ -1424,7 +1424,7 @@ function useSheetGridController({
     ? Math.max(0, Math.floor(pendingImportRowCount))
     : 0;
   const rowCount = realRowCount + placeholderRowCount;
-  const [expectedResult, setExpectedResult] = useState<{ key: string; columns: ExpectedGridColumn[]; loader: SheetGridProps['projectExpected']; rows: ExpectedProjection['rows']; error: boolean } | null>(null);
+  const [expectedResult, setExpectedResult] = useState<{ key: string; columns: ExpectedGridColumn[]; loader: SheetGridProps['projectExpected']; rows: ExpectedProjection['rows'] } | null>(null);
   const [expectedRange, setExpectedRange] = useState({ start: 0, end: 40 });
   const visibleExpectedIds = useMemo(() => {
     const ids: number[] = [];
@@ -1439,15 +1439,15 @@ function useSheetGridController({
     if (!projectExpected || !expectedColumns.length || !visibleExpectedKey) return;
     let active = true;
     void projectExpected(visibleExpectedKey.split(',').map(Number)).then(
-      result => { if (active) setExpectedResult({ key: expectedRequestKey, columns: expectedColumns, loader: projectExpected, rows: result.rows, error: false }); },
-      () => { if (active) setExpectedResult({ key: expectedRequestKey, columns: expectedColumns, loader: projectExpected, rows: {}, error: true }); },
+      result => { if (active) setExpectedResult({ key: expectedRequestKey, columns: expectedColumns, loader: projectExpected, rows: result.rows }); },
+      () => { if (active) setExpectedResult({ key: expectedRequestKey, columns: expectedColumns, loader: projectExpected, rows: {} }); },
     );
     return () => { active = false; };
   }, [projectExpected, expectedColumns, visibleExpectedKey, expectedRequestKey]);
   const currentExpectedResult = expectedResult?.key === expectedRequestKey && expectedResult.columns === expectedColumns && expectedResult.loader === projectExpected
     ? expectedResult : null;
   const expectedRows = currentExpectedResult?.rows ?? EMPTY_EXPECTED_ROWS;
-  const expectedUnavailable = currentExpectedResult?.error === true;
+  const expectedSettled = currentExpectedResult !== null;
   const expectedById = useMemo(() => new Map(expectedColumns.map(column => [column.id, column])), [expectedColumns]);
   const gridRef = useRef<DataEditorRef | null>(null);
   const visibleRegion = useRef<Rectangle>({ x: 0, y: 0, width: 1, height: 1 });
@@ -1718,7 +1718,7 @@ function useSheetGridController({
       const originalRow = cache.getRow(rowIdx);
       const expected = expectedById.get(def.id);
       const projected = originalRow && expected ? expectedRows[originalRow.id]?.[def.id] : undefined;
-      if (expected && originalRow && !projected) return expectedUnavailable
+      if (expected && originalRow && !projected) return expectedSettled
         ? { kind: GridCellKind.Text, data: '', displayData: 'Unavailable', allowOverlay: false, readonly: true }
         : { kind: GridCellKind.Loading, allowOverlay: false };
       const row = originalRow && expected && projected ? { ...originalRow, cells: { ...originalRow.cells, [def.id]: projected.value as CellValue } } : originalRow;
@@ -1767,7 +1767,7 @@ function useSheetGridController({
     },
     [
       gridColumns,
-      cache, expectedById, expectedRows, expectedUnavailable,
+      cache, expectedById, expectedRows, expectedSettled,
       wrapText,
       pendingColIds,
       pendingRowIds,

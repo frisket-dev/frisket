@@ -416,7 +416,7 @@ describe('PdfViewer native page selection', () => {
     expect(container.querySelectorAll('canvas')).toHaveLength(1);
     expect(pdf.getPage.mock.calls.map(([page]) => page)).toEqual([250]);
     const landscape = container.querySelector('[data-page="250"]')!;
-    expect(landscape).toHaveStyle({ width: '768px', height: '576px', flexShrink: '0' });
+    await waitFor(() => expect(landscape).toHaveStyle({ width: '768px', height: '576px', flexShrink: '0' }));
     expect(landscape.querySelector('.textLayer')).toHaveTextContent('Selectable page text');
 
     const observer = MockIntersectionObserver.instances.at(-1)!;

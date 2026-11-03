@@ -11,6 +11,7 @@ import {
 } from 'react';
 import { ExternalLink } from 'lucide-react';
 import { createPortal } from 'react-dom';
+import { overlayPortalRoot } from '../../hooks/overlayPortalRoot';
 
 import { useAnchoredPosition } from '../../hooks/useAnchoredPosition';
 import { WindowCloseButton } from '../WindowCloseButton';
@@ -116,6 +117,7 @@ export function EngineSelector({
   triggerRef: externalTriggerRef,
 }: EngineSelectorProps) {
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const [portalRoot, setPortalRoot] = useState<Element | null>(null);
   useImperativeHandle(externalTriggerRef, () => triggerRef.current!, []);
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
@@ -219,6 +221,7 @@ export function EngineSelector({
     setProviderFilter('');
     setQuery('');
     setRecentIds(readRecents(recentNamespace, authoritativeIds));
+    setPortalRoot(overlayPortalRoot(triggerRef.current));
     setOpen(true);
   };
 
@@ -419,7 +422,7 @@ export function EngineSelector({
         <DropdownIndicator />
       </button>
 
-      {open && createPortal(
+      {open && portalRoot && createPortal(
         <dialog
           ref={dialogRef}
           className={`engine-selector__dialog${wideAnchor ? ' engine-selector__dialog--anchored' : ''}${mobileDetail ? ' engine-selector__dialog--mobile-detail' : ''}`}
@@ -600,7 +603,7 @@ export function EngineSelector({
             </section>
           </div>
         </dialog>,
-        document.body,
+        portalRoot,
       )}
     </div>
   );

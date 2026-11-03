@@ -144,7 +144,7 @@ def test_catalog_has_one_typed_row_overlay_opt_in_for_initial_actions() -> None:
         if entry.catalog_entry()["ui_hints"].get("comparison")
         == {"kind": "row_overlay"}
     }
-    assert eligible == {"map.extract", "map.ask", "map.classify"}
+    assert eligible == {"map.extract", "map.ask", "map.classify", "map.translate"}
     structural = {
         entry.action_id: entry.definition.comparison.structural_params
         for entry in ACTION_REGISTRY.actions
@@ -162,6 +162,7 @@ def test_catalog_has_one_typed_row_overlay_opt_in_for_initial_actions() -> None:
             "include_confidence",
             "include_justification",
         ),
+        "map.translate": ("target_language", "save_detected_language"),
     }
 
 
@@ -1294,3 +1295,184 @@ def test_compare_quote_is_write_free_and_its_confirmation_starts_same_preview(
         started = service.start_compare_preview(pid, body)
         assert started.status_code == 202, started.payload
         service._registry.shutdown()
+
+
+class _TranslateAdapter:
+    def __init__(self) -> None:
+        self.calls: list[LLMRequest] = []
+
+    async def complete(self, request: LLMRequest, client: Any) -> LLMResponse:
+        del client
+        self.calls.append(request)
+        data = {"translation": "Hola", "detected_language": "en"}
+        return LLMResponse(
+            content=json.dumps(data),
+            data=data,
+            tokens_in=5,
+            tokens_out=2,
+            cost=0.0,
+            model=request.model,
+        )
+
+
+def _translate_draft(sheet_id: int, rows: list[int]) -> dict[str, Any]:
+    return {
+        "action_id": "map.translate",
+        "scope": {"kind": "sheet_rows", "sheet_id": sheet_id, "row_ids": rows},
+        "params": {
+            "source": ["text"],
+            "engine": "llm",
+            "model": "anthropic/claude-haiku-4-5",
+            "target_language": "Spanish",
+            "save_detected_language": True,
+        },
+        "output_names": {
+            "translation": "spanish",
+            "detected_language": "original_language",
+        },
+    }
+
+
+def test_translate_comparison_quotes_confirms_and_previews_without_writing_cells(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
+    adapter = _TranslateAdapter()
+    app = create_app(
+        tmp_path / "translate-workspace",
+        router=_router(adapter),
+        serve_spa=False,
+        enable_provider_config=False,
+    )
+    with TestClient(app) as client:
+        pid = client.post("/api/projects", json={"name": "Translate"}).json()["id"]
+        project = app.state.workspace.get(pid)
+        sheet = project.add_sheet("Stories")
+        source = project.add_column(sheet, "text", type="text")
+        rows = project.add_rows(sheet, [{"text": "Hello"}], {"text": source})
+        response = client.post(
+            f"/api/projects/{pid}/actions/v1/compare-context",
+            json={
+                "source": {"kind": "draft", "draft": _translate_draft(sheet, rows)},
+                "sample_row_ids": rows,
+            },
+        )
+        assert response.status_code == 200, response.text
+        context = response.json()
+        assert context["available"] is True
+        assert context["locked_params"] == [
+            "save_detected_language",
+            "source",
+            "target_language",
+        ]
+        body = {
+            "action": {**context["draft"], "idempotency_key": "translate-comparison"},
+            "comparison": {
+                "basis": context["comparison_basis"],
+                "expected_output_signature": context["expected_output_signature"],
+            },
+        }
+        body["action"]["params"] = {
+            **body["action"]["params"],
+            "context": "Use a formal newsroom style.",
+        }
+        quoted = client.post(
+            f"/api/projects/{pid}/actions/v1/compare-preview-quote", json=body
+        )
+        assert quoted.status_code == 200, quoted.text
+        estimate = quoted.json()["estimate"]
+        assert estimate["requires_confirmation"] is True
+        assert estimate["rows"] == 1
+        assert adapter.calls == []
+        assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
+        service = ActionPreviewRunService(app.state.workspace)
+        refused = service.start_compare_preview(pid, body)
+        assert refused.status_code == 402, refused.payload
+        assert adapter.calls == []
+        body["action"]["confirmation"] = estimate["promise_set_hash"]
+        started = service.start_compare_preview(pid, body)
+        assert started.status_code == 202, started.payload
+        preview_id = started.payload["preview_id"]
+        service._registry._threads[preview_id].join(timeout=10)
+        preview = service.get_preview(pid, preview_id).payload
+        assert preview["status"] == "done", preview
+        result = service.evaluation_preview(pid, preview_id)
+        assert result["rows"][str(rows[0])]["translation"]["value"] == "Hola"
+        assert result["rows"][str(rows[0])]["detected_language"]["value"] == "en"
+        assert len(adapter.calls) == 1
+        assert [column["name"] for column in project.columns(sheet)] == ["text"]
+        assert project.get_values(sheet, source, rows) == {rows[0]: "Hello"}
+        assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1
+
+
+@pytest.mark.parametrize(
+    ("param", "value", "code"),
+    [
+        ("target_language", "French", "comparison_settings_mismatch"),
+        ("save_detected_language", False, "comparison_output_mismatch"),
+    ],
+)
+def test_translate_comparison_refuses_changed_task_or_output_before_quote(
+    tmp_path: Path, param: str, value: Any, code: str
+) -> None:
+    workspace, sheet, rows = _workspace(tmp_path / "workspace")
+    context = ActionCompareService(workspace).context(
+        "compare",
+        {
+            "source": {"kind": "draft", "draft": _translate_draft(sheet, rows)},
+            "sample_row_ids": rows,
+        },
+    )
+    assert context["available"] is True
+    action = {**context["draft"], "idempotency_key": "translate-changed"}
+    action["params"] = {**action["params"], param: value}
+    if param == "save_detected_language":
+        action["output_names"] = {"translation": "spanish"}
+    body = {
+        "action": action,
+        "comparison": {
+            "basis": context["comparison_basis"],
+            "expected_output_signature": context["expected_output_signature"],
+        },
+    }
+    service = ActionPreviewRunService(workspace)
+    for method in (service.quote_compare_preview, service.start_compare_preview):
+        response = method("compare", body)
+        assert response.status_code == 409, response.payload
+        assert response.payload["error"]["code"] == code
+    assert not service._registry._jobs
+    project = workspace.get("compare")
+    assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("explicit_basis", [False, True])
+def test_translate_comparison_normalizes_omitted_and_explicit_target_defaults(
+    tmp_path: Path, explicit_basis: bool
+) -> None:
+    workspace, sheet, rows = _workspace(tmp_path / "workspace")
+    draft = _translate_draft(sheet, rows)
+    if explicit_basis:
+        draft["params"]["target_language"] = " English "
+    else:
+        draft["params"].pop("target_language")
+    context = ActionCompareService(workspace).context(
+        "compare",
+        {"source": {"kind": "draft", "draft": draft}, "sample_row_ids": rows},
+    )
+    action = {**context["draft"], "idempotency_key": "translate-defaults"}
+    action["params"] = dict(action["params"])
+    if explicit_basis:
+        action["params"].pop("target_language")
+    else:
+        action["params"]["target_language"] = " English "
+    quote = ActionPreviewRunService(workspace).quote_compare_preview(
+        "compare",
+        {
+            "action": action,
+            "comparison": {
+                "basis": context["comparison_basis"],
+                "expected_output_signature": context["expected_output_signature"],
+            },
+        },
+    )
+    assert quote.status_code == 200, quote.payload

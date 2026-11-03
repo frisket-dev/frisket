@@ -226,17 +226,16 @@ class ActionCompareService:
                 "These settings change the comparison output names.",
             )
         try:
+            basis = typed_action_for_request(
+                {
+                    **context["draft"],
+                    "idempotency_key": "action-compare-admission",
+                }
+            )
             source_params = {
                 str(item["param"])
                 for item in (
-                    typed_action_for_request(
-                        {
-                            **context["draft"],
-                            "idempotency_key": "action-compare-admission",
-                        }
-                    )
-                    .action.catalog_entry()["ui_hints"]
-                    .get("source_requirements")
+                    basis.action.catalog_entry()["ui_hints"].get("source_requirements")
                     or []
                 )
             }
@@ -251,6 +250,16 @@ class ActionCompareService:
                 "comparison_source_mismatch",
                 "These settings change the comparison source inputs.",
             )
+        if action.get("action_id") == "map.translate":
+            try:
+                candidate = type(basis.params).model_validate(candidate_params)
+            except ValidationError as exc:
+                return _refusal("comparison_settings_mismatch", str(exc))
+            if candidate.target_language != basis.params.target_language:
+                return _refusal(
+                    "comparison_settings_mismatch",
+                    "Every translation variant must use the same target language.",
+                )
         expected_sources = [
             (item["column_id"], item["name"]) for item in context["source_columns"]
         ]

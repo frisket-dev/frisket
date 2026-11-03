@@ -162,7 +162,7 @@ async function addComparisonVariant(page: Page): Promise<void> {
 }
 
 async function expectComparisonRows(page: Page, text: string, scope: 'sample' | 'all'): Promise<void> {
-  const toolbar = page.locator('.comparison-field-toolbar');
+  const toolbar = page.locator('.comparison-evaluation-toolbar');
   await expect(toolbar.getByText(text, { exact: true })).toBeVisible();
   await expect(page.getByRole('combobox', { name: 'Comparison rows' })).toHaveValue(scope);
 }
@@ -253,7 +253,7 @@ test.describe('connected action comparison', () => {
     await shoot(page, '03-current-values.png');
 
     await addComparisonVariant(page);
-    const editor = page.getByRole('complementary', { name: 'Configure variant B' });
+    const editor = page.getByRole('dialog', { name: 'Configure variant B' });
     await expect(editor).toBeVisible();
     await editor.getByTestId('field-context').fill(PROMPT_B);
     await shoot(page, '04-variant-editor.png');
@@ -359,7 +359,7 @@ test.describe('connected action comparison', () => {
     await expectComparisonRows(page, '2 rows', 'all');
 
     await addComparisonVariant(page);
-    const editor = page.getByRole('complementary', { name: 'Configure variant B' });
+    const editor = page.getByRole('dialog', { name: 'Configure variant B' });
     await editor.getByTestId('field-context').fill(PROMPT_B);
     await editor.getByRole('button', { name: 'Close variant editor' }).click();
     await page.getByRole('button', { name: 'Run comparison', exact: true }).click();

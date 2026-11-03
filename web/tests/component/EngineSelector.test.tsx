@@ -54,6 +54,19 @@ function renderSelector(onSelect = vi.fn()) {
 }
 
 describe('EngineSelector', () => {
+  it('keeps its native selector inside the owning dialog when choosing a model', async () => {
+    const onSelect = vi.fn();
+    render(<div role="dialog" aria-label="Variant editor"><EngineSelector label="Engine" groups={groups}
+      value="parakeet" recentNamespace="nested-owner" onSelect={onSelect} /></div>);
+    await userEvent.click(screen.getByRole('button', { name: /parakeet/i }));
+    const selector = screen.getByTestId('engine-selector-dialog');
+    expect(screen.getByRole('dialog', { name: 'Variant editor' })).toContainElement(selector);
+    await userEvent.click(within(selector).getAllByRole('button', { name: 'OpenAI' })[0]);
+    await userEvent.click(within(selector).getByRole('button', { name: /openai 0/i }));
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: 'openai-0' }));
+    expect(screen.getByRole('dialog', { name: 'Variant editor' })).toBeInTheDocument();
+  });
+
   it('closes from the shared window control and restores focus', async () => {
     renderSelector();
     const trigger = screen.getByRole('button', { name: /parakeet/i });

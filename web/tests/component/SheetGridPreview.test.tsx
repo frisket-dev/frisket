@@ -296,13 +296,16 @@ it('renders projected expected values in the ordinary grid and routes edits to t
   expect(edit).toHaveBeenCalledWith('1', expected, cell, 'corrected');
 });
 
-it('shows a read-only unavailable cell when expected projection fails and retries on data refresh', async () => {
+it.each(['request failure', 'unavailable link'] as const)('shows a read-only unavailable cell after %s and retries on data refresh', async (failure) => {
   const target = { ...sheet, columns: [columnDef({ id: '10', name: 'Answer', type: 'text' })] };
   const expected = { id: 'expected:4:20', link_id: 4, expected_column_id: 20, output_column_id: 10,
     logical_key: 'answer', name: 'answer', rule: 'exact' as const, hidden: false, source: 'import' as const };
   const expectedColumns = [expected];
   const cell = { value: 'restored', source_row_id: 50, source_column_id: 20, checked: true };
-  const project = vi.fn().mockRejectedValueOnce(new Error('unavailable')).mockResolvedValue({ links: [], columns: expectedColumns, rows: { '1': { [expected.id]: cell } } });
+  const project = vi.fn();
+  if (failure === 'request failure') project.mockRejectedValueOnce(new Error('unavailable'));
+  else project.mockResolvedValueOnce({ links: [{ id: 4, available: false }], columns: [], rows: { '1': {}, '2': {} } });
+  project.mockResolvedValue({ links: [], columns: expectedColumns, rows: { '1': { [expected.id]: cell } } });
   const edit = vi.fn().mockResolvedValue(undefined);
   const props = { sheet: target, liveRun: null, rowHeight: 32, wrapText: false, columnGroupsStorageScope: 'expected-grid',
     onRowOpen: vi.fn(), onColumnOpen: vi.fn(), onCellEdit: vi.fn(), expectedColumns, projectExpected: project, onExpectedEdit: edit };

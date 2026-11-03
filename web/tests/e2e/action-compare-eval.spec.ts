@@ -55,7 +55,7 @@ async function configureChallenger(page: import('@playwright/test').Page, index:
   const variant = EVALUATION_VARIANTS[index];
   await page.getByRole('button', { name: '+ ⌄', exact: true }).click();
   await page.getByRole('menuitem', { name: 'New variant', exact: true }).click();
-  const editor = page.getByRole('complementary', { name: `Configure variant ${variant.key}` });
+  const editor = page.getByRole('dialog', { name: `Configure variant ${variant.key}` });
   await expect(editor).toBeVisible();
   await editor.locator('details.action-advanced > summary').click();
   await editor.getByTestId('field-context').fill(variant.context);
@@ -227,7 +227,7 @@ test('join expected answers and compare 38 rows across five variants', async ({ 
   await expect(replacement).toHaveCount(0);
   console.log('evaluation milestone: five variants scored on all 38 rows, exact D/E tie');
 
-  await page.getByRole('group', { name: 'Comparison field' }).getByRole('button', { name: 'amount', exact: true }).click();
+  await page.getByRole('group', { name: 'Scoring field' }).getByRole('button', { name: 'amount', exact: true }).click();
   expect(latest!.variants[0].scores.amount.checked).toBe(37);
   await page.getByRole('button', { name: 'Exact ▾', exact: true }).click();
   const ruleDialog = page.getByTestId('comparison-match-rule');
@@ -245,7 +245,7 @@ test('join expected answers and compare 38 rows across five variants', async ({ 
   await capture(page, '05-results.png');
   await page.getByRole('button', { name: 'Close results', exact: true }).click();
 
-  await page.getByRole('group', { name: 'Comparison field' }).getByRole('button', { name: 'plaintiff', exact: true }).click();
+  await page.getByRole('group', { name: 'Scoring field' }).getByRole('button', { name: 'plaintiff', exact: true }).click();
   const comparisonGrid = await page.getByTestId('action-compare-grid').elementHandle();
   await openFirstComparisonRow(page);
   await expectFullScreenReview(page);
@@ -265,7 +265,7 @@ test('join expected answers and compare 38 rows across five variants', async ({ 
   await expect(page.getByRole('dialog', { name: 'Review queue', exact: true })).toHaveCount(0);
   expect(await comparisonGrid!.evaluate(element => element.isConnected)).toBe(true);
 
-  await page.getByRole('group', { name: 'Comparison field' }).getByRole('button', { name: 'summary', exact: true }).click();
+  await page.getByRole('group', { name: 'Scoring field' }).getByRole('button', { name: 'summary', exact: true }).click();
   await page.getByRole('button', { name: /to score by hand/ }).click();
   const review = page.getByTestId('comparison-review');
   await expect(review).toBeVisible();
@@ -297,7 +297,7 @@ test('join expected answers and compare 38 rows across five variants', async ({ 
   await expect(page.getByRole('dialog', { name: 'Review queue', exact: true })).toHaveCount(0);
   expect(await comparisonGrid!.evaluate(element => element.isConnected)).toBe(true);
   await expect(page.getByLabel('Comparison rows', { exact: true })).toHaveValue('expected');
-  await expect(page.getByRole('group', { name: 'Comparison field' }).getByRole('button', { name: 'summary', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('group', { name: 'Scoring field' }).getByRole('button', { name: 'summary', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect.poll(async () => (await sheetData(page.request, scenario.projectId, scenario.expectedSheetId, 0, 2)).rows[1].cells[expectedColumn('summary')]).toBe(pendingEdit);
   expect(previewStarts).toBe(8);
   console.log('evaluation milestone: grouped hand scores reuse only the same row; expected edits write ordinary sheet');
@@ -324,7 +324,7 @@ test('join expected answers and compare 38 rows across five variants', async ({ 
   expect(settings.row_ids).toHaveLength(38);
   await capture(page, '06-download.png');
 
-  await page.getByRole('group', { name: 'Comparison field' }).getByRole('button', { name: 'plaintiff', exact: true }).click();
+  await page.getByRole('group', { name: 'Scoring field' }).getByRole('button', { name: 'plaintiff', exact: true }).click();
   const subset = await page.request.post(`/api/projects/${scenario.projectId}/evaluation/shelf`, { data: {
     comparison: { basis: { kind: 'run', run_id: scenario.baselineRunId, column_id: Number(targetColumn('plaintiff')) },
       row_ids: scenario.rowIds.slice(1), link_id: latest!.link!.id,

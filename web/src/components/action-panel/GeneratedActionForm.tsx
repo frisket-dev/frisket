@@ -193,7 +193,7 @@ interface GeneratedActionLaunchModeBase {
 
 export type GeneratedActionLaunchMode = GeneratedActionLaunchModeBase & (
   | {
-      kind: 'use-new-comparison-variant';
+      kind: 'use-new-comparison-variant' | 'compare-setup';
     }
   | {
       kind: 'edit-existing' | 'use-comparison-variant';
@@ -561,7 +561,7 @@ function GeneratedActionFormContents({
   const paramsOnly = editorPolicy?.mode === 'params-only';
   const replacementLaunch = launchMode?.kind === 'edit-existing'
     || launchMode?.kind === 'use-comparison-variant';
-  const editComparePrimary = launchMode?.kind === 'edit-existing' && Boolean(onCompare);
+  const editComparePrimary = (launchMode?.kind === 'edit-existing' || launchMode?.kind === 'compare-setup') && Boolean(onCompare);
   const structureLocked = editorPolicy?.structureLocked === true;
   const lockReason = editorPolicy?.lockReason ?? 'Fixed for this comparison.';
   const lockedParamsInput = editorPolicy?.lockedParams;
@@ -1280,7 +1280,8 @@ function GeneratedActionFormContents({
       data-mode={paramsOnly ? 'params-only' : 'full'}
       onSubmit={(event) => {
         event.preventDefault();
-        if (!paramsOnly) submit(effectiveRunScope, 'run');
+        if (launchMode?.kind === 'compare-setup') { if (canRun) onCompare?.(estimateDraft); }
+        else if (!paramsOnly) submit(effectiveRunScope, 'run');
       }}>
       {!paramsOnly && <ActionFormHeader actionTemplate={actionTemplate} title={title} sheetName={sheet?.name}
         contextLabel={launchMode?.contextLabel ?? contextLabel} onOpenHistory={onOpenHistory}
@@ -1467,17 +1468,18 @@ function GeneratedActionFormContents({
             : `All ${(sheet?.rowCount ?? 0).toLocaleString()} rows`
           : undefined}
         scope={runScope} onScopeChange={setRunScope}
-        runOnScopeSelect={Boolean(launchMode)
+        showPreview={launchMode?.kind !== 'compare-setup'}
+        runOnScopeSelect={launchMode?.kind !== 'compare-setup' && (Boolean(launchMode)
           || catalogEntry.cost_policy?.requires_confirmation !== true
-          || (!currentEstimatePending && quotedEstimate === 0)}
-        allowedScopes={allowedScopes}
+          || (!currentEstimatePending && quotedEstimate === 0))}
+        allowedScopes={launchMode?.kind === 'compare-setup' ? ['all_rows'] : allowedScopes}
         allowEmptySelection={hasExactRowScopeInitializer}
         primaryButtonType={editComparePrimary ? 'button' : 'submit'}
         onPrimary={editComparePrimary && onCompare
           ? () => onCompare(estimateDraft) : undefined}
         allScopeLabel={replacementLaunch ? 'Replace all rows' : 'Run all'}
         selectedScopeLabel={replacementLaunch ? 'Replace selected rows' : 'Run on selected'}
-        showAllScopeOption={!launchMode || editComparePrimary || effectiveRunScope === 'selected'}
+        showAllScopeOption={launchMode?.kind !== 'compare-setup' && (!launchMode || editComparePrimary || effectiveRunScope === 'selected')}
         menuItems={[
           ...(!launchMode && onCompare ? [{ id: 'compare', label: 'Compare…',
             detail: 'Try settings on a sample', onSelect: () => onCompare(estimateDraft) }] : []),

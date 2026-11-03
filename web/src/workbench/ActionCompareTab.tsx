@@ -1,9 +1,10 @@
-import { useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
-import { Archive, PanelRightOpen, Copy, Eye, EyeOff, LockKeyhole, Plus, RotateCw, X } from 'lucide-react';
+import { useId, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { Archive, PanelRightOpen, Copy, Eye, EyeOff, LockKeyhole, Plus, RotateCw, Settings2, X } from 'lucide-react';
 import type { ActionComparisonBoundedValue } from '../api/actionComparison';
 import type { GeneratedActionDraft } from '../api/types';
 import type { EvaluationApi } from '../api/evaluation';
 import { Button } from '../components/Button';
+import { AnchoredMenu } from '../components/MenuPop';
 import { IconButton } from '../components/IconButton';
 import { WindowCloseButton } from '../components/WindowCloseButton';
 import { useEscapeDismiss } from '../hooks/useEscapeDismiss';
@@ -68,9 +69,6 @@ export interface ActionCompareTabProps {
   onChangeRowScope?(scope: 'sample' | 'all' | 'expected', lens?: 'each_other' | 'expected'): void;
 }
 
-function actionCompareEditorMaxHeight(toolbarBottom: number, contentBottom: number): number {
-  return Math.max(80, Math.floor(contentBottom - toolbarBottom - 12));
-}
 
 const sampleLabel = (sampled: number, selected: number | null) => selected !== null && selected > sampled
   ? `${sampled} of ${selected} selected rows`
@@ -87,12 +85,13 @@ export function ActionCompareTab({ projectId, session, rowHeight, wrapText, froz
   className, evaluationApi, onJoinExpected, initialLens, onExpectedAnswersChanged, onShelved,
   modelField, instructionsField, rowScope, rowScopePending, rowScopeTotal, dataRevision, onChangeRowScope }: ActionCompareTabProps) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot);
+  const [variantMenuHost, setVariantMenuHost] = useState<HTMLDivElement | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
-  const [editorMaxHeight, setEditorMaxHeight] = useState<number | null>(null);
   const tooltipId = useId();
   const sectionRef = useRef<HTMLElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
+  const editingAnchor = useRef<HTMLDivElement>(null);
   const { context } = state;
   const baseline = state.variants[0];
   const hidden = new Set(state.hiddenColumnKeys);
@@ -109,28 +108,6 @@ export function ActionCompareTab({ projectId, session, rowHeight, wrapText, froz
     enabled: editing !== null || hoveredId !== null, typingGuard: true,
   });
 
-  useLayoutEffect(() => {
-    if (!editing) return undefined;
-    const section = sectionRef.current;
-    const toolbar = toolbarRef.current;
-    if (!section || !toolbar) return undefined;
-    const measure = () => {
-      const sectionRect = section.getBoundingClientRect();
-      const toolbarRect = toolbar.getBoundingClientRect();
-      if (sectionRect.height <= 0 || toolbarRect.height <= 0) return;
-      const next = actionCompareEditorMaxHeight(toolbarRect.bottom, sectionRect.bottom);
-      setEditorMaxHeight((current) => current === next ? current : next);
-    };
-    measure();
-    if (typeof ResizeObserver === 'undefined') {
-      window.addEventListener('resize', measure);
-      return () => window.removeEventListener('resize', measure);
-    }
-    const observer = new ResizeObserver(measure);
-    observer.observe(section);
-    observer.observe(toolbar);
-    return () => observer.disconnect();
-  }, [editing]);
 
   const controls = <>
     <CompareRunControl testIdPrefix="action-compare" busy={running} disabled={!pending}
@@ -153,7 +130,7 @@ export function ActionCompareTab({ projectId, session, rowHeight, wrapText, froz
           const displayLabel = variant.readOnly ? variant.label : labelForDraft?.(variant.draft, variant.displayKey) ?? variant.label;
           const changes = editingId === null && hoveredId === variant.id && !variant.baseline && describeVariantChanges
             ? describeVariantChanges(baseline.draft, variant.draft) : [];
-          return <div key={variant.id} className={`action-compare-variant${variant.readOnly ? ' action-compare-shelved' : ''}`} data-status={variant.status}
+          return <div key={variant.id} ref={variant.id === editingId ? editingAnchor : undefined} className={`action-compare-variant${variant.readOnly ? ' action-compare-shelved' : ''}`} data-status={variant.status}
             data-active={editingId === variant.id || hoveredId === variant.id ? 'true' : undefined}
             data-testid={`action-compare-variant-${variant.displayKey}`}
             onMouseEnter={() => setHoveredId(variant.id)} onMouseLeave={() => setHoveredId(null)}
@@ -171,6 +148,7 @@ export function ActionCompareTab({ projectId, session, rowHeight, wrapText, froz
               {variant.status !== 'current' && variant.status !== 'ready' && variant.status !== 'pending' &&
                 <StatusChip tone={statusTone(variant.status)} size="sm">{variant.status}</StatusChip>}
             </button>}
+            <IconButton icon={Settings2} size="inline" label={`Settings for variant ${variant.displayKey}`} onClick={() => setEditingId(variant.id)} />
             {use && <IconButton icon={PanelRightOpen} size="inline"
               label={`Use settings from variant ${variant.displayKey}`} onClick={() => onUseSettings(use)} />}
             {variant.baseline ? <LockKeyhole className="action-compare-lock" size={12} aria-label="Baseline cannot be removed" />
@@ -189,16 +167,17 @@ export function ActionCompareTab({ projectId, session, rowHeight, wrapText, froz
             </div>}
           </div>;
         })}
+        {evaluationApi && <div ref={setVariantMenuHost} />}
         {!evaluationApi && <Button type="button" className="action-compare-add" disabled={state.variants.filter((variant) => !variant.baseline && !variant.readOnly).length >= context.limits.max_challengers}
           onClick={() => { const id = session.addVariant(); if (id) setEditingId(id); }}><Plus size={13} /> Variant</Button>
         }
       </CompareToolbar>
 
-      {editing && renderVariantEditor && <aside className="action-compare-editor" style={editorMaxHeight === null
-        ? undefined : { maxHeight: editorMaxHeight }} aria-label={`Configure variant ${editing.displayKey}`}>
+      {editing && renderVariantEditor && <AnchoredMenu key={editing.id} anchorRef={editingAnchor} onClose={() => setEditingId(null)} width={380} role="dialog" className="action-compare-editor" aria-label={`Configure variant ${editing.displayKey}`}>
         <header><strong><VariantBadge label={editing.displayKey} /> {editingLabel}</strong>
           <WindowCloseButton size="inline" label="Close variant editor" onClick={() => setEditingId(null)} /></header>
         <div className="action-compare-editor-body">
+          <fieldset disabled={editing.baseline || editing.readOnly} style={{ border: 0, padding: 0, margin: 0 }}>
           {renderVariantEditor({
             variantId: editing.id, label: editing.displayKey, draft: editing.draft,
             lockedParams: context.locked_params, structureLocked: true, lockReason: 'Fixed for this comparison',
@@ -206,11 +185,12 @@ export function ActionCompareTab({ projectId, session, rowHeight, wrapText, froz
             onDuplicate: () => { const id = session.addVariant(editing.id); if (id) setEditingId(id); },
             onDismiss: () => setEditingId(null),
           })}
+          </fieldset>
           <Button type="button" onClick={() => { const id = session.addVariant(editing.id); if (id) setEditingId(id); }}>
             <Copy size={13} /> Duplicate
           </Button>
         </div>
-      </aside>}
+      </AnchoredMenu>}
     </div>
 
     {!evaluationApi && <div className="action-compare-visibility"><span>Columns</span>
@@ -235,7 +215,7 @@ export function ActionCompareTab({ projectId, session, rowHeight, wrapText, froz
     </div>}
 
     {evaluationApi ? <ComparisonEvaluationWorkspace key={initialLens ?? 'each_other'} api={evaluationApi} state={state} session={session}
-      initialLens={initialLens} onJoinExpected={onJoinExpected} onExpectedAnswersChanged={onExpectedAnswersChanged}
+      variantMenuHost={variantMenuHost} initialLens={initialLens} onJoinExpected={onJoinExpected} onExpectedAnswersChanged={onExpectedAnswersChanged}
       onShelved={onShelved} modelField={modelField} instructionsField={instructionsField}
       rowScope={rowScope} rowScopePending={rowScopePending} rowScopeTotal={rowScopeTotal} dataRevision={dataRevision} onChangeRowScope={onChangeRowScope}
       renderVariantEditor={renderVariantEditor} onOpenVariant={setEditingId} onUseSettings={onUseSettings}

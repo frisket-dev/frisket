@@ -191,6 +191,31 @@ function renderController(selectedRowIds: readonly string[] = ['11', '12', '13']
 }
 
 describe('useWorkspaceActionCompareController', () => {
+  it('opens a blank action directly in comparison setup without calling a model', () => {
+    const view = renderController();
+    act(() => view.result.current.startActionCompareSetup('map.ask'));
+    expect(view.result.current.actionCompareOpen).toBe(true);
+    expect(view.result.current.actionCompareActive).toBe(true);
+    expect(view.result.current.actionCompareSetup).toBe('map.ask');
+    expect(view.result.current.actionCompareSession).toBeNull();
+    expect(harness!.runActionFromSurface).not.toHaveBeenCalled();
+    expect(harness!.api.getContext).not.toHaveBeenCalled();
+    expect(harness!.api.startPreview).not.toHaveBeenCalled();
+  });
+
+  it('returns to the existing session when setup is closed', async () => {
+    vi.mocked(harness!.api.getContext).mockResolvedValueOnce(comparisonContext());
+    const view = renderController();
+    act(() => view.result.current.openActionCompare(ALL_ROWS_DRAFT));
+    await waitFor(() => expect(view.result.current.actionCompareSession).not.toBeNull());
+    const session = view.result.current.actionCompareSession;
+    act(() => view.result.current.startActionCompareSetup('map.ask'));
+    act(() => view.result.current.cancelActionCompareSetup());
+    expect(view.result.current.actionCompareSetup).toBeNull();
+    expect(view.result.current.actionCompareSession).toBe(session);
+    expect(view.result.current.actionCompareOpen).toBe(true);
+  });
+
   it('cancels only its own pending cost gate when the comparison signal aborts', async () => {
     const jobs = harness!.stores.job;
     const confirm = createActionCompareCostConfirmation(jobs);

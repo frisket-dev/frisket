@@ -119,7 +119,7 @@ export const WorkspaceActRegion = memo(function WorkspaceActRegion() {
     setRibbonMode,
     setActiveRibbonTab,
   } = useWorkspaceShell();
-  const { actRibbonTabs, launchActionFromSurface, runActionFromSurface, expectedAnswers, compareActionRun } = useWorkspaceAct();
+  const { actRibbonTabs, launchActionFromSurface, runActionFromSurface, expectedAnswers, compareActionRun, startActionCompareSetup } = useWorkspaceAct();
   const chrome = useChromeHandle();
   const ribbonMode = useSelector(chrome.store, (s) => s.ribbonMode);
   const activeRibbonTab = useSelector(chrome.store, (s) => s.activeRibbonTab);
@@ -180,7 +180,7 @@ export const WorkspaceActRegion = memo(function WorkspaceActRegion() {
           onRunAction={launchActionFromSurface}
           onCommand={runActCommand}
           onLaunchContribution={revealPluginLauncher}
-          compareSlot={(tab) => <CompareMenu media={tab === 'media'} runs={expectedAnswers.runChoices} actions={expectedAnswers.actionChoices} onCompareRun={compareActionRun} onCompareAction={(kind) => { const command = MEDIA_COMPARE_COMMAND_BY_ACTION[kind]; if (command) runActCommand(command); else launchActionFromSurface(kind); }} onJoinExpected={() => expectedAnswers.openJoin()} />}
+          compareSlot={(tab) => <CompareMenu media={tab === 'media'} runs={expectedAnswers.runChoices} actions={expectedAnswers.actionChoices} onCompareRun={compareActionRun} onCompareAction={(kind) => { const command = kind === 'map.translate' ? undefined : MEDIA_COMPARE_COMMAND_BY_ACTION[kind]; if (command) runActCommand(command); else startActionCompareSetup(kind); }} onJoinExpected={() => expectedAnswers.openJoin()} />}
           onCollapse={() => setRibbonMode('menu')}
         />
       ) : (
@@ -189,7 +189,7 @@ export const WorkspaceActRegion = memo(function WorkspaceActRegion() {
           onRunAction={launchActionFromSurface}
           onCommand={runActCommand}
           onLaunchContribution={revealPluginLauncher}
-          compareSlot={(tab, close) => <CompareMenu inline onDismiss={close} media={tab === 'media'} runs={expectedAnswers.runChoices} actions={expectedAnswers.actionChoices} onCompareRun={compareActionRun} onCompareAction={(kind) => { const command = MEDIA_COMPARE_COMMAND_BY_ACTION[kind]; if (command) runActCommand(command); else launchActionFromSurface(kind); }} onJoinExpected={() => expectedAnswers.openJoin()} />}
+          compareSlot={(tab, close) => <CompareMenu inline onDismiss={close} media={tab === 'media'} runs={expectedAnswers.runChoices} actions={expectedAnswers.actionChoices} onCompareRun={compareActionRun} onCompareAction={(kind) => { const command = kind === 'map.translate' ? undefined : MEDIA_COMPARE_COMMAND_BY_ACTION[kind]; if (command) runActCommand(command); else startActionCompareSetup(kind); }} onJoinExpected={() => expectedAnswers.openJoin()} />}
           onExpandRibbon={() => setRibbonMode('ribbon')}
         />
       )}

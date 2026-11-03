@@ -2,6 +2,7 @@ import './MenuPop.css';
 import { forwardRef, useLayoutEffect, useRef, useState, type HTMLAttributes, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { useAnchoredPosition, type AnchoredPositionOptions } from '../hooks/useAnchoredPosition';
+import { overlayPortalRoot } from '../hooks/overlayPortalRoot';
 import { useNativePopover } from '../hooks/useNativePopover';
 
 export interface MenuPopProps extends HTMLAttributes<HTMLDivElement> {
@@ -48,7 +49,7 @@ export function AnchoredMenu({
   const menuRef = suppliedRef ?? internalRef;
   const [portalRoot, setPortalRoot] = useState<Element | null>(null);
   useLayoutEffect(() => {
-    setPortalRoot(anchorRef.current?.closest('dialog') ?? document.body);
+    setPortalRoot(overlayPortalRoot(anchorRef.current));
   }, [anchorRef]);
   const position = useAnchoredPosition(anchorRef, { enabled: true, width, align, gap: 4 });
   useNativePopover(menuRef, onClose, {

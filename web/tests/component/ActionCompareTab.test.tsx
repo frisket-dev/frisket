@@ -10,6 +10,7 @@ import {
 import type { ActionComparisonCell, ActionComparisonContext } from '../../src/api/actionComparison';
 import { createActionCompareSession } from '../../src/workbench/actionCompareSession';
 import { ActionCompareTab } from '../../src/workbench/ActionCompareTab';
+import { PanelSelect } from '../../src/components/PanelSelect';
 import { ActionCompareGrid } from '../../src/workbench/ActionCompareGrid';
 import type { EvaluationResponse } from '../../src/api/evaluation';
 
@@ -82,6 +83,97 @@ function fixture(): ActionComparisonContext {
 const gridPreferences = { rowHeight: 48, wrapText: false, frozenColumnCount: 1 } as const;
 
 describe('ActionCompareTab', () => {
+  it('shows blank unrun cells and progress only after an explicit run', async () => {
+    let finish!: (value: { status: 'cancelled' }) => void;
+    const runner = vi.fn(() => new Promise<{ status: 'cancelled' }>(resolve => { finish = resolve; }));
+    const session = createActionCompareSession({ context: fixture() }, { runVariant: runner });
+    session.addVariant();
+    render(<ActionCompareTab projectId="p1" {...gridPreferences} session={session} onUseSettings={vi.fn()} />);
+    expect(editor.props!.getCellContent([2, 0])).toMatchObject({ kind: GridCellKind.Text, data: '', displayData: '' });
+    expect(runner).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: /Run comparison/ }));
+    await act(async () => { await Promise.resolve(); });
+    expect(runner).toHaveBeenCalledOnce();
+    expect(editor.props!.getCellContent([2, 0])).toMatchObject({ kind: GridCellKind.Custom, data: { kind: 'frisket-pending' } });
+    await act(async () => { finish({ status: 'cancelled' }); });
+  });
+
+  it('keeps the variant editor open while choosing a nested picker option', () => {
+    const session = createActionCompareSession({ context: fixture() }, { runVariant: vi.fn() });
+    session.addVariant();
+    render(<ActionCompareTab projectId="p1" {...gridPreferences} session={session} onUseSettings={vi.fn()}
+      renderVariantEditor={({ draft, onDraftChange }) => <PanelSelect ariaLabel="Model" value={String(draft.params.model)}
+        options={[{ value: 'local/qwen', label: 'Qwen' }, { value: 'local/other', label: 'Other model' }]}
+        onValueChange={value => onDraftChange({ ...draft, params: { ...draft.params, model: value } })} />} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Settings for variant B' }));
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Model' }));
+    const option = within(screen.getByRole('listbox')).getByRole('option', { name: 'Other model' });
+    fireEvent.pointerDown(option);
+    fireEvent.click(option);
+    expect(session.getSnapshot().variants[1].draft.params.model).toBe('local/other');
+    expect(screen.getByRole('dialog', { name: 'Configure variant B' })).toBeInTheDocument();
+  });
+
+  it('does not compare an unrun baseline but compares a successful null', async () => {
+    const session = createActionCompareSession({ context: fixture() }, {
+      runVariant: async () => ({ status: 'ready', previewId: 'b', result: { rows: { 10: { party: cell('Other party') } } } }),
+    });
+    session.addVariant();
+    await session.runPending();
+    const state = session.getSnapshot();
+    const baseline = state.variants[0];
+    const pending = { ...state, variants: [{ ...baseline, status: 'pending' as const, result: null, previousResult: null }, ...state.variants.slice(1)] };
+    const view = render(<ActionCompareGrid projectId="p1" state={pending} {...gridPreferences} />);
+    const unrun = editor.props!.getCellContent([2, 0]);
+    expect(actionCompareGridCellFacts(unrun)).toContain('Not compared');
+    expect(actionCompareGridCellFacts(unrun)).not.toContain('Differs from A');
+    const completedNull = { ...pending, variants: [{ ...pending.variants[0], status: 'ready' as const,
+      result: { rows: { 10: { party: cell(null) } } } }, ...pending.variants.slice(1)] };
+    view.rerender(<ActionCompareGrid projectId="p1" state={completedNull} {...gridPreferences} />);
+    expect(actionCompareGridCellFacts(editor.props!.getCellContent([2, 0]))).toContain('Differs from A');
+  });
+
+  it('updates differences when displayed current values change and are undone', async () => {
+    const session = createActionCompareSession({ context: fixture() }, {
+      runVariant: async () => ({ status: 'ready', previewId: 'b', result: { rows: { 10: { party: cell('Other party') } } } }),
+    });
+    session.addVariant();
+    await session.runPending();
+    const state = session.getSnapshot();
+    const response = (baseline: string) => ({ link: null, expected: {}, best: {}, variants: [
+      { key: 'A', rows: { 10: { party: cell(baseline) } }, scores: {}, verdicts: {} },
+      { key: 'B', rows: { 10: { party: cell('Other party') } }, scores: {}, verdicts: {} },
+    ] }) as unknown as EvaluationResponse;
+    const evaluation = (baseline: string) => ({ response: response(baseline), field: 'party', lens: 'each_other' as const,
+      rowIds: [10], onOpenRow: vi.fn(), onRuleClick: vi.fn(), onScoreClick: vi.fn() });
+    const view = render(<ActionCompareGrid projectId="p1" state={state} {...gridPreferences} evaluation={evaluation('Acme')} />);
+    const different = editor.props!.getCellContent([2, 0]);
+    expect(actionCompareGridCellFacts(different)).toContain('Differs from A');
+    expect(different.themeOverride?.bgCell).toBeTruthy();
+    view.rerender(<ActionCompareGrid projectId="p1" state={state} {...gridPreferences} evaluation={evaluation('Other party')} />);
+    const equal = editor.props!.getCellContent([2, 0]);
+    expect(equal).toMatchObject({ displayData: 'Other party' });
+    expect(actionCompareGridCellFacts(equal)).not.toContain('Differs from A');
+    expect(equal.themeOverride?.bgCell).not.toBe(different.themeOverride?.bgCell);
+    view.rerender(<ActionCompareGrid projectId="p1" state={state} {...gridPreferences} evaluation={evaluation('Acme')} />);
+    const undone = editor.props!.getCellContent([2, 0]);
+    expect(actionCompareGridCellFacts(undone)).toContain('Differs from A');
+    expect(undone.themeOverride?.bgCell).toBe(different.themeOverride?.bgCell);
+  });
+
+  it('routes output cell and score clicks with their actual field', () => {
+    const context = fixture();
+    context.output_columns[1].hidden = false;
+    const session = createActionCompareSession({ context }, { runVariant: vi.fn() });
+    const onOpenRow = vi.fn(); const onScoreClick = vi.fn();
+    render(<ActionCompareGrid projectId="p1" state={session.getSnapshot()} {...gridPreferences}
+      evaluation={{ response: null, field: 'party', lens: 'expected', rowIds: [10], onOpenRow, onScoreClick, onRuleClick: vi.fn() }} />);
+    act(() => editor.props!.onCellActivated?.([2, 0]));
+    act(() => editor.props!.onHeaderClicked?.(2, {} as never));
+    expect(onOpenRow).toHaveBeenCalledWith(10, 'note');
+    expect(onScoreClick).toHaveBeenCalledWith('A', 'note');
+  });
+
   it('keeps boxed variant badges with compact score labels in the expected lens', () => {
     const context = fixture();
     context.limits = { max_sample_rows: 20, max_challengers: 5 } as unknown as ActionComparisonContext['limits'];
@@ -94,7 +186,7 @@ describe('ActionCompareTab', () => {
       labelForDraft={() => 'A model name that would obscure the score'} evaluation={{ response, field: 'party', lens: 'expected', rowIds: [10, 11],
         onOpenRow: vi.fn(), onRuleClick: vi.fn(), onScoreClick: vi.fn() }} />);
     const headers = editor.props!.columns.filter((column) => String(column.id).startsWith('output:'));
-    expect(headers.map((column) => [column.icon, column.title])).toEqual(['A', 'B', 'C', 'D', 'E'].map((key) => [`variantBadge${key}`, '74%']));
+    expect(headers.map((column) => [column.icon, column.title])).toEqual(['A', 'B', 'C', 'D', 'E'].map((key) => [`variantBadge${key}`, 'party · 74%']));
     expect(typeof editor.props!.headerIcons?.variantBadgeE).toBe('function');
   });
 
@@ -104,7 +196,7 @@ describe('ActionCompareTab', () => {
       variants: [{ key: 'A', rows: {}, scores: { party: { accuracy: 1, scored: 1, remaining: 37, checked: 38 } }, verdicts: {} }], best: {} } as unknown as EvaluationResponse;
     render(<ActionCompareGrid projectId="p1" state={session.getSnapshot()} {...gridPreferences}
       evaluation={{ response, field: 'party', lens: 'expected', rowIds: [10, 11], onOpenRow: vi.fn(), onRuleClick: vi.fn(), onScoreClick: vi.fn() }} />);
-    expect(editor.props!.columns.find((column) => String(column.id).startsWith('output:party:'))).toMatchObject({ title: '100% · 1/38 scored', width: 240 });
+    expect(editor.props!.columns.find((column) => String(column.id).startsWith('output:party:'))).toMatchObject({ title: 'party · 100% · 1/38 scored', width: 240 });
     expect(editor.props!.columns.find((column) => column.id === 'expected:party')).toMatchObject({ title: 'expected · hand · 38 checked', width: 240 });
   });
 
@@ -157,7 +249,7 @@ describe('ActionCompareTab', () => {
     expect(grid.columns[1].width).toBe(170);
     expect(screen.getByTestId('action-compare-grid')).toHaveClass('grid-host');
     expect(grid.columns.map((column) => column.title)).toEqual([
-      'body', 'Current values', 'Claude Sonnet 4.5', 'Gemini 2.5 Pro',
+      'body', 'party', 'party', 'party',
     ]);
     expect(grid.columns.map((column) => column.icon)).toEqual([
       'typeText', 'variantBadgeA', 'variantBadgeB', 'variantBadgeC',
@@ -169,7 +261,7 @@ describe('ActionCompareTab', () => {
     });
     expect(variantBSvg).toContain('>B</text>');
     expect(variantBSvg).toContain('stroke="#123456"');
-    expect(grid.getGroupDetails?.(grid.columns[1].group!)).toMatchObject({ name: 'party', icon: 'aiBolt' });
+    expect(grid.getGroupDetails?.(grid.columns[1].group!)).toMatchObject({ name: 'A · Current values', icon: 'aiBolt' });
     expect(grid.getGroupDetails?.('')).toEqual({ name: '' });
 
     fireEvent.mouseEnter(screen.getByTestId('action-compare-variant-B'));
@@ -205,8 +297,7 @@ describe('ActionCompareTab', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'note' }));
     expect(editor.props!.columns.map((column) => column.title)).toEqual([
-      'body', 'Current values', 'Claude Sonnet 4.5', 'Gemini 2.5 Pro',
-      'Current values', 'Claude Sonnet 4.5', 'Gemini 2.5 Pro',
+      'body', 'party', 'note', 'party', 'note', 'party', 'note',
     ]);
 
     act(() => editor.props!.onColumnResize?.(editor.props!.columns[0], 287));
@@ -222,11 +313,11 @@ describe('ActionCompareTab', () => {
 
     const b = session.getSnapshot().variants.find((variant) => variant.displayKey === 'B')!;
     act(() => session.updateVariant(b.id, { ...b.draft, params: { ...b.draft.params, model: 'new/model' } }));
-    const previous = editor.props!.getCellContent([2, 0]);
+    const previous = editor.props!.getCellContent([3, 0]);
     expect(previous).toMatchObject({ displayData: 'Other party', style: 'faded' });
     expect(actionCompareGridCellFacts(previous)).toContain('Previous settings');
     expect(actionCompareGridCellFacts(previous)).not.toContain('Differs from A');
-    act(() => editor.props!.onCellActivated?.([2, 0]));
+    act(() => editor.props!.onCellActivated?.([3, 0]));
     expect(screen.getByText('Previous settings')).toBeInTheDocument();
   });
 
@@ -245,17 +336,14 @@ describe('ActionCompareTab', () => {
       renderVariantEditor={renderVariantEditor} />);
 
     expect(editor.props!.getCellContent([2, 0])).toMatchObject({
-      kind: GridCellKind.Custom,
-      data: { kind: 'frisket-pending' },
+      kind: GridCellKind.Text, data: '', displayData: '',
     });
 
     expect(screen.queryByRole('button', { name: 'Use settings from variant A' })).not.toBeInTheDocument();
     fireEvent.click(within(screen.getByTestId('action-compare-variant-B')).getByRole('button', { name: 'Configure variant B' }));
     expect(screen.getByText('Editor for B')).toBeInTheDocument();
-    const editorPanel = screen.getByRole('complementary', { name: 'Configure variant B' });
-    expect(editorPanel.parentElement)
-      .toHaveClass('action-compare-toolbar-shell');
-    expect(editorPanel).toHaveStyle({ maxHeight: '448px' });
+    const editorPanel = screen.getByRole('dialog', { name: 'Configure variant B' });
+    expect(editorPanel).toHaveClass('action-compare-editor');
     expect(within(editorPanel).getByRole('button', { name: 'Close variant editor' })
       .closest('.action-compare-editor-body')).toBeNull();
     expect(screen.getByText('Editor for B').closest('.action-compare-editor-body')).toBeInTheDocument();
@@ -406,7 +494,7 @@ describe('ActionCompareTab', () => {
       session={session} onUseSettings={vi.fn()} />);
     const grid = editor.props!;
 
-    for (const columnIndex of [2, 5, 8]) {
+    for (const columnIndex of [4, 5, 6]) {
       expect(grid.getCellContent([columnIndex, 0])).toMatchObject({
         kind: GridCellKind.Text,
         data: '',
@@ -416,13 +504,10 @@ describe('ActionCompareTab', () => {
       });
       expect(grid.getCellContent([columnIndex, 0])).not.toHaveProperty('style');
     }
-    for (const columnIndex of [3, 6, 9]) {
-      expect(grid.getCellContent([columnIndex, 0])).toMatchObject({
-        kind: GridCellKind.Custom,
-        data: { kind: 'frisket-pending' },
-      });
+    for (const columnIndex of [7, 8, 9]) {
+      expect(grid.getCellContent([columnIndex, 0]).kind).not.toBe(GridCellKind.Custom);
     }
-    for (const columnIndex of [1, 4, 7]) {
+    for (const columnIndex of [1, 2, 3]) {
       expect(grid.getCellContent([columnIndex, 1])).toMatchObject({
         kind: GridCellKind.Text,
         data: '',
@@ -441,11 +526,11 @@ describe('ActionCompareTab', () => {
       kind: GridCellKind.Text,
       displayData: '—',
     });
-    expect(grid.getCellContent([4, 0])).toMatchObject({
+    expect(grid.getCellContent([2, 0])).toMatchObject({
       kind: GridCellKind.Boolean,
       data: undefined,
     });
-    expect(grid.getCellContent([7, 0])).toMatchObject({
+    expect(grid.getCellContent([3, 0])).toMatchObject({
       kind: GridCellKind.Bubble,
       data: [],
     });
