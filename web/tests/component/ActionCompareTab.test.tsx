@@ -114,6 +114,34 @@ describe('ActionCompareTab', () => {
     expect(screen.getByRole('dialog', { name: 'Configure variant B' })).toBeInTheDocument();
   });
 
+  it('updates differences when displayed current values change and are undone', async () => {
+    const session = createActionCompareSession({ context: fixture() }, {
+      runVariant: async () => ({ status: 'ready', previewId: 'b', result: { rows: { 10: { party: cell('Other party') } } } }),
+    });
+    session.addVariant();
+    await session.runPending();
+    const state = session.getSnapshot();
+    const response = (baseline: string) => ({ link: null, expected: {}, best: {}, variants: [
+      { key: 'A', rows: { 10: { party: cell(baseline) } }, scores: {}, verdicts: {} },
+      { key: 'B', rows: { 10: { party: cell('Other party') } }, scores: {}, verdicts: {} },
+    ] }) as unknown as EvaluationResponse;
+    const evaluation = (baseline: string) => ({ response: response(baseline), field: 'party', lens: 'each_other' as const,
+      rowIds: [10], onOpenRow: vi.fn(), onRuleClick: vi.fn(), onScoreClick: vi.fn() });
+    const view = render(<ActionCompareGrid projectId="p1" state={state} {...gridPreferences} evaluation={evaluation('Acme')} />);
+    const different = editor.props!.getCellContent([2, 0]);
+    expect(actionCompareGridCellFacts(different)).toContain('Differs from A');
+    expect(different.themeOverride?.bgCell).toBeTruthy();
+    view.rerender(<ActionCompareGrid projectId="p1" state={state} {...gridPreferences} evaluation={evaluation('Other party')} />);
+    const equal = editor.props!.getCellContent([2, 0]);
+    expect(equal).toMatchObject({ displayData: 'Other party' });
+    expect(actionCompareGridCellFacts(equal)).not.toContain('Differs from A');
+    expect(equal.themeOverride?.bgCell).not.toBe(different.themeOverride?.bgCell);
+    view.rerender(<ActionCompareGrid projectId="p1" state={state} {...gridPreferences} evaluation={evaluation('Acme')} />);
+    const undone = editor.props!.getCellContent([2, 0]);
+    expect(actionCompareGridCellFacts(undone)).toContain('Differs from A');
+    expect(undone.themeOverride?.bgCell).toBe(different.themeOverride?.bgCell);
+  });
+
   it('routes output cell and score clicks with their actual field', () => {
     const context = fixture();
     context.output_columns[1].hidden = false;

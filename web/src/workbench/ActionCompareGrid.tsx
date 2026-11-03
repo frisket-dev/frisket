@@ -322,7 +322,7 @@ export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, froze
     if (projected.kind === 'output' && !projected.variant.baseline
       && projected.variant.status === 'ready' && projected.variant.result) {
       const baseline = state.variants[0];
-      const baselineCell = baseline.result?.rows[String(rowId)]?.[projected.logicalKey];
+      const baselineCell = cellAt({ ...projected, variant: baseline }, rowId);
       comparison = actionCompareCellEquality(baselineCell, cell);
     }
     const previous = projected.kind === 'output'
