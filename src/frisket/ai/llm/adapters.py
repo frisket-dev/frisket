@@ -469,6 +469,17 @@ class OpenAICompatAdapter:
         cost_model: str | None = None,
     ) -> LLMResponse:
         _validate_document_request(req)
+        if (
+            req.model.startswith("openai/")
+            and req.schema is None
+            and (
+                req.tools
+                or any(
+                    m.get("tool_calls") or m.get("role") == "tool" for m in req.messages
+                )
+            )
+        ):
+            return await self._complete_responses(req, client, cost_model=cost_model)
         model = req.model.split("/", 1)[-1]
         messages = self._messages(req.messages)
         body: dict[str, Any] = {
@@ -596,6 +607,175 @@ class OpenAICompatAdapter:
             output_limited=choice.get("finish_reason") == "length",
         )
         return _parse_response(response, req.schema, mechanism)
+
+    async def _complete_responses(
+        self, req: LLMRequest, client: httpx.AsyncClient, *, cost_model: str | None
+    ) -> LLMResponse:
+        """Use stateless Responses for direct OpenAI function calls and continuations."""
+        inputs: list[dict[str, Any]] = []
+        for message in req.messages:
+            role = message["role"]
+            if role == "tool":
+                inputs.append(
+                    {
+                        "type": "function_call_output",
+                        "call_id": message["tool_call_id"],
+                        "output": _tool_result_content(message.get("content")),
+                    }
+                )
+                continue
+            content = message.get("content")
+            if content is not None:
+                if isinstance(content, list):
+                    parts = []
+                    for part in content:
+                        if part.get("type") == "text":
+                            parts.append({"type": "input_text", "text": part["text"]})
+                        elif part.get("type") == "image":
+                            image = {
+                                "type": "input_image",
+                                "image_url": f"data:{part['media_type']};base64,{part['data']}",
+                            }
+                            if part.get("detail") is not None:
+                                image["detail"] = part["detail"]
+                            parts.append(image)
+                        elif part.get("type") == "document":
+                            data, _ = _pdf_attachment(part)
+                            parts.append(
+                                {
+                                    "type": "input_file",
+                                    "filename": part.get("filename", "document.pdf"),
+                                    "file_data": "data:application/pdf;base64," + data,
+                                }
+                            )
+                    content = parts
+                inputs.append({"role": role, "content": content})
+            for call in message.get("tool_calls") or []:
+                details = call.get("provider_details") or {}
+                for item in details.get("openai_reasoning_items", []):
+                    inputs.append(item)
+                args = call["args"]
+                item = {
+                    "type": "function_call",
+                    "call_id": call["id"],
+                    "name": call["name"],
+                    "arguments": args if isinstance(args, str) else json.dumps(args),
+                }
+                if details.get("openai_item_id"):
+                    item["id"] = details["openai_item_id"]
+                inputs.append(item)
+        body: dict[str, Any] = {
+            "model": req.model.split("/", 1)[-1],
+            "input": inputs,
+            "max_output_tokens": req.max_tokens,
+            "store": False,
+        }
+        sampling_supported = capabilities.sampling_supported(req.model)
+        if sampling_supported:
+            body["temperature"] = req.temperature
+        top_p = req.params.get("top_p")
+        if top_p is not None:
+            if (
+                isinstance(top_p, bool)
+                or not isinstance(top_p, (int, float))
+                or not 0 <= top_p <= 1
+            ):
+                raise LLMError("top_p must be a number between 0 and 1")
+            if sampling_supported:
+                body["top_p"] = float(top_p)
+        if req.tools:
+            body["tools"] = [
+                {
+                    "type": "function",
+                    "name": t["name"],
+                    "description": t.get("description", ""),
+                    "parameters": t.get("parameters")
+                    or {"type": "object", "properties": {}},
+                    "strict": False,
+                }
+                for t in req.tools
+            ]
+            body["tool_choice"] = "auto"
+        resp = await client.post(
+            f"{self.base_url}/responses",
+            json=body,
+            headers={"Authorization": f"Bearer {self.api_key}"},
+            timeout=TIMEOUT,
+        )
+        _raise_for_status(
+            resp,
+            secret_values=(self.api_key,),
+            include_details=not has_document_content(req.messages),
+        )
+        out = _response_object(resp, "response", self.api_key)
+        status = out.get("status")
+        incomplete = out.get("incomplete_details") or {}
+        limited = (
+            status == "incomplete"
+            and isinstance(incomplete, dict)
+            and incomplete.get("reason") == "max_output_tokens"
+        )
+        if status != "completed" and not limited:
+            raise LLMError("OpenAI response did not complete")
+        usage = _object_or_empty(out.get("usage"), "response usage", self.api_key)
+        tokens_in = _usage_count(usage, "input_tokens", self.api_key)
+        tokens_out = _usage_count(usage, "output_tokens", self.api_key)
+        output = out.get("output")
+        if not isinstance(output, list):
+            raise _malformed_response_error(
+                "response output", TypeError("output is not a list"), self.api_key
+            )
+        calls: list[dict[str, Any]] = []
+        text: list[str] = []
+        reasoning: list[dict[str, Any]] = []
+        for item in output:
+            if not isinstance(item, dict):
+                raise _malformed_response_error(
+                    "response output", TypeError("item is not an object"), self.api_key
+                )
+            if item.get("type") == "reasoning":
+                reasoning.append(item)
+            elif item.get("type") == "function_call":
+                details: dict[str, Any] = {}
+                if reasoning:
+                    details["openai_reasoning_items"] = reasoning
+                    reasoning = []
+                if item.get("id"):
+                    details["openai_item_id"] = item["id"]
+                try:
+                    calls.append(
+                        {
+                            "name": item["name"],
+                            "args": item["arguments"],
+                            "id": item["call_id"],
+                            "provider_details": details,
+                        }
+                    )
+                except KeyError:
+                    raise _malformed_response_error(
+                        "function call", TypeError("missing field"), self.api_key
+                    ) from None
+            elif item.get("type") == "message":
+                for part in item.get("content", []):
+                    if part.get("type") == "output_text":
+                        text.append(part["text"])
+        if not text and not calls and not limited:
+            raise LLMError("OpenAI response contained no usable output")
+        cost, cost_source = cost_of_with_source(
+            cost_model or req.model, tokens_in, tokens_out
+        )
+        return LLMResponse(
+            content="".join(text) or None,
+            data=None,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            cost=cost,
+            model=req.model,
+            cost_source=cost_source,
+            raw={"id": out.get("id"), "finish_reason": status},
+            tool_calls=calls or None,
+            output_limited=limited,
+        )
 
     def _messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []

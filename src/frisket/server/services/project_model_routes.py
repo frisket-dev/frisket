@@ -61,6 +61,8 @@ class ProjectModelRoutesService:
         project_id: str,
         model_id: str,
         route: ModelRoute,
+        *,
+        request_context: Any = None,
     ) -> ProjectModelRouteSelection:
         if route not in {"cloud", "own"}:
             raise ProjectModelRouteError(
@@ -69,7 +71,7 @@ class ProjectModelRoutesService:
                 "Model route must be 'cloud' or 'own'.",
             )
         project = self._workspace.get(project_id)
-        composition, inventory = self._context(project)
+        composition, inventory = self._context(project, request_context)
         canonical = self._known_model_id(model_id, inventory)
         entry = inventory.get(canonical) if canonical is not None else None
         if canonical is None or entry is None:
@@ -95,14 +97,15 @@ class ProjectModelRoutesService:
         project_id: str,
         *,
         commit: bool = True,
+        request_context: Any = None,
     ) -> ProjectSettings:
         project = self._workspace.get(project_id)
         if commit:
             with project.transaction_scope():
-                return self._pin_ready_routes(project)
+                return self._pin_ready_routes(project, request_context)
         if not project.db.in_transaction:
             raise RuntimeError("commit=False requires a caller-owned transaction")
-        return self._pin_ready_routes(project)
+        return self._pin_ready_routes(project, request_context)
 
     def pin_cloud_connection_routes(
         self,
@@ -142,17 +145,21 @@ class ProjectModelRoutesService:
             if isinstance(project_id, str):
                 self.pin_ready_routes(project_id)
 
-    def _pin_ready_routes(self, project: Any) -> ProjectSettings:
-        composition, inventory = self._context(project)
+    def _pin_ready_routes(
+        self, project: Any, request_context: Any = None
+    ) -> ProjectSettings:
+        composition, inventory = self._context(project, request_context)
         materialized = self._materialized_settings(project, composition, inventory)
         return write_project_settings(project, materialized, commit=False)
 
-    def _context(self, project: Any) -> tuple[Any, dict[str, _ModelInventoryEntry]]:
+    def _context(
+        self, project: Any, request_context: Any = None
+    ) -> tuple[Any, dict[str, _ModelInventoryEntry]]:
         router = self._workspace.router_for(project)
         composition = self._workspace.execution_composition_for(
             project,
             router,
-            self._workspace.edition_execution_composition_context_for(),
+            self._workspace.edition_execution_composition_context_for(request_context),
         )
         return composition, self._inventory(router, composition)
 

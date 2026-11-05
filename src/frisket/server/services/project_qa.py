@@ -63,6 +63,7 @@ from frisket.server.services.project_qa_research import ResearchSkillsUnavailabl
 
 logger = logging.getLogger(__name__)
 TurnRunner = Callable[[Project, Any, dict[str, Any], ProjectQAStore], Awaitable[Any]]
+ProjectQAInternalErrorReporter = Callable[[str, str, str, str], None]
 _KNOWN_TOOLS = frozenset(
     {
         "analytics",
@@ -112,22 +113,30 @@ def _last_turn_activity(
     events = store.recent_events(turn["thread_id"], limit=100)["events"]
     current = [event for event in events if event["turn_id"] == turn["id"]]
     last_event = current[-1]["kind"] if current else None
-    tool = next(
-        (
-            event["payload"].get("tool")
-            for event in reversed(current)
-            if event["kind"] in {"tool_started", "tool_completed"}
-            and event["payload"].get("tool") in _KNOWN_TOOLS
-        ),
-        None,
-    )
-    return last_event, tool
+    outstanding: dict[str, int] = {}
+    for event in current:
+        tool = event["payload"].get("tool")
+        if tool not in _KNOWN_TOOLS:
+            continue
+        if event["kind"] == "tool_started":
+            outstanding[tool] = outstanding.get(tool, 0) + 1
+        elif event["kind"] == "tool_completed" and outstanding.get(tool, 0):
+            outstanding[tool] -= 1
+    pending = [tool for tool, count in outstanding.items() for _ in range(count)]
+    return last_event, pending[0] if len(pending) == 1 else None
 
 
 class ProjectQAService:
-    def __init__(self, workspace: Workspace, *, runner: TurnRunner | None = None):
+    def __init__(
+        self,
+        workspace: Workspace,
+        *,
+        runner: TurnRunner | None = None,
+        internal_error_reporter: ProjectQAInternalErrorReporter | None = None,
+    ):
         self.workspace = workspace
         self._runner = runner
+        self._internal_error_reporter = internal_error_reporter
         self._tracing: ProjectQATracing | None = build_project_qa_tracing()
         self._seen: WeakSet[Project] = WeakSet()
         self._tasks: dict[tuple[Project, str], asyncio.Task[None]] = {}
@@ -582,7 +591,9 @@ class ProjectQAService:
                     composition = self.workspace.execution_composition_for(
                         project,
                         router,
-                        self.workspace.edition_execution_composition_context_for(),
+                        self.workspace.edition_execution_composition_context_for(
+                            context
+                        ),
                     )
                     provider_catalog = build_provider_catalog(
                         self.workspace.root,
@@ -754,7 +765,7 @@ class ProjectQAService:
                     self.workspace.execution_composition_for,
                     project,
                     router,
-                    self.workspace.edition_execution_composition_context_for(),
+                    self.workspace.edition_execution_composition_context_for(context),
                 )
                 model = default_project_ask_model(router, composition)
             selected_egress_class = (
@@ -918,6 +929,17 @@ class ProjectQAService:
             diagnostic = await self._failure_diagnostic(
                 store, turn, exc, code="internal_error", model=model
             )
+            if self._internal_error_reporter is not None:
+                try:
+                    await await_thread_worker(
+                        self._internal_error_reporter,
+                        project_id,
+                        turn["thread_id"],
+                        turn["id"],
+                        safe_error("internal_error", exc).exception_type or "Exception",
+                    )
+                except Exception:
+                    logger.warning("project_qa_internal_error_report_failed")
             error = (
                 "This question could not be completed. Your conversation is saved; "
                 "please try again."

@@ -71,7 +71,9 @@ def register_selector_choices_routes(
                 detail="Project editor access is required to change model routes.",
             )
         try:
-            selected = model_routes.set_route(pid, body.model_id, body.route)
+            selected = model_routes.set_route(
+                pid, body.model_id, body.route, request_context=request
+            )
         except ProjectModelRouteError as exc:
             raise HTTPException(
                 status_code=exc.status,

@@ -249,7 +249,7 @@ def register_project_lifecycle_routes(
         responses=http_error_responses(400, 401, 403, 404, 422, 500),
     )
     def set_project_provider_key(
-        pid: str, body: ProjectProviderKeyRequest
+        request: Request, pid: str, body: ProjectProviderKeyRequest
     ) -> ProjectProviderKeyCatalogResponse:
         return ProjectProviderKeyCatalogResponse.model_validate(
             service.set_project_provider_key(
@@ -258,6 +258,7 @@ def register_project_lifecycle_routes(
                 key=body.key,
                 spend_cap_usd=body.spend_cap_usd,
                 validation_token=body.validation_token,
+                request_context=request,
             )
         )
 
@@ -285,10 +286,12 @@ def register_project_lifecycle_routes(
         responses=http_error_responses(400, 401, 403, 404, 422, 500),
     )
     def delete_project_provider_key(
-        pid: str, provider: str
+        request: Request, pid: str, provider: str
     ) -> ProjectProviderKeyDeleteResponse:
         return ProjectProviderKeyDeleteResponse.model_validate(
-            service.delete_project_provider_key(pid, provider=provider)
+            service.delete_project_provider_key(
+                pid, provider=provider, request_context=request
+            )
         )
 
     @app.get(
