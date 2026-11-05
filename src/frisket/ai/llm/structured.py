@@ -446,9 +446,9 @@ class FrisketRouterModel(Model):
         self.attempts += 1
         if self._on_response is not None:
             await self._on_response(resp)
-        if schema is not None and resp.output_limited:
+        if resp.output_limited:
             raise OutputLimitReached(
-                "structured output stopped at the provider output limit",
+                "model output stopped at the provider output limit",
                 raw_text=resp.content,
                 wire_calls=list(self.wire_calls),
             )
