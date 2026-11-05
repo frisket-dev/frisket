@@ -317,3 +317,73 @@ def test_responses_tool_request_keeps_image_and_pdf_content() -> None:
             "filename": "source.pdf",
         },
     ]
+
+
+def test_failed_openai_tool_responses_record_provider_usage_once() -> None:
+    import pytest
+
+    from frisket.ai.llm.types import LLMError
+
+    async def run(status, output):
+        requests = []
+        accounted = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return httpx.Response(
+                200,
+                json={
+                    "id": "resp-failed",
+                    "status": status,
+                    "incomplete_details": {"reason": "content_filter"}
+                    if status == "incomplete"
+                    else None,
+                    "output": output,
+                    "usage": {"input_tokens": 700, "output_tokens": 90},
+                },
+            )
+
+        router = ModelRouter(
+            keys={"openai": "test-key"},
+            key_sources={"openai": "project_key"},
+            max_retries=2,
+        )
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        router._client = client
+
+        async def on_response(response):
+            accounted.append(response)
+
+        model = FrisketRouterModel(router, "openai/gpt-6-luna", on_response=on_response)
+        agent = Agent(model, output_type=str)
+
+        @agent.tool_plain
+        def read() -> str:
+            return "result"
+
+        try:
+            with pytest.raises(LLMError) as caught:
+                await agent.run("read")
+            assert len(requests) == 1
+            assert (
+                len(accounted)
+                == len(model.wire_calls)
+                == len(caught.value.wire_calls)
+                == 1
+            )
+            call = accounted[0]
+            assert (call.tokens_in, call.tokens_out) == (700, 90)
+            assert call.provider == "openai"
+            assert call.credential_source == "project_key"
+            assert call.cost is not None and call.cost > 0
+            assert call.duration_ms is not None
+        finally:
+            await client.aclose()
+
+    for status, output in [
+        ("failed", []),
+        ("incomplete", []),
+        ("completed", []),
+        ("completed", None),
+    ]:
+        asyncio.run(run(status, output))

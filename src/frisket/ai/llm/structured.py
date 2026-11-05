@@ -85,6 +85,7 @@ from .structured_capabilities import (
 )
 from .types import (
     LLMActualAccounting,
+    LLMError,
     LLMRequest,
     LLMResponse,
     ModelRouterTransport,
@@ -442,6 +443,16 @@ class FrisketRouterModel(Model):
                 for response in attached:
                     await self._on_response(response)
             raise ModelRetry(f"invalid structured output: {sv}") from sv
+        except LLMError as error:
+            attached = list(getattr(error, "wire_calls", []) or [])
+            self.wire_calls.extend(attached)
+            self.attempts += max(1, len(attached))
+            if self._on_response is not None:
+                for response in attached:
+                    await self._on_response(response)
+            if self.wire_calls:
+                error.wire_calls = list(self.wire_calls)
+            raise
         self.wire_calls.append(resp)
         self.attempts += 1
         if self._on_response is not None:

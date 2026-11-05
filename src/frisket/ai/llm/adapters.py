@@ -715,23 +715,51 @@ class OpenAICompatAdapter:
             and isinstance(incomplete, dict)
             and incomplete.get("reason") == "max_output_tokens"
         )
-        if status != "completed" and not limited:
-            raise LLMError("OpenAI response did not complete")
         usage = _object_or_empty(out.get("usage"), "response usage", self.api_key)
         tokens_in = _usage_count(usage, "input_tokens", self.api_key)
         tokens_out = _usage_count(usage, "output_tokens", self.api_key)
+
+        def account_failure(error: LLMError) -> LLMError:
+            # Only claim a billed call when the provider actually supplied
+            # both usage counts; do not manufacture zero-cost accounting.
+            if "input_tokens" in usage and "output_tokens" in usage:
+                cost, source = cost_of_with_source(
+                    cost_model or req.model, tokens_in, tokens_out
+                )
+                error.wire_calls = [
+                    LLMResponse(
+                        content=None,
+                        data=None,
+                        tokens_in=tokens_in,
+                        tokens_out=tokens_out,
+                        cost=cost,
+                        model=req.model,
+                        cost_source=source,
+                        raw={"id": out.get("id"), "finish_reason": status},
+                    )
+                ]
+            return error
+
+        if status != "completed" and not limited:
+            raise account_failure(LLMError("OpenAI response did not complete"))
         output = out.get("output")
         if not isinstance(output, list):
-            raise _malformed_response_error(
-                "response output", TypeError("output is not a list"), self.api_key
+            raise account_failure(
+                _malformed_response_error(
+                    "response output", TypeError("output is not a list"), self.api_key
+                )
             )
         calls: list[dict[str, Any]] = []
         text: list[str] = []
         reasoning: list[dict[str, Any]] = []
         for item in output:
             if not isinstance(item, dict):
-                raise _malformed_response_error(
-                    "response output", TypeError("item is not an object"), self.api_key
+                raise account_failure(
+                    _malformed_response_error(
+                        "response output",
+                        TypeError("item is not an object"),
+                        self.api_key,
+                    )
                 )
             if item.get("type") == "reasoning":
                 reasoning.append(item)
@@ -752,15 +780,19 @@ class OpenAICompatAdapter:
                         }
                     )
                 except KeyError:
-                    raise _malformed_response_error(
-                        "function call", TypeError("missing field"), self.api_key
+                    raise account_failure(
+                        _malformed_response_error(
+                            "function call", TypeError("missing field"), self.api_key
+                        )
                     ) from None
             elif item.get("type") == "message":
                 for part in item.get("content", []):
                     if part.get("type") == "output_text":
                         text.append(part["text"])
         if not text and not calls and not limited:
-            raise LLMError("OpenAI response contained no usable output")
+            raise account_failure(
+                LLMError("OpenAI response contained no usable output")
+            )
         cost, cost_source = cost_of_with_source(
             cost_model or req.model, tokens_in, tokens_out
         )

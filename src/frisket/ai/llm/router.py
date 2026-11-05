@@ -633,8 +633,8 @@ class ModelRouter:
             resp = await self._call_with_retry(
                 req, credential_source=credential_source, trace=trace
             )
-        except SchemaViolation as error:
-            for response in error.wire_calls:
+        except LLMError as error:
+            for response in getattr(error, "wire_calls", []):
                 self._finish_live_response(req, response, credential_source)
             raise
         self._finish_live_response(req, resp, credential_source)
