@@ -742,35 +742,25 @@ class OpenAICompatAdapter:
 
         if status != "completed" and not limited:
             raise account_failure(LLMError("OpenAI response did not complete"))
-        output = out.get("output")
-        if not isinstance(output, list):
-            raise account_failure(
-                _malformed_response_error(
-                    "response output", TypeError("output is not a list"), self.api_key
-                )
-            )
-        calls: list[dict[str, Any]] = []
-        text: list[str] = []
-        reasoning: list[dict[str, Any]] = []
-        for item in output:
-            if not isinstance(item, dict):
-                raise account_failure(
-                    _malformed_response_error(
-                        "response output",
-                        TypeError("item is not an object"),
-                        self.api_key,
-                    )
-                )
-            if item.get("type") == "reasoning":
-                reasoning.append(item)
-            elif item.get("type") == "function_call":
-                details: dict[str, Any] = {}
-                if reasoning:
-                    details["openai_reasoning_items"] = reasoning
-                    reasoning = []
-                if item.get("id"):
-                    details["openai_item_id"] = item["id"]
-                try:
+        try:
+            output = out.get("output")
+            if not isinstance(output, list):
+                raise TypeError("output is not a list")
+            calls: list[dict[str, Any]] = []
+            text: list[str] = []
+            reasoning: list[dict[str, Any]] = []
+            for item in output:
+                if not isinstance(item, dict):
+                    raise TypeError("item is not an object")
+                if item.get("type") == "reasoning":
+                    reasoning.append(item)
+                elif item.get("type") == "function_call":
+                    details: dict[str, Any] = {}
+                    if reasoning:
+                        details["openai_reasoning_items"] = reasoning
+                        reasoning = []
+                    if item.get("id"):
+                        details["openai_item_id"] = item["id"]
                     calls.append(
                         {
                             "name": item["name"],
@@ -779,16 +769,15 @@ class OpenAICompatAdapter:
                             "provider_details": details,
                         }
                     )
-                except KeyError:
-                    raise account_failure(
-                        _malformed_response_error(
-                            "function call", TypeError("missing field"), self.api_key
-                        )
-                    ) from None
-            elif item.get("type") == "message":
-                for part in item.get("content", []):
-                    if part.get("type") == "output_text":
-                        text.append(part["text"])
+                elif item.get("type") == "message":
+                    for part in item.get("content", []):
+                        if part.get("type") == "output_text":
+                            text.append(part["text"])
+            content = "".join(text) or None
+        except (TypeError, AttributeError, KeyError, ValueError) as error:
+            raise account_failure(
+                _malformed_response_error("response output", error, self.api_key)
+            ) from None
         if not text and not calls and not limited:
             raise account_failure(
                 LLMError("OpenAI response contained no usable output")
@@ -797,7 +786,7 @@ class OpenAICompatAdapter:
             cost_model or req.model, tokens_in, tokens_out
         )
         return LLMResponse(
-            content="".join(text) or None,
+            content=content,
             data=None,
             tokens_in=tokens_in,
             tokens_out=tokens_out,

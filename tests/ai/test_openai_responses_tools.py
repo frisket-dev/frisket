@@ -385,5 +385,6 @@ def test_failed_openai_tool_responses_record_provider_usage_once() -> None:
         ("incomplete", []),
         ("completed", []),
         ("completed", None),
+        ("completed", [{"type": "message", "content": [{"type": "output_text"}]}]),
     ]:
         asyncio.run(run(status, output))
