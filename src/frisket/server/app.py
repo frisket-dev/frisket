@@ -219,7 +219,10 @@ from frisket.server.services.map_points import MapPointsService
 from frisket.server.services.notifications import NotificationService
 from frisket.server.services.project_actions import ProjectActionUtilityService
 from frisket.server.services.project_blobs import ProjectBlobService
-from frisket.server.services.project_qa import ProjectQAService
+from frisket.server.services.project_qa import (
+    ProjectQAInternalErrorReporter,
+    ProjectQAService,
+)
 from frisket.server.routes.project_qa import register_project_qa_routes
 from frisket.server.services.project_entity_review import ProjectEntityReviewService
 from frisket.server.services.previews import PreviewService
@@ -417,6 +420,7 @@ def create_app(
         server_workspace.DirectActionReceiptSettlementPort | None
     ) = None,
     project_qa_runtime_port: server_workspace.ProjectQARuntimePort | None = None,
+    project_qa_internal_error_reporter: ProjectQAInternalErrorReporter | None = None,
     plugin_composition_policy: PluginCompositionPolicy | None = None,
     auth_methods: Any | None = None,
     bulk_import_limits: BulkImportLimits | None = None,
@@ -633,7 +637,9 @@ def create_app(
     # routes. Team replaces it with its active-organization library before
     # registering its admin-gated routes.
     app.state.skill_library = SkillLibrary(Path(workspace_root))
-    project_qa_service = ProjectQAService(ws)
+    project_qa_service = ProjectQAService(
+        ws, internal_error_reporter=project_qa_internal_error_reporter
+    )
     if edition == "solo":
         project_qa_service.configure_search(ws.search_service)
         project_qa_service.configure_research(

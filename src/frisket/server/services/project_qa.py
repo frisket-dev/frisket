@@ -63,6 +63,7 @@ from frisket.server.services.project_qa_research import ResearchSkillsUnavailabl
 
 logger = logging.getLogger(__name__)
 TurnRunner = Callable[[Project, Any, dict[str, Any], ProjectQAStore], Awaitable[Any]]
+ProjectQAInternalErrorReporter = Callable[[str, str, str, str], None]
 _KNOWN_TOOLS = frozenset(
     {
         "analytics",
@@ -126,9 +127,16 @@ def _last_turn_activity(
 
 
 class ProjectQAService:
-    def __init__(self, workspace: Workspace, *, runner: TurnRunner | None = None):
+    def __init__(
+        self,
+        workspace: Workspace,
+        *,
+        runner: TurnRunner | None = None,
+        internal_error_reporter: ProjectQAInternalErrorReporter | None = None,
+    ):
         self.workspace = workspace
         self._runner = runner
+        self._internal_error_reporter = internal_error_reporter
         self._tracing: ProjectQATracing | None = build_project_qa_tracing()
         self._seen: WeakSet[Project] = WeakSet()
         self._tasks: dict[tuple[Project, str], asyncio.Task[None]] = {}
@@ -921,6 +929,17 @@ class ProjectQAService:
             diagnostic = await self._failure_diagnostic(
                 store, turn, exc, code="internal_error", model=model
             )
+            if self._internal_error_reporter is not None:
+                try:
+                    await await_thread_worker(
+                        self._internal_error_reporter,
+                        project_id,
+                        turn["thread_id"],
+                        turn["id"],
+                        safe_error("internal_error", exc).exception_type or "Exception",
+                    )
+                except Exception:
+                    logger.warning("project_qa_internal_error_report_failed")
             error = (
                 "This question could not be completed. Your conversation is saved; "
                 "please try again."
