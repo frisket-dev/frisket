@@ -746,6 +746,7 @@ class ProjectQAService:
         status = "interrupted"
         error = None
         diagnostic = None
+        internal_error_type = None
         model = turn["model"]
         budget = asyncio.timeout(None if research else 180)
         cloud_coordinator: CloudLLMCheckpointCoordinator | None = (
@@ -929,17 +930,9 @@ class ProjectQAService:
             diagnostic = await self._failure_diagnostic(
                 store, turn, exc, code="internal_error", model=model
             )
-            if self._internal_error_reporter is not None:
-                try:
-                    await await_thread_worker(
-                        self._internal_error_reporter,
-                        project_id,
-                        turn["thread_id"],
-                        turn["id"],
-                        safe_error("internal_error", exc).exception_type or "Exception",
-                    )
-                except Exception:
-                    logger.warning("project_qa_internal_error_report_failed")
+            internal_error_type = (
+                safe_error("internal_error", exc).exception_type or "Exception"
+            )
             error = (
                 "This question could not be completed. Your conversation is saved; "
                 "please try again."
@@ -956,6 +949,20 @@ class ProjectQAService:
                 error_summary=error,
                 diagnostic=diagnostic,
             )
+            if (
+                internal_error_type is not None
+                and self._internal_error_reporter is not None
+            ):
+                try:
+                    await await_thread_worker(
+                        self._internal_error_reporter,
+                        project_id,
+                        turn["thread_id"],
+                        turn["id"],
+                        internal_error_type,
+                    )
+                except Exception:
+                    logger.warning("project_qa_internal_error_report_failed")
             if cloud_coordinator is not None:
                 returned = cloud_coordinator.returned_checkpoints
                 if returned and len(accounted_cloud_calls) >= len(returned):

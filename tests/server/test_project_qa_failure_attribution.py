@@ -5,6 +5,7 @@ import asyncio
 import pytest
 
 from frisket.contracts.http.project_qa import AskThreadCreate, AskTurnRequest
+from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.server.services.project_qa import ProjectQAService
 from frisket.server.workspace import Workspace
 
@@ -72,7 +73,10 @@ def test_internal_error_reporter_failure_does_not_prevent_terminal_turn(tmp_path
             raise RuntimeError("sensitive prompt must not reach reporter")
 
         def report(*args):
-            reports.append(args)
+            state = ProjectQAStore(workspace.get(project_id)).get_turn(args[2])[
+                "status"
+            ]
+            reports.append((args, state))
             raise RuntimeError("reporter unavailable")
 
         service = ProjectQAService(
@@ -97,7 +101,9 @@ def test_internal_error_reporter_failure_does_not_prevent_terminal_turn(tmp_path
             failure = detail["history"]["events"][-1]["payload"]
             assert failure["status"] == "failed"
             assert failure["diagnostic"]["code"] == "internal_error"
-            assert reports == [(project_id, thread["id"], turn["id"], "RuntimeError")]
+            assert reports == [
+                ((project_id, thread["id"], turn["id"], "RuntimeError"), "failed")
+            ]
         finally:
             await service.shutdown()
 
