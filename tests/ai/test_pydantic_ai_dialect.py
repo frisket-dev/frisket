@@ -180,24 +180,17 @@ def _openai_tool_call_wire_raw(
     name: str, arguments: str, *, call_id: str = "call_1"
 ) -> dict:
     return {
-        "id": "chat-mock",
-        "choices": [
+        "id": "resp-mock",
+        "status": "completed",
+        "output": [
             {
-                "message": {
-                    "role": "assistant",
-                    "content": None,
-                    "tool_calls": [
-                        {
-                            "id": call_id,
-                            "type": "function",
-                            "function": {"name": name, "arguments": arguments},
-                        }
-                    ],
-                },
-                "finish_reason": "tool_calls",
+                "type": "function_call",
+                "call_id": call_id,
+                "name": name,
+                "arguments": arguments,
             }
         ],
-        "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+        "usage": {"input_tokens": 10, "output_tokens": 5},
     }
 
 
@@ -207,11 +200,16 @@ def _openai_tool_call_wire(name: str, args: dict, *, call_id: str = "call_1") ->
 
 def _openai_text_wire(text: str) -> dict:
     return {
-        "id": "chat-mock",
-        "choices": [
-            {"message": {"role": "assistant", "content": text}, "finish_reason": "stop"}
+        "id": "resp-mock",
+        "status": "completed",
+        "output": [
+            {
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": text}],
+            }
         ],
-        "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+        "usage": {"input_tokens": 10, "output_tokens": 5},
     }
 
 
@@ -227,9 +225,10 @@ def test_openai_multi_tool_body_carries_all_tools_with_auto_choice():
     )
     run(adapter.complete(req, httpx.AsyncClient(transport=transport)))
     wire_tools = seen[0]["tools"]
-    assert [t["function"]["name"] for t in wire_tools] == ["search", "fetch"]
+    assert [t["name"] for t in wire_tools] == ["search", "fetch"]
     assert wire_tools[0]["type"] == "function"
-    assert wire_tools[0]["function"]["parameters"] == SEARCH_TOOL["parameters"]
+    assert wire_tools[0]["parameters"] == SEARCH_TOOL["parameters"]
+    assert all(tool["strict"] is False for tool in wire_tools)
     assert seen[0]["tool_choice"] == "auto"
 
 
@@ -249,6 +248,7 @@ def test_openai_named_tool_calls_round_trip():
             "name": "fetch",
             "args": '{"url": "http://x"}',
             "id": "call_9",
+            "provider_details": {},
         }
     ]
 
@@ -268,13 +268,26 @@ def test_openai_no_tool_call_leaves_tool_calls_none():
     assert resp.content == "done: found 2 cats"
 
 
-def test_openai_explicit_null_tool_calls_text_response_succeeds():
-    wire = _openai_text_wire("done: found 2 cats")
-    wire["choices"][0]["message"]["tool_calls"] = None
+def test_chat_compatible_explicit_null_tool_calls_text_response_succeeds():
+    # Chat-compatible providers can explicitly return null tool_calls.
+    wire = {
+        "id": "chat-mock",
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": "done: found 2 cats",
+                    "tool_calls": None,
+                },
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+    }
     transport, _ = _openai_capturing_transport([wire])
     adapter = OpenAICompatAdapter("k", "https://api.openai.com/v1")
     req = LLMRequest(
-        model="openai/gpt-5",
+        model="gemini/gemini-3-flash-preview",
         messages=[{"role": "user", "content": "go"}],
         tools=[SEARCH_TOOL, FETCH_TOOL],
     )
@@ -319,7 +332,7 @@ def test_openai_malformed_tool_arguments_repair_retains_all_paid_wire_calls():
     assert model.attempts == 3
     assert len(model.wire_calls) == 3
     assert model.wire_calls[0].tool_calls == [
-        {"name": "search", "args": malformed, "id": "bad"}
+        {"name": "search", "args": malformed, "id": "bad", "provider_details": {}}
     ]
     assert sum(call.tokens_in for call in model.wire_calls) == 30
     assert sum(call.tokens_out for call in model.wire_calls) == 15
