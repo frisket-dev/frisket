@@ -16,7 +16,7 @@ import math
 import threading
 import time
 import uuid
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, fields, is_dataclass
 from datetime import datetime, timezone
 from itertools import islice
@@ -65,6 +65,7 @@ class _ModelCompletionCall(Protocol):
         *,
         recipe_version: str,
         trace: ModelTrace | None,
+        on_request: Callable[[LLMRequest], None] | None,
     ) -> Awaitable[LLMResponse]: ...
 
 
@@ -597,12 +598,14 @@ class TracingRouter:
         *,
         recipe_version: str = "1",
         trace: ModelTrace | None = None,
+        on_request: Callable[[LLMRequest], None] | None = None,
     ) -> LLMResponse:
         return await self._record_complete(
             req,
             recipe_version=recipe_version,
             complete=self._inner.complete,
             events=trace,
+            on_request=on_request,
         )
 
     async def complete_transport(
@@ -611,12 +614,14 @@ class TracingRouter:
         *,
         recipe_version: str = "1",
         trace: ModelTrace | None = None,
+        on_request: Callable[[LLMRequest], None] | None = None,
     ) -> LLMResponse:
         return await self._record_complete(
             req,
             recipe_version=recipe_version,
             complete=self._inner.complete_transport,
             events=trace,
+            on_request=on_request,
         )
 
     async def _record_complete(
@@ -626,65 +631,95 @@ class TracingRouter:
         recipe_version: str,
         complete: _ModelCompletionCall,
         events: ModelTrace | None = None,
+        on_request: Callable[[LLMRequest], None] | None = None,
     ) -> LLMResponse:
         events = events if events is not None else []
         entry: dict[str, Any] | None = None
         capture_body = len(self._row.calls) < MAX_CALL_BODIES
         truncated = [False]
         secret_values: tuple[str, ...] = ()
-        try:
-            secret_values = tuple(
-                self._extra_secret_values
-            ) + self._selected_secret_values(req.model)
-            messages = [
-                {
-                    **{
-                        key: value
-                        for key, value in message.items()
-                        if key != "provider_details"
+
+        def capture_request(req: LLMRequest) -> None:
+            nonlocal entry, secret_values
+            truncated[0] = False
+            try:
+                secret_values += tuple(
+                    self._extra_secret_values
+                ) + self._selected_secret_values(req.model)
+                messages = [
+                    {
+                        **{
+                            key: value
+                            for key, value in message.items()
+                            if key != "provider_details"
+                        },
+                        **(
+                            {
+                                "tool_calls": [
+                                    {
+                                        key: call.get(key)
+                                        for key in ("name", "id", "args")
+                                    }
+                                    for call in message["tool_calls"][:256]
+                                    if isinstance(call, dict)
+                                ]
+                            }
+                            if isinstance(message.get("tool_calls"), list)
+                            else {}
+                        ),
+                    }
+                    for message in (req.messages[:256] if capture_body else [])
+                ]
+                captured = {
+                    "model": req.model,
+                    "request": {
+                        key: _part(value, secret_values, truncated=truncated)
+                        for key, value in {
+                            "model": req.model,
+                            "max_tokens": req.max_tokens,
+                            "temperature": req.temperature,
+                            "params": req.params,
+                            "mechanism": req.mechanism,
+                            "reasoning_policy": req.reasoning_policy,
+                            "tools": req.tools,
+                            "schema": req.schema,
+                            "messages": messages,
+                        }.items()
                     },
-                    **(
-                        {
-                            "tool_calls": [
-                                {key: call.get(key) for key in ("name", "id", "args")}
-                                for call in message["tool_calls"][:256]
-                                if isinstance(call, dict)
-                            ]
-                        }
-                        if isinstance(message.get("tool_calls"), list)
-                        else {}
-                    ),
+                    "events": [],
                 }
-                for message in (req.messages[:256] if capture_body else [])
-            ]
-            entry = {
-                "model": req.model,
-                "request": {
-                    key: _part(value, secret_values, truncated=truncated)
-                    for key, value in {
-                        "model": req.model,
-                        "max_tokens": req.max_tokens,
-                        "temperature": req.temperature,
-                        "params": req.params,
-                        "mechanism": req.mechanism,
-                        "reasoning_policy": req.reasoning_policy,
-                        "tools": req.tools,
-                        "schema": req.schema,
-                        "messages": messages,
-                    }.items()
-                },
-                "events": [],
-            }
-            if len(req.messages) > 256 or truncated[0]:
-                entry["truncated"] = True
-            if not capture_body:
-                entry = {"model": req.model, "truncated": True}
-            self._row.calls.append(entry)
-        except Exception:  # noqa: BLE001 - provider call remains authoritative
-            logger.warning("dropping model-call trace after capture failure")
+                if len(req.messages) > 256 or truncated[0]:
+                    captured["truncated"] = True
+                if not capture_body:
+                    captured = {"model": req.model, "truncated": True}
+                if entry is None:
+                    entry = captured
+                    self._row.calls.append(entry)
+                else:
+                    entry.clear()
+                    entry.update(captured)
+            except Exception:  # noqa: BLE001 - provider call remains authoritative
+                if entry is not None:
+                    self._row.calls.remove(entry)
+                    entry = None
+                logger.warning("dropping model-call trace after capture failure")
+
+        def capture_effective_request(prepared: LLMRequest) -> None:
+            capture_request(prepared)
+            if on_request is not None:
+                on_request(prepared)
+
+        # Retain attempted input when preparation itself fails; replace it at
+        # the transport boundary with the request selected by the policy.
+        capture_request(req)
         started = time.perf_counter()
         try:
-            response = await complete(req, recipe_version=recipe_version, trace=events)
+            response = await complete(
+                req,
+                recipe_version=recipe_version,
+                trace=events,
+                on_request=capture_effective_request,
+            )
         except BaseException as exc:  # record cancellation too; preserve original
             try:
                 if entry is not None:

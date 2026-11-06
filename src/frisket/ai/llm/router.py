@@ -8,9 +8,10 @@ environment or are passed explicitly; ops never see them (key broker).
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 from typing import TYPE_CHECKING, Literal, Protocol
 
@@ -513,6 +514,7 @@ class ModelRouter:
         *,
         recipe_version: str = "1",
         trace: ModelTrace | None = None,
+        on_request: Callable[[LLMRequest], None] | None = None,
     ) -> LLMResponse:
         """When ``trace`` is given, the router
         appends one event dict per cache decision and per adapter attempt —
@@ -544,6 +546,7 @@ class ModelRouter:
                     ),
                     recipe_version=recipe_version,
                     trace=trace,
+                    on_request=on_request,
                 )
             except LLMError as error:
                 raise self._safe_llm_error(
@@ -553,7 +556,7 @@ class ModelRouter:
             return result.response
 
         return await self.complete_transport(
-            req, recipe_version=recipe_version, trace=trace
+            req, recipe_version=recipe_version, trace=trace, on_request=on_request
         )
 
     async def complete_transport(
@@ -562,10 +565,15 @@ class ModelRouter:
         *,
         recipe_version: str = "1",
         trace: ModelTrace | None = None,
+        on_request: Callable[[LLMRequest], None] | None = None,
     ) -> LLMResponse:
-        """Execute one wire call through the router's public transport seam."""
+        """Execute one wire call through the router's public transport seam.
+
+        ``on_request`` observes the effective request after policy preparation,
+        before cache lookup or transport. Observer failures never alter execution.
+        """
         return await self._complete_transport(
-            req, recipe_version=recipe_version, trace=trace
+            req, recipe_version=recipe_version, trace=trace, on_request=on_request
         )
 
     async def _complete_transport(
@@ -574,6 +582,7 @@ class ModelRouter:
         *,
         recipe_version: str = "1",
         trace: ModelTrace | None = None,
+        on_request: Callable[[LLMRequest], None] | None = None,
     ) -> LLMResponse:
         """Execute one router-level wire attempt below structured repair."""
         # The routed provider, stamped on every response leaving this seam --
@@ -589,6 +598,11 @@ class ModelRouter:
         credential_source = self.credential_source_for(provider)
         if req.reasoning_policy is not None and provider != "openrouter":
             raise LLMError("reasoning_policy is supported only for openrouter models")
+        if on_request is not None:
+            try:
+                on_request(req)
+            except Exception:  # noqa: BLE001 - diagnostics must not affect execution
+                logging.getLogger(__name__).warning("could not capture model request")
         key = request_key(req, recipe_version)
 
         if self.cache is not None and self.cache_mode == "replay":

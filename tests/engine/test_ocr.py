@@ -354,6 +354,7 @@ def test_ocr_remote_vlm_engine_rides_router(tmp_path, monkeypatch):
             *,
             recipe_version="1",
             trace=None,  # noqa: ANN001
+            on_request=None,
         ):
             return await self.complete_transport(
                 req, recipe_version=recipe_version, trace=trace
@@ -365,6 +366,7 @@ def test_ocr_remote_vlm_engine_rides_router(tmp_path, monkeypatch):
             *,
             recipe_version="1",
             trace=None,  # noqa: ANN001
+            on_request=None,
         ):
             seen["model"] = req.model
             parts = req.messages[-1]["content"]
@@ -439,6 +441,7 @@ def test_minimax_m3_ocr_uses_publisher_request_profile(tmp_path):
             *,
             recipe_version="1",
             trace=None,  # noqa: ANN001
+            on_request=None,
         ):
             del recipe_version, trace
             seen["request"] = req
@@ -535,6 +538,7 @@ def test_ocr_vlm_language_hint_reaches_prompt(tmp_path, monkeypatch):
             *,
             recipe_version="1",
             trace=None,  # noqa: ANN001
+            on_request=None,
         ):
             return await self.complete_transport(
                 req, recipe_version=recipe_version, trace=trace
@@ -546,6 +550,7 @@ def test_ocr_vlm_language_hint_reaches_prompt(tmp_path, monkeypatch):
             *,
             recipe_version="1",
             trace=None,  # noqa: ANN001
+            on_request=None,
         ):
             parts = req.messages[-1]["content"]
             seen["ask"] = next(p["text"] for p in parts if p.get("type") == "text")

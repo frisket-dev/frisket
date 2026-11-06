@@ -26,7 +26,7 @@ class _Inner:
     def secret_values_for_model(self, model):  # noqa: ANN001
         return ("selected-model-credential",)
 
-    async def complete(self, req, *, recipe_version, trace):  # noqa: ANN001
+    async def complete(self, req, *, recipe_version, trace, on_request=None):  # noqa: ANN001
         return LLMResponse(
             content=None,
             data=None,
@@ -139,7 +139,7 @@ def test_complete_request_and_tool_calls_are_redacted_without_opaque_details(tmp
 
 def test_ordinary_ellipses_are_not_truncation_but_actual_string_cuts_are(tmp_path):
     class TextInner(_Inner):
-        async def complete(self, req, *, recipe_version, trace):  # noqa: ANN001
+        async def complete(self, req, *, recipe_version, trace, on_request=None):  # noqa: ANN001
             return LLMResponse(
                 content="Finished…",
                 data=None,

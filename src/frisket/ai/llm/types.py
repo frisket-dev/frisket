@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal, NotRequired, Protocol, TypedDict, cast
+from typing import Any, Callable, Literal, NotRequired, Protocol, TypedDict, cast
 
 from frisket.ai.model_defaults import DEFAULT_MAX_OUTPUT_TOKENS
 
@@ -36,6 +36,7 @@ class ModelRouterTransport(Protocol):
         *,
         recipe_version: str = "1",
         trace: ModelTrace | None = None,
+        on_request: Callable[[LLMRequest], None] | None = None,
     ) -> "LLMResponse": ...
 
     async def complete_transport(
@@ -44,6 +45,7 @@ class ModelRouterTransport(Protocol):
         *,
         recipe_version: str = "1",
         trace: ModelTrace | None = None,
+        on_request: Callable[[LLMRequest], None] | None = None,
     ) -> "LLMResponse": ...
 
     def secret_values_for_model(self, model: str) -> tuple[str, ...]: ...
