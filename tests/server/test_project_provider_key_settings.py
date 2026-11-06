@@ -91,10 +91,14 @@ def test_key_save_commits_route_pin_and_key_together(tmp_path, monkeypatch) -> N
     project = app.state.workspace.get(project_id)
     write_project_settings(project, ProjectSettings())
     service = ProjectLifecycleService(app.state.workspace)
+    context = object()
 
     class Routes:
-        def pin_ready_routes(self, pinned_project_id, *, commit=True):
+        def pin_ready_routes(
+            self, pinned_project_id, *, commit=True, request_context=None
+        ):
             assert pinned_project_id == project_id
+            assert request_context is context
             assert commit is False
             assert project.db.in_transaction
             settings = read_project_settings(project).model_copy(
@@ -109,6 +113,7 @@ def test_key_save_commits_route_pin_and_key_together(tmp_path, monkeypatch) -> N
         project_id,
         provider="openai",
         key="sk-atomic",
+        request_context=context,
     )
 
     assert read_project_settings(project).model_execution_routes == {
@@ -123,10 +128,16 @@ def test_key_save_failure_rolls_back_route_pin_and_key(tmp_path, monkeypatch) ->
     project = app.state.workspace.get(project_id)
     write_project_settings(project, ProjectSettings())
     service = ProjectLifecycleService(app.state.workspace)
+    context = object()
 
     class Routes:
-        def pin_ready_routes(self, _project_id, *, commit=True):
+        def pin_ready_routes(
+            self, pinned_project_id, *, commit=True, request_context=None
+        ):
+            assert pinned_project_id == project_id
+            assert request_context is context
             assert commit is False
+            assert project.db.in_transaction
             settings = read_project_settings(project).model_copy(
                 update={"model_execution_routes": {"openai/gpt-5-mini": "own"}}
             )
@@ -147,6 +158,7 @@ def test_key_save_failure_rolls_back_route_pin_and_key(tmp_path, monkeypatch) ->
             project_id,
             provider="openai",
             key="sk-rollback",
+            request_context=context,
         )
 
     assert read_project_settings(project).model_execution_routes is None
