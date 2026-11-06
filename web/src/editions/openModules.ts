@@ -7,9 +7,11 @@ import {
 
 export const LOCAL_EDITION_MODULE = defineEditionModule({
   descriptor: LOCAL_EDITION_DESCRIPTOR,
+  modelPullScope: 'workspace',
 });
 
 export const TEAM_EDITION_MODULE = defineEditionModule({
   descriptor: TEAM_EDITION_DESCRIPTOR,
+  modelPullScope: 'organization',
   settingsSections: [TEAM_MODELS_GATEWAY_SECTION],
 });

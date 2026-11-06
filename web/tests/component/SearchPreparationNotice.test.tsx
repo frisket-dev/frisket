@@ -104,6 +104,18 @@ function snapshot(overrides: Partial<SearchPreparationSnapshot> = {}): SearchPre
 }
 
 describe('search preparation notice projection', () => {
+  it.each(['workspace', 'organization', null] as const)('polls only the declared model installation scope: %s', async (scope) => {
+    const preparation = vi.spyOn(preparationApi, 'listSearchPreparations').mockResolvedValue({
+      batches: [], indexing: { status: 'idle', job_id: null, error: null },
+    });
+    const workspace = vi.spyOn(openApi, 'listModelPulls').mockResolvedValue({ pulls: [] });
+    const organization = vi.spyOn(openApi, 'orgListModelPulls').mockResolvedValue({ pulls: [] });
+    renderHook(() => useSearchPreparationNotice('project-1', scope));
+    await waitFor(() => expect(preparation).toHaveBeenCalled());
+    expect(workspace).toHaveBeenCalledTimes(scope === 'workspace' ? 1 : 0);
+    expect(organization).toHaveBeenCalledTimes(scope === 'organization' ? 1 : 0);
+  });
+
   it('offers Stop only for a permitted batch with unfinished preparation, never indexing alone', () => {
     expect(deriveSearchPreparationNotice(snapshot({ batches: [batch()] }))?.stopBatchId).toBe('prep-1');
     expect(deriveSearchPreparationNotice(snapshot({ batches: [batch({ can_stop: false })] }))?.stopBatchId).toBeNull();
@@ -122,7 +134,7 @@ describe('search preparation notice projection', () => {
         indexing: { status: 'idle', job_id: null, error: null } });
       return batch({ status: 'stopped', can_stop: false });
     });
-    const { result } = renderHook(() => useSearchPreparationNotice('project-1', false));
+    const { result } = renderHook(() => useSearchPreparationNotice('project-1', 'workspace'));
     await waitFor(() => expect(result.current?.onStopPreparation).toBeTypeOf('function'));
     await act(async () => { await result.current!.onStopPreparation!(); });
     expect(stop).toHaveBeenCalledExactlyOnceWith('project-1', 'prep-1');
@@ -248,7 +260,7 @@ describe('search preparation notice projection', () => {
     vi.spyOn(openApi, 'listModelPulls').mockResolvedValue({
       schemaVersion: 'frisket.model_pull_list.v1', pulls: [],
     });
-    const { result } = renderHook(() => useSearchPreparationNotice('project-1', false));
+    const { result } = renderHook(() => useSearchPreparationNotice('project-1', 'workspace'));
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     list.mockResolvedValue({
       batches: [batch({ status: 'failed', groups: [{ kind: 'ocr', count: 1, status: 'failed' }],
@@ -282,7 +294,7 @@ describe('search preparation notice projection', () => {
     vi.spyOn(openApi, 'listModelPulls').mockResolvedValue({
       schemaVersion: 'frisket.model_pull_list.v1', pulls: [],
     });
-    const { result, unmount } = renderHook(() => useSearchPreparationNotice('project-1', false));
+    const { result, unmount } = renderHook(() => useSearchPreparationNotice('project-1', 'workspace'));
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     list.mockResolvedValue({ batches: [batch({ status: 'complete', jobs: [],
       groups: [{ kind: 'ocr', count: 1, status: 'complete' }],
@@ -292,7 +304,7 @@ describe('search preparation notice projection', () => {
     expect(result.current).toMatchObject({ tone: 'warning', title: 'Search prepared with warnings',
       activityKey: 'preparation:prep-1', detail: 'Page 2 failed during OCR.' });
     unmount();
-    const reopened = renderHook(() => useSearchPreparationNotice('project-1', false));
+    const reopened = renderHook(() => useSearchPreparationNotice('project-1', 'workspace'));
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     expect(reopened.result.current).toBeNull();
   });
@@ -315,7 +327,7 @@ describe('search preparation notice projection', () => {
     vi.spyOn(openApi, 'listModelPulls').mockResolvedValue({
       schemaVersion: 'frisket.model_pull_list.v1', pulls: [],
     });
-    const { result } = renderHook(() => useSearchPreparationNotice('project-1', false));
+    const { result } = renderHook(() => useSearchPreparationNotice('project-1', 'workspace'));
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     expect(result.current).toMatchObject({ stage: 'prepare', activityKey: 'preparation:prep-1' });
 
@@ -588,7 +600,7 @@ describe('search preparation notice projection', () => {
     vi.spyOn(openApi, 'listModelPulls').mockResolvedValue({
       schemaVersion: 'frisket.model_pull_list.v1', pulls: [],
     });
-    const { result } = renderHook(() => useSearchPreparationNotice('project-1', false));
+    const { result } = renderHook(() => useSearchPreparationNotice('project-1', 'workspace'));
 
     await waitFor(() => expect(result.current?.detail).toContain('Install the local audio runtime.'));
   });
@@ -614,7 +626,7 @@ describe('search preparation notice projection', () => {
       schemaVersion: 'frisket.model_pull_list.v1', pulls: [],
     });
 
-    const { result } = renderHook(() => useSearchPreparationNotice('project-1', false));
+    const { result } = renderHook(() => useSearchPreparationNotice('project-1', 'workspace'));
 
     await waitFor(() => expect(result.current).toMatchObject({
       stage: 'index',
@@ -633,7 +645,7 @@ describe('search preparation notice projection', () => {
     vi.spyOn(openApi, 'listModelPulls').mockResolvedValue({
       schemaVersion: 'frisket.model_pull_list.v1', pulls: [],
     });
-    const { result } = renderHook(() => useSearchPreparationNotice('project-1', false));
+    const { result } = renderHook(() => useSearchPreparationNotice('project-1', 'workspace'));
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     expect(result.current).toMatchObject({ stage: 'index', activityKey: 'index:900' });
     list.mockResolvedValue({ batches: [historical], indexing: { status: 'idle', job_id: null, error: null } });
