@@ -1,5 +1,6 @@
 import type { ComponentType } from 'react';
 
+import type { ModelSetupScope } from '../api/engineSetup';
 import type { AdminOverview, WatchInfo } from '../api/types';
 import { routesFor, type EditionRoute } from '../routes/openRoutes';
 import {
@@ -36,6 +37,7 @@ export type PersonalProfileSlotProps = Record<string, never>;
 
 export interface EditionModuleDefinition {
   readonly descriptor: EditionDescriptor;
+  readonly modelPullScope?: ModelSetupScope;
   readonly routes?: readonly EditionRoute[];
   readonly settingsSections?: readonly EditionSettingsSection[];
   readonly walkthroughs?: readonly WalkthroughDefinition[];
@@ -47,6 +49,7 @@ export interface EditionModuleDefinition {
 /** One immutable, fully resolved edition passed to the application mount. */
 export interface EditionModule {
   readonly descriptor: Readonly<EditionDescriptor>;
+  readonly modelPullScope?: ModelSetupScope;
   readonly routes: readonly EditionRoute[];
   readonly settingsSections: readonly ActiveSettingsSection[];
   readonly walkthroughs: readonly WalkthroughDefinition[];
@@ -119,6 +122,7 @@ export function defineEditionModule(
   const descriptor = immutableEditionDescriptor(definition.descriptor);
   return Object.freeze({
     descriptor,
+    modelPullScope: definition.modelPullScope,
     routes: Object.freeze(
       routesFor(descriptor, definition.routes).map(immutableRoute),
     ),

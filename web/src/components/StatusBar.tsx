@@ -167,10 +167,10 @@ export function StatusBar({
   onShowFailedRows, onRetryFailedRows,
 }: StatusBarProps) {
   const { actSurface, chrome, chromePreferences: { projectId } } = useWorkspaceStores();
-  const { descriptor } = useEditionModule();
+  const { modelPullScope } = useEditionModule();
   const baseSearchPreparationNotice = useSearchPreparationNotice(
     projectId,
-    descriptor.capabilities.team,
+    modelPullScope ?? null,
   );
   const importActivity = preferredImportActivity(importProgress.activities);
   const combinedActivity = composeImportSearchActivity(importActivity, baseSearchPreparationNotice);

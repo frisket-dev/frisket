@@ -204,7 +204,7 @@ def test_trace_capture_failure_preserves_successful_provider_response() -> None:
         def secret_values_for_model(self, _model):  # noqa: ANN001
             raise RuntimeError("credential lookup failed")
 
-        async def complete(self, req, *, recipe_version, trace):  # noqa: ANN001
+        async def complete(self, req, *, recipe_version, trace, on_request=None):  # noqa: ANN001
             trace.append({"event": "attempt", "detail": secret})
             return LLMResponse(
                 content=secret,
@@ -241,7 +241,7 @@ def test_tracing_router_uses_explicit_complete_and_transport_seams() -> None:
         def secret_values_for_model(self, _model):  # noqa: ANN001
             return ()
 
-        async def complete(self, req, *, recipe_version, trace):  # noqa: ANN001
+        async def complete(self, req, *, recipe_version, trace, on_request=None):  # noqa: ANN001
             trace.append({"event": "complete"})
             calls.append(("complete", trace))
             return LLMResponse(
@@ -259,6 +259,7 @@ def test_tracing_router_uses_explicit_complete_and_transport_seams() -> None:
             *,
             recipe_version,
             trace,  # noqa: ANN001
+            on_request=None,
         ):
             trace.append({"event": "transport"})
             calls.append(("transport", trace))
@@ -303,7 +304,7 @@ def test_tracing_router_transport_does_not_fall_back_to_complete() -> None:
         def secret_values_for_model(self, _model):  # noqa: ANN001
             return ()
 
-        async def complete(self, req, *, recipe_version, trace):  # noqa: ANN001
+        async def complete(self, req, *, recipe_version, trace, on_request=None):  # noqa: ANN001
             nonlocal complete_calls
             complete_calls += 1
             raise AssertionError("transport must not fall back to complete")
@@ -360,7 +361,7 @@ def test_tracing_router_redacts_selected_adapter_key_from_prompt_and_response(
             assert model == "anthropic/test"
             return (secret,)
 
-        async def complete(self, req, *, recipe_version, trace):  # noqa: ANN001
+        async def complete(self, req, *, recipe_version, trace, on_request=None):  # noqa: ANN001
             trace.append({"event": "attempt", "detail": secret})
             return LLMResponse(
                 content=secret,
@@ -416,7 +417,7 @@ def test_tracing_router_final_record_resolves_observed_models_without_key_cache(
             adapter = self.adapters.get(provider)
             return (adapter.api_key,) if adapter is not None else ()
 
-        async def complete(self, req, *, recipe_version, trace):  # noqa: ANN001
+        async def complete(self, req, *, recipe_version, trace, on_request=None):  # noqa: ANN001
             return LLMResponse(
                 content="ok",
                 data={"answer": first_secret},

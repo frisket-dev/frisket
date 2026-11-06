@@ -331,6 +331,7 @@ class FrisketRouterModel(Model):
         reasoning_policy: ReasoningPolicy | None = None,
         capability: dict | None = None,
         trace: ModelTrace | None = None,
+        on_request: Callable[[LLMRequest], None] | None = None,
         before_request: Callable[[LLMRequest], Awaitable[None]] | None = None,
         on_response: Callable[[LLMResponse], Awaitable[None]] | None = None,
         request_context: Callable[[], AbstractContextManager[None]] | None = None,
@@ -344,6 +345,7 @@ class FrisketRouterModel(Model):
         self._params = dict(params or {})
         self._reasoning_policy = reasoning_policy
         self._trace = trace
+        self._on_request = on_request
         self._before_request = before_request
         self._on_response = on_response
         self._request_context = request_context
@@ -426,6 +428,7 @@ class FrisketRouterModel(Model):
                     req,
                     recipe_version=self.recipe_version,
                     trace=self._trace,
+                    on_request=self._on_request,
                 )
         except SchemaViolation as sv:
             # A raw SchemaViolation is invisible to pydantic-ai's retry loop
@@ -809,6 +812,7 @@ class StructuredCompleter:
         *,
         recipe_version: str = "1",
         trace: ModelTrace | None = None,
+        on_request: Callable[[LLMRequest], None] | None = None,
     ) -> StructuredResult:
         if req.schema is None:
             raise ValueError("StructuredRequest.schema is required")
@@ -908,6 +912,7 @@ class StructuredCompleter:
             reasoning_policy=req.reasoning_policy,
             capability=profile,
             trace=trace,
+            on_request=on_request,
         )
 
         violations: list[str] = []

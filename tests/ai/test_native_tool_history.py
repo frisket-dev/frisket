@@ -433,7 +433,12 @@ class _LegacySchemaRouter:
         self.requests: list[LLMRequest] = []
 
     async def complete_transport(
-        self, request: LLMRequest, *, recipe_version: str, trace: Any = None
+        self,
+        request: LLMRequest,
+        *,
+        recipe_version: str,
+        trace: Any = None,
+        on_request=None,
     ) -> LLMResponse:
         del recipe_version, trace
         self.requests.append(request)

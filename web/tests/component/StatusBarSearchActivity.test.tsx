@@ -10,6 +10,8 @@ vi.mock('../../src/components/useSearchPreparationNotice', () => ({
   useSearchPreparationNotice,
 }));
 
+import { defineEditionModule, EditionModuleProvider } from '../../src/editions/module';
+import { TEAM_EDITION_DESCRIPTOR } from '../../src/editions/posture';
 import { StatusBar } from '../../src/components/StatusBar';
 import { createProjectApi } from '../../src/api/real';
 import type { RunProgress } from '../../src/api/open';
@@ -27,6 +29,18 @@ afterEach(() => {
 });
 
 describe('StatusBar search activity', () => {
+  it('does not infer model installation from a hosted edition having teams', () => {
+    useSearchPreparationNotice.mockReturnValue(null);
+    const hosted = defineEditionModule({ descriptor: { ...TEAM_EDITION_DESCRIPTOR, id: 'hosted-test' } });
+    render(
+      <EditionModuleProvider edition={hosted}>
+        <StatusBar run={null} history={null} reviewCount={0} projectionStatus={null}
+          onUndo={vi.fn()} onRedo={vi.fn()} onOpenReview={vi.fn()} onCancelRun={vi.fn()} />
+      </EditionModuleProvider>,
+    );
+    expect(useSearchPreparationNotice).toHaveBeenCalledWith('status-search-activity', null);
+  });
+
   it('keeps queued indexing in the bottom-left control until manually opened', () => {
     useSearchPreparationNotice.mockReturnValue({
       activityKey: 'index:41',

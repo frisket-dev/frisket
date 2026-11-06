@@ -14,7 +14,7 @@ import {
 import type { EditionRoute } from '../../src/routes/openRoutes';
 import type { EditionSettingsSection } from '../../src/settings/openSettingsRegistry';
 import type { WalkthroughDefinition } from '../../src/walkthrough/walkthroughs';
-import { TEAM_EDITION_MODULE } from '../../src/editions/openModules';
+import { LOCAL_EDITION_MODULE, TEAM_EDITION_MODULE } from '../../src/editions/openModules';
 
 afterEach(cleanup);
 
@@ -30,6 +30,12 @@ const descriptor = {
 } as const;
 
 describe('immutable edition module', () => {
+  it('declares model installation independently of team membership', () => {
+    expect(LOCAL_EDITION_MODULE.modelPullScope).toBe('workspace');
+    expect(TEAM_EDITION_MODULE.modelPullScope).toBe('organization');
+    expect(defineEditionModule({ descriptor }).modelPullScope).toBeUndefined();
+  });
+
   it('mounts Team with identity and team runtime capabilities', () => {
     expect(TEAM_EDITION_MODULE.descriptor.id).toBe('team');
     expect(TEAM_EDITION_MODULE.descriptor.capabilities.identity).toBe(true);

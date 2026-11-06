@@ -1,3 +1,4 @@
+import type { ModelSetupScope } from '../api/engineSetup';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   listModelPulls,
@@ -408,10 +409,10 @@ function completedSince(
   return false;
 }
 
-async function loadPulls(team: boolean, previous: ScopedPull[]): Promise<ScopedPull[]> {
-  const scope: ScopedPull['scope'] = team ? 'organization' : 'workspace';
+async function loadPulls(scope: ModelSetupScope | null, previous: ScopedPull[]): Promise<ScopedPull[]> {
+  if (scope === null) return [];
   try {
-    const { pulls } = team ? await orgListModelPulls() : await listModelPulls();
+    const { pulls } = scope === 'organization' ? await orgListModelPulls() : await listModelPulls();
     return pulls.map((pull) => ({ pull, scope }));
   } catch {
     return previous.filter((item) => item.scope === scope);
@@ -464,8 +465,8 @@ function relevantBatches(
   return [...failed, ...active, ...warned];
 }
 
-export function useSearchPreparationNotice(projectId: string, team: boolean): SearchPreparationNotice | null {
-  const scopeKey = `${team ? 'team' : 'local'}:${projectId}`;
+export function useSearchPreparationNotice(projectId: string, modelPullScope: ModelSetupScope | null): SearchPreparationNotice | null {
+  const scopeKey = `${modelPullScope ?? 'no-model-pulls'}:${projectId}`;
   const [snapshotState, setSnapshotState] = useState<{
     scopeKey: string;
     snapshot: SearchPreparationSnapshot;
@@ -495,7 +496,7 @@ export function useSearchPreparationNotice(projectId: string, team: boolean): Se
       : null;
     const [preparationsResult, pullsResult] = await Promise.allSettled([
       listSearchPreparations(projectId),
-      loadPulls(team, previous?.pulls ?? []),
+      loadPulls(modelPullScope, previous?.pulls ?? []),
     ]);
     if (generation !== requestGeneration.current) return;
     const preparationPayload = preparationsResult.status === 'fulfilled'
@@ -593,7 +594,7 @@ export function useSearchPreparationNotice(projectId: string, team: boolean): Se
         }
       }, 8_000);
     }
-  }, [projectId, scopeKey, team]);
+  }, [projectId, scopeKey, modelPullScope]);
 
   useEffect(() => {
     requestGeneration.current += 1;
