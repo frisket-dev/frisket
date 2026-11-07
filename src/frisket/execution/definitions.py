@@ -1211,8 +1211,9 @@ class StaticExecutionTargetProvider:
             if isinstance(effective_keys, Mapping)
             else None
         )
-        source_reader = getattr(self._router, "credential_source_for", None)
-        source = source_reader(provider) if key and callable(source_reader) else "local"
+        source_reader = getattr(self._router, "configured_key_sources", None)
+        sources = source_reader() if callable(source_reader) else {}
+        source = sources.get(provider, "local") if key else "local"
         if not key:
             key = self._project_provider_key(provider)
             source = "project_key" if key else "local"
