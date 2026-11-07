@@ -23,9 +23,10 @@ from frisket.contracts.actions.schemas._engines import (
     EngineDeclaration,
 )
 from frisket.credentials import missing_required_credentials
-from frisket.contracts.classification import CLEF_ENGINE_IDS, classification_options
+from frisket.contracts.classification import DECISION_ENGINE_IDS, classification_options
 from frisket.ai.external_pricing import (
     CLOUDFLARE_CLEF_INPUT_TOKEN,
+    OPENAI_DECISIONS_INPUT_TOKEN,
     DATALAB_CONVERT_PAGE,
     DATALAB_OCR_PAGE,
     GEOCODE_EXTERNAL_GEOCODER,
@@ -554,7 +555,9 @@ def _project_execution_composition_engines(
             continue
 
         engine = dict(original)
-        use_clef_declaration = capability == "classify" and engine_id in CLEF_ENGINE_IDS
+        use_decision_declaration = (
+            capability == "classify" and engine_id in DECISION_ENGINE_IDS
+        )
         existing_targets = [
             dict(row) for row in (engine.get("targets") or []) if isinstance(row, dict)
         ]
@@ -607,7 +610,7 @@ def _project_execution_composition_engines(
                 offering is not None
                 or use_gateway_declaration
                 or use_managed_local_declaration
-                or use_clef_declaration
+                or use_decision_declaration
                 or capability == "transcribe"
             ):
                 available, error = projected_liveness(target.id)
@@ -688,7 +691,7 @@ def _project_execution_composition_engines(
                 or preferred_offer is not None
                 or use_gateway_declaration
                 or use_managed_local_declaration
-                or use_clef_declaration
+                or use_decision_declaration
             ):
                 available, error = projected_liveness(preferred_target.id)
                 engine_update = {"available": available}
@@ -1047,7 +1050,20 @@ def _recipe_engines(
             error=clef_error,
             pricing=external_pricing_entry(CLOUDFLARE_CLEF_INPUT_TOKEN),
         )
-        for row in (clef_flash, clef):
+        openai_ok = provider.connection("remote-api:openai") is not None
+        decisions = _declared_engine(
+            classify_declarations["openai-decisions"],
+            available=openai_ok,
+            error=None
+            if openai_ok
+            else "Set up an OpenAI API key with Decisions access.",
+            pricing=external_pricing_entry(OPENAI_DECISIONS_INPUT_TOKEN),
+        )
+        decisions["description"] = (
+            "GPT-6 Luna Decisions. Text only; supports categories, booleans, and integer scores from 0 to 10. "
+            "Citations and written justifications are not supported."
+        )
+        for row in (clef_flash, clef, decisions):
             row["classification_options"] = classification_options(row["id"])
         clef_flash["description"] = (
             "Use Clef Flash on your model server. "
@@ -1062,8 +1078,15 @@ def _recipe_engines(
             + clef["classification_options"]["behavior_note"]
         )
         if local_semantic is not None:
-            return [local_semantic, *local_classifiers, clef_flash, clef, llm]
-        return [clef_flash, clef, llm]
+            return [
+                local_semantic,
+                *local_classifiers,
+                clef_flash,
+                clef,
+                decisions,
+                llm,
+            ]
+        return [clef_flash, clef, decisions, llm]
     if action_kind == "enrich.geocode":
         from frisket.credentials import resolve_credential
 

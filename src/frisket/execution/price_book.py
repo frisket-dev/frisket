@@ -15,6 +15,7 @@ from typing import Any, Literal, Union
 
 from frisket.ai.external_pricing import (
     CLOUDFLARE_CLEF_INPUT_TOKEN,
+    OPENAI_DECISIONS_INPUT_TOKEN,
     DATALAB_CONVERT_PAGE,
     DATALAB_OCR_PAGE,
     DEEPL_TRANSLATE_CHAR,
@@ -175,6 +176,7 @@ SKU_GEOCODE_OPENCAGE_ROW = GEOCODE_OPENCAGE_ROW
 #: gains a SKU cannot gain it in one function and not the other.
 _VENUE_SKU: dict[tuple[str, str], str] = {
     (CAPABILITY_CLASSIFY, CLOUDFLARE_CLEF_TARGET_ID): CLOUDFLARE_CLEF_INPUT_TOKEN,
+    (CAPABILITY_CLASSIFY, "remote-api:openai"): OPENAI_DECISIONS_INPUT_TOKEN,
     (CAPABILITY_TRANSLATE, DEEPL_TARGET_ID): SKU_DEEPL_TRANSLATE_CHAR,
     (CAPABILITY_TRANSLATE, GOOGLE_TRANSLATE_TARGET_ID): SKU_GOOGLE_TRANSLATE_CHAR,
     (CAPABILITY_TO_MARKDOWN, DATALAB_TARGET_ID): SKU_DATALAB_CONVERT_PAGE,
@@ -563,7 +565,7 @@ def quote_transcription(
         return UnpriceableCost()
 
 
-def _quote_document_usage(capability: str, sku: str, quantity) -> CostBasis:
+def _quote_provider_usage(capability: str, sku: str, quantity) -> CostBasis:
     rate = catalog_list_price(sku)
     if quantity is None or rate is None:
         return ProviderUsageCost(pricing_key=sku)
@@ -625,7 +627,7 @@ def quote_ocr(
         # already owns that compute and no per-request meter exists.
         return OperatorBorneZeroCost()
     if target_id == "opendocrouter":
-        return _quote_document_usage(CAPABILITY_OCR, sku, pages)
+        return _quote_provider_usage(CAPABILITY_OCR, sku, pages)
     if pages is None:
         return UnpriceableCost()
     terms = _provider_direct_terms(CAPABILITY_OCR, sku)
@@ -683,8 +685,8 @@ def _quote_catalog_sku(
     sku = sku_for(capability=capability, target_id=target_id, engine=engine)
     if sku is None:
         return OperatorBorneZeroCost()
-    if target_id == "opendocrouter":
-        return _quote_document_usage(capability, sku, quantity)
+    if target_id == "opendocrouter" or sku == OPENAI_DECISIONS_INPUT_TOKEN:
+        return _quote_provider_usage(capability, sku, quantity)
     if quantity is None:
         return UnpriceableCost()
     rate = catalog_list_price(sku)
@@ -709,7 +711,7 @@ def quote_classify(
     offering: CommercialOffering | None,
     input_tokens: int | None,
 ) -> CostBasis:
-    """Quote Clef's input-token tariff from the selected text and questions."""
+    """Quote decision input costs; provider usage settles variable cache rates."""
     return _quote_catalog_sku(
         capability=CAPABILITY_CLASSIFY,
         target_id=target_id,
@@ -876,7 +878,7 @@ def live_cost_fact(
         fact["hardware_class"] = hardware
     if sku is None:
         return fact
-    if target_id == "opendocrouter":
+    if target_id == "opendocrouter" or sku == OPENAI_DECISIONS_INPUT_TOKEN:
         rate = catalog_list_price(sku)
         return {
             **fact,

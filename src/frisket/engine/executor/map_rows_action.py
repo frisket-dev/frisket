@@ -585,16 +585,18 @@ class _TypedMapRowsProgram(Recipe):
             for capability in getattr(self._terminal, "capabilities", ()):
                 if capability is Classifier:
                     from frisket.engine.executor.classify_read import AdmittedClassifier
-                    from frisket.engine.executor.clef_read import AdmittedClefClassifier
-                    from frisket.contracts.classification import CLEF_ENGINE_IDS
+                    from frisket.engine.executor.decision_read import (
+                        AdmittedDecisionClassifier,
+                    )
+                    from frisket.contracts.classification import DECISION_ENGINE_IDS
                     from frisket.contracts.clef import classification_context
 
                     engine = _capability_engine(
                         self._terminal, self._params, capability
                     )
                     factory = (
-                        AdmittedClefClassifier
-                        if engine in CLEF_ENGINE_IDS
+                        AdmittedDecisionClassifier
+                        if engine in DECISION_ENGINE_IDS
                         else partial(AdmittedClassifier, project=ctx.project)
                     )
                     reader = factory(
@@ -2019,21 +2021,21 @@ def _validate_classifier_source_types(
 ) -> None:
     # Decision engines consume rendered text, not image bytes. Check the actual
     # referenced columns (including template references) before admission/cost.
-    from frisket.contracts.classification import CLEF_ENGINE_IDS
+    from frisket.contracts.classification import DECISION_ENGINE_IDS
 
     engine = _capability_engine(terminal, params, Classifier)
-    if engine not in CLEF_ENGINE_IDS:
+    if engine not in DECISION_ENGINE_IDS:
         return
     references = discover_references(getattr(params, source_param))
     images = [
         ref.column
         for ref in references
-        if source_column_types.get(ref.column) == "image"
+        if source_column_types.get(ref.column) in {"image", "file", "audio", "video"}
     ]
     if images:
         raise TypedMapRowsPlanError(
             "invalid_input_ref",
-            "Clef accepts text, not images. Run OCR first or choose a compatible model.",
+            "Decision engines accept text, not media. Run OCR or transcription first, or choose a compatible model.",
             field=f"params.{source_param}",
             details={"columns": images},
         )

@@ -559,7 +559,18 @@ def _classify_cost_basis(
     # The durable identity deliberately omits unset defaults. Execution already
     # has validated typed Params; use the same fully populated fields for cost.
     params = recipe._params.model_dump(mode="json")
-    questions = clef_questions(params["fields"], classification_context(params))
+    question_builder, estimate_tokens = clef_questions, estimate_clef_input_tokens
+    if engine == "openai-decisions":
+        from frisket.contracts.decisions import (
+            decisions_questions,
+            estimate_decisions_tokens,
+        )
+
+        question_builder, estimate_tokens = (
+            decisions_questions,
+            estimate_decisions_tokens,
+        )
+    questions = question_builder(params["fields"], classification_context(params))
     col_map = {c["name"]: c["id"] for c in project.columns(spec["sheet_id"])}
     input_tokens = 0
     for row_id in target_rows(project, dict(spec)):
@@ -568,7 +579,7 @@ def _classify_cost_basis(
         )
         text = classification_text(values)
         if text.strip():
-            input_tokens += estimate_clef_input_tokens(text, questions)
+            input_tokens += estimate_tokens(text, questions)
     return quote_classify(
         target_id=target_id,
         engine=engine,

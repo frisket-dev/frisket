@@ -74,6 +74,8 @@ def _new_classifier_session(
 def classifier_provenance_model(engine_id: str) -> str:
     """Return the exact runtime identity recorded for a direct classifier."""
 
+    if engine_id == "openai-decisions":
+        return "openai/gpt-6-luna"
     if engine_id in {"clef", "clef-flash"}:
         return f"Cloudflare/{engine_id}"
     if engine_id == "local_semantic":

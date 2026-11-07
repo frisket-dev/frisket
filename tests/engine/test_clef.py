@@ -14,7 +14,7 @@ from frisket.contracts.clef import (
     clef_values,
     estimate_clef_input_tokens,
 )
-from frisket.engine.executor.clef_read import AdmittedClefClassifier
+from frisket.engine.executor.decision_read import AdmittedDecisionClassifier
 from frisket.execution.credential_use import CredentialUseContext
 from frisket.execution.definitions import StaticExecutionTargetProvider
 from frisket.execution.provider import CompositionFacts
@@ -150,10 +150,10 @@ async def invoke(
     # End-to-end admission/confirmation is covered by the executor test below.
     resolution = resolution or resolved(engine)
     monkeypatch.setattr(
-        "frisket.engine.executor.clef_read.preview_resolution_in_scope",
+        "frisket.engine.executor.decision_read.preview_resolution_in_scope",
         lambda extras: resolution,
     )
-    owner = AdmittedClefClassifier(engine=engine)
+    owner = AdmittedDecisionClassifier(engine=engine)
     row = Row({"body": text})
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         ctx = SimpleNamespace(
@@ -396,8 +396,9 @@ def test_executor_confirms_executes_and_replays_without_another_call(
 
 @pytest.mark.parametrize("action_id", ["map.classify", "map.extract"])
 @pytest.mark.parametrize("template", [False, True])
+@pytest.mark.parametrize("engine", ["clef", "openai-decisions"])
 def test_decision_image_sources_reject_before_provider_call(
-    tmp_path, monkeypatch, action_id, template
+    tmp_path, monkeypatch, action_id, template, engine
 ):
     from frisket.ai.llm import ModelRouter
     from frisket.engine.executor import run_action_spec
@@ -412,7 +413,7 @@ def test_decision_image_sources_reject_before_provider_call(
     try:
         sheet = project.add_sheet("Images")
         project.add_column(sheet, "image", type="image")
-        parameters = {"engine": "clef", "source": ["image"], "fields": FIELDS}
+        parameters = {"engine": engine, "source": ["image"], "fields": FIELDS}
         if template:
             parameters["source"] = {"text": "Read {{image}}"}
         if action_id == "map.extract":
@@ -428,15 +429,16 @@ def test_decision_image_sources_reject_before_provider_call(
             project_id="images",
         )
         assert result.status == "failed"
-        assert any("Clef accepts text" in error.message for error in result.errors), (
-            result.errors
-        )
+        assert any(
+            "Decision engines accept text" in error.message for error in result.errors
+        ), result.errors
     finally:
         project.close()
 
 
-def test_paid_extract_preview_uses_one_clef_call_without_publishing(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize("engine", ["clef", "openai-decisions"])
+def test_paid_extract_preview_uses_one_decision_call_without_publishing(
+    tmp_path, monkeypatch, engine
 ):
     import asyncio
     import json
@@ -446,12 +448,17 @@ def test_paid_extract_preview_uses_one_clef_call_without_publishing(
     from frisket.engine.store import Project
     from tests.preview.test_accounted_action_preview import _runner, _admit, _outputs
 
+    monkeypatch.setenv("OPENAI_API_KEY", "test-secret")
     monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "a" * 32)
     monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "test-secret")
     calls = []
 
     def respond(request):
         calls.append(json.loads(request.content))
+        if engine == "openai-decisions":
+            from tests.engine.test_openai_decisions import reply as decisions_reply
+
+            return httpx.Response(200, json=decisions_reply())
         return httpx.Response(200, json={"success": True, "result": reply()})
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
@@ -466,7 +473,7 @@ def test_paid_extract_preview_uses_one_clef_call_without_publishing(
             "scope": {"kind": "sheet_rows", "sheet_id": sheet},
             "params": {
                 "source": ["body"],
-                "engine": "clef",
+                "engine": engine,
                 "fields": FIELDS,
                 "grounding": None,
                 "instruction": "Decide from archive.",
@@ -481,7 +488,8 @@ def test_paid_extract_preview_uses_one_clef_call_without_publishing(
             runner.preview(spec, program=plan.program, attempt=attempt)
         )
         assert len(calls) == 1
-        assert "Decide from archive." in calls[0]["questions"]["q0"]["instructions"]
+        question = calls[0]["questions"][0 if engine == "openai-decisions" else "q0"]
+        assert "Decide from archive." in question["instructions"]
         assert result.values
         assert all(
             cells["Document kind"]["value"] == "Court filing"
@@ -490,7 +498,9 @@ def test_paid_extract_preview_uses_one_clef_call_without_publishing(
         assert _outputs(project) == before
         facts = runner.run_store.model_calls()
         assert len(facts) == 1 and facts[0]["run_id"] is None
-        assert facts[0]["provider_cost_usd"] == pytest.approx(0.00024)
+        assert facts[0]["provider_cost_usd"] == pytest.approx(
+            0.0000895 if engine == "openai-decisions" else 0.00024
+        )
     finally:
         project.close()
         asyncio.run(client.aclose())

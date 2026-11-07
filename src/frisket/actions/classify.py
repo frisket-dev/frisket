@@ -45,6 +45,7 @@ CLASSIFY_ENGINES = (
     JEFF_ENGINE_ID,
     "clef-flash",
     "clef",
+    "openai-decisions",
     "llm",
 )
 

@@ -82,7 +82,12 @@ def test_extract_catalog_does_not_probe_unrelated_classifiers(
         monkeypatch.setattr(
             f"frisket.engine._workers.classifier_artifacts.{function}", unexpected_probe
         )
-    assert set(_engines(action_kind="map.extract")) == {"llm", "clef", "clef-flash"}
+    assert set(_engines(action_kind="map.extract")) == {
+        "llm",
+        "clef",
+        "clef-flash",
+        "openai-decisions",
+    }
 
 
 @pytest.mark.parametrize("route", ["/classify", "/chat"])

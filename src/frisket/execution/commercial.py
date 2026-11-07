@@ -15,6 +15,7 @@ from typing import Literal
 
 from frisket.execution.targets import (
     CAPABILITY_CENSUS,
+    CAPABILITY_CLASSIFY,
     CAPABILITY_GEOCODE,
     CAPABILITY_LLM,
     CAPABILITY_OCR,
@@ -29,6 +30,7 @@ from frisket.execution.targets import (
 
 QUOTE_METER_KEY_BY_CAPABILITY: dict[str, str] = {
     CAPABILITY_LLM: "cloud_effective_cost_micro",
+    CAPABILITY_CLASSIFY: "input_tokens",
     CAPABILITY_TRANSCRIBE: "audio_seconds",
     CAPABILITY_OCR: "pages",
     CAPABILITY_TO_MARKDOWN: "pages",

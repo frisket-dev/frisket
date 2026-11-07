@@ -169,6 +169,7 @@ _TRANSPORT_PROVIDER_KIND = {
     "sidecar.convert": "local_http",
     "sidecar.classify": "local_http",
     "cloudflare.clef": "platform_api",
+    "openai.decisions": "platform_api",
     "remote": "platform_api",
     "datalab.convert": "platform_api",
     "opendocrouter.parse": "platform_api",

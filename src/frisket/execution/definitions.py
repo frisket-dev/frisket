@@ -706,6 +706,11 @@ def build_static_targets(
                 engines=(
                     _remote_wildcard_support(provider),
                     *(
+                        (_classify_support("openai-decisions", "openai.decisions"),)
+                        if provider == "openai"
+                        else ()
+                    ),
+                    *(
                         _engine_support(entry.id)
                         for entry in TRANSCRIBE_ENGINE_TABLE
                         if entry.provider == provider
@@ -1206,9 +1211,15 @@ class StaticExecutionTargetProvider:
             if isinstance(effective_keys, Mapping)
             else None
         )
+        source_reader = getattr(self._router, "credential_source_for", None)
+        source = source_reader(provider) if key and callable(source_reader) else "local"
         if not key:
-            key = self._project_provider_key(provider) or self._get(key_env)
+            key = self._project_provider_key(provider)
+            source = "project_key" if key else "local"
+            key = key or self._get(key_env)
         if not key:
             return None
         # Connection state carries no rate; pricing requires the chosen engine.
-        return ConnectionConfig(token=key, extra={"provider": provider})
+        return ConnectionConfig(
+            token=key, extra={"provider": provider, "credential_source": source}
+        )
