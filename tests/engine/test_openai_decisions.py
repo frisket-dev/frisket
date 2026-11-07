@@ -72,12 +72,12 @@ def resolved():
     )
 
 
-async def invoke(monkeypatch, handler, *, resolution=None, extract=False):
+async def invoke(monkeypatch, handler, *, resolution=None, extract=False, owner=None):
     monkeypatch.setattr(
         "frisket.engine.executor.decision_read.preview_resolution_in_scope",
         lambda _: resolution or resolved(),
     )
-    owner = AdmittedDecisionClassifier(
+    owner = owner or AdmittedDecisionClassifier(
         engine="openai-decisions", context="Investigation"
     )
     row = Row({"body": "Example court filing"})
@@ -368,3 +368,48 @@ def test_remote_provider_connection_keeps_selected_key_ownership():
     connection = provider.connection("remote-api:openai")
     assert connection.token == "org-test-secret"
     assert connection.extra["credential_source"] == "org_byok"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [400, 401, 403, 429, 408, 503])
+async def test_rejected_requests_are_zero_but_ambiguous_failures_remain_unknown(
+    monkeypatch, status
+):
+    owner = AdmittedDecisionClassifier(engine="openai-decisions")
+    with pytest.raises(RowError):
+        await invoke(
+            monkeypatch,
+            lambda _: httpx.Response(status, text="not exposed"),
+            owner=owner,
+        )
+    fact = owner.accounting_by_row[1]["model_calls"][0]
+    if status in (408, 503):
+        assert fact["provider_cost_usd"] is None
+    else:
+        assert fact["provider_cost_usd"] == 0
+        assert fact["cost_source"] == "provider_rejected"
+        assert fact["units"]["http_status"] == status
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["cancelled", "model"])
+async def test_received_usage_survives_late_cancellation_or_invalid_model(
+    monkeypatch, failure
+):
+    import asyncio
+
+    cancelled = False
+    owner = AdmittedDecisionClassifier(
+        engine="openai-decisions", cancelled=lambda: cancelled
+    )
+
+    def respond(_):
+        nonlocal cancelled
+        cancelled = failure == "cancelled"
+        return httpx.Response(
+            200, json=reply(model="unexpected" if failure == "model" else "gpt-6-luna")
+        )
+
+    with pytest.raises(asyncio.CancelledError if failure == "cancelled" else RowError):
+        await invoke(monkeypatch, respond, owner=owner)
+    assert owner.accounting_by_row[1]["cost"] == pytest.approx(0.0000895)

@@ -136,7 +136,7 @@ class _BoundDecisionClassifier:
                 raise RecipeInvocationHalt("promise_violation", str(error)) from error
         owner._called_rows.add(self.row_id)
 
-        def record(tokens=None, usage=None):
+        def record(tokens=None, usage=None, rejected_status=None):
             units = {"requests": 1}
             if tokens is not None:
                 units["input_tokens"] = tokens
@@ -159,6 +159,9 @@ class _BoundDecisionClassifier:
                     units.update(usage_units)
                 else:
                     cost = None if tokens is None or rate is None else tokens * rate
+                if rejected_status is not None:
+                    cost = 0.0
+                    units["http_status"] = rejected_status
                 fact = ModelCallMeta.provider_call(
                     capability="classify",
                     engine=owner.engine,
@@ -170,7 +173,11 @@ class _BoundDecisionClassifier:
                     credential_source=source,
                     provider_reported_cost_usd=None,
                     provider_cost_usd=cost,
-                    cost_source="unknown" if cost is None else "configured_catalog",
+                    cost_source="provider_rejected"
+                    if rejected_status is not None
+                    else "unknown"
+                    if cost is None
+                    else "configured_catalog",
                     units=units,
                     duration_ms=None,
                 ).as_dict()
@@ -213,6 +220,14 @@ class _BoundDecisionClassifier:
                     owner.cancelled,
                 )
                 if response.status_code != 200:
+                    # Categorical request rejection did not buy an inference.
+                    # 408/5xx and transport failures can be ambiguous: keep unknown.
+                    if (
+                        openai
+                        and 400 <= response.status_code < 500
+                        and response.status_code != 408
+                    ):
+                        record(rejected_status=response.status_code)
                     raise RowError(
                         "classify_request_failed",
                         f"{owner.engine} returned HTTP {response.status_code}",
@@ -227,15 +242,16 @@ class _BoundDecisionClassifier:
                     ):
                         raise ValueError("invalid Cloudflare response")
                     body = envelope.get("result")
+            # Received usage survives late cancellation and output validation.
+            usage = body.get("usage") if isinstance(body, dict) else None
+            tokens = usage.get("input_tokens") if isinstance(usage, dict) else None
+            if type(tokens) is int and tokens >= 0:
+                record(tokens, usage=usage)
             owner._check_active()
             if not isinstance(body, dict) or body.get("model") != (
                 DECISIONS_MODEL if openai else owner.engine
             ):
                 raise ValueError("unexpected decision model")
-            usage = body.get("usage")
-            tokens = usage.get("input_tokens") if isinstance(usage, dict) else None
-            if type(tokens) is int and tokens >= 0:
-                record(tokens, usage=usage)
             values = (decisions_values if openai else clef_values)(
                 body.get("answers"), field_specs
             )
