@@ -188,7 +188,7 @@ def test_the_capability_token_is_the_one_the_fact_column_already_carries():
 
     #: Capability -> every producer that must stamp it.
     producers = {
-        CAPABILITY_CLASSIFY: {"engine/executor/clef_read.py"},
+        CAPABILITY_CLASSIFY: {"engine/executor/decision_read.py"},
         CAPABILITY_TRANSLATE: {
             "ops/integrations/translation_engine.py",
             "ops/integrations/translate_common.py",
