@@ -203,7 +203,9 @@ try:
     cache = ResponseCache(project.path / "project.cache.db")
     router = ModelRouter(cache=cache, cache_mode="replay_strict", use_env_keys=False)
 
-    async def prime_transport(req, *, recipe_version="1", trace=None):
+    async def prime_transport(req, *, recipe_version="1", trace=None, on_request=None):
+        if on_request is not None:
+            on_request(req)
         # Key the fixture after the real structured completer resolves schema
         # references, just as the backend's transport cache will see it.
         response = LLMResponse(
