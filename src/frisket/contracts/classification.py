@@ -19,6 +19,7 @@ JEFF_SETUP_REF = "engine-setup:jeff.local@1"
 
 LOCAL_CLASSIFIER_ENGINE_IDS = frozenset({GLICLASS_ENGINE_ID, JEFF_ENGINE_ID})
 CLEF_ENGINE_IDS = frozenset({"clef", "clef-flash"})
+DECISION_ENGINE_IDS = CLEF_ENGINE_IDS | {"openai-decisions"}
 CATEGORY_ONLY_CLASSIFIER_ENGINE_IDS = frozenset(
     {"local_semantic", *LOCAL_CLASSIFIER_ENGINE_IDS}
 )
@@ -86,6 +87,13 @@ CLASSIFICATION_CAPABILITIES = {
         for engine, spec in LOCAL_CLASSIFIERS.items()
     },
     **{engine: _CLEF_CAPABILITIES for engine in CLEF_ENGINE_IDS},
+    "openai-decisions": ClassificationCapabilities(
+        field_types=("category", "boolean", "score"),
+        min_labels=2,
+        max_labels=255,
+        include_confidence=True,
+        behavior_note="May refuse individual fields. Confidence is a model estimate, not a guarantee.",
+    ),
     "llm": ClassificationCapabilities(
         ("category", "score", "integer", "number", "boolean", "text"),
         include_confidence=True,
@@ -127,7 +135,7 @@ def validate_classification(
     if any(field["type"] not in spec.field_types for field in fields):
         if engine in CLEF_ENGINE_IDS:
             raise ValueError("Clef supports category, boolean, and score fields only")
-        raise ValueError(f"{engine} supports only category fields")
+        raise ValueError(f"{engine} supports {', '.join(spec.field_types)} fields only")
     for field in fields:
         if field["type"] != "category":
             continue

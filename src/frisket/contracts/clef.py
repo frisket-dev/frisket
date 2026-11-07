@@ -81,9 +81,9 @@ def classification_text(values: Mapping[str, Any]) -> str:
 
 
 def clef_questions(
-    fields: Sequence[Mapping[str, Any]], context: str = ""
+    fields: Sequence[Mapping[str, Any]], context: str = "", *, engine: str = "clef"
 ) -> dict[str, dict[str, Any]]:
-    validate_classification("clef", fields)
+    validate_classification(engine, fields)
     questions = {}
     for index, field in enumerate(fields):
         kind = field["type"]

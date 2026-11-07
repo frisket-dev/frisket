@@ -45,7 +45,7 @@ from frisket.engine.executor.geocode_capability import AdmittedGeocoder
 from frisket.ops.ocr_engines import OcrEngines
 from tests.document_conversion_helpers import bound_document_converter
 from frisket.engine.executor.translate_read import AdmittedTranslator
-from frisket.engine.executor.clef_read import AdmittedClefClassifier
+from frisket.engine.executor.decision_read import AdmittedDecisionClassifier
 from frisket.actions.classify import ClassifyParams
 
 
@@ -322,7 +322,7 @@ async def _classify_probe(monkeypatch, _tmp_path, context, effects) -> None:
         engine="clef",
         fields=[{"name": "relevant", "type": "boolean"}],
     ).fields
-    owner = AdmittedClefClassifier(engine="clef")
+    owner = AdmittedDecisionClassifier(engine="clef")
     row = Row({"body": "Hello"})
     try:
         await owner.bind_row(row, row_id=1, ctx=ctx).classify(row, "Hello", fields)

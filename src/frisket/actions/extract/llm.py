@@ -31,7 +31,10 @@ from frisket.actions.types import (
     RowError,
     RowResult,
 )
-from frisket.contracts.classification import CLEF_ENGINE_IDS, validate_classification
+from frisket.contracts.classification import (
+    DECISION_ENGINE_IDS,
+    validate_classification,
+)
 from frisket.contracts.clef import (
     classification_context,
     classification_text,
@@ -64,8 +67,10 @@ class ExtractParams(_PdfModelRowsParams):
     @field_validator("engine")
     @classmethod
     def _known_engine(cls, value: EngineRef[Classifier]) -> EngineRef[Classifier]:
-        if value.root not in {"llm", *CLEF_ENGINE_IDS}:
-            raise ValueError("engine must be one of llm, clef-flash, clef")
+        if value.root not in {"llm", *DECISION_ENGINE_IDS}:
+            raise ValueError(
+                "engine must be one of llm, clef-flash, clef, openai-decisions"
+            )
         return value
 
     @field_validator("instruction")
@@ -94,6 +99,7 @@ class ExtractParams(_PdfModelRowsParams):
             clef_questions(
                 [field.model_dump() for field in self.fields],
                 classification_context(self.model_dump()),
+                engine=self.engine.root,
             ),
         )
         if (
@@ -101,7 +107,7 @@ class ExtractParams(_PdfModelRowsParams):
             and (self.grounding.enabled or self.grounding.citation_required)
         ) or (self.evidence_policy and self.evidence_policy.citation_required):
             raise ValueError(
-                "Clef does not support citations or grounding. "
+                f"{self.engine.root} does not support citations or grounding. "
                 "Turn Citations Off or choose a compatible model; "
                 "citation-required policies need a compatible model."
             )

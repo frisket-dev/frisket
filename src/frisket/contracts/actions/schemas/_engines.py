@@ -90,7 +90,9 @@ ToMarkdownTransport = Literal[
 #: differ (DeepL reports ``billed_characters``; Google v2 does not, so its count
 #: is the source length).
 TranslateTransport = Literal["local", "deepl.v2", "google.translate.v2"]
-ClassifyTransport = Literal["local", "sidecar.classify", "cloudflare.clef"]
+ClassifyTransport = Literal[
+    "local", "sidecar.classify", "cloudflare.clef", "openai.decisions"
+]
 
 #: The wires a geocode engine is spoken to over. Two providers, two contracts,
 #: no local path: geocoding in this build always leaves the operator's box.
@@ -562,6 +564,13 @@ CLASSIFY_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     EngineDeclaration(id="jeff", label="Jeff 0.8B", tier="local", provider="local"),
     EngineDeclaration(
         id="clef-flash", label="Clef Flash", tier="sidecar", provider="frisket-sidecar"
+    ),
+    EngineDeclaration(
+        id="openai-decisions",
+        label="OpenAI Decisions",
+        tier="hosted",
+        provider="openai",
+        billable=True,
     ),
     EngineDeclaration(
         id="clef",

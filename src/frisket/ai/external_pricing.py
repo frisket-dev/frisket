@@ -88,11 +88,23 @@ DATALAB_CONVERT_PAGE = "datalab.convert.page"
 DATALAB_OCR_PAGE = "datalab.ocr.page"
 DEEPL_TRANSLATE_CHAR = "deepl.translate.char"
 GOOGLE_TRANSLATE_CHAR = "google.translate.char"
+OPENAI_DECISIONS_INPUT_TOKEN = "classify.openai.decisions.input_token"
 CLOUDFLARE_CLEF_INPUT_TOKEN = "classify.cloudflare.clef.input_token"
 EXA_SEARCH_REQUEST = "exa.search.request"
 TAVILY_SEARCH_CREDIT = "tavily.search.credit"
 
 CATALOG: dict[str, ExternalPricingEntry] = {
+    OPENAI_DECISIONS_INPUT_TOKEN: ExternalPricingEntry(
+        key=OPENAI_DECISIONS_INPUT_TOKEN,
+        label="OpenAI Decisions (per input token)",
+        provider="OpenAI",
+        unit="input_token",
+        default_unit_price_usd=Decimal("0.0000001"),
+        env_var=None,
+        billable=True,
+        external_api=True,
+        description="GPT-6 Luna Decisions: $0.10 per million input tokens; output free. Cache reads cost 0.1x, 30-minute writes 1.25x; over 272K input tokens costs 2x.",
+    ),
     CLOUDFLARE_CLEF_INPUT_TOKEN: ExternalPricingEntry(
         key=CLOUDFLARE_CLEF_INPUT_TOKEN,
         label="Cloudflare Clef classification (per input token)",
