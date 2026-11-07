@@ -362,7 +362,7 @@ def test_remote_provider_connection_keeps_selected_key_ownership():
         env={"OPENAI_API_KEY": "env-test-secret"},
         router=SimpleNamespace(
             configured_keys=lambda: {"openai": "org-test-secret"},
-            credential_source_for=lambda _: "org_byok",
+            configured_key_sources=lambda: {"openai": "org_byok"},
         ),
     )
     connection = provider.connection("remote-api:openai")
