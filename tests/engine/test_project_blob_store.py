@@ -682,7 +682,20 @@ def test_validate_project_slug_rejects_windows_device_stems_case_insensitively(
 
 @pytest.mark.parametrize(
     "slug",
-    ["", "a" * 97, "has space", "has/slash", "has\\backslash", " padded ", "dot.dot"],
+    [
+        "",
+        "a" * 97,
+        "has space",
+        "has/slash",
+        "has\\backslash",
+        " padded ",
+        "dot.dot",
+        "../other",
+        "/absolute",
+        "project\n",
+        "café",
+        "文档",
+    ],
 )
 def test_validate_project_slug_rejects_length_and_character_violations(
     slug: str,

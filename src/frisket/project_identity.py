@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import string
+import re
 from dataclasses import dataclass
 
 # Windows reserved device stems (case-insensitive); a slug like "con" would
@@ -12,8 +12,6 @@ _RESERVED_WINDOWS_DEVICE_STEMS = frozenset(
     | {f"COM{d}" for d in range(1, 10)}
     | {f"LPT{d}" for d in range(1, 10)}
 )
-
-_SLUG_ALLOWED_CHARS = frozenset(string.ascii_letters + string.digits + "-_")
 
 
 def validate_project_slug(value: str) -> str:
@@ -32,7 +30,7 @@ def validate_project_slug(value: str) -> str:
         raise ValueError("project slug must be a string")
     if not 1 <= len(value) <= 96:
         raise ValueError("project slug must be 1 to 96 characters")
-    if not _SLUG_ALLOWED_CHARS.issuperset(value):
+    if re.fullmatch(r"[A-Za-z0-9_-]+", value) is None:
         raise ValueError(
             "project slug may only contain ASCII letters, digits, '-', and '_'"
         )
