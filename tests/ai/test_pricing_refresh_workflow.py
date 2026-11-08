@@ -530,6 +530,7 @@ def _run_workflow(
     state = json.loads(gh_state.read_text()) if gh_state.exists() else {"numbers": []}
     return {
         "repo": repo,
+        "env": env,
         "remote": remote,
         "branch": branch,
         "existing_tip": existing_tip,
@@ -590,6 +591,62 @@ def test_pricing_refresh_commits_only_the_price_book(tmp_path: Path) -> None:
     )
     assert "approved catalog models" in result["body"]
     assert "regenerated from current `main`" in result["body"]
+
+
+def _run_rolling_gate(result: dict, head: str) -> subprocess.CompletedProcess:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deterministic-source.yml").read_text(
+            encoding="utf-8"
+        )
+    )
+    gate = next(
+        step
+        for step in workflow["jobs"]["gate"]["steps"]
+        if step.get("name") == "Validate rolling pricing PR"
+    )
+    env = {
+        **result["env"],
+        "BASE_SHA": _git(result["remote"], "rev-parse", "refs/heads/main"),
+        "HEAD_SHA": head,
+    }
+    return _run_shell(result["repo"], env, gate["run"])
+
+
+def test_rolling_pr_gate_validates_committed_base_and_head(tmp_path: Path) -> None:
+    after = {
+        **PRICING_BEFORE,
+        "updated": REFRESH_DAY,
+        "text": {"provider/model": [1.0, 3.0]},
+    }
+    result = _run_workflow(tmp_path, mode="pricing", pricing_after=after)
+    # Working tree changes cannot affect the gate's committed inputs.
+    (result["repo"] / PRICING_PATH).write_text("{}")
+    gate = _run_rolling_gate(result, result["remote_tip"])
+    assert gate.returncode == 0, gate.stderr
+    journal = Path(result["env"]["VALIDATOR_ATTEMPTS"])
+    calls = [json.loads(line) for line in journal.read_text().splitlines()]
+    assert calls == [[PRICING_BEFORE, after], [PRICING_BEFORE, after]]
+
+
+def test_rolling_pr_gate_rejects_extra_changed_file(tmp_path: Path) -> None:
+    after = {
+        **PRICING_BEFORE,
+        "updated": REFRESH_DAY,
+        "text": {"provider/model": [1.0, 3.0]},
+    }
+    result = _run_workflow(tmp_path, mode="pricing", pricing_after=after)
+    repo = result["repo"]
+    (repo / MODEL_PATH).write_text(
+        json.dumps({**MODEL_BEFORE, "updated": REFRESH_DAY}) + "\n"
+    )
+    _git(repo, "add", str(MODEL_PATH))
+    _git(repo, "commit", "-m", "unrelated model update")
+    head = _git(repo, "rev-parse", "HEAD")
+    gate = _run_rolling_gate(result, head)
+    assert gate.returncode != 0
+    assert "only pricing_data.json" in gate.stderr
+    calls = Path(result["env"]["VALIDATOR_ATTEMPTS"]).read_text().splitlines()
+    assert len(calls) == 1
 
 
 def test_pricing_timestamp_only_refresh_is_a_noop(tmp_path: Path) -> None:
