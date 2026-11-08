@@ -173,7 +173,7 @@ def test_multipart_disk_preflight_rejects_before_body_read(monkeypatch) -> None:
     asyncio.run(exercise())
 
 
-def test_multipart_disk_exhaustion_closes_partial_spool(monkeypatch) -> None:
+def test_multipart_headroom_refusal_closes_partial_spool(monkeypatch) -> None:
     app = FastAPI()
     files = []
     real_spool = tempfile.SpooledTemporaryFile
