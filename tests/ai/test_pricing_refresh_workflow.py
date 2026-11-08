@@ -595,6 +595,7 @@ def test_pricing_refresh_commits_only_the_price_book(tmp_path: Path) -> None:
 
 def _run_rolling_gate(result: dict, head: str) -> subprocess.CompletedProcess:
     workflow = yaml.safe_load(
+        # rule19: execute this workflow step against real disposable Git history.
         (ROOT / ".github/workflows/deterministic-source.yml").read_text(
             encoding="utf-8"
         )
@@ -624,6 +625,7 @@ def test_rolling_pr_gate_validates_committed_base_and_head(tmp_path: Path) -> No
     gate = _run_rolling_gate(result, result["remote_tip"])
     assert gate.returncode == 0, gate.stderr
     journal = Path(result["env"]["VALIDATOR_ATTEMPTS"])
+    # rule19: runtime journal from the executed workflow validator transport.
     calls = [json.loads(line) for line in journal.read_text().splitlines()]
     assert calls == [[PRICING_BEFORE, after], [PRICING_BEFORE, after]]
 
@@ -645,6 +647,7 @@ def test_rolling_pr_gate_rejects_extra_changed_file(tmp_path: Path) -> None:
     gate = _run_rolling_gate(result, head)
     assert gate.returncode != 0
     assert "only pricing_data.json" in gate.stderr
+    # rule19: runtime journal from the executed workflow validator transport.
     calls = Path(result["env"]["VALIDATOR_ATTEMPTS"]).read_text().splitlines()
     assert len(calls) == 1
 
