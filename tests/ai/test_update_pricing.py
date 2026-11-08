@@ -241,9 +241,13 @@ def test_refresh_preserves_last_good_opendocrouter_section(
     output_path.write_text(
         json.dumps(
             {
-                "sources": {"opendocrouter": updater.OPENDOCROUTER_SOURCE},
+                "sources": {
+                    "litellm": updater.LITELLM_SOURCE,
+                    "openrouter": updater.OPENROUTER_SOURCE,
+                    "opendocrouter": updater.OPENDOCROUTER_SOURCE,
+                },
                 "updated": "2026-10-07",
-                "text": {"model-a": [1.0, 1.0]},
+                "text": {"claude-haiku-4-5": [1.0, 1.0]},
                 "audio": {},
                 "opendocrouter": previous_opendocrouter,
             }
@@ -447,12 +451,119 @@ def test_new_model_names_use_supplied_names_or_provider_version_formatting():
     ]
 
 
-def test_missing_output_rate_leaves_model_unknown_but_refreshes_other_rates(
+def test_missing_output_rate_preserves_previous_but_refreshes_other_rates(
     refresh_workspace,
 ):
     updater, litellm, _, _ = refresh_workspace
     del litellm["gpt-5"]["output_cost_per_token"]
     updater.main([])
     prices = json.loads(updater.OUT.read_text())
-    assert "gpt-5" not in prices["text"]
+    assert prices["text"]["gpt-5"] == [2, 4]
     assert prices["opendocrouter"]["price_version"] == "new"
+
+
+def test_pricing_refresh_preserves_missing_approved_rates_and_audio_roster(
+    refresh_workspace, capsys
+):
+    updater, litellm, _, _ = refresh_workspace
+    before = json.loads(updater.OUT.read_text())
+    litellm["new-audio"] = {"mode": "audio_transcription", "input_cost_per_second": 0.1}
+    del litellm["gpt-5"]["output_cost_per_token"]
+    updater.main([])
+    after = json.loads(updater.OUT.read_text())
+    assert after["text"]["gpt-5"] == before["text"]["gpt-5"]
+    assert set(after["audio"]) == set(before["audio"])
+    assert "preserv" in capsys.readouterr().err.lower()
+
+
+def test_pricing_refresh_rejects_missing_model_without_previous_rate(refresh_workspace):
+    updater, litellm, _, _ = refresh_workspace
+    del litellm["gpt-5"]
+    path = updater.OUT
+    original = json.loads(path.read_text())
+    original["text"] = {}
+    path.write_text(json.dumps(original))
+    before = path.read_bytes()
+    with pytest.raises(ValueError):
+        updater.main([])
+    assert path.read_bytes() == before
+
+
+def test_validator_accepts_rate_only_changes_and_refuses_metadata(refresh_workspace):
+    updater, _, _, _ = refresh_workspace
+    before = json.loads(updater.OUT.read_text())
+    after = json.loads(json.dumps(before))
+    after["text"]["gpt-5"] = [1000000, 0]
+    after["updated"] = "2030-01-01"
+    after["opendocrouter"]["price_version"] = "new"
+    after["opendocrouter"]["data"][0]["avg_charge_per_page_usd"] = 42
+    updater.validate_price_table(after, before)
+    after["opendocrouter"]["data"][0]["name"] = "Changed"
+    with pytest.raises(ValueError):
+        updater.validate_price_table(after, before)
+
+
+@pytest.mark.parametrize("bad", [True, -1, float("nan"), float("inf")])
+def test_validator_rejects_invalid_numeric_rates(refresh_workspace, bad):
+    updater, _, _, _ = refresh_workspace
+    doc = json.loads(updater.OUT.read_text())
+    doc["text"]["gpt-5"][0] = bad
+    with pytest.raises(ValueError):
+        updater.validate_price_table(doc)
+
+
+def test_offline_validation_cli_rejects_inventory_change(refresh_workspace, tmp_path):
+    import subprocess
+    import sys
+
+    updater, _, _, _ = refresh_workspace
+    before = json.loads(updater.OUT.read_text())
+    after = json.loads(json.dumps(before))
+    after["text"]["gpt-5"] = [123456, 789]
+    first, second = tmp_path / "before.json", tmp_path / "after.json"
+    first.write_text(json.dumps(before))
+    second.write_text(json.dumps(after))
+    cmd = [
+        sys.executable,
+        str(ROOT / "scripts/dev/update_pricing.py"),
+        "--validate",
+        str(first),
+        str(second),
+    ]
+    assert subprocess.run(cmd, capture_output=True).returncode == 0
+    after["text"]["unapproved"] = [1, 2]
+    second.write_text(json.dumps(after))
+    assert subprocess.run(cmd, capture_output=True).returncode != 0
+
+
+def test_pricing_refresh_rejects_boolean_upstream_without_writing(refresh_workspace):
+    updater, litellm, _, _ = refresh_workspace
+    before = updater.OUT.read_bytes()
+    litellm["gpt-5"]["input_cost_per_token"] = True
+    with pytest.raises(ValueError):
+        updater.main([])
+    assert updater.OUT.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    "mutation", ["missing-date", "audio-units", "odr-capability", "odr-nan", "source"]
+)
+def test_validator_rejects_non_rate_changes_or_invalid_document(
+    refresh_workspace, mutation
+):
+    updater, _, _, _ = refresh_workspace
+    before = json.loads(updater.OUT.read_text())
+    after = json.loads(json.dumps(before))
+    if mutation == "missing-date":
+        del after["updated"]
+    elif mutation == "audio-units":
+        key = next(iter(after["audio"]))
+        after["audio"][key] = {"input_per_token": 1.0, "output_per_token": 2.0}
+    elif mutation == "odr-capability":
+        after["opendocrouter"]["data"][0]["max_sync_pages"] = 1
+    elif mutation == "odr-nan":
+        after["opendocrouter"]["data"][0]["avg_charge_per_page_usd"] = float("nan")
+    else:
+        after["sources"]["litellm"] = "https://untrusted.invalid/"
+    with pytest.raises(ValueError):
+        updater.validate_price_table(after, before)
