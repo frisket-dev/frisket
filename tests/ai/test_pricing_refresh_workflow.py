@@ -116,6 +116,27 @@ else:
     )
     uv.chmod(0o755)
 
+    python = fake_bin / "python3"
+    python.write_text(
+        """#!/usr/bin/python3
+import json
+import os
+import sys
+from pathlib import Path
+args = sys.argv[1:]
+if args[:2] == ["scripts/dev/update_pricing.py", "--validate"]:
+    if len(args) != 4:
+        raise SystemExit("validator requires before and after")
+    record = [json.loads(Path(path).read_text()) for path in args[2:]]
+    with Path(os.environ["VALIDATOR_ATTEMPTS"]).open("a") as stream:
+        stream.write(json.dumps(record) + "\\n")
+    raise SystemExit(int(os.environ.get("VALIDATOR_EXIT", "0")))
+os.execv("/usr/bin/python3", ["/usr/bin/python3", *args])
+""",
+        encoding="utf-8",
+    )
+    python.chmod(0o755)
+
     gh = fake_bin / "gh"
     gh.write_text(
         """#!/usr/bin/env python3
@@ -148,6 +169,15 @@ elif args[:2] == ["pr", "create"]:
     body_path = Path(args[args.index("--body-file") + 1])
     shutil.copyfile(body_path, os.environ["GH_BODY_CAPTURE"])
     state_path.write_text(json.dumps({"numbers": [1]}) + "\\n")
+    print("https://example.invalid/pull/1")
+elif args[:2] == ["pr", "edit"]:
+    if str(args[2]) not in [str(number) for number in state["numbers"]]:
+        raise SystemExit("unknown PR")
+    if "--body-file" in args:
+        shutil.copyfile(Path(args[args.index("--body-file") + 1]), os.environ["GH_BODY_CAPTURE"])
+elif args[:2] == ["pr", "merge"]:
+    if str(args[2]) not in [str(number) for number in state["numbers"]]:
+        raise SystemExit("unknown PR")
 else:
     raise SystemExit(f"unexpected gh invocation: {args}")
 """,
@@ -164,6 +194,8 @@ import sys
 from pathlib import Path
 
 args = sys.argv[1:]
+if args and args[0] == "push" and os.environ.get("INJECT_LEASE_FAILURE"):
+    raise SystemExit(1)
 result = subprocess.run([os.environ["REAL_GIT"], *args], check=False)
 if (
     args[:2] == ["ls-remote", "--heads"]
@@ -284,11 +316,14 @@ def _run_workflow(
     initial_pr_numbers: tuple[int, ...] = (),
     existing_branch: bool = False,
     existing_branch_pricing: dict | None = None,
+    existing_branch_extra: bool = False,
     squash_merged_branch: bool = False,
     gh_pr_list_exit: int = 0,
     inject_race_branch: bool = False,
     inject_main_move: bool = False,
+    inject_lease_failure: bool = False,
     expect_success: bool = True,
+    validator_exit: int = 0,
 ) -> dict:
     steps = _workflow_steps()
     repo = tmp_path / "checkout"
@@ -357,6 +392,11 @@ def _run_workflow(
         prior_refresh = existing_branch_pricing or pricing_after
         pricing.write_text(json.dumps(prior_refresh, indent=2) + "\n")
         _git(repo, "add", str(PRICING_PATH))
+        if existing_branch_extra:
+            model.write_text(
+                json.dumps({**MODEL_BEFORE, "updated": REFRESH_DAY}) + "\n"
+            )
+            _git(repo, "add", str(MODEL_PATH))
         _git(repo, "commit", "-m", "existing refresh under review")
         _git(repo, "push", "-u", "origin", branch)
         existing_tip = _git(repo, "rev-parse", "HEAD")
@@ -389,6 +429,8 @@ def _run_workflow(
         "GH_STATE": str(gh_state),
         "GH_BODY_CAPTURE": str(body_capture),
         "GH_TOKEN": "test-only-token",
+        "VALIDATOR_ATTEMPTS": str(runner_tmp / "validator.jsonl"),
+        "VALIDATOR_EXIT": str(validator_exit),
         "GH_PR_LIST_EXIT": str(gh_pr_list_exit),
         "UV_ATTEMPTS": str(uv_attempts),
         "REAL_GIT": real_git,
@@ -396,6 +438,7 @@ def _run_workflow(
         "RACE_REMOTE": str(remote),
         "RACE_MARKER": str(runner_tmp / "race-injected"),
         "INJECT_MAIN_MOVE": "1" if inject_main_move else "",
+        "INJECT_LEASE_FAILURE": "1" if inject_lease_failure else "",
         "MAIN_RACE_MARKER": str(runner_tmp / "main-race-count"),
         "REFRESH_MODE": mode,
         "REFRESH_BRANCH": branch,
@@ -423,7 +466,9 @@ def _run_workflow(
             if expect_success:
                 raise AssertionError(pending_run.stderr)
             break
-        last_pending = _step_outputs(output)["pending"]
+        pending_outputs = _step_outputs(output)
+        last_pending = pending_outputs["pending"]
+        env["PENDING_PR"] = pending_outputs.get("number", "")
         if last_pending == "true":
             continue
 
@@ -485,6 +530,7 @@ def _run_workflow(
     state = json.loads(gh_state.read_text()) if gh_state.exists() else {"numbers": []}
     return {
         "repo": repo,
+        "env": env,
         "remote": remote,
         "branch": branch,
         "existing_tip": existing_tip,
@@ -493,6 +539,12 @@ def _run_workflow(
         "changed": last_changed,
         "gh_calls": gh_calls,
         "uv_calls": uv_calls,
+        "validator_calls": [
+            json.loads(line)
+            for line in (runner_tmp / "validator.jsonl").read_text().splitlines()
+        ]
+        if (runner_tmp / "validator.jsonl").exists()
+        else [],
         "pr_numbers": state["numbers"],
         "body": body_capture.read_text() if body_capture.exists() else None,
         "returncodes": returncodes,
@@ -518,7 +570,12 @@ def test_pricing_refresh_commits_only_the_price_book(tmp_path: Path) -> None:
         ["pr", "list"],
         ["pr", "list"],
         ["pr", "create"],
+        ["pr", "merge"],
     ]
+    assert result["validator_calls"] == [[PRICING_BEFORE, pricing_after]]
+    merge = result["gh_calls"][-1]
+    assert "--auto" in merge and "--squash" in merge
+    assert merge[merge.index("--match-head-commit") + 1] == result["remote_tip"]
     assert _git(
         result["repo"],
         "diff",
@@ -536,6 +593,65 @@ def test_pricing_refresh_commits_only_the_price_book(tmp_path: Path) -> None:
     assert "regenerated from current `main`" in result["body"]
 
 
+def _run_rolling_gate(result: dict, head: str) -> subprocess.CompletedProcess:
+    workflow = yaml.safe_load(
+        # rule19: execute this workflow step against real disposable Git history.
+        (ROOT / ".github/workflows/deterministic-source.yml").read_text(
+            encoding="utf-8"
+        )
+    )
+    gate = next(
+        step
+        for step in workflow["jobs"]["gate"]["steps"]
+        if step.get("name") == "Validate rolling pricing PR"
+    )
+    env = {
+        **result["env"],
+        "BASE_SHA": _git(result["remote"], "rev-parse", "refs/heads/main"),
+        "HEAD_SHA": head,
+    }
+    return _run_shell(result["repo"], env, gate["run"])
+
+
+def test_rolling_pr_gate_validates_committed_base_and_head(tmp_path: Path) -> None:
+    after = {
+        **PRICING_BEFORE,
+        "updated": REFRESH_DAY,
+        "text": {"provider/model": [1.0, 3.0]},
+    }
+    result = _run_workflow(tmp_path, mode="pricing", pricing_after=after)
+    # Working tree changes cannot affect the gate's committed inputs.
+    (result["repo"] / PRICING_PATH).write_text("{}")
+    gate = _run_rolling_gate(result, result["remote_tip"])
+    assert gate.returncode == 0, gate.stderr
+    journal = Path(result["env"]["VALIDATOR_ATTEMPTS"])
+    # rule19: runtime journal from the executed workflow validator transport.
+    calls = [json.loads(line) for line in journal.read_text().splitlines()]
+    assert calls == [[PRICING_BEFORE, after], [PRICING_BEFORE, after]]
+
+
+def test_rolling_pr_gate_rejects_extra_changed_file(tmp_path: Path) -> None:
+    after = {
+        **PRICING_BEFORE,
+        "updated": REFRESH_DAY,
+        "text": {"provider/model": [1.0, 3.0]},
+    }
+    result = _run_workflow(tmp_path, mode="pricing", pricing_after=after)
+    repo = result["repo"]
+    (repo / MODEL_PATH).write_text(
+        json.dumps({**MODEL_BEFORE, "updated": REFRESH_DAY}) + "\n"
+    )
+    _git(repo, "add", str(MODEL_PATH))
+    _git(repo, "commit", "-m", "unrelated model update")
+    head = _git(repo, "rev-parse", "HEAD")
+    gate = _run_rolling_gate(result, head)
+    assert gate.returncode != 0
+    assert "only pricing_data.json" in gate.stderr
+    # rule19: runtime journal from the executed workflow validator transport.
+    calls = Path(result["env"]["VALIDATOR_ATTEMPTS"]).read_text().splitlines()
+    assert len(calls) == 1
+
+
 def test_pricing_timestamp_only_refresh_is_a_noop(tmp_path: Path) -> None:
     result = _run_workflow(
         tmp_path,
@@ -549,28 +665,50 @@ def test_pricing_timestamp_only_refresh_is_a_noop(tmp_path: Path) -> None:
     assert [call[:2] for call in result["gh_calls"]] == [["pr", "list"]]
 
 
-def test_pending_pr_is_checked_before_updater_and_preserved(tmp_path: Path) -> None:
-    pricing_after = {
-        **PRICING_BEFORE,
-        "updated": REFRESH_DAY,
-        "text": {"provider/model": [1.0, 3.0]},
-    }
+def test_pending_model_pr_is_preserved_before_updater(tmp_path: Path) -> None:
     result = _run_workflow(
-        tmp_path,
-        mode="pricing",
-        pricing_after=pricing_after,
-        existing_branch=True,
-        initial_pr_numbers=(17,),
+        tmp_path, mode="models", pricing_after=PRICING_BEFORE, initial_pr_numbers=(17,)
     )
-
     assert result["pending"] == "true"
-    assert result["remote_tip"] == result["existing_tip"]
     assert result["uv_calls"] == []
     assert [call[:2] for call in result["gh_calls"]] == [["pr", "list"]]
 
 
-def test_rerun_sees_stable_pending_pr_before_second_fetch(tmp_path: Path) -> None:
-    pricing_after = {
+def test_pricing_updates_existing_pr_from_main_and_enables_auto_merge(
+    tmp_path: Path,
+) -> None:
+    previous = {**PRICING_BEFORE, "text": {"provider/model": [1.0, 2.5]}}
+    after = {
+        **PRICING_BEFORE,
+        "updated": REFRESH_DAY,
+        "text": {"provider/model": [1.0, 30.0]},
+    }
+    result = _run_workflow(
+        tmp_path,
+        mode="pricing",
+        pricing_after=after,
+        existing_branch=True,
+        existing_branch_pricing=previous,
+        initial_pr_numbers=(17,),
+    )
+    assert result["pending"] == "false"
+    assert result["remote_tip"] != result["existing_tip"]
+    assert result["pr_numbers"] == [17]
+    assert _git(
+        result["remote"], "merge-base", result["remote_tip"], "refs/heads/main"
+    ) == _git(result["remote"], "rev-parse", "refs/heads/main")
+    assert _git(
+        result["repo"], "diff", "--name-only", "origin/main", result["remote_tip"]
+    ).splitlines() == [str(PRICING_PATH)]
+    assert result["validator_calls"] == [[PRICING_BEFORE, after]]
+    assert any(call[:3] == ["pr", "edit", "17"] for call in result["gh_calls"])
+    merge = next(call for call in result["gh_calls"] if call[:2] == ["pr", "merge"])
+    assert "17" in merge and "--auto" in merge and "--squash" in merge
+    assert merge[merge.index("--match-head-commit") + 1] == result["remote_tip"]
+
+
+def test_invalid_pricing_never_pushes_or_enables_merge(tmp_path: Path) -> None:
+    after = {
         **PRICING_BEFORE,
         "updated": REFRESH_DAY,
         "text": {"provider/model": [1.0, 3.0]},
@@ -578,29 +716,52 @@ def test_rerun_sees_stable_pending_pr_before_second_fetch(tmp_path: Path) -> Non
     result = _run_workflow(
         tmp_path,
         mode="pricing",
-        pricing_after=pricing_after,
-        reruns=2,
+        pricing_after=after,
+        validator_exit=1,
+        expect_success=False,
+    )
+    assert result["returncodes"][-1] != 0
+    assert result["validator_calls"] == [[PRICING_BEFORE, after]]
+    assert result["remote_tip"] is None
+    assert not any(call[:2] == ["pr", "merge"] for call in result["gh_calls"])
+
+
+def test_pricing_refuses_existing_branch_with_other_changes(tmp_path: Path) -> None:
+    before = {**PRICING_BEFORE, "text": {"provider/model": [1.0, 2.5]}}
+    after = {**PRICING_BEFORE, "text": {"provider/model": [1.0, 3.0]}}
+    result = _run_workflow(
+        tmp_path,
+        mode="pricing",
+        pricing_after=after,
+        existing_branch=True,
+        existing_branch_pricing=before,
+        existing_branch_extra=True,
+        initial_pr_numbers=(17,),
+        expect_success=False,
+    )
+    assert result["returncodes"][-1] != 0
+    assert result["remote_tip"] == result["existing_tip"]
+    assert not any(
+        call[:2] in (["pr", "edit"], ["pr", "merge"]) for call in result["gh_calls"]
     )
 
-    updater_calls = [
-        call for call in result["uv_calls"] if "scripts/dev/update_pricing.py" in call
-    ]
-    assert updater_calls == [
-        [
-            "run",
-            "--no-project",
-            "python",
-            "scripts/dev/update_pricing.py",
-            "--mode",
-            "pricing",
-        ]
-    ]
-    assert [call[:2] for call in result["gh_calls"]] == [
-        ["pr", "list"],
-        ["pr", "list"],
-        ["pr", "create"],
-        ["pr", "list"],
-    ]
+
+def test_pricing_push_lease_failure_never_enables_auto_merge(tmp_path: Path) -> None:
+    before = {**PRICING_BEFORE, "text": {"provider/model": [1.0, 2.5]}}
+    after = {**PRICING_BEFORE, "text": {"provider/model": [1.0, 3.0]}}
+    result = _run_workflow(
+        tmp_path,
+        mode="pricing",
+        pricing_after=after,
+        existing_branch=True,
+        existing_branch_pricing=before,
+        initial_pr_numbers=(17,),
+        inject_lease_failure=True,
+        expect_success=False,
+    )
+    assert result["returncodes"][-1] != 0
+    assert result["remote_tip"] == result["existing_tip"]
+    assert not any(call[:2] == ["pr", "merge"] for call in result["gh_calls"])
 
 
 def test_exact_squash_merged_head_is_recycled_with_a_new_review_pr(
@@ -638,6 +799,7 @@ def test_exact_squash_merged_head_is_recycled_with_a_new_review_pr(
         ["pr", "list"],
         ["pr", "list"],
         ["pr", "create"],
+        ["pr", "merge"],
     ]
     assert result["pr_numbers"] == [1]
 
@@ -675,6 +837,7 @@ def test_branch_race_never_overwrites_the_competing_branch(tmp_path: Path) -> No
         result["remote"], "rev-parse", "refs/heads/main"
     )
     assert result["pr_numbers"] == []
+    assert not any(call[:2] == ["pr", "merge"] for call in result["gh_calls"])
 
 
 def test_main_move_after_generation_refuses_before_refresh_push(tmp_path: Path) -> None:
@@ -695,6 +858,7 @@ def test_main_move_after_generation_refuses_before_refresh_push(tmp_path: Path) 
     assert result["returncodes"][-1] != 0
     assert result["remote_tip"] is None
     assert result["pr_numbers"] == []
+    assert not any(call[:2] == ["pr", "merge"] for call in result["gh_calls"])
 
 
 def test_model_discovery_commits_models_matching_prices_and_generated_catalogs(
@@ -729,6 +893,7 @@ def test_model_discovery_commits_models_matching_prices_and_generated_catalogs(
 
     assert result["changed"] == "true"
     assert result["pr_numbers"] == [1]
+    assert not any(call[:2] == ["pr", "merge"] for call in result["gh_calls"])
     assert set(
         _git(
             result["repo"],
