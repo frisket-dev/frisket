@@ -833,6 +833,7 @@ def test_model_discovery_commits_models_matching_prices_and_generated_catalogs(
 
     assert result["changed"] == "true"
     assert result["pr_numbers"] == [1]
+    assert not any(call[:2] == ["pr", "merge"] for call in result["gh_calls"])
     assert set(
         _git(
             result["repo"],
