@@ -51,8 +51,7 @@ def _ensure_staged_blob(project: Project, directory: Path, digest: str) -> None:
         return
     # Bootstrap may already have consumed this digest for an earlier duplicate
     # occurrence or a prior attempt of the same page.
-    with project.blob_store.materialize(digest):
-        pass
+    project.blob_store.verify(digest)
 
 
 def register_import_files_handler(

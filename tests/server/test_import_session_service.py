@@ -125,17 +125,14 @@ async def test_upload_admits_from_request_owned_stream_in_bounded_reads(
     )
     expected = hashlib.sha256(payload).hexdigest()
     seen = []
+    put_fileobj = project.blob_store.put_fileobj
 
     def admit(source, *, expected_digest):
         assert source is stream
         assert not source.closed
         assert expected_digest == expected
-        source.seek(0)
-        chunks = []
-        while chunk := source.read(256 * 1024):
-            chunks.append(chunk)
         seen.append(True)
-        return project.blob_store.put(b"".join(chunks))
+        return put_fileobj(source, expected_digest=expected_digest)
 
     monkeypatch.setattr(project.blob_store, "put_fileobj", admit, raising=False)
     service = ImportSessionService(SimpleNamespace(get=lambda _project_id: project))
