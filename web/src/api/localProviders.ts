@@ -1,3 +1,4 @@
+import { observeSetup, trackSetupSubmission } from '../telemetry/setupTelemetry';
 import { httpContract } from "./httpContract";
 import type {
   LocalProviderCatalog,
@@ -225,7 +226,7 @@ export function createLocalProvidersApi(
           headers: options.headers,
           errorFactory,
         },
-      );
+      ).then((pull) => observeSetup('workspace', pull));
     },
 
     cancelModelPull(id, options = {}) {
@@ -242,7 +243,7 @@ export function createLocalProvidersApi(
     },
 
     startArtifactPull(ref, unpinnedAcknowledged = false, options = {}) {
-      return httpContract(
+      return trackSetupSubmission('workspace', 'model', httpContract(
         "tenant.pull_artifact.post",
         {
           pathParams: {},
@@ -252,7 +253,7 @@ export function createLocalProvidersApi(
           headers: options.headers,
           errorFactory,
         },
-      );
+      ));
     },
 
     uninstallArtifact(ref, options = {}) {

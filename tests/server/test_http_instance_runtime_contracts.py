@@ -129,7 +129,7 @@ def test_local_runtime_config_preserves_transport_shape(tmp_path) -> None:
     }
     assert body["plugins_available"] is True
     assert body["plugin_management_available"] is True
-    assert body["product_telemetry_available"] is False
+    assert body["product_telemetry_available"] is True
     # The typed path must put the same bytes on the wire the bare dict did.
     assert response.content == _serialized(RuntimeConfigResponse.model_validate(body))
 

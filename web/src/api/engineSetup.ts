@@ -1,4 +1,5 @@
 import { httpContract } from './httpContract';
+import { trackSetupSubmission } from '../telemetry/setupTelemetry';
 import type { ModelPullStartResult } from './types';
 
 export type ModelSetupScope = 'workspace' | 'organization';
@@ -33,7 +34,7 @@ export function startEngineSetup(
   signal?: AbortSignal,
 ): Promise<ModelPullStartResult> {
   const options = { pathParams: {}, query: {}, body: { setup_ref: setupRef }, signal, errorFactory: modelSetupErrorFactory };
-  return scope === 'organization'
+  return trackSetupSubmission(scope, 'engine', scope === 'organization'
     ? httpContract('outer.setup_org_model_engine.post', options)
-    : httpContract('tenant.setup_model_engine.post', options);
+    : httpContract('tenant.setup_model_engine.post', options));
 }

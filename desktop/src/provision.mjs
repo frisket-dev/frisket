@@ -19,10 +19,10 @@ const FORCE_CANCEL_MS = 5_000;
  * without the completion marker is deliberately treated as repairable; a
  * marked directory is immutable from this module's point of view.
  *
- * @param {{resourcesPath: string, dataPath: string, onProgress?: (progress: {phase: string, message: string}) => void, onActivity?: (message: string) => void, signal?: AbortSignal}} options
+ * @param {{resourcesPath: string, dataPath: string, desktopVersion?: string, onProgress?: (progress: {phase: string, message: string}) => void, onActivity?: (message: string) => void, signal?: AbortSignal}} options
  * @returns {Promise<{python: string, env: Record<string, string>}>}
  */
-export async function prepareRuntime({ resourcesPath, dataPath, onProgress = () => {}, onActivity = () => {}, onEvent = () => {}, signal }) {
+export async function prepareRuntime({ resourcesPath, dataPath, desktopVersion, onProgress = () => {}, onActivity = () => {}, onEvent = () => {}, signal }) {
   throwIfAborted(signal);
   const resources = path.resolve(resourcesPath);
   const data = path.resolve(dataPath);
@@ -35,7 +35,7 @@ export async function prepareRuntime({ resourcesPath, dataPath, onProgress = () 
   const environmentId = runtimeId(manifest);
   const environmentPath = path.join(data, 'runtimes', environmentId);
   const python = pythonPath(environmentPath);
-  const env = backendEnvironment({ resources, data, environmentPath, manifest });
+  const env = backendEnvironment({ resources, data, environmentPath, manifest, desktopVersion });
   const markerPath = path.join(environmentPath, MARKER);
 
   const ready = await readReadyMarker(markerPath, manifest, environmentId);
@@ -312,7 +312,7 @@ async function writeReadyMarker(filename, manifest, environmentId) {
   await fs.rename(temporary, filename);
 }
 
-function backendEnvironment({ resources, data, environmentPath, manifest }) {
+function backendEnvironment({ resources, data, environmentPath, manifest, desktopVersion }) {
   const resourcesBin = path.join(resources, 'bin');
   const cache = path.join(data, 'cache');
   const inheritedCache = process.env.UV_CACHE_DIR;
@@ -325,6 +325,10 @@ function backendEnvironment({ resources, data, environmentPath, manifest }) {
   env.PLAYWRIGHT_BROWSERS_PATH = path.join(cache, 'playwright', manifest.playwrightVersion);
   env.FRISKET_FFPROBE_PATH = executablePath(resources, 'ffprobe');
   if (process.env.FRISKET_MODEL_RUNTIME_DIR !== undefined) env.FRISKET_MODEL_RUNTIME_DIR = process.env.FRISKET_MODEL_RUNTIME_DIR;
+  for (const name of ['FRISKET_TELEMETRY', 'FRISKET_TELEMETRYDECK_NAMESPACE', 'FRISKET_TELEMETRYDECK_APP_ID', 'FRISKET_TELEMETRY_TEST_MODE']) {
+    if (process.env[name] !== undefined) env[name] = process.env[name];
+  }
+  if (desktopVersion) env.FRISKET_DESKTOP_VERSION = desktopVersion;
   env.FRISKET_MODEL_CACHE_DIR = path.join(cache, 'models');
   env.HF_HUB_CACHE = path.join(cache, 'huggingface');
   env.FASTEMBED_CACHE_PATH = path.join(cache, 'fastembed');

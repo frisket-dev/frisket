@@ -1,3 +1,4 @@
+import { observeSetup, trackSetupSubmission } from '../telemetry/setupTelemetry';
 import { httpContract } from './httpContract';
 import type {
   ModelPullDto,
@@ -41,7 +42,7 @@ export function createTeamLocalModelsApi(
     },
 
     orgStartArtifactPull(ref, unpinnedAcknowledged = false, options = {}) {
-      return httpContract(
+      return trackSetupSubmission('organization', 'model', httpContract(
         'outer.post_org_models_pull.post',
         {
           pathParams: {},
@@ -51,7 +52,7 @@ export function createTeamLocalModelsApi(
           headers: options.headers,
           errorFactory,
         },
-      );
+      ));
     },
 
     orgListModelPulls(options = {}) {
@@ -77,7 +78,7 @@ export function createTeamLocalModelsApi(
           headers: options.headers,
           errorFactory,
         },
-      );
+      ).then((pull) => observeSetup('organization', pull));
     },
 
     orgCancelModelPull(id, options = {}) {

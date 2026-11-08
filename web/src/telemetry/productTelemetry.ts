@@ -18,11 +18,15 @@ export type ProductTelemetryEvent =
   | { type: 'Project.createFailed'; properties: { creationKind: 'blank' | 'sample'; requestDuration: DurationBucket; failureCategory: FailureCategory } }
   | { type: 'Project.opened'; properties: Record<string, never> }
   | { type: 'Import.started'; properties: { importKind: 'file' | 'files' | 'paste' | 'url'; format: ImportFormat; bytes: ByteBucket } }
-  | { type: 'Import.finished'; properties: { importKind: 'file' | 'files' | 'paste' | 'url'; format: ImportFormat; bytes: ByteBucket; rows: RowBucket; columns: ColumnBucket; requestDuration: DurationBucket; result: 'success' | 'partial' | 'rejected' | 'failed'; failureCategory: FailureCategory } }
+  | { type: 'Import.submitted'; properties: { importKind: 'file' | 'files' | 'paste' | 'url'; format: ImportFormat; bytes: ByteBucket; rows: RowBucket; columns: ColumnBucket; requestDuration: DurationBucket; result: 'success' | 'partial' | 'queued' | 'cancelled' | 'rejected' | 'failed'; failureCategory: FailureCategory } }
   | { type: 'Source.created'; properties: { sourceKind: SourceKind; requestDuration: DurationBucket; result: 'success' | 'rejected' | 'failed'; failureCategory: FailureCategory } }
   | { type: 'Action.opened'; properties: { action: string } }
   | { type: 'Action.runSubmitted'; properties: { action: string; attemptKind: AttemptKind; rows: RowBucket; columns: ColumnBucket; requestDuration: DurationBucket; result: 'success' | 'queued' | 'needs_confirmation' | 'rejected' | 'failed' | 'cancelled'; failureCategory: FailureCategory } }
   | { type: 'Action.runObserved'; properties: { action: string; attemptKind: AttemptKind; observedDuration: DurationBucket; result: 'success' | 'partial' | 'failed' | 'cancelled' | 'stalled' | 'orphaned' | 'no_live_worker'; failureCategory: FailureCategory } }
+  | { type: 'Cloud.connectionStarted'; properties: Record<string, never> }
+  | { type: 'Cloud.connectionFinished'; properties: { result: 'success' | 'rejected' | 'failed' | 'cancelled'; failureCategory: FailureCategory } }
+  | { type: 'Setup.submitted'; properties: { setupKind: 'engine' | 'model'; result: 'success' | 'queued' | 'failed' | 'cancelled'; failureCategory: FailureCategory } }
+  | { type: 'Setup.observed'; properties: { setupKind: 'engine' | 'model'; result: 'success' | 'failed' | 'cancelled'; observedDuration: DurationBucket; failureCategory: FailureCategory } }
   | { type: 'Export.requested'; properties: { exportKind: ExportKind } };
 
 export type ImportFormat = 'csv' | 'xlsx' | 'json' | 'jsonl' | 'parquet' | 'pdf'
@@ -109,7 +113,7 @@ export function sendProductTelemetry(event: ProductTelemetryEvent, projectId?: s
   if (!available) return;
   const monthlyId = enabledIdentity();
   if (!monthlyId) return;
-  const body = { monthly_id: monthlyId, ...event };
+  const body = { monthly_id: monthlyId, ...event, client: telemetryClient() };
   const request = projectId
     ? httpContract('tenant.product_telemetry_project.post', {
         pathParams: { pid: projectId },
@@ -136,6 +140,19 @@ function platform(): 'linux' | 'macos' | 'windows' | 'ios' | 'android' | 'other'
   if (text.includes('mac')) return 'macos';
   if (text.includes('linux')) return 'linux';
   return 'other';
+}
+
+export function telemetryClient() {
+  // Parse only coarse facts; never transmit the raw user-agent or probe high-
+  // entropy browser hints. Browsers often conceal OS versions, so omit them.
+  const ua = navigator.userAgent;
+  const match = /Electron\/(\d{1,4})/.exec(ua) ?? /Edg(?:e|A|iOS)?\/(\d{1,4})/.exec(ua)
+    ?? /(?:Firefox|FxiOS)\/(\d{1,4})/.exec(ua) ?? /(?:Chrome|CriOS)\/(\d{1,4})/.exec(ua)
+    ?? /Version\/(\d{1,4}).*Safari/.exec(ua);
+  const browser: 'chrome' | 'edge' | 'firefox' | 'safari' | 'electron' | 'other' = /Electron\//.test(ua) ? 'electron' : /Edg(?:e|A|iOS)?\//.test(ua) ? 'edge'
+    : /(?:Firefox|FxiOS)\//.test(ua) ? 'firefox' : /(?:Chrome|CriOS)\//.test(ua) ? 'chrome'
+    : /Version\/.*Safari/.test(ua) ? 'safari' : 'other';
+  return { platform: platform(), browser, browser_major: match?.[1] ?? null };
 }
 
 export function sendAppOpened(): void {

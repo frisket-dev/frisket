@@ -198,6 +198,35 @@ test('repairs an incomplete environment and records completion only after every 
   }
 });
 
+test('preserves telemetry configuration and the running Desktop version on install and reuse', async () => {
+  const subject = await fixture();
+  const telemetry = {
+    FRISKET_TELEMETRY: 'off',
+    FRISKET_TELEMETRYDECK_NAMESPACE: 'com.example.test',
+    FRISKET_TELEMETRYDECK_APP_ID: 'test-app',
+    FRISKET_TELEMETRY_TEST_MODE: 'true',
+  };
+  const saved = Object.fromEntries([...Object.keys(telemetry), 'FRISKET_DESKTOP_VERSION'].map(name => [name, process.env[name]]));
+  Object.assign(process.env, telemetry, { FRISKET_DESKTOP_VERSION: 'not-the-running-app' });
+  try {
+    for (const desktopVersion of ['1.2.3', '1.2.4']) {
+      const ready = await prepareRuntime({ resourcesPath: subject.resources, dataPath: subject.data, desktopVersion });
+      for (const [name, value] of Object.entries(telemetry)) assert.equal(ready.env[name], value);
+      assert.equal(ready.env.FRISKET_DESKTOP_VERSION, desktopVersion);
+    }
+    for (const name of Object.keys(telemetry)) delete process.env[name];
+    const withoutConfiguration = await prepareRuntime({ resourcesPath: subject.resources, dataPath: subject.data });
+    for (const name of Object.keys(telemetry)) assert.equal(withoutConfiguration.env[name], undefined);
+    assert.equal(withoutConfiguration.env.FRISKET_DESKTOP_VERSION, undefined, 'does not invent or inherit a shell version');
+  } finally {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    await subject.cleanup();
+  }
+});
+
 test('seeds bundled local model caches without replacing an existing user cache file', async () => {
   const subject = await fixture();
   try {

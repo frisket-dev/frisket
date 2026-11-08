@@ -215,14 +215,108 @@ def test_destination_failure_is_dropped_and_env_off_is_absolute(
     assert recording.signals == []
 
 
-def test_fresh_runtime_is_inert_without_complete_configuration(
+def test_official_runtime_has_public_defaults_and_custom_configuration_requires_both(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("FRISKET_TELEMETRY", raising=False)
     monkeypatch.delenv("FRISKET_TELEMETRYDECK_NAMESPACE", raising=False)
     monkeypatch.delenv("FRISKET_TELEMETRYDECK_APP_ID", raising=False)
-    assert build_product_telemetry_runtime().available is False
+    assert build_product_telemetry_runtime().available is True
     monkeypatch.setenv("FRISKET_TELEMETRYDECK_NAMESPACE", "com.frisket")
     assert build_product_telemetry_runtime().available is False
     monkeypatch.setenv("FRISKET_TELEMETRYDECK_APP_ID", "test-app")
     assert build_product_telemetry_runtime().available is True
+
+
+def test_client_metadata_is_closed_and_native_facts_are_desktop_only(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("FRISKET_DESKTOP_VERSION", "0.1.1-alpha.109")
+    monkeypatch.setenv("FRISKET_TELEMETRY_TEST_MODE", "true")
+    monkeypatch.setattr(
+        "frisket.operability.telemetry.platform.system", lambda: "Darwin"
+    )
+    monkeypatch.setattr(
+        "frisket.operability.telemetry.platform.mac_ver", lambda: ("15.4.1", (), "")
+    )
+    monkeypatch.setattr(
+        "frisket.operability.telemetry.platform.machine", lambda: "arm64"
+    )
+    destination = RecordingDestination()
+    app = create_app(tmp_path, product_telemetry_destination=destination)
+    client = TestClient(app)
+    body = _body("App.opened", {"platform": "macos"})
+    body["client"] = {"platform": "macos", "browser": "electron", "browser_major": "39"}
+    assert client.post("/api/telemetry/events", json=body).status_code == 204
+    signal = destination.signals[-1]
+    payload = signal["payload"]
+    assert signal["isTestMode"] is True
+    assert payload["TelemetryDeck.AppInfo.version"] == payload["Frisket.version"]
+    assert payload["Frisket.desktopVersion"] == "0.1.1-alpha.109"
+    assert payload["Frisket.clientKind"] == "desktop"
+    assert payload["TelemetryDeck.Device.systemMajorMinorVersion"] == "15.4"
+    assert payload["TelemetryDeck.Device.architecture"] == "arm64"
+    assert (
+        app.state.product_telemetry.diagnostics()["last_delivery"]["status"]
+        == "accepted"
+    )
+
+    # A browser using that server gets browser facts, never server OS/version.
+    body["client"] = {"platform": "windows", "browser": "edge", "browser_major": "140"}
+    assert client.post("/api/telemetry/events", json=body).status_code == 204
+    payload = destination.signals[-1]["payload"]
+    assert payload["TelemetryDeck.Device.operatingSystem"] == "windows"
+    assert payload["Frisket.clientKind"] == "browser"
+    assert "Frisket.desktopVersion" not in payload
+    assert "TelemetryDeck.Device.systemMajorMinorVersion" not in payload
+    for forbidden in (
+        {"hostname": "private"},
+        {"browser_major": "free text"},
+        {"platform": "private"},
+    ):
+        body["client"] = forbidden
+        assert client.post("/api/telemetry/events", json=body).status_code == 422
+    assert len(destination.signals) == 2
+
+
+def test_delivery_diagnostics_never_retain_payload_or_exception():
+    runtime = build_product_telemetry_runtime(
+        destination=RecordingDestination(fail=True)
+    )
+    assert (
+        runtime.emit(
+            MONTHLY_ID, ProductTelemetryEvent("App.opened", {"platform": "linux"})
+        )
+        is False
+    )
+    status = runtime.diagnostics()
+    assert status["last_delivery"]["status"] == "failed"
+    assert status["last_delivery"]["category"] == "other"
+    assert MONTHLY_ID not in str(status)
+    assert "destination unavailable" not in str(status)
+
+
+def test_editable_installs_use_test_mode_unless_explicitly_overridden(monkeypatch):
+    monkeypatch.delenv("FRISKET_TELEMETRY_TEST_MODE", raising=False)
+    monkeypatch.setattr(
+        "frisket.operability.telemetry._development_install", lambda: True
+    )
+    assert build_product_telemetry_runtime().test_mode is True
+    monkeypatch.setattr(
+        "frisket.operability.telemetry._development_install", lambda: False
+    )
+    assert build_product_telemetry_runtime().test_mode is False
+    monkeypatch.setenv("FRISKET_TELEMETRY_TEST_MODE", "true")
+    assert build_product_telemetry_runtime().test_mode is True
+
+
+@pytest.mark.parametrize("setting", ["off", "false", "0", "no", "disabled", " FALSE "])
+def test_common_operator_disable_values_override_destinations(monkeypatch, setting):
+    monkeypatch.setenv("FRISKET_TELEMETRY", setting)
+    destination = RecordingDestination()
+    runtime = build_product_telemetry_runtime(destination=destination)
+    assert not runtime.available
+    assert not runtime.emit(
+        MONTHLY_ID, ProductTelemetryEvent("App.opened", {"platform": "linux"})
+    )
+    assert destination.signals == []

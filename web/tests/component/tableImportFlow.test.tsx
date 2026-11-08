@@ -11,7 +11,11 @@ import { TableImportFlow } from '../../src/components/importWorkspace/tableImpor
 import { CheckRowsStep, ColumnsStep, ImportTableStep } from '../../src/components/importWorkspace/tableImport/TableImportSteps';
 import { importSessionSnapshot } from '../../src/components/importProgressSession';
 
-afterEach(() => { document.body.innerHTML = ''; });
+const telemetry = vi.hoisted(() => vi.fn());
+vi.mock('../../src/telemetry/productTelemetry', async (original) => ({
+  ...await original<typeof import('../../src/telemetry/productTelemetry')>(), sendProductTelemetry: telemetry,
+}));
+afterEach(() => { document.body.innerHTML = ''; telemetry.mockClear(); });
 
 function draft(patch: Partial<TableImportDraft> = {}): TableImportDraft {
   return {
@@ -205,6 +209,11 @@ describe('TableImportFlow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Import 2 rows' }));
 
     await waitFor(() => expect(api.commit).toHaveBeenCalledWith('project-1', initial.draft_id, revision, expect.any(String)));
+    await waitFor(() => expect(telemetry).toHaveBeenLastCalledWith(expect.objectContaining({
+      type: 'Import.submitted', properties: expect.objectContaining({
+        importKind: 'file', format: 'csv', bytes: 'lt_1mb', result: 'queued', columns: '1_5',
+      }),
+    }), 'project-1'));
     expect(api.updateDestination).toHaveBeenLastCalledWith(
       'project-1', initial.draft_id, expect.any(Number),
       { kind: 'existing', sheet_id: 9 },

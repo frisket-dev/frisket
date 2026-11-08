@@ -63,7 +63,7 @@ def register_diagnose_routes(
     def _run(project: object | None, project_id: str | None) -> dict:
         from frisket.operability import diagnostics
 
-        return diagnostics.run_diagnostics(
+        report = diagnostics.run_diagnostics(
             router=workspace.diagnostic_router(),
             queue=workspace.queue,
             liveness_window_seconds=liveness_window_seconds,
@@ -72,6 +72,11 @@ def register_diagnose_routes(
             project=project,
             project_id=project_id,
         )
+
+        telemetry = getattr(app.state, "product_telemetry", None)
+        if telemetry is not None:
+            report["info"]["product_telemetry"] = telemetry.diagnostics()
+        return report
 
     @app.get("/api/diagnose", response_model=DiagnosticsReport)
     def diagnose() -> dict:
