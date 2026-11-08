@@ -70,6 +70,7 @@ function DownloadSetupPanel({ setup, activeOperation, onChanged, sharedProgress 
   const [pull, setPull] = useState(activeOperation ?? setup.blocked_by_operation);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dismissedFailure, setDismissedFailure] = useState<number | null>(null);
   const { begin } = useSetupRequests();
   const mounted = useRef(true);
   const pollRequests = useRef(new Set<AbortController>());
@@ -77,7 +78,11 @@ function DownloadSetupPanel({ setup, activeOperation, onChanged, sharedProgress 
   const [lastProjectedPull, setLastProjectedPull] = useState(projectedPull);
   if (projectedPull !== lastProjectedPull) {
     setLastProjectedPull(projectedPull);
-    setPull(projectedPull);
+    const dismissed = projectedPull != null && projectedPull.id === dismissedFailure;
+    // Availability refresh can drop or briefly lag the terminal operation.
+    const staleFailure = pull?.status === 'failed' && (!projectedPull
+      || (projectedPull.id === pull.id && (projectedPull.status === 'pending' || projectedPull.status === 'running')));
+    if (!dismissed && !staleFailure) setPull(projectedPull);
   }
   useEffect(() => {
     mounted.current = true;
@@ -99,6 +104,7 @@ function DownloadSetupPanel({ setup, activeOperation, onChanged, sharedProgress 
   };
   const start = async () => {
     if (!setup.can_mutate || !setup.can_start || starting) return;
+    setDismissedFailure(null);
     const request = begin(); setStarting(true); setError(null);
     try {
       const result = setup.kind === 'engine_setup'
@@ -135,7 +141,8 @@ function DownloadSetupPanel({ setup, activeOperation, onChanged, sharedProgress 
     {pull && <ModelPullProgress key={`${pull.id}:${pull.status}`} pull={pull} readOnly={!setup.can_mutate} fetchPull={fetchPull} cancelPull={cancelPull}
       poll={!sharedProgress} externalPollError={operationError}
       onDone={sharedProgress ? undefined : onTerminal}
-      onFailed={sharedProgress ? undefined : onTerminal} />}
+      onFailed={sharedProgress ? undefined : onTerminal}
+      onDismiss={pull.status === 'failed' ? () => { setDismissedFailure(pull.id); setPull(null); } : undefined} />}
     {!setup.can_start && !pull && <p className="form-hint">Setup cannot start yet. Recheck the available operations.</p>}
     <div className="control-row">
       {(!pull || (matching && pull.capabilities.retry && !active)) && <Button className="btn-primary" type="button"
