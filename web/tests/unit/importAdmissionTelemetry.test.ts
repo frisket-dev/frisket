@@ -56,3 +56,13 @@ it('keeps rejected admission rejected and records only its category', async () =
     result: 'failed', failureCategory: 'permission',
   }) }), 'private-project');
 });
+
+it('records an aborted upload as cancelled, not a failed timeout', async () => {
+  const abort = new DOMException('private cancellation detail', 'AbortError');
+  vi.stubGlobal('fetch', vi.fn(async () => { throw abort; }));
+  await expect(api.importUrls(['https://private.example/'])).rejects.toBe(abort);
+  expect(telemetry).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'Import.submitted', properties: expect.objectContaining({
+    result: 'cancelled', failureCategory: 'none',
+  }) }), 'private-project');
+  expect(JSON.stringify(telemetry.mock.calls)).not.toContain('private cancellation detail');
+});

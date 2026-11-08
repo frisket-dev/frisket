@@ -4,6 +4,9 @@ Official installations include the public TelemetryDeck destination. The first-u
 screen explains collection and offers a checked toggle; nothing is sent until
 Continue. Settings → Personal → Privacy changes the choice later.
 `FRISKET_TELEMETRY=off` disables collection for the whole server, including Desktop.
+The aliases `false`, `0`, `no` and `disabled` also disable it.
+Upgrading Solo/Team now offers the first-use telemetry choice without operator
+configuration; operators can set this environment override before upgrading.
 Sensitive projects never forward project events.
 
 Events describe feature use, action/import submissions and observed outcomes,
@@ -11,7 +14,9 @@ setup outcomes, exports requested, and Cloud connection outcomes. Values use a
 closed vocabulary and coarse size/timing buckets. App/core version accompanies
 every event, as do browser family/major version and OS family. Native Desktop
 also supplies its shell version, architecture, and OS major/minor version.
-Browser OS versions are deliberately omitted: browsers often conceal them.
+Native versions are what the OS reports (Linux kernel major/minor; Windows may
+report an older compatibility version). Browser OS versions are deliberately
+omitted: browsers often conceal them.
 No raw user agents, machine identifiers, accounts, document contents, prompts,
 responses, filenames, column/project names, URLs, or raw errors are sent.
 
@@ -19,7 +24,9 @@ The browser keeps a random identifier and replaces it on the first event of each
 UTC month. Logout and preference changes also reset it. Participant counts are
 estimates, not account counts, and cannot establish retention across months.
 Browser observations can be lost on close/offline; queued imports are admissions,
-not completions. No background retry queue is used. Startup failures before the
+not completions; retry submissions are counted again. Cloud connection success
+means device authorization succeeded, not that an account was selected or used.
+No background retry queue is used. Startup failures before the
 first-use choice remain in local Desktop diagnostics, not remote telemetry.
 
 ## Operation

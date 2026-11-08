@@ -24,10 +24,11 @@ export async function trackImportSubmission<T>(
     } }, projectId);
     return response;
   } catch (error) {
+    const cancelled = error instanceof DOMException && error.name === 'AbortError';
     sendProductTelemetry({ type: 'Import.submitted', properties: {
       ...common, rows: 'unknown', columns: columnBucket(facts.columns),
       requestDuration: durationBucket(performance.now() - startedAt),
-      result: 'failed', failureCategory: failureCategory(error),
+      result: cancelled ? 'cancelled' : 'failed', failureCategory: cancelled ? 'none' : failureCategory(error),
     } }, projectId);
     throw error;
   }

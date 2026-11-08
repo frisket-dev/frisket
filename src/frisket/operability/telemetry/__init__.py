@@ -452,7 +452,13 @@ def build_product_telemetry_runtime(
     edition: Edition = "solo",
     destination: TelemetryDestination | None = None,
 ) -> ProductTelemetryRuntime:
-    disabled = os.environ.get("FRISKET_TELEMETRY", "").strip().lower() == "off"
+    disabled = os.environ.get("FRISKET_TELEMETRY", "").strip().lower() in {
+        "off",
+        "false",
+        "0",
+        "no",
+        "disabled",
+    }
     if disabled:
         destination = None
     elif destination is None:

@@ -308,3 +308,15 @@ def test_editable_installs_use_test_mode_unless_explicitly_overridden(monkeypatc
     assert build_product_telemetry_runtime().test_mode is False
     monkeypatch.setenv("FRISKET_TELEMETRY_TEST_MODE", "true")
     assert build_product_telemetry_runtime().test_mode is True
+
+
+@pytest.mark.parametrize("setting", ["off", "false", "0", "no", "disabled", " FALSE "])
+def test_common_operator_disable_values_override_destinations(monkeypatch, setting):
+    monkeypatch.setenv("FRISKET_TELEMETRY", setting)
+    destination = RecordingDestination()
+    runtime = build_product_telemetry_runtime(destination=destination)
+    assert not runtime.available
+    assert not runtime.emit(
+        MONTHLY_ID, ProductTelemetryEvent("App.opened", {"platform": "linux"})
+    )
+    assert destination.signals == []
