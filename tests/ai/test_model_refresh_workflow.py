@@ -28,6 +28,9 @@ def test_pricing_and_model_refreshes_have_independent_public_dispatches() -> Non
         "refresh": {
             "uses": "./.github/workflows/refresh-catalog.yml",
             "with": {"mode": "pricing"},
+            "secrets": {
+                "PRICING_APP_PRIVATE_KEY": "${{ secrets.PRICING_APP_PRIVATE_KEY }}"
+            },
         }
     }
     assert models["jobs"] == {
