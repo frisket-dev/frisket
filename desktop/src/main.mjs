@@ -256,6 +256,7 @@ async function launch() {
   await mkdir(workspace, { recursive: true });
   provisioningController = new AbortController();
   const runtime = await prepareRuntime({
+    desktopVersion: app.getVersion(),
     resourcesPath: resourcesPath(), dataPath, signal: provisioningController.signal, onProgress: setStartupStatus, onActivity: setupActivity, onEvent: startupEvent,
   });
   if (quitting) return;

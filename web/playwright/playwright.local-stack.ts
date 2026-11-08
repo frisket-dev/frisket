@@ -188,6 +188,8 @@ function localPortPair(): { frontendPort: number; backendPort: number; fixedPort
 }
 
 export function localStack() {
+  // Feature E2E runs must not send analytics or stop at the telemetry choice.
+  process.env.FRISKET_TELEMETRY ??= 'off';
   const { frontendPort, backendPort, fixedPorts } = localPortPair();
   const frontendURL = `http://127.0.0.1:${frontendPort}`;
   const backendURL = `http://127.0.0.1:${backendPort}`;

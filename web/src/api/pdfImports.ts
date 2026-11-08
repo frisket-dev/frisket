@@ -15,6 +15,7 @@ import type {
   HttpPdfImportStatus,
 } from '../generated/openHttpContracts';
 import { httpContract } from './httpContract';
+import { trackImportSubmission } from '../telemetry/importTelemetry';
 import type { RunEstimate } from './open';
 
 export type PdfImportCategory = HttpPdfImportSamplesResponse['category'];
@@ -248,10 +249,10 @@ export function createPdfImportsApi(): PdfImportsApi {
       }, (wire) => wire as PdfImportSnapshot);
     },
     commit(projectId, importId, input, options = {}) {
-      return httpContract('tenant.commit_pdf_import.post', {
+      return trackImportSubmission(projectId, { importKind: 'files', format: 'unknown' }, () => httpContract('tenant.commit_pdf_import.post', {
         pathParams: { pid: projectId, draft_id: importId }, query: {}, body: input,
         ...requestOptions(options),
-      });
+      }));
     },
   };
 }

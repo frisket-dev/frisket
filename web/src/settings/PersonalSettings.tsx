@@ -482,7 +482,7 @@ export function PersonalPrivacySettings() {
       <section className="content-stack">
         <div className="settings-section-kicker">Product telemetry</div>
         <p className="form-hint">
-          Share pseudonymous feature use, outcomes, and coarse size and timing ranges.
+          Share pseudonymous feature use, outcomes, coarse size and timing ranges, and app, browser and operating-system versions.
           Product telemetry does not include your data, filenames, names, prompts, results,
           URLs, or error messages. The random browser identifier resets monthly, and
           sensitive projects send no project telemetry.

@@ -1,3 +1,4 @@
+import { trackImportSubmission } from '../telemetry/importTelemetry';
 import type {
   HttpContractOperationMap,
   HttpImportSessionList,
@@ -199,6 +200,7 @@ export interface BulkImportPlan {
 export type PreparedImportFiles = HttpContractSuccessResponse<'tenant.prepare_import_files.post'>;
 
 export interface BulkImportCreatedOutput {
+  rows?: number;
   search_preparation_batch_id?: string | null;
   id: string;
   kind: string;
@@ -368,7 +370,7 @@ export function createOnboardingImportsApi(
     },
 
     importUrls(urls, options = {}) {
-      return httpContract(
+      return trackImportSubmission(projectId, { importKind: 'url', format: 'unknown' }, () => httpContract(
         'tenant.import_urls.post',
         {
           pathParams: { pid: projectId },
@@ -378,7 +380,7 @@ export function createOnboardingImportsApi(
           headers: options.headers,
           errorFactory,
         },
-      );
+      ), (result) => ({ result: result.failed > 0 ? result.rows > 0 ? 'partial' : 'failed' : 'success', rows: result.rows }));
     },
 
     previewCsv(file, options = {}) {
@@ -491,7 +493,7 @@ export function createOnboardingImportsApi(
     },
 
     executeBulkImport(planId, decisions, options = {}) {
-      return httpContract(
+      return trackImportSubmission(projectId, { importKind: 'files', format: 'unknown' }, () => httpContract(
         'tenant.import_bulk_execute.post',
         {
           pathParams: { pid: projectId, plan_id: planId },
@@ -543,7 +545,11 @@ export function createOnboardingImportsApi(
           ? execution.warnings.filter((warning): warning is string => typeof warning === 'string')
           : [],
         };
-      });
+      }), (result) => ({
+        result: result.failed.length + result.failed_omitted > 0 ? result.created.length > 0 ? 'partial' : 'failed' : 'success',
+        rows: result.created.every((output) => typeof output.rows === 'number')
+          ? result.created.reduce((sum, output) => sum + (output.rows ?? 0), 0) : undefined,
+      }));
     },
   };
 }
@@ -654,7 +660,7 @@ export async function submitImportRowsDraft(
   draft: ImportDraft,
   mapping: ImportDraftMapping,
 ): Promise<ImportResult> {
-  return httpContract('tenant.import_paste_confirm.post', {
+  return trackImportSubmission(projectId, { importKind: 'paste', format: 'unknown' }, () => httpContract('tenant.import_paste_confirm.post', {
     pathParams: { pid: projectId },
     query: {},
     body: {
@@ -671,7 +677,7 @@ export async function submitImportRowsDraft(
       } : {}),
     },
     errorFactory: actionLaunchErrorFromContract,
-  });
+  }), (result) => ({ result: 'success', rows: result.rows, columns: result.columns.length }));
 }
 
 function updatePreviewError(status: number, payload: unknown): Error {

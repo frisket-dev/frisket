@@ -11922,7 +11922,14 @@ export type HttpPrepareImportUrlsResponse = ({
   "warnings": (Array<(string)>);
 });
 
+type HttpProductTelemetryRequest_ProductTelemetryClient = ({
+  "browser"?: ("chrome" | "edge" | "firefox" | "safari" | "electron" | "other") & (string);
+  "browser_major"?: (((string)) | ((null)));
+  "platform"?: ("linux" | "macos" | "windows" | "ios" | "android" | "other") & (string);
+});
+
 export type HttpProductTelemetryRequest = ({
+  "client"?: (HttpProductTelemetryRequest_ProductTelemetryClient);
   "monthly_id": (string);
   "properties": ({
   [key: string]: (string);

@@ -67,7 +67,11 @@ def register_product_telemetry_routes(
             raise HTTPException(422, "invalid product telemetry event") from exc
         if event.context != expected_context:
             raise HTTPException(422, "product telemetry event used the wrong route")
-        runtime.emit(body.monthly_id, event)
+        runtime.emit(
+            body.monthly_id,
+            event,
+            client=body.client.model_dump(exclude_none=True, exclude_unset=True),
+        )
 
     @app.post(
         "/api/telemetry/events",

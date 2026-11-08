@@ -46,7 +46,7 @@ export function ProductTelemetryProvider({ children }: { children: ReactNode }) 
         <Modal title="Help improve frisket" testId="product-telemetry-disclosure">
             <p>
               Send pseudonymous product telemetry: features used, whether imports and actions work,
-              and coarse size and timing ranges.
+              coarse size and timing ranges, and app, browser and operating-system versions.
             </p>
             <p className="muted">
               Product telemetry does not include your data, filenames, project or column names,

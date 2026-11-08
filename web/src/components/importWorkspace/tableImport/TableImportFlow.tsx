@@ -13,6 +13,7 @@ import {
   type TableImportsApi,
 } from '../../../api/tableImports';
 import { usePoll } from '../../../hooks/usePoll';
+import { trackImportSubmission } from '../../../telemetry/importTelemetry';
 import { notifyImportSessionChanged } from '../../importProgressSession';
 import { DiscardImportConfirm } from '../pdfBatch/DiscardImportConfirm';
 import { useImportRequest } from '../useImportRequest';
@@ -419,7 +420,12 @@ export function TableImportFlow({
       }
       const source = saved;
       try {
-        const result = await api.commit(projectId, source.draft_id, source.revision, commitKey.current);
+        const result = await trackImportSubmission(projectId, {
+          importKind: source.source.input_kind,
+          format: source.source.format === 'delimited' ? 'csv' : source.source.format === 'xlsx' ? 'xlsx' : 'other',
+          bytes: source.source.size,
+          columns: source.columns.filter((column) => column.included && column.target_type !== 'omit').length,
+        }, () => api.commit(projectId, source.draft_id, source.revision, commitKey.current));
         notifyImportSessionChanged();
         callbacks.current.onImported(result.sheet_id);
       } catch (problem) {

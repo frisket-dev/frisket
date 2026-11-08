@@ -1,6 +1,7 @@
 import './CloudConnectionPanel.css';
 import '../components/FormControls.css';
 import { Button } from '../components/Button';
+import { failureCategory, sendProductTelemetry } from '../telemetry/productTelemetry';
 import { CheckCircle2, Copy, ExternalLink, LogOut } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -143,22 +144,28 @@ export function CloudConnectionPanel({
       const controller = new AbortController();
       request.current = controller;
       void client.pollAuthorization(started.id, controller.signal).then((result) => {
+        if (controller.signal.aborted) return;
         if (result.status === 'pending') {
           poll(started);
           return;
         }
         request.current = null;
         if (result.status === 'connected') {
+          sendProductTelemetry({ type: 'Cloud.connectionFinished', properties: { result: 'success', failureCategory: 'none' } });
           setAuthorization(null);
           void finishConnection(result.connection);
           return;
         }
+        sendProductTelemetry({ type: 'Cloud.connectionFinished', properties: {
+          result: 'rejected', failureCategory: result.status === 'expired' ? 'timeout' : 'permission',
+        } });
         setConnection(result.connection);
         setAuthorization(null);
         setPhase('idle');
         setError('Sign-in didn’t finish. It was declined in the browser or the code expired. Try again.');
       }, (caught: unknown) => {
         if (!controller.signal.aborted) {
+          sendProductTelemetry({ type: 'Cloud.connectionFinished', properties: { result: 'failed', failureCategory: failureCategory(caught) } });
           setPhase('idle');
           setError(connectionError(caught));
         }
@@ -168,6 +175,7 @@ export function CloudConnectionPanel({
 
   const begin = async () => {
     clearPending();
+    sendProductTelemetry({ type: 'Cloud.connectionStarted', properties: {} });
     setBusy(true);
     setError(null);
     setPhase('starting');
@@ -175,11 +183,13 @@ export function CloudConnectionPanel({
     request.current = controller;
     try {
       const started = await client.startAuthorization(controller.signal);
+      if (controller.signal.aborted) return;
       setAuthorization(started);
       setPhase('waiting');
       poll(started);
     } catch (caught) {
       if (!controller.signal.aborted) {
+        sendProductTelemetry({ type: 'Cloud.connectionFinished', properties: { result: 'failed', failureCategory: failureCategory(caught) } });
         setPhase('idle');
         setError(connectionError(caught));
       }
@@ -195,6 +205,7 @@ export function CloudConnectionPanel({
     setPhase('idle');
     setError(null);
     if (active) {
+      sendProductTelemetry({ type: 'Cloud.connectionFinished', properties: { result: 'cancelled', failureCategory: 'none' } });
       const controller = new AbortController();
       try { await client.cancelAuthorization(active.id, controller.signal); } catch { /* best effort */ }
     }

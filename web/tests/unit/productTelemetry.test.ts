@@ -70,3 +70,18 @@ describe('product telemetry boundary', () => {
     expect(byteBucket(1024 ** 2)).toBe('1_100mb');
   });
 });
+
+it('attaches bounded client facts without sending the user-agent or location', () => {
+  localStorage.clear();
+  configureProductTelemetry(true);
+  setTelemetryPreference(true);
+  vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (secret-device) Chrome/142.0 Electron/39.1', platform: 'MacIntel' });
+  const fetch = vi.fn(() => Promise.resolve(new Response(null, { status: 204 })));
+  vi.stubGlobal('fetch', fetch);
+  sendProductTelemetry({ type: 'Project.opened', properties: {} }, 'example');
+  const sent = JSON.parse(fetch.mock.calls[0]![1]!.body as string);
+  expect(sent.client).toEqual({ platform: 'macos', browser: 'electron', browser_major: '39' });
+  expect(JSON.stringify(sent)).not.toContain('secret-device');
+  vi.unstubAllGlobals();
+  configureProductTelemetry(false);
+});
