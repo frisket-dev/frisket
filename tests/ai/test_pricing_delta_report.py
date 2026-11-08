@@ -42,7 +42,8 @@ def test_reporter_handles_audio_pricing_unit_transition(
     assert "audio:speech-model" in output
     assert "'input_per_token': 1.25e-06" in output
     assert "'per_second': 5e-05" in output
-    assert "rate[1] moved 0.2 -> 0.5 (>50%)" in output
+    assert "[0.1, 0.2] -> [0.1, 0.5]" in output
+    assert ">50%" not in output
 
 
 def test_reporter_includes_model_additions(
@@ -130,4 +131,5 @@ def test_reporter_shows_reordering_and_retired_price_swings(
     output = capsys.readouterr().out
     assert "model:openai/a" in output
     assert "'position': 1" in output and "'position': 2" in output
-    assert "max_per_page moved 0.01 -> 0.03 (>50%)" in output
+    assert "0.01" in output and "0.03" in output
+    assert ">50%" not in output
