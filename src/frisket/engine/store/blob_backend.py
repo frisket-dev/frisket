@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import io
 import os
+import re
 import tempfile
 from dataclasses import dataclass
 from collections.abc import Iterator
@@ -95,11 +96,7 @@ class ProjectBlobStore(Protocol):
 
 
 def validate_blob_digest(digest: str) -> str:
-    if (
-        not isinstance(digest, str)
-        or len(digest) != 64
-        or any(char not in "0123456789abcdef" for char in digest)
-    ):
+    if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
         raise ValueError("blob digest must be 64 lowercase hexadecimal characters")
     return digest
 

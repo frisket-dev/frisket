@@ -75,3 +75,17 @@ def test_s3_range_uses_scoped_key_and_bounded_read_then_closes(fault: str) -> No
     client.get_object.reset_mock()
     assert store.read_range(digest, 100_000, 100_001).total == 100_000
     client.get_object.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "digest", ["../outside", "/tmp/outside", "../" + "a" * 61, "A" * 64, "ａ" * 64]
+)
+def test_verification_rejects_invalid_digest_before_opening_files(
+    tmp_path, monkeypatch, digest
+):
+    store = FilesystemProjectBlobStore(root=tmp_path)
+    open_file = Mock(side_effect=AssertionError("invalid digest reached filesystem"))
+    monkeypatch.setattr(Path, "open", open_file)
+    with pytest.raises(ValueError, match="64 lowercase hexadecimal"):
+        store.verify(digest)
+    open_file.assert_not_called()

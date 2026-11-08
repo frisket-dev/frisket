@@ -134,7 +134,7 @@ async def test_upload_admits_from_request_owned_stream_in_bounded_reads(
         seen.append(True)
         return put_fileobj(source, expected_digest=expected_digest)
 
-    monkeypatch.setattr(project.blob_store, "put_fileobj", admit, raising=False)
+    monkeypatch.setattr(project.blob_store, "put_fileobj", admit)
     service = ImportSessionService(SimpleNamespace(get=lambda _project_id: project))
     created = service.create("project-1", "Recordings")
     admitted = await service.upload(
@@ -143,7 +143,9 @@ async def test_upload_admits_from_request_owned_stream_in_bounded_reads(
 
     assert seen == [True]
     assert (admitted.admitted_files, admitted.admitted_bytes, admitted.through) == (
-        1, len(payload), 1
+        1,
+        len(payload),
+        1,
     )
     assert project.read_blob(expected) == payload
     assert not stream.closed
@@ -187,9 +189,7 @@ async def test_upload_failure_before_canonical_admission_is_not_acknowledged(
     def fail_admission(*_args, **_kwargs):
         raise OSError("canonical admission failed")
 
-    monkeypatch.setattr(
-        project.blob_store, "put_fileobj", fail_admission, raising=False
-    )
+    monkeypatch.setattr(project.blob_store, "put_fileobj", fail_admission)
     with pytest.raises(OSError, match="canonical admission failed"):
         await service.upload(
             "project-1",

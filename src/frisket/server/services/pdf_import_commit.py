@@ -524,8 +524,7 @@ class PdfImportCommitService:
                 # A crash can land after the content-addressed copy and unlink
                 # but before the ordinary import page commits. Re-verify the
                 # canonical owner instead of requiring a second staged copy.
-                with project.blob_store.materialize(digest):
-                    pass
+                project.blob_store.verify(digest)
 
     def _record_handoff(
         self,
