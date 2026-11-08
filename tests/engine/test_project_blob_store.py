@@ -127,7 +127,9 @@ class _FakeS3Client:
     ) -> dict[str, str]:
         data = self._body_bytes(Body)
         if self.corrupt_writes:
-            data += b"corrupt"
+            # Model the service rejecting bytes that fail the SDK's transfer
+            # checksum, rather than silently accepting an invalid upload.
+            raise self._client_error("PutObject", "BadDigest", 400)
         self.objects[(Bucket, Key)] = _StoredObject(data, dict(Metadata or {}))
         self.events.append({"op": "put", "bucket": Bucket, "key": Key})
         return {"ChecksumSHA256": self._checksum(data)}
@@ -237,6 +239,12 @@ class _RecordingStore:
 
     def put_path(self, path: str | Path, *, expected_digest: str | None = None) -> str:
         return str(self.delegate.put_path(path, expected_digest=expected_digest))
+
+    def put_fileobj(self, source: Any, *, expected_digest: str | None = None) -> str:
+        return str(self.delegate.put_fileobj(source, expected_digest=expected_digest))
+
+    def verify(self, digest: str) -> None:
+        self.delegate.verify(digest)
 
     @contextmanager
     def materialize(self, digest: str) -> Iterator[Path]:

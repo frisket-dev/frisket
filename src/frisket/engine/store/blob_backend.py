@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-import base64
 import hashlib
+import io
 import os
 import tempfile
 from dataclasses import dataclass
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, BinaryIO, Protocol
 
 from frisket.project_identity import ProjectStorageKey
 from frisket.engine.store.disk_capacity import require_disk_headroom
@@ -50,9 +50,13 @@ class ProjectBlobStore(Protocol):
     Contract both implementers must honor (load-bearing for callers such as
     an external edition's blob-cutover job, which rely on it instead of re-hashing):
 
-    - ``put`` and ``put_path`` return the sha256 hex digest of the stored bytes.
-      ``put_path`` must stream rather than materializing the whole file in RAM
-      and must reject a supplied ``expected_digest`` when the source differs.
+    - ``put``, ``put_path`` and ``put_fileobj`` return the sha256 hex digest of
+      the stored bytes. File uploads stream rather than loading the whole file
+      into RAM and reject an ``expected_digest`` when the source differs.
+      Callers must keep source bytes unchanged until upload returns.
+      ``put_fileobj`` reads the complete seekable binary stream from offset zero;
+      it leaves the caller's stream open, with its position unspecified.
+    - ``verify`` streams and hashes canonical bytes without materializing a file.
     - ``materialize`` re-verifies the bytes are content-addressed before
       yielding them and raises ``BlobIntegrityError`` on any mismatch, so a
       bare ``with store.materialize(digest): pass`` is a genuine integrity
@@ -68,6 +72,15 @@ class ProjectBlobStore(Protocol):
         *,
         expected_digest: str | None = None,
     ) -> str: ...
+
+    def put_fileobj(
+        self,
+        source: BinaryIO,
+        *,
+        expected_digest: str | None = None,
+    ) -> str: ...
+
+    def verify(self, digest: str) -> None: ...
 
     def materialize(self, digest: str) -> AbstractContextManager[Path]: ...
 
@@ -100,13 +113,46 @@ def sha256_blob_path(path: str | Path) -> tuple[str, int]:
     """Hash a file incrementally and return its digest and observed byte count."""
 
     source_path = Path(path)
+    with source_path.open("rb") as source:
+        return _sha256_stream(source)
+
+
+def _sha256_stream(source: BinaryIO) -> tuple[str, int]:
     digest = hashlib.sha256()
     size = 0
-    with source_path.open("rb") as source:
-        for chunk in iter(lambda: source.read(1024 * 1024), b""):
-            digest.update(chunk)
-            size += len(chunk)
+    for chunk in iter(lambda: source.read(1024 * 1024), b""):
+        digest.update(chunk)
+        size += len(chunk)
     return digest.hexdigest(), size
+
+
+def _prepare_blob_source(
+    source: BinaryIO, expected_digest: str | None
+) -> tuple[str, int]:
+    expected = (
+        validate_blob_digest(expected_digest) if expected_digest is not None else None
+    )
+    source.seek(0)
+    digest, size = _sha256_stream(source)
+    if expected is not None and digest != expected:
+        raise BlobIntegrityError(
+            "blob source changed after its expected digest was computed"
+        )
+    source.seek(0)
+    return digest, size
+
+
+class _BorrowedBlobStream:
+    """Let a managed transfer close its wrapper without closing the caller's file."""
+
+    def __init__(self, source: BinaryIO):
+        self.source = source
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.source, name)
+
+    def close(self) -> None:
+        pass
 
 
 def _fsync_directory(path: Path) -> None:
@@ -140,30 +186,7 @@ class FilesystemProjectBlobStore:
         return self.root / clean[:2] / clean
 
     def put(self, data: bytes) -> str:
-        payload = bytes(data)
-        digest = hashlib.sha256(payload).hexdigest()
-        target = self._path_for_digest(digest)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if target.exists():
-            if _sha256_path(target) != digest:
-                raise BlobIntegrityError(f"canonical blob {digest} is corrupt")
-            return digest
-        require_disk_headroom(target.parent, len(payload))
-        fd, raw_temp = tempfile.mkstemp(prefix=f".{digest}.", dir=target.parent)
-        temp_path = Path(raw_temp)
-        try:
-            with os.fdopen(fd, "wb") as sink:
-                sink.write(payload)
-                sink.flush()
-                os.fsync(sink.fileno())
-            if _sha256_path(temp_path) != digest:
-                raise BlobIntegrityError(f"staged blob {digest} failed verification")
-            os.replace(temp_path, target)
-            if _sha256_path(target) != digest:
-                raise BlobIntegrityError(f"canonical blob {digest} failed verification")
-        finally:
-            temp_path.unlink(missing_ok=True)
-        return digest
+        return self.put_fileobj(io.BytesIO(data))
 
     def put_path(
         self,
@@ -171,37 +194,33 @@ class FilesystemProjectBlobStore:
         *,
         expected_digest: str | None = None,
     ) -> str:
-        """Stream a file into the canonical store without loading it into RAM.
+        """Upload a file whose bytes the caller keeps unchanged until return."""
+        with Path(path).open("rb") as source:
+            return self.put_fileobj(source, expected_digest=expected_digest)
 
-        The source is copied and hashed in the same pass.  Only a fully written,
-        fsync'd, hash-verified temporary file is atomically installed at the
-        content-addressed destination.
-        """
-
-        source_path = Path(path)
-        expected = (
-            validate_blob_digest(expected_digest)
-            if expected_digest is not None
-            else None
-        )
-        require_disk_headroom(self.root, source_path.stat().st_size)
+    def put_fileobj(
+        self,
+        source: BinaryIO,
+        *,
+        expected_digest: str | None = None,
+    ) -> str:
+        """Atomically publish a stable, caller-owned seekable binary stream."""
+        digest, size = _prepare_blob_source(source, expected_digest)
+        target = self._path_for_digest(digest)
+        if target.exists():
+            self.verify(digest)
+            return digest
+        require_disk_headroom(self.root, size)
         fd, raw_temp = tempfile.mkstemp(prefix=".blob-path.", dir=self.root)
         temp_path = Path(raw_temp)
-        digest_builder = hashlib.sha256()
         try:
-            with source_path.open("rb") as source, os.fdopen(fd, "wb") as sink:
+            with os.fdopen(fd, "wb") as sink:
                 # ``sink`` owns the descriptor from this point onward.
                 fd = -1
                 for chunk in iter(lambda: source.read(1024 * 1024), b""):
-                    digest_builder.update(chunk)
                     sink.write(chunk)
                 sink.flush()
                 os.fsync(sink.fileno())
-            digest = digest_builder.hexdigest()
-            if expected is not None and digest != expected:
-                raise BlobIntegrityError(
-                    "blob source changed after its expected digest was computed"
-                )
             if _sha256_path(temp_path) != digest:
                 raise BlobIntegrityError(f"staged blob {digest} failed verification")
 
@@ -224,14 +243,17 @@ class FilesystemProjectBlobStore:
                 os.close(fd)
             temp_path.unlink(missing_ok=True)
 
-    @contextmanager
-    def materialize(self, digest: str) -> Iterator[Path]:
+    def verify(self, digest: str) -> None:
         target = self._path_for_digest(digest)
         if not target.is_file():
             raise BlobNotFoundError(f"no such blob: {digest}")
         if _sha256_path(target) != digest:
             raise BlobIntegrityError(f"canonical blob {digest} is corrupt")
-        yield target
+
+    @contextmanager
+    def materialize(self, digest: str) -> Iterator[Path]:
+        self.verify(digest)
+        yield self._path_for_digest(digest)
 
     def read_range(self, digest: str, start: int, end: int) -> BlobByteRange:
         _validate_byte_range(start, end)
@@ -294,6 +316,10 @@ class S3ProjectBlobStore:
         code, status = cls._error_parts(exc)
         if status == 404 or code in {"404", "NoSuchKey", "NotFound", "NoSuchObject"}:
             raise BlobNotFoundError(f"no such blob: {digest}") from exc
+        if code == "BadDigest":
+            raise BlobIntegrityError(
+                f"object store rejected checksum for blob {digest}"
+            ) from exc
         raise BlobStoreError(f"object store failed for blob {digest}") from exc
 
     def _download_to(self, digest: str, target: Path) -> None:
@@ -351,24 +377,7 @@ class S3ProjectBlobStore:
             self._raise_store_error(exc, digest=digest)
 
     def put(self, data: bytes) -> str:
-        payload = bytes(data)
-        digest = hashlib.sha256(payload).hexdigest()
-        key = self._object_key(digest)
-        try:
-            self.client.put_object(
-                Bucket=self.bucket,
-                Key=key,
-                Body=payload,
-                Metadata={"sha256": digest},
-                ChecksumSHA256=base64.b64encode(
-                    hashlib.sha256(payload).digest()
-                ).decode("ascii"),
-            )
-        except Exception as exc:
-            self._raise_store_error(exc, digest=digest)
-        with self.materialize(digest):
-            pass
-        return digest
+        return self.put_fileobj(io.BytesIO(data))
 
     def put_path(
         self,
@@ -376,66 +385,77 @@ class S3ProjectBlobStore:
         *,
         expected_digest: str | None = None,
     ) -> str:
-        """Multipart-capable streaming upload followed by end-to-end hashing."""
+        """Upload a file whose bytes the caller keeps unchanged until return."""
+        with Path(path).open("rb") as source:
+            return self.put_fileobj(source, expected_digest=expected_digest)
 
-        source_path = Path(path)
-        expected = (
-            validate_blob_digest(expected_digest)
-            if expected_digest is not None
-            else None
-        )
-        with tempfile.TemporaryDirectory(prefix="frisket-blob-upload-") as raw_dir:
-            # Upload an immutable private snapshot, not the caller's live path.
-            # A renderer cleaning up or replacing its scratch file mid-upload can
-            # therefore never poison the canonical content-addressed key.
-            require_disk_headroom(raw_dir, source_path.stat().st_size)
-            snapshot = Path(raw_dir) / "payload"
-            digest_builder = hashlib.sha256()
-            with source_path.open("rb") as source, snapshot.open("xb") as sink:
-                for chunk in iter(lambda: source.read(1024 * 1024), b""):
-                    digest_builder.update(chunk)
-                    sink.write(chunk)
-                sink.flush()
-                os.fsync(sink.fileno())
-            digest = digest_builder.hexdigest()
-            if expected is not None and digest != expected:
-                raise BlobIntegrityError(
-                    "blob source changed after its expected digest was computed"
-                )
-            if _sha256_path(snapshot) != digest:
-                raise BlobIntegrityError(f"staged blob {digest} failed verification")
+    def put_fileobj(
+        self,
+        source: BinaryIO,
+        *,
+        expected_digest: str | None = None,
+    ) -> str:
+        """Upload a stable stream using the managed SDK's transfer checksums.
 
-            # Never overwrite a valid canonical object.  This also fails closed
-            # when an object exists under the digest key but its bytes are corrupt.
-            try:
-                with self.materialize(digest):
-                    pass
-                return digest
-            except BlobNotFoundError:
-                pass
-
-            key = self._object_key(digest)
-            upload_fileobj = getattr(self.client, "upload_fileobj", None)
-            if not callable(upload_fileobj):
-                raise BlobStoreError(
-                    f"object store cannot stream a file upload for blob {digest}"
-                )
-            try:
-                with snapshot.open("rb") as source:
-                    upload_fileobj(
-                        Fileobj=source,
-                        Bucket=self.bucket,
-                        Key=key,
-                        ExtraArgs={
-                            "Metadata": {"sha256": digest},
-                            "ChecksumAlgorithm": "SHA256",
-                        },
-                    )
-            except Exception as exc:
+        The caller owns the stream and must not change its bytes until return.
+        The SDK supplies SHA256 checksums for service validation, including each
+        multipart part; a successful upload needs no whole-object download.
+        """
+        digest, _size = _prepare_blob_source(source, expected_digest)
+        key = self._object_key(digest)
+        try:
+            self.client.head_object(Bucket=self.bucket, Key=key)
+        except Exception as exc:
+            code, status = self._error_parts(exc)
+            if status != 404 and code not in {
+                "404",
+                "NoSuchKey",
+                "NotFound",
+                "NoSuchObject",
+            }:
                 self._raise_store_error(exc, digest=digest)
-            with self.materialize(digest):
-                pass
+        else:
+            # Existing objects may have been written by older clients. Verify
+            # their actual bytes, never a caller-supplied metadata digest.
+            self.verify(digest)
             return digest
+
+        try:
+            self.client.upload_fileobj(
+                Fileobj=_BorrowedBlobStream(source),
+                Bucket=self.bucket,
+                Key=key,
+                ExtraArgs={
+                    "Metadata": {"sha256": digest},
+                    "ChecksumAlgorithm": "SHA256",
+                },
+            )
+        except Exception as exc:
+            self._raise_store_error(exc, digest=digest)
+        return digest
+
+    def verify(self, digest: str) -> None:
+        """Hash canonical bytes incrementally without a local materialization."""
+        clean = validate_blob_digest(digest)
+        try:
+            response = self.client.get_object(
+                Bucket=self.bucket, Key=self._object_key(clean)
+            )
+            body = response.get("Body") if isinstance(response, dict) else None
+            if body is None or not hasattr(body, "read"):
+                raise BlobStoreError(f"object store returned no body for blob {clean}")
+            try:
+                observed, _size = _sha256_stream(body)
+            finally:
+                close = getattr(body, "close", None)
+                if callable(close):
+                    close()
+            if observed != clean:
+                raise BlobIntegrityError(f"canonical blob {clean} is corrupt")
+        except BlobStoreError:
+            raise
+        except Exception as exc:
+            self._raise_store_error(exc, digest=clean)
 
     def _delete_objects(self, objects: list[dict[str, str]]) -> None:
         for start in range(0, len(objects), 1_000):
