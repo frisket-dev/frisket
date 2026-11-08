@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const telemetry = vi.hoisted(() => vi.fn());
+vi.mock('../../src/telemetry/productTelemetry', async (original) => ({
+  ...await original<typeof import('../../src/telemetry/productTelemetry')>(), sendProductTelemetry: telemetry,
+}));
+beforeEach(() => telemetry.mockClear());
 
 import {
   CloudConnectionPanel,
@@ -68,6 +74,10 @@ describe('CloudConnectionPanel', () => {
     );
     await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
     expect(screen.getByTestId('cloud-connection-connected')).toHaveTextContent('Sam Rivera');
+    expect(telemetry.mock.calls).toEqual([
+      [{ type: 'Cloud.connectionStarted', properties: {} }],
+      [{ type: 'Cloud.connectionFinished', properties: { result: 'success', failureCategory: 'none' } }],
+    ]);
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Sign out' })); });
     expect(api.disconnect).toHaveBeenCalledOnce();
     expect(screen.getByRole('button', { name: /sign in with browser/i })).toBeVisible();
@@ -99,7 +109,23 @@ describe('CloudConnectionPanel', () => {
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /sign in with browser/i })); });
     await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
     expect(screen.getByRole('alert')).toHaveTextContent('Sign-in didn’t finish');
+    expect(telemetry).toHaveBeenLastCalledWith({ type: 'Cloud.connectionFinished', properties: { result: 'rejected', failureCategory: 'permission' } });
     expect(screen.getByRole('button', { name: /sign in with browser/i })).toBeVisible();
+  });
+
+  it('does not report success after the user cancels a late authorization response', async () => {
+    vi.useFakeTimers();
+    let resolve!: (result: { status: 'connected'; connection: CloudConnectionView }) => void;
+    const api = client({ pollAuthorization: vi.fn(() => new Promise((done) => { resolve = done; })) });
+    render(<CloudConnectionPanel client={api} variant="compact" />);
+    await act(async () => {});
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /sign in with browser/i })); });
+    await act(async () => vi.advanceTimersByTimeAsync(1000));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Cancel' })); });
+    await act(async () => resolve({ status: 'connected', connection: connected() }));
+    expect(telemetry).toHaveBeenCalledTimes(2);
+    expect(telemetry).toHaveBeenLastCalledWith({ type: 'Cloud.connectionFinished', properties: { result: 'cancelled', failureCategory: 'none' } });
+    expect(screen.queryByTestId('cloud-connection-connected')).not.toBeInTheDocument();
   });
 
   it('allows Profile to sign out an expired connection and shows a revocation warning', async () => {

@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { createImportSession, importFiles, importFollowTheMoney, importCsv, importXlsx, uploadFilesToImportSession, type ImportSessionStatus, type BulkImportPlan } from '../../api/open';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
 import { notifyImportSessionChanged, rememberImportSessionFiles, setImportSessionBrowserUploading } from '../importProgressSession';
-import { byteBucket, columnBucket, durationBucket, failureCategory, rowBucket, sendProductTelemetry, type ImportFormat } from '../../telemetry/productTelemetry';
+import type { ImportFormat } from '../../telemetry/productTelemetry';
+import { trackImportSubmission } from '../../telemetry/importTelemetry';
 import type { FileImportMode, ImportHandlers } from './model';
 
 function fileImportFormat(file: File): ImportFormat {
@@ -214,15 +215,12 @@ export function useImportUpload({
     }
     setBusy(true);
     const prepared = preparedSelection ?? await prepareFileSelection(list);
-    const startedAt = performance.now();
     const kind = list.length > 1 ? 'files' : 'file';
     const format = resolvedMode === 'ftm' ? 'json'
       : resolvedMode === 'csv' ? 'csv'
         : resolvedMode === 'xlsx' ? 'xlsx' : prepared.format;
-    const bytes = byteBucket(prepared.bytes);
-    sendProductTelemetry({ type: 'Import.started', properties: { importKind: kind, format, bytes } }, projectId);
     try {
-      const result =
+      const result = await trackImportSubmission(projectId, { importKind: kind, format, bytes: prepared.bytes }, async () =>
         resolvedMode === 'csv'
           ? await importCsv(
             projectId, file, encoding, destinationSheetId,
@@ -272,24 +270,23 @@ export function useImportUpload({
                   setImportSessionBrowserUploading(session.import_ref, false);
                 }
               })()
-              : await importFiles(projectId, list);
-      sendProductTelemetry({
-        type: 'Import.finished',
-        properties: {
-          importKind: kind,
-          format,
-          bytes,
-          rows: rowBucket(resultRows(result)),
-          columns: columnBucket(
-            'columns' in result && Array.isArray(result.columns)
-              ? result.columns.length
-              : undefined,
-          ),
-          requestDuration: durationBucket(performance.now() - startedAt),
-          result: 'success',
-          failureCategory: 'none',
-        },
-      }, projectId);
+              : await importFiles(projectId, list), (response) => {
+        const sessionStatus = 'import_session_status' in response
+          ? response.import_session_status as ImportSessionStatus : null;
+        // This measures the submission response, not background materialization.
+        const outcome = sessionStatus?.state === 'cancelled' || sessionStatus?.state === 'removed'
+          ? 'cancelled'
+          : sessionStatus && !importSessionIsComplete(sessionStatus)
+            ? 'queued'
+            : 'import_pending' in response && response.import_pending && !sessionStatus
+              ? 'queued'
+              : sessionStatus && (sessionStatus.problem_count ?? 0) > 0 ? 'partial' : 'success';
+        return {
+          result: outcome,
+          rows: resultRows(response),
+          columns: 'columns' in response && Array.isArray(response.columns) ? response.columns.length : undefined,
+        };
+      });
       const sheetId = resolvedMode === 'ftm'
         ? firstMaterializedSheetId(result)
         : ('sheet_id' in result && typeof result.sheet_id === 'number' ? result.sheet_id : null);
@@ -309,19 +306,6 @@ export function useImportUpload({
           : null,
       };
     } catch (e) {
-      sendProductTelemetry({
-        type: 'Import.finished',
-        properties: {
-          importKind: kind,
-          format,
-          bytes,
-          rows: 'unknown',
-          columns: 'unknown',
-          requestDuration: durationBucket(performance.now() - startedAt),
-          result: 'failed',
-          failureCategory: failureCategory(e),
-        },
-      }, projectId);
       onError(`Import failed: ${e instanceof Error ? e.message : String(e)}`);
       return null;
     } finally {
