@@ -132,6 +132,7 @@ jobs:
       publisher: ${{ steps.signing-metadata.outputs.publisher }}
     env:
       AZURE_CORE_OUTPUT: none
+      AZURE_CORE_COLLECT_TELEMETRY: 'false'
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:

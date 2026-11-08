@@ -13,6 +13,7 @@ Commit the diff like a dependency bump — these numbers feed cost_actual.
 """
 
 import argparse
+import copy
 import http.client
 import json
 import math
@@ -239,6 +240,8 @@ def build_model_catalog(
 
 
 def _rate(value: object) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"Invalid provider rate: {value!r}")
     result = float(value)
     if not math.isfinite(result) or result < 0:
         raise ValueError(f"Invalid provider rate: {value!r}")
@@ -247,9 +250,76 @@ def _rate(value: object) -> float:
 
 def _rates(input_per_token: object, output_per_token: object) -> list[float]:
     return [
-        round(_rate(float(input_per_token) * 1e6), 4),
-        round(_rate(float(output_per_token) * 1e6), 4),
+        round(_rate(_rate(input_per_token) * 1e6), 4),
+        round(_rate(_rate(output_per_token) * 1e6), 4),
     ]
+
+
+def validate_price_table(document: object, previous: object | None = None) -> None:
+    """Validate price data and, when supplied, its approved inventory."""
+    if not isinstance(document, dict):
+        raise ValueError("pricing data must be an object")
+    updated = document.get("updated")
+    if not isinstance(updated, str):
+        raise ValueError("pricing data requires an update date")
+    try:
+        date.fromisoformat(updated)
+    except ValueError as exc:
+        raise ValueError("invalid pricing update date") from exc
+    text, audio = document.get("text"), document.get("audio")
+    if not isinstance(text, dict) or not text or not isinstance(audio, dict):
+        raise ValueError("pricing data requires nonempty text and an audio object")
+    for name, rates in text.items():
+        if (
+            not isinstance(name, str)
+            or not name
+            or not isinstance(rates, list)
+            or len(rates) != 2
+        ):
+            raise ValueError("invalid text pricing entry")
+        for rate in rates:
+            if type(rate) not in (int, float):
+                raise ValueError("pricing rates must be numeric")
+            _rate(rate)
+    for name, rates in audio.items():
+        if (
+            not isinstance(name, str)
+            or not name
+            or not isinstance(rates, dict)
+            or set(rates)
+            not in ({"per_second"}, {"input_per_token", "output_per_token"})
+        ):
+            raise ValueError("invalid audio pricing entry")
+        for rate in rates.values():
+            if type(rate) not in (int, float):
+                raise ValueError("pricing rates must be numeric")
+            _rate(rate)
+    parse_catalog(document.get("opendocrouter"))
+    if previous is None:
+        return
+    validate_price_table(previous)
+
+    def inventory(value: dict) -> dict:
+        result = copy.deepcopy(value)
+        result.pop("updated", None)
+        for name, rates in result["text"].items():
+            result["text"][name] = [None for _ in rates]
+        for rates in result["audio"].values():
+            for key in rates:
+                rates[key] = None
+        catalog = result.get("opendocrouter")
+        if catalog is not None:
+            catalog["price_version"] = None
+            for section in ("data", "retired_data"):
+                for row in catalog.get(section, []):
+                    row["max_charge_per_page_usd"] = None
+                    row["avg_charge_per_page_usd"] = None
+                    for key in row["price_per_million_tokens"]:
+                        row["price_per_million_tokens"][key] = None
+        return result
+
+    if inventory(document) != inventory(previous):
+        raise ValueError("pricing refresh changed approved inventory or metadata")
 
 
 def build_price_table(
@@ -259,6 +329,7 @@ def build_price_table(
     catalog: dict[str, Any] = CATALOG,
     updated: date | None = None,
     opendocrouter: dict[str, Any] | None = None,
+    previous: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     text: dict[str, list[float]] = {}
     for provider, entries in catalog["providers"].items():
@@ -271,11 +342,20 @@ def build_price_table(
                 key in entry
                 for key in ("input_cost_per_token", "output_cost_per_token")
             ):
-                print(
-                    f"WARNING: {name} missing from LiteLLM — left out; estimates "
-                    "surface as unknown",
-                    file=sys.stderr,
-                )
+                if previous is not None:
+                    prior = previous.get("text", {}).get(name)
+                    if prior is None:
+                        raise ValueError(f"missing approved price: {name}")
+                    print(
+                        f"WARNING: {name} missing from LiteLLM; preserving previous rate",
+                        file=sys.stderr,
+                    )
+                    text[name] = prior
+                else:
+                    print(
+                        f"WARNING: {name} missing from LiteLLM — left out; estimates surface as unknown",
+                        file=sys.stderr,
+                    )
                 continue
             text[name] = _rates(
                 entry["input_cost_per_token"], entry["output_cost_per_token"]
@@ -288,11 +368,20 @@ def build_price_table(
         name = catalog_entry["id"]
         pricing = (openrouter_by_id.get(name) or {}).get("pricing") or {}
         if "prompt" not in pricing or "completion" not in pricing:
-            print(
-                f"WARNING: {name} missing from OpenRouter — left out; estimates "
-                "surface as unknown",
-                file=sys.stderr,
-            )
+            if previous is not None:
+                prior = previous.get("text", {}).get(name)
+                if prior is None:
+                    raise ValueError(f"missing approved price: {name}")
+                print(
+                    f"WARNING: {name} missing from OpenRouter; preserving previous rate",
+                    file=sys.stderr,
+                )
+                text[name] = prior
+            else:
+                print(
+                    f"WARNING: {name} missing from OpenRouter — left out; estimates surface as unknown",
+                    file=sys.stderr,
+                )
             continue
         # Keep the provider's nested model slug. model_price strips only the
         # outer Frisket provider from openrouter/qwen/qwen3-8b.
@@ -313,6 +402,17 @@ def build_price_table(
 
     for name, override in MAINTAINED_AUDIO_OVERRIDES.items():
         audio[name] = {"per_second": override["per_second"]}
+
+    if previous is not None:
+        approved_audio = previous.get("audio", {})
+        for name, prior in approved_audio.items():
+            if name not in audio:
+                print(
+                    f"WARNING: {name} missing from audio pricing; preserving previous rate",
+                    file=sys.stderr,
+                )
+                audio[name] = prior
+        audio = {name: audio[name] for name in approved_audio}
 
     result = {
         "sources": {
@@ -403,7 +503,12 @@ def document_inventory(snapshot: dict) -> dict:
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=("pricing", "models"), default="pricing")
+    parser.add_argument("--validate", nargs=2, metavar=("BEFORE", "AFTER"))
     args = parser.parse_args(argv)
+    if args.validate:
+        before, after = (json.loads(Path(path).read_text()) for path in args.validate)
+        validate_price_table(after, before)
+        return
     previous_catalog = json.loads(MODEL_OUT.read_text())
     previous_prices = json.loads(OUT.read_text())
     litellm = json.loads(urllib.request.urlopen(LITELLM_SOURCE, timeout=30).read())
@@ -426,8 +531,13 @@ def main(argv: list[str] | None = None) -> None:
             previous_prices["opendocrouter"], opendocrouter
         )
     output = build_price_table(
-        litellm, openrouter, catalog=catalog, opendocrouter=opendocrouter
+        litellm,
+        openrouter,
+        catalog=catalog,
+        opendocrouter=opendocrouter,
+        previous=previous_prices if args.mode == "pricing" else None,
     )
+    validate_price_table(output, previous_prices if args.mode == "pricing" else None)
 
     # Validate/build both documents before writing. A failed CI generation is
     # never committed; no runtime service reads these working-tree files.

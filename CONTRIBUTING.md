@@ -307,14 +307,16 @@ read historical values by ID, without substituting a same-name successor.
 ### Reviewing model and pricing updates
 
 Pricing refresh and model discovery are separate workflows. Both run on a
-schedule and can be started manually from GitHub Actions. Each keeps one open PR;
-a later run leaves that PR untouched so review edits are preserved. Neither
-workflow merges its PR automatically.
+schedule and can be started manually from GitHub Actions. Pricing keeps one
+rolling PR, regenerates it from current `main`, and enables auto-merge after
+required checks. Model discovery leaves an open proposal untouched for review.
 
 - `update_pricing.py --mode pricing` (the default) refreshes rates for the approved
   catalog. It never changes model names, ordering, capabilities, or OpenDocRouter
-  model membership. If OpenDocRouter omits an approved model, its complete prior
-  pricing snapshot is retained with a warning.
+  model membership. Missing upstream prices retain the previous approved rates
+  with a warning; an incomplete OpenDocRouter response retains its whole previous
+  snapshot. Invalid rates or changes to the approved inventory fail validation.
+  Rate changes have no percentage threshold.
 - `update_pricing.py --mode models` proposes supported model additions, removals,
   and capability changes, with matching prices. Price-only changes are a no-op.
   Existing curated labels and ordering are preserved; new entries use supplied
@@ -327,7 +329,15 @@ then its other current models, followed by older models. Keep names concise;
 defaults and recent-use badges must not silently reshuffle the list. Regenerate
 `web/src/actions/modelCatalog.generated.ts` and the OCR catalog with the sync scripts after edits.
 
-Refresh either PR against current `main` before merging: pricing and model PRs
+Refresh discovery PRs against current `main` before merging: pricing and model PRs
 both touch `pricing_data.json`, and an older proposal must not restore stale
 prices or OpenDocRouter membership. Rerun the appropriate updater and inspect the
 final diff after rebasing; for discovery, retain the reviewed names and ordering.
+
+Pricing automation requires repository auto-merge enabled, a repository variable
+`PRICING_APP_ID`, and a repository secret `PRICING_APP_PRIVATE_KEY`. Install that
+GitHub App on this repository with Contents and Pull requests read/write access.
+Its token triggers normal PR checks; no branch-protection bypass is used.
+`deterministic-source` validates that the rolling PR changes only
+`pricing_data.json` and preserves the approved model metadata. Run the same
+offline validation with `python3 scripts/dev/update_pricing.py --validate BEFORE AFTER`.

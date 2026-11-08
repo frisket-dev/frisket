@@ -7,6 +7,9 @@ on:
         description: Refresh pricing or discover models.
         required: true
         type: string
+    secrets:
+      PRICING_APP_PRIVATE_KEY:
+        required: false
 
 permissions:
   contents: write
@@ -19,13 +22,24 @@ jobs:
       REFRESH_MODE: ${{ inputs.mode }}
       REFRESH_BRANCH: ${{ inputs.mode == 'models' && 'model-catalog-refresh' || 'pricing-refresh' }}
     steps:
+      - name: Authenticate pricing updater
+        id: pricing-app
+        if: inputs.mode == 'pricing'
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ vars.PRICING_APP_ID }}
+          private-key: ${{ secrets.PRICING_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           persist-credentials: true
+          fetch-depth: 0
+          token: ${{ steps.pricing-app.outputs.token || github.token }}
       - name: Check for pending refresh PR
         id: pending
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.pricing-app.outputs.token || github.token }}
         run: |
           if ! pr_number_output="$(
             gh pr list --state open --base main --head "$REFRESH_BRANCH" \
@@ -42,7 +56,8 @@ jobs:
             echo "Refusing ambiguous open PR set for $REFRESH_BRANCH" >&2
             exit 1
           fi
-          if [ "${#pr_numbers[@]}" -eq 1 ]; then
+          echo "number=${pr_numbers[0]:-}" >> "$GITHUB_OUTPUT"
+          if [ "${#pr_numbers[@]}" -eq 1 ] && [ "$REFRESH_MODE" = "models" ]; then
             echo "Refresh PR #${pr_numbers[0]} is under review; leaving it unchanged."
             echo "pending=true" >> "$GITHUB_OUTPUT"
           else
@@ -106,6 +121,10 @@ jobs:
 
           uv run --no-project python scripts/dev/update_pricing.py \
             --mode "$REFRESH_MODE"
+          if [ "$REFRESH_MODE" = "pricing" ]; then
+            python3 scripts/dev/update_pricing.py --validate \
+              "$refresh_tmp/pricing-before.json" "$pricing_path"
+          fi
           if [ "$REFRESH_MODE" = "models" ]; then
             uv run --no-project python scripts/dev/sync_model_catalog.py
             uv run --frozen --no-dev python \
@@ -164,15 +183,9 @@ jobs:
               > "$refresh_tmp/pr-body.md"
             cat >> "$refresh_tmp/pr-body.md" <<'EOF'
 
-          ## Agent review
-
-          - [ ] Text prices still belong only to approved catalog models.
-          - [ ] OpenDocRouter model identities and capabilities are unchanged.
-          - [ ] Every changed rate matches an official provider source.
-          - [ ] Any large swing has been checked against the upstream source.
-          - [ ] Pricing and consent-boundary tests pass.
-          - [ ] The branch was rebased and regenerated from current `main` before merge.
-          - [ ] A reviewer triggered the required checks; bot-created PRs do not trigger them.
+          Rates for approved catalog models, regenerated from current `main`.
+          Model identities and capabilities are unchanged. GitHub merges this
+          price-only update after the required checks pass.
           EOF
           else
             uv run --no-project python scripts/dev/pricing_delta_report.py \
@@ -195,8 +208,9 @@ jobs:
       - name: Open review PR
         if: steps.refresh.outputs.changed == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.pricing-app.outputs.token || github.token }}
           GENERATION_BASE: ${{ steps.base.outputs.sha }}
+          PENDING_PR: ${{ steps.pending.outputs.number }}
         run: |
           refresh_tmp="$RUNNER_TEMP/catalog-refresh"
           pricing_path="src/frisket/ai/llm/pricing_data.json"
@@ -238,9 +252,14 @@ jobs:
             echo "Refusing ambiguous open PR set for $REFRESH_BRANCH" >&2
             exit 1
           fi
-          if [ "${#pr_numbers[@]}" -eq 1 ]; then
+          if [ "${#pr_numbers[@]}" -eq 1 ] && [ "$REFRESH_MODE" = "models" ]; then
             echo "Refresh PR #${pr_numbers[0]} appeared during this run; leaving it unchanged."
             exit 0
+          fi
+          pr_number="${pr_numbers[0]:-}"
+          if [ "$REFRESH_MODE" = "pricing" ] && [ "$pr_number" != "${PENDING_PR:-}" ]; then
+            echo "Pricing PR changed during generation; retry the refresh." >&2
+            exit 1
           fi
 
           origin_url="$(git config --get remote.origin.url)"
@@ -271,7 +290,18 @@ jobs:
           remote_tip="$(
             git ls-remote --heads origin "refs/heads/${REFRESH_BRANCH}" | awk '{print $1}'
           )"
-          if [ -n "$remote_tip" ]; then
+          if [ -n "$remote_tip" ] && [ -n "$pr_number" ]; then
+            git fetch --no-tags origin "refs/heads/${REFRESH_BRANCH}"
+            if [ "$(git rev-parse FETCH_HEAD)" != "$remote_tip" ]; then
+              echo "Refresh branch moved while inspecting it." >&2
+              exit 1
+            fi
+            changed_files="$(git diff --name-only "${GENERATION_BASE}...${remote_tip}")"
+            if [ "$changed_files" != "$pricing_path" ]; then
+              echo "The pricing branch contains other changes; leave it for review." >&2
+              exit 1
+            fi
+          elif [ -n "$remote_tip" ]; then
             merged_head="$(
               gh pr list --state merged --base main --head "$REFRESH_BRANCH" \
                 --limit 1 --json headRefOid --jq '.[0].headRefOid // empty'
@@ -300,5 +330,14 @@ jobs:
           git push --set-upstream \
             --force-with-lease="refs/heads/${REFRESH_BRANCH}:${remote_tip}" \
             origin "HEAD:refs/heads/${REFRESH_BRANCH}"
-          gh pr create --title "$title" --body-file "$refresh_tmp/pr-body.md" \
-            --base main --head "$REFRESH_BRANCH"
+          if [ -n "$pr_number" ]; then
+            gh pr edit "$pr_number" --title "$title" --body-file "$refresh_tmp/pr-body.md"
+          else
+            pr_url="$(gh pr create --title "$title" --body-file "$refresh_tmp/pr-body.md" \
+              --base main --head "$REFRESH_BRANCH")"
+            pr_number="${pr_url##*/}"
+          fi
+          if [ "$REFRESH_MODE" = "pricing" ]; then
+            gh pr merge "$pr_number" --auto --squash \
+              --match-head-commit "$(git rev-parse HEAD)"
+          fi
