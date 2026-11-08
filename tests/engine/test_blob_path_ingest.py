@@ -14,6 +14,8 @@ from frisket.engine.store import Project
 from frisket.engine.store import blob_backend
 from frisket.engine.store.blob_backend import (
     BlobIntegrityError,
+    BlobNotFoundError,
+    BlobStoreError,
     FilesystemProjectBlobStore,
     S3ProjectBlobStore,
 )
@@ -34,13 +36,21 @@ class _StreamingS3Client:
         self.objects: dict[tuple[str, str], bytes] = {}
         self.uploads = 0
         self.extra_args: dict[str, Any] | None = None
+        self.gets = 0
+        self.fail_upload = False
+
+    def head_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:
+        if (Bucket, Key) not in self.objects:
+            raise _MissingObject
+        return {"ContentLength": len(self.objects[(Bucket, Key)])}
 
     def get_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:
+        self.gets += 1
         try:
             payload = self.objects[(Bucket, Key)]
         except KeyError as exc:
             raise _MissingObject from exc
-        return {"Body": io.BytesIO(payload)}
+        return {"Body": _BoundedStream(payload)}
 
     def upload_fileobj(
         self,
@@ -52,10 +62,112 @@ class _StreamingS3Client:
     ) -> None:
         self.uploads += 1
         self.extra_args = ExtraArgs
+        if self.fail_upload:
+            raise OSError("upload failed")
         chunks: list[bytes] = []
         while chunk := Fileobj.read(64 * 1024):
             chunks.append(chunk)
         self.objects[(Bucket, Key)] = b"".join(chunks)
+        Fileobj.close()
+
+
+class _BoundedStream(io.BytesIO):
+    def read(self, size: int = -1) -> bytes:
+        assert 0 < size <= 1024 * 1024, "blob I/O must use bounded reads"
+        return super().read(size)
+
+
+@pytest.mark.parametrize("remote", [False, True], ids=["filesystem", "s3"])
+def test_fileobj_ingest_keeps_stream_open_and_verification_detects_corruption(
+    tmp_path: Path, remote: bool
+) -> None:
+    payload = b"streamed blob bytes" * 100_000
+    digest = hashlib.sha256(payload).hexdigest()
+    client = _StreamingS3Client()
+    store = (
+        S3ProjectBlobStore(
+            client=client,
+            bucket="bucket",
+            prefix="prefix",
+            project_storage_key=ProjectStorageKey(
+                storage_org_id=4, project_slug="fileobj"
+            ),
+        )
+        if remote
+        else FilesystemProjectBlobStore(root=tmp_path / "blobs")
+    )
+    source = _BoundedStream(payload)
+    source.seek(17)
+    assert store.put_fileobj(source, expected_digest=digest) == digest
+    assert not source.closed
+    assert client.gets == 0
+    store.verify(digest)
+    assert store.put_fileobj(source, expected_digest=digest) == digest
+    with store.materialize(digest) as path:
+        assert path.read_bytes() == payload
+
+    if remote:
+        key = next(iter(client.objects))
+        client.objects[key] = b"corrupt bytes"
+    else:
+        path.write_bytes(b"corrupt bytes")
+    with pytest.raises(BlobIntegrityError):
+        store.verify(digest)
+    with pytest.raises(BlobIntegrityError):
+        store.put_fileobj(source)
+    with pytest.raises(BlobIntegrityError), store.materialize(digest):
+        pytest.fail("corrupt materialization was yielded")
+    with pytest.raises(BlobNotFoundError):
+        store.verify("0" * 64)
+    assert client.uploads == int(remote)
+
+
+@pytest.mark.parametrize("remote", [False, True], ids=["filesystem", "s3"])
+def test_fileobj_rejects_digest_mismatch_before_publication(
+    tmp_path: Path, remote: bool
+) -> None:
+    client = _StreamingS3Client()
+    store = (
+        S3ProjectBlobStore(
+            client=client,
+            bucket="bucket",
+            prefix="",
+            project_storage_key=ProjectStorageKey(
+                storage_org_id=4, project_slug="mismatch"
+            ),
+        )
+        if remote
+        else FilesystemProjectBlobStore(root=tmp_path / "blobs")
+    )
+    source = _BoundedStream(b"submitted bytes")
+    with pytest.raises(BlobIntegrityError):
+        store.put_fileobj(source, expected_digest="0" * 64)
+    assert not source.closed
+    assert not client.objects
+    assert not list(tmp_path.rglob(".blob-path.*"))
+
+
+def test_failed_s3_path_upload_does_not_publish_blob_reference(tmp_path: Path) -> None:
+    client = _StreamingS3Client()
+    client.fail_upload = True
+    store = S3ProjectBlobStore(
+        client=client,
+        bucket="bucket",
+        prefix="",
+        project_storage_key=ProjectStorageKey(storage_org_id=4, project_slug="failure"),
+    )
+    source = tmp_path / "source.bin"
+    source.write_bytes(b"unpublished bytes")
+    project = Project.create(
+        tmp_path / "failure.frisket", name="failure", blob_store=store
+    )
+    try:
+        with pytest.raises(BlobStoreError):
+            project.add_blob_from_path(source)
+        assert project.db.execute("SELECT count(*) FROM blobs").fetchone()[0] == 0
+        assert not client.objects
+    finally:
+        project.close()
 
 
 def test_directory_fsync_is_optional_on_unsupported_platforms(
@@ -199,6 +311,7 @@ def test_s3_path_ingest_streams_verifies_and_does_not_reupload_duplicate(
 
     assert store.put_path(source, expected_digest=digest) == digest
     assert client.uploads == 1
+    assert client.gets == 0
     assert client.extra_args == {
         "Metadata": {"sha256": digest},
         "ChecksumAlgorithm": "SHA256",

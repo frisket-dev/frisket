@@ -335,21 +335,13 @@ class ImportSessionService:
             header = self._validated_header(project, project_id, directory)
             if header.cancel_requested:
                 raise ValueError("cancelled import does not accept more files")
-            inventory = ImportInventory(directory / "inventory.db")
-            scratch = directory / f".batch-{secrets.token_hex(8)}"
-            (scratch / "files").mkdir(parents=True)
-            try:
-                staged = await import_bulk_sources.stage_uploads(
-                    uploads,
-                    scratch,
-                    False,
-                    self._chunk_limits(len(uploads)),
-                    # This request-private scratch is never recovery authority.
-                    # Canonical blob durability and the inventory commit happen
-                    # before the upload is acknowledged.
-                    durable=False,
+            with ImportInventory(directory / "inventory.db") as inventory:
+                inspected = import_bulk_sources.inspect_uploads(
+                    uploads, self._chunk_limits(len(uploads))
                 )
-                facts = [inventory_item_from_staged(item) for item in staged]
+                facts = [
+                    inventory_item_from_staged(item) for _upload, item in inspected
+                ]
                 retry_through = inventory_batch_through(inventory, batch_id, facts)
                 if retry_through is not None:
                     through = retry_through
@@ -359,12 +351,12 @@ class ImportSessionService:
                     totals = inventory.totals()
                     if (
                         header.max_rows is not None
-                        and totals["count"] + len(staged) > header.max_rows
+                        and totals["count"] + len(inspected) > header.max_rows
                     ):
                         raise ImportBulkRouteError(
                             413, "upload file count exceeds deployment limit"
                         )
-                    batch_bytes = sum(int(item["size"]) for item in staged)
+                    batch_bytes = sum(int(item["size"]) for _upload, item in inspected)
                     if (
                         header.max_bytes is not None
                         and totals["bytes"] + batch_bytes > header.max_bytes
@@ -373,11 +365,11 @@ class ImportSessionService:
                             413, "upload bytes exceeds deployment limit"
                         )
                     stored: set[str] = set()
-                    for item in staged:
+                    for upload, item in inspected:
                         digest = str(item["sha256"])
                         if digest not in stored:
-                            observed = project.blob_store.put_path(
-                                scratch / str(item["path"]), expected_digest=digest
+                            observed = project.blob_store.put_fileobj(
+                                upload.file.file, expected_digest=digest
                             )
                             if observed != digest:
                                 raise ValueError("canonical blob digest changed")
@@ -388,9 +380,6 @@ class ImportSessionService:
                         facts,
                     )
                 status = self._status(project, ref, directory, header, inventory)
-            finally:
-                inventory.close()
-                shutil.rmtree(scratch, ignore_errors=True)
         await self._enqueue_page(project_id, ref, through, False)
         return status
 

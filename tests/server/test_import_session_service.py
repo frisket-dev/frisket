@@ -107,6 +107,51 @@ async def test_create_upload_retry_seal_uses_compact_header_and_canonical_blobs(
 
 
 @pytest.mark.asyncio
+async def test_upload_admits_from_request_owned_stream_in_bounded_reads(
+    project, monkeypatch
+):
+    class BoundedStream(io.BytesIO):
+        def read(self, size=-1):
+            assert 0 < size <= 1024 * 1024
+            return super().read(size)
+
+    payload = b"recording bytes" * 100_000
+    stream = BoundedStream(payload)
+    upload = BulkUpload(
+        filename="recording.bin",
+        logical_path="recording.bin",
+        mime="application/octet-stream",
+        file=UploadFile(file=stream, filename="recording.bin"),
+    )
+    expected = hashlib.sha256(payload).hexdigest()
+    seen = []
+    put_fileobj = project.blob_store.put_fileobj
+
+    def admit(source, *, expected_digest):
+        assert source is stream
+        assert not source.closed
+        assert expected_digest == expected
+        seen.append(True)
+        return put_fileobj(source, expected_digest=expected_digest)
+
+    monkeypatch.setattr(project.blob_store, "put_fileobj", admit)
+    service = ImportSessionService(SimpleNamespace(get=lambda _project_id: project))
+    created = service.create("project-1", "Recordings")
+    admitted = await service.upload(
+        "project-1", created.import_ref, [upload], batch_id="b1"
+    )
+
+    assert seen == [True]
+    assert (admitted.admitted_files, admitted.admitted_bytes, admitted.through) == (
+        1,
+        len(payload),
+        1,
+    )
+    assert project.read_blob(expected) == payload
+    assert not stream.closed
+
+
+@pytest.mark.asyncio
 async def test_total_limits_apply_across_bounded_upload_chunks(project):
     service = ImportSessionService(
         SimpleNamespace(get=lambda _project_id: project),
@@ -144,7 +189,7 @@ async def test_upload_failure_before_canonical_admission_is_not_acknowledged(
     def fail_admission(*_args, **_kwargs):
         raise OSError("canonical admission failed")
 
-    monkeypatch.setattr(project.blob_store, "put_path", fail_admission)
+    monkeypatch.setattr(project.blob_store, "put_fileobj", fail_admission)
     with pytest.raises(OSError, match="canonical admission failed"):
         await service.upload(
             "project-1",

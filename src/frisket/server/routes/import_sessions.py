@@ -64,7 +64,7 @@ def register_import_session_routes(
     max_rows_for_request: Callable[[str, Request], int | None],
 ) -> None:
     base = "/api/projects/{pid}/import/files/sessions"
-    responses = http_error_responses(400, 401, 403, 404, 409, 413, 422, 500)
+    responses = http_error_responses(400, 401, 403, 404, 409, 413, 422, 500, 507)
 
     @app.post(base, response_model=ImportSessionStatus, responses=responses)
     async def create_import_session(

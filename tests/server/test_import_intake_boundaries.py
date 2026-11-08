@@ -2,6 +2,10 @@
 
 import asyncio
 import io
+import errno
+import tempfile
+
+import starlette.formparsers
 import threading
 
 import httpx
@@ -127,6 +131,226 @@ def test_import_envelope_counts_chunks_without_content_length() -> None:
         assert reads == 2
 
     asyncio.run(invoke())
+
+
+def test_multipart_disk_preflight_rejects_before_body_read(monkeypatch) -> None:
+    def no_space(_path, amount):
+        assert amount == 100
+        raise OSError(errno.ENOSPC, "disk full")
+
+    monkeypatch.setattr(
+        "frisket.server.import_bulk_request_limit.require_disk_headroom", no_space
+    )
+
+    async def exercise():
+        messages = []
+
+        async def app(scope, receive, send):
+            pytest.fail("rejected upload reached parser")
+
+        async def receive():
+            pytest.fail("rejected upload consumed body")
+
+        async def send(message):
+            messages.append(message)
+
+        await BulkImportRequestLimitMiddleware(app, max_request_bytes=1000)(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": "/api/projects/test/import/files",
+                "headers": [
+                    (b"content-type", b"multipart/form-data; boundary=x"),
+                    (b"content-length", b"100"),
+                ],
+            },
+            receive,
+            send,
+        )
+        assert messages[0]["status"] == 507
+        assert b"disk" in messages[1]["body"].lower()
+
+    asyncio.run(exercise())
+
+
+def test_multipart_headroom_refusal_closes_partial_spool(monkeypatch) -> None:
+    app = FastAPI()
+    files = []
+    real_spool = tempfile.SpooledTemporaryFile
+    checks = 0
+
+    def spool(*args, **kwargs):
+        result = real_spool(*args, **kwargs)
+        files.append(result)
+        return result
+
+    def headroom(_path, _amount):
+        nonlocal checks
+        checks += 1
+        if checks == 2:
+            raise OSError(errno.ENOSPC, "disk full")
+
+    monkeypatch.setattr(starlette.formparsers, "SpooledTemporaryFile", spool)
+    monkeypatch.setattr(starlette.formparsers.MultiPartParser, "spool_max_size", 16)
+    monkeypatch.setattr(
+        "frisket.server.import_bulk_request_limit.require_disk_headroom", headroom
+    )
+
+    @app.post("/api/projects/test/import/files")
+    async def parse(request: Request):
+        await request.form()
+        return {"ok": True}
+
+    async def exercise():
+        messages = []
+        chunks = iter(
+            [
+                b'--x\r\nContent-Disposition: form-data; name="file"; filename="a"\r\n\r\n'
+                + b"a" * 32,
+                b"b" * 32 + b"\r\n--x--\r\n",
+            ]
+        )
+
+        async def receive():
+            return {"type": "http.request", "body": next(chunks), "more_body": True}
+
+        async def send(message):
+            messages.append(message)
+
+        await BulkImportRequestLimitMiddleware(app, max_request_bytes=1000)(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": "/api/projects/test/import/files",
+                "headers": [(b"content-type", b"multipart/form-data; boundary=x")],
+                "query_string": b"",
+            },
+            receive,
+            send,
+        )
+        assert messages[0]["status"] == 507
+        assert len(files) == 1 and files[0].closed
+
+    asyncio.run(exercise())
+
+
+def test_multipart_upload_with_headroom_succeeds(monkeypatch) -> None:
+    app = FastAPI()
+    amounts = []
+    monkeypatch.setattr(
+        "frisket.server.import_bulk_request_limit.require_disk_headroom",
+        lambda _path, amount: amounts.append(amount),
+    )
+
+    @app.post("/api/projects/test/import/files")
+    async def parse(request: Request):
+        form = await request.form()
+        return {"content": (await form["file"].read()).decode()}
+
+    async def exercise():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(
+                app=BulkImportRequestLimitMiddleware(app, max_request_bytes=4096)
+            ),
+            base_url="http://test",
+        ) as client:
+            response = await client.post(
+                "/api/projects/test/import/files", files={"file": ("a.txt", b"hello")}
+            )
+        assert response.status_code == 200
+        assert response.json() == {"content": "hello"}
+        assert amounts[0] > 5
+        assert all(
+            amount >= starlette.formparsers.MultiPartParser.spool_max_size
+            for amount in amounts[1:]
+        )
+        assert len(amounts) > 1
+
+    asyncio.run(exercise())
+
+
+def test_non_multipart_import_does_not_check_temp_disk(monkeypatch) -> None:
+    def unexpected(*_args):
+        pytest.fail("non-multipart request checked upload spool disk")
+
+    monkeypatch.setattr(
+        "frisket.server.import_bulk_request_limit.require_disk_headroom", unexpected
+    )
+    app = FastAPI()
+
+    @app.post("/api/projects/test/import/drafts/paste")
+    async def parse(request: Request):
+        return await request.json()
+
+    async def exercise():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(
+                app=BulkImportRequestLimitMiddleware(app, max_request_bytes=100)
+            ),
+            base_url="http://test",
+        ) as client:
+            response = await client.post(
+                "/api/projects/test/import/drafts/paste", json={"raw": "ok"}
+            )
+        assert response.status_code == 200
+        assert response.json() == {"raw": "ok"}
+
+    asyncio.run(exercise())
+
+
+def test_multipart_body_limit_closes_partial_spool(monkeypatch) -> None:
+    app = FastAPI()
+    files = []
+    real_spool = tempfile.SpooledTemporaryFile
+
+    def spool(*args, **kwargs):
+        result = real_spool(*args, **kwargs)
+        files.append(result)
+        return result
+
+    monkeypatch.setattr(starlette.formparsers, "SpooledTemporaryFile", spool)
+    monkeypatch.setattr(starlette.formparsers.MultiPartParser, "spool_max_size", 16)
+    monkeypatch.setattr(
+        "frisket.server.import_bulk_request_limit.require_disk_headroom",
+        lambda *_: None,
+    )
+
+    @app.post("/api/projects/test/import/files")
+    async def parse(request: Request):
+        await request.form()
+        return {"ok": True}
+
+    async def exercise():
+        messages = []
+        chunks = iter(
+            [
+                b'--x\r\nContent-Disposition: form-data; name="file"; filename="a"\r\n\r\n'
+                + b"a" * 32,
+                b"b" * 200,
+            ]
+        )
+
+        async def receive():
+            return {"type": "http.request", "body": next(chunks), "more_body": True}
+
+        async def send(message):
+            messages.append(message)
+
+        await BulkImportRequestLimitMiddleware(app, max_request_bytes=150)(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": "/api/projects/test/import/files",
+                "headers": [(b"content-type", b"multipart/form-data; boundary=x")],
+                "query_string": b"",
+            },
+            receive,
+            send,
+        )
+        assert messages[0]["status"] == 413
+        assert len(files) == 1 and files[0].closed
+
+    asyncio.run(exercise())
 
 
 def test_cancelled_native_url_import_holds_permit_until_worker_exits(

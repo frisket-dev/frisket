@@ -231,6 +231,50 @@ def fsync_directory(path: Path) -> None:
         os.close(descriptor)
 
 
+def inspect_uploads(
+    uploads: list[BulkUpload], limits: BulkImportLimits
+) -> list[tuple[BulkUpload, dict[str, Any]]]:
+    """Inspect request-owned spools without creating another copy of each file."""
+    inspected = []
+    seen: set[str] = set()
+    total_size = 0
+    for upload in uploads:
+        logical = normalize_logical_path(upload.logical_path)
+        if logical in seen:
+            raise ImportBulkRouteError(
+                400, "bulk import contains duplicate logical paths"
+            )
+        seen.add(logical)
+        source = upload.file.file
+        source.seek(0)
+        digest = hashlib.sha256()
+        size = 0
+        prefix = bytearray()
+        try:
+            while chunk := source.read(CHUNK):
+                size += len(chunk)
+                total_size += len(chunk)
+                enforce_limit("upload bytes", total_size, limits.max_upload_bytes)
+                digest.update(chunk)
+                extend_detection_prefix(prefix, chunk)
+        finally:
+            source.seek(0)
+        if not is_junk_path(logical):
+            inspected.append(
+                (
+                    upload,
+                    staged_item(
+                        logical,
+                        upload.mime,
+                        digest.hexdigest(),
+                        size,
+                        prefix=bytes(prefix),
+                    ),
+                )
+            )
+    return sorted(inspected, key=lambda entry: entry[1]["logical_path"])
+
+
 async def stage_uploads(
     uploads: list[BulkUpload],
     draft: Path,
