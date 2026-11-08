@@ -16705,6 +16705,7 @@ export type HttpContractOperationMap = {
       readonly "413": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
+      readonly "507": HttpError;
     };
   };
   readonly "tenant.cancel_model_pull.post": {
@@ -16963,6 +16964,7 @@ export type HttpContractOperationMap = {
       readonly "413": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
+      readonly "507": HttpError;
     };
   };
   readonly "tenant.create_lens.post": {
@@ -18062,6 +18064,7 @@ export type HttpContractOperationMap = {
       readonly "413": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
+      readonly "507": HttpError;
     };
   };
   readonly "tenant.get_model_pull.get": {
@@ -18679,6 +18682,7 @@ export type HttpContractOperationMap = {
       readonly "413": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
+      readonly "507": HttpError;
     };
   };
   readonly "tenant.list_lenses.get": {
@@ -19652,6 +19656,7 @@ export type HttpContractOperationMap = {
       readonly "413": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
+      readonly "507": HttpError;
     };
   };
   readonly "tenant.resolve_lens.get": {
@@ -19683,6 +19688,7 @@ export type HttpContractOperationMap = {
       readonly "413": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
+      readonly "507": HttpError;
     };
   };
   readonly "tenant.resume_pdf_import.post": {
@@ -19895,6 +19901,7 @@ export type HttpContractOperationMap = {
       readonly "413": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
+      readonly "507": HttpError;
     };
   };
   readonly "tenant.seal_pdf_import_manifest.post": {
@@ -20525,6 +20532,7 @@ export type HttpContractOperationMap = {
       readonly "413": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
+      readonly "507": HttpError;
     };
   };
   readonly "tenant.upload_pdf_import_files.post": {

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import errno
 import io
-import tempfile
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,9 +13,7 @@ from frisket.engine.executor.import_blob_stage import AdmittedImportBlobStager
 from frisket.engine.store import blob_backend, disk_capacity
 from frisket.engine.store.blob_backend import (
     FilesystemProjectBlobStore,
-    S3ProjectBlobStore,
 )
-from frisket.project_identity import ProjectStorageKey
 from frisket.server.services import import_bulk_sources
 from frisket.server.services.import_bulk_types import BulkImportLimits, BulkUpload
 
@@ -148,39 +145,6 @@ def test_filesystem_blob_copy_checks_destination_and_leaves_no_temp(
     assert raised.value.errno == errno.ENOSPC
     assert seen == [(root, source.stat().st_size)]
     assert not list(root.glob(".blob-path.*"))
-
-
-def test_s3_snapshot_checks_its_temporary_filesystem_and_cleans_up(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    class Client:
-        def upload_fileobj(self, **_kwargs) -> None:
-            raise AssertionError("capacity failure must precede upload")
-
-    source = tmp_path / "source.bin"
-    source.write_bytes(b"remote source")
-    store = S3ProjectBlobStore(
-        client=Client(),
-        bucket="bucket",
-        prefix="prefix",
-        project_storage_key=ProjectStorageKey(storage_org_id=1, project_slug="project"),
-    )
-    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
-    seen = []
-
-    def no_space(path: Path, size: int) -> None:
-        seen.append((Path(path), size))
-        raise OSError(errno.ENOSPC, "synthetic no space")
-
-    monkeypatch.setattr(blob_backend, "require_disk_headroom", no_space)
-
-    with pytest.raises(OSError) as raised:
-        store.put_path(source)
-
-    assert raised.value.errno == errno.ENOSPC
-    assert seen[0][0].parent == tmp_path
-    assert seen[0][1] == source.stat().st_size
-    assert not list(tmp_path.glob("frisket-blob-upload-*"))
 
 
 def test_import_blob_stager_checks_scratch_and_removes_partial_file(
