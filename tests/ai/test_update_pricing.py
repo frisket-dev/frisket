@@ -512,10 +512,9 @@ def test_validator_rejects_invalid_numeric_rates(refresh_workspace, bad):
         updater.validate_price_table(doc)
 
 
-def test_offline_validation_cli_rejects_inventory_change(refresh_workspace, tmp_path):
-    import subprocess
-    import sys
-
+def test_offline_validation_cli_rejects_inventory_change(
+    refresh_workspace, tmp_path, monkeypatch
+):
     updater, _, _, _ = refresh_workspace
     before = json.loads(updater.OUT.read_text())
     after = json.loads(json.dumps(before))
@@ -523,17 +522,17 @@ def test_offline_validation_cli_rejects_inventory_change(refresh_workspace, tmp_
     first, second = tmp_path / "before.json", tmp_path / "after.json"
     first.write_text(json.dumps(before))
     second.write_text(json.dumps(after))
-    cmd = [
-        sys.executable,
-        str(ROOT / "scripts/dev/update_pricing.py"),
-        "--validate",
-        str(first),
-        str(second),
-    ]
-    assert subprocess.run(cmd, capture_output=True).returncode == 0
+
+    def no_network(*args, **kwargs):
+        raise AssertionError("offline validation must not fetch provider data")
+
+    monkeypatch.setattr(updater.urllib.request, "urlopen", no_network)
+    args = ["--validate", str(first), str(second)]
+    updater.main(args)
     after["text"]["unapproved"] = [1, 2]
     second.write_text(json.dumps(after))
-    assert subprocess.run(cmd, capture_output=True).returncode != 0
+    with pytest.raises(ValueError):
+        updater.main(args)
 
 
 def test_pricing_refresh_rejects_boolean_upstream_without_writing(refresh_workspace):
