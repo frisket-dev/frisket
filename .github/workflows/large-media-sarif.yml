@@ -1,0 +1,28 @@
+name: Large media path diagnostic
+on:
+  push:
+    branches: [codex/large-media-codeql-proof]
+permissions:
+  contents: read
+jobs:
+  python-paths:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - uses: github/codeql-action/init@5895b2c9be147bc7f1c75ce72c5cb577febb1907
+        with:
+          languages: python
+          build-mode: none
+      - uses: github/codeql-action/analyze@5895b2c9be147bc7f1c75ce72c5cb577febb1907
+        with:
+          upload: never
+          upload-database: false
+          output: sarif-results
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: python-path-diagnostic
+          path: sarif-results/*.sarif
+          retention-days: 1
