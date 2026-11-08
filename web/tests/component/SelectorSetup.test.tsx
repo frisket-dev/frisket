@@ -447,6 +447,53 @@ describe('SelectorSetup', () => {
     expect(changed).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps the failed download error when an availability refresh clears the active operation', async () => {
+    vi.useFakeTimers();
+    const running = pull();
+    const failed = pull({ status: 'failed', capabilities: { cancel: false, retry: true, remove: false },
+      error: { code: 'download_failed', message: 'Download interrupted' }, finished_at: '2026-09-12T00:00:04Z' });
+    request.mockResolvedValueOnce(failed);
+    const setup = { kind: 'engine_setup' as const, scope: 'workspace' as const, setup_ref: running.model,
+      can_mutate: true, can_start: true, blocked_by_operation: running };
+    const view = render(<SelectorSetup projectId="a" choice={choice(setup)} onChanged={vi.fn()} onEditingChange={vi.fn()} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(screen.getByTestId('model-pull-error')).toHaveTextContent('Download interrupted');
+
+    view.rerender(<SelectorSetup projectId="a" choice={choice({ ...setup, blocked_by_operation: null })} onChanged={vi.fn()} onEditingChange={vi.fn()} />);
+    expect(screen.getByTestId('model-pull-error')).toHaveTextContent('Download interrupted');
+    expect(screen.getByRole('button', { name: 'Retry setup' })).toBeEnabled();
+    request.mockResolvedValueOnce({ pull: pull({ id: 8 }), deduplicated: false });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Retry setup' })); });
+    expect(screen.queryByTestId('model-pull-error')).not.toBeInTheDocument();
+    expect(screen.getByTestId('model-pull-progress')).toHaveAttribute('data-status', 'running');
+
+    view.rerender(<SelectorSetup projectId="a" choice={choice({ ...setup, setup_ref: 'engine-setup:another@1', blocked_by_operation: null })} onChanged={vi.fn()} onEditingChange={vi.fn()} />);
+    expect(screen.queryByTestId('model-pull-progress')).not.toBeInTheDocument();
+  });
+
+  it('keeps a failed shared operation through a refresh with no active operation', () => {
+    const failed = pull({ status: 'failed', capabilities: { cancel: false, retry: true, remove: false },
+      error: { code: 'download_failed', message: 'Download interrupted' } });
+    const setup = { kind: 'engine_setup' as const, scope: 'workspace' as const, setup_ref: failed.model,
+      can_mutate: true, can_start: true, blocked_by_operation: null };
+    const selected = choice(setup);
+    selected.active_operation = failed;
+    const view = render(<SelectorSetup projectId="a" choice={selected} sharedProgress onChanged={vi.fn()} onEditingChange={vi.fn()} />);
+    expect(screen.getByTestId('model-pull-error')).toHaveTextContent('Download interrupted');
+    view.rerender(<SelectorSetup projectId="a" choice={choice(setup)} sharedProgress onChanged={vi.fn()} onEditingChange={vi.fn()} />);
+    expect(screen.getByTestId('model-pull-error')).toHaveTextContent('Download interrupted');
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss activity notification' }));
+    expect(screen.queryByTestId('model-pull-error')).not.toBeInTheDocument();
+    const stale = choice(setup);
+    stale.active_operation = pull();
+    view.rerender(<SelectorSetup projectId="a" choice={stale} sharedProgress onChanged={vi.fn()} onEditingChange={vi.fn()} />);
+    expect(screen.queryByTestId('model-pull-progress')).not.toBeInTheDocument();
+    const refreshed = choice(setup);
+    refreshed.active_operation = { ...failed };
+    view.rerender(<SelectorSetup projectId="a" choice={refreshed} sharedProgress onChanged={vi.fn()} onEditingChange={vi.fn()} />);
+    expect(screen.queryByTestId('model-pull-error')).not.toBeInTheDocument();
+  });
+
   it('starts explicit engine setup with its returned durable operation, without assuming readiness', async () => {
     request.mockResolvedValue({ pull: pull(), deduplicated: false });
     const changed = vi.fn();

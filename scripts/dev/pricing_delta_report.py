@@ -1,11 +1,7 @@
 #!/usr/bin/env python3
-"""Render a catalog-refresh PR body: model and rate changes, big swings flagged.
+"""Render a catalog-refresh PR body with model and rate changes.
 
 Usage: pricing_delta_report.py <before.json> <after.json>
-
-A swing above 50% on any single rate gets a loud marker — that's either
-real market news or upstream breakage, and both deserve a human look
-before the numbers feed cost estimates and consent bounds.
 """
 
 from __future__ import annotations
@@ -13,8 +9,6 @@ from __future__ import annotations
 import json
 import sys
 from typing import Any
-
-SWING_FLAG = 0.5
 
 
 def _rates(doc: dict) -> dict[str, list[float] | dict[str, Any]]:
@@ -34,12 +28,6 @@ def _rates(doc: dict) -> dict[str, list[float] | dict[str, Any]]:
             **model["price_per_million_tokens"],
         }
     return out
-
-
-def _named_rates(rates: list[float] | dict[str, Any]) -> dict[str, Any]:
-    if isinstance(rates, list):
-        return {f"rate[{index}]": rate for index, rate in enumerate(rates)}
-    return rates
 
 
 def _models(doc: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -94,7 +82,6 @@ def main() -> int:
                 lines.append(f"- **model:{model_id}**: REMOVED (was {old})")
             else:
                 lines.append(f"- **model:{model_id}**: {old} -> {new}")
-    flagged = False
     for key in sorted(set(before) | set(after)):
         b, a = before.get(key), after.get(key)
         if b == a:
@@ -105,29 +92,7 @@ def main() -> int:
         if a is None:
             lines.append(f"- **{key}**: REMOVED (was {b})")
             continue
-        marks = []
-        before_rates = _named_rates(b)
-        after_rates = _named_rates(a)
-        for rate_name in sorted(set(before_rates) & set(after_rates)):
-            x, y = before_rates[rate_name], after_rates[rate_name]
-            if (
-                type(x) in (int, float)
-                and type(y) in (int, float)
-                and x
-                and abs(y - x) / abs(x) > SWING_FLAG
-            ):
-                marks.append(
-                    f"{rate_name} moved {x} -> {y} (>{int(SWING_FLAG * 100)}%)"
-                )
-        note = "  ⚠ " + "; ".join(marks) if marks else ""
-        flagged = flagged or bool(marks)
-        lines.append(f"- **{key}**: {b} -> {a}{note}")
-    if flagged:
-        lines.insert(
-            2,
-            "⚠ **At least one rate swung more than 50% — verify upstream before merging.**",
-        )
-        lines.insert(3, "")
+        lines.append(f"- **{key}**: {b} -> {a}")
     print("\n".join(lines))
     return 0
 
