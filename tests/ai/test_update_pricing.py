@@ -479,14 +479,14 @@ def test_pricing_refresh_preserves_missing_approved_rates_and_audio_roster(
 def test_pricing_refresh_rejects_missing_model_without_previous_rate(refresh_workspace):
     updater, litellm, _, _ = refresh_workspace
     del litellm["gpt-5"]
-    path = updater.OUT
-    original = json.loads(path.read_text())
+    generated_file = updater.OUT
+    original = json.loads(generated_file.read_text())
     original["text"] = {}
-    path.write_text(json.dumps(original))
-    before = path.read_bytes()
+    generated_file.write_text(json.dumps(original))
+    before = generated_file.read_bytes()
     with pytest.raises(ValueError):
         updater.main([])
-    assert path.read_bytes() == before
+    assert generated_file.read_bytes() == before
 
 
 def test_validator_accepts_rate_only_changes_and_refuses_metadata(refresh_workspace):
