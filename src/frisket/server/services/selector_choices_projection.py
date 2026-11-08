@@ -12,6 +12,7 @@ from frisket.cloud_targets import cloud_fallback_is_blocked
 from frisket.contracts.http.cloud_connection import CloudTokenPrice
 from frisket.contracts.http.selector_choices import SELECTOR_CHOICES_SCHEMA_VERSION
 from frisket.execution.definitions import MODELS_GATEWAY_TARGET_ID
+from frisket.execution.price_book import PlatformMetered
 from frisket.execution.provider import ExecutionComposition
 from frisket.execution.resolver import (
     ModelRoute,
@@ -22,7 +23,7 @@ from frisket.execution.resolver import (
     preferred_resolved_engine,
     preferred_static_choice,
 )
-from frisket.execution.targets import ExecutionTarget
+from frisket.execution.targets import CAPABILITY_LLM, ExecutionTarget
 from frisket.ops.integrations.opus_mt import resolve_pair_codes
 from frisket.server.provider_config import PROVIDER_LABELS
 
@@ -287,6 +288,7 @@ def _execution_route(
     balance_url: str | None = None,
     settings_url: str | None = None,
     credential_label: str | None = None,
+    credential_source: str | None = None,
 ) -> dict[str, Any]:
     payer = composition.cloud_payer_for(
         target_id=target.id, capability=capability, engine=engine
@@ -302,6 +304,34 @@ def _execution_route(
         billed_to = presentation.billing_label if presentation is not None else None
         sends_data_to = label
         account_id = payer.account_id
+    elif (
+        composition.facts.edition == "hosted"
+        and (
+            credential_source == "platform"
+            or credential_source in {None, "missing"}
+            and isinstance(composition.facts.funding, PlatformMetered)
+        )
+        and (
+            (capability == CAPABILITY_LLM and target.egress_class == "third_party_api")
+            or composition.offering_for(
+                target_id=target.id, capability=capability, engine=engine
+            )
+            is not None
+        )
+    ):
+        # Native hosted execution has no connected-account payer. Its existing
+        # credential/offer facts still describe who pays; don't invent a payer.
+        kind = "cloud_credits"
+        label = (
+            presentation.venue_label if presentation is not None else "Frisket Cloud"
+        )
+        billed_to = (
+            presentation.billing_label
+            if presentation is not None
+            else "Frisket Cloud credits"
+        )
+        sends_data_to = PROVIDER_LABELS.get(target.operator, target.operator)
+        account_id = None
     elif target.egress_class == "none":
         kind = "local_engine"
         label = "On this computer"
@@ -803,6 +833,7 @@ def _execution_presentation(
     cloud_setup_for_lane: Callable[[str | None], dict[str, Any] | None] | None = None,
     cloud_account_key_setup: Callable[[str], dict[str, Any] | None] | None = None,
     credential_label: str | None = None,
+    credential_source: str | None = None,
     balance_label: str | None = None,
     balance_url: str | None = None,
     settings_url: str | None = None,
@@ -836,6 +867,7 @@ def _execution_presentation(
             balance_url=balance_url,
             settings_url=settings_url,
             credential_label=credential_label,
+            credential_source=credential_source,
         )
 
     if _network_policy_forbids_target(network_off, target):

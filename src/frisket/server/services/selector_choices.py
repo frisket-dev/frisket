@@ -794,13 +794,13 @@ class SelectorChoiceService:
                 if not local_http and provider_id in ENV_VAR
                 else None
             )
+            own_credential_source = _credential_source(
+                router,
+                provider_id,
+                raw_source=_optional_str(provider.get("credential_source")),
+            )
             own_credential_label = _credential_label(
-                provider_setup,
-                _credential_source(
-                    router,
-                    provider_id,
-                    raw_source=_optional_str(provider.get("credential_source")),
-                ),
+                provider_setup, own_credential_source
             )
             spend = (
                 provider_spend_states.get(provider_id)
@@ -891,6 +891,7 @@ class SelectorChoiceService:
                     balance_url=cloud.balance_url,
                     settings_url=cloud.project_settings_url,
                     credential_label=own_credential_label,
+                    credential_source=own_credential_source,
                     network_off=_network_off(project),
                     preserve_unbound_catalog=local_http,
                 )
@@ -1512,6 +1513,9 @@ class SelectorChoiceService:
                     blocker=blocker,
                     setup=setup,
                     active_operation=operation,
+                    credential_source=_credential_source(router, target.operator)
+                    if target is not None
+                    else None,
                     cloud_setup_for_lane=lambda lane: cloud.setup(payer_lane=lane),
                     cloud_account_key_setup=cloud.account_key_setup,
                     balance_label=_balance_label(cloud),
