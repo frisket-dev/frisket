@@ -1151,10 +1151,11 @@ async def test_cloud_lost_confirmed_response_reuses_exact_quote_and_purchase(tmp
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failure", ["network", "wrong_capability"])
+@pytest.mark.parametrize("failure", ["network", "wrong_capability", "deadline"])
 async def test_cloud_poll_failure_does_not_resubmit_purchase(tmp_path, failure):
     seen = []
-    completed = _llm_response()
+    execution_id = "b" * 32
+    completed = _llm_response().model_copy(update={"execution_id": execution_id})
 
     def handler(request):
         seen.append(request.method)
@@ -1177,17 +1178,27 @@ async def test_cloud_poll_failure_does_not_resubmit_purchase(tmp_path, failure):
         "https://cloud.example.test",
         http_transport=httpx.MockTransport(handler),
         poll_interval_seconds=0,
+        max_poll_seconds=0 if failure == "deadline" else 60,
     )
     with pytest.raises(CloudExecutionRefused) as caught:
         await transport.execute_llm(
             CloudExecutionAttempt("durable-purchase", _payer(), None), _llm_request()
         )
-    assert caught.value.code == (
-        "cloud_unreachable" if failure == "network" else "route_changed"
+    assert (
+        caught.value.code
+        == {
+            "network": "cloud_unreachable",
+            "wrong_capability": "route_changed",
+            "deadline": "cloud_execution_pending",
+        }[failure]
     )
-    assert caught.value.cloud_request_id == (None if failure == "network" else "a" * 32)
+    assert caught.value.cloud_request_id == (
+        "a" * 32 if failure == "wrong_capability" else None
+    )
+    assert caught.value.cloud_execution_id == execution_id
+    assert str(caught.value).count(f"Cloud execution: {execution_id}") == 1
     assert "private" not in "".join(traceback.format_exception(caught.value))
-    assert seen == ["POST", "GET"]
+    assert seen == (["POST"] if failure == "deadline" else ["POST", "GET"])
 
 
 @pytest.mark.parametrize(
@@ -1228,3 +1239,32 @@ def test_cloud_terminal_failure_without_receipt_has_safe_execution_identity(
     assert error.cloud_request_id is None
     assert error.code == "provider_failed"
     assert error.retryable is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["recover", "cancel"])
+async def test_cloud_known_execution_survives_standalone_network_failure(
+    tmp_path, method
+):
+    seen = []
+    execution_id = "b" * 32
+
+    def handler(request):
+        seen.append(request.method)
+        raise httpx.ReadTimeout("private connection details", request=request)
+
+    transport = HttpCloudExecutionTransport(
+        _store(tmp_path),
+        "https://cloud.example.test",
+        http_transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(CloudExecutionRefused) as caught:
+        await getattr(transport, method)(
+            CloudExecutionAttempt("durable-purchase", _payer(), None), execution_id
+        )
+    assert caught.value.cloud_execution_id == execution_id
+    assert caught.value.cloud_request_id is None
+    assert caught.value.retryable is True
+    assert caught.value.post_egress_ambiguous is True
+    assert caught.value.accounting is None
+    assert seen == (["GET"] if method == "recover" else ["DELETE"])

@@ -239,16 +239,7 @@ class CloudExecutionRefused(HostedEngineError):
         post_egress_ambiguous: bool = False,
         cloud_execution_id: str | None = None,
     ) -> None:
-        # Poll responses have fresh HTTP IDs; the execution ID links them to
-        # the original admitted Cloud attempt even when there is no receipt.
-        self.cloud_execution_id = (
-            cloud_execution_id
-            if cloud_execution_id is not None
-            and re.fullmatch(r"[0-9a-f]{32}", cloud_execution_id)
-            else None
-        )
-        if self.cloud_execution_id is not None:
-            message += f" (Cloud execution: {self.cloud_execution_id})"
+        self.cloud_execution_id: str | None = None
         super().__init__(
             code=code,
             message=message,
@@ -257,6 +248,18 @@ class CloudExecutionRefused(HostedEngineError):
             provider_job_accepted=provider_job_accepted,
             post_egress_ambiguous=post_egress_ambiguous,
         )
+        self._attach_execution_id(cloud_execution_id)
+
+    def _attach_execution_id(self, execution_id: str | None) -> None:
+        # Poll HTTP IDs change; retain the admitted execution even if its
+        # next response is lost. Never duplicate or replace an existing ID.
+        if (
+            self.cloud_execution_id is None
+            and execution_id is not None
+            and re.fullmatch(r"[0-9a-f]{32}", execution_id)
+        ):
+            self.cloud_execution_id = execution_id
+            self.message += f" (Cloud execution: {execution_id})"
 
 
 class CloudConfirmationRequired(CloudExecutionRefused):
@@ -515,24 +518,32 @@ class HttpCloudExecutionTransport:
         *,
         capability: str | None = None,
     ) -> CloudExecutionResponse:
-        response = await self._request(
-            "GET",
-            self._execution_path(execution_id),
-            attempt=attempt,
-            ocr_contract=True,
-        )
-        return self._read_execution(attempt, response, capability=capability)
+        try:
+            response = await self._request(
+                "GET",
+                self._execution_path(execution_id),
+                attempt=attempt,
+                ocr_contract=True,
+            )
+            return self._read_execution(attempt, response, capability=capability)
+        except CloudExecutionRefused as exc:
+            exc._attach_execution_id(execution_id)
+            raise
 
     async def cancel(
         self, attempt: CloudExecutionAttempt, execution_id: str
     ) -> CloudExecutionResponse:
-        response = await self._request(
-            "DELETE",
-            self._execution_path(execution_id),
-            attempt=attempt,
-            ocr_contract=True,
-        )
-        return self._read_execution(attempt, response)
+        try:
+            response = await self._request(
+                "DELETE",
+                self._execution_path(execution_id),
+                attempt=attempt,
+                ocr_contract=True,
+            )
+            return self._read_execution(attempt, response)
+        except CloudExecutionRefused as exc:
+            exc._attach_execution_id(execution_id)
+            raise
 
     async def _create(
         self, attempt: CloudExecutionAttempt, send: Any, *, capability: str
@@ -610,6 +621,7 @@ class HttpCloudExecutionTransport:
                     "cloud_execution_pending",
                     "Cloud execution is still running",
                     retryable=True,
+                    cloud_execution_id=current.execution_id,
                 )
             await asyncio.sleep(self._poll_interval)
             current = await self.recover(
