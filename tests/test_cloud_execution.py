@@ -1054,8 +1054,10 @@ async def test_cloud_terminal_failure_keeps_response_correlation_and_receipt(
     tmp_path, poll
 ):
     request_id = "e3a16f6a7b0049caa30abf49c9e25425"
+    execution_id = "b" * 32
     terminal = _llm_response().model_copy(
         update={
+            "execution_id": execution_id,
             "status": "failed",
             "error": CloudErrorResponse(
                 error="provider_failed", message="Provider failed", retryable=False
@@ -1098,7 +1100,10 @@ async def test_cloud_terminal_failure_keeps_response_correlation_and_receipt(
         )
     error = caught.value
     assert error.cloud_request_id == request_id
-    assert str(error) == f"Provider failed (Cloud request: {request_id})"
+    assert error.cloud_execution_id == execution_id
+    assert str(error) == (
+        f"Provider failed (Cloud execution: {execution_id}) (Cloud request: {request_id})"
+    )
     assert error.code == "provider_failed"
     assert error.retryable is False
     assert error.accounting["cloud_receipt"]["charge_micro"] == 25_000
@@ -1183,3 +1188,43 @@ async def test_cloud_poll_failure_does_not_resubmit_purchase(tmp_path, failure):
     assert caught.value.cloud_request_id == (None if failure == "network" else "a" * 32)
     assert "private" not in "".join(traceback.format_exception(caught.value))
     assert seen == ["POST", "GET"]
+
+
+@pytest.mark.parametrize(
+    "execution_id", ["a" * 32, "invalid secret URL", "a" * 33, "A" * 32]
+)
+@pytest.mark.parametrize("with_error", [False, True])
+def test_cloud_terminal_failure_without_receipt_has_safe_execution_identity(
+    execution_id, with_error
+):
+    terminal = _llm_response().model_copy(
+        update={
+            "execution_id": execution_id,
+            "status": "failed",
+            "receipt": None,
+            "result": None,
+            "error": CloudErrorResponse(
+                error="provider_failed", message="Provider failed", retryable=False
+            )
+            if with_error
+            else None,
+        }
+    )
+    with pytest.raises(CloudExecutionRefused) as caught:
+        HttpCloudExecutionTransport._require_success(
+            CloudExecutionAttempt("durable-purchase", _payer(), None),
+            terminal,
+            "llm.complete",
+        )
+    error = caught.value
+    assert error.cloud_execution_id == (
+        execution_id if execution_id == "a" * 32 else None
+    )
+    assert (f"Cloud execution: {execution_id}" in str(error)) is (
+        execution_id == "a" * 32
+    )
+    assert "secret" not in str(error)
+    assert error.accounting is None
+    assert error.cloud_request_id is None
+    assert error.code == "provider_failed"
+    assert error.retryable is False

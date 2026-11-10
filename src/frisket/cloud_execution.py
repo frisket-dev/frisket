@@ -237,7 +237,18 @@ class CloudExecutionRefused(HostedEngineError):
         accounting: dict[str, Any] | None = None,
         provider_job_accepted: bool = False,
         post_egress_ambiguous: bool = False,
+        cloud_execution_id: str | None = None,
     ) -> None:
+        # Poll responses have fresh HTTP IDs; the execution ID links them to
+        # the original admitted Cloud attempt even when there is no receipt.
+        self.cloud_execution_id = (
+            cloud_execution_id
+            if cloud_execution_id is not None
+            and re.fullmatch(r"[0-9a-f]{32}", cloud_execution_id)
+            else None
+        )
+        if self.cloud_execution_id is not None:
+            message += f" (Cloud execution: {self.cloud_execution_id})"
         super().__init__(
             code=code,
             message=message,
@@ -852,6 +863,7 @@ class HttpCloudExecutionTransport:
                 accounting=accounting,
                 provider_job_accepted=unresolved,
                 post_egress_ambiguous=unresolved,
+                cloud_execution_id=response.execution_id,
             )
         default_code = {
             "failed": "provider_failed",
@@ -865,6 +877,7 @@ class HttpCloudExecutionTransport:
             accounting=accounting,
             provider_job_accepted=unresolved,
             post_egress_ambiguous=unresolved,
+            cloud_execution_id=response.execution_id,
         )
 
     @staticmethod
