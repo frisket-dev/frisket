@@ -33,6 +33,8 @@ export type ProductTelemetryEvent =
   | { type: 'Import.started'; properties: { importKind: 'file' | 'files' | 'paste' | 'url'; format: ImportFormat; bytes: ByteBucket } }
   | { type: 'Import.submitted'; properties: { importKind: 'file' | 'files' | 'paste' | 'url'; format: ImportFormat; bytes: ByteBucket; rows: RowBucket; columns: ColumnBucket; requestDuration: DurationBucket; result: 'success' | 'partial' | 'queued' | 'cancelled' | 'rejected' | 'failed'; failureCategory: FailureCategory } }
   | { type: 'Source.created'; properties: { sourceKind: SourceKind; requestDuration: DurationBucket; result: 'success' | 'rejected' | 'failed'; failureCategory: FailureCategory } }
+  | { type: 'Walkthrough.stepViewed'; properties: { walkthrough: string; step: string } }
+  | { type: 'Walkthrough.completed'; properties: { walkthrough: string } }
   | { type: 'Action.opened'; properties: { action: string } }
   | { type: 'Action.previewStarted'; properties: { action: string } }
   | { type: 'Action.previewObserved'; properties: { action: string; observedDuration: DurationBucket; result: 'success' | 'partial' | 'failed' | 'cancelled'; failureCategory: FailureCategory } }
@@ -61,6 +63,19 @@ type StoredTelemetry = {
 const STORAGE_KEY = 'frisket:product-telemetry:v1';
 let available = false;
 let appOpenedSent = false;
+
+// UI context at event time, not attribution of a later job result to its origin.
+let walkthroughContext: { projectId: string; walkthrough: string; walkthroughState: 'active' | 'paused' } | null = null;
+const WALKTHROUGH_IDS = new Set([
+  'regex-extract', 'lawsuit-documents', 'council-audio', 'civic-ai-triage',
+  'rss-import', 'combine-values', 'multilingual-names', 'local-model-lab', 'open-weight-model-lab',
+]);
+export function telemetryWalkthrough(id: string): string {
+  return WALKTHROUGH_IDS.has(id) ? id : 'other';
+}
+export function setTelemetryWalkthrough(context: typeof walkthroughContext): void {
+  walkthroughContext = context ? { ...context, walkthrough: telemetryWalkthrough(context.walkthrough) } : null;
+}
 
 function monthNow(): string {
   const now = new Date();
@@ -128,7 +143,13 @@ export function sendProductTelemetry(event: ProductTelemetryEvent, projectId?: s
   if (!available) return;
   const monthlyId = enabledIdentity();
   if (!monthlyId) return;
-  const body = { monthly_id: monthlyId, ...event, client: telemetryClient() };
+  const guide = walkthroughContext?.projectId === projectId ? walkthroughContext : null;
+  const properties = event.type.startsWith('Action.') ? {
+    ...event.properties,
+    walkthrough: guide?.walkthrough ?? 'none',
+    walkthroughState: guide?.walkthroughState ?? 'none',
+  } : event.properties;
+  const body = { monthly_id: monthlyId, ...event, properties, client: telemetryClient() };
   const request = projectId
     ? httpContract('tenant.product_telemetry_project.post', {
         pathParams: { pid: projectId },

@@ -10,6 +10,7 @@ import { ApplicationGuidance } from './components/ApplicationGuidance';
 import { setSampleGuideArrival } from './workbench/sampleGuideArrival';
 import { readSettingsProjectContext } from './settings/settingsProjectContext';
 import { ProductTelemetryProvider } from './telemetry/ProductTelemetryProvider';
+import { useTelemetryDisclosureReady } from './telemetry/disclosureReady';
 import { sendProductTelemetry } from './telemetry/productTelemetry';
 import { navigate, useRoute, type RoutePanel, type SettingsRoute } from './routes';
 import { DiagnosticReportButton } from './workspace/DiagnosticReport';
@@ -268,12 +269,13 @@ export function ProjectRoute({
     };
   }, [projectId]);
 
+  const telemetryReady = useTelemetryDisclosureReady();
   const openedProjectRef = useRef<string | null>(null);
   useEffect(() => {
-    if (state.projectId !== projectId || !state.project || openedProjectRef.current === projectId) return;
+    if (!telemetryReady || state.projectId !== projectId || !state.project || openedProjectRef.current === projectId) return;
     openedProjectRef.current = projectId;
     sendProductTelemetry({ type: 'Project.opened', properties: {} }, projectId);
-  }, [projectId, state.project, state.projectId]);
+  }, [projectId, state.project, state.projectId, telemetryReady]);
 
   if (state.error) {
     return (

@@ -47,3 +47,28 @@ Standard TelemetryDeck dimensions follow its [default parameter reference](https
 Test events are excluded from ordinary production queries; select test mode in
 TelemetryDeck to verify them. API querying/account integration is separate from
 collection and does not require storing the account password in Frisket.
+
+## Sample projects and walkthroughs
+
+- `Project.created` has `Frisket.creationKind=sample|blank`; reopening the sample
+  does not count as another creation. `Project.opened` records project visits.
+- All project events include server-derived `Frisket.projectKind=sample|regular|unknown`.
+  Successful sample seeding stores the marker in project metadata, so renaming
+  does not change it. Older projects without a marker remain unknown until seeded;
+  neither the name nor the slug is used to guess their origin. The marker describes
+  origin, not whether someone has since added their own data.
+- `Walkthrough.stepViewed` records the built-in guide ID and 1-based step; returning
+  to a step or resuming a guide counts as another view. `Walkthrough.completed`
+  means reaching Finish, not proof that each exercise succeeded. Custom guide IDs
+  are grouped as `other`; no custom names or instruction text are sent.
+- Action events include `Frisket.walkthroughState=active|paused|none` and
+  `Frisket.walkthrough` (built-in ID, `other`, or `none`). This is UI context at the
+  time of the event, not proof the guide caused the action. Use submission events
+  when analyzing actions launched during a guide, rather than later job observations.
+  The chooser and welcome dialog alone do not count as an active walkthrough.
+  Older clients omit these dimensions; absence is unknown, not `none`.
+
+In TelemetryDeck, split project opens and action submissions by `Frisket.projectKind`,
+then action submissions by `Frisket.walkthroughState`. Use guide step views and
+completion events to explore walkthrough drop-off. Counts remain approximate and
+respect the same opt-out and sensitive-project rules as other product telemetry.

@@ -140,6 +140,23 @@ _PROPERTY_VALUES: dict[str, frozenset[str]] = {
     "setupKind": frozenset({"engine", "model"}),
     "platform": frozenset({"linux", "macos", "windows", "ios", "android", "other"}),
     "creationKind": frozenset({"blank", "sample"}),
+    "walkthroughState": frozenset({"active", "paused", "none"}),
+    "walkthrough": frozenset(
+        {
+            "regex-extract",
+            "lawsuit-documents",
+            "council-audio",
+            "civic-ai-triage",
+            "rss-import",
+            "combine-values",
+            "multilingual-names",
+            "local-model-lab",
+            "open-weight-model-lab",
+            "other",
+            "none",
+        }
+    ),
+    "step": frozenset({str(i) for i in range(1, 101)} | {"other"}),
     "importKind": frozenset({"file", "files", "paste", "url"}),
     "format": frozenset(
         {
@@ -214,6 +231,8 @@ _EVENT_FIELDS: dict[str, tuple[TelemetryContext, frozenset[str]]] = {
         "project",
         frozenset({"sourceKind", "requestDuration", "result", "failureCategory"}),
     ),
+    "Walkthrough.stepViewed": ("project", frozenset({"walkthrough", "step"})),
+    "Walkthrough.completed": ("project", frozenset({"walkthrough"})),
     "Action.opened": ("project", frozenset({"action"})),
     "Action.previewStarted": ("project", frozenset({"action"})),
     "Action.previewObserved": (
@@ -327,7 +346,16 @@ class ProductTelemetryEvent:
             _, expected = _EVENT_FIELDS[self.type]
         except KeyError as exc:
             raise ValueError("unregistered product telemetry event") from exc
-        if set(self.properties) != expected:
+        # Walkthrough context is optional for older clients; absent means unknown.
+        optional = (
+            {"walkthrough", "walkthroughState"}
+            if self.type.startswith("Action.")
+            else set()
+        )
+        keys = set(self.properties)
+        if optional & keys and optional & keys != optional:
+            raise ValueError("incomplete walkthrough context")
+        if keys - optional != expected:
             raise ValueError("product telemetry properties do not match event")
         for key, value in self.properties.items():
             if key == "action":
@@ -341,6 +369,16 @@ class ProductTelemetryEvent:
                 allowed = _PROPERTY_VALUES[key]
             if type(value) is not str or value not in allowed:
                 raise ValueError("unregistered product telemetry value")
+        if self.type.startswith("Action.") and "walkthroughState" in self.properties:
+            if (self.properties["walkthroughState"] == "none") != (
+                self.properties["walkthrough"] == "none"
+            ):
+                raise ValueError("inconsistent walkthrough context")
+        if (
+            self.type.startswith("Walkthrough.")
+            and self.properties["walkthrough"] == "none"
+        ):
+            raise ValueError("walkthrough event requires a walkthrough")
         if (
             self.properties.get("result") == "success"
             and self.properties.get("failureCategory") != "none"
@@ -413,6 +451,7 @@ class ProductTelemetryRuntime:
         event: ProductTelemetryEvent,
         *,
         client: dict[str, Any] | None = None,
+        project_kind: str | None = None,
     ) -> bool:
         if self.destination is None:
             return False
@@ -435,6 +474,10 @@ class ProductTelemetryRuntime:
             "TelemetryDeck.Device.platform": device_platform,
             **{f"Frisket.{key}": value for key, value in event.properties.items()},
         }
+        if project_kind is not None:
+            if project_kind not in {"sample", "regular", "unknown"}:
+                raise ValueError("invalid project kind")
+            payload["Frisket.projectKind"] = project_kind
         if device.get("browser"):
             payload["Frisket.browser"] = device["browser"]
         if device.get("browser_major"):

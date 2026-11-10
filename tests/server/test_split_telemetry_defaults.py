@@ -392,3 +392,76 @@ def test_common_operator_disable_values_override_destinations(monkeypatch, setti
         MONTHLY_ID, ProductTelemetryEvent("App.opened", {"platform": "linux"})
     )
     assert destination.signals == []
+
+
+def test_sample_origin_is_persisted_and_project_events_are_enriched(
+    tmp_path, monkeypatch
+):
+    from frisket.server.services.sample_project import SampleProjectSeedService
+
+    destination = RecordingDestination()
+    app = create_app(tmp_path, product_telemetry_destination=destination)
+    client = TestClient(app)
+    pid = client.post("/api/projects", json={"name": "Sample project"}).json()["id"]
+    project = app.state.workspace.get(pid)
+    path = f"/api/projects/{pid}/telemetry/events"
+
+    def opened():
+        response = client.post(path, json=_body("Project.opened", {}))
+        assert response.status_code == 204, response.text
+        return destination.signals[-1]["payload"]["Frisket.projectKind"]
+
+    assert opened() == "regular"  # Naming a project is not sample creation.
+    # Exercise the seed lifecycle without downloading or populating fixture media.
+    monkeypatch.setattr(
+        SampleProjectSeedService, "_ensure_sheet", lambda *a, **k: {"sheet_id": 1}
+    )
+    monkeypatch.setattr(SampleProjectSeedService, "_ensure_file_sheet", lambda *a: None)
+    monkeypatch.setattr(
+        SampleProjectSeedService, "_ensure_audio_sheet", lambda *a: None
+    )
+    assert client.post(f"/api/projects/{pid}/seed-sample").status_code == 200
+    project.set_meta("name", "Renamed privately")
+    assert opened() == "sample"
+    for event, props in [
+        ("Project.created", {"creationKind": "sample", "requestDuration": "1_10s"}),
+        (
+            "Action.previewStarted",
+            {
+                "action": "map.extract",
+                "walkthrough": "regex-extract",
+                "walkthroughState": "active",
+            },
+        ),
+        ("Walkthrough.stepViewed", {"walkthrough": "regex-extract", "step": "2"}),
+        ("Walkthrough.completed", {"walkthrough": "regex-extract"}),
+    ]:
+        assert client.post(path, json=_body(event, props)).status_code == 204
+        assert destination.signals[-1]["payload"]["Frisket.projectKind"] == "sample"
+    assert "Renamed privately" not in str(destination.signals)
+    # A previously created project with no marker is explicitly unknown.
+    project.set_meta("project_kind", "")
+    assert opened() == "unknown"
+    for props in [
+        {"action": "map.extract", "projectKind": "sample"},
+        {
+            "action": "map.extract",
+            "walkthrough": "private-guide",
+            "walkthroughState": "active",
+        },
+        {"action": "map.extract", "walkthrough": "regex-extract"},
+        {"action": "map.extract", "walkthrough": "none", "walkthroughState": "active"},
+    ]:
+        assert client.post(path, json=_body("Action.opened", props)).status_code == 422
+    project.set_meta("sensitive", "true")
+    previous = len(destination.signals)
+    assert (
+        client.post(
+            path,
+            json=_body(
+                "Walkthrough.stepViewed", {"walkthrough": "regex-extract", "step": "1"}
+            ),
+        ).status_code
+        == 204
+    )
+    assert len(destination.signals) == previous
