@@ -421,7 +421,7 @@ def test_sample_origin_is_persisted_and_project_events_are_enriched(
         SampleProjectSeedService, "_ensure_audio_sheet", lambda *a: None
     )
     assert client.post(f"/api/projects/{pid}/seed-sample").status_code == 200
-    project.set_meta("name", "Renamed privately")
+    project.set_project_metadata(name="Renamed privately")
     assert opened() == "sample"
     for event, props in [
         ("Project.created", {"creationKind": "sample", "requestDuration": "1_10s"}),
@@ -453,7 +453,7 @@ def test_sample_origin_is_persisted_and_project_events_are_enriched(
         {"action": "map.extract", "walkthrough": "none", "walkthroughState": "active"},
     ]:
         assert client.post(path, json=_body("Action.opened", props)).status_code == 422
-    project.set_meta("sensitive", "true")
+    project.set_project_sensitivity(True)
     previous = len(destination.signals)
     assert (
         client.post(
