@@ -145,3 +145,73 @@ def test_schema_violation_is_never_retried_by_transport_regardless_of_max_retrie
     elapsed = asyncio.run(run())
     assert adapter.calls == 1  # no retry attempted at all
     assert elapsed < 0.5  # no backoff sleep (min(2**attempt*0.5, 8.0) would show)
+
+
+@pytest.mark.parametrize("retryable", [False, True])
+@pytest.mark.parametrize(
+    "status, transport_kind", [(502, None), (429, None), (None, "connect")]
+)
+def test_explicit_ambiguous_provider_outcome_survives_router(
+    retryable, status, transport_kind
+):
+    adapter = _ScriptedFailThenSucceed(
+        lambda: LLMError(
+            "Provider outcome needs reconciliation",
+            status=status,
+            retryable=retryable,
+            transport_kind=transport_kind,
+            post_egress_ambiguous=True,
+        ),
+        fail_times=1,
+    )
+    router = _router_with(adapter)
+
+    async def run():
+        try:
+            with pytest.raises(LLMError) as caught:
+                await router.complete(req())
+            assert caught.value.post_egress_ambiguous is True
+            assert caught.value.retryable is retryable
+            assert caught.value.status == status
+        finally:
+            await router.aclose()
+
+    asyncio.run(run())
+    assert adapter.calls == 1
+
+
+@pytest.mark.parametrize(
+    "exception_class, expected_kind",
+    [
+        (httpx.ReadTimeout, "timeout"),
+        (httpx.WriteTimeout, "timeout"),
+        (httpx.ConnectTimeout, "timeout"),
+        (httpx.ReadError, "read"),
+        (httpx.WriteError, "write"),
+        (httpx.RemoteProtocolError, "protocol"),
+    ],
+)
+def test_provider_transport_diagnostics_keep_kind_without_retry(
+    exception_class, expected_kind
+):
+    adapter = _ScriptedFailThenSucceed(lambda: exception_class(""), fail_times=1)
+    router = _router_with(adapter)
+
+    async def run():
+        try:
+            with pytest.raises(LLMError) as caught:
+                await router.complete(req())
+            assert caught.value.transport_kind == expected_kind
+            assert caught.value.post_egress_ambiguous is True
+        finally:
+            await router.aclose()
+
+    asyncio.run(run())
+    assert adapter.calls == 1
+
+
+def test_wrapped_timeout_keeps_finite_transport_kind():
+    original = LLMError("Provider transport failed", retryable=True)
+    original.__cause__ = httpx.ReadTimeout("")
+    safe = ModelRouter._safe_llm_error(original, ())
+    assert safe.transport_kind == "timeout"

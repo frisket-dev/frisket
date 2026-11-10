@@ -33,6 +33,7 @@ from .types import (
     ModelTrace,
     OutputLimitReached,
     SchemaViolation,
+    TransportKind,
     provider_from_model_id,
     validate_credential_source,
 )
@@ -766,7 +767,7 @@ class ModelRouter:
                 chaos_error = bool(
                     self.chaos is not None and str(safe_error).startswith("chaos:")
                 )
-                retry_is_proven_safe = (
+                retry_is_proven_safe = not safe_error.post_egress_ambiguous and (
                     chaos_error
                     or safe_error.transport_kind == "connect"
                     # A provider response that categorically rejected the
@@ -774,7 +775,8 @@ class ModelRouter:
                     or safe_error.status == 429
                 )
                 safe_error.post_egress_ambiguous = bool(
-                    safe_error.retryable and not retry_is_proven_safe
+                    safe_error.post_egress_ambiguous
+                    or (safe_error.retryable and not retry_is_proven_safe)
                 )
                 duration_ms = _record(
                     attempt,
@@ -980,8 +982,8 @@ class ModelRouter:
             post_egress_ambiguous = bool(getattr(error, "post_egress_ambiguous", False))
         except BaseException:  # hostile legacy subclasses must fail closed
             post_egress_ambiguous = True
-        if transport_kind is None and isinstance(error.__cause__, httpx.ConnectError):
-            transport_kind = "connect"
+        if transport_kind is None:
+            transport_kind = ModelRouter._transport_kind(error.__cause__)
         safe_error = LLMError(
             detail,
             status=error.status,
@@ -1022,6 +1024,20 @@ class ModelRouter:
         ]
 
     @staticmethod
+    def _transport_kind(error: BaseException | None) -> TransportKind | None:
+        if isinstance(error, httpx.ConnectError):
+            return "connect"
+        if isinstance(error, httpx.TimeoutException):
+            return "timeout"
+        if isinstance(error, httpx.ReadError):
+            return "read"
+        if isinstance(error, httpx.WriteError):
+            return "write"
+        if isinstance(error, httpx.ProtocolError):
+            return "protocol"
+        return None
+
+    @staticmethod
     def _safe_transport_error(
         error: httpx.HTTPError, secret_values: tuple[str, ...]
     ) -> LLMError:
@@ -1031,7 +1047,7 @@ class ModelRouter:
                 f"transport error: {cause_detail}", secret_values=secret_values
             ),
             retryable=True,
-            transport_kind="connect" if isinstance(error, httpx.ConnectError) else None,
+            transport_kind=ModelRouter._transport_kind(error),
             post_egress_ambiguous=not isinstance(error, httpx.ConnectError),
         )
 

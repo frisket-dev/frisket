@@ -8,6 +8,7 @@ cannot choose another account, lane, provider, or route revision.
 from __future__ import annotations
 
 import asyncio
+import re
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -224,6 +225,9 @@ class CloudMediaUpload:
 class CloudExecutionRefused(HostedEngineError):
     """A typed Cloud refusal or terminal failure safe to surface locally."""
 
+    # HTTP diagnostic correlation, never the durable purchase/idempotency key.
+    cloud_request_id: str | None = None
+
     def __init__(
         self,
         code: str,
@@ -233,7 +237,9 @@ class CloudExecutionRefused(HostedEngineError):
         accounting: dict[str, Any] | None = None,
         provider_job_accepted: bool = False,
         post_egress_ambiguous: bool = False,
+        cloud_execution_id: str | None = None,
     ) -> None:
+        self.cloud_execution_id: str | None = None
         super().__init__(
             code=code,
             message=message,
@@ -242,6 +248,18 @@ class CloudExecutionRefused(HostedEngineError):
             provider_job_accepted=provider_job_accepted,
             post_egress_ambiguous=post_egress_ambiguous,
         )
+        self._attach_execution_id(cloud_execution_id)
+
+    def _attach_execution_id(self, execution_id: str | None) -> None:
+        # Poll HTTP IDs change; retain the admitted execution even if its
+        # next response is lost. Never duplicate or replace an existing ID.
+        if (
+            self.cloud_execution_id is None
+            and execution_id is not None
+            and re.fullmatch(r"[0-9a-f]{32}", execution_id)
+        ):
+            self.cloud_execution_id = execution_id
+            self.message += f" (Cloud execution: {execution_id})"
 
 
 class CloudConfirmationRequired(CloudExecutionRefused):
@@ -443,10 +461,8 @@ class HttpCloudExecutionTransport:
                 json=body,
             )
 
-        response = await self._create(attempt, send)
-        response = await self._await_terminal(attempt, response)
-        response = self._validate_response(attempt, response, capability)
-        return self._require_success(attempt, response, capability)
+        response = await self._create(attempt, send, capability=capability)
+        return await self._await_terminal(attempt, response)
 
     async def execute_media(
         self,
@@ -492,58 +508,92 @@ class HttpCloudExecutionTransport:
                 ],
             )
 
-        response = await self._create(attempt, send)
-        response = await self._await_terminal(attempt, response)
-        response = self._validate_response(attempt, response, capability)
-        return self._require_success(attempt, response, capability)
+        response = await self._create(attempt, send, capability=capability)
+        return await self._await_terminal(attempt, response)
 
     async def recover(
-        self, attempt: CloudExecutionAttempt, execution_id: str
+        self,
+        attempt: CloudExecutionAttempt,
+        execution_id: str,
+        *,
+        capability: str | None = None,
     ) -> CloudExecutionResponse:
-        response = await self._request(
-            "GET",
-            self._execution_path(execution_id),
-            attempt=attempt,
-            ocr_contract=True,
-        )
-        parsed = self._validate_response(attempt, self._parse_execution(response))
-        return (
-            self._require_success(attempt, parsed, parsed.route.capability)
-            if parsed.status in self._TERMINAL
-            else parsed
-        )
+        try:
+            response = await self._request(
+                "GET",
+                self._execution_path(execution_id),
+                attempt=attempt,
+                ocr_contract=True,
+            )
+            return self._read_execution(attempt, response, capability=capability)
+        except CloudExecutionRefused as exc:
+            exc._attach_execution_id(execution_id)
+            raise
 
     async def cancel(
         self, attempt: CloudExecutionAttempt, execution_id: str
     ) -> CloudExecutionResponse:
-        response = await self._request(
-            "DELETE",
-            self._execution_path(execution_id),
-            attempt=attempt,
-            ocr_contract=True,
-        )
-        parsed = self._validate_response(attempt, self._parse_execution(response))
-        return (
-            self._require_success(attempt, parsed, parsed.route.capability)
-            if parsed.status in self._TERMINAL
-            else parsed
-        )
+        try:
+            response = await self._request(
+                "DELETE",
+                self._execution_path(execution_id),
+                attempt=attempt,
+                ocr_contract=True,
+            )
+            return self._read_execution(attempt, response)
+        except CloudExecutionRefused as exc:
+            exc._attach_execution_id(execution_id)
+            raise
 
     async def _create(
-        self, attempt: CloudExecutionAttempt, send: Any
+        self, attempt: CloudExecutionAttempt, send: Any, *, capability: str
     ) -> CloudExecutionResponse:
         response = await self._retry_uncertain_create(send, None)
         if response.status_code == 409:
-            if self._error_code(response) != "needs_confirmation":
-                self._raise_error(response)
-            challenge = self._parse_quote(response)
-            authority = attempt.quote_authority
-            if authority is None or not self._quote_is_authorized(
-                attempt, challenge, authority
-            ):
-                raise CloudConfirmationRequired(challenge)
+            with self._response_errors(response):
+                if self._error_code(response) != "needs_confirmation":
+                    self._raise_error(response)
+                challenge = self._parse_quote(response)
+                authority = attempt.quote_authority
+                if authority is None or not self._quote_is_authorized(
+                    attempt, challenge, authority
+                ):
+                    raise CloudConfirmationRequired(challenge)
             response = await self._retry_uncertain_create(send, challenge.confirmation)
-        return self._parse_execution(response)
+        return self._read_execution(attempt, response, capability=capability)
+
+    @staticmethod
+    @contextmanager
+    def _response_errors(response: httpx.Response) -> Iterator[None]:
+        try:
+            yield
+        except CloudExecutionRefused as exc:
+            # Cloud owns this UUID. Reject arbitrary proxy/header text rather
+            # than echoing it into persisted row errors or local diagnostics.
+            request_id = response.headers.get("X-Request-ID", "")
+            if exc.cloud_request_id is None and re.fullmatch(
+                r"[0-9a-f]{32}", request_id
+            ):
+                exc.cloud_request_id = request_id
+                exc.message += f" (Cloud request: {request_id})"
+            raise
+
+    def _read_execution(
+        self,
+        attempt: CloudExecutionAttempt,
+        response: httpx.Response,
+        *,
+        capability: str | None = None,
+    ) -> CloudExecutionResponse:
+        with self._response_errors(response):
+            parsed = self._validate_response(
+                attempt, self._parse_execution(response), capability
+            )
+            return (
+                self._require_success(attempt, parsed, parsed.route.capability)
+                if parsed.status in self._TERMINAL
+                else parsed
+            )
 
     async def _retry_uncertain_create(
         self, send: Any, confirmation: str | None
@@ -571,9 +621,12 @@ class HttpCloudExecutionTransport:
                     "cloud_execution_pending",
                     "Cloud execution is still running",
                     retryable=True,
+                    cloud_execution_id=current.execution_id,
                 )
             await asyncio.sleep(self._poll_interval)
-            current = await self.recover(attempt, current.execution_id)
+            current = await self.recover(
+                attempt, current.execution_id, capability=response.route.capability
+            )
         return current
 
     async def _request(
@@ -604,15 +657,17 @@ class HttpCloudExecutionTransport:
                 follow_redirects=False,
             ) as client:
                 response = await client.request(method, path, headers=headers, **kwargs)
-        except httpx.HTTPError as exc:
-            raise _CloudOutcomeUncertain() from exc
-        if response.is_redirect:
-            raise CloudExecutionRefused(
-                "cloud_redirect_refused", "Frisket Cloud returned an unsafe redirect"
-            )
-        if response.status_code in {200, 202, 409}:
-            return response
-        self._raise_error(response)
+        except httpx.HTTPError:
+            raise _CloudOutcomeUncertain() from None
+        with self._response_errors(response):
+            if response.is_redirect:
+                raise CloudExecutionRefused(
+                    "cloud_redirect_refused",
+                    "Frisket Cloud returned an unsafe redirect",
+                )
+            if response.status_code in {200, 202, 409}:
+                return response
+            self._raise_error(response)
         raise AssertionError("Cloud error projection returned")
 
     def _access_token(self, attempt: CloudExecutionAttempt) -> str:
@@ -659,19 +714,19 @@ class HttpCloudExecutionTransport:
     def _parse_execution(response: httpx.Response) -> CloudExecutionResponse:
         try:
             return CloudExecutionResponse.model_validate(response.json())
-        except (ValueError, TypeError, ValidationError) as exc:
+        except (ValueError, TypeError, ValidationError):
             raise CloudExecutionRefused(
                 "cloud_protocol_error", "Frisket Cloud returned an invalid execution"
-            ) from exc
+            ) from None
 
     @staticmethod
     def _parse_quote(response: httpx.Response) -> CloudQuoteChallenge:
         try:
             return CloudQuoteChallenge.model_validate(response.json())
-        except (ValueError, TypeError, ValidationError) as exc:
+        except (ValueError, TypeError, ValidationError):
             raise CloudExecutionRefused(
                 "cloud_protocol_error", "Frisket Cloud returned an invalid quote"
-            ) from exc
+            ) from None
 
     @staticmethod
     def _error_code(response: httpx.Response) -> object:
@@ -820,6 +875,7 @@ class HttpCloudExecutionTransport:
                 accounting=accounting,
                 provider_job_accepted=unresolved,
                 post_egress_ambiguous=unresolved,
+                cloud_execution_id=response.execution_id,
             )
         default_code = {
             "failed": "provider_failed",
@@ -833,6 +889,7 @@ class HttpCloudExecutionTransport:
             accounting=accounting,
             provider_job_accepted=unresolved,
             post_egress_ambiguous=unresolved,
+            cloud_execution_id=response.execution_id,
         )
 
     @staticmethod

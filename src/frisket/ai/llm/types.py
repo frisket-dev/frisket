@@ -13,7 +13,7 @@ from .pricing import ModelCostSource
 CredentialSource = Literal[
     "none", "local", "cache", "project_key", "org_byok", "platform_key"
 ]
-TransportKind = Literal["connect"]
+TransportKind = Literal["connect", "timeout", "read", "write", "protocol"]
 ReasoningPolicy = Literal["disabled", "low_exclude"]
 CREDENTIAL_SOURCES: frozenset[str] = frozenset(
     {"none", "local", "cache", "project_key", "org_byok", "platform_key"}
