@@ -17,6 +17,8 @@ import { useNativePopover } from '../hooks/useNativePopover';
 import { topLayerPortalRoot } from '../topLayerPortal';
 import { WalkthroughContext, type WalkthroughContextValue } from './context';
 import { resolveWalkthroughTarget } from './targets';
+import { sendProductTelemetry, setTelemetryWalkthrough, telemetryWalkthrough } from '../telemetry/productTelemetry';
+import { useTelemetryDisclosureReady } from '../telemetry/disclosureReady';
 import { useEditionModule } from '../editions/module';
 import styles from './WalkthroughProvider.module.css';
 import {
@@ -787,6 +789,31 @@ export function WalkthroughProvider({
     && walkthroughs.some(
     (walkthrough) => walkthrough.id === run.walkthrough.id,
   ) ? run : null;
+  const telemetryReady = useTelemetryDisclosureReady();
+  const lastViewedStep = useRef<string | null>(null);
+  const guideId = visibleRun?.walkthrough.id;
+  const guideRunId = visibleRun?.id;
+  const guideStep = visibleRun?.stepIndex;
+  useLayoutEffect(() => {
+    setTelemetryWalkthrough(projectId && guideId ? {
+      projectId, walkthrough: guideId, walkthroughState: walkthroughVisible ? 'active' : 'paused',
+    } : null);
+    return () => setTelemetryWalkthrough(null);
+  }, [projectId, guideId, walkthroughVisible]);
+  useEffect(() => {
+    if (!projectId || !guideId || !walkthroughVisible) {
+      lastViewedStep.current = null;
+      return;
+    }
+    if (!telemetryReady || guideStep === undefined) return;
+    const key = `${projectId}:${guideRunId}:${guideStep}`;
+    if (lastViewedStep.current === key) return;
+    lastViewedStep.current = key;
+    sendProductTelemetry({ type: 'Walkthrough.stepViewed', properties: {
+      walkthrough: telemetryWalkthrough(guideId),
+      step: guideStep < 100 ? String(guideStep + 1) : 'other',
+    } }, projectId);
+  }, [projectId, guideId, guideRunId, guideStep, walkthroughVisible, telemetryReady]);
   const chooserOpen = chooser !== null && chooser.projectId === projectId;
   const sampleProjectActive = sampleProjectId !== undefined && sampleProjectId === projectId;
   const sampleIntroOpen = sampleProjectActive && introOpen;
@@ -937,7 +964,12 @@ export function WalkthroughProvider({
           stepIndex={visibleRun.stepIndex}
           onStepIndexChange={(stepIndex) => setStepIndex(visibleRun.id, stepIndex)}
           onPause={pauseWalkthrough}
-          onFinish={stopWalkthrough}
+          onFinish={() => {
+            if (projectId) sendProductTelemetry({ type: 'Walkthrough.completed', properties: {
+              walkthrough: telemetryWalkthrough(visibleRun.walkthrough.id),
+            } }, projectId);
+            stopWalkthrough();
+          }}
         />
       )}
     </WalkthroughContext.Provider>

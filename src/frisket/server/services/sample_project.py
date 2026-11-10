@@ -1008,7 +1008,7 @@ class SampleProjectSeedService:
 
     def seed(self, project_id: str) -> dict[str, Any]:
         # Validate the project before beginning the ordinary imports.
-        self._workspace.get(project_id)
+        project = self._workspace.get(project_id)
         dispatches = self._ensure_sheet(
             project_id,
             name=SAMPLE_SHEET_NAME,
@@ -1053,6 +1053,7 @@ class SampleProjectSeedService:
             filename="small_model_lab.csv",
             content=sample_small_model_lab_csv(),
         )
+        project.set_meta("project_kind", "sample")
         return {
             "ok": True,
             "project_id": project_id,

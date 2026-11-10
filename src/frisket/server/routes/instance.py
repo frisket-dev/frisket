@@ -60,7 +60,11 @@ def register_product_telemetry_routes(
     workspace: Workspace,
     runtime: ProductTelemetryRuntime,
 ) -> None:
-    def accept(body: ProductTelemetryRequest, expected_context: str) -> None:
+    def accept(
+        body: ProductTelemetryRequest,
+        expected_context: str,
+        project_kind: str | None = None,
+    ) -> None:
         try:
             event = ProductTelemetryEvent(type=body.type, properties=body.properties)
         except ValueError as exc:
@@ -70,6 +74,7 @@ def register_product_telemetry_routes(
         runtime.emit(
             body.monthly_id,
             event,
+            project_kind=project_kind,
             client=body.client.model_dump(exclude_none=True, exclude_unset=True),
         )
 
@@ -92,7 +97,10 @@ def register_product_telemetry_routes(
     def project_event(pid: str, body: ProductTelemetryRequest) -> Response:
         project = workspace.get(pid)
         if not project.project_metadata()["sensitive"]:
-            accept(body, "project")
+            kind = project.get_meta("project_kind")
+            accept(
+                body, "project", kind if kind in {"sample", "regular"} else "unknown"
+            )
         return Response(status_code=204)
 
 

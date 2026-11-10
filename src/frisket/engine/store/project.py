@@ -295,7 +295,7 @@ class Project:
         db.execute(
             "INSERT INTO meta (key, value) VALUES "
             "('format_version', ?), ('name', ?), ('op_cursor', '0'), "
-            "('sensitive', ?), (?, ?), (?, ?), (?, ?)",
+            "('sensitive', ?), ('project_kind', 'regular'), (?, ?), (?, ?), (?, ?)",
             (
                 str(FORMAT_VERSION),
                 name or path.stem,

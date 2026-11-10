@@ -7,6 +7,7 @@ import {
   durationBucket,
   sendProductTelemetry,
   setTelemetryPreference,
+  setTelemetryWalkthrough,
   telemetryPreference,
 } from '../../src/telemetry/productTelemetry';
 
@@ -22,6 +23,7 @@ describe('product telemetry boundary', () => {
 
   afterEach(() => {
     configureProductTelemetry(false);
+    setTelemetryWalkthrough(null);
     vi.unstubAllGlobals();
     vi.useRealTimers();
   });
@@ -84,4 +86,19 @@ it('attaches bounded client facts without sending the user-agent or location', (
   expect(JSON.stringify(sent)).not.toContain('secret-device');
   vi.unstubAllGlobals();
   configureProductTelemetry(false);
+});
+
+
+it('limits walkthrough context to its project and maps custom IDs to other', () => {
+  localStorage.clear(); configureProductTelemetry(true); setTelemetryPreference(true);
+  const fetch = vi.fn(() => Promise.resolve(new Response(null, { status: 204 })));
+  vi.stubGlobal('fetch', fetch);
+  setTelemetryWalkthrough({ projectId: 'p', walkthrough: 'private-guide-name', walkthroughState: 'active' });
+  sendProductTelemetry({ type: 'Action.opened', properties: { action: 'map.extract' } }, 'p');
+  sendProductTelemetry({ type: 'Action.opened', properties: { action: 'map.extract' } }, 'elsewhere');
+  const bodies = fetch.mock.calls.map(call => JSON.parse(String((call as unknown as [string, RequestInit])[1].body)));
+  expect(bodies[0].properties).toMatchObject({ walkthrough: 'other', walkthroughState: 'active' });
+  expect(bodies[1].properties).toMatchObject({ walkthrough: 'none', walkthroughState: 'none' });
+  expect(JSON.stringify(bodies)).not.toContain('private-guide-name');
+  setTelemetryWalkthrough(null); configureProductTelemetry(false); vi.unstubAllGlobals();
 });
