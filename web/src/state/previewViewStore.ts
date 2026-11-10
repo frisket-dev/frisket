@@ -11,6 +11,7 @@ import { createStore } from '../core/store/createStore';
 import type { Store } from '../core/store/types';
 import {
   ConfirmationRequiredError,
+  actionExecutionId,
   actionExecutionName,
   actionExecutionSheetId,
   isRegisteredActionRequest,
@@ -22,6 +23,7 @@ import {
 } from '../api/open';
 import type { ProjectApiPort } from '../api/ports';
 import { pollPreviewJob } from '../api/previewJobTransport';
+import { durationBucket, failureCategory, sendProductTelemetry, telemetryActionKind, type FailureCategory } from '../telemetry/productTelemetry';
 
 // Cadence for polling an in-memory action preview job (start -> poll -> done).
 const PREVIEW_POLL_MS = 750;
@@ -77,7 +79,7 @@ export function previewViewForSheet(
 export function createPreviewViewStore(api: Pick<
   ProjectApiPort,
   'startPreview' | 'getPreview' | 'cancelPreview'
->): {
+>, telemetryProjectId: string | null = null): {
   store: Store<PreviewViewState>;
   /** = closePreviewView / runPreviewForReal: an unconditional clear (always
    *  notifies, even when previewView is already null). */
@@ -151,6 +153,17 @@ export function createPreviewViewStore(api: Pick<
     // and bumps the generation so this call owns the previewView).
     teardownPreviewJob();
     const gen = previewGen;
+    const startedAt = performance.now();
+    const action = telemetryActionKind(actionExecutionId(req));
+    if (telemetryProjectId) sendProductTelemetry({ type: 'Action.previewStarted', properties: { action } }, telemetryProjectId);
+    let observed = false;
+    const observe = (result: 'success' | 'partial' | 'failed' | 'cancelled', failure: FailureCategory) => {
+      if (observed || !telemetryProjectId) return;
+      observed = true;
+      sendProductTelemetry({ type: 'Action.previewObserved', properties: {
+        action, observedDuration: durationBucket(performance.now() - startedAt), result, failureCategory: failure,
+      } }, telemetryProjectId);
+    };
     const sheetId = actionExecutionSheetId(req) || null;
     const actionName = actionExecutionName(req);
     const totalRows = sheetId === null ? null : sheet?.rowCount ?? null;
@@ -180,10 +193,12 @@ export function createPreviewViewStore(api: Pick<
           const confirmed = await deps.requestCostConfirmation(e.estimate, e.message);
           if (previewGen !== gen) return;
           if (!confirmed) {
+            observe('cancelled', 'none');
             clearPreviewView();
             return;
           }
           if (isRegisteredActionRequest(launchReq) && !e.estimate.promise_set_hash) {
+            observe('failed', 'invalid_output');
             updatePreviewViewIf('sheetId', sheetId, {
               status: 'error',
               error: 'The server did not provide the confirmation hash for this action.',
@@ -194,6 +209,7 @@ export function createPreviewViewStore(api: Pick<
           continue;
         }
         const message = e instanceof Error ? e.message : String(e);
+        observe('failed', failureCategory(e));
         updatePreviewViewIf('sheetId', sheetId, { status: 'error', error: message });
         return;
       }
@@ -233,6 +249,7 @@ export function createPreviewViewStore(api: Pick<
         if (previewGen !== gen) return;
         previewController = null;
         const message = e instanceof Error ? e.message : String(e);
+        observe('failed', failureCategory(e));
         updatePreviewViewIf('previewId', previewId, { status: 'error', error: message });
         return;
       }
@@ -240,6 +257,11 @@ export function createPreviewViewStore(api: Pick<
       // Terminal states — the server job is gone, so there is nothing to cancel.
       previewController = null;
       if (res.status === 'done') {
+        if (telemetryProjectId) {
+          const rows = res.kind === 'row_overlay' ? Object.values(res.rows) : res.rows;
+          const partial = rows.some(row => Object.values(row).some(cell => Boolean(cell.error)));
+          observe(partial ? 'partial' : 'success', partial ? 'unknown' : 'none');
+        }
         updatePreviewViewIf('previewId', previewId, {
           status: 'done',
           progress: res.progress,
@@ -252,9 +274,11 @@ export function createPreviewViewStore(api: Pick<
         deps.onComplete?.(res);
         deps.invalidateProjectData();
       } else if (res.status === 'cancelled') {
+        observe('cancelled', 'none');
         updatePreviewViewIf('previewId', previewId,
           res.accounting ? { status: 'cancelled', progress: res.progress } : null);
       } else {
+        observe('failed', 'unknown');
         const message = res.error?.message ?? 'Preview failed.';
         updatePreviewViewIf('previewId', previewId, { status: 'error', error: message });
       }

@@ -12,6 +12,7 @@ import { useDetailHandle } from '../bind/useDetailHandle';
 import { useLensViewHandle } from '../bind/useLensViewHandle';
 import { useSelector } from '../bind/useSelector';
 import { useRenderCount, useWorkspaceShell, useRun, useSelectedRowIdsForSheet, useCurrentSheet } from './WorkspaceContext';
+import { useWorkspaceNavigationTelemetry } from '../telemetry/navigationTelemetry';
 
 const LazyActionPanel = lazy(() => (
   import('../components/ActionPanel').then(({ ActionPanel }) => ({ default: ActionPanel }))
@@ -281,6 +282,7 @@ export const WorkspaceActionDrawerRegion = memo(function WorkspaceActionDrawerRe
     };
   }, [shouldResolveLensScope, actionLensScopeKey, projectApi]);
 
+  useWorkspaceNavigationTelemetry({ projectId: project.id, rightPanels: actionPanelVisible && hasActionTarget ? ['action'] : [] });
   if (!actionPanelVisible) return null;
   if (!routeActionKind && !proposalInspect) return null;
   const activeActionViewScope = actionViewScope?.key === actionViewScopeKey

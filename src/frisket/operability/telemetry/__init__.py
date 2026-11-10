@@ -75,6 +75,68 @@ FAILURES = frozenset(
 )
 
 _PROPERTY_VALUES: dict[str, frozenset[str]] = {
+    "view": frozenset(
+        {
+            "grid",
+            "document",
+            "extract",
+            "answers",
+            "map",
+            "gallery",
+            "graph",
+            "source_health",
+            "evidence",
+            "preview",
+            "compare",
+            "plugin",
+            "import",
+        }
+    ),
+    "region": frozenset({"right", "bottom"}),
+    "panel": frozenset(
+        {
+            "filter",
+            "mentions",
+            "sources",
+            "views",
+            "watches",
+            "embeddings",
+            "notifications",
+            "action",
+            "row",
+            "column",
+            "ask",
+            "evidence",
+            "jobs",
+            "errors",
+            "history",
+            "lineage",
+            "plugin",
+        }
+    ),
+    "scope": frozenset({"personal", "organization"}),
+    "section": frozenset(
+        {
+            "profile",
+            "preferences",
+            "privacy",
+            "ai_providers",
+            "diagnostics",
+            "skills",
+            "general",
+            "access",
+            "secrets",
+            "mcp_servers",
+            "notifications",
+            "plugins",
+            "data_management",
+            "env_vars",
+            "api_keys",
+            "spend",
+            "models_gateway",
+            "extension",
+        }
+    ),
     "setupKind": frozenset({"engine", "model"}),
     "platform": frozenset({"linux", "macos", "windows", "ios", "android", "other"}),
     "creationKind": frozenset({"blank", "sample"}),
@@ -128,6 +190,10 @@ _EVENT_FIELDS: dict[str, tuple[TelemetryContext, frozenset[str]]] = {
         frozenset({"creationKind", "requestDuration", "failureCategory"}),
     ),
     "Project.opened": ("project", frozenset()),
+    "Workspace.viewOpened": ("project", frozenset({"view"})),
+    "Workspace.panelOpened": ("project", frozenset({"region", "panel"})),
+    "Settings.sectionOpened": ("installation", frozenset({"scope", "section"})),
+    "Project.settingsSectionOpened": ("project", frozenset({"section"})),
     "Import.started": ("project", frozenset({"importKind", "format", "bytes"})),
     "Import.submitted": (
         "project",
@@ -149,6 +215,11 @@ _EVENT_FIELDS: dict[str, tuple[TelemetryContext, frozenset[str]]] = {
         frozenset({"sourceKind", "requestDuration", "result", "failureCategory"}),
     ),
     "Action.opened": ("project", frozenset({"action"})),
+    "Action.previewStarted": ("project", frozenset({"action"})),
+    "Action.previewObserved": (
+        "project",
+        frozenset({"action", "observedDuration", "result", "failureCategory"}),
+    ),
     "Action.runSubmitted": (
         "project",
         frozenset(
@@ -275,6 +346,13 @@ class ProductTelemetryEvent:
             and self.properties.get("failureCategory") != "none"
         ):
             raise ValueError("successful telemetry event cannot have a failure")
+        if self.type == "Action.previewObserved" and self.properties["result"] not in {
+            "success",
+            "partial",
+            "failed",
+            "cancelled",
+        }:
+            raise ValueError("unregistered preview telemetry result")
 
     @property
     def context(self) -> TelemetryContext:

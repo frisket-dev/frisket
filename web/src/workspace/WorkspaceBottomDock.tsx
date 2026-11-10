@@ -16,6 +16,7 @@ import { useRenderCount, useWorkspaceShell, useWorkbenchHostContext, useResolved
 export const WorkspaceBottomDockRegion = memo(function WorkspaceBottomDockRegion() {
   useRenderCount('bottomDock');
   const {
+    project,
     bottomDockPluginPanelDescriptors,
     doStepTo,
     hideContribution,
@@ -173,6 +174,7 @@ export const WorkspaceBottomDockRegion = memo(function WorkspaceBottomDockRegion
   return (
       <ResolvedWorkbenchLayoutRegion region={bottomDockRegion}>
         <WorkbenchBottomDock
+          telemetryProjectId={project.id}
           region={bottomDockRegion}
           activeTabPlacementId={activeBottomDockTab}
           onSelectTab={selectBottomDockTab}

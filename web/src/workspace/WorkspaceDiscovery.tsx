@@ -13,6 +13,7 @@ import { useChromeHandle } from '../bind/useChromeHandle';
 import { useDetailHandle } from '../bind/useDetailHandle';
 import { useSelector } from '../bind/useSelector';
 import { useWorkspaceShell, useWorkspacePluginDetailRender, useWorkbenchHostContext, useResolvedWorkbenchLayout, useCurrentSheet, useMainViewModel, resolveRegionContributions, useRenderCount } from './WorkspaceContext';
+import { telemetryPanelKind, useWorkspaceNavigationTelemetry } from '../telemetry/navigationTelemetry';
 
 function SidebarContributionBody({ contribution }: { contribution: WorkbenchResolvedLayoutContribution }) {
   const { projectApi } = useWorkspaceStores();
@@ -313,6 +314,8 @@ export const WorkspaceDiscoverRegion = memo(function WorkspaceDiscoverRegion() {
   const activeTab = tabs.some((tab) => tab.id === discoverTab)
     ? discoverTab
     : tabs[0]?.id ?? 'Facets';
+  const activeContributionId = DISCOVER_TAB_CONTRIBUTION_IDS[activeTab as DiscoverTab]?.[0] ?? activeTab;
+  useWorkspaceNavigationTelemetry({ projectId: project.id, rightPanels: discoverOpen ? [telemetryPanelKind(activeContributionId)] : [] });
 
   const discoverRegion = filterRegionContributions(
     leftSidebarRegion,

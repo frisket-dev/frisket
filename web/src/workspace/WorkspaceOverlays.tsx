@@ -27,6 +27,7 @@ import { useActSurfaceHandle } from '../bind/useActSurfaceHandle';
 import { useJobsHandle } from '../bind/useJobsHandle';
 import { useSelector } from '../bind/useSelector';
 import { useRenderCount, useWorkspaceShell, useOverlayModel } from './WorkspaceContext';
+import { useWorkspaceNavigationTelemetry, type WorkspaceTelemetryPanel } from '../telemetry/navigationTelemetry';
 
 export const LazyEvidenceViewer = lazy(() => (
   import('../components/EvidenceViewer').then(({ EvidenceViewer }) => ({ default: EvidenceViewer }))
@@ -99,6 +100,10 @@ export const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
     workbenchVisibilityTargets,
     importProgress,
   } = useOverlayModel();
+  const visiblePanels: WorkspaceTelemetryPanel[] = [];
+  if (columnDrawer && sheet) visiblePanels.push('column');
+  if (evidenceViewerState?.host === 'modalOrPeek') visiblePanels.push('evidence');
+  useWorkspaceNavigationTelemetry({ projectId: project.id, rightPanels: visiblePanels });
   const actSurfaceHandle = useActSurfaceHandle();
   const sourcesConnectionsOpen = useSelector(
     actSurfaceHandle.store,

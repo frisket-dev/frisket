@@ -21,13 +21,15 @@ import { useActionCatalogHandle } from '../bind/useActionCatalogHandle';
 import { useSelector } from '../bind/useSelector';
 import { openAskProposalTransition } from '../state/workspaceTransitions';
 import { useCurrentSheet, useWorkspaceShell, useWorkspaceAct, useRenderCount } from './WorkspaceContext';
+import { useWorkspaceNavigationTelemetry } from '../telemetry/navigationTelemetry';
 
 export function WorkspaceAskRegion() {
   const { sheet, sheets } = useCurrentSheet();
   const { chrome, selection, detail } = useWorkspaceStores();
-  const { selectSheet, askNavigation } = useWorkspaceShell();
+  const { project, selectSheet, askNavigation } = useWorkspaceShell();
   const { launchActionFromSurface } = useWorkspaceAct();
   const open = useSelector(chrome.store, (s) => s.askOpen);
+  useWorkspaceNavigationTelemetry({ projectId: project.id, rightPanels: open ? ['ask'] : [] });
   const selected = useSelector(selection.store, (s) => s.selectedRows);
   const scope = useMemo<AskScope>(() => {
     if (!sheet) return { kind: 'project' };

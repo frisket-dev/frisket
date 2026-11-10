@@ -11,16 +11,31 @@ export type FailureCategory = 'none' | 'invalid_input' | 'unsupported_format' | 
   | 'missing_dependency' | 'missing_credential' | 'network' | 'provider'
   | 'rate_limited' | 'timeout' | 'empty_output' | 'invalid_output' | 'conflict'
   | 'internal' | 'unknown';
+export type WorkspaceTelemetryView = 'grid' | 'document' | 'extract' | 'answers' | 'map'
+  | 'gallery' | 'graph' | 'source_health' | 'evidence' | 'preview' | 'compare' | 'plugin' | 'import';
+export type WorkspaceTelemetryPanel = 'filter' | 'mentions' | 'sources' | 'views' | 'watches'
+  | 'embeddings' | 'notifications' | 'action' | 'row' | 'column' | 'ask' | 'evidence'
+  | 'jobs' | 'errors' | 'history' | 'lineage' | 'plugin';
+export type SettingsTelemetrySection = 'profile' | 'preferences' | 'privacy' | 'ai_providers'
+  | 'diagnostics' | 'skills' | 'general' | 'access' | 'secrets' | 'mcp_servers'
+  | 'notifications' | 'plugins' | 'data_management' | 'env_vars' | 'api_keys' | 'spend'
+  | 'models_gateway' | 'extension';
 
 export type ProductTelemetryEvent =
   | { type: 'App.opened'; properties: { platform: 'linux' | 'macos' | 'windows' | 'ios' | 'android' | 'other' } }
   | { type: 'Project.created'; properties: { creationKind: 'blank' | 'sample'; requestDuration: DurationBucket } }
   | { type: 'Project.createFailed'; properties: { creationKind: 'blank' | 'sample'; requestDuration: DurationBucket; failureCategory: FailureCategory } }
   | { type: 'Project.opened'; properties: Record<string, never> }
+  | { type: 'Workspace.viewOpened'; properties: { view: WorkspaceTelemetryView } }
+  | { type: 'Workspace.panelOpened'; properties: { region: 'right' | 'bottom'; panel: WorkspaceTelemetryPanel } }
+  | { type: 'Settings.sectionOpened'; properties: { scope: 'personal' | 'organization'; section: SettingsTelemetrySection } }
+  | { type: 'Project.settingsSectionOpened'; properties: { section: SettingsTelemetrySection } }
   | { type: 'Import.started'; properties: { importKind: 'file' | 'files' | 'paste' | 'url'; format: ImportFormat; bytes: ByteBucket } }
   | { type: 'Import.submitted'; properties: { importKind: 'file' | 'files' | 'paste' | 'url'; format: ImportFormat; bytes: ByteBucket; rows: RowBucket; columns: ColumnBucket; requestDuration: DurationBucket; result: 'success' | 'partial' | 'queued' | 'cancelled' | 'rejected' | 'failed'; failureCategory: FailureCategory } }
   | { type: 'Source.created'; properties: { sourceKind: SourceKind; requestDuration: DurationBucket; result: 'success' | 'rejected' | 'failed'; failureCategory: FailureCategory } }
   | { type: 'Action.opened'; properties: { action: string } }
+  | { type: 'Action.previewStarted'; properties: { action: string } }
+  | { type: 'Action.previewObserved'; properties: { action: string; observedDuration: DurationBucket; result: 'success' | 'partial' | 'failed' | 'cancelled'; failureCategory: FailureCategory } }
   | { type: 'Action.runSubmitted'; properties: { action: string; attemptKind: AttemptKind; rows: RowBucket; columns: ColumnBucket; requestDuration: DurationBucket; result: 'success' | 'queued' | 'needs_confirmation' | 'rejected' | 'failed' | 'cancelled'; failureCategory: FailureCategory } }
   | { type: 'Action.runObserved'; properties: { action: string; attemptKind: AttemptKind; observedDuration: DurationBucket; result: 'success' | 'partial' | 'failed' | 'cancelled' | 'stalled' | 'orphaned' | 'no_live_worker'; failureCategory: FailureCategory } }
   | { type: 'Cloud.connectionStarted'; properties: Record<string, never> }

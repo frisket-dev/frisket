@@ -21,6 +21,7 @@ import {
 } from './dockJobSummary';
 import { ImportErrorGroupList, RowErrorGroupList } from './RowErrorGroupList';
 import { AttemptReceiptList } from '../components/AttemptReceiptList';
+import { telemetryPanelKind, useWorkspaceNavigationTelemetry } from '../telemetry/navigationTelemetry';
 import {
   ListDetailGrid,
   ListDetailHeader,
@@ -526,7 +527,9 @@ export function WorkbenchBottomDock({
   liveActionJobs,
   runSummary,
   tabBadges,
+  telemetryProjectId,
 }: {
+  telemetryProjectId?: string;
   region: WorkbenchResolvedLayoutRegion;
   activeTabPlacementId: string;
   onSelectTab: (contribution: WorkbenchResolvedLayoutContribution) => void;
@@ -594,6 +597,7 @@ export function WorkbenchBottomDock({
       null,
     [activeTabPlacementId, tabs],
   );
+  useWorkspaceNavigationTelemetry({ projectId: telemetryProjectId, bottomPanel: !collapsed && activeContribution ? telemetryPanelKind(activeContribution.contributionId) : null });
   const onTabKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLButtonElement>, placementId: string) => {
       if (tabs.length === 0) return;
