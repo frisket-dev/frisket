@@ -25,6 +25,8 @@ if TYPE_CHECKING:
 from fastapi import FastAPI, Request
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from frisket.server.action_observation import ActionObserver
+
 from frisket.server.exports.sheet_csv import SheetExportLimits
 from frisket.engine.jobs import JobQueue, WorkerPorts
 from frisket.engine.jobs.queue import IMPORT_FILES_PAGE_KIND, IMPORT_TABLE_ANALYSIS_KIND
@@ -416,6 +418,7 @@ def create_app(
     pricing_policy: PricingPolicy | None = None,
     execution_router_factory: Callable[[], ModelRouter] | None = None,
     execution_composition_factory: ExecutionCompositionFactory | None = None,
+    action_observer: ActionObserver | None = None,
     direct_action_receipt_settlement_port: (
         server_workspace.DirectActionReceiptSettlementPort | None
     ) = None,
@@ -592,6 +595,7 @@ def create_app(
         execution_router_factory=execution_router_factory,
         execution_composition_factory=execution_composition_factory,
         direct_action_receipt_settlement_port=(direct_action_receipt_settlement_port),
+        action_observer=action_observer,
         project_qa_runtime_port=project_qa_runtime_port,
         edition=edition,
         cloud_connection_store=resolved_cloud_store,
