@@ -49,6 +49,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  startup-window:
+    if: github.event_name == 'pull_request'
+    runs-on: macos-15
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - run: npm --prefix desktop ci
+      - name: Check native startup sizing without building the application
+        run: node --test desktop/tests/startup-size.test.mjs
+
   notary-status:
     if: github.event_name == 'workflow_dispatch' && inputs.notary_status_only == true
     runs-on: macos-15
