@@ -4,12 +4,14 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from http_test_helpers import row_add_action
 
 from frisket.actions.core import RegisteredAction
 from frisket.engine.executor import ExecutorDeps
 from frisket.engine.runner import MapRunner
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from frisket.search import drain_index, index_batch, search_project
+from frisket.server.action_observation import ActionObservation, ActionObserver
 from frisket.server.services.action_runs import ActionRunService
 from frisket.server.workspace import Workspace
 
@@ -27,12 +29,14 @@ def _seed_workspace(
     *,
     executor_deps_factory: Any = None,
     settlement: Any = None,
+    action_observer: ActionObserver | None = None,
 ) -> tuple[Workspace, int, list[int]]:
     workspace = Workspace(
         root,
         enable_local_model_pull=False,
         executor_deps_factory=executor_deps_factory,
         direct_action_receipt_settlement_port=settlement,
+        action_observer=action_observer,
     )
     workspace.create("Typed actions", project_id="typed-actions")
     project = workspace.get("typed-actions")
@@ -305,3 +309,69 @@ def test_legacy_envelope_is_invalid_from_root_dispatch(tmp_path: Path) -> None:
     project = workspace.get("typed-actions")
     assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
     assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
+
+
+def test_inline_action_observation_preserves_context_and_marks_replay(
+    tmp_path: Path,
+) -> None:
+    observed: list[tuple[ActionObservation, Any]] = []
+    workspace, sheet_id, _ = _seed_workspace(
+        tmp_path / "workspace",
+        action_observer=lambda event, context: observed.append((event, context)),
+    )
+    context = object()
+    body = row_add_action(sheet_id, {"first": "Katherine", "last": "Johnson"})
+    service = ActionRunService(workspace)
+
+    first = service.run_action("typed-actions", body, request_context=context)
+    replay = service.run_action("typed-actions", body, request_context=context)
+
+    assert first.status_code == replay.status_code == 200
+    assert first.payload["status"] == "completed"
+    assert replay.payload == first.payload
+    assert len(observed) == 2
+    event, first_context = observed[0]
+    repeated, replay_context = observed[1]
+    assert first_context is context and replay_context is context
+    assert event.project_id == "typed-actions"
+    assert event.action_kind == "row.add"
+    assert event.receipt_id == repeated.receipt_id == first.payload["receipt_id"]
+    assert event.status == repeated.status == "completed"
+    assert event.run_id is None and event.job_id is None
+    assert event.created_at == repeated.created_at
+    assert event.created_at.tzinfo is not None
+    assert event.replayed is False and repeated.replayed is True
+    assert event.started_at is not None and event.finished_at is not None
+    assert event.started_at <= event.finished_at
+    assert event.duration_ms is not None and event.duration_ms >= 0
+    assert repeated.started_at is repeated.finished_at is repeated.duration_ms is None
+    assert event.total_rows is event.completed_rows is event.failed_rows is None
+    project = workspace.get("typed-actions")
+    assert project.row_count(sheet_id) == 3
+    assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1
+
+
+def test_observer_failure_does_not_fail_or_repeat_committed_inline_action(
+    tmp_path: Path,
+) -> None:
+    observed: list[ActionObservation] = []
+
+    def fail_observer(event: ActionObservation, context: Any) -> None:
+        observed.append(event)
+        raise RuntimeError("observer unavailable")
+
+    workspace, sheet_id, _ = _seed_workspace(
+        tmp_path / "workspace", action_observer=fail_observer
+    )
+    service = ActionRunService(workspace)
+    body = row_add_action(sheet_id, {"first": "Katherine", "last": "Johnson"})
+    first = service.run_action("typed-actions", body)
+    replay = service.run_action("typed-actions", body)
+
+    assert first.status_code == replay.status_code == 200
+    assert first.payload["status"] == "completed"
+    assert replay.payload == first.payload
+    assert [event.replayed for event in observed] == [False, True]
+    project = workspace.get("typed-actions")
+    assert project.row_count(sheet_id) == 3
+    assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1

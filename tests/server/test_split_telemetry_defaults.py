@@ -318,6 +318,9 @@ def test_client_metadata_is_closed_and_native_facts_are_desktop_only(
     payload = signal["payload"]
     assert signal["isTestMode"] is True
     assert payload["TelemetryDeck.AppInfo.version"] == payload["Frisket.version"]
+    assert payload["TelemetryDeck.SDK.name"] == "Frisket"
+    assert payload["TelemetryDeck.SDK.version"] == payload["Frisket.version"]
+    assert payload["TelemetryDeck.SDK.nameAndVersion"] == f"Frisket {payload['Frisket.version']}"
     assert payload["Frisket.desktopVersion"] == "0.1.1-alpha.109"
     assert payload["Frisket.clientKind"] == "desktop"
     assert payload["TelemetryDeck.Device.systemMajorMinorVersion"] == "15.4"

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any, Callable, Literal, Mapping
@@ -51,6 +52,7 @@ from frisket.server.action_enqueue import (
 )
 from frisket.server.run_status import action_run_status_payload
 from frisket.server.workspace import Workspace
+from frisket.server.action_observation import ActionObservation
 from frisket.execution.provider import ExactExecutionMatch, ExecutionComposition
 from frisket.execution.targets import CAPABILITY_LLM
 from frisket.engine.store import Project
@@ -337,6 +339,89 @@ class ActionRunService:
         trusted_consent_authorizer: TrustedConsentAuthorizer | None = None,
         trusted_consent_principal: str | None = None,
     ) -> ActionRunResponse:
+        observer = getattr(self._workspace, "action_observer", None)
+        state: dict[str, Any] | None = {} if observer is not None else None
+        started_at = datetime.now(UTC)
+        started = time.monotonic()
+        response = self._run_action(
+            project_id,
+            body,
+            request_context=request_context,
+            admitted_sources=admitted_sources,
+            required_execution_target=required_execution_target,
+            background_priority=background_priority,
+            trusted_consent_authorizer=trusted_consent_authorizer,
+            trusted_consent_principal=trusted_consent_principal,
+            _observation_state=state,
+        )
+        if (
+            observer is not None
+            and state is not None
+            and response.payload.get("receipt_id")
+        ):
+            try:
+                project = state.get("project")
+                receipt = ReceiptStore(project).find_by_id(
+                    response.payload["receipt_id"]
+                )
+                if receipt is not None:
+                    run = (
+                        project.db.execute(
+                            "SELECT * FROM runs WHERE id=?", (receipt.run_id,)
+                        ).fetchone()
+                        if receipt.run_id is not None
+                        else None
+                    )
+                    replayed = bool(state.get("replayed"))
+                    job_id = response.payload.get("job_id")
+                    measured_inline = not replayed and job_id is None
+                    finished_at = datetime.now(UTC)
+                    observer(
+                        ActionObservation(
+                            project_id=project_id,
+                            action_kind=receipt.action_kind,
+                            receipt_id=receipt.id,
+                            run_id=receipt.run_id,
+                            job_id=job_id,
+                            status=receipt.status,
+                            created_at=parse_status_time(receipt.created_at),
+                            started_at=started_at if measured_inline else None,
+                            finished_at=finished_at if measured_inline else None,
+                            duration_ms=(time.monotonic() - started) * 1000
+                            if measured_inline
+                            else None,
+                            replayed=replayed,
+                            total_rows=int(run["total_rows"])
+                            if run is not None
+                            else None,
+                            completed_rows=int(run["completed_rows"])
+                            if run is not None
+                            else None,
+                            failed_rows=int(run["failed_rows"])
+                            if run is not None
+                            else None,
+                        ),
+                        request_context,
+                    )
+            except (
+                Exception
+            ):  # Observation must not turn committed work into a failure.
+                LOG.warning("action_observation_failed")
+        return response
+
+    def _run_action(
+        self,
+        project_id: str,
+        body: dict[str, Any],
+        *,
+        request_context: Any = None,
+        admitted_sources: Mapping[str, BoundLocalFile] | None = None,
+        required_execution_target: ExactExecutionMatch | None = None,
+        background_priority: Literal["pdf_import_ocr"] | None = None,
+        trusted_consent_authorizer: TrustedConsentAuthorizer | None = None,
+        trusted_consent_principal: str | None = None,
+        _observation_state: dict[str, Any] | None = None,
+    ) -> ActionRunResponse:
         if (trusted_consent_authorizer is None) != (trusted_consent_principal is None):
             raise ValueError(
                 "trusted consent authority and principal must be supplied together"
@@ -363,7 +448,11 @@ class ActionRunService:
         if code_action_result is not None:
             return _action_run_response(code_action_result)
         project = self._workspace.get(project_id)
-        replay_result = self._typed_receipt_replay_result(project, project_id, body)
+        if _observation_state is not None:
+            _observation_state["project"] = project
+        replay_result = self._typed_receipt_replay_result(
+            project, project_id, body, _observation_state
+        )
         if replay_result is not None:
             return self._direct_result_response(project, project_id, replay_result)
         execution_context = self._workspace.edition_execution_composition_context_for(
@@ -652,6 +741,7 @@ class ActionRunService:
         project: Project,
         project_id: str,
         body: dict[str, Any],
+        observation_state: dict[str, Any] | None = None,
     ) -> V1ActionResult | None:
         """Replay existing receipts before keys, preserving queue recovery."""
 
@@ -659,6 +749,8 @@ class ActionRunService:
         if not isinstance(key, str):
             return None
         stored = ReceiptStore(project).find_by_idempotency_key(key)
+        if observation_state is not None:
+            observation_state["replayed"] = stored is not None
         if stored is None:
             return None
 

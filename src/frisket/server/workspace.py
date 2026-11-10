@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 from fastapi import HTTPException, Request
 from filelock import FileLock
 
+from frisket.server.action_observation import ActionObserver
+
 from frisket.engine.executor import ExecutorDeps
 from frisket.execution.definitions import managed_local_models_configured
 from frisket.execution.provider import (
@@ -182,6 +184,7 @@ class Workspace:
         execution_composition_factory: ExecutionCompositionFactory | None = None,
         models_gateway_connection_resolver: Callable[[], ModelsGatewayConnection | None]
         | None = None,
+        action_observer: ActionObserver | None = None,
         direct_action_receipt_settlement_port: DirectActionReceiptSettlementPort
         | None = None,
         project_qa_runtime_port: ProjectQARuntimePort | None = None,
@@ -246,6 +249,7 @@ class Workspace:
         self.registry = registry or default_registry()
         self.queue_payload_extra = dict(queue_payload_extra or {})
         self.executor_deps_factory = executor_deps_factory
+        self.action_observer = action_observer
         self.search_preparation_import_completed = None
         self.search_preparation_enclosure_downloaded = None
         if direct_action_receipt_settlement_port is not None and not isinstance(
