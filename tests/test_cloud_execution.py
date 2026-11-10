@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import traceback
 from dataclasses import replace
 
 import httpx
@@ -441,8 +442,18 @@ def test_account_key_quote_ceiling_binds_provider_cost_not_zero_cloud_charge():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "transport_error",
+    [
+        httpx.ConnectError,
+        httpx.ReadTimeout,
+        httpx.WriteTimeout,
+        httpx.RemoteProtocolError,
+    ],
+)
 async def test_http_transport_retries_uncertain_post_with_identical_key_and_body(
     tmp_path,
+    transport_error,
 ):
     seen: list[tuple[str, bytes]] = []
 
@@ -450,7 +461,7 @@ async def test_http_transport_retries_uncertain_post_with_identical_key_and_body
         body = await request.aread()
         seen.append((request.headers["Idempotency-Key"], body))
         if len(seen) == 1:
-            raise httpx.ConnectError("lost response", request=request)
+            raise transport_error("lost response", request=request)
         return httpx.Response(200, json=_llm_response().model_dump(mode="json"))
 
     transport = HttpCloudExecutionTransport(
@@ -524,9 +535,16 @@ async def test_http_model_transport_sends_and_validates_exact_ocr_capability(tmp
 
 
 @pytest.mark.asyncio
-async def test_http_transport_marks_lost_create_response_as_ambiguous(tmp_path):
+@pytest.mark.parametrize("transport_error", [httpx.ConnectError, httpx.ReadTimeout])
+async def test_http_transport_marks_lost_create_response_as_ambiguous(
+    tmp_path, transport_error
+):
+    requests = 0
+
     async def handler(request: httpx.Request) -> httpx.Response:
-        raise httpx.ConnectError("lost response", request=request)
+        nonlocal requests
+        requests += 1
+        raise transport_error("sensitive proxy URL/token", request=request)
 
     transport = HttpCloudExecutionTransport(
         _store(tmp_path),
@@ -542,6 +560,11 @@ async def test_http_transport_marks_lost_create_response_as_ambiguous(tmp_path):
 
     assert error.value.code == "cloud_unreachable"
     assert error.value.post_egress_ambiguous is True
+    assert error.value.retryable is True
+    assert error.value.cloud_request_id is None
+    assert error.value.accounting is None
+    assert "sensitive" not in "".join(traceback.format_exception(error.value))
+    assert requests == 2
 
 
 @pytest.mark.asyncio
@@ -934,3 +957,229 @@ def test_cloud_payer_changes_route_and_consent_identity_only_when_present():
         }
     )
     assert snapshot["cloud_payer"] == payer.to_snapshot()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "status, payload, code, retryable",
+    [
+        (
+            401,
+            {
+                "error": "connection_expired",
+                "message": "Reconnect Frisket Cloud",
+                "retryable": False,
+            },
+            "connection_expired",
+            False,
+        ),
+        (
+            429,
+            {"error": "rate_limited", "message": "Try again later", "retryable": True},
+            "rate_limited",
+            True,
+        ),
+        (502, "<html>private proxy details</html>", "cloud_unavailable", True),
+        (413, {"detail": "private input"}, "cloud_unavailable", False),
+        (200, "not JSON: private input", "cloud_protocol_error", False),
+        (202, {"wrong": "private input"}, "cloud_protocol_error", False),
+        (409, {"error": "needs_confirmation"}, "cloud_protocol_error", False),
+        (302, "private redirect target", "cloud_redirect_refused", False),
+    ],
+)
+async def test_cloud_response_errors_keep_server_correlation_without_changing_identity(
+    tmp_path, status, payload, code, retryable
+):
+    request_id = "e3a16f6a7b0049caa30abf49c9e25425"
+    seen = []
+
+    def handler(request):
+        seen.append(request.headers["Idempotency-Key"])
+        kwargs = {"json": payload} if isinstance(payload, dict) else {"text": payload}
+        return httpx.Response(status, headers={"X-Request-ID": request_id}, **kwargs)
+
+    transport = HttpCloudExecutionTransport(
+        _store(tmp_path),
+        "https://cloud.example.test",
+        http_transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(CloudExecutionRefused) as caught:
+        await transport.execute_llm(
+            CloudExecutionAttempt("durable-purchase", _payer(), None), _llm_request()
+        )
+    error = caught.value
+    assert error.code == code
+    assert error.retryable is retryable
+    assert error.cloud_request_id == request_id
+    assert str(error).endswith(f"(Cloud request: {request_id})")
+    assert "private" not in "".join(traceback.format_exception(error))
+    assert error.accounting is None
+    assert error.post_egress_ambiguous is False
+    assert seen == ["durable-purchase"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "header",
+    [
+        "",
+        "secret-token",
+        "a" * 33,
+        "A" * 32,
+        "a" * 31 + "\n",
+        "a" * 32 + "," + "b" * 32,
+    ],
+)
+async def test_cloud_request_correlation_rejects_untrusted_headers(tmp_path, header):
+    transport = HttpCloudExecutionTransport(
+        _store(tmp_path),
+        "https://cloud.example.test",
+        http_transport=httpx.MockTransport(
+            lambda _: httpx.Response(
+                503, text="private body", headers={"X-Request-ID": header}
+            )
+        ),
+    )
+    with pytest.raises(CloudExecutionRefused) as caught:
+        await transport.execute_llm(
+            CloudExecutionAttempt("durable-purchase", _payer(), None), _llm_request()
+        )
+    assert caught.value.cloud_request_id is None
+    assert str(caught.value) == "Frisket Cloud could not complete the request"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("poll", [False, True])
+async def test_cloud_terminal_failure_keeps_response_correlation_and_receipt(
+    tmp_path, poll
+):
+    request_id = "e3a16f6a7b0049caa30abf49c9e25425"
+    terminal = _llm_response().model_copy(
+        update={
+            "status": "failed",
+            "error": CloudErrorResponse(
+                error="provider_failed", message="Provider failed", retryable=False
+            ),
+        }
+    )
+    seen = []
+
+    def handler(request):
+        seen.append(request.method)
+        if poll and request.method == "POST":
+            running = terminal.model_copy(
+                update={
+                    "status": "running",
+                    "result": None,
+                    "receipt": None,
+                    "error": None,
+                }
+            )
+            return httpx.Response(
+                202,
+                json=running.model_dump(mode="json"),
+                headers={"X-Request-ID": "a" * 32},
+            )
+        return httpx.Response(
+            200,
+            json=terminal.model_dump(mode="json"),
+            headers={"X-Request-ID": request_id},
+        )
+
+    transport = HttpCloudExecutionTransport(
+        _store(tmp_path),
+        "https://cloud.example.test",
+        http_transport=httpx.MockTransport(handler),
+        poll_interval_seconds=0,
+    )
+    with pytest.raises(CloudExecutionRefused) as caught:
+        await transport.execute_llm(
+            CloudExecutionAttempt("durable-purchase", _payer(), None), _llm_request()
+        )
+    error = caught.value
+    assert error.cloud_request_id == request_id
+    assert str(error) == f"Provider failed (Cloud request: {request_id})"
+    assert error.code == "provider_failed"
+    assert error.retryable is False
+    assert error.accounting["cloud_receipt"]["charge_micro"] == 25_000
+    assert error.post_egress_ambiguous is False
+    assert seen == (["POST", "GET"] if poll else ["POST"])
+
+
+@pytest.mark.asyncio
+async def test_cloud_lost_confirmed_response_reuses_exact_quote_and_purchase(tmp_path):
+    seen = []
+
+    def handler(request):
+        seen.append(
+            (
+                request.headers["Idempotency-Key"],
+                request.headers.get("X-Frisket-Confirmation"),
+                request.content,
+            )
+        )
+        if len(seen) == 1:
+            return httpx.Response(409, json=_quote().model_dump(mode="json"))
+        if len(seen) == 2:
+            raise httpx.ReadTimeout("response lost after charge", request=request)
+        return httpx.Response(200, json=_llm_response().model_dump(mode="json"))
+
+    transport = HttpCloudExecutionTransport(
+        _store(tmp_path),
+        "https://cloud.example.test",
+        http_transport=httpx.MockTransport(handler),
+    )
+    result = await transport.execute_llm(
+        CloudExecutionAttempt(
+            "durable-purchase",
+            _payer(),
+            CloudQuoteAuthority(maximum_charge_micro=25_000),
+        ),
+        _llm_request(),
+    )
+    assert result.status == "completed"
+    assert len(seen) == 3
+    assert seen[0][1] is None
+    assert seen[1][1] == "quote-confirmation"
+    assert seen[1] == seen[2]
+    assert {entry[0] for entry in seen} == {"durable-purchase"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["network", "wrong_capability"])
+async def test_cloud_poll_failure_does_not_resubmit_purchase(tmp_path, failure):
+    seen = []
+    completed = _llm_response()
+
+    def handler(request):
+        seen.append(request.method)
+        if request.method == "POST":
+            running = completed.model_copy(
+                update={"status": "running", "result": None, "receipt": None}
+            )
+            return httpx.Response(202, json=running.model_dump(mode="json"))
+        if failure == "network":
+            raise httpx.ReadTimeout("private connection details", request=request)
+        changed = _response()
+        return httpx.Response(
+            200,
+            json=changed.model_dump(mode="json"),
+            headers={"X-Request-ID": "a" * 32},
+        )
+
+    transport = HttpCloudExecutionTransport(
+        _store(tmp_path),
+        "https://cloud.example.test",
+        http_transport=httpx.MockTransport(handler),
+        poll_interval_seconds=0,
+    )
+    with pytest.raises(CloudExecutionRefused) as caught:
+        await transport.execute_llm(
+            CloudExecutionAttempt("durable-purchase", _payer(), None), _llm_request()
+        )
+    assert caught.value.code == (
+        "cloud_unreachable" if failure == "network" else "route_changed"
+    )
+    assert caught.value.cloud_request_id == (None if failure == "network" else "a" * 32)
+    assert "private" not in "".join(traceback.format_exception(caught.value))
+    assert seen == ["POST", "GET"]
