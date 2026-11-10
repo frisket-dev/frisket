@@ -21,6 +21,7 @@ import { WorkspaceMainViewTabs } from './WorkspaceSheetTabs';
 import { WorkspacePromotedView, WorkspacePrimarySurface } from './WorkspaceSurface';
 import { WorkspaceSheetToolbar, WorkspaceGridControls, WorkspaceInlineFilterRow, WorkspaceGridBanners } from './WorkspaceToolbar';
 import { WorkspaceHeaderMenuSlot } from './WorkspaceHeaderMenu';
+import { useWorkspaceNavigationTelemetry, type WorkspaceTelemetryView } from '../telemetry/navigationTelemetry';
 
 export const WorkspaceNavigateRegion = memo(function WorkspaceNavigateRegion() {
   useRenderCount('navigate');
@@ -77,6 +78,12 @@ export const WorkspaceMainViewRegion = memo(function WorkspaceMainViewRegion() {
 
 function WorkspaceMainViewBody() {
   const {
+    project,
+    activeWorkView,
+    activePromotedView,
+    activeMainViewPluginViewDescriptor,
+    evidenceViewerState,
+    evidenceMainViewHidden,
     activePreviewView,
     routePanel,
     sheet,
@@ -92,6 +99,18 @@ function WorkspaceMainViewBody() {
     actionCompareOpen,
     actionCompareActive,
   } = useMainViewModel();
+  const comparing = ocrCompareActive || transcribeCompareActive || translateCompareActive || topicCompareActive || actionCompareActive;
+  const primaryView: WorkspaceTelemetryView = activeWorkView === 'document' || activeWorkView === 'extract' || activeWorkView === 'answers' || activeWorkView === 'graph'
+    ? activeWorkView
+    : evidenceViewerState?.host === 'mainView' && !evidenceMainViewHidden ? 'evidence'
+      : activeWorkView === 'map' ? 'map'
+        : activeMainViewPluginViewDescriptor ? 'plugin' : activeWorkView;
+  const visibleView: WorkspaceTelemetryView = comparing ? 'compare'
+    : activePreviewView?.result?.kind === 'table' ? 'preview'
+      : routePanel?.kind === 'sourceHealth' && !sourceHealthHidden ? 'source_health'
+        : !sheet && !activePreviewView ? 'import'
+          : activePromotedView?.kind ?? primaryView;
+  useWorkspaceNavigationTelemetry({ projectId: project.id, view: visibleView });
 
   // Compare sessions are scratch state and must never be persisted.
   const body =

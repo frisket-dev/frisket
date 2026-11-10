@@ -194,14 +194,15 @@ export function createWorkspaceStores(
   // watchRunLink) or a
   // plain component-state list re-fetched per sheet (savedViews' `views`,
   // from api.listViews on the active-sheet transition), matching gridView/job's
-  // precedent above: projectId is accepted but unused by any of these eight.
+  // precedent above. Preview receives projectId only for its existing product-
+  // telemetry transport; it does not persist preview state.
   const selection = createSelectionStore();
   const detail = createDetailStore();
   const savedViews = createSavedViewsStore();
   const workView = createWorkViewStore();
   const compareView = createCompareViewStore();
   const lensView = createLensViewStore();
-  const previewView = createPreviewViewStore(projectApi);
+  const previewView = createPreviewViewStore(projectApi, projectId);
   const watchRunLink = createWatchRunLinkStore();
   // The route owner is assembled after its reset participants so its private
   // applyRoute can invoke the fixed cross-store matrix synchronously.

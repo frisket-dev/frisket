@@ -26,6 +26,7 @@ import {
   ProjectPluginsSettings,
 } from './ProjectIntegrationSettings';
 import { ProjectDataManagementSettings } from './ProjectDataManagementSettings';
+import { useSettingsNavigationTelemetry } from '../telemetry/navigationTelemetry';
 import {
   settingsSectionId,
   type OpenSettingsSectionDefinition,
@@ -410,6 +411,7 @@ export function SettingsWorkspace({
     })
     : null;
   const activeId = definition?.id ?? null;
+  useSettingsNavigationTelemetry({ scope: route.scope, sectionId: activeId, projectId: routeProjectId, available: definition !== null && !routeError && currentAvailability?.disabled === false });
   const contextLabel = project
     ? `${project.name} settings`
     : route.scope === 'organization'

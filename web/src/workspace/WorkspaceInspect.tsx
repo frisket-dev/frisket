@@ -5,10 +5,12 @@ import { InspectDetailColumn } from '../workbench/InspectDetailColumn';
 import { ResolvedWorkbenchLayoutRegion } from '../workbench/contributions';
 import { type WorkbenchResolvedLayoutContribution } from '../workbench/layout';
 import { PluginPanelHost } from '../workbench/PluginPanelHost';
+import { resolvePluginPanelAvailability } from '../workbench/pluginPanelContext';
 import { useDetailHandle } from '../bind/useDetailHandle';
 import { useSelectionHandle } from '../bind/useSelectionHandle';
 import { useSelector } from '../bind/useSelector';
 import { useRenderCount, useWorkspaceShell, useWorkspaceRowWalk, useWorkspacePluginDetailRender, useResolvedWorkbenchLayout, useCurrentSheet, useTitleColumnOrder, resolveRegionContributions, useWorkbenchHostContext } from './WorkspaceContext';
+import { telemetryPanelKind, useWorkspaceNavigationTelemetry } from '../telemetry/navigationTelemetry';
 
 export const WorkspaceInspectDetailRegion = memo(function WorkspaceInspectDetailRegion() {
   useRenderCount('inspectDetail');
@@ -68,6 +70,7 @@ export const WorkspaceInspectDetailRegion = memo(function WorkspaceInspectDetail
     [rowDrawerId, runActionBackfill],
   );
 
+  useWorkspaceNavigationTelemetry({ projectId: project.id, rightPanels: rowDrawer && sheet ? ['row'] : [] });
   if (!rowDrawer || !sheet) return null;
 
   return (
@@ -104,10 +107,14 @@ export const WorkspaceInspectDetailRegion = memo(function WorkspaceInspectDetail
 
 export const WorkspaceRightInspectorRegion = memo(function WorkspaceRightInspectorRegion() {
   useRenderCount('rightInspector');
-  const { rightInspectorPluginPanelDescriptors } = useWorkspaceShell();
+  const { project, rightInspectorPluginPanelDescriptors } = useWorkspaceShell();
   const workbenchHostContext = useWorkbenchHostContext();
   const resolvedWorkbenchLayout = useResolvedWorkbenchLayout();
   const { sheet } = useCurrentSheet();
+  const visiblePanels = rightInspectorPluginPanelDescriptors.filter(descriptor =>
+    sheet != null && resolvePluginPanelAvailability(descriptor, sheet, workbenchHostContext).available,
+  );
+  useWorkspaceNavigationTelemetry({ projectId: project.id, rightPanels: visiblePanels.map(descriptor => telemetryPanelKind(descriptor.id)) });
 
   return (
         <section

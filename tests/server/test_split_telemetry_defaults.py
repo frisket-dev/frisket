@@ -38,6 +38,72 @@ def _body(event_type: str, properties: dict[str, str]) -> dict[str, Any]:
     return {"monthly_id": MONTHLY_ID, "type": event_type, "properties": properties}
 
 
+def test_product_navigation_and_preview_events_reach_destination(tmp_path) -> None:
+    destination = RecordingDestination()
+    client = TestClient(create_app(tmp_path, product_telemetry_destination=destination))
+    pid = client.post("/api/projects", json={"name": "Private project name"}).json()[
+        "id"
+    ]
+    project_path = f"/api/projects/{pid}/telemetry/events"
+    cases = [
+        (project_path, "Workspace.viewOpened", {"view": "document"}),
+        (project_path, "Workspace.panelOpened", {"region": "right", "panel": "filter"}),
+        (
+            project_path,
+            "Workspace.panelOpened",
+            {"region": "bottom", "panel": "history"},
+        ),
+        (
+            "/api/telemetry/events",
+            "Settings.sectionOpened",
+            {"scope": "personal", "section": "privacy"},
+        ),
+        (project_path, "Project.settingsSectionOpened", {"section": "general"}),
+        (project_path, "Action.previewStarted", {"action": "map.extract"}),
+        (
+            project_path,
+            "Action.previewObserved",
+            {
+                "action": "map.extract",
+                "observedDuration": "1_10s",
+                "result": "success",
+                "failureCategory": "none",
+            },
+        ),
+    ]
+    for path, event, properties in cases:
+        response = client.post(path, json=_body(event, properties))
+        assert response.status_code == 204, (event, response.text)
+        signal = destination.signals[-1]
+        assert signal["type"] == event
+        for key, value in properties.items():
+            assert signal["payload"][f"Frisket.{key}"] == value
+        assert "Private project name" not in str(signal)
+    assert len(destination.signals) == len(cases)
+
+    for event, properties in [
+        ("Workspace.viewOpened", {"view": "secret-sheet-name"}),
+        ("Workspace.panelOpened", {"region": "right", "panel": "plugin-private-id"}),
+        ("Workspace.viewOpened", {"view": "document", "url": "private-url"}),
+    ]:
+        assert (
+            client.post(project_path, json=_body(event, properties)).status_code == 422
+        )
+    assert len(destination.signals) == len(cases)
+
+    sensitive = client.post(
+        "/api/projects", json={"name": "Sensitive", "sensitive": True}
+    ).json()["id"]
+    assert (
+        client.post(
+            f"/api/projects/{sensitive}/telemetry/events",
+            json=_body("Workspace.viewOpened", {"view": "document"}),
+        ).status_code
+        == 204
+    )
+    assert len(destination.signals) == len(cases)
+
+
 def test_product_telemetry_bucket_edges_are_coarse_and_closed() -> None:
     assert [
         duration_bucket(value)
