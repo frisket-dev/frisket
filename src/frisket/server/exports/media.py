@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from frisket.server.exports.plan import ExportColumn
+from frisket.server.exports.plan import AttachmentPath, ExportColumn
 from frisket.server.exports.rowset import ExportError
 from frisket.engine.store import Project
 from frisket.engine.store.media_blobs import MediaBlobStore
@@ -43,6 +43,7 @@ _SIBLING_TYPE = {
     "height": "integer",
     "pages": "integer",
     "page": "integer",
+    "path": "text",
 }
 
 
@@ -51,7 +52,11 @@ def is_media_column(column_type: str) -> bool:
 
 
 def project_export_columns(
-    project: Project, sheet_id: int, media_policy: str
+    project: Project,
+    sheet_id: int,
+    media_policy: str,
+    *,
+    include_attachment_paths: bool = False,
 ) -> list[ExportColumn]:
     """Project visible sheet columns into output columns.
 
@@ -79,7 +84,10 @@ def project_export_columns(
                     media_field="display",
                 )
             )
-            for field in MEDIA_SIBLING_FIELDS:
+            fields = MEDIA_SIBLING_FIELDS + (
+                ("path",) if include_attachment_paths else ()
+            )
+            for field in fields:
                 out.append(
                     ExportColumn(
                         name=f"{name}.{field}",
@@ -122,7 +130,9 @@ def _reject_collisions(columns: list[ExportColumn]) -> None:
         seen[column.name] = column
 
 
-def resolve_media_reference(project: Project, value: Any) -> dict[str, Any]:
+def resolve_media_reference(
+    project: Project, value: Any, *, attachment_path: AttachmentPath | None = None
+) -> dict[str, Any]:
     """Resolve the display value and reference siblings for one media cell.
 
     Identity comes from the cell and ``blobs`` row; display facts come from the
@@ -161,7 +171,7 @@ def resolve_media_reference(project: Project, value: Any) -> dict[str, Any]:
     )
     display = _pick(filename, source_url, blob_prefix)
 
-    return {
+    reference = {
         "display": display,
         "blob": blob_digest if isinstance(blob_digest, str) else None,
         "mime_type": mime_type,
@@ -174,6 +184,13 @@ def resolve_media_reference(project: Project, value: Any) -> dict[str, Any]:
         "pages": pages,
         "page": envelope.get("page"),
     }
+    if attachment_path is not None:
+        reference["path"] = (
+            attachment_path(blob_digest, filename)
+            if isinstance(blob_digest, str) and blob_digest
+            else None
+        )
+    return reference
 
 
 def _pick(*values: Any) -> Any:

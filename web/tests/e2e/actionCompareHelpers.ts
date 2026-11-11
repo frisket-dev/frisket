@@ -27,11 +27,11 @@ export async function expectComparisonCell(
 ): Promise<void> {
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   await page.evaluate(() => navigator.clipboard.writeText(''));
+  const point = await comparisonCellPoint(page, variantColumn + 1, row);
+  await page.mouse.click(point.x, point.y);
   // Selection and Glide's copy listener can settle after the first key press.
-  // Retry the real interaction, not just reads of a clipboard that stayed empty.
+  // Retry copying, not clicking: a second click activates the cell's Review view.
   await expect.poll(async () => {
-    const point = await comparisonCellPoint(page, variantColumn + 1, row);
-    await page.mouse.click(point.x, point.y);
     await page.keyboard.press('ControlOrMeta+C');
     return page.evaluate(() => navigator.clipboard.readText());
   }).toBe(expected);

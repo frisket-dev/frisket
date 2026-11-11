@@ -11,7 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, field
-from typing import Any, Iterator, Literal
+from typing import Any, Callable, Iterator, Literal
 
 from frisket.server.exports import rowset as _rowset
 from frisket.server.exports.rowset import ExportError
@@ -44,6 +44,9 @@ def rowset_hash(
         ensure_ascii=False,
     )
     return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+AttachmentPath = Callable[[str, str | None], str]
 
 
 ColumnRole = Literal["value", "media_display", "media_ref"]
@@ -161,6 +164,7 @@ def build_sheet_export_plan(
     query_field: str = "params.query",
     streaming_rowset: bool = False,
     scope_row_ids: list[int] | None = None,
+    include_attachment_paths: bool = False,
 ) -> SheetExportPlan:
     columns = columns or ExportColumns()
     if columns.mode != "all_visible":
@@ -190,7 +194,12 @@ def build_sheet_export_plan(
         materialize_small=not streaming_rowset,
         scope_row_ids=scope_row_ids,
     )
-    export_columns = _build_export_columns(project, sheet_id, media_policy)
+    export_columns = _build_export_columns(
+        project,
+        sheet_id,
+        media_policy,
+        include_attachment_paths=include_attachment_paths,
+    )
     return SheetExportPlan(
         sheet_id=sheet.sheet_id,
         sheet_name=sheet.sheet_name,
@@ -207,12 +216,21 @@ def build_sheet_export_plan(
 
 
 def _build_export_columns(
-    project: Project, sheet_id: int, media_policy: MediaPolicy
+    project: Project,
+    sheet_id: int,
+    media_policy: MediaPolicy,
+    *,
+    include_attachment_paths: bool = False,
 ) -> list[ExportColumn]:
     """Project visible sheet columns into output columns via media projection."""
     from frisket.server.exports import media as _media
 
-    return _media.project_export_columns(project, sheet_id, media_policy)
+    return _media.project_export_columns(
+        project,
+        sheet_id,
+        media_policy,
+        include_attachment_paths=include_attachment_paths,
+    )
 
 
 def iter_export_row_batches(
@@ -220,6 +238,7 @@ def iter_export_row_batches(
     plan: SheetExportPlan,
     *,
     batch_size: int = 1000,
+    attachment_path: AttachmentPath | None = None,
 ) -> Iterator[ExportRowBatch]:
     """Yield typed row batches whose values align to ``plan.columns``.
 
@@ -252,7 +271,9 @@ def iter_export_row_batches(
         for row_id in batch_row_ids:
             ref_by_src = {
                 sid: _media.resolve_media_reference(
-                    project, values_by_col[sid].get(row_id)
+                    project,
+                    values_by_col[sid].get(row_id),
+                    attachment_path=attachment_path,
                 )
                 for sid in media_source_ids
             }

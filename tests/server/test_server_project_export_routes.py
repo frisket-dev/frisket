@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 import sqlite3
 import tarfile
+import tempfile
 from pathlib import Path
 from typing import NoReturn
 
@@ -13,7 +15,10 @@ from fastapi.testclient import TestClient
 
 from frisket.server.app import create_app
 from frisket.server.routes.exports import register_project_export_routes
-from frisket.server.services.project_exports import ProjectExportError
+from frisket.server.services.project_exports import (
+    ProjectExportError,
+    ProjectExportService,
+)
 
 
 def _tar(content: bytes) -> tarfile.TarFile:
@@ -184,3 +189,48 @@ def test_project_export_routes_map_service_export_errors() -> None:
     assert bundle.json()["detail"] == "bundle failed"
     assert database.status_code == 500
     assert database.json()["detail"] == "database failed"
+
+
+@pytest.mark.parametrize("mode", ["db", "bundle"])
+@pytest.mark.parametrize("disconnect", [False, True])
+def test_project_export_removes_download_on_completion_or_disconnect(
+    replay_client: TestClient, tmp_path: Path, monkeypatch, mode: str, disconnect: bool
+) -> None:
+    pid, _sheet = _make_project(replay_client)
+    app = FastAPI()
+    register_project_export_routes(
+        app, service=ProjectExportService(replay_client.app.state.workspace)
+    )
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    sent_body = False
+
+    async def send(message):
+        nonlocal sent_body
+        if message["type"] == "http.response.body":
+            assert list(tmp_path.glob("frisket-export-*"))
+            assert message["body"]
+            sent_body = True
+            if disconnect:
+                raise ConnectionError("client disconnected")
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": f"/api/projects/{pid}/export",
+        "root_path": "",
+        "query_string": f"mode={mode}".encode(),
+        "headers": [],
+    }
+    if disconnect:
+        with pytest.raises(ConnectionError, match="client disconnected"):
+            asyncio.run(app(scope, receive, send))
+    else:
+        asyncio.run(app(scope, receive, send))
+    assert sent_body
+    assert not list(tmp_path.glob("frisket-export-*"))

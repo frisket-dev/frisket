@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from functools import partial
+from pathlib import Path
 from typing import Any, Callable, Literal
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, Response, StreamingResponse
-from starlette.background import BackgroundTask
 
 from frisket.server.downloads import unlink_best_effort
 from frisket.server.services.project_exports import (
@@ -16,6 +17,7 @@ from frisket.server.services.project_exports import (
 from frisket.server.services.sheet_export import (
     SheetDatasetExportError,
     SheetDatasetExportService,
+    SheetDatasetFile,
 )
 from frisket.server.services.work_log_exports import WorkLogExportService
 
@@ -45,6 +47,31 @@ class _ClosingStreamingResponse(StreamingResponse):
             self._close_response_resource()
 
 
+class _ClosingFileResponse(FileResponse):
+    """Keep temporary export files until transmission finishes or disconnects."""
+
+    def __init__(
+        self,
+        path: str | Path,
+        *,
+        close: Callable[[], None],
+        media_type: str,
+        filename: str,
+    ) -> None:
+        self._close_response_resource = close
+        try:
+            super().__init__(path, media_type=media_type, filename=filename)
+        except BaseException:
+            close()
+            raise
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            self._close_response_resource()
+
+
 def register_sheet_dataset_export_route(
     app: FastAPI,
     *,
@@ -59,6 +86,7 @@ def register_sheet_dataset_export_route(
         sort: str | None = None,
         formula_policy: str = Query(default="escape"),
         scope_row_ids: str | None = None,
+        include_attachments: bool = False,
     ) -> Response:
         """Export selected sheets through the shared dataset export plan.
 
@@ -66,10 +94,15 @@ def register_sheet_dataset_export_route(
         > original source cell), the same media reference flattening, and the
         same formula policy as the ``export.sheet_csv`` v1 action. CSV produces
         one file for one sheet or a ZIP for several; Excel produces a workbook
-        with one tab per selected sheet.
+        with one tab per selected sheet. Include attachments packages either
+        format with the referenced stored files in a ZIP.
         """
         try:
-            if format_ == "csv" and len(set(sheet_ids)) == 1:
+            if (
+                format_ == "csv"
+                and len(set(sheet_ids)) == 1
+                and not include_attachments
+            ):
                 export = service.stream_csv(
                     pid,
                     sheet_ids,
@@ -90,6 +123,7 @@ def register_sheet_dataset_export_route(
                 pid,
                 sheet_ids,
                 format_=format_,
+                include_attachments=include_attachments,
                 filter_=filter_,
                 sort=sort,
                 scope_row_ids=scope_row_ids,
@@ -97,6 +131,13 @@ def register_sheet_dataset_export_route(
             )
         except SheetDatasetExportError as exc:
             raise HTTPException(exc.status_code, exc.detail) from exc
+        if isinstance(export, SheetDatasetFile):
+            return _ClosingFileResponse(
+                export.path,
+                close=export.close,
+                media_type=export.media_type,
+                filename=export.filename,
+            )
         return Response(
             export.content,
             media_type=export.media_type,
@@ -180,11 +221,11 @@ def register_project_export_routes(
         try:
             if mode == "db":
                 export = service.export_database(pid)
-                return FileResponse(
+                return _ClosingFileResponse(
                     export.path,
                     media_type="application/vnd.sqlite3",
                     filename=export.filename,
-                    background=BackgroundTask(unlink_best_effort, export.path),
+                    close=partial(unlink_best_effort, export.path),
                 )
             export = service.export_bundle(
                 pid,
@@ -193,11 +234,11 @@ def register_project_export_routes(
             )
         except ProjectExportError as exc:
             raise HTTPException(exc.status_code, exc.detail) from exc
-        return FileResponse(
+        return _ClosingFileResponse(
             export.path,
             media_type="application/gzip",
             filename=export.filename,
-            background=BackgroundTask(unlink_best_effort, export.path),
+            close=partial(unlink_best_effort, export.path),
         )
 
 

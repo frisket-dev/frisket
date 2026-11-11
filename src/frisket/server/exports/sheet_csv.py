@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Iterator
 
 from frisket.server.exports.plan import (
+    AttachmentPath,
     SheetExportPlan,
     iter_export_row_batches,
     plan_receipt_payload,
@@ -119,6 +120,7 @@ def iter_export_csv_bytes(
     max_chunk_bytes: int = 64 * 1024,
     bom: bool = True,
     on_batch: Callable[[list[int]], None] | None = None,
+    attachment_path: AttachmentPath | None = None,
 ) -> Iterator[bytes]:
     """Incrementally encode a CSV without collecting the rendered corpus.
 
@@ -140,7 +142,9 @@ def iter_export_csv_bytes(
 
     def data_rows() -> Iterator[list[str]]:
         yield header
-        for batch in iter_export_row_batches(project, plan, batch_size=batch_size):
+        for batch in iter_export_row_batches(
+            project, plan, batch_size=batch_size, attachment_path=attachment_path
+        ):
             if on_batch is not None:
                 on_batch(batch.row_ids)
             for row in batch.rows:

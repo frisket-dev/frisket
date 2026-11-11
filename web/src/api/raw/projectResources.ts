@@ -76,6 +76,7 @@ export function sheetDatasetExportUrl(
   const params = new URLSearchParams();
   for (const sheetId of sheetIds) params.append('sheet_id', sheetId);
   params.set('format', options.format);
+  if (options.includeAttachments) params.set('include_attachments', 'true');
   const viewQuery = sheetViewQuery(options.currentView);
   if (viewQuery) {
     const viewParams = new URLSearchParams(viewQuery);

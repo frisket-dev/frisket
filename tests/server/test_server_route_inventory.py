@@ -165,6 +165,7 @@ def test_route_inventory_captures_query_aliases_and_defaults(tmp_path):
         "sort": ("sort", None),
         "scope_row_ids": ("scope_row_ids", None),
         "formula_policy": ("formula_policy", "escape"),
+        "include_attachments": ("include_attachments", False),
     }
     assert _query_defaults(_route(app, "/api/projects/{pid}/actions/v1/run")) == {}
     assert _query_defaults(

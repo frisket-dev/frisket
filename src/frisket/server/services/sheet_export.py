@@ -6,13 +6,17 @@ import csv
 import io
 import json
 import re
+import tempfile
 import zipfile
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Iterator
 
 from openpyxl import Workbook
 
+from frisket.server.exports.attachments import ExportAttachments
 from frisket.server.exports.plan import (
+    AttachmentPath,
     SheetExportPlan,
     build_sheet_export_plan,
     iter_export_row_batches,
@@ -33,6 +37,14 @@ class SheetDatasetArtifact:
     filename: str
     content: bytes
     media_type: str
+
+
+@dataclass(frozen=True)
+class SheetDatasetFile:
+    filename: str
+    path: Path
+    media_type: str
+    close: Callable[[], None]
 
 
 @dataclass(frozen=True)
@@ -68,7 +80,8 @@ class SheetDatasetExportService:
         sort: str | None,
         formula_policy: str,
         scope_row_ids: str | None = None,
-    ) -> SheetDatasetArtifact:
+        include_attachments: bool = False,
+    ) -> SheetDatasetArtifact | SheetDatasetFile:
         project = self._workspace.get(project_id)
         self._validate_formula_policy(formula_policy)
         selected = _unique_sheet_ids(sheet_ids)
@@ -87,27 +100,44 @@ class SheetDatasetExportService:
                 "current-view export requires exactly one selected sheet",
                 code="invalid_current_view_selection",
             )
-        plans = [
-            self._build_plan(
-                project,
-                sheet_id,
-                filter_=filter_ if len(selected) == 1 else None,
-                sort=sort if len(selected) == 1 else None,
-                scope_row_ids=scope if len(selected) == 1 else None,
-            )
-            for sheet_id in selected
-        ]
-        if format_ == "xlsx":
-            return self._render_xlsx(project, project_id, plans, formula_policy)
-        if len(plans) == 1:
+        project_name = self._project_name(project, project_id)
+        with project.read_snapshot() as snapshot:
+            plans = [
+                self._build_plan(
+                    snapshot,
+                    sheet_id,
+                    filter_=filter_,
+                    sort=sort,
+                    scope_row_ids=scope,
+                    streaming_rowset=True,
+                    include_attachment_paths=include_attachments,
+                )
+                for sheet_id in selected
+            ]
+            if include_attachments or (format_ == "csv" and len(plans) > 1):
+                return self._render_archive(
+                    snapshot,
+                    project_name,
+                    plans,
+                    formula_policy,
+                    format_=format_,
+                    include_attachments=include_attachments,
+                )
+            if format_ == "xlsx":
+                out = io.BytesIO()
+                _write_xlsx(snapshot, plans, out, formula_policy=formula_policy)
+                return SheetDatasetArtifact(
+                    filename=download_filename(project_name, ".xlsx"),
+                    content=out.getvalue(),
+                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
             plan = plans[0]
             return SheetDatasetArtifact(
                 filename=download_filename(plan.sheet_name, ".csv"),
                 content=b"\xef\xbb\xbf"
-                + _render_plan_csv(project, plan, formula_policy=formula_policy),
+                + _render_plan_csv(snapshot, plan, formula_policy=formula_policy),
                 media_type="text/csv; charset=utf-8-sig",
             )
-        return self._render_csv_zip(project, project_id, plans, formula_policy)
 
     def stream_csv(
         self,
@@ -154,68 +184,65 @@ class SheetDatasetExportService:
             close=snapshot.close,
         )
 
-    def _render_csv_zip(
+    def _render_archive(
         self,
         project: Any,
-        project_id: str,
+        project_name: str,
         plans: list[SheetExportPlan],
         formula_policy: str,
-    ) -> SheetDatasetArtifact:
-        out = io.BytesIO()
-        used_names: set[str] = set()
-        with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-            for plan in plans:
-                filename = _unique_filename(
-                    download_filename(plan.sheet_name, ".csv"), used_names
-                )
-                archive.writestr(
-                    filename,
-                    b"\xef\xbb\xbf"
-                    + _render_plan_csv(project, plan, formula_policy=formula_policy),
-                )
-        return SheetDatasetArtifact(
-            filename=download_filename(
-                self._project_name(project, project_id), "-csv.zip"
-            ),
-            content=out.getvalue(),
-            media_type="application/zip",
-        )
-
-    def _render_xlsx(
-        self,
-        project: Any,
-        project_id: str,
-        plans: list[SheetExportPlan],
-        formula_policy: str,
-    ) -> SheetDatasetArtifact:
-        workbook = Workbook(write_only=True)
-        used_titles: set[str] = set()
-        for plan in plans:
-            worksheet = workbook.create_sheet(
-                _worksheet_title(plan.sheet_name, used_titles)
-            )
-            worksheet.append(
-                [
-                    _xlsx_cell(name, formula_policy=formula_policy)
-                    for name in plan.column_names
-                ]
-            )
-            for batch in iter_export_row_batches(project, plan):
-                for row in batch.rows:
-                    worksheet.append(
-                        [
-                            _xlsx_cell(value, formula_policy=formula_policy)
-                            for value in row
-                        ]
+        *,
+        format_: str,
+        include_attachments: bool,
+    ) -> SheetDatasetFile:
+        directory = tempfile.TemporaryDirectory(prefix="frisket-sheet-export-")
+        target = Path(directory.name) / "download.zip"
+        attachments = ExportAttachments()
+        attachment_path = attachments.path if include_attachments else None
+        try:
+            with zipfile.ZipFile(
+                target, "w", compression=zipfile.ZIP_DEFLATED
+            ) as archive:
+                if format_ == "csv":
+                    used_names: set[str] = set()
+                    for plan in plans:
+                        filename = _unique_filename(
+                            download_filename(plan.sheet_name, ".csv"), used_names
+                        )
+                        with archive.open(filename, "w", force_zip64=True) as sink:
+                            for chunk in iter_export_csv_bytes(
+                                project,
+                                plan,
+                                formula_policy=formula_policy,
+                                attachment_path=attachment_path,
+                            ):
+                                sink.write(chunk)
+                else:
+                    workbook_path = Path(directory.name) / "tables.xlsx"
+                    _write_xlsx(
+                        project,
+                        plans,
+                        workbook_path,
+                        formula_policy=formula_policy,
+                        attachment_path=attachment_path,
                     )
-        out = io.BytesIO()
-        workbook.save(out)
-        return SheetDatasetArtifact(
-            filename=download_filename(
-                self._project_name(project, project_id), ".xlsx"
-            ),
-            content=out.getvalue(),
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    archive.write(
+                        workbook_path,
+                        download_filename(project_name, ".xlsx"),
+                        compress_type=zipfile.ZIP_STORED,
+                    )
+                    workbook_path.unlink()
+                attachments.write(project, archive)
+        except ExportError as exc:
+            directory.cleanup()
+            raise SheetDatasetExportError(409, exc.message, code=exc.code) from exc
+        except BaseException:
+            directory.cleanup()
+            raise
+        return SheetDatasetFile(
+            filename=download_filename(project_name, f"-{format_}.zip"),
+            path=target,
+            media_type="application/zip",
+            close=directory.cleanup,
         )
 
     def _build_plan(
@@ -227,6 +254,7 @@ class SheetDatasetExportService:
         sort: str | None,
         scope_row_ids: list[int] | None = None,
         streaming_rowset: bool = False,
+        include_attachment_paths: bool = False,
     ) -> SheetExportPlan:
         query: dict[str, Any] | None = None
         if filter_ is not None or sort is not None:
@@ -257,6 +285,7 @@ class SheetDatasetExportService:
                 query_field="filter",
                 streaming_rowset=streaming_rowset,
                 scope_row_ids=scope_row_ids,
+                include_attachment_paths=include_attachment_paths,
             )
         except ExportError as exc:
             if exc.code == "invalid_sheet_ref":
@@ -285,6 +314,36 @@ class SheetDatasetExportService:
     def _project_name(self, project: Any, project_id: str) -> str:
         metadata = project.project_metadata()
         return str(metadata.get("name") or project_id)
+
+
+def _write_xlsx(
+    project: Any,
+    plans: list[SheetExportPlan],
+    destination: Any,
+    *,
+    formula_policy: str,
+    attachment_path: AttachmentPath | None = None,
+) -> None:
+    workbook = Workbook(write_only=True)
+    used_titles: set[str] = set()
+    for plan in plans:
+        worksheet = workbook.create_sheet(
+            _worksheet_title(plan.sheet_name, used_titles)
+        )
+        worksheet.append(
+            [
+                _xlsx_cell(name, formula_policy=formula_policy)
+                for name in plan.column_names
+            ]
+        )
+        for batch in iter_export_row_batches(
+            project, plan, attachment_path=attachment_path
+        ):
+            for row in batch.rows:
+                worksheet.append(
+                    [_xlsx_cell(value, formula_policy=formula_policy) for value in row]
+                )
+    workbook.save(destination)
 
 
 def _unique_sheet_ids(sheet_ids: list[int]) -> list[int]:
