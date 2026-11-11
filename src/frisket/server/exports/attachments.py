@@ -20,7 +20,10 @@ class ExportAttachments:
     def path(self, digest: str, filename: str | None) -> str:
         if digest not in self.paths:
             basename = PurePosixPath(str(filename or "file").replace("\\", "/")).name
-            safe_name = download_filename(basename, "")
+            parsed = PurePosixPath(basename)
+            safe_name = download_filename(parsed.stem, "")
+            if parsed.suffix:
+                safe_name += "." + download_filename(parsed.suffix[1:], "")
             self.paths[digest] = f"attachments/{digest}/{safe_name}"
         return self.paths[digest]
 

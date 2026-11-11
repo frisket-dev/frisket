@@ -17,7 +17,7 @@ from openpyxl import load_workbook
 from frisket.engine.store.media_blobs import media_cell
 
 
-def _seed(client: TestClient):
+def _seed(client: TestClient, filename: str = "../../clip.mp3"):
     pid = client.post("/api/projects", json={"name": "Portable"}).json()["id"]
     project = client.app.state.workspace.get(pid)
     sheet = project.add_sheet("Recordings")
@@ -30,16 +30,14 @@ def _seed(client: TestClient):
         ),
     }
     audio = b"ID3 example audio" * 100
-    digest = project.add_blob(audio, filename="../../clip.mp3", mime="audio/mpeg")
+    digest = project.add_blob(audio, filename=filename, mime="audio/mpeg")
     segments = [{"start": 0.2, "end": 4.5, "text": "Hello, world."}]
     rows = project.add_rows(
         sheet,
         [
             {
                 "title": "keep",
-                "media": media_cell(
-                    digest, filename="../../clip.mp3", mime="audio/mpeg"
-                ),
+                "media": media_cell(digest, filename=filename, mime="audio/mpeg"),
                 "transcript": "Hello, world.\nSecond line.",
                 "segments": segments,
             },
@@ -66,8 +64,11 @@ def _csv(archive, name="Recordings.csv"):
     return list(csv.DictReader(io.StringIO(archive.read(name).decode("utf-8-sig"))))
 
 
-def test_csv_attachment_export_preserves_transcript_and_timings(replay_client):
-    pid, project, sheet, rows, digest, audio, segments = _seed(replay_client)
+@pytest.mark.parametrize("filename", ["../../clip.mp3", "音声.mp3"])
+def test_csv_attachment_export_preserves_transcript_and_timings(
+    replay_client, filename
+):
+    pid, project, sheet, rows, digest, audio, segments = _seed(replay_client, filename)
     response = _download(replay_client, pid, [sheet])
     assert response.status_code == 200, response.text
     assert response.headers["content-type"] == "application/zip"
@@ -76,8 +77,9 @@ def test_csv_attachment_export_preserves_transcript_and_timings(replay_client):
         path = exported[0]["media.path"]
         assert path.startswith(f"attachments/{digest}/")
         assert ".." not in Path(path).parts
+        assert Path(path).suffix == ".mp3"
         assert archive.read(path) == audio
-        assert exported[0]["media.filename"] == "../../clip.mp3"
+        assert exported[0]["media.filename"] == filename
         assert exported[0]["transcript"] == "Hello, world.\nSecond line."
         assert json.loads(exported[0]["segments"]) == segments
         assert exported[1]["media.path"] == ""
