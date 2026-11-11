@@ -2270,6 +2270,7 @@ export type SheetViewExportOptions = Pick<SheetDataOptions, 'filter' | 'sort' | 
 export interface SheetDatasetExportOptions {
   format: 'csv' | 'xlsx';
   sheetIds: string[];
+  includeAttachments?: boolean;
   /** Current-view filter/sort is valid only for one selected sheet. */
   currentView?: SheetViewExportOptions | null;
 }

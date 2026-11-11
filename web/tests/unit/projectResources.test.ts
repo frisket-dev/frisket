@@ -76,4 +76,24 @@ describe('project resource URLs', () => {
       sheetDatasetExportUrl(projectId, { format: 'xlsx', sheetIds: [] }),
     ).toThrow('select at least one sheet');
   });
+
+  it.each(['csv', 'xlsx'] as const)('includes attachments only when requested for %s', (format) => {
+    const options = {
+      format,
+      sheetIds: ['2'],
+      currentView: { scopeRowIds: [3, 7] },
+    };
+    const withAttachments = new URL(sheetDatasetExportUrl(projectId, {
+      ...options,
+      includeAttachments: true,
+    }), 'https://frisket.test');
+    expect(withAttachments.searchParams.get('include_attachments')).toBe('true');
+    expect(withAttachments.searchParams.get('format')).toBe(format);
+    expect(withAttachments.searchParams.get('scope_row_ids')).toBe('3,7');
+    const withoutAttachments = new URL(sheetDatasetExportUrl(projectId, {
+      ...options,
+      includeAttachments: false,
+    }), 'https://frisket.test');
+    expect(withoutAttachments.searchParams.has('include_attachments')).toBe(false);
+  });
 });

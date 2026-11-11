@@ -743,6 +743,7 @@ function ExportDatasetModal({
 }) {
   const { projectId } = useWorkspaceStores().chromePreferences;
   const [format, setFormat] = useState<'csv' | 'xlsx'>('csv');
+  const [includeAttachments, setIncludeAttachments] = useState(false);
   const [scope, setScope] = useState<'entire' | 'current_view'>('entire');
   const [selectedSheetIds, setSelectedSheetIds] = useState<string[]>([currentSheet.id]);
   const currentSheetOnly =
@@ -752,16 +753,19 @@ function ExportDatasetModal({
   const exportUrl = selectedSheetIds.length > 0
     ? projectApi.sheetDatasetExportUrl({
         format,
+        includeAttachments,
         sheetIds: selectedSheetIds,
         currentView: effectiveScope === 'current_view' ? currentSheetExportOptions : null,
       })
     : null;
   const downloadLabel =
-    format === 'xlsx'
-      ? `Export ${selectedSheetIds.length} sheet${selectedSheetIds.length === 1 ? '' : 's'} to Excel`
-      : selectedSheetIds.length > 1
-        ? `Export ${selectedSheetIds.length} CSVs as ZIP`
-        : 'Export CSV';
+    includeAttachments
+      ? 'Export ZIP'
+      : format === 'xlsx'
+        ? `Export ${selectedSheetIds.length} sheet${selectedSheetIds.length === 1 ? '' : 's'} to Excel`
+        : selectedSheetIds.length > 1
+          ? `Export ${selectedSheetIds.length} CSVs as ZIP`
+          : 'Export CSV';
 
   const toggleSheet = (sheetId: string) => {
     setSelectedSheetIds((selected) =>
@@ -859,14 +863,28 @@ function ExportDatasetModal({
           </div>
         </fieldset>
 
+        <div className="export-dataset-section">
+          <label className="export-scope-option">
+            <input
+              type="checkbox"
+              checked={includeAttachments}
+              data-testid="export-include-attachments"
+              onChange={(event) => setIncludeAttachments(event.target.checked)}
+            />
+            Include attachments
+          </label>
+        </div>
+
         <div className="export-dataset-summary" aria-live="polite">
           {selectedSheetIds.length === 0
             ? 'Select at least one sheet.'
-            : format === 'xlsx'
-              ? 'Selected sheets will become tabs in one workbook.'
-              : selectedSheetIds.length > 1
-                ? 'Selected sheets will download as BOM-prefixed CSV files in one ZIP.'
-                : 'The CSV includes an Excel-friendly UTF-8 BOM.'}
+            : includeAttachments
+              ? 'Tables and stored files will download together in one ZIP.'
+              : format === 'xlsx'
+                ? 'Selected sheets will become tabs in one workbook.'
+                : selectedSheetIds.length > 1
+                  ? 'Selected sheets will download as BOM-prefixed CSV files in one ZIP.'
+                  : 'The CSV includes an Excel-friendly UTF-8 BOM.'}
         </div>
         <div className="form-actions">
           <Button

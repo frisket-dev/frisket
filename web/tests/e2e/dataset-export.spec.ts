@@ -1,12 +1,17 @@
 import fs from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import {
   createProject,
+  editCells,
   importCsv,
+  listSheets,
   openFriendlyFilterSidebar,
   openAdvancedSortPanel,
   openProject,
   sheetColumns,
+  sheetData,
   uniqueName,
 } from './helpers';
 
@@ -27,6 +32,7 @@ test('project menu exports the current sheet as CSV and the work log as Markdown
   await page.getByTestId('export-menu-open').click();
   await page.getByTestId('export-target-csv').click();
   await expect(page.getByTestId('export-data-modal')).toBeVisible();
+  await expect(page.getByTestId('export-include-attachments')).not.toBeChecked();
   await page.getByTestId('export-dataset-download').click();
   const csvDownload = await csvDownloadPromise;
   expect(csvDownload.suggestedFilename()).toBe('export-rows.csv');
@@ -52,6 +58,92 @@ test('project menu exports the current sheet as CSV and the work log as Markdown
   expect(logText).toContain('## Action Receipts');
   expect(logText).toContain('| import.csv | completed | 1 |');
   expect(logText).not.toContain('Recipe');
+});
+
+test('Export data packages an MP3 with its complete transcript and timed segments', async ({ page }, testInfo) => {
+  const pid = await createProject(page.request, uniqueName('dataset-audio-export'));
+  const audio = await fs.readFile(new URL(
+    '../../../src/frisket/sample_content/audio/ann-arbor-policy-committee-2022-04-19-excerpt.mp3',
+    import.meta.url,
+  ));
+  const imported = await page.request.post(`/api/projects/${pid}/import/files?sheet_name=Recordings`, {
+    multipart: {
+      files: { name: 'council-recording.mp3', mimeType: 'audio/mpeg', buffer: audio },
+    },
+  });
+  expect(imported.ok()).toBeTruthy();
+  const sheets = await listSheets(page.request, pid);
+  const sheetId = sheets.find((sheet) => sheet.name === 'Recordings')!.id;
+  for (const [name, type] of [['transcript', 'text'], ['segments', 'json']]) {
+    const added = await page.request.post(`/api/projects/${pid}/actions/v1/run`, {
+      data: {
+        action_id: 'column.add',
+        scope: { kind: 'project' },
+        params: { sheet_id: sheetId, name, type },
+        output_names: {},
+        idempotency_key: `e2e-export-column:${pid}:${name}`,
+      },
+    });
+    expect(added.ok()).toBeTruthy();
+    expect((await added.json()).status).toBe('completed');
+  }
+  const transcript = 'Chair: "Welcome, everyone."\nWe will discuss the council budget.\nThank you — gracias.';
+  const segments = [
+    { start: 0, end: 2.75, text: 'Chair: "Welcome, everyone."' },
+    { start: 2.75, end: 7.5, text: 'We will discuss the council budget.\nThank you — gracias.' },
+  ];
+  const data = await sheetData(page.request, pid, sheetId);
+  await editCells(page.request, pid, [
+    {
+      rowId: data.rows[0].id,
+      columnId: data.columns.find((column) => column.name === 'transcript')!.id,
+      value: transcript,
+    },
+    {
+      rowId: data.rows[0].id,
+      columnId: data.columns.find((column) => column.name === 'segments')!.id,
+      value: segments,
+    },
+  ]);
+  await openProject(page, pid, sheetId);
+  await page.getByTestId('switch-project').click();
+  await page.getByTestId('export-menu-open').click();
+  await page.getByTestId('export-target-csv').click();
+  await page.getByTestId('export-include-attachments').check();
+  await page.getByTestId('export-format-xlsx').check();
+  await expect(page.getByTestId('export-include-attachments')).toBeChecked();
+  await expect(page.getByTestId('export-dataset-download')).toHaveAttribute('href', /format=xlsx&include_attachments=true/);
+  await page.getByTestId('export-format-csv').check();
+  await expect(page.getByTestId('export-dataset-download')).toHaveText('Export ZIP');
+  await testInfo.attach('export-with-attachments', {
+    body: await page.getByTestId('export-data-modal').screenshot(),
+    contentType: 'image/png',
+  });
+
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByTestId('export-dataset-download').click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toMatch(/\.zip$/);
+  const archivePath = await download.path();
+  expect(archivePath).toBeTruthy();
+  const inspection = JSON.parse(execFileSync(process.env.FRISKET_E2E_PYTHON ?? 'python3', ['-c', `
+import csv, hashlib, io, json, sys, zipfile
+with zipfile.ZipFile(sys.argv[1]) as archive:
+    names = archive.namelist()
+    tables = [name for name in names if name.endswith('.csv')]
+    attachments = {name: hashlib.sha256(archive.read(name)).hexdigest()
+                   for name in names if name.startswith('attachments/') and not name.endswith('/')}
+    rows = list(csv.DictReader(io.StringIO(archive.read(tables[0]).decode('utf-8-sig'))))
+    print(json.dumps({'tables': tables, 'attachments': attachments, 'rows': rows}))
+`, archivePath!], { encoding: 'utf8' }));
+  expect(inspection.tables).toHaveLength(1);
+  expect(inspection.rows).toHaveLength(1);
+  expect(inspection.rows[0].transcript).toBe(transcript);
+  expect(JSON.parse(inspection.rows[0].segments)).toEqual(segments);
+  const attachmentPath = inspection.rows[0]['media.path'];
+  expect(attachmentPath).toMatch(/^attachments\/[^/]+\/council-recording\.mp3$/);
+  expect(Object.keys(inspection.attachments)).toEqual([attachmentPath]);
+  expect(inspection.attachments[attachmentPath]).toBe(createHash('sha256').update(audio).digest('hex'));
 });
 
 test('project menu exports either the entire sheet or the active grid view as CSV', async ({ page }) => {
