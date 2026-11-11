@@ -54,7 +54,7 @@ test('project menu exports the current sheet as CSV and the work log as Markdown
   const logText = await fs.readFile(logPath!, 'utf8');
   expect(logText).toContain('# Work log:');
   expect(logText).toContain('## Operation History');
-  expect(logText).toContain('| 1 | import.rows | import.csv | applied |');
+  expect(logText).toContain('| 1 | import.csv | import.csv | applied |');
   expect(logText).toContain('## Action Receipts');
   expect(logText).toContain('| import.csv | completed | 1 |');
   expect(logText).not.toContain('Recipe');
