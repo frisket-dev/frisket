@@ -4,7 +4,7 @@
     "openrouter": "https://openrouter.ai/api/v1/models",
     "opendocrouter": "https://www.opendocrouter.ai/v1/models"
   },
-  "updated": "2026-11-10",
+  "updated": "2026-11-11",
   "text": {
     "claude-sonnet-5-5": [
       2.0,
@@ -219,8 +219,8 @@
       1.25
     ],
     "z-ai/glm-5.3-flash": [
-      0.15,
-      0.5
+      0.0399,
+      0.0784
     ],
     "xiaomi/mimo-v2.6-flash": [
       0.14,
@@ -283,12 +283,12 @@
       2.0
     ],
     "z-ai/glm-5.2": [
-      0.006,
+      0.007,
       6.8
     ],
     "z-ai/glm-5.1": [
-      1.4,
-      4.4
+      1.33,
+      4.18
     ],
     "z-ai/glm-5-turbo": [
       1.2,
