@@ -115,10 +115,9 @@ test('Export data packages an MP3 with its complete transcript and timed segment
   await expect(page.getByTestId('export-dataset-download')).toHaveAttribute('href', /format=xlsx&include_attachments=true/);
   await page.getByTestId('export-format-csv').check();
   await expect(page.getByTestId('export-dataset-download')).toHaveText('Export ZIP');
-  await testInfo.attach('export-with-attachments', {
-    body: await page.getByTestId('export-data-modal').screenshot(),
-    contentType: 'image/png',
-  });
+  const screenshotPath = testInfo.outputPath('export-with-attachments.png');
+  await page.getByTestId('export-data-modal').screenshot({ path: screenshotPath });
+  await testInfo.attach('export-with-attachments', { path: screenshotPath, contentType: 'image/png' });
 
   const downloadPromise = page.waitForEvent('download');
   await page.getByTestId('export-dataset-download').click();
