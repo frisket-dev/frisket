@@ -959,6 +959,9 @@ class TestCli:
             def __exit__(self, exc_type, exc, tb):
                 return False
 
+            def close(self):
+                pass
+
             def stream(self, method, url):
                 assert method == "GET"
                 assert url == "https://example.com/feed.xml"
@@ -1024,6 +1027,9 @@ class TestCli:
 
             def __exit__(self, exc_type, exc, tb):
                 return False
+
+            def close(self):
+                pass
 
             def stream(self, method, url):
                 assert method == "GET"
