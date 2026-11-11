@@ -754,25 +754,21 @@ class Workspace:
     ) -> ExecutionComposition:
         """Add installation Cloud routes to one already-composed Solo view."""
 
-        del context
         if (
             self.edition != "solo"
             or self._cloud_connection_store is None
             or self._cloud_connection_client is None
         ):
             return composition
-        from frisket.cloud_targets import cloud_execution_composition
+        from frisket.cloud_targets import CloudExecutionOverlay
 
-        return cloud_execution_composition(
-            composition,
-            project,
+        return CloudExecutionOverlay(
             store=(
                 cloud_store if cloud_store is not None else self._cloud_connection_store
             ),
             client=self._cloud_connection_client,
-            execution_transport=self.cloud_execution_transport,
-            router=router,
-        )
+            transport=self.cloud_execution_transport,
+        )(composition, project, router, context)
 
     @staticmethod
     def execution_composition_context_for(
