@@ -220,7 +220,12 @@ def test_archive_is_removed_when_download_disconnects(replay_client):
     )
     assert isinstance(export, SheetDatasetFile)
     assert export.path.is_file()
-    response = _ClosingFileResponse(export)
+    response = _ClosingFileResponse(
+        export.path,
+        close=export.close,
+        media_type=export.media_type,
+        filename=export.filename,
+    )
 
     async def send(message):
         if message["type"] == "http.response.body":

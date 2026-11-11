@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from functools import partial
+from pathlib import Path
 from typing import Any, Callable, Literal
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, Response, StreamingResponse
-from starlette.background import BackgroundTask
 
 from frisket.server.downloads import unlink_best_effort
 from frisket.server.services.project_exports import (
@@ -49,14 +50,19 @@ class _ClosingStreamingResponse(StreamingResponse):
 class _ClosingFileResponse(FileResponse):
     """Keep temporary export files until transmission finishes or disconnects."""
 
-    def __init__(self, export: SheetDatasetFile) -> None:
-        self._close_response_resource = export.close
+    def __init__(
+        self,
+        path: str | Path,
+        *,
+        close: Callable[[], None],
+        media_type: str,
+        filename: str,
+    ) -> None:
+        self._close_response_resource = close
         try:
-            super().__init__(
-                export.path, media_type=export.media_type, filename=export.filename
-            )
+            super().__init__(path, media_type=media_type, filename=filename)
         except BaseException:
-            export.close()
+            close()
             raise
 
     async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
@@ -126,7 +132,12 @@ def register_sheet_dataset_export_route(
         except SheetDatasetExportError as exc:
             raise HTTPException(exc.status_code, exc.detail) from exc
         if isinstance(export, SheetDatasetFile):
-            return _ClosingFileResponse(export)
+            return _ClosingFileResponse(
+                export.path,
+                close=export.close,
+                media_type=export.media_type,
+                filename=export.filename,
+            )
         return Response(
             export.content,
             media_type=export.media_type,
@@ -210,11 +221,11 @@ def register_project_export_routes(
         try:
             if mode == "db":
                 export = service.export_database(pid)
-                return FileResponse(
+                return _ClosingFileResponse(
                     export.path,
                     media_type="application/vnd.sqlite3",
                     filename=export.filename,
-                    background=BackgroundTask(unlink_best_effort, export.path),
+                    close=partial(unlink_best_effort, export.path),
                 )
             export = service.export_bundle(
                 pid,
@@ -223,11 +234,11 @@ def register_project_export_routes(
             )
         except ProjectExportError as exc:
             raise HTTPException(exc.status_code, exc.detail) from exc
-        return FileResponse(
+        return _ClosingFileResponse(
             export.path,
             media_type="application/gzip",
             filename=export.filename,
-            background=BackgroundTask(unlink_best_effort, export.path),
+            close=partial(unlink_best_effort, export.path),
         )
 
 
