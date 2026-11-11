@@ -637,6 +637,21 @@ def _run_worker(argv: list[str], *, hosted: bool) -> int:
         embedding_runtime = EmbeddingRuntime()
         registration_options["embedding_runtime"] = embedding_runtime
         registration_options["prepare_enclosures_for_search"] = True
+    cloud_client = None
+    if not hosted and not database_url:
+        from frisket.cloud_connection import CloudConnectionClient, CloudConnectionStore
+        from frisket.cloud_execution import HttpCloudExecutionTransport
+        from frisket.cloud_targets import CloudExecutionOverlay
+
+        # Desktop passes its installation profile to this separate process.
+        # Reuse HTTP's route composition, including its approved Cloud payer.
+        cloud_store = CloudConnectionStore()
+        cloud_client = CloudConnectionClient()
+        registration_options["execution_composition_overlay"] = CloudExecutionOverlay(
+            cloud_store,
+            cloud_client,
+            HttpCloudExecutionTransport(cloud_store, cloud_client.origin),
+        )
     # The composition's own project-open seam (None for the open worker).
     # Reused for the scheduler scans below so that EVERY project this process
     # opens — claimed job handlers and background scans alike — goes through
@@ -747,7 +762,11 @@ def _run_worker(argv: list[str], *, hosted: bool) -> int:
             if embedding_runtime is not None:
                 embedding_runtime.close()
         finally:
-            queue.close()
+            try:
+                if cloud_client is not None:
+                    cloud_client.close()
+            finally:
+                queue.close()
     return 0
 
 

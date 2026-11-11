@@ -41,6 +41,7 @@ from frisket.execution.provider import (
     ConnectionConfig,
     ExactExecutionMatch,
     ExecutionComposition,
+    ExecutionCompositionContext,
     ExecutionTargetProvider,
     TargetConfiguration,
 )
@@ -274,6 +275,31 @@ def compose_cloud_targets(
         offerings=base.offerings + tuple(offerings),
         included=base.included + tuple(included),
     )
+
+
+@dataclass(frozen=True)
+class CloudExecutionOverlay:
+    """The same installation Cloud routes for HTTP and background workers."""
+
+    store: CloudConnectionStore
+    client: CloudConnectionClient
+    transport: CloudExecutionTransport | None = None
+
+    def __call__(
+        self,
+        composition: ExecutionComposition,
+        project: object,
+        router: Any,
+        context: ExecutionCompositionContext,
+    ) -> ExecutionComposition:
+        return cloud_execution_composition(
+            composition,
+            project,
+            store=self.store,
+            client=self.client,
+            execution_transport=self.transport,
+            router=router,
+        )
 
 
 def cloud_execution_composition(
