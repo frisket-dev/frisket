@@ -9,6 +9,8 @@ function harness() {
   let receive;
   let tick;
   const calls = [];
+  const sizes = [];
+  let cardHeight = 300;
   const nodes = new Map();
   let document;
   function node() {
@@ -19,7 +21,7 @@ function harness() {
       setAttribute(name, value) { this.attributes[name] = value; },
       addEventListener(name, fn) { this.events[name] = fn; },
       focus() { document.activeElement = this; },
-      getBoundingClientRect() { return { height: 300 }; },
+      getBoundingClientRect() { return { height: cardHeight }; },
     };
   }
   document = { body: node(), activeElement: null,
@@ -30,7 +32,7 @@ function harness() {
     subscribe(fn) { receive = fn; },
     retry() { calls.push('retry'); }, close() { calls.push('close'); },
     copyDiagnostics() { calls.push('copy'); }, details(open) { calls.push(['details', open]); },
-    resize(height) { calls.push(['resize', height]); },
+    resize(height) { sizes.push(height); },
   };
   vm.runInNewContext(script, { window: { frisketStartup: bridge, addEventListener() {} }, document,
     Date: class extends Date { static now() { return now; } },
@@ -38,7 +40,8 @@ function harness() {
     ResizeObserver: class { observe() {} },
   });
   const get = document.getElementById.bind(document);
-  return { get, calls, document, send: receive,
+  return { get, calls, sizes, document, send: receive,
+    setCardHeight(height) { cardHeight = height; },
     advance(ms) { now += ms; tick(); },
     click(id) { get(id).events.click(); },
   };
@@ -144,4 +147,22 @@ test('clock ticks do not repeat unchanged live-region announcements', () => {
   ui.advance(1_000); ui.advance(1_000);
   assert.equal(writes, 0);
   assert.equal(ui.get('elapsed').textContent, '0:14');
+});
+
+// This harness never delivers ResizeObserver callbacks. Explicit UI changes
+// must still request a native resize, including contraction after details close.
+test('startup content changes resize without waiting for ResizeObserver', () => {
+  const ui = harness();
+  assert.deepEqual(ui.sizes, [300]);
+  ui.setCardHeight(412);
+  ui.click('details-toggle');
+  assert.deepEqual(ui.sizes, [300, 412]);
+  ui.setCardHeight(300);
+  ui.click('details-toggle');
+  assert.deepEqual(ui.sizes, [300, 412, 300]);
+  ui.setCardHeight(340);
+  ui.send(snapshot({ firstTime: true }));
+  assert.deepEqual(ui.sizes, [300, 412, 300, 340]);
+  ui.advance(1000);
+  assert.deepEqual(ui.sizes, [300, 412, 300, 340]);
 });
