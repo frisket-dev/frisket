@@ -159,8 +159,18 @@ def test_runless_job_retains_explicit_sheet_context_through_failure(tmp_path) ->
         client.get(f"/api/projects/{pid}/actions/jobs/{job_id}").json()["context"]
         == expected
     )
-    project.delete_sheet(sheet_id)
+    project.db.execute("UPDATE sheets SET hidden=1 WHERE id=?", (sheet_id,))
+    project.db.commit()
     expected["sheet_name"] = None
+    assert (
+        client.get(f"/api/projects/{pid}/actions/jobs/{job_id}").json()["context"]
+        == expected
+    )
+    listed = client.get(f"/api/projects/{pid}/actions/jobs").json()["jobs"]
+    assert next(job for job in listed if job["job_id"] == job_id)["context"] == expected
+    project.db.execute("UPDATE sheets SET hidden=0 WHERE id=?", (sheet_id,))
+    project.db.commit()
+    project.delete_sheet(sheet_id)
     assert (
         client.get(f"/api/projects/{pid}/actions/jobs/{job_id}").json()["context"]
         == expected
