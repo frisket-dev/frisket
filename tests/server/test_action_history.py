@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from types import SimpleNamespace
 
 import pytest
@@ -121,6 +122,34 @@ def regex_request(sheet, rows):
         "params": {"input_columns": ["note"], "pattern": r"\d+"},
         "output_names": {"extracted": "digits"},
     }
+
+
+def test_history_write_failure_does_not_block_action(scene, monkeypatch, caplog):
+    client, project, sheet, rows = scene
+    from frisket.server.services import action_history
+
+    def busy(*args, **kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(action_history, "record_submission", busy)
+    response = client.post(
+        "/api/projects/history/actions/v1/run", json=regex_request(sheet, rows)
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "queued"
+    drain_queue(client)
+    [item] = history(client, "map.regex_extract")["items"]
+    assert item["id"] == f"run:{response.json()['run_id']}"
+    assert item["status"] == "completed"
+    column = project.db.execute(
+        "SELECT id FROM columns WHERE sheet_id=? AND name='digits'", (sheet,)
+    ).fetchone()[0]
+    assert project.get_values(sheet, column) == {rows[0]: "123"}
+    assert not project.db.in_transaction
+    assert (
+        project.db.execute("SELECT COUNT(*) FROM action_submissions").fetchone()[0] == 0
+    )
+    assert "action_history_record_failed" in caplog.text
 
 
 def test_admitted_failure_and_old_runs_share_one_reader(scene, monkeypatch):

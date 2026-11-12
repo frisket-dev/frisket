@@ -514,9 +514,13 @@ class ActionRunService:
         if _observation_state is not None:
             _observation_state["project"] = project
             if _observation_state.get("record_history"):
-                _observation_state["submission_id"] = save_action_submission(
-                    project, body
-                )
+                try:
+                    _observation_state["submission_id"] = save_action_submission(
+                        project, body
+                    )
+                except Exception:
+                    _observation_state["submission_id"] = None
+                    LOG.warning("action_history_record_failed", exc_info=True)
         replay_result = self._typed_receipt_replay_result(
             project, project_id, body, _observation_state
         )
