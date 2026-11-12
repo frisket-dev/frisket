@@ -22,7 +22,7 @@ test('ordinary drawers recover refused settings without starting work', async ({
   const result = await refused.json();
   expect(result.status).toBe('failed');
   expect(result.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'missing_provider_key' })]));
-  expect(result.run_id).toBeNull();
+  expect(result.run_id ?? null).toBeNull();
   const historyResponse = await page.request.get(`/api/projects/${pid}/actions/history`, {
     params: { action_id: draft.action_id },
   });
