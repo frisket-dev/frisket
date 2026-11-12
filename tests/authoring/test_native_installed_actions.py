@@ -1,8 +1,10 @@
 """Installed Python definitions use native binding and the shared callable host."""
 
 import json
+import sqlite3
 import sys
 import time
+from contextlib import closing
 
 import pytest
 from fastapi.testclient import TestClient
@@ -117,6 +119,42 @@ def _request(sheet, **params):
     }
 
 
+def _execution_database_snapshot(project):
+    """Keep every refusal invariant except the host's submitted-settings journal."""
+    with closing(sqlite3.connect(":memory:")) as snapshot:
+        project.db.backup(snapshot)
+        snapshot.execute("DELETE FROM action_submissions")
+        snapshot.execute("DELETE FROM sqlite_sequence WHERE name='action_submissions'")
+        return tuple(snapshot.iterdump())
+
+
+def _assert_refused_submission_history(client, project, project_id, request):
+    [submission] = project.db.execute(
+        "SELECT action_id,draft_json,run_id,receipt_id FROM action_submissions"
+    ).fetchall()
+    assert submission["action_id"] == request["action_id"]
+    expected_draft = {
+        "action_id": request["action_id"],
+        "scope": request["scope"],
+        "params": request["params"],
+        "output_names": {},
+        "sheet_name": None,
+    }
+    assert json.loads(submission["draft_json"]) == expected_draft
+    assert submission["run_id"] is None
+    assert submission["receipt_id"] is None
+    history_url = f"/api/projects/{project_id}/actions/history"
+    response = client.get(history_url, params={"action_id": request["action_id"]})
+    assert response.status_code == 200, response.text
+    assert response.json()["total"] == 1
+    [item] = response.json()["items"]
+    assert item["status"] == "not_started"
+    assert item["run_id"] is None
+    restored = client.get(f"{history_url}/{item['id']}")
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["draft"] == expected_draft
+
+
 def test_package_imports_are_isolated_and_persistent(tmp_path):
     before = list(sys.path)
     modules = []
@@ -189,7 +227,7 @@ def test_http_package_drift_preserves_integrity_refusal(installed):
     action, binding = resolve_installed_action(project, request["action_id"])
     handler = action.definition.run.handler
     before_calls = list(handler.__globals__["calls"])
-    before_database = tuple(project.db.iterdump())
+    before_database = _execution_database_snapshot(project)
 
     (package / "sibling.py").write_text('MARKER = "changed"\n')
     install = plugin_runtime_status._workbench_plugin_install_state(
@@ -213,8 +251,9 @@ def test_http_package_drift_preserves_integrity_refusal(installed):
     assert response.status_code == 409, response.text
     error = response.json()["errors"][0]
     assert {key: error[key] for key in expected} == expected
+    _assert_refused_submission_history(client, project, project_id, request)
     assert handler.__globals__["calls"] == before_calls
-    assert tuple(project.db.iterdump()) == before_database
+    assert _execution_database_snapshot(project) == before_database
 
 
 def test_http_missing_capability_preserves_dispatch_refusal(installed, monkeypatch):
@@ -223,7 +262,7 @@ def test_http_missing_capability_preserves_dispatch_refusal(installed, monkeypat
     action, binding = resolve_installed_action(project, request["action_id"])
     handler = action.definition.run.handler
     before_calls = list(handler.__globals__["calls"])
-    before_database = tuple(project.db.iterdump())
+    before_database = _execution_database_snapshot(project)
     expected = plugin_runtime_status.runtime_binding_dispatch_error(
         binding, capabilities=["project:write"]
     )
@@ -249,8 +288,9 @@ def test_http_missing_capability_preserves_dispatch_refusal(installed, monkeypat
     assert response.status_code == 400, response.text
     error = response.json()["errors"][0]
     assert {key: error[key] for key in expected} == expected
+    _assert_refused_submission_history(client, project, project_id, request)
     assert handler.__globals__["calls"] == before_calls
-    assert tuple(project.db.iterdump()) == before_database
+    assert _execution_database_snapshot(project) == before_database
 
 
 def test_invalid_params_never_invokes_handler_or_reserves(installed):
