@@ -1,13 +1,14 @@
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { createProject, importCsv, openAction, openProject, uniqueName } from './helpers';
+import { createProject, importCsv, openAction, openProject, setProjectModelRoute, uniqueName } from './helpers';
 import { exposeReplayModel, REPLAY_MODEL } from './replayModelScenario';
 
 test.use({ deviceScaleFactor: 2 });
 
 test('ordinary drawers recover refused settings without starting work', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-action-history'));
+  await setProjectModelRoute(page.request, pid, REPLAY_MODEL, 'cloud');
   await exposeReplayModel(page, pid);
   const sourceSheet = await importCsv(page.request, pid, 'sources.csv', 'story\nThe court dismissed the complaint.\n');
   const otherSheet = await importCsv(page.request, pid, 'other.csv', 'notes\nUnrelated material\n');
@@ -21,7 +22,7 @@ test('ordinary drawers recover refused settings without starting work', async ({
   });
   const result = await refused.json();
   expect(result.status).toBe('failed');
-  expect(result.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'missing_provider_key' })]));
+  expect(result.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'model_run_failed' })]));
   expect(result.run_id ?? null).toBeNull();
   const historyResponse = await page.request.get(`/api/projects/${pid}/actions/history`, {
     params: { action_id: draft.action_id },
