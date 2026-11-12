@@ -489,3 +489,14 @@ jobs:
       # The separate deploy-smoke job owns the one keyless Playwright journey.
       # The full 279-spec provider-backed/local suite remains deliberately
       # unwired here; this job only owns frontend unit tests and the build.
+
+  ci-pass:
+    name: ci-pass
+    if: ${{ always() }}
+    needs: [changes, models-gpu-topology, sidecar-contract, python-quality, test-engine, test, deploy-smoke, e2e-cassette-core, postgres, web]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          jq -e '.changes.result == "success" and ([.[] .result] | all(. == "success" or . == "skipped"))' <<< "$RESULTS"

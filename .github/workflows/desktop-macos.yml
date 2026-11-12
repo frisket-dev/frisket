@@ -25,14 +25,6 @@ on:
         description: "Electron version embedded in the verified installer"
         value: ${{ jobs.signed-distribution.outputs.desktop_version }}
   pull_request:
-    paths:
-      - 'desktop/**'
-      - 'src/frisket/**'
-      - 'web/**'
-      - 'sdk/**'
-      - 'pyproject.toml'
-      - 'uv.lock'
-      - '.github/workflows/desktop-macos.yml'
   workflow_dispatch:
     inputs:
       notary_status_only:
@@ -49,8 +41,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  startup-window:
+  changes:
     if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      relevant: ${{ steps.paths.outputs.relevant }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: paths
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          files="$(git diff --name-only "$BASE_SHA" HEAD)"
+          if grep -E '^(desktop/|src/frisket/|web/|sdk/|pyproject\.toml$|uv\.lock$|\.github/workflows/desktop-macos\.yml$)' <<< "$files" >/dev/null; then
+            echo 'relevant=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'relevant=false' >> "$GITHUB_OUTPUT"
+          fi
+
+  startup-window:
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.relevant == 'true'
     runs-on: macos-15
     timeout-minutes: 5
     steps:
@@ -124,7 +138,8 @@ jobs:
           PY
 
   installed-app:
-    if: github.event_name == 'pull_request'
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.relevant == 'true'
     runs-on: macos-15
     timeout-minutes: 60
     env:
@@ -406,3 +421,14 @@ jobs:
             desktop/resources/runtime.json
             desktop/update-test-results/
             desktop/playwright-update-report/
+
+  desktop-macos-ci:
+    name: desktop-macos-ci
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    needs: [changes, installed-app, startup-window]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          jq -e '.changes.result == "success" and ([.[] .result] | all(. == "success" or . == "skipped"))' <<< "$RESULTS"

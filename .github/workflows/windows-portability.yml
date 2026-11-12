@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   smoke:
+    name: windows-portability
     runs-on: windows-latest
     timeout-minutes: 30
     env:
