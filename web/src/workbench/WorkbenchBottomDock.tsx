@@ -138,12 +138,21 @@ function dockJobErrorMessage(job: DockActionJob): string {
   return 'Worker lease expired before the run completed.';
 }
 
-function dockDetailRows(job: DockActionJob): Array<[string, string]> {
+function dockDetailRows(job: DockActionJob): Array<[string, ReactNode]> {
   const preparation =
     job.progress?.status === 'running' && job.progress.completedRows === 0
       ? job.progress.preparation?.message
       : null;
+  const context = job.context;
   return [
+    ...(context ? ([['Sheet', context.sheetName ? (
+      <Button variant="link" onClick={() => navigate({
+        kind: 'project', projectId: job.projectId, sheetId: context.sheetId,
+      })}>{context.sheetName}</Button>
+    ) : `Sheet ${context.sheetId}`]] as Array<[string, ReactNode]>) : []),
+    ...(context?.outputColumns.length
+      ? ([['Output columns', context.outputColumns.map((column) => column.name).join(', ')]] as Array<[string, ReactNode]>)
+      : []),
     ['Job id', String(job.jobId)],
     ['Run id', job.runId ?? '—'],
     ['Receipt id', job.receiptId ?? '—'],

@@ -3036,6 +3036,17 @@ type HttpActionJob_ActionFileWorkProgress = ({
   "total": (number);
 });
 
+type HttpActionJob_ActionJobColumn = ({
+  "id": (number);
+  "name": (string);
+});
+
+type HttpActionJob_ActionJobContext = ({
+  "output_columns"?: (Array<(HttpActionJob_ActionJobColumn)>);
+  "sheet_id": (number);
+  "sheet_name"?: (((string)) | ((null)));
+});
+
 type HttpActionJob_ActionJobLease = ({
   "lease_expired": (boolean);
   "lease_expires_at": (((string)) | ((null)));
@@ -3161,6 +3172,7 @@ export type HttpActionJob = ({
   "action_kind"?: (((string)) | ((null)));
   "action_name"?: (((string)) | ((null)));
   "attempts": (number);
+  "context"?: (((HttpActionJob_ActionJobContext)) | ((null)));
   "error": (((string)) | ((null)));
   "import_errors"?: (Array<(HttpActionJob_ImportSourceErrorGroup)>);
   "job_id": (number);
@@ -3193,6 +3205,7 @@ type HttpActionJobsPage_ActionJob = ({
   "action_kind"?: (((string)) | ((null)));
   "action_name"?: (((string)) | ((null)));
   "attempts": (number);
+  "context"?: (((HttpActionJobsPage_ActionJobContext)) | ((null)));
   "error": (((string)) | ((null)));
   "import_errors"?: (Array<(HttpActionJobsPage_ImportSourceErrorGroup)>);
   "job_id": (number);
@@ -3212,6 +3225,17 @@ type HttpActionJobsPage_ActionJob = ({
   "schema_version": ("frisket.job.v1") & (string);
   "status": (string);
   "timing": (HttpActionJobsPage_ActionJobTiming);
+});
+
+type HttpActionJobsPage_ActionJobColumn = ({
+  "id": (number);
+  "name": (string);
+});
+
+type HttpActionJobsPage_ActionJobContext = ({
+  "output_columns"?: (Array<(HttpActionJobsPage_ActionJobColumn)>);
+  "sheet_id": (number);
+  "sheet_name"?: (((string)) | ((null)));
 });
 
 type HttpActionJobsPage_ActionJobLease = ({

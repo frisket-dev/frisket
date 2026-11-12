@@ -231,3 +231,30 @@ it('shows authoritative public outcome counters in job detail', () => {
   expect(screen.getByText('Succeeded rows').parentElement).toHaveTextContent('2');
   expect(screen.getByText('Skipped rows').parentElement).toHaveTextContent('2');
 });
+
+
+it('shows the job sheet and output columns, with navigation to that sheet', () => {
+  const job: DockActionJob = {
+    schemaVersion: 'frisket.job.v1', projectId: 'project-a', jobId: 3,
+    kind: 'action.run', runId: null, status: 'failed',
+    actionKind: 'map.extract', actionName: 'Extract fields', attempts: 1, maxAttempts: 1,
+    lease: { lockedBy: null, lockedAt: null, leaseExpiresAt: null, leaseExpired: false },
+    timing: { createdAt: null, startedAt: null, finishedAt: null },
+    error: 'Provider unavailable',
+    context: {
+      sheetId: '42', sheetName: 'Court filings',
+      outputColumns: [{ id: '7', name: 'case_number' }, { id: '8', name: 'plaintiff' }],
+    },
+  };
+  const view = render(<WorkbenchJobSplitPanel jobs={[job]} loading={false} error={null} mode="errors" />);
+  expect(screen.getByText('Output columns').parentElement).toHaveTextContent('case_number, plaintiff');
+  fireEvent.click(screen.getByRole('button', { name: 'Court filings' }));
+  expect(window.location.pathname).toBe('/p/project-a/s/42');
+
+  view.rerender(<WorkbenchJobSplitPanel jobs={[{
+    ...job, context: { sheetId: '42', sheetName: null, outputColumns: [] },
+  }]} loading={false} error={null} mode="errors" />);
+  expect(screen.getByText('Sheet 42')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Court filings' })).not.toBeInTheDocument();
+  expect(screen.queryByText('Output columns')).not.toBeInTheDocument();
+});
