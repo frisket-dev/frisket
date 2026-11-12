@@ -1,0 +1,61 @@
+version: 2
+updates:
+  # Security fixes only. The schedule is required by Dependabot, but a zero
+  # version-PR limit prevents routine "keep everything newest" updates.
+  - package-ecosystem: npm
+    directories: ["/web", "/sdk", "/desktop"]
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    groups:
+      desktop-runtime-security:
+        applies-to: security-updates
+        patterns: ["electron", "electron-builder", "app-builder-lib", "electron-updater"]
+      npm-security:
+        applies-to: security-updates
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: uv
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    groups:
+      model-runtime-security:
+        applies-to: security-updates
+        patterns: ["torch*", "docling*", "transformers", "tokenizers", "onnx*", "spacy*", "ctranslate2", "numpy", "scipy", "paddle*", "nvidia-*", "vllm"]
+      python-security:
+        applies-to: security-updates
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: uv
+    directories: ["/sidecar", "/sidecar/*", "/sidecar/workers/*"]
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    groups:
+      sidecar-security:
+        applies-to: security-updates
+        patterns: ["*"]
+
+  - package-ecosystem: pip
+    directory: "/experiments/video_retrieval"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    groups:
+      experiment-security:
+        applies-to: security-updates
+        patterns: ["*"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    groups:
+      actions-security:
+        applies-to: security-updates
+        patterns: ["*"]

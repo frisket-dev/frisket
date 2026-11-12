@@ -14,13 +14,6 @@ on:
       - .github/workflows/docker.yml
   pull_request:
     branches: [main]
-    paths:
-      - Dockerfile
-      - .dockerignore
-      - uv.lock
-      - pyproject.toml
-      - scripts/smoke/smoke_media_metadata_runtime.py
-      - .github/workflows/docker.yml
   schedule:
     - cron: "17 6 * * 1"
   workflow_dispatch:
@@ -29,8 +22,38 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      relevant: ${{ steps.paths.outputs.relevant }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: paths
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "$EVENT_NAME" != pull_request ]; then
+            echo 'relevant=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files="$(git diff --name-only "$BASE_SHA" HEAD)"
+          if grep -E '^(Dockerfile|\.dockerignore|uv\.lock|pyproject\.toml|scripts/smoke/smoke_media_metadata_runtime\.py|\.github/workflows/docker\.yml)$' <<< "$files" >/dev/null; then
+            echo 'relevant=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'relevant=false' >> "$GITHUB_OUTPUT"
+          fi
+
   build:
+    needs: changes
+    if: needs.changes.outputs.relevant == 'true'
     name: build and smoke (${{ matrix.platform }})
     runs-on: ${{ matrix.runs_on }}
     strategy:
@@ -161,3 +184,14 @@ jobs:
         if: always()
         shell: bash
         run: docker compose down --volumes --remove-orphans || true
+
+  docker-ci:
+    name: docker-ci
+    if: ${{ always() }}
+    needs: [changes, build]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          jq -e '.changes.result == "success" and ([.[] .result] | all(. == "success" or . == "skipped"))' <<< "$RESULTS"

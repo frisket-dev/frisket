@@ -1,0 +1,74 @@
+name: dependabot-automerge
+
+# Only inspect GitHub metadata here. Never check out or execute PR code with
+# this token. Required branch checks, not this job, decide when merging is safe.
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  enable:
+    # Enable this repository variable only after requiring all checks listed in
+    # docs/dependency-updates.md. Default is off; no protection bypass is used.
+    if: >-
+      vars.DEPENDABOT_AUTOMERGE_ENABLED == 'true' &&
+      github.event_name == 'pull_request_target' &&
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: dependabot/fetch-metadata@d7267f607e9d3fb96fc2fbe83e0af444713e90b7
+        id: metadata
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Select ordinary patch and minor updates
+        id: policy
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
+          DEPENDENCIES: ${{ steps.metadata.outputs.dependency-names }}
+        run: |
+          if [ -z "$DEPENDENCIES" ]; then
+            echo 'Missing dependency metadata: manual review.'; exit 0
+          fi
+          case "$UPDATE_TYPE" in
+            version-update:semver-patch|version-update:semver-minor) ;;
+            *) echo 'Major or unclassified update: manual review.'; exit 0 ;;
+          esac
+          if printf '%s' "$DEPENDENCIES" | tr ',' '\n' | sed 's/^ *//; s/ *$//' | grep -E '^(electron|electron-builder|app-builder-lib|electron-updater|torch.*|docling.*|transformers|tokenizers|onnx.*|spacy.*|ctranslate2|numpy|scipy|paddle.*|nvidia-.*|vllm)$' >/dev/null; then
+            echo 'Model or Desktop runtime update: manual review.'
+            exit 0
+          fi
+          files="$(gh api --paginate "repos/$GH_REPO/pulls/$PR_NUMBER/files" --jq '.[].filename')"
+          if [ -z "$files" ] || grep -Ev '^(uv\.lock|pyproject\.toml|(web|sdk|desktop)/package(-lock)?\.json)$' <<< "$files" >/dev/null; then
+            echo 'Changes outside ordinary application manifests/locks: manual review.'
+            exit 0
+          fi
+          echo 'eligible=true' >> "$GITHUB_OUTPUT"
+      # Reuse the repository's existing PR automation App so a merge triggers
+      # normal main CI (merges using GITHUB_TOKEN suppress push workflows).
+      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        id: automation-app
+        if: steps.policy.outputs.eligible == 'true'
+        with:
+          app-id: ${{ vars.PRICING_APP_ID }}
+          private-key: ${{ secrets.PRICING_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Enable auto-merge behind required checks
+        if: steps.policy.outputs.eligible == 'true'
+        env:
+          GH_TOKEN: ${{ steps.automation-app.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: gh pr merge "$PR_NUMBER" --auto --squash --match-head-commit "$HEAD_SHA"

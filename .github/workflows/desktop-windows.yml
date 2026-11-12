@@ -13,15 +13,6 @@ on:
         description: "Electron version embedded in the verified installer"
         value: ${{ jobs.signed-installed-proof.outputs.desktop_version }}
   pull_request:
-    paths:
-      - 'desktop/**'
-      - 'src/frisket/**'
-      - 'web/**'
-      - 'sdk/**'
-      - 'sidecar/**'
-      - 'pyproject.toml'
-      - 'uv.lock'
-      - '.github/workflows/desktop-windows.yml'
   workflow_dispatch:
 
 permissions:
@@ -32,8 +23,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  installed-app:
+  changes:
     if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      relevant: ${{ steps.paths.outputs.relevant }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: paths
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          files="$(git diff --name-only "$BASE_SHA" HEAD)"
+          if grep -E '^(desktop/|src/frisket/|web/|sdk/|sidecar/|pyproject\.toml$|uv\.lock$|\.github/workflows/desktop-windows\.yml$)' <<< "$files" >/dev/null; then
+            echo 'relevant=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'relevant=false' >> "$GITHUB_OUTPUT"
+          fi
+
+  installed-app:
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.relevant == 'true'
     runs-on: windows-2022
     timeout-minutes: 75
     steps:
@@ -400,3 +413,14 @@ jobs:
             desktop/resources/runtime.json
             desktop/update-test-results/
             desktop/playwright-update-report/
+
+  desktop-windows-ci:
+    name: desktop-windows-ci
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    needs: [changes, installed-app]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          jq -e '.changes.result == "success" and ([.[] .result] | all(. == "success" or . == "skipped"))' <<< "$RESULTS"
