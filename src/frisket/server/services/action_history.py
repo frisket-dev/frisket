@@ -14,6 +14,7 @@ from frisket.contracts.http.action_history import (
     ActionHistoryPage,
 )
 from frisket.engine.store.action_submissions import record_submission, link_submission
+from frisket.engine.jobs.projection import status_time
 from frisket.server.route_errors import RouteError
 from frisket.server.services.run_action_drafts import reconstruct_run_action_draft
 
@@ -62,12 +63,18 @@ SELECT 'run:' || r.id, r.action_kind, r.sheet_id, sh.name,
        r.started_at, r.status, r.id
 FROM runs r
 LEFT JOIN sheets sh ON sh.id=r.sheet_id AND sh.hidden=0
-WHERE NOT EXISTS (
-    SELECT 1 FROM action_submissions s
+WHERE r.id NOT IN (
+    SELECT COALESCE(s.run_id,rc.run_id) FROM action_submissions s
     LEFT JOIN receipts rc ON rc.id=s.receipt_id
-    WHERE COALESCE(s.run_id,rc.run_id)=r.id
+    WHERE COALESCE(s.run_id,rc.run_id) IS NOT NULL
 )
 """
+
+
+def _history_item(row: Any) -> ActionHistoryItem:
+    payload = dict(row)
+    payload["submitted_at"] = status_time(row["submitted_at"], zulu=True)
+    return ActionHistoryItem.model_validate(payload)
 
 
 class ActionHistoryService:
@@ -88,7 +95,7 @@ class ActionHistoryService:
             (action_id, limit, offset),
         ).fetchall()
         return ActionHistoryPage(
-            items=[ActionHistoryItem.model_validate(dict(row)) for row in rows],
+            items=[_history_item(row) for row in rows],
             total=total,
             offset=offset,
             limit=limit,
@@ -102,7 +109,7 @@ class ActionHistoryService:
         ).fetchone()
         if row is None:
             raise RouteError(404, "These action settings are no longer available.")
-        item = ActionHistoryItem.model_validate(dict(row))
+        item = _history_item(row)
         draft = None
         reason = None
         try:

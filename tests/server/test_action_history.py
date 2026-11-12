@@ -71,9 +71,16 @@ def test_missing_key_submission_recovers_settings_without_execution_authority(sc
     response = client.post("/api/projects/history/actions/v1/run", json=body)
     assert response.json()["status"] == "failed", response.text
     assert response.json()["errors"][0]["code"] == "missing_provider_key"
+    project.db.execute(
+        "UPDATE action_submissions SET submitted_at='2026-11-12 12:34:56'"
+    )
+    project.db.commit()
     [item] = history(client)["items"]
     assert item["status"] == "not_started" and item["run_id"] is None
-    saved = detail(client, item)["draft"]
+    assert item["submitted_at"] == "2026-11-12T12:34:56Z"
+    restored = detail(client, item)
+    assert restored["item"]["submitted_at"] == item["submitted_at"]
+    saved = restored["draft"]
     assert saved["params"] == body["params"]
     assert saved["scope"] == body["scope"]
     assert saved["output_names"] == body["output_names"]
@@ -149,8 +156,12 @@ def test_admitted_failure_and_old_runs_share_one_reader(scene, monkeypatch):
     # A project from before submission history has only its existing durable run.
     project.db.execute("DELETE FROM action_submissions")
     project.db.commit()
+    refused = request(sheet, rows)
+    refused["idempotency_key"] = "unlinked-refusal"
+    client.post("/api/projects/history/actions/v1/run", json=refused)
     [old] = history(client, body["action_id"])["items"]
     assert old["id"] == f"run:{run_id}"
+    assert old["submitted_at"].endswith("Z")
     assert detail(client, old)["draft"]["params"]["pattern"] == r"\d+"
 
 
