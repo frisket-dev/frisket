@@ -72,6 +72,11 @@ from frisket.features.watchlists.triggers import (
     trigger_completed_source_poll_watches,
 )
 from frisket.server.route_errors import RouteError
+from frisket.server.services.action_history import (
+    ActionHistoryService,
+    save_action_submission,
+    finish_action_submission,
+)
 
 
 LOG = logging.getLogger("frisket.server")
@@ -239,6 +244,7 @@ class ActionRunService:
         queue_timeout_seconds: float | None = None,
     ):
         self._workspace = workspace
+        self.history = ActionHistoryService(workspace)
         self._stale_run_grace_seconds = stale_run_grace_seconds
         self._worker_liveness_window_seconds = worker_liveness_window_seconds
         self._queue_timeout_seconds = queue_timeout_seconds
@@ -381,6 +387,7 @@ class ActionRunService:
         body: dict[str, Any],
         *,
         request_context: Any = None,
+        record_history: bool = False,
         admitted_sources: Mapping[str, BoundLocalFile] | None = None,
         required_execution_target: ExactExecutionMatch | None = None,
         background_priority: Literal["pdf_import_ocr"] | None = None,
@@ -388,7 +395,7 @@ class ActionRunService:
         trusted_consent_principal: str | None = None,
     ) -> ActionRunResponse:
         observer = getattr(self._workspace, "action_observer", None)
-        state: dict[str, Any] | None = {} if observer is not None else None
+        state: dict[str, Any] = {"record_history": record_history}
         started_at = datetime.now(UTC)
         started = time.monotonic()
         response = self._run_action(
@@ -402,6 +409,14 @@ class ActionRunService:
             trusted_consent_principal=trusted_consent_principal,
             _observation_state=state,
         )
+        if state.get("submission_id") is not None:
+            try:
+                finish_action_submission(
+                    state["project"], state["submission_id"], response.payload
+                )
+            except Exception:
+                # A history linkage failure must not report committed work as failed.
+                LOG.warning("action_history_link_failed", exc_info=True)
         if (
             observer is not None
             and state is not None
@@ -498,6 +513,10 @@ class ActionRunService:
         project = self._workspace.get(project_id)
         if _observation_state is not None:
             _observation_state["project"] = project
+            if _observation_state.get("record_history"):
+                _observation_state["submission_id"] = save_action_submission(
+                    project, body
+                )
         replay_result = self._typed_receipt_replay_result(
             project, project_id, body, _observation_state
         )

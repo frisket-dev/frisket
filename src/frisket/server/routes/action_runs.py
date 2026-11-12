@@ -6,6 +6,11 @@ from fastapi import FastAPI, Query, Request
 from fastapi.responses import JSONResponse
 
 from frisket.contracts.action import ActionResult, Receipt
+from frisket.contracts.http.action_history import (
+    ActionHistoryPage,
+    ActionHistoryDetail,
+    ActionHistoryQuery,
+)
 from frisket.contracts.http.action_estimate_validation import (
     ACTION_RUN_ERROR_RESPONSES,
     ActionRunRequest,
@@ -35,6 +40,31 @@ def register_action_run_routes(
     service: ActionRunService,
     import_admission: ImportAdmission | None = None,
 ) -> None:
+    @app.get(
+        "/api/projects/{pid}/actions/history",
+        response_model=ActionHistoryPage,
+        responses=http_error_responses(401, 403, 404, 422),
+    )
+    def action_history(
+        request: Request,
+        pid: str,
+        action_id: str = Query(min_length=1),
+        offset: int = Query(default=0, ge=0),
+        limit: int = Query(default=20, ge=1, le=100),
+    ) -> ActionHistoryPage:
+        reject_unknown_query_parameters(request, ActionHistoryQuery)
+        return service.history.page(
+            pid, action_id=action_id, offset=offset, limit=limit
+        )
+
+    @app.get(
+        "/api/projects/{pid}/actions/history/{history_id}",
+        response_model=ActionHistoryDetail,
+        responses=http_error_responses(401, 403, 404, 422),
+    )
+    def action_history_detail(pid: str, history_id: str) -> ActionHistoryDetail:
+        return service.history.detail(pid, history_id)
+
     @app.post(
         "/api/projects/{pid}/actions/v1/run",
         response_model=ActionResult,
@@ -62,6 +92,7 @@ def register_action_run_routes(
                 pid,
                 body.root,
                 request_context=request,
+                record_history=not is_import,
             )
         finally:
             if permit is not None:

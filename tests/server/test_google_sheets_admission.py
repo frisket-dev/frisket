@@ -286,6 +286,17 @@ def test_exact_echo_queues_then_completed_replay_precedes_removed_dependencies(
     assert queued["status"] == "queued"
     assert queued["run_id"] is None
     assert queued["receipt_id"] and queued["job_id"]
+    history_url = f"/api/projects/{project_id}/actions/history"
+    history = client.get(history_url, params={"action_id": action["action_id"]}).json()
+    assert history["total"] == 1  # Confirmation fills the original submission.
+    [submission] = history["items"]
+    assert submission["status"] == "queued"
+    assert submission["sheet_id"] is None  # The canonical scope is project-wide.
+    saved = client.get(f"{history_url}/{submission['id']}").json()["draft"]
+    assert saved["scope"] == {"kind": "project"}
+    assert saved["params"] == action["params"]
+    assert "confirmation" not in saved and "idempotency_key" not in saved
+    assert "not-durable" not in json.dumps(saved)
     assert google_client.calls == []
     assert Worker(
         client.app.state.workspace.queue, client.app.state.workspace.registry
