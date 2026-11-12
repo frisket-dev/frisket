@@ -217,7 +217,8 @@ def _attach_job_contexts(
         names = {
             int(row["id"]): row["name"]
             for row in project.db.execute(
-                f"SELECT id, name FROM sheets WHERE id IN ({placeholders})", sheet_ids
+                f"SELECT id, name FROM sheets WHERE id IN ({placeholders}) AND hidden=0",
+                sheet_ids,
             )
         }
     for payload in payloads:
