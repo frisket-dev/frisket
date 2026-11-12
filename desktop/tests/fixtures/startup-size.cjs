@@ -10,6 +10,9 @@ app.whenReady().then(async () => {
     width: 360, height: 390, frame: false, resizable: false, show: false,
     webPreferences: { preload: path.resolve(__dirname, '../../src/startup-preload.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false },
   });
+  // A fixed native window may retain the construction-time size constraints.
+  window.setMinimumSize(360, 390);
+  window.setMaximumSize(360, 390);
   let state = { status: 'checking', steps: [], logs: [], detailsOpen: false };
   installStartupBridge({
     ipcMain, pageUrl, findWindow: contents => contents === window.webContents ? window : undefined,
@@ -26,15 +29,19 @@ app.whenReady().then(async () => {
     for (let attempt = 0; attempt < 100; attempt++) {
       await new Promise(resolve => setTimeout(resolve, 20));
       measured = await window.webContents.executeJavaScript(`({
-        card: Math.ceil(document.querySelector('.startup-card').getBoundingClientRect().height),
-        viewport: innerHeight,
+        card: document.querySelector('.startup-card').getBoundingClientRect().height,
+        viewport: innerHeight, width: innerWidth,
       })`);
-      if (window.getContentSize()[1] === measured.card && measured.viewport === measured.card) break;
+      const zoom = window.webContents.getZoomFactor();
+      if (window.getContentSize()[1] === Math.ceil(Math.ceil(measured.card) * zoom)
+        && Math.abs(measured.viewport - measured.card) <= 2 / zoom) break;
     }
-    assert.deepEqual(window.getContentSize(), [360, measured.card], label);
-    assert.equal(measured.viewport, measured.card, label);
+    const zoom = window.webContents.getZoomFactor();
+    assert.deepEqual(window.getContentSize(), [Math.ceil(360 * zoom), Math.ceil(Math.ceil(measured.card) * zoom)], label);
+    assert.ok(Math.abs(measured.viewport - measured.card) <= 2 / zoom, label);
+    assert.ok(Math.abs(measured.width - 360) <= 1 / zoom, label);
     if (process.platform !== 'linux') assert.equal(window.isResizable(), false);
-    return measured.card;
+    return Math.ceil(measured.card);
   }
   const collapsed = await fitted('initial content fits');
   await window.webContents.executeJavaScript("document.getElementById('details-toggle').click()");
@@ -53,5 +60,14 @@ app.whenReady().then(async () => {
   state = { ...state, status: 'done', detailsOnly: true, detailsOpen: true };
   window.webContents.send('startup:state', state);
   await fitted('standalone diagnostics fit');
+  for (const zoom of [0.5, 0.75, 1.25, 1]) {
+    window.webContents.setZoomFactor(zoom);
+    await fitted(`diagnostics fit at ${zoom} zoom`);
+    state = { ...state, status: 'checking', detailsOnly: false, detailsOpen: false };
+    window.webContents.send('startup:state', state);
+    await fitted(`collapsed content fits at ${zoom} zoom`);
+    await window.webContents.executeJavaScript("document.getElementById('details-toggle').click()");
+    await fitted(`details expand at ${zoom} zoom`);
+  }
   app.exit(0);
 }).catch(error => { console.error(error); app.exit(1); });

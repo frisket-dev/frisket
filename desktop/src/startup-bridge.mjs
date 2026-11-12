@@ -25,9 +25,16 @@ export function canRetryStartup({ visible, busy, cleanupFailed, quitting, retrya
 
 /** Fixed native windows can retain minimum/maximum constraints at their old size. */
 export function resizeStartupWindow(window, height) {
+  // The renderer measures CSS pixels; native window sizes use display-independent
+  // pixels. Page zoom changes their ratio (Retina scaling is already handled by Electron).
+  const zoom = window.webContents.getZoomFactor();
   window.setResizable(true);
   try {
-    window.setContentSize(360, height);
+    // Toggling resizability alone does not clear retained native size limits
+    // on every platform. This card's bounds are owned by its content.
+    window.setMinimumSize(0, 0);
+    window.setMaximumSize(0, 0);
+    window.setContentSize(Math.ceil(360 * zoom), Math.ceil(height * zoom));
   } finally {
     window.setResizable(false);
   }

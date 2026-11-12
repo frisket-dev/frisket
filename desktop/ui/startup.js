@@ -16,6 +16,16 @@ let detailsOnly = false;
 let retryRequested = false;
 let retryWasAvailable = false;
 let logSignature = '';
+let lastHeight = 0;
+let lastScale = 0;
+
+function fitWindow() {
+  const height = Math.ceil(document.querySelector('.startup-card').getBoundingClientRect().height);
+  const scale = window.devicePixelRatio;
+  if ((height !== lastHeight || scale !== lastScale) && typeof bridge?.resize === 'function') {
+    lastHeight = height; lastScale = scale; bridge.resize(height);
+  }
+}
 
 function clock(milliseconds) {
   const seconds = Math.floor(Math.max(0, Number(milliseconds) || 0) / 1000);
@@ -122,6 +132,8 @@ function render() {
   const platform = { darwin: 'Darwin', win32: 'Windows', linux: 'Linux' }[state.platform] || state.platform || '';
   setText('version', `Frisket ${state.version || ''}${platform ? ` · ${platform} ${state.osVersion || ''}` : ''}`.trim());
   renderLogs();
+  // Fit explicit UI changes immediately, even when Chromium defers observer delivery.
+  fitWindow();
 }
 function receive(snapshot) {
   if (!snapshot || typeof snapshot !== 'object') return;
@@ -145,11 +157,10 @@ element('retry').addEventListener('click', () => {
 });
 if (typeof bridge?.subscribe === 'function') bridge.subscribe(receive);
 if (typeof ResizeObserver === 'function') {
-  let lastHeight = 0;
-  new ResizeObserver(() => {
-    const height = Math.ceil(document.querySelector('.startup-card').getBoundingClientRect().height);
-    if (height !== lastHeight && typeof bridge?.resize === 'function') { lastHeight = height; bridge.resize(height); }
-  }).observe(document.querySelector('.startup-card'));
+  new ResizeObserver(fitWindow).observe(document.querySelector('.startup-card'));
+  // Page zoom can leave the card's CSS height unchanged while changing its
+  // displayed size, so observing the card alone misses the resize.
+  window.addEventListener('resize', fitWindow);
 }
 setInterval(render, 1000);
 render();
