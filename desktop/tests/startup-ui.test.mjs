@@ -32,7 +32,7 @@ function harness() {
     copyDiagnostics() { calls.push('copy'); }, details(open) { calls.push(['details', open]); },
     resize(height) { calls.push(['resize', height]); },
   };
-  vm.runInNewContext(script, { window: { frisketStartup: bridge }, document,
+  vm.runInNewContext(script, { window: { frisketStartup: bridge, addEventListener() {} }, document,
     Date: class extends Date { static now() { return now; } },
     setInterval(fn) { tick = fn; },
     ResizeObserver: class { observe() {} },
