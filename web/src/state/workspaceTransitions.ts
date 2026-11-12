@@ -250,7 +250,10 @@ export function runActionFromSurfaceTransition(
     },
   );
   stores.chrome.openActionPanel();
-  stores.route.navigate(nextRoute);
+  const sourceSheetId = initial?.actionCompare?.context.sheet.id
+    ?? (initial?.actionDraft?.scope.kind === 'sheet_rows' ? initial.actionDraft.scope.sheet_id : null);
+  stores.route.navigate(sourceSheetId === null ? nextRoute
+    : { ...nextRoute, sheetId: String(sourceSheetId) });
 }
 
 /** Opens the Action panel with an Ask proposal ready for inspection. */

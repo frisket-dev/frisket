@@ -26,7 +26,6 @@ import {
 } from '../workbench/actionComparePresentation';
 import { ACTION_COMPARE_PREVIEW_UNAVAILABLE_MESSAGE } from '../workbench/actionCompareSession';
 import { CompareDiscardDialog } from '../workbench/CompareDiscardDialog';
-import { ActionCompareHistoryMenu } from './ActionCompareHistoryMenu';
 import { loadFrozenColumnCount } from './gridColumnState';
 import { useMainViewModel } from './WorkspaceContext';
 
@@ -219,15 +218,4 @@ function ActionCompareContents() {
         sheetId={String(state.context.sheet.id)} value={structuredValue.row.cells[structuredValue.column.id] ?? null} />
     </Modal>}
   </>;
-}
-
-export function WorkspaceActionCompareHistoryMenu() {
-  const model = useMainViewModel();
-  const target = model.actionCompareHistoryMenuTarget;
-  return target && <ActionCompareHistoryMenu anchor={target.runAnchor} trigger={target.trigger}
-    onChoose={chosen => {
-      model.closeActionCompareHistory();
-      void model.restoreActionRunSettings(chosen);
-    }}
-    onClose={model.closeActionCompareHistory} />;
 }

@@ -42,6 +42,7 @@ import type { GeneratedActionLaunchMode } from './action-panel/GeneratedActionFo
 import { pdfTablesMaterializeRequest } from '../actions/pdfTablesMaterialize';
 import { columnTablesExportRequest } from '../actions/columnTablesExport';
 import type { OcrCompareTarget } from '../actions/ocrCompare';
+import { ActionHistoryMenu } from './action-panel/ActionHistoryMenu';
 import { supportsRowOverlayComparison } from '../grid/actionComparisonCatalog';
 
 const EMPTY_SELECTED_ROW_IDS: string[] = [];
@@ -130,7 +131,6 @@ export interface ActionPanelProps {
    * explicit null, so later grid changes cannot silently retarget Compare. */
   onCompareAction?(draft: GeneratedActionDraft,
     capturedSelection?: ActionCompareCapturedSelection | null): void;
-  onOpenActionHistory?(trigger: HTMLButtonElement): void;
   onReturnToActionCompare?(): void;
 }
 
@@ -164,9 +164,11 @@ export function ActionPanel({
   onNavigateToAction,
   onOpenOcrCompare,
   onCompareAction,
-  onOpenActionHistory,
   onReturnToActionCompare,
 }: ActionPanelProps) {
+  const [historyTarget, setHistoryTarget] = useState<{
+    actionId: string; launchId: number; trigger: HTMLButtonElement;
+  } | null>(null);
   const actionCatalog = useActionCatalogHandle();
   const { chromePreferences, projectApi } = useWorkspaceStores();
   const resolveGeneratedActionParams = useCallback(
@@ -546,6 +548,10 @@ export function ActionPanel({
     };
   }, [actionCompareContextLabel, actionCompareLaunch, onReturnToActionCompare]);
 
+  const savedScope = openAction?.generatedDraft?.scope;
+  const waitingForSourceSheet = savedScope?.kind === 'sheet_rows'
+    && String(savedScope.sheet_id) !== sheet?.id;
+
   // Drawer variant: the FORM only, re-hosted in
   // the fixed-400px overlay. No discovery list, no resize handle — the drawer
   // opens exclusively pre-targeted, so openAction is (transiently) null only
@@ -553,7 +559,7 @@ export function ActionPanel({
   // rather than the retired browse list.
   return (
     <div className="action-panel action-drawer-form-host" data-testid="action-panel" data-variant="drawer">
-      {drawerError ? (
+      {waitingForSourceSheet ? <PanelLoading label="Loading source sheet…" /> : drawerError ? (
         <div className="action-form action-catalog-error" role="alert">
           <PanelHeader
             className="panel-header form-header action-drawer-header"
@@ -598,7 +604,8 @@ export function ActionPanel({
             title={openAction.title}
             sheet={sheet}
             selectedRowIds={generatedSelectedRowIds}
-            hasExactRowScopeInitializer={hasExactRowScopeInitializer}
+            hasExactRowScopeInitializer={hasExactRowScopeInitializer
+              || (savedScope?.kind === 'sheet_rows' && savedScope.row_ids !== undefined)}
             initialSourceColumn={openAction.initial?.sourceColumn}
             initialPrompt={openAction.initial?.prompt}
             initialDraft={openAction.generatedDraft}
@@ -623,8 +630,9 @@ export function ActionPanel({
               ? (draft) => onCompareAction(draft,
                 actionCompareLaunch ? actionCompareLaunch.capturedSelection : undefined)
               : undefined}
-            onOpenHistory={actionCompareLaunch?.context.comparison_basis.kind === 'run'
-              ? onOpenActionHistory : undefined}
+            onOpenHistory={onNavigateToAction ? (trigger) => setHistoryTarget({
+              actionId: generatedCatalogEntry.kind, launchId: openAction.launchId, trigger,
+            }) : undefined}
             sampleColumnValues={sampleColumnValues}
             onOpenDiagnose={() => chrome.openDiagnosePanel(project)}
             onBackfill={onBackfill}
@@ -639,6 +647,14 @@ export function ActionPanel({
           />,
         )
       ) : null}
+      {historyTarget && historyTarget.actionId === openAction?.actionTemplate.kind
+        && historyTarget.launchId === openAction.launchId && onNavigateToAction && <ActionHistoryMenu
+          actionId={historyTarget.actionId} trigger={historyTarget.trigger}
+          onChoose={(draft) => {
+            setHistoryTarget(null);
+            onNavigateToAction(draft.action_id, undefined, { actionDraft: draft });
+          }}
+          onClose={() => setHistoryTarget(null)} />}
     </div>
   );
 }

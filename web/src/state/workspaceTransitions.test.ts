@@ -91,6 +91,20 @@ describe('route hydration exceptions', () => {
     expect(navigate).toHaveBeenCalledWith(nextRoute);
   });
 
+  it('restores the saved source sheet and exact selection without execution authority', () => {
+    const setActionLaunch = vi.fn();
+    const navigate = vi.fn();
+    const draft = { action_id: 'map.template', scope: { kind: 'sheet_rows' as const, sheet_id: 7, row_ids: [] },
+      params: { template: { text: '{{name}}' } }, output_names: { rendered: 'greeting' } };
+    runActionFromSurfaceTransition({ actSurface: { setActionLaunch },
+      chrome: { openActionPanel: vi.fn() }, route: { navigate } } as never,
+    draft.action_id, undefined,
+    { projectId: 'p1', sheetId: 'other', actionKind: draft.action_id, review: false, panel: null },
+    { actionDraft: draft });
+    expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ sheetId: '7' }));
+    expect(setActionLaunch).toHaveBeenCalledWith({ kind: draft.action_id, initial: { actionDraft: draft } });
+  });
+
   it('opens the Action panel with the selected Ask proposal', () => {
     const chrome = createChromeStore('p1');
     const detail = createDetailStore();

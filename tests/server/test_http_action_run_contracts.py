@@ -21,6 +21,7 @@ class _ActionRunService:
         body: dict[str, Any],
         *,
         request_context: Any,
+        record_history: bool,
     ) -> ActionRunResponse:
         assert request_context is not None
         self.body = body

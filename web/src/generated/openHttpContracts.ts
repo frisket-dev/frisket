@@ -364,6 +364,18 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
+      "id": "tenant.action_history.get",
+      "method": "GET",
+      "path": "/api/projects/{pid}/actions/history",
+      "request": null
+    },
+    {
+      "id": "tenant.action_history_detail.get",
+      "method": "GET",
+      "path": "/api/projects/{pid}/actions/history/{history_id}",
+      "request": null
+    },
+    {
       "id": "tenant.action_job_detail.get",
       "method": "GET",
       "path": "/api/projects/{pid}/actions/jobs/{job_id}",
@@ -3027,6 +3039,63 @@ export type HttpActionEstimateValidationRequest = ({
   [key: string]: JsonValue | ({
   [key: string]: (HttpActionEstimateValidationRequest_JsonValue);
 });
+});
+
+type HttpActionHistoryDetail_ActionDraftScope = ({
+  "kind": ("sheet_rows") & (string);
+  "row_ids"?: (((Array<(number)>)) | ((null)));
+  "sheet_id": (number);
+});
+
+type HttpActionHistoryDetail_ActionHistoryDraft = ({
+  "action_id": (string);
+  "output_names"?: ({
+  [key: string]: (string);
+});
+  "params": ({
+  [key: string]: (HttpActionHistoryDetail_JsonValue);
+});
+  "scope": (((HttpActionHistoryDetail_ActionDraftScope)) | ((HttpActionHistoryDetail_ActionHistoryProjectScope)));
+  "sheet_name"?: (((string)) | ((null)));
+});
+
+type HttpActionHistoryDetail_ActionHistoryItem = ({
+  "action_id": (string);
+  "id": (string);
+  "run_id": (((number)) | ((null)));
+  "sheet_id": (((number)) | ((null)));
+  "sheet_name": (((string)) | ((null)));
+  "status": ("not_started" | "queued" | "running" | "completed" | "partial" | "failed" | "cancelled") & (string);
+  "submitted_at": (string);
+});
+
+type HttpActionHistoryDetail_ActionHistoryProjectScope = ({
+  "kind": ("project") & (string);
+});
+
+type HttpActionHistoryDetail_JsonValue = JsonValue;
+
+export type HttpActionHistoryDetail = ({
+  "draft": (((HttpActionHistoryDetail_ActionHistoryDraft)) | ((null)));
+  "item": (HttpActionHistoryDetail_ActionHistoryItem);
+  "unavailable_reason": (((string)) | ((null)));
+});
+
+type HttpActionHistoryPage_ActionHistoryItem = ({
+  "action_id": (string);
+  "id": (string);
+  "run_id": (((number)) | ((null)));
+  "sheet_id": (((number)) | ((null)));
+  "sheet_name": (((string)) | ((null)));
+  "status": ("not_started" | "queued" | "running" | "completed" | "partial" | "failed" | "cancelled") & (string);
+  "submitted_at": (string);
+});
+
+export type HttpActionHistoryPage = ({
+  "items": (Array<(HttpActionHistoryPage_ActionHistoryItem)>);
+  "limit": (number);
+  "offset": (number);
+  "total": (number);
 });
 
 type HttpActionJob_ActionFileWorkProgress = ({
@@ -7896,6 +7965,11 @@ export type HttpInline_17d43befabd8bea4 = ({
   "split_id": (string);
 });
 
+export type HttpInline_19a6cef3bbbfcf71 = ({
+  "history_id": (string);
+  "pid": (string);
+});
+
 export type HttpInline_1e4847349bb63e05 = ({
   "draft_id": (string);
   "occurrence_id": (string);
@@ -8056,6 +8130,12 @@ export type HttpInline_3eeec944bc84ce8c = ({
 });
 
 export type HttpInline_44136fa355b3678a = JsonValue;
+
+export type HttpInline_4592fd0c55d191cf = ({
+  "action_id": (string);
+  "limit"?: (number);
+  "offset"?: (number);
+});
 
 export type HttpInline_4695a2cbe654ff39 = ({
   "draft_id": (string);
@@ -16500,6 +16580,30 @@ export type HttpContractOperationMap = {
       readonly "409": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.action_history.get": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_4592fd0c55d191cf;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpActionHistoryPage;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "422": HttpError;
+    };
+  };
+  readonly "tenant.action_history_detail.get": {
+    readonly pathParams: HttpInline_19a6cef3bbbfcf71;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpActionHistoryDetail;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "422": HttpError;
     };
   };
   readonly "tenant.action_job_detail.get": {

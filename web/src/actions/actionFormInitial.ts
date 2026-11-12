@@ -32,7 +32,7 @@ export type ActionCompareLaunchContext =
 export interface ActionLaunchPrefill {
   sourceColumn?: string;
   prompt?: string;
-  /** Reusable typed intent from a completed result; never invocation consent. */
+  /** Reusable typed settings from history or a result; never invocation consent. */
   actionDraft?: GeneratedActionDraft;
   /** Transient comparison/Replace presentation and target fences. */
   actionCompare?: ActionCompareLaunchContext;

@@ -78,7 +78,6 @@ export interface WorkspaceShellHandle {
   executeRegisteredAction: WorkspaceViewModel['executeRegisteredAction'];
   openOcrCompareTab: WorkspaceViewModel['openOcrCompareTab'];
   openActionCompare: WorkspaceViewModel['openActionCompare'];
-  openActionCompareHistory: WorkspaceViewModel['openActionCompareHistory'];
   returnToActionCompare: WorkspaceViewModel['returnToActionCompare'];
   doStepTo: WorkspaceViewModel['doStepTo'];
   loadHistoryPage: WorkspaceViewModel['loadHistoryPage'];

@@ -158,8 +158,7 @@ export function useWorkspaceNavigationController({
         { actSurface, chrome, route },
         actionKind,
         sourceColumn,
-        { ...routeStateBase(), actionKind, ...(initial?.actionCompare
-          ? { sheetId: String(initial.actionCompare.context.sheet.id) } : {}) },
+        { ...routeStateBase(), actionKind },
         initial,
       );
     },
