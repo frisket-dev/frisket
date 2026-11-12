@@ -89,6 +89,8 @@ export interface ProjectApiPort extends
   PluginProjectionViewApiPort,
   ColumnEvidenceApiPort,
   EvidenceLinkViewerApiPort {
+  getActionHistory: FrisketApi['getActionHistory'];
+  getActionHistoryEntry: FrisketApi['getActionHistoryEntry'];
   getProject: FrisketApi['getProject'];
   updateCurrentProject: FrisketApi['updateCurrentProject'];
   getProjectRetention: FrisketApi['getProjectRetention'];

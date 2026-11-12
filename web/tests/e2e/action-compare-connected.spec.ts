@@ -276,14 +276,14 @@ test.describe('connected action comparison', () => {
     const closeButton = await page.getByTestId('action-drawer-close').boundingBox();
     expect(Math.abs(historyButton!.y - closeButton!.y)).toBeLessThan(3);
     await page.getByTestId('action-history-button').click();
-    const history = page.getByTestId('action-compare-history-menu');
+    const history = page.getByTestId('action-history-menu');
     await expect(history).toBeVisible();
-    await expect(history.getByTestId(`action-compare-history-choose-${baselineRunId}`)).toBeVisible();
+    await expect(history.getByRole('menuitem', { name: new RegExp(`Run ${baselineRunId}(?:\\s|$)`) })).toBeVisible();
     await shoot(page, '02-earlier-runs.png');
     await page.keyboard.press('Escape');
     await expect(history).toHaveCount(0);
     await page.getByTestId('action-history-button').click();
-    await page.getByTestId(`action-compare-history-choose-${baselineRunId}`).click();
+    await page.getByRole('menuitem', { name: new RegExp(`Run ${baselineRunId}(?:\\s|$)`) }).click();
     await expect(history).toHaveCount(0);
     await expect(replacementForm.getByTestId('field-context')).toHaveValue(PROMPT_A);
     expect(await topicValues(page, pid, sheetId, topic!.id, 3)).toEqual(baseline);

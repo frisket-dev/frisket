@@ -1,30 +1,30 @@
-.action-compare-history-menu {
+.action-history-menu {
   max-height: min(420px, calc(100vh - 16px));
 }
 
-.action-compare-history-list {
+.action-history-list {
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.action-compare-history-item {
+.action-history-item {
   align-items: flex-start;
   color: var(--text);
 }
 
-.action-compare-history-item .menu-item-label {
+.action-history-item .menu-item-label {
   justify-content: space-between;
 }
 
-.action-compare-history-column {
+.action-history-column {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.action-compare-history-status {
+.action-history-status {
   flex: none;
   padding: 1px 6px;
   border-radius: var(--radius-999);
@@ -34,12 +34,7 @@
   font-weight: 650;
 }
 
-.action-compare-history-item[data-active='true'] .action-compare-history-status {
-  color: var(--accent);
-  background: var(--accent-bg);
-}
-
-.action-compare-history-footer {
+.action-history-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -50,11 +45,11 @@
   font-size: 11px;
 }
 
-.action-compare-history-footer > div {
+.action-history-footer > div {
   display: flex;
 }
 
-.action-compare-history-footer .menu-item {
+.action-history-footer .menu-item {
   width: auto;
   padding: 6px;
 }

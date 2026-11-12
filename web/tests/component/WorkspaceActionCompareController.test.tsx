@@ -375,80 +375,7 @@ describe('useWorkspaceActionCompareController', () => {
     expect(harness!.runActionFromSurface).not.toHaveBeenCalled();
   });
 
-  it('restores actual run settings and anchors the launch to that run and source sheet', async () => {
-    const olderDraft: GeneratedActionDraft = {
-      ...ALL_ROWS_DRAFT,
-      params: { ...ALL_ROWS_DRAFT.params, model: 'test/older-model', instruction: 'Older run settings' },
-    };
-    vi.mocked(harness!.api.getContext).mockResolvedValue(
-      comparisonContext({ runId: 42, draft: olderDraft }),
-    );
-    const view = renderController(['31', '32']);
 
-    await act(async () => view.result.current.restoreActionRunSettings({
-      sheetId: '7', columnId: '101', runId: '42',
-    }));
-
-    expect(harness!.runActionFromSurface).toHaveBeenCalledWith('map.extract', undefined, {
-      actionDraft: olderDraft,
-      actionCompare: expect.objectContaining({
-        kind: 'edit-existing',
-        context: expect.objectContaining({
-          sheet: { id: 7, name: 'Court filings' },
-          comparison_basis: { kind: 'run', run_id: 42, column_id: 101 },
-        }),
-        capturedSelection: { rowIds: [31, 32], totalCount: 2 },
-        returnToCompare: false,
-      }),
-    });
-    const trigger = document.createElement('button');
-    act(() => view.result.current.openActionCompareHistory(trigger));
-    expect(view.result.current.actionCompareHistoryMenuTarget).toEqual({
-      runAnchor: { sheetId: '7', columnId: '101', runId: '42' },
-      trigger,
-    });
-    act(() => view.result.current.closeActionCompareHistory());
-    expect(view.result.current.actionCompareHistoryMenuTarget).toBeNull();
-  });
-
-  it('captures the current grid selection when restoring history beside an open comparison', async () => {
-    vi.mocked(harness!.api.getContext).mockResolvedValue(comparisonContext({ runId: 42 }));
-    let liveSelection: readonly string[] = ['11', '12'];
-    const current = harness!;
-    const view = renderHook(() => useWorkspaceActionCompareController({
-      projectId: 'action-compare-controller',
-      sheetId: '7',
-      selectedRowIds: liveSelection,
-      selectedRowCount: liveSelection.length,
-      sampleOptions: {},
-      runActionFromSurface: current.runActionFromSurface,
-      closeActionRoute: current.closeActionRoute,
-      setOpenSplit: current.stores.chrome.setOpenSplit,
-      showError: current.showError,
-    }), { wrapper: current.wrapper });
-
-    act(() => view.result.current.openActionCompare(ALL_ROWS_DRAFT));
-    await waitFor(() => expect(view.result.current.actionCompareSession).not.toBeNull());
-    expect(view.result.current.actionCompareSession!.getSnapshot().capturedSelection?.rowIds)
-      .toEqual([11, 12]);
-
-    liveSelection = ['31', '32'];
-    view.rerender();
-    await act(async () => view.result.current.restoreActionRunSettings({
-      sheetId: '7', columnId: '101', runId: '42',
-    }));
-
-    expect(current.runActionFromSurface).toHaveBeenCalledWith(
-      'map.extract',
-      undefined,
-      expect.objectContaining({
-        actionCompare: expect.objectContaining({
-          kind: 'edit-existing',
-          capturedSelection: { rowIds: [31, 32], totalCount: 2 },
-        }),
-      }),
-    );
-  });
 
   it('does not advertise comparison when canonical context loading refuses the run', async () => {
     const comparisonEntry = {
@@ -569,48 +496,6 @@ describe('useWorkspaceActionCompareController', () => {
     expect(harness!.stores.compareView.store.get().action.open).toBe(false);
   });
 
-  it('closes the obsolete comparison when history restoration supersedes a pending retarget', async () => {
-    const initial = comparisonContext();
-    const nextDraft = {
-      ...ALL_ROWS_DRAFT,
-      params: { ...ALL_ROWS_DRAFT.params, instruction: 'Retarget settings' },
-    };
-    let resolveRetarget!: (context: ActionComparisonContext) => void;
-    let resolveEdit!: (context: ActionComparisonContext) => void;
-    vi.mocked(harness!.api.getContext)
-      .mockResolvedValueOnce(initial)
-      .mockImplementationOnce(() => new Promise(resolve => { resolveRetarget = resolve; }))
-      .mockImplementationOnce(() => new Promise(resolve => { resolveEdit = resolve; }));
-    const view = renderController();
-
-    act(() => view.result.current.openActionCompare(ALL_ROWS_DRAFT));
-    await waitFor(() => expect(view.result.current.actionCompareSession).not.toBeNull());
-    const oldSession = view.result.current.actionCompareSession!;
-    act(() => { oldSession.addVariant(); });
-    act(() => view.result.current.openActionCompare(nextDraft));
-    act(() => view.result.current.confirmActionCompareRetarget());
-    await waitFor(() => expect(harness!.api.getContext).toHaveBeenCalledTimes(2));
-    expect(oldSession.getSnapshot().disposed).toBe(true);
-    expect(view.result.current.actionCompareSession).toBeNull();
-
-    let restore!: Promise<void>;
-    act(() => {
-      restore = view.result.current.restoreActionRunSettings({
-        sheetId: '7', columnId: '101', runId: '42',
-      });
-    });
-    await waitFor(() => expect(harness!.api.getContext).toHaveBeenCalledTimes(3));
-    expect(harness!.stores.compareView.store.get().action.open).toBe(false);
-    await act(async () => {
-      resolveRetarget(comparisonContext({ draft: nextDraft }));
-      resolveEdit(comparisonContext({ runId: 42 }));
-      await restore;
-    });
-
-    expect(harness!.runActionFromSurface).toHaveBeenCalledTimes(1);
-    expect(view.result.current.actionCompareSession).toBeNull();
-    expect(harness!.stores.compareView.store.get().action.open).toBe(false);
-  });
 
   it('does not reopen comparison when a pending context read finishes after close', async () => {
     let resolveContext!: (context: ActionComparisonContext) => void;

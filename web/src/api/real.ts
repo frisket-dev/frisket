@@ -59,6 +59,7 @@ import {
 import {
   createActionPreviewDomainApi,
 } from './actionPreviewRuns';
+import { createActionHistoryApi } from './actionHistory';
 import { createHistoryReviewDomainApi } from './historyReview';
 import { createProjectEvidenceDomainApi } from './projectEvidence';
 import { createInstanceRuntimeApi } from './instanceRuntime';
@@ -813,6 +814,7 @@ class RealApi implements FrisketApi {
   // History and review own their reads plus the cursor and queue mutations,
   // including the invocation each one captures. This adapter keeps the shared
   // session and the column-run metadata it feeds back into action runs.
+  private readonly actionHistory: ReturnType<typeof createActionHistoryApi>;
   private readonly historyReview: ReturnType<typeof createHistoryReviewDomainApi>;
 
   constructor(projectId: string | null = null) {
@@ -881,6 +883,7 @@ class RealApi implements FrisketApi {
       columnRunInfo: (id, sheetId, column) => this.actionRuns.columnRunInfo(id, sheetId, column),
       v1ActionSession: this.v1ActionSession,
     }, scopedProjectId);
+    this.actionHistory = createActionHistoryApi(apiErrorFromContract, scopedProjectId);
     this.historyReview = createHistoryReviewDomainApi(apiErrorFromContract, {
       v1ActionSession: this.v1ActionSession,
     }, scopedProjectId);
@@ -1756,6 +1759,14 @@ class RealApi implements FrisketApi {
 
   getTextAnnotations(rowId: string, columnId: string, options?: import('./types').TextAnnotationsOptions): Promise<TextAnnotations> {
     return this.projectEvidenceApi.getTextAnnotations(rowId, columnId, options);
+  }
+
+  getActionHistory(actionId: string, offset = 0, limit = 20) {
+    return this.actionHistory.getActionHistory(actionId, offset, limit);
+  }
+
+  getActionHistoryEntry(historyId: string) {
+    return this.actionHistory.getActionHistoryEntry(historyId);
   }
 
   async getColumnRuns(columnId: string, offset = 0, limit = 20): Promise<ColumnRunsInfo> {
