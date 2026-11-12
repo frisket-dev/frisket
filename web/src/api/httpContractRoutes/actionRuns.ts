@@ -158,6 +158,13 @@ function mapActionJob(wire: ActionJobWire): ActionJob {
     kind: wire.kind,
     runId: wire.run_id == null ? null : String(wire.run_id),
     receiptId: wire.receipt_id ?? null,
+    context: wire.context ? {
+      sheetId: String(wire.context.sheet_id),
+      sheetName: wire.context.sheet_name ?? null,
+      outputColumns: (wire.context.output_columns ?? []).map((column) => ({
+        id: String(column.id), name: column.name,
+      })),
+    } : null,
     status: wire.status,
     actionKind: wire.action_kind ?? null,
     actionName: wire.action_name ?? null,

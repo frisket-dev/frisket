@@ -1,3 +1,4 @@
+import type { ActionHistoryDetail, ActionHistoryPage } from './actionHistory';
 
 import type { GeneratedActionParams } from '../generated/actionTypes';
 import type { ProjectQAApi } from './projectQA';
@@ -3080,6 +3081,11 @@ export interface ActionJob {
   kind: string;
   runId: string | null;
   receiptId?: string | null;
+  context?: {
+    sheetId: string;
+    sheetName: string | null;
+    outputColumns: Array<{ id: string; name: string }>;
+  } | null;
   status: string;
   actionKind: string | null;
   actionName: string | null;
@@ -4616,6 +4622,8 @@ export interface ActionProposal {
 }
 
 export interface FrisketApi {
+  getActionHistory(actionId: string, offset?: number, limit?: number): Promise<ActionHistoryPage>;
+  getActionHistoryEntry(historyId: string): Promise<ActionHistoryDetail>;
   /** Compatible embedding providers/models for the picker, by source column type. */
   embeddingProviderCatalog(opts: {
     modality?: string;

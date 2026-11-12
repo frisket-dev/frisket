@@ -225,6 +225,8 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
         ("tenant", "ack_notification", "POST"): "tenant.ack_notification.post",
         ("tenant", "action_job_detail", "GET"): "tenant.action_job_detail.get",
         ("tenant", "action_jobs", "GET"): "tenant.action_jobs.get",
+        ("tenant", "action_history", "GET"): "tenant.action_history.get",
+        ("tenant", "action_history_detail", "GET"): "tenant.action_history_detail.get",
         ("tenant", "action_v1_estimate", "POST"): "tenant.action_v1_estimate.post",
         (
             "tenant",

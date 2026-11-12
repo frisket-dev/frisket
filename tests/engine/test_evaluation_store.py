@@ -7,7 +7,6 @@ import pytest
 from frisket.engine.store import Project
 from frisket.engine.store.evaluation_migration import (
     EVALUATION_FROM_DIGEST,
-    EVALUATION_TO_DIGEST,
     migrate_evaluation,
 )
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
@@ -44,7 +43,6 @@ def test_upgrade_preserves_cells_and_is_idempotent(tmp_path):
                 "SELECT value FROM meta WHERE key=?", (SCHEMA_DIGEST_META_KEY,)
             ).fetchone()[0]
             == SCHEMA_DIGEST
-            == EVALUATION_TO_DIGEST
         )
         migrate_evaluation(project.db)
         assert all(

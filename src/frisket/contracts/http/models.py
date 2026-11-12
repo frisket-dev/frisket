@@ -714,6 +714,17 @@ class ActionJobTiming(WireModel):
     finished_at: str | None
 
 
+class ActionJobColumn(WireModel):
+    id: int
+    name: str
+
+
+class ActionJobContext(WireModel):
+    sheet_id: int
+    sheet_name: str | None = None
+    output_columns: list[ActionJobColumn] = Field(default_factory=list)
+
+
 class ActionJob(WireModel):
     schema_version: Literal[ACTION_JOB_SCHEMA_VERSION]
     project_id: str
@@ -722,6 +733,7 @@ class ActionJob(WireModel):
     run_id: int | None
     receipt_id: str | None = None
     payload_ref: dict[str, JsonValue]
+    context: ActionJobContext | None = None
     status: str
     action_kind: str | None = None
     action_name: str | None = None

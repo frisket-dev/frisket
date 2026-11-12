@@ -33,7 +33,6 @@ export const WorkspaceActionDrawerRegion = memo(function WorkspaceActionDrawerRe
     executeRegisteredAction,
     openOcrCompareTab,
     openActionCompare,
-    openActionCompareHistory,
     returnToActionCompare,
 
     project,
@@ -378,7 +377,6 @@ export const WorkspaceActionDrawerRegion = memo(function WorkspaceActionDrawerRe
           onExecuteRegisteredAction={executeRegisteredAction}
           onOpenOcrCompare={openOcrCompareTab}
           onCompareAction={openActionCompare}
-          onOpenActionHistory={openActionCompareHistory}
           onReturnToActionCompare={returnToActionCompare}
         />
       </Suspense>

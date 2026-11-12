@@ -352,6 +352,8 @@ _TENANT_VIEWER: tuple[RouteSpec, ...] = (
     ("action_export", "GET"),
     ("action_job_detail", "GET"),
     ("action_jobs", "GET"),
+    ("action_history", "GET"),
+    ("action_history_detail", "GET"),
     ("action_list_sheets", "GET"),
     # The attempt receipt answers "did I say yes, what did it cost, where
     # did it go" for one run. A READ, so viewer-tier like its sibling
@@ -910,6 +912,8 @@ _BROWSER_CLIENT_IDS = (
             "tenant.ack_notification.post",
             "tenant.action_job_detail.get",
             "tenant.action_jobs.get",
+            "tenant.action_history.get",
+            "tenant.action_history_detail.get",
             "tenant.action_v1_estimate.post",
             "tenant.action_v1_validate_params.post",
             "tenant.v1_action_run.post",

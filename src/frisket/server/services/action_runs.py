@@ -72,6 +72,11 @@ from frisket.features.watchlists.triggers import (
     trigger_completed_source_poll_watches,
 )
 from frisket.server.route_errors import RouteError
+from frisket.server.services.action_history import (
+    ActionHistoryService,
+    save_action_submission,
+    finish_action_submission,
+)
 
 
 LOG = logging.getLogger("frisket.server")
@@ -181,6 +186,54 @@ class ActionRunRouteError(RouteError):
     pass
 
 
+def _attach_job_contexts(
+    payloads: list[dict[str, Any]], project: Project
+) -> list[dict[str, Any]]:
+    """Resolve bounded job metadata together, without reading result cells."""
+    run_ids = sorted({p["run_id"] for p in payloads if p.get("run_id") is not None})
+    run_sheets: dict[int, int] = {}
+    outputs: dict[int, list[dict[str, Any]]] = {}
+    if run_ids:
+        placeholders = ",".join("?" for _ in run_ids)
+        run_sheets = {
+            int(row["id"]): int(row["sheet_id"])
+            for row in project.db.execute(
+                f"SELECT id, sheet_id FROM runs WHERE id IN ({placeholders})", run_ids
+            )
+        }
+        for row in project.db.execute(
+            f"""SELECT g.run_id, c.id, c.name
+                FROM run_output_generations g JOIN columns c ON c.id = g.column_id
+                WHERE g.run_id IN ({placeholders})
+                ORDER BY g.run_id, c.position, c.id""",
+            run_ids,
+        ):
+            outputs.setdefault(int(row["run_id"]), []).append(
+                {"id": int(row["id"]), "name": row["name"]}
+            )
+    for payload in payloads:
+        sheet_id = run_sheets.get(payload.get("run_id"))
+        if sheet_id is not None:
+            payload["context"] = {"sheet_id": sheet_id}
+    sheet_ids = sorted({p["context"]["sheet_id"] for p in payloads if p.get("context")})
+    names = {}
+    if sheet_ids:
+        placeholders = ",".join("?" for _ in sheet_ids)
+        names = {
+            int(row["id"]): row["name"]
+            for row in project.db.execute(
+                f"SELECT id, name FROM sheets WHERE id IN ({placeholders}) AND hidden=0",
+                sheet_ids,
+            )
+        }
+    for payload in payloads:
+        context = payload.get("context")
+        if context is not None:
+            context["sheet_name"] = names.get(context["sheet_id"])
+            context["output_columns"] = outputs.get(payload.get("run_id"), [])
+    return payloads
+
+
 class ActionRunService:
     def __init__(
         self,
@@ -191,6 +244,7 @@ class ActionRunService:
         queue_timeout_seconds: float | None = None,
     ):
         self._workspace = workspace
+        self.history = ActionHistoryService(workspace)
         self._stale_run_grace_seconds = stale_run_grace_seconds
         self._worker_liveness_window_seconds = worker_liveness_window_seconds
         self._queue_timeout_seconds = queue_timeout_seconds
@@ -333,6 +387,7 @@ class ActionRunService:
         body: dict[str, Any],
         *,
         request_context: Any = None,
+        record_history: bool = False,
         admitted_sources: Mapping[str, BoundLocalFile] | None = None,
         required_execution_target: ExactExecutionMatch | None = None,
         background_priority: Literal["pdf_import_ocr"] | None = None,
@@ -340,7 +395,7 @@ class ActionRunService:
         trusted_consent_principal: str | None = None,
     ) -> ActionRunResponse:
         observer = getattr(self._workspace, "action_observer", None)
-        state: dict[str, Any] | None = {} if observer is not None else None
+        state: dict[str, Any] = {"record_history": record_history}
         started_at = datetime.now(UTC)
         started = time.monotonic()
         response = self._run_action(
@@ -354,6 +409,14 @@ class ActionRunService:
             trusted_consent_principal=trusted_consent_principal,
             _observation_state=state,
         )
+        if state.get("submission_id") is not None:
+            try:
+                finish_action_submission(
+                    state["project"], state["submission_id"], response.payload
+                )
+            except Exception:
+                # A history linkage failure must not report committed work as failed.
+                LOG.warning("action_history_link_failed", exc_info=True)
         if (
             observer is not None
             and state is not None
@@ -450,6 +513,14 @@ class ActionRunService:
         project = self._workspace.get(project_id)
         if _observation_state is not None:
             _observation_state["project"] = project
+            if _observation_state.get("record_history"):
+                try:
+                    _observation_state["submission_id"] = save_action_submission(
+                        project, body
+                    )
+                except Exception:
+                    _observation_state["submission_id"] = None
+                    LOG.warning("action_history_record_failed", exc_info=True)
         replay_result = self._typed_receipt_replay_result(
             project, project_id, body, _observation_state
         )
@@ -1041,10 +1112,14 @@ class ActionRunService:
         return {
             "schema_version": "frisket.job_list.v1",
             "project_id": project_id,
-            "jobs": payloads,
+            "jobs": _attach_job_contexts(payloads, project),
         }
 
     def job_detail(self, project_id: str, job_id: int) -> dict[str, Any]:
+        payload = self._job_detail_payload(project_id, job_id)
+        return _attach_job_contexts([payload], self._workspace.get(project_id))[0]
+
+    def _job_detail_payload(self, project_id: str, job_id: int) -> dict[str, Any]:
         project = self._workspace.get(project_id)
         inline_run_id = run_id_from_inline_job_id(job_id)
         if inline_run_id is not None:

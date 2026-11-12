@@ -1328,7 +1328,6 @@ export function useWorkspaceModel({
     actionCompareSetup: actionCompare.actionCompareSetup,
     cancelActionCompareSetup: actionCompare.cancelActionCompareSetup,
     startActionCompareSetup: actionCompare.startActionCompareSetup,
-    openActionCompareHistory: actionCompare.openActionCompareHistory,
     returnToActionCompare: actionCompare.returnToActionCompare,
     doStepTo,
     loadHistoryPage,
