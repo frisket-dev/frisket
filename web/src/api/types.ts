@@ -3080,6 +3080,11 @@ export interface ActionJob {
   kind: string;
   runId: string | null;
   receiptId?: string | null;
+  context?: {
+    sheetId: string;
+    sheetName: string | null;
+    outputColumns: Array<{ id: string; name: string }>;
+  } | null;
   status: string;
   actionKind: string | null;
   actionName: string | null;

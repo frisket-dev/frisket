@@ -81,6 +81,9 @@ def test_inline_run_surfaces_in_the_jobs_listing_with_progress_and_terminal_stat
     # required a follow-up request for every run.
     assert job["progress"]["run_id"] == run_id
     assert job["progress"]["sheet_id"] == sheet_id
+    assert job["context"]["sheet_id"] == sheet_id
+    assert job["context"]["sheet_name"] == "stories"
+    assert [column["name"] for column in job["context"]["output_columns"]] == ["note"]
     assert job["progress"]["status"] == "completed"
     assert job["progress"]["total"] == 2
     assert job["progress"]["completed"] == 2

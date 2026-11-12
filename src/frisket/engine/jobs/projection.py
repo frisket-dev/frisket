@@ -277,11 +277,28 @@ def job_payload_ref(job_kind: str, refs: Mapping[str, Any]) -> dict[str, Any]:
     return {"kind": job_kind}
 
 
+def _job_sheet_id(job: Job) -> int | None:
+    """Read only explicit sheet references; never project the action parameters."""
+    if job.sheet_id is not None:
+        return job.sheet_id
+    envelope = job.payload.get("action_job")
+    action = envelope.get("action") if isinstance(envelope, Mapping) else None
+    if isinstance(action, Mapping):
+        scope = action.get("scope")
+        if isinstance(scope, Mapping):
+            sheet_id = scope.get("sheet_id")
+            if type(sheet_id) is int:
+                return sheet_id
+    sheet_id = job.result.get("sheet_id") if isinstance(job.result, Mapping) else None
+    return sheet_id if type(sheet_id) is int else None
+
+
 def project_action_job_payload(
     job: Job, *, project_id: str, now: datetime
 ) -> dict[str, Any]:
     queue_payload = job_queue_payload(job, now=now)
     run_id = job_run_id(job)
+    sheet_id = _job_sheet_id(job)
     result_summary = job_result_summary(job.kind, job.result)
     receipt_id = (
         job.receipt_id
@@ -307,6 +324,7 @@ def project_action_job_payload(
         "run_id": run_id,
         "receipt_id": str(receipt_id) if receipt_id is not None else None,
         "payload_ref": payload_ref,
+        "context": {"sheet_id": sheet_id} if sheet_id is not None else None,
         "status": queue_payload["status"],
         "action_kind": queue_payload.get("action_kind"),
         "action_name": queue_payload.get("action_name"),

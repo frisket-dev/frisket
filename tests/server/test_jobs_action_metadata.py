@@ -48,6 +48,16 @@ def test_job_backed_run_status_and_timing_expose_action_metadata(tmp_path) -> No
     assert status["queue"]["action_kind"] == "map.python"
     assert status["queue"]["action_name"] == action_title
 
+    listed = client.get(f"/api/projects/{pid}/actions/jobs").json()["jobs"]
+    job = next(item for item in listed if item["job_id"] == job_id)
+    context = job["context"]
+    assert context["sheet_id"] == sheet_id
+    assert context["sheet_name"] == "calls"
+    assert [column["name"] for column in context["output_columns"]] == ["phone"]
+    detail = client.get(f"/api/projects/{pid}/actions/jobs/{job_id}")
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["context"] == context
+
     timing = client.get(f"/api/projects/{pid}/timing").json()
     action_bucket = timing["runs"]["by_action"]["map.python"]
     assert action_bucket["count"] == 1
@@ -99,3 +109,59 @@ def test_search_preparation_jobs_have_a_cosmetic_origin_label(tmp_path) -> None:
     title = _catalog_title("map.python")
     assert names_by_run[normal.json()["run_id"]] == title
     assert names_by_run[prepared.json()["run_id"]] == f"{title} (search preparation)"
+
+
+def test_runless_job_retains_explicit_sheet_context_through_failure(tmp_path) -> None:
+    client = TestClient(create_app(tmp_path / "ws"))
+    pid = client.post("/api/projects", json={"name": "Queued context"}).json()["id"]
+    workspace = client.app.state.workspace
+    project = workspace.get(pid)
+    sheet_id = project.add_sheet("Original")
+    project.add_sheet("Other sheet")
+    queue = workspace.queue
+    job_id = queue.enqueue(
+        "action.run",
+        {
+            "project_id": pid,
+            "action_job": {
+                "action_kind": "map.template",
+                "action": {
+                    "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
+                    "params": {"private_prompt": "Do not expose this"},
+                },
+            },
+        },
+    )
+    expected = {"sheet_id": sheet_id, "sheet_name": "Original", "output_columns": []}
+
+    for phase in ("queued", "running", "failed"):
+        response = client.get(f"/api/projects/{pid}/actions/jobs/{job_id}")
+        assert response.status_code == 200, response.text
+        assert response.json()["status"] == phase
+        assert response.json()["context"] == expected
+        assert "private_prompt" not in response.text
+        listed = client.get(f"/api/projects/{pid}/actions/jobs").json()["jobs"]
+        assert (
+            next(job for job in listed if job["job_id"] == job_id)["context"]
+            == expected
+        )
+        if phase == "queued":
+            assert queue.claim("context-test").id == job_id
+        elif phase == "running":
+            assert queue.fail(
+                job_id, "context-test", "provider unavailable", retry=False
+            )
+
+    project.db.execute("UPDATE sheets SET name='Renamed' WHERE id=?", (sheet_id,))
+    project.db.commit()
+    expected["sheet_name"] = "Renamed"
+    assert (
+        client.get(f"/api/projects/{pid}/actions/jobs/{job_id}").json()["context"]
+        == expected
+    )
+    project.delete_sheet(sheet_id)
+    expected["sheet_name"] = None
+    assert (
+        client.get(f"/api/projects/{pid}/actions/jobs/{job_id}").json()["context"]
+        == expected
+    )
