@@ -3,7 +3,8 @@
 Dependabot opens **security fixes only**, grouped by ecosystem/runtime. Routine
 version updates are disabled. Major upgrades, model runtimes, Desktop runtime
 packages, sidecar environments, experiments, and workflow changes need manual
-review. Ordinary application patch/minor updates can auto-merge after required
+review. Ordinary application patch/minor updates in the `npm-security` and
+`python-security` groups can auto-merge after required
 checks pass. Merging never publishes a release.
 
 ## One-time repository setup
@@ -30,7 +31,8 @@ there is no need to enable routine version updates or dismiss unresolved alerts.
 
 After protection is saved, set the **repository Actions variable**
 `DEPENDABOT_AUTOMERGE_ENABLED` to `true` under Settings → Secrets and variables →
-Actions → Variables. Leave it unset to disable this automation. Repository
+Actions → Variables. Leave it unset to prevent enabling auto-merge. To stop an already queued merge,
+use Disable auto-merge on that PR. Repository
 **Allow auto-merge** must also be enabled. If the branch requires approvals,
 those approvals remain required; the workflow does not approve or bypass rules.
 
@@ -41,7 +43,9 @@ trigger normal main CI. It never checks out or executes Dependabot PR code.
 
 ## Ongoing handling
 
-New or updated eligible Dependabot PRs get auto-merge enabled. Failed checks
+New or updated eligible grouped Dependabot PRs get auto-merge enabled. Existing
+standalone PRs stay manual until Dependabot replaces them with groups. Each
+update clears any previously enabled auto-merge before rechecking eligibility. Failed checks
 leave the PR open. Fix or replace genuinely broken updates; close obsolete PRs
 only once their fixes are included elsewhere. A major security fix still needs
 attention even though it cannot auto-merge. Dependabot may replace individual

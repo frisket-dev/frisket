@@ -10,9 +10,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def workflow(name):
-    # rule19: repository workflow files are the contract under test.
     return yaml.load(
-        (ROOT / ".github" / "workflows" / name).read_text(), Loader=yaml.BaseLoader
+        # rule19: executes workflow shell steps and verifies the merge trust boundary.
+        (ROOT / ".github" / "workflows" / name).read_text(),
+        Loader=yaml.BaseLoader,
     )
 
 
@@ -95,20 +96,20 @@ def test_always_report_but_only_build_relevant_changes(tmp_path, name, path, exp
 
 
 @pytest.mark.parametrize(
-    "update,dependencies,files,eligible",
+    "update,group,files,eligible",
     [
-        ("patch", "pypdf", "uv.lock", True),
-        ("minor", "dompurify, undici", "web/package.json\nweb/package-lock.json", True),
-        ("major", "pypdf", "uv.lock", False),
+        ("patch", "python-security", "uv.lock", True),
+        ("minor", "npm-security", "web/package.json\nweb/package-lock.json", True),
+        ("major", "python-security", "uv.lock", False),
         ("patch", "", "uv.lock", False),
-        ("patch", "undici, electron", "desktop/package-lock.json", False),
-        ("minor", "torch", "uv.lock", False),
-        ("patch", "pypdf", "sidecar/uv.lock", False),
-        ("patch", "pypdf", "uv.lock\nsrc/frisket/cli.py", False),
-        ("unknown", "pypdf", "uv.lock", False),
+        ("patch", "desktop-runtime-security", "desktop/package-lock.json", False),
+        ("minor", "model-runtime-security", "uv.lock", False),
+        ("patch", "python-security", "sidecar/uv.lock", False),
+        ("patch", "python-security", "uv.lock\nsrc/frisket/cli.py", False),
+        ("unknown", "python-security", "uv.lock", False),
     ],
 )
-def test_automerge_policy(tmp_path, update, dependencies, files, eligible):
+def test_automerge_policy(tmp_path, update, group, files, eligible):
     steps = workflow("dependabot-automerge.yml")["jobs"]["enable"]["steps"]
     script = next(step["run"] for step in steps if step.get("id") == "policy")
     code, output = run_step(
@@ -118,7 +119,7 @@ def test_automerge_policy(tmp_path, update, dependencies, files, eligible):
         GH_REPO="example/frisket",
         PR_NUMBER="1",
         UPDATE_TYPE=f"version-update:semver-{update}",
-        DEPENDENCIES=dependencies,
+        DEPENDENCY_GROUP=group,
     )
     assert code == 0
     assert ("eligible=true" in output) is eligible
@@ -135,3 +136,35 @@ def test_automerge_does_not_execute_candidate_code_or_bypass_protection():
     assert "--match-head-commit" in merge and "--auto" in merge
     assert "--admin" not in merge
     assert config["permissions"] == {"contents": "read", "pull-requests": "read"}
+
+
+def test_model_runtime_group_precedes_auto_merge_group():
+    import fnmatch
+
+    config = yaml.load(
+        # rule19: applies the configured first-match classification to runtime packages.
+        (ROOT / ".github" / "dependabot.yml").read_text(),
+        Loader=yaml.BaseLoader,
+    )
+    core = next(
+        item
+        for item in config["updates"]
+        if item.get("directory") == "/" and item["package-ecosystem"] == "uv"
+    )
+    for name in [
+        "fastembed",
+        "rapidocr",
+        "faster-whisper",
+        "sentencepiece",
+        "llama-cpp-python",
+        "torch",
+        "docling",
+        "onnx-asr",
+    ]:
+        group = next(
+            key
+            for key, group in core["groups"].items()
+            if any(fnmatch.fnmatchcase(name, pattern) for pattern in group["patterns"])
+        )
+        assert group == "model-runtime-security"
+    assert all(item["open-pull-requests-limit"] == "0" for item in config["updates"])

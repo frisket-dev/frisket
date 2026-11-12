@@ -24,7 +24,7 @@ updates:
     groups:
       model-runtime-security:
         applies-to: security-updates
-        patterns: ["torch*", "docling*", "transformers", "tokenizers", "onnx*", "spacy*", "ctranslate2", "numpy", "scipy", "paddle*", "nvidia-*", "vllm"]
+        patterns: ["fastembed", "rapidocr", "faster-whisper", "sentencepiece", "llama-cpp-python", "torch*", "docling*", "transformers", "tokenizers", "onnx*", "spacy*", "ctranslate2", "numpy", "scipy", "paddle*", "nvidia-*", "vllm"]
       python-security:
         applies-to: security-updates
         patterns: ["*"]
