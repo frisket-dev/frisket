@@ -683,13 +683,23 @@ def source_page_ocr_authorizer(
         if context.row_ids != (SCRATCH_PREVIEW_UNIT_ID,):
             return TrustedConsentRefusal("source-page OCR runtime scope changed")
         resolved = context.resolved_execution
+        # Scratch estimates calculate this UI flag from the current account's
+        # preapproval threshold. An already approved page still binds every
+        # economic fact and promise when a background worker has zero preapproval.
+        actual_quote = ConsentQuote.from_estimate(context.estimate).model_dump(
+            mode="json", exclude={"requires_confirmation"}
+        )
+        expected_quote = {
+            key: value
+            for key, value in child["quote"].items()
+            if key != "requires_confirmation"
+        }
         if (
             dict(context.spec) != child["spec"]
             or target_snapshot(resolved.resolution) != child["target"]
             or _route_snapshot(resolved) != child["route"]
             or promise_rows(resolved.promise_set) != child["promises"]
-            or ConsentQuote.from_estimate(context.estimate).model_dump(mode="json")
-            != child["quote"]
+            or actual_quote != expected_quote
         ):
             return TrustedConsentRefusal(
                 "source-page OCR page, settings, route or quote changed"
