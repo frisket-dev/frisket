@@ -684,7 +684,20 @@ class PdfImportPreparationCoordinator:
                 if parent_context is not None
                 else None
             )
-            if not ocr or parent_context is None or prior is not None:
+            admitted_prior = False
+            if prior is not None:
+                from dataclasses import replace
+
+                saved = project.db.execute(
+                    "SELECT COALESCE(receipts.edition_run_context,runs.edition_run_context) "
+                    "FROM receipts LEFT JOIN runs ON runs.id=receipts.run_id WHERE receipts.id=?",
+                    (prior.receipt.id,),
+                ).fetchone()
+                snapshot = json.loads(saved[0] or "null")
+                if isinstance(snapshot, dict):
+                    parent_context = replace(parent_context, edition_snapshot=snapshot)
+                    admitted_prior = True
+            if not ocr or parent_context is None or admitted_prior:
                 response = self.action_runs.run_action(
                     project_id,
                     body,

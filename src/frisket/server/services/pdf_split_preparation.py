@@ -1233,6 +1233,7 @@ class PdfSplitPreparationAdapter:
                             {"receipt_id": receipt_id} if receipt_id is not None else {}
                         ),
                     )
+                    accepted = started.status_code == 202
                 if started.status_code != 202:
                     lease.close()
                     flight.release()
@@ -1240,7 +1241,6 @@ class PdfSplitPreparationAdapter:
                         store.release(work)
                     responses.append(dict(started.payload))
                     continue
-                accepted = True
                 job_id = str(started.payload["preview_id"])
                 with PdfSplitPreparationStore(self.inventory_path) as store:
                     store.record_started(work, job_id=job_id, receipt_id=None)
@@ -1357,6 +1357,24 @@ class PdfSplitPreparationAdapter:
                 )
                 if job is not None and job.finished_at is None:
                     continue
+                if job is None:
+                    from filelock import Timeout
+
+                    flight = FileLock(
+                        str(
+                            self.workspace.get(self.project_id).path
+                            / ".imports"
+                            / ".pdf-page-ocr-locks"
+                            / f"{row['work_key']}.lock"
+                        )
+                    )
+                    try:
+                        flight.acquire(timeout=0)
+                    except Timeout:
+                        # Another worker owns the live scratch execution.
+                        continue
+                    else:
+                        flight.release()
                 # A completed successful page was already persisted by on_page.
                 # Missing jobs after restart are cancelled rather than re-billed.
                 status = (
@@ -1372,7 +1390,9 @@ class PdfSplitPreparationAdapter:
                         (status, row["work_key"], generation),
                     )
                     store.db.execute(
-                        "UPDATE pdf_split_page_bindings SET published=-1 WHERE work_key=? AND generation=? AND published=0",
+                        "UPDATE pdf_split_page_bindings AS binding SET published=-1 WHERE work_key=? AND generation=? AND published=0 "
+                        "AND EXISTS (SELECT 1 FROM pdf_split_page_work work WHERE work.work_key=binding.work_key "
+                        "AND work.generation=binding.generation AND work.status IN ('failed','cancelled'))",
                         (row["work_key"], generation),
                     )
 

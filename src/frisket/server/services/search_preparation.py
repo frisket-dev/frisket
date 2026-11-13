@@ -1262,6 +1262,17 @@ class SearchPreparationService:
             raise RouteError(503, "failed to schedule model setup") from exc
         return pull.id
 
+    def recover_pdf_import(self, project_id: str, receipt_id: str) -> None:
+        """Resume one durable reviewed import from an external worker."""
+        row = self.store.for_receipt(
+            storage_org_id=self.workspace.queue_storage_org_id,
+            project_id=project_id,
+            receipt_id=receipt_id,
+            include_pending=True,
+        )
+        if row is not None and row.import_ref is not None:
+            self._recover_pending_import(row)
+
     def recover(self) -> None:
         """Resume durable decided intents at process startup without new consent."""
 

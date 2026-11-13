@@ -622,6 +622,25 @@ def test_running_original_page_refuses_second_generation_and_rescan_until_termin
             confirmation=quoted["estimate"]["promise_set_hash"],
         )
         assert entered.wait(5)
+        assert preview._registry.has_active_jobs()
+        # A second hosted worker has a separate in-memory registry, but must
+        # respect the first worker's durable in-flight page claim.
+        from frisket.server.services.action_preview_runs import ActionPreviewRunService
+        from frisket.server.services.pdf_split_preparation import (
+            PdfSplitPreparationAdapter,
+        )
+
+        other_preview = ActionPreviewRunService(adapter.workspace)
+        try:
+            other = PdfSplitPreparationAdapter(
+                adapter.workspace,
+                preview_runs=other_preview,
+                inventory_path=adapter.inventory_path,
+                project_id="pages",
+            )
+            assert other.progress(generation="first-flight")["running"] == 1
+        finally:
+            other_preview._registry.shutdown()
         with pytest.raises(
             PdfSplitPreparationInProgress, match="already being prepared"
         ):

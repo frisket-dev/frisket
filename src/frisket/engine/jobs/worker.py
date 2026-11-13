@@ -182,6 +182,8 @@ class HandlerRegistry:
         self._registrations: dict[str, HandlerRegistration] = {}
         self._action_executors: dict[str, Callable[[Any, Any], Any]] = {}
         self._recovery_hooks: list[Callable[[JobQueue], None]] = []
+        self._maintenance_hooks: list[Callable[[JobQueue], None]] = []
+        self._last_maintenance: float | None = None
 
     @staticmethod
     def _callable_origin(fn: Handler) -> str:
@@ -273,6 +275,20 @@ class HandlerRegistry:
 
     def register_recovery_hook(self, fn: Callable[[JobQueue], None]) -> None:
         self._recovery_hooks.append(fn)
+
+    def register_maintenance_hook(self, fn: Callable[[JobQueue], None]) -> None:
+        """Periodic progress that must run even when no job lease has expired."""
+        self._maintenance_hooks.append(fn)
+
+    def run_maintenance_hooks(self, queue: JobQueue, *, now: float) -> None:
+        if self._last_maintenance is not None and now - self._last_maintenance < 2:
+            return
+        self._last_maintenance = now
+        for hook in tuple(self._maintenance_hooks):
+            try:
+                hook(queue)
+            except Exception:
+                LOG.warning("worker_maintenance_failed", exc_info=True)
 
     def get(self, kind: str) -> Handler | None:
         return self._handlers.get(kind)
@@ -807,6 +823,9 @@ class Worker:
     def run_once(self) -> bool:
         """Recover, claim, execute one job. Returns False when idle."""
         self.record_liveness()
+        self.registry.run_maintenance_hooks(
+            self.queue, now=self._clock.now_ms() / 1000.0
+        )
         if self.queue.recover_expired():
             self.registry.run_recovery_hooks(self.queue)
         job = self.queue.claim(
