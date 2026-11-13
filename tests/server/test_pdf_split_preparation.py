@@ -868,3 +868,69 @@ def test_background_source_page_carries_the_approved_nondefault_actor(
     finally:
         preview._registry.shutdown()
         project.close()
+
+
+def test_approved_page_quote_ignores_only_confirmation_display(tmp_path, monkeypatch):
+    from dataclasses import replace
+    from frisket.engine.runner.validation import (
+        TrustedConsentContext,
+        TrustedConsentApproval,
+        TrustedConsentRefusal,
+    )
+    from frisket.execution.resolve_for_action import SCRATCH_PREVIEW_UNIT_ID
+    from frisket.server.services.action_preview_runs import _scratch_claims
+    from frisket.server.services.pdf_import_ocr_approval import (
+        PdfImportOcrGrant,
+        source_page_ocr_authorizer,
+    )
+    from frisket.server.services.pdf_split_preparation import PdfSplitPageWork
+
+    adapter, preview, project, provider, read, _op, _source = _runtime(
+        tmp_path, monkeypatch
+    )
+    lease = None
+    try:
+        quoted = adapter.quote(targets=[read], plan_token="preapproved-page")
+        grant = PdfImportOcrGrant.from_mapping(quoted["authorization"])
+        authorize = source_page_ocr_authorizer(
+            grant,
+            project_id="pages",
+            plan_token="preapproved-page",
+            target=read.approval_identity,
+            work_key=read.work_key,
+        )
+        lease, prepared = adapter._prepare(
+            PdfSplitPageWork(read.work_key, 0, "", read, None)
+        )
+        plan = prepared[0]
+        resolved, estimate, _ = _scratch_claims(project, plan)
+        context = TrustedConsentContext(
+            spec=plan.spec,
+            row_ids=(SCRATCH_PREVIEW_UNIT_ID,),
+            resolved_execution=resolved,
+            estimate=estimate,
+            principal=grant.actor,
+        )
+        assert isinstance(authorize(context), TrustedConsentApproval)
+        flipped = {
+            **estimate,
+            "requires_confirmation": not estimate["requires_confirmation"],
+        }
+        assert isinstance(
+            authorize(replace(context, estimate=flipped)), TrustedConsentApproval
+        )
+        for field, value in (
+            ("cost", estimate["cost"] + 1),
+            ("billed_cost", estimate["billed_cost"] + 1),
+            ("policy_id", "changed-policy"),
+        ):
+            changed = {**flipped, field: value}
+            assert isinstance(
+                authorize(replace(context, estimate=changed)), TrustedConsentRefusal
+            ), field
+        assert provider.calls == 0
+    finally:
+        if lease is not None:
+            lease.close()
+        preview._registry.shutdown()
+        project.close()
