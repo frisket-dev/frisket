@@ -312,6 +312,21 @@ def schema_mechanism(model: str, schema: dict, mechanism: str) -> str:
     """Schema-aware auto selection, shared by the completer and wire adapter."""
     if mechanism == NATIVE_STRICT and native_open_map(schema):
         return PROSE_JSON
+    if mechanism == NATIVE_STRICT and model.startswith("anthropic/"):
+        # Claude's grammar compiler caps optional properties at 24 and union
+        # parameters at 16, including nested citation metadata. Keep the full
+        # schema in the prompt and validate locally when it exceeds either cap.
+        # https://platform.claude.com/docs/en/build-with-claude/structured-outputs#schema-complexity-limits
+        optional = unions = 0
+        for node in schema_nodes(schema):
+            optional += len(
+                set(node.get("properties", {})) - set(node.get("required", []))
+            )
+            unions += bool(node.get("anyOf")) or (
+                isinstance(node.get("type"), list) and len(node["type"]) > 1
+            )
+            if optional > 24 or unions > 16:
+                return PROSE_JSON
     if (
         mechanism == NATIVE_STRICT
         and model.split("/", 1)[0] in _KNOWN_OPENAI_COMPAT_PROVIDERS

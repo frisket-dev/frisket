@@ -6,6 +6,7 @@ import json
 
 import httpx
 import pytest
+from jsonschema import Draft202012Validator
 
 from frisket.ai.llm.adapters import AnthropicAdapter, _anthropic_schema
 from frisket.ai.llm.router import ModelRouter
@@ -14,7 +15,8 @@ from frisket.ai.llm.structured import (
     StructuredRequest,
     UnsupportedMechanismError,
 )
-from frisket.ai.llm.types import LLMRequest, SchemaViolation
+from frisket.ai.llm.types import LLMError, LLMRequest, SchemaViolation
+from frisket.ops.extraction import extract_response_schema
 
 
 SCHEMA = {
@@ -180,3 +182,109 @@ def test_adapter_rejects_explicit_forced_tool_before_wire():
 
     with pytest.raises(SchemaViolation, match="native_tool"):
         asyncio.run(go())
+
+
+@pytest.mark.parametrize("kind,limit", [("optional", 24), ("anyOf", 16), ("type", 16)])
+@pytest.mark.parametrize("over_limit", [False, True])
+def test_native_schema_complexity_boundaries(kind, limit, over_limit):
+    field = {
+        "optional": {"type": "string"},
+        "anyOf": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "type": {"type": ["string", "null"]},
+    }[kind]
+    props = {f"field_{i}": field for i in range(limit + over_limit)}
+    # Nested array items count too, rather than only the root's properties.
+    schema = {
+        "type": "object",
+        "properties": {
+            "rows": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": props,
+                    "required": [] if kind == "optional" else list(props),
+                    "additionalProperties": False,
+                },
+            }
+        },
+        "required": ["rows"],
+        "additionalProperties": False,
+    }
+    result, bodies = run_complete(schema, [wire('{"rows":[]}')])
+    assert result.method_used == ("prose_json" if over_limit else "native_strict")
+    assert ("output_config" in bodies[0]) is not over_limit
+    if over_limit:
+        assert json.loads(bodies[0]["system"].split("schema:\n", 1)[1]) == schema
+        with pytest.raises(UnsupportedMechanismError, match="provider schema limits"):
+            run_complete(schema, [], method="native_strict")
+
+
+def test_multifield_extraction_keeps_citations_and_validates_fallback():
+    schema = extract_response_schema(
+        [
+            {"name": name, "schema": {"type": "string"}}
+            for name in ("city", "country", "name", "date")
+        ],
+        grounding_enabled=True,
+        nullable=True,
+    )
+    original = copy.deepcopy(schema)
+    expected = {
+        "city": {"value": "Paris", "evidence": [{"quote": "Paris", "source": "text"}]},
+        "country": {"value": "France"},
+        "name": {"value": None},
+        "date": {"value": None, "warnings": ["Not stated"]},
+    }
+    invalid = copy.deepcopy(expected)
+    invalid["city"]["value"] = 42
+    result, bodies = run_complete(
+        schema, [wire(json.dumps(invalid)), wire(json.dumps(expected))]
+    )
+    assert result.data == expected
+    assert result.method_used == "prose_json"
+    assert result.attempts == 2
+    assert result.violations
+    assert schema == original
+    for body in bodies:
+        assert "output_config" not in body and "tools" not in body
+        # Pydantic may inline $defs; the original constraints must survive.
+        prompted = Draft202012Validator(
+            json.loads(body["system"].split("schema:\n", 1)[1])
+        )
+        assert prompted.is_valid(expected)
+        assert not prompted.is_valid(invalid)
+        bad_citation = copy.deepcopy(expected)
+        bad_citation["city"]["evidence"][0]["quote"] = 42
+        assert not prompted.is_valid(bad_citation)
+
+
+def test_anthropic_schema_400_is_not_blindly_retried():
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(
+            400,
+            json={
+                "error": {"message": "Schemas contains too many optional parameters"}
+            },
+        )
+
+    async def go():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            router = ModelRouter(keys={}, max_retries=3)
+            router._client = client
+            router._adapters["anthropic"] = AnthropicAdapter("test")
+            await StructuredCompleter(router).complete(
+                StructuredRequest(
+                    model="anthropic/claude-sonnet-5-5",
+                    schema=SCHEMA,
+                    messages=[{"role": "user", "content": "Extract"}],
+                    repair_attempts=3,
+                )
+            )
+
+    with pytest.raises(LLMError, match="too many optional parameters") as error:
+        asyncio.run(go())
+    assert error.value.retryable is False
+    assert len(requests) == 1

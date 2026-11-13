@@ -888,7 +888,7 @@ class StructuredCompleter:
         if explicit is not None and schema_mode != method_used:
             raise UnsupportedMechanismError(
                 f"{explicit!r} cannot represent open JSON dictionaries or optional "
-                f"nonnull fields for {req.model!r}"
+                f"nonnull fields, or exceeds provider schema limits for {req.model!r}"
             )
         method_used = schema_mode
         profile = cap_row.as_profile_dict()
