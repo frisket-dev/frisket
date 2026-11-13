@@ -280,9 +280,9 @@ def _ocr_list_reply() -> dict[str, Any]:
                 "gamma event took place",
             ],
             "evidence": [
-                [{"quote": "alpha event occurred", "grounding_method": "quote"}],
-                [{"quote": "beta event happened", "grounding_method": "quote"}],
-                [{"quote": "gamma event took place", "grounding_method": "quote"}],
+                [{"quote": "alpha event occurred"}],
+                [{"quote": "beta event happened"}],
+                [{"quote": "gamma event took place"}],
             ],
             "warnings": [],
         }
@@ -357,7 +357,7 @@ def test_selected_ocr_text_without_auxiliary_publishes_exact_text_context(
         reply = _ocr_list_reply()
         # An unsupported extra claim must not create a positionless link or
         # invalidate the usable exact quote for this list item.
-        reply["moments"]["evidence"][0].append({"grounding_method": "quote"})
+        reply["moments"]["evidence"][0].append({})
         router, _adapter = _stub_router(reply)
         result = run_action_with_exact_confirmation(
             project,

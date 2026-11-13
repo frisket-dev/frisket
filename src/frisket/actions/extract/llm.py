@@ -41,7 +41,11 @@ from frisket.contracts.clef import (
     clef_questions,
     validate_clef_request,
 )
-from frisket.ops.extraction import extract_response_schema, render_extract_messages
+from frisket.ops.extraction import (
+    extract_citation_fields,
+    extract_response_schema,
+    render_extract_messages,
+)
 
 
 class ExtractParams(_PdfModelRowsParams):
@@ -126,14 +130,22 @@ def extract(params: ExtractParams, row: Row) -> ModelPrompt[DynamicOutput]:
         for key, field in extract_outputs(params).items()
     ]
     grounding = bool(params.grounding and params.grounding.enabled)
+    values = dict(row.values)
+    citation_fields = extract_citation_fields(
+        values,
+        document_sources=any(
+            ref.name not in values for ref in params.source_document_columns
+        ),
+    )
     return ModelPrompt(
         messages=tuple(
             render_extract_messages(
-                dict(row.values),
+                values,
                 fields,
                 instruction=params.instruction or "Extract the requested fields.",
                 context=params.context,
                 grounding_enabled=grounding,
+                citation_fields=citation_fields,
             )
         ),
         response_schema=extract_response_schema(
@@ -141,6 +153,7 @@ def extract(params: ExtractParams, row: Row) -> ModelPrompt[DynamicOutput]:
             grounding_enabled=grounding,
             grounding_fields={field.name for field in params.fields},
             nullable=True,
+            citation_fields=citation_fields,
         ),
     )
 

@@ -10,12 +10,31 @@ from frisket.actions.grounding_types import EvidenceClaim
 from frisket.ai.message_content import render_input_block
 
 
+def extract_citation_fields(
+    row_values: dict[str, Any], *, document_sources: bool = False
+) -> frozenset[str]:
+    """Request only hints supported by the visible inputs or linked documents."""
+    fields = {"source", "quote"}
+    if _segment_stream_columns(row_values):
+        fields.add("segment_indices")
+    if document_sources or any(
+        isinstance(value, dict)
+        and (value.get("__image_b64__") or value.get("__pdf_b64__"))
+        for value in row_values.values()
+    ):
+        fields.update(
+            {"page", "page_start", "page_end", "bbox", "snippet", "grounding_method"}
+        )
+    return frozenset(fields)
+
+
 def extract_response_schema(
     fields: list[dict[str, Any]],
     *,
     grounding_enabled: bool,
     grounding_fields: set[str] | None = None,
     nullable: bool = False,
+    citation_fields: frozenset[str] | None = None,
 ) -> dict[str, Any]:
     def value_schema(field):
         schema = field["schema"]
@@ -33,14 +52,24 @@ def extract_response_schema(
     # return null (strict providers require every key); the host resolves them.
     evidence_item_schema = EvidenceClaim.model_json_schema()
     definitions = evidence_item_schema.pop("$defs", {})
-    evidence_item_schema["properties"].pop("item_index")  # Assigned by the host.
+    supported = (
+        citation_fields if citation_fields is not None else extract_citation_fields({})
+    )
+    evidence_item_schema["properties"] = {
+        key: value
+        for key, value in evidence_item_schema["properties"].items()
+        if key in supported
+    }
     for record, key in (
         (evidence_item_schema, "segment_indices"),
         (definitions["EvidenceBox"], "space"),
     ):
-        record["properties"][key] = {
-            "anyOf": [record["properties"][key], {"type": "null"}]
-        }
+        if key in record["properties"]:
+            record["properties"][key] = {
+                "anyOf": [record["properties"][key], {"type": "null"}]
+            }
+    if "bbox" not in supported:
+        definitions = {}
     props: dict[str, Any] = {}
     for field in fields:
         name = field["name"]
@@ -85,7 +114,7 @@ def extract_response_schema(
         "properties": props,
         "required": list(props.keys()),
         "additionalProperties": False,
-        "$defs": definitions,
+        **({"$defs": definitions} if definitions else {}),
     }
 
 
@@ -96,6 +125,7 @@ def render_extract_messages(
     instruction: str = "Extract the requested fields.",
     context: str = "",
     grounding_enabled: bool = False,
+    citation_fields: frozenset[str] | None = None,
 ) -> list[dict[str, Any]]:
     system = (
         "You extract structured data from documents for an investigative "
@@ -113,20 +143,31 @@ def render_extract_messages(
         {"type": "text", "text": f"\nExtraction instructions:\n{instruction}"}
     )
     if grounding_enabled:
+        supported = (
+            citation_fields
+            if citation_fields is not None
+            else extract_citation_fields(row_values)
+        )
         source_labels = json.dumps(
             list(rendered_row_values), ensure_ascii=False, separators=(",", ":")
         )
         evidence_copy = (
             "\nOutput and citation requirements:\nFor each extracted field, return an object with `value`, "
             "optional `evidence`, and optional `warnings`. Evidence items "
-            "may cite an input `source` label, page, bbox in normalized page coordinates, quote, "
-            "snippet, and grounding_method. Do not invent evidence."
+            "may contain only these citation fields: "
+            + ", ".join(f"`{name}`" for name in sorted(supported))
+            + ". Do not invent evidence."
             " Cite verbatim supporting passages and include `source` when there are "
             "several labeled inputs; return separate evidence items for separate passages."
             f" Valid source labels for this request are exactly {source_labels}. "
             "Copy one of those exact strings into `source`; headings and text "
             "inside an input are not source labels."
         )
+        if "bbox" in supported:
+            evidence_copy += (
+                " Use normalized page coordinates for `bbox`; only include page "
+                "or location hints supported by the input."
+            )
         list_fields_present = any(
             field["schema"].get("type") == "array"
             for field in fields
@@ -148,11 +189,6 @@ def render_extract_messages(
                 "item — list every segment the supporting passage spans. "
                 "Keep a short verbatim `quote` alongside; prefer the "
                 "numbers, they are the reliable anchor."
-            )
-        else:
-            evidence_copy += (
-                " Do not return `segment_indices` unless numbered transcript "
-                "segments are shown in the input."
             )
         user_parts.append({"type": "text", "text": evidence_copy})
     return [

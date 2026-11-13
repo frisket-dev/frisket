@@ -178,7 +178,6 @@ def test_text_citation_projects_utf16_ranges_then_marks_changed_source_stale(sou
                     {
                         "source": "body",
                         "quote": "Ada Lovelace.",
-                        "segment_indices": [0],
                     }
                 ],
             }
@@ -339,7 +338,7 @@ def test_text_claims_resolve_per_visible_source_and_per_deliberate_claim(source)
     } == {"body", "notes"}
 
 
-def test_real_multi_text_reply_ignores_spurious_segment_hints(source):
+def test_real_multi_text_reply_repairs_spurious_segment_hints(source, monkeypatch):
     project, sheet, _, row = source
     filing = project.add_column(sheet, "filing_text", type="text", format="markdown")
     note = project.add_column(sheet, "clerk_note", type="text")
@@ -375,7 +374,23 @@ def test_real_multi_text_reply_ignores_spurious_segment_hints(source):
             "warnings": [],
         }
     }
-    result, _ = run_extract(
+    original_complete = _DataAdapter.complete
+
+    async def complete_with_repair(self, request, client):
+        if self.requests:
+            self.data = {
+                "person": {
+                    **reply["person"],
+                    "evidence": [
+                        {"source": item["source"], "quote": item["quote"]}
+                        for item in reply["person"]["evidence"]
+                    ],
+                }
+            }
+        return await original_complete(self, request, client)
+
+    monkeypatch.setattr(_DataAdapter, "complete", complete_with_repair)
+    result, requests = run_extract(
         source,
         [{"name": "person", "type": "text"}],
         reply,
@@ -383,6 +398,7 @@ def test_real_multi_text_reply_ignores_spurious_segment_hints(source):
         citation_required=True,
         source_name=["filing_text", "clerk_note"],
     )
+    assert len(requests) == 2  # The unsupported segment hints trigger bounded repair.
     assert result.status == "completed", result.errors
     assert values(source)["published_person"] == "Leena Patel"
     output = next(c for c in project.columns(sheet) if c["name"] == "published_person")

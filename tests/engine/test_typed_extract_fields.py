@@ -6,7 +6,11 @@ from pydantic import ValidationError
 
 from frisket.actions.extract import ExtractParams
 from frisket.actions.extraction_types import ExtractField, extraction_output_fields
-from frisket.ops.extraction import extract_response_schema, normalize_extracted_value
+from frisket.ops.extraction import (
+    extract_citation_fields,
+    extract_response_schema,
+    normalize_extracted_value,
+)
 
 
 def test_extraction_defaults_to_optional_citations():
@@ -68,6 +72,131 @@ def test_extraction_preserves_explicit_citation_opt_out(grounding):
     )
     prompt = extract(params, Row(values={"body": "Mei Chen filed the complaint."}))
     assert Draft202012Validator(prompt.response_schema).is_valid({"person": "Mei Chen"})
+
+
+@pytest.mark.parametrize(
+    "values,documents,expected",
+    [
+        ({"body": "Ada filed."}, [], {"source", "quote"}),
+        ({"body": {"page": 3, "quote": "ordinary JSON"}}, [], {"source", "quote"}),
+        (
+            {"transcript": [{"text": "Ada filed.", "start": 0, "end": 1}]},
+            ["transcript"],
+            {"source", "quote", "segment_indices"},
+        ),
+        (
+            {"image": {"__image_b64__": "fixture", "mime": "image/png"}},
+            [],
+            {
+                "source",
+                "quote",
+                "page",
+                "page_start",
+                "page_end",
+                "bbox",
+                "snippet",
+                "grounding_method",
+            },
+        ),
+        (
+            {"body": "Ada filed."},
+            ["document"],
+            {
+                "source",
+                "quote",
+                "page",
+                "page_start",
+                "page_end",
+                "bbox",
+                "snippet",
+                "grounding_method",
+            },
+        ),
+        (
+            {
+                "image": {"__image_b64__": "fixture"},
+                "transcript": [{"text": "Ada", "start": 0}],
+            },
+            [],
+            {
+                "source",
+                "quote",
+                "page",
+                "page_start",
+                "page_end",
+                "bbox",
+                "snippet",
+                "grounding_method",
+                "segment_indices",
+            },
+        ),
+    ],
+)
+def test_citation_schema_and_instructions_follow_actual_sources(
+    values, documents, expected
+):
+    from frisket.actions.extract import extract
+    from frisket.actions.types import Row
+
+    params = ExtractParams.model_validate(
+        {
+            "source": list(values),
+            "source_document_columns": documents,
+            "model": "anthropic/test",
+            "fields": [{"name": "person", "type": "text"}],
+        }
+    )
+    prompt = extract(params, Row(values=values))
+    schema = prompt.response_schema
+    evidence = schema["properties"]["person"]["properties"]["evidence"]["anyOf"][0][
+        "items"
+    ]
+    assert set(evidence["properties"]) == expected
+    assert ("$defs" in schema) == ("bbox" in expected)
+    instructions = prompt.messages[1]["content"][-1]["text"]
+    for field in expected:
+        assert f"`{field}`" in instructions
+    for irrelevant in {
+        "bbox",
+        "page",
+        "segment_indices",
+        "grounding_method",
+    } - expected:
+        assert f"`{irrelevant}`" not in instructions
+        assert not Draft202012Validator(schema).is_valid(
+            {"person": {"value": "Ada", "evidence": [{irrelevant: None}]}}
+        )
+
+
+def test_plain_text_three_field_extraction_fits_anthropic_native_limits():
+    from pydantic import TypeAdapter
+    from pydantic_ai import StructuredDict
+    from frisket.actions.extract import extract
+    from frisket.actions.types import Row
+    from frisket.ai.llm.structured_capabilities import schema_mechanism, schema_nodes
+
+    params = ExtractParams.model_validate(
+        {
+            "source": ["body"],
+            "model": "anthropic/claude-sonnet-5-5",
+            "fields": [
+                {"name": name, "type": "text"} for name in ("person", "city", "date")
+            ],
+        }
+    )
+    prompt = extract(params, Row(values={"body": "Ada filed in Paris."}))
+    prepared = TypeAdapter(StructuredDict(prompt.response_schema)).json_schema()
+    assert (
+        sum(
+            len(set(node.get("properties", {})) - set(node.get("required", [])))
+            for node in schema_nodes(prepared)
+        )
+        == 12
+    )
+    assert (
+        schema_mechanism(params.model.root, prepared, "native_strict")
+        == "native_strict"
+    )
 
 
 def test_typed_prompt_and_completion_share_fields_but_unwrap_grounding():
@@ -145,7 +274,11 @@ def test_grounded_schema_preserves_citations_and_nullable_absence():
     from frisket.actions.grounding_types import EvidenceClaim
 
     schema = extract_response_schema(
-        [{"name": "person", "schema": {"type": "string"}}], grounding_enabled=True
+        [{"name": "person", "schema": {"type": "string"}}],
+        grounding_enabled=True,
+        citation_fields=extract_citation_fields(
+            {"transcript": [{"text": "Ada", "start": 0}]}, document_sources=True
+        ),
     )
     evidence_schema = schema["properties"]["person"]["properties"]["evidence"]["anyOf"][
         0
