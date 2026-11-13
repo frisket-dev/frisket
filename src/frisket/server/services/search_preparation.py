@@ -506,7 +506,9 @@ class SearchPreparationService:
             )
         return self._split_jobs_service
 
-    def progress_pdf_import(self, project_id: str, import_ref: str) -> int:
+    def progress_pdf_import(
+        self, project_id: str, import_ref: str, *, lock_timeout: float = -1
+    ) -> int:
         # One recovery tick admits at most one bounded inventory page. The
         # durable cursor lets the normal recovery scheduler continue later.
         split = self._split_jobs(project_id, import_ref)
@@ -545,11 +547,17 @@ class SearchPreparationService:
                         confirmation=facts.get("semantic_setup_confirmation"),
                     )
                 except Exception as exc:  # noqa: BLE001 - independent semantic setup must not discard OCR
-                    split.record_semantic_error(project_id, import_ref, str(exc))
+                    split.record_semantic_error(
+                        project_id, import_ref, str(exc), lock_timeout=lock_timeout
+                    )
                 else:
-                    split.record_semantic_error(project_id, import_ref, None)
-            return split.progress(project_id, import_ref)
-        return self._pdf_imports().progress(project_id, import_ref)
+                    split.record_semantic_error(
+                        project_id, import_ref, None, lock_timeout=lock_timeout
+                    )
+            return split.progress(project_id, import_ref, lock_timeout=lock_timeout)
+        return self._pdf_imports().progress(
+            project_id, import_ref, lock_timeout=lock_timeout
+        )
 
     def pdf_import_summary(self, project_id: str, import_ref: str) -> Any:
         split = self._split_jobs(project_id, import_ref)
@@ -1262,6 +1270,19 @@ class SearchPreparationService:
             raise RouteError(503, "failed to schedule model setup") from exc
         return pull.id
 
+    def recover_pdf_import(
+        self, project_id: str, receipt_id: str, *, lock_timeout: float = -1
+    ) -> None:
+        """Resume one durable reviewed import from an external worker."""
+        row = self.store.for_receipt(
+            storage_org_id=self.workspace.queue_storage_org_id,
+            project_id=project_id,
+            receipt_id=receipt_id,
+            include_pending=True,
+        )
+        if row is not None and row.import_ref is not None:
+            self._recover_pending_import(row, lock_timeout=lock_timeout)
+
     def recover(self) -> None:
         """Resume durable decided intents at process startup without new consent."""
 
@@ -1370,7 +1391,9 @@ class SearchPreparationService:
             pending=row,
         )
 
-    def _recover_pending_import(self, row: SearchPreparationBatchRow) -> None:
+    def _recover_pending_import(
+        self, row: SearchPreparationBatchRow, *, lock_timeout: float = -1
+    ) -> None:
         if row.captured_sources is not None:
             self._complete_automatic_plan(row)
             return
@@ -1398,7 +1421,9 @@ class SearchPreparationService:
         except (OSError, ValueError):
             pdf_preparation = None
         if pdf_preparation is not None:
-            scheduled = self.progress_pdf_import(row.project_id, row.import_ref)
+            scheduled = self.progress_pdf_import(
+                row.project_id, row.import_ref, lock_timeout=lock_timeout
+            )
             summary = self.pdf_import_summary(row.project_id, row.import_ref)
             if summary.stopped or (
                 session.state not in {"active", "paused", "cancelled"}

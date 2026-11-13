@@ -328,6 +328,11 @@ class ActionPreviewJobRegistry:
                 job.result = None
             return job is not None
 
+    def has_active_jobs(self) -> bool:
+        """Whether worker-owned previews still need their runtime resources."""
+        with self._lock:
+            return any(thread.is_alive() for thread in self._threads.values())
+
     def shutdown(self) -> None:
         """Stop accepting previews, cancel every worker, and join them all.
 

@@ -254,8 +254,16 @@ class ActionPreviewRunService:
         trusted_consent_authorizer: validation.TrustedConsentAuthorizer | None = None,
         require_receipt: bool = False,
         trusted_consent_principal: str | None = None,
+        receipt_id: str | None = None,
     ) -> ActionPreviewRunResponse:
         project = self._workspace.get(project_id)
+        if (
+            receipt_id is not None
+            and ReceiptStore(project).find_by_id(receipt_id) is not None
+        ):
+            raise ValueError(
+                "This import page already has an execution receipt; reconcile it before retrying"
+            )
         if trusted_consent_principal is not None:
             from decimal import Decimal
             from frisket.execution.consent_coverage import ConsentCoverage
@@ -349,9 +357,9 @@ class ActionPreviewRunService:
             else CONSENT_BASIS_PREAPPROVED
         )
         receipt = None
-        if has_user_claims or require_receipt:
+        if has_user_claims or require_receipt or receipt_id is not None:
             receipt = Receipt(
-                receipt_id=_new_id("receipt"),
+                receipt_id=receipt_id or _new_id("receipt"),
                 project_id=project_id,
                 action_id=_new_id("act"),
                 action_kind=plan.action_kind,

@@ -100,3 +100,28 @@ def test_worker_liveness_interval_still_throttles_during_a_job(queue):
             message="liveness stamp never resumed after the interval elapsed",
         )
         t.release()
+
+
+def test_idle_maintenance_is_throttled_and_failure_does_not_block_jobs(queue):
+    calls = []
+    with controlled_time() as t:
+        registry = HandlerRegistry()
+
+        def maintenance(actual_queue):
+            assert actual_queue is queue
+            calls.append(1)
+            raise RuntimeError("maintenance failed")
+
+        registry.register_maintenance_hook(maintenance)
+        registry.register("quick", lambda payload, context: {"ok": True})
+        worker = t.worker(queue, registry)
+        assert worker.run_once() is False
+        assert len(calls) == 1
+        t.advance_ms(1999)
+        assert worker.run_once() is False
+        assert len(calls) == 1
+        t.advance_ms(1)
+        job_id = queue.enqueue("quick", {})
+        assert worker.run_once() is True
+        assert len(calls) == 2
+        assert queue.get(job_id).status == "done"

@@ -667,7 +667,63 @@ class PdfImportPreparationCoordinator:
                     grant=grant,
                 )
                 run_kwargs["trusted_consent_principal"] = grant.actor
-            response = self.action_runs.run_action(project_id, body, **run_kwargs)
+            from frisket.server.services.import_child_execution import (
+                admit_import_child,
+                import_execution_context,
+            )
+
+            parent_context = import_execution_context(
+                self.workspace, project_id, import_receipt_id
+            )
+            prior = (
+                self.action_runs.lookup_admission(
+                    project_id,
+                    action_kind=action_id,
+                    idempotency_key=body["idempotency_key"],
+                )
+                if parent_context is not None
+                else None
+            )
+            admitted_prior = False
+            if prior is not None:
+                from dataclasses import replace
+
+                saved = project.db.execute(
+                    "SELECT COALESCE(receipts.edition_run_context,runs.edition_run_context) "
+                    "FROM receipts LEFT JOIN runs ON runs.id=receipts.run_id WHERE receipts.id=?",
+                    (prior.receipt.id,),
+                ).fetchone()
+                snapshot = json.loads(saved[0] or "null")
+                if isinstance(snapshot, dict):
+                    parent_context = replace(parent_context, edition_snapshot=snapshot)
+                    admitted_prior = True
+            if not ocr or parent_context is None or admitted_prior:
+                response = self.action_runs.run_action(
+                    project_id,
+                    body,
+                    **(
+                        {"request_context": parent_context}
+                        if parent_context is not None
+                        else {}
+                    ),
+                    **run_kwargs,
+                )
+            else:
+                from frisket.server.services.action_previews import ActionPreviewService
+
+                estimate = ActionPreviewService(self.workspace).estimate(
+                    project_id, body, request_context=parent_context
+                )["estimate"]
+                with admit_import_child(
+                    self.workspace,
+                    project_id,
+                    import_receipt_id,
+                    body["idempotency_key"],
+                    estimate,
+                ) as child_context:
+                    response = self.action_runs.run_action(
+                        project_id, body, request_context=child_context, **run_kwargs
+                    )
             status = str(response.payload.get("status") or "")
             errors = response.payload.get("errors")
             error_code = (
@@ -811,11 +867,16 @@ class PdfImportPreparationCoordinator:
                 "sha256:"
             ):
                 raise ValueError("paid PDF OCR source bytes changed after approval")
-            if (
-                mime == "application/pdf"
-                and blobs.probe_metadata(source.blob_hash).get("pages") != page_count
-            ):
-                raise ValueError("paid PDF OCR page count changed after approval")
+            if mime == "application/pdf":
+                measured = blobs.probe_metadata(source.blob_hash)
+                if measured.get("pages") is None:
+                    from frisket.engine.store.media_blobs import update_blob_metadata
+
+                    measured = update_blob_metadata(
+                        project, source.blob_hash, force=True
+                    )
+                if measured.get("pages") != page_count:
+                    raise ValueError("paid PDF OCR page count changed after approval")
             if mime.startswith("image/") and page_count != 1:
                 raise ValueError("paid PDF OCR image quantity changed after approval")
             fact = {
@@ -1014,10 +1075,12 @@ class PdfImportPreparationCoordinator:
             return min(ordinary_through, start - 1)
         return ordinary_through
 
-    def progress(self, project_id: str, import_ref: str) -> int:
+    def progress(
+        self, project_id: str, import_ref: str, *, lock_timeout: float = -1
+    ) -> int:
         project = self.workspace.get(project_id)
         directory = import_intake_dir(project.path, import_ref)
-        with FileLock(str(directory / ".pdf-preparation.lock")):
+        with FileLock(str(directory / ".pdf-preparation.lock"), timeout=lock_timeout):
             header = read_import_header(directory)
             facts = header.pdf_preparation
             if facts is None or header.cancel_requested:

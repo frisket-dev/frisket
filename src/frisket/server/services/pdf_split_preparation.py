@@ -988,12 +988,20 @@ class PdfSplitPreparationAdapter:
         return total
 
     def start_pending(
-        self, *, generation: str, limit: int = 4, request_context: Any = None
+        self,
+        *,
+        generation: str,
+        limit: int = 4,
+        request_context: Any = None,
+        parent_receipt_id: str | None = None,
     ) -> tuple[dict[str, Any], ...]:
         with self._lock:
             self.refresh(generation=generation)
             return self._start_pending(
-                generation=generation, limit=limit, request_context=request_context
+                generation=generation,
+                limit=limit,
+                request_context=request_context,
+                parent_receipt_id=parent_receipt_id,
             )
 
     def _start_pending(
@@ -1004,6 +1012,7 @@ class PdfSplitPreparationAdapter:
         request_context: Any = None,
         explicit_preview: bool = False,
         force_rescan: bool = False,
+        parent_receipt_id: str | None = None,
     ) -> tuple[dict[str, Any], ...]:
         from dataclasses import replace
         from frisket.server.services.pdf_import_ocr_approval import (
@@ -1171,19 +1180,60 @@ class PdfSplitPreparationAdapter:
                             lease.close()
                             flight.release()
 
-                started = self.preview_runs.start_scratch_preview(
-                    self.project_id,
-                    replace(plan, run=run_leased),
-                    confirmation=None,
-                    router=router,
-                    composition=composition,
-                    execution_context=execution_context,
-                    total=1,
-                    replacement_key=f"pdf-split-page:{generation}:{work.work_key}",
-                    trusted_consent_authorizer=authorizer,
-                    trusted_consent_principal=grant.actor,
-                    require_receipt=explicit_preview and original_sample,
+                from contextlib import nullcontext
+                from frisket.server.services.import_child_execution import (
+                    admit_import_child,
+                    import_child_port,
                 )
+
+                child_key = f"pdf-split-page:{generation}:{work.work_key}"
+                admission = nullcontext(None)
+                receipt_id = None
+                if parent_receipt_id is not None and import_child_port(self.workspace):
+                    quote = self.preview_runs.scratch_estimate(self.project_id, plan)
+                    receipt_id = (
+                        "receipt_"
+                        + hashlib.sha256(
+                            f"{parent_receipt_id}:{child_key}".encode()
+                        ).hexdigest()
+                    )
+                    admission = admit_import_child(
+                        self.workspace,
+                        self.project_id,
+                        parent_receipt_id,
+                        child_key,
+                        quote,
+                        receipt_id=receipt_id,
+                    )
+                with admission as child_context:
+                    if child_context is not None:
+                        execution_context = (
+                            self.workspace.edition_execution_composition_context_for(
+                                child_context
+                            )
+                        )
+                        composition = self.workspace.execution_composition_for(
+                            self.workspace.get(self.project_id),
+                            router,
+                            execution_context,
+                        )
+                    started = self.preview_runs.start_scratch_preview(
+                        self.project_id,
+                        replace(plan, run=run_leased),
+                        confirmation=None,
+                        router=router,
+                        composition=composition,
+                        execution_context=execution_context,
+                        total=1,
+                        replacement_key=f"pdf-split-page:{generation}:{work.work_key}",
+                        trusted_consent_authorizer=authorizer,
+                        trusted_consent_principal=grant.actor,
+                        require_receipt=explicit_preview and original_sample,
+                        **(
+                            {"receipt_id": receipt_id} if receipt_id is not None else {}
+                        ),
+                    )
+                    accepted = started.status_code == 202
                 if started.status_code != 202:
                     lease.close()
                     flight.release()
@@ -1191,7 +1241,6 @@ class PdfSplitPreparationAdapter:
                         store.release(work)
                     responses.append(dict(started.payload))
                     continue
-                accepted = True
                 job_id = str(started.payload["preview_id"])
                 with PdfSplitPreparationStore(self.inventory_path) as store:
                     store.record_started(work, job_id=job_id, receipt_id=None)
@@ -1308,6 +1357,24 @@ class PdfSplitPreparationAdapter:
                 )
                 if job is not None and job.finished_at is None:
                     continue
+                if job is None:
+                    from filelock import Timeout
+
+                    flight = FileLock(
+                        str(
+                            self.workspace.get(self.project_id).path
+                            / ".imports"
+                            / ".pdf-page-ocr-locks"
+                            / f"{row['work_key']}.lock"
+                        )
+                    )
+                    try:
+                        flight.acquire(timeout=0)
+                    except Timeout:
+                        # Another worker owns the live scratch execution.
+                        continue
+                    else:
+                        flight.release()
                 # A completed successful page was already persisted by on_page.
                 # Missing jobs after restart are cancelled rather than re-billed.
                 status = (
@@ -1323,7 +1390,9 @@ class PdfSplitPreparationAdapter:
                         (status, row["work_key"], generation),
                     )
                     store.db.execute(
-                        "UPDATE pdf_split_page_bindings SET published=-1 WHERE work_key=? AND generation=? AND published=0",
+                        "UPDATE pdf_split_page_bindings AS binding SET published=-1 WHERE work_key=? AND generation=? AND published=0 "
+                        "AND EXISTS (SELECT 1 FROM pdf_split_page_work work WHERE work.work_key=binding.work_key "
+                        "AND work.generation=binding.generation AND work.status IN ('failed','cancelled'))",
                         (row["work_key"], generation),
                     )
 
