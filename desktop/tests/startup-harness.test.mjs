@@ -63,6 +63,15 @@ test('failure snapshot supplies diagnostics before the saved file exists', async
   await assert.rejects(waitForStartup({ windows: () => [card] }, { diagnosticsPath: '/missing/diagnostics' }), /Disk full/);
 });
 
+test('a card without its preload bridge fails instead of waiting for Home', async () => {
+  const card = page('file:///app/ui/startup.html', { status: 'running' });
+  await card.evaluate(() => { delete window.frisketStartup; });
+  const home = page('frisket://app/', {});
+  let reads = 0;
+  const electron = { windows: () => ++reads === 1 ? [card] : [home] };
+  await assert.rejects(waitForStartup(electron, { timeout: 1000, pollMs: 0 }), /no preload bridge/);
+});
+
 test('observers cover existing and new Home windows once, including early and later errors', () => {
   const electron = new EventEmitter();
   const card = new EventEmitter();

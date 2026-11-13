@@ -47,7 +47,7 @@ module.exports = {
   // A signed build must never silently fall back to an unsigned bundle.
   forceCodeSigning: signedMacBuild || signedWindowsBuild,
   directories: { output: 'dist', buildResources: 'build' },
-  files: ['src/**/*.mjs', 'ui/**/*', 'package.json'],
+  files: ['src/**/*.{mjs,cjs}', 'ui/**/*', 'package.json'],
   extraResources: [{ from: 'resources', to: '.', filter: ['**/*'] }],
   artifactName: `Frisket-Desktop-\${version}-\${arch}-${build.revision.slice(0, 8)}.\${ext}`,
   mac: {
