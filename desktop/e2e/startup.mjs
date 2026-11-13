@@ -12,14 +12,18 @@ export async function waitForStartup(electron, { timeout = 300_000, diagnosticsP
         if (!page.url().startsWith('file:') || !page.url().endsWith('/startup.html')) continue;
         let state;
         try {
-          state = await page.evaluate(() => {
-            if (!window.__frisketStartupHarness && window.frisketStartup) {
+          const read = await page.evaluate(() => {
+            if (!window.frisketStartup) return { bridge: false };
+            if (!window.__frisketStartupHarness) {
               const proof = window.__frisketStartupHarness = {};
               proof.unsubscribe = window.frisketStartup.subscribe(state => { proof.state = state; });
             }
-            return window.__frisketStartupHarness?.state;
+            return { bridge: true, state: window.__frisketStartupHarness.state };
           });
           observed.add(page);
+          // Without its preload the card can't show progress, retry or resize.
+          if (!read.bridge) throw new Error('Desktop startup card has no preload bridge.');
+          state = read.state;
         } catch (error) {
           // A successful card closes as Home opens; navigation can also replace
           // its execution context between collecting windows and reading state.

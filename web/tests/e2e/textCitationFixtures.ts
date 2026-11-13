@@ -8,7 +8,7 @@ const PYTHON = process.env.FRISKET_E2E_PYTHON ?? path.join(REPO_ROOT, '.venv', '
 export function extractRecordedContent(pid: string): { sheetId: number; sources: string[] } {
   const workspace = process.env.FRISKET_E2E_WS ?? path.join(os.homedir(), '.frisket/e2e-ws');
   const script = String.raw`
-import json, sys
+import copy, json, sys
 from pathlib import Path
 import httpx
 from frisket.engine.executor import run_action_spec
@@ -25,10 +25,19 @@ try:
     columns = {name: project.add_column(sheet, name, 'text') for name in record['inputs']}
     row = project.add_rows(sheet, [record['inputs']], columns)[0]
     router = ModelRouter(keys={'gemini': 'recorded'}, cache=None, cache_mode='off', use_env_keys=False)
-    # Only transport is replaced: the real adapter and extraction path process
-    # the recorded provider reply. No credentials or network are used.
-    reply = {'choices': [{'message': {'role': 'assistant', 'content': json.dumps(record['reply'])}, 'finish_reason': 'stop'}], 'usage': {'prompt_tokens': 12, 'completion_tokens': 3}}
-    router._client = httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, json=reply)))
+    # Replay the original live response, including its spurious segment hints.
+    # The narrower text-only schema requests repair. Simulate that second
+    # response explicitly; never rewrite the recorded evidence fixture.
+    calls = []
+    def respond(request):
+        calls.append(request)
+        data = copy.deepcopy(record['reply'])
+        if len(calls) > 1:
+            for evidence in data['plaintiff']['evidence']:
+                evidence.pop('segment_indices', None)
+        reply = {'choices': [{'message': {'role': 'assistant', 'content': json.dumps(data)}, 'finish_reason': 'stop'}], 'usage': {'prompt_tokens': 12, 'completion_tokens': 3}}
+        return httpx.Response(200, json=reply)
+    router._client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
     request = ActionRequest(action_id='map.extract', scope={'kind': 'sheet_rows', 'sheet_id': sheet, 'row_ids': [row]}, params=record['params'], output_names={'plaintiff': 'plaintiff'}, idempotency_key='recorded-text-citations')
     action = request.model_dump(mode='json')
     result = run_action_spec(project, action, project_id=pid, router=router)
@@ -36,6 +45,7 @@ try:
         action['confirmation'] = result.errors[0].details['promise_set_hash']
         result = run_action_spec(project, action, project_id=pid, router=router)
     assert result.status == 'completed', result.errors
+    assert len(calls) == 2, 'Expected recorded response followed by schema repair'
     output = next(c for c in project.columns(sheet) if c['name'] == 'plaintiff')
     links = list_cell_evidence(project, sheet_id=sheet, row_id=row, column_id=output['id'])['links']
     sources = []

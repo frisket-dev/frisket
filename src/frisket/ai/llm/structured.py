@@ -53,6 +53,7 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
+from pydantic import TypeAdapter
 from pydantic_ai import Agent, ModelRetry, StructuredDict
 from pydantic_ai.exceptions import UnexpectedModelBehavior
 from pydantic_ai.messages import (
@@ -882,13 +883,16 @@ class StructuredCompleter:
         else:
             cap_row = capabilities.resolve(req.model)
         method_used = explicit or cap_row.structured_mode
+        output_type = StructuredDict(wrapped_schema)
+        # StructuredDict inlines references: count the actual output schema,
+        # so repeated citation shapes agree with the adapter and audit tag.
         schema_mode = capabilities.schema_mechanism(
-            req.model, wrapped_schema, method_used
+            req.model, TypeAdapter(output_type).json_schema(), method_used
         )
         if explicit is not None and schema_mode != method_used:
             raise UnsupportedMechanismError(
                 f"{explicit!r} cannot represent open JSON dictionaries or optional "
-                f"nonnull fields for {req.model!r}"
+                f"nonnull fields, or exceeds provider schema limits for {req.model!r}"
             )
         method_used = schema_mode
         profile = cap_row.as_profile_dict()
@@ -929,7 +933,7 @@ class StructuredCompleter:
 
         agent = Agent(
             model=model,
-            output_type=StructuredDict(wrapped_schema),
+            output_type=output_type,
             retries=req.repair_attempts,
         )
         agent.output_validator(_validate)

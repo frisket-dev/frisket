@@ -361,7 +361,7 @@ def test_grounding_only_transcript_never_augments_model_prompt(
             {
                 "amount": {
                     "value": "claim",
-                    "evidence": [{"segment_indices": [2]}],
+                    "evidence": [{}],
                 }
             }
         )
@@ -380,9 +380,11 @@ def test_grounding_only_transcript_never_augments_model_prompt(
         for segment in _TRANSCRIPT_SEGMENTS:
             assert segment["text"] not in prompt
         assert "transcript_segments" not in prompt
+        # Invisible transcript anchors aren't even requested in the schema.
+        assert "segment_indices" not in json.dumps(adapter.requests[0].schema)
         # A hidden transcript remains an admitted provenance input, but its
-        # segment IDs were never shown to the model. An invented segment hint
-        # cannot turn it into supporting evidence for the selected title.
+        # segment IDs were never shown to the model. An empty claim cannot
+        # turn it into supporting evidence for the selected title.
         artifact = project.db.execute(
             "SELECT a.blob_hash,s.start_ms,s.end_ms FROM evidence_links l "
             "JOIN evidence_link_spans ls ON ls.link_id=l.id "

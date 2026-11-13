@@ -9,7 +9,7 @@ import pytest
 from frisket.ai.llm import ModelRouter
 from frisket.ai.llm.adapters import _strictify
 from frisket.ai.llm.structured import StructuredCompleter, StructuredRequest
-from frisket.ops.extraction import extract_response_schema
+from frisket.ops.extraction import extract_citation_fields, extract_response_schema
 from frisket.actions.ner import NerModelOutput, normalize_ner_output
 
 
@@ -144,7 +144,9 @@ def test_optional_nullable_reference_stays_native():
 )
 def test_actual_grounded_extract_schema_stays_native_with_box_definitions(model, mode):
     schema = extract_response_schema(
-        [{"name": "person", "schema": {"type": "string"}}], grounding_enabled=True
+        [{"name": "person", "schema": {"type": "string"}}],
+        grounding_enabled=True,
+        citation_fields=extract_citation_fields({}, document_sources=True),
     )
     assert "EvidenceBox" in schema["$defs"]
     data = {
@@ -194,7 +196,9 @@ def test_strictify_never_rewrites_enum_default_or_example_objects():
 @pytest.mark.parametrize("bad_hint", [{"page": "2"}, {"confidence": 0.9}])
 def test_malformed_citation_hints_use_existing_bounded_repair(bad_hint):
     schema = extract_response_schema(
-        [{"name": "person", "schema": {"type": "string"}}], grounding_enabled=True
+        [{"name": "person", "schema": {"type": "string"}}],
+        grounding_enabled=True,
+        citation_fields=extract_citation_fields({}, document_sources=True),
     )
     attempts = []
 

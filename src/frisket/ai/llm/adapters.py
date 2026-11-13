@@ -95,7 +95,8 @@ def _resolve_mechanism(req: LLMRequest) -> str:
             != NATIVE_STRICT
         ):
             raise SchemaViolation(
-                "native_strict cannot represent open JSON dictionaries or optional nonnullable fields"
+                "native_strict cannot represent open JSON dictionaries or optional "
+                "nonnullable fields, or exceeds provider schema limits"
             )
         return req.mechanism
     mode = capabilities.resolve(req.model).structured_mode

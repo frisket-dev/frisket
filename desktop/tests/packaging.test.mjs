@@ -101,3 +101,24 @@ test('macOS signing retains its separate credential gate', async (t) => {
   assert.equal(signed.status, 0, signed.stderr);
   await validateBuilderConfig(JSON.parse(signed.stdout));
 });
+
+test('packaged app keeps every Desktop source and UI file', async (t) => {
+  const root = await fixture();
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+
+  const result = loadConfig(root);
+  assert.equal(result.status, 0, result.stderr);
+  // Use electron-builder's own file matcher: a startup preload missing from
+  // app.asar leaves the packaged card without its bridge, so it never resizes.
+  const require = createRequire(import.meta.url);
+  const builderRequire = createRequire(require.resolve('electron-builder/package.json'));
+  const { FileMatcher } = builderRequire('app-builder-lib/out/fileMatcher.js');
+  const packaged = new FileMatcher(DESKTOP, DESKTOP, value => value, JSON.parse(result.stdout).files).createFilter();
+  const files = (await fs.readdir(path.join(DESKTOP, 'src'), { recursive: true, withFileTypes: true }))
+    .concat(await fs.readdir(path.join(DESKTOP, 'ui'), { recursive: true, withFileTypes: true }))
+    .filter(entry => entry.isFile()).map(entry => path.join(entry.parentPath, entry.name));
+  assert.ok(files.includes(path.join(DESKTOP, 'src', 'startup-preload.cjs')));
+  for (const file of files) {
+    assert.ok(packaged(file, await fs.stat(file)), `${path.relative(DESKTOP, file)} is not packaged`);
+  }
+});

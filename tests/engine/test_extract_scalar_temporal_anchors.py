@@ -278,7 +278,6 @@ def test_scalar_on_transcript_row_with_quote_falls_back_to_temporal_align(
                 "evidence": [
                     {
                         "quote": "others question the integrity of the count",
-                        "grounding_method": "quote",
                     }
                 ],
                 "warnings": [],
@@ -355,9 +354,7 @@ def test_scalar_on_non_transcript_text_row_keeps_text_anchor(
         reply = {
             "verdict": {
                 "value": "the budget passed",
-                "evidence": [
-                    {"quote": "the budget passed", "grounding_method": "quote"}
-                ],
+                "evidence": [{"quote": "the budget passed"}],
                 "warnings": [],
             }
         }
