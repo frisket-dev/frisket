@@ -7,6 +7,7 @@
      Undeclared, a dark-mode OS painted white CanvasText over our light
      backgrounds in every top-layer popover (popover-dark-scheme-text-v1). */
   color-scheme: light;
+  scrollbar-color: var(--text-light) transparent;
   /* Shared warm-paper palette. Components and feature owners consume these
      theme tokens from their own stylesheets. */
   --bg: #ffffff;
