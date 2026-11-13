@@ -210,6 +210,16 @@ class PdfImportCommitService:
                     restore_draft=restore_draft,
                 )
                 raise
+            if self._text_preparation is not None and (
+                frozen.pdf_preparation or frozen.semantic_search
+            ):
+                # External workers cannot call the tenant's in-process hook.
+                # Persist the same recovery intent used by ordinary PDF imports.
+                self._text_preparation.reserve_pdf_import(
+                    project_id,
+                    receipt_id=result["receipt_id"],
+                    import_ref=result["import_ref"],
+                )
             return PdfImportCommitResult(
                 commit_id=frozen.commit_id,
                 import_ref=result["import_ref"],
@@ -223,7 +233,9 @@ class PdfImportCommitService:
                 job_id=result.get("job_id"),
             )
 
-        ref, directory, header = self._ensure_intake(project_id, frozen)
+        ref, directory, header = self._ensure_intake(
+            project_id, frozen, request_context=request_context
+        )
         try:
             self._promote(project_id, draft_id, idempotency_key, directory)
         except PdfImportPromotionRejected:
@@ -328,7 +340,7 @@ class PdfImportCommitService:
         return f"import-{digest[:32]}"
 
     def _ensure_intake(
-        self, project_id: str, frozen: Any
+        self, project_id: str, frozen: Any, *, request_context: Any = None
     ) -> tuple[str, Path, ImportIntakeHeader]:
         project = self._workspace.get(project_id)
         ref = self._ref(str(frozen.commit_id))
@@ -360,7 +372,14 @@ class PdfImportCommitService:
                     "idempotency_key": f"pdf-import:{frozen.commit_id}",
                 }
             )
-            envelope = reserve_typed_action_job(project, project_id, action)
+            envelope = reserve_typed_action_job(
+                project,
+                project_id,
+                action,
+                edition_run_context=self._workspace.edition_execution_composition_context_for(
+                    request_context
+                ).edition_snapshot,
+            )
             if isinstance(envelope, ActionResult):
                 raise ValueError("PDF import reservation is already terminal")
             header = ImportIntakeHeader(

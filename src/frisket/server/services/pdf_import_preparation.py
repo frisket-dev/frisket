@@ -667,7 +667,50 @@ class PdfImportPreparationCoordinator:
                     grant=grant,
                 )
                 run_kwargs["trusted_consent_principal"] = grant.actor
-            response = self.action_runs.run_action(project_id, body, **run_kwargs)
+            from frisket.server.services.import_child_execution import (
+                admit_import_child,
+                import_execution_context,
+            )
+
+            parent_context = import_execution_context(
+                self.workspace, project_id, import_receipt_id
+            )
+            prior = (
+                self.action_runs.lookup_admission(
+                    project_id,
+                    action_kind=action_id,
+                    idempotency_key=body["idempotency_key"],
+                )
+                if parent_context is not None
+                else None
+            )
+            if not ocr or parent_context is None or prior is not None:
+                response = self.action_runs.run_action(
+                    project_id,
+                    body,
+                    **(
+                        {"request_context": parent_context}
+                        if parent_context is not None
+                        else {}
+                    ),
+                    **run_kwargs,
+                )
+            else:
+                from frisket.server.services.action_previews import ActionPreviewService
+
+                estimate = ActionPreviewService(self.workspace).estimate(
+                    project_id, body, request_context=parent_context
+                )["estimate"]
+                with admit_import_child(
+                    self.workspace,
+                    project_id,
+                    import_receipt_id,
+                    body["idempotency_key"],
+                    estimate,
+                ) as child_context:
+                    response = self.action_runs.run_action(
+                        project_id, body, request_context=child_context, **run_kwargs
+                    )
             status = str(response.payload.get("status") or "")
             errors = response.payload.get("errors")
             error_code = (
@@ -811,11 +854,16 @@ class PdfImportPreparationCoordinator:
                 "sha256:"
             ):
                 raise ValueError("paid PDF OCR source bytes changed after approval")
-            if (
-                mime == "application/pdf"
-                and blobs.probe_metadata(source.blob_hash).get("pages") != page_count
-            ):
-                raise ValueError("paid PDF OCR page count changed after approval")
+            if mime == "application/pdf":
+                measured = blobs.probe_metadata(source.blob_hash)
+                if measured.get("pages") is None:
+                    from frisket.engine.store.media_blobs import update_blob_metadata
+
+                    measured = update_blob_metadata(
+                        project, source.blob_hash, force=True
+                    )
+                if measured.get("pages") != page_count:
+                    raise ValueError("paid PDF OCR page count changed after approval")
             if mime.startswith("image/") and page_count != 1:
                 raise ValueError("paid PDF OCR image quantity changed after approval")
             fact = {

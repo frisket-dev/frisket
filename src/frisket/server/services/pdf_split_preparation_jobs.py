@@ -245,7 +245,22 @@ class PdfSplitPreparationJobs:
         ):
             adapter.stop(generation=generation)
         else:
-            adapter.start_pending(generation=generation)
+            from frisket.server.services.import_child_execution import (
+                import_child_port,
+                import_execution_context,
+            )
+
+            if import_child_port(self.workspace) is None:
+                adapter.start_pending(generation=generation)
+            else:
+                parent_receipt_id = str(header.envelope["receipt_id"])
+                adapter.start_pending(
+                    generation=generation,
+                    request_context=import_execution_context(
+                        self.workspace, project_id, parent_receipt_id
+                    ),
+                    parent_receipt_id=parent_receipt_id,
+                )
         adapter.resume_fanout(generation=generation)
         state = adapter.progress(generation=generation)
         return (

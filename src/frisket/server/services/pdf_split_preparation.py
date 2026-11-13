@@ -988,12 +988,20 @@ class PdfSplitPreparationAdapter:
         return total
 
     def start_pending(
-        self, *, generation: str, limit: int = 4, request_context: Any = None
+        self,
+        *,
+        generation: str,
+        limit: int = 4,
+        request_context: Any = None,
+        parent_receipt_id: str | None = None,
     ) -> tuple[dict[str, Any], ...]:
         with self._lock:
             self.refresh(generation=generation)
             return self._start_pending(
-                generation=generation, limit=limit, request_context=request_context
+                generation=generation,
+                limit=limit,
+                request_context=request_context,
+                parent_receipt_id=parent_receipt_id,
             )
 
     def _start_pending(
@@ -1004,6 +1012,7 @@ class PdfSplitPreparationAdapter:
         request_context: Any = None,
         explicit_preview: bool = False,
         force_rescan: bool = False,
+        parent_receipt_id: str | None = None,
     ) -> tuple[dict[str, Any], ...]:
         from dataclasses import replace
         from frisket.server.services.pdf_import_ocr_approval import (
@@ -1171,19 +1180,59 @@ class PdfSplitPreparationAdapter:
                             lease.close()
                             flight.release()
 
-                started = self.preview_runs.start_scratch_preview(
-                    self.project_id,
-                    replace(plan, run=run_leased),
-                    confirmation=None,
-                    router=router,
-                    composition=composition,
-                    execution_context=execution_context,
-                    total=1,
-                    replacement_key=f"pdf-split-page:{generation}:{work.work_key}",
-                    trusted_consent_authorizer=authorizer,
-                    trusted_consent_principal=grant.actor,
-                    require_receipt=explicit_preview and original_sample,
+                from contextlib import nullcontext
+                from frisket.server.services.import_child_execution import (
+                    admit_import_child,
+                    import_child_port,
                 )
+
+                child_key = f"pdf-split-page:{generation}:{work.work_key}"
+                admission = nullcontext(None)
+                receipt_id = None
+                if parent_receipt_id is not None and import_child_port(self.workspace):
+                    quote = self.preview_runs.scratch_estimate(self.project_id, plan)
+                    receipt_id = (
+                        "receipt_"
+                        + hashlib.sha256(
+                            f"{parent_receipt_id}:{child_key}".encode()
+                        ).hexdigest()
+                    )
+                    admission = admit_import_child(
+                        self.workspace,
+                        self.project_id,
+                        parent_receipt_id,
+                        child_key,
+                        quote,
+                        receipt_id=receipt_id,
+                    )
+                with admission as child_context:
+                    if child_context is not None:
+                        execution_context = (
+                            self.workspace.edition_execution_composition_context_for(
+                                child_context
+                            )
+                        )
+                        composition = self.workspace.execution_composition_for(
+                            self.workspace.get(self.project_id),
+                            router,
+                            execution_context,
+                        )
+                    started = self.preview_runs.start_scratch_preview(
+                        self.project_id,
+                        replace(plan, run=run_leased),
+                        confirmation=None,
+                        router=router,
+                        composition=composition,
+                        execution_context=execution_context,
+                        total=1,
+                        replacement_key=f"pdf-split-page:{generation}:{work.work_key}",
+                        trusted_consent_authorizer=authorizer,
+                        trusted_consent_principal=grant.actor,
+                        require_receipt=explicit_preview and original_sample,
+                        **(
+                            {"receipt_id": receipt_id} if receipt_id is not None else {}
+                        ),
+                    )
                 if started.status_code != 202:
                     lease.close()
                     flight.release()

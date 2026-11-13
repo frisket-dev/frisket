@@ -481,3 +481,42 @@ def test_late_cancel_during_settlement_keeps_completed_result_and_snapshot(
         release.set()
         service._registry.shutdown()
         project.close()
+
+
+def test_durable_scratch_receipt_prevents_rebuying_page_after_registry_restart(
+    tmp_path,
+):
+    adapter = _Adapter()
+    service, project, _ = _fixture(tmp_path, adapter)
+    plan, _source, router, composition, context = service.prepare_ocr_scratch(
+        "paid", _png(), {"engine": "anthropic/claude-haiku-4-5", "filename": "scan.png"}
+    )
+    kwargs = {
+        "confirmation": service.scratch_estimate("paid", plan).get("promise_set_hash"),
+        "router": router,
+        "composition": composition,
+        "execution_context": context,
+        "receipt_id": "receipt-stable-import-page",
+    }
+    try:
+        started = service.start_scratch_preview("paid", plan, **kwargs)
+        _wait(service, started.payload["preview_id"])
+        calls = len(adapter.calls)
+        assert calls > 0
+        service._registry.shutdown()
+        recovered = ActionPreviewRunService(service._workspace)
+        try:
+            with pytest.raises(ValueError, match="already has an execution receipt"):
+                recovered.start_scratch_preview("paid", plan, **kwargs)
+            assert len(adapter.calls) == calls
+            assert (
+                project.db.execute(
+                    "SELECT COUNT(*) FROM receipts WHERE id=?", (kwargs["receipt_id"],)
+                ).fetchone()[0]
+                == 1
+            )
+        finally:
+            recovered._registry.shutdown()
+    finally:
+        service._registry.shutdown()
+        project.close()

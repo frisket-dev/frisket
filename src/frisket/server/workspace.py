@@ -775,6 +775,8 @@ class Workspace:
         request_context: Any = None,
     ) -> ExecutionCompositionContext:
         """Read the typed request fact, or construct the Local/Team direct arm."""
+        if isinstance(request_context, ExecutionCompositionContext):
+            return request_context
         state = getattr(request_context, "state", None)
         value = getattr(state, "execution_composition_context", None)
         if value is None:
