@@ -60,10 +60,14 @@ class PdfSplitPreparationJobs:
         if row is not None and int(row[1]) == sheet_id:
             self.progress(project_id, str(row[0]))
 
-    def _admit(self, project_id: str, import_ref: str) -> str | None:
+    def _admit(
+        self, project_id: str, import_ref: str, *, lock_timeout: float = -1
+    ) -> str | None:
         project = self.workspace.get(project_id)
         directory = self._directory(project_id, import_ref)
-        with FileLock(str(directory / ".pdf-split-preparation-admit.lock")):
+        with FileLock(
+            str(directory / ".pdf-split-preparation-admit.lock"), timeout=lock_timeout
+        ):
             header = read_import_header(directory)
             facts = header.pdf_preparation
             if facts is None or facts.get("kind") != "pdf_split_source_pages":
@@ -227,8 +231,10 @@ class PdfSplitPreparationJobs:
             write_import_header(directory, replace(header, provider_state=provider))
             return session.writer_authority
 
-    def progress(self, project_id: str, import_ref: str) -> int:
-        generation = self._admit(project_id, import_ref)
+    def progress(
+        self, project_id: str, import_ref: str, *, lock_timeout: float = -1
+    ) -> int:
+        generation = self._admit(project_id, import_ref, lock_timeout=lock_timeout)
         project = self.workspace.get(project_id)
         session = ImportSessionStore(project).get(import_ref)
         if generation is None:
@@ -353,10 +359,17 @@ class PdfSplitPreparationJobs:
         return self.summary(project_id, import_ref)
 
     def record_semantic_error(
-        self, project_id: str, import_ref: str, message: str | None
+        self,
+        project_id: str,
+        import_ref: str,
+        message: str | None,
+        *,
+        lock_timeout: float = -1,
     ) -> None:
         directory = self._directory(project_id, import_ref)
-        with FileLock(str(directory / ".pdf-split-preparation-admit.lock")):
+        with FileLock(
+            str(directory / ".pdf-split-preparation-admit.lock"), timeout=lock_timeout
+        ):
             header = read_import_header(directory)
             provider = dict(header.provider_state or {})
             provider["semantic_error"] = message[:500] if message else None

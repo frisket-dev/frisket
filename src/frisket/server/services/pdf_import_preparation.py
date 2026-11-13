@@ -1075,10 +1075,12 @@ class PdfImportPreparationCoordinator:
             return min(ordinary_through, start - 1)
         return ordinary_through
 
-    def progress(self, project_id: str, import_ref: str) -> int:
+    def progress(
+        self, project_id: str, import_ref: str, *, lock_timeout: float = -1
+    ) -> int:
         project = self.workspace.get(project_id)
         directory = import_intake_dir(project.path, import_ref)
-        with FileLock(str(directory / ".pdf-preparation.lock")):
+        with FileLock(str(directory / ".pdf-preparation.lock"), timeout=lock_timeout):
             header = read_import_header(directory)
             facts = header.pdf_preparation
             if facts is None or header.cancel_requested:
