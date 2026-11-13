@@ -258,6 +258,29 @@ def test_multifield_extraction_keeps_citations_and_validates_fallback():
         assert not prompted.is_valid(bad_citation)
 
 
+def test_reused_definitions_count_after_pydantic_inlining():
+    schema = {
+        "type": "object",
+        "properties": {name: {"$ref": "#/$defs/entry"} for name in ("left", "right")},
+        "required": ["left", "right"],
+        "additionalProperties": False,
+        "$defs": {
+            "entry": {
+                "type": "object",
+                "properties": {f"hint_{i}": {"type": "string"} for i in range(13)},
+                "additionalProperties": False,
+            }
+        },
+    }
+    original = copy.deepcopy(schema)
+    result, bodies = run_complete(schema, [wire('{"left":{},"right":{}}')])
+    assert result.method_used == "prose_json"
+    assert "output_config" not in bodies[0]
+    assert schema == original
+    with pytest.raises(UnsupportedMechanismError, match="provider schema limits"):
+        run_complete(schema, [], method="native_strict")
+
+
 def test_anthropic_schema_400_is_not_blindly_retried():
     requests = []
 
