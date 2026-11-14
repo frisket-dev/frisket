@@ -3755,9 +3755,15 @@ class RegisteredAction:
             and request.sheet_name is not None
         ):
             raise ValueError("sheet_name is accepted only by create_sheet actions")
-        if request.replace_existing and isinstance(
-            self.definition.run,
-            (ColumnTransform, CreateSheet, _ProjectAction, GoogleSheetsExport),
+        if (
+            request.replace_existing
+            and isinstance(
+                self.definition.run,
+                (ColumnTransform, CreateSheet, _ProjectAction, GoogleSheetsExport),
+            )
+            and not _is_single_project_capability(
+                self.definition.run, {RetainedResultPublisher}
+            )
         ):
             raise ValueError(
                 f"{type(self.definition.run).__name__} does not support replace_existing"

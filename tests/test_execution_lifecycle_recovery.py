@@ -30,12 +30,13 @@ def work(tmp_path, monkeypatch):
 
     class Adapter:
         fail = None
+        answer = None
 
         async def complete(self, request, client):
             calls.append(request)
             if self.fail and self.fail in json.dumps(request.messages):
                 raise ValueError("Known rejection")
-            answer = {"answer": f"answer {len(calls)}"}
+            answer = self.answer or {"answer": f"answer {len(calls)}"}
             return LLMResponse(
                 content=json.dumps(answer),
                 data=answer,
@@ -191,3 +192,120 @@ def test_reapply_from_retry_collects_success_union_and_retry_does_not_expand_sco
     assert len(calls) == 3
     refused = run("run.retry", {"source_run_id": original.run_id}, key="no-work-left")
     assert refused.status == "failed" and len(calls) == 3
+
+
+def test_review_picker_combines_attempts_and_keeps_undone_results(work):
+    from frisket.engine.runner.review import (
+        review_runs_page,
+        queue_count,
+        set_review_run_status,
+    )
+
+    project, sheet, source, rows, calls, adapter, run = work
+    adapter.fail = "second"
+    original = start(run)
+    adapter.fail = None
+    retried = run("run.retry", {"source_run_id": original.run_id})
+    page = review_runs_page(project)
+    assert [item["run_id"] for item in page["runs"]] == [original.run_id]
+    assert page["runs"][0]["total"]["eligible_count"] == 2
+    assert queue_count(project, run_id=retried.run_id) == 2
+    assert project.undo() is not None
+    assert project.undo() is not None
+    project.apply_edits(
+        [{"row_id": rows[0], "column_id": source, "value": "later edit"}]
+    )
+    assert project.redo() is None
+    pinned = review_runs_page(project, run_id=retried.run_id)
+    assert pinned["runs"][0]["run_id"] == original.run_id
+    assert pinned["runs"][0]["total"]["eligible_count"] == 2
+    assert (
+        review_bundle_page(project, run_id=original.run_id, include_reviewed=True)[
+            "total"
+        ]
+        == 2
+    )
+
+    completed = set_review_run_status(project, run_id=retried.run_id, status="complete")
+    assert completed["run_id"] == original.run_id
+    assert completed["status"] == "complete"
+    assert (
+        review_runs_page(project, run_id=original.run_id)["runs"][0]["review_status"]
+        == "complete"
+    )
+
+
+def test_reapply_checks_prepared_targets_before_writing(work):
+    project, sheet, source, rows, calls, adapter, run = work
+    original = start(run)
+    before = dict(project.get_values(sheet, source))
+    refused = run(
+        "run.reapply",
+        {"source_run_id": original.run_id},
+        expected_output_columns={"Answer": None},
+        replace_existing=True,
+    )
+    assert refused.status == "failed"
+    assert refused.errors[0].code == "output_target_changed"
+    assert dict(project.get_values(sheet, source)) == before
+    assert len(calls) == 2
+    assert (
+        project.db.execute("SELECT COUNT(*) FROM ops WHERE kind='edit'").fetchone()[0]
+        == 0
+    )
+
+
+@pytest.mark.parametrize(
+    "names", [{"first": "Second"}, {"first": "Copy", "second": "Copy"}]
+)
+def test_reapply_refuses_colliding_output_roles_without_writes(work, names):
+    project, sheet, source, rows, calls, adapter, run = work
+    adapter.answer = {"first": "one", "second": "two"}
+    original = run(
+        "map.extract",
+        {
+            "source": ["source"],
+            "model": "anthropic/claude-haiku-4-5",
+            "fields": [
+                {"name": "first", "type": "text"},
+                {"name": "second", "type": "text"},
+            ],
+            "grounding": {"enabled": False},
+        },
+        output_names={"first": "First", "second": "Second"},
+    )
+    assert original.status == "completed", original.errors
+    before = [dict(column) for column in project.columns(sheet)]
+    refused = run(
+        "run.reapply",
+        {"source_run_id": original.run_id},
+        output_names=names,
+        replace_existing=True,
+    )
+    assert refused.status == "failed"
+    assert "unique" in refused.errors[0].message
+    assert [dict(column) for column in project.columns(sheet)] == before
+    assert len(calls) == 2
+
+
+def test_reapply_replaces_original_generated_output_with_saved_provenance(work):
+    project, sheet, source, rows, calls, adapter, run = work
+    original = start(run)
+    column = next(c["id"] for c in project.columns(sheet) if c["name"] == "Answer")
+    saved = dict(project.get_values(sheet, column))
+    project.apply_edits(
+        [{"row_id": rows[0], "column_id": column, "value": "manual edit"}]
+    )
+    reapplied = run(
+        "run.reapply",
+        {"source_run_id": original.run_id},
+        replace_existing=True,
+        expected_output_columns={"Answer": column},
+    )
+    assert reapplied.status == "completed", reapplied.errors
+    assert dict(project.get_values(sheet, column)) == saved
+    _, refs = project.get_values_with_refs(sheet, column, row_ids=[rows[0]])
+    assert refs[rows[0]]["retained_result"]["run_id"] == original.run_id
+    assert len(calls) == 2
+    assert project.undo() is not None
+    assert project.get_values(sheet, column)[rows[0]] == "manual edit"

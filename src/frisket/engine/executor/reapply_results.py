@@ -4,10 +4,16 @@ from uuid import uuid4
 import json
 
 from frisket.actions.types import SheetRows
+from frisket.actions.core import OutputField
 from frisket.contracts.action import Receipt, ReceiptIO, ActionError
 from frisket.engine.executor.action_support import _failed_result
 from frisket.engine.executor.action_receipts import _result_from_receipt
-from frisket.engine.executor.map_rows_action import typed_request_hash
+from frisket.engine.executor.map_rows_action import (
+    typed_request_hash,
+    resolve_row_output_targets,
+    _require_expected_output_columns,
+    TypedMapRowsPlanError,
+)
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 
@@ -68,28 +74,55 @@ def reapply_results(project, project_id, bound):
                     "SELECT * FROM columns WHERE sheet_id=?", (scope.sheet_id,)
                 )
             }
-            live = {c["name"]: c for c in project.columns(scope.sheet_id)}
+            source_columns = dict.fromkeys(column_id for _, _, column_id in coordinates)
+            logical_keys = {
+                column_id: inverse.get(
+                    columns[column_id]["name"], columns[column_id]["name"]
+                )
+                for column_id in source_columns
+            }
+            fields = tuple(
+                OutputField(
+                    key=logical_keys[column_id],
+                    column_type=columns[column_id]["type"],
+                    schema={},
+                    format=columns[column_id]["format"],
+                    semantic_type=columns[column_id]["semantic_type"],
+                )
+                for column_id in source_columns
+            )
+            output_names = {
+                logical: columns[column_id]["name"]
+                for column_id, logical in logical_keys.items()
+            }
+            output_names.update(bound.request.output_names)
+            bound.action.validate_output_names(fields, output_names)
+            target_request = bound.request.model_copy(
+                update={"output_names": output_names}
+            )
+            final_names, preconditions = resolve_row_output_targets(
+                project, target_request, fields
+            )
+            _require_expected_output_columns(target_request, preconditions)
             targets = {}
             created = []
-            for _, _, column_id in coordinates:
-                if column_id in targets:
-                    continue
+            for column_id, logical in logical_keys.items():
                 original = columns[column_id]
-                logical = inverse.get(original["name"], original["name"])
-                name = (bound.request.output_names or {}).get(logical, original["name"])
-                existing_column = live.get(name)
-                if existing_column is not None and not bound.request.replace_existing:
-                    raise ValueError(
-                        f"Column {name!r} exists; choose another name or replace_existing"
-                    )
+                name = final_names[logical]
+                existing_id = preconditions[name]
                 targets[column_id] = (
-                    existing_column["id"]
-                    if existing_column
+                    existing_id
+                    if existing_id is not None
                     else project.add_column(
-                        scope.sheet_id, name, type=original["type"], commit=False
+                        scope.sheet_id,
+                        name,
+                        type=original["type"],
+                        format=original["format"],
+                        semantic_type=original["semantic_type"],
+                        commit=False,
                     )
                 )
-                if existing_column is None:
+                if existing_id is None:
                     created.append(targets[column_id])
             references = [
                 {
@@ -189,7 +222,9 @@ def reapply_results(project, project_id, bound):
                     ReceiptIO(
                         name=str(column_id),
                         ref={
-                            "kind": "added_column",
+                            "kind": "added_column"
+                            if target in created
+                            else "column_patch",
                             "sheet_id": scope.sheet_id,
                             "column_id": target,
                             "source_run_id": source,
@@ -205,5 +240,14 @@ def reapply_results(project, project_id, bound):
         return _failed_result(
             project_id=project_id,
             action_kind="run.reapply",
-            error=ActionError(code="invalid_params", message=str(error)),
+            error=ActionError(
+                code=error.code
+                if isinstance(error, TypedMapRowsPlanError)
+                else "invalid_params",
+                message=str(error),
+                field=error.field if isinstance(error, TypedMapRowsPlanError) else None,
+                details=dict(error.details)
+                if isinstance(error, TypedMapRowsPlanError)
+                else {},
+            ),
         )
