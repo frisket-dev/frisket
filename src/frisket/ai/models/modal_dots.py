@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from frisket.ai.models.modal_gpu import OCR_GPUS, gpu_preferences
+
 try:
     import modal
 except ModuleNotFoundError:  # pragma: no cover - Modal is deployment-only
@@ -13,7 +15,7 @@ except ModuleNotFoundError:  # pragma: no cover - Modal is deployment-only
 DOTS_LINK_SECRET_NAME = os.environ.get(
     "FRISKET_MODAL_DOTS_LINK_SECRET", "frisket-dots-link"
 )
-GPU = os.environ.get("FRISKET_MODAL_DOTS_GPU", "L4")
+GPU = gpu_preferences("FRISKET_MODAL_DOTS_GPU", OCR_GPUS)
 MAX_CONTAINERS = int(os.environ.get("FRISKET_MODAL_DOTS_MAX_CONTAINERS", "2"))
 TIMEOUT_SECONDS = int(os.environ.get("FRISKET_MODAL_DOTS_TIMEOUT", "3600"))
 if modal is not None:
@@ -38,7 +40,7 @@ def dots_mocr_worker() -> None:
 
 
 def register_dots_mocr_worker(app):
-    """Register dots.mocr's isolated image and scale-to-zero L4 pool."""
+    """Register dots.mocr's isolated image and scale-to-zero GPU pool."""
 
     if modal is None:  # pragma: no cover - deployment-only dependency
         raise RuntimeError("Modal is required to register the dots.mocr worker")

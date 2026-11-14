@@ -6,12 +6,14 @@ import os
 from pathlib import Path
 from typing import Any
 
+from frisket.ai.models.modal_gpu import OCR_GPUS, gpu_preferences
+
 try:
     import modal
 except ModuleNotFoundError:  # pragma: no cover - Modal is deployment-only
     modal = None  # type: ignore[assignment]
 
-GPU = os.environ.get("FRISKET_MODAL_PADDLE_GPU", "L4")
+GPU = gpu_preferences("FRISKET_MODAL_PADDLE_GPU", OCR_GPUS)
 MAX_CONTAINERS = int(os.environ.get("FRISKET_MODAL_PADDLE_MAX_CONTAINERS", "2"))
 TIMEOUT_SECONDS = int(os.environ.get("FRISKET_MODAL_PADDLE_TIMEOUT", "3600"))
 MODEL_CACHE = "/frisket-model-cache"
@@ -169,7 +171,7 @@ def pp_ocrv6_worker():
 
 
 def register_paddleocr_vl_worker(app: Any, *, edge_secret_name: str, model_cache: Any):
-    """Register PaddleOCR-VL's accelerated scale-to-zero L4 worker."""
+    """Register PaddleOCR-VL's accelerated scale-to-zero GPU worker."""
 
     if modal is None:  # pragma: no cover - deployment-only dependency
         raise RuntimeError("Modal is required to register the PaddleOCR-VL worker")
@@ -193,7 +195,7 @@ def register_paddleocr_vl_worker(app: Any, *, edge_secret_name: str, model_cache
 
 
 def register_pp_ocrv6_worker(app: Any, *, edge_secret_name: str, model_cache: Any):
-    """Register PP-OCRv6 in its own scale-to-zero L4 worker."""
+    """Register PP-OCRv6 in its own scale-to-zero GPU worker."""
 
     if modal is None:  # pragma: no cover - deployment-only dependency
         raise RuntimeError("Modal is required to register the PP-OCRv6 worker")
