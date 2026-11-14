@@ -264,7 +264,7 @@ async def test_cloud_pdf_companion_http_poll_and_recovery_keep_one_purchase(tmp_
 
     async def handler(request):
         assert request.headers.get("X-Frisket-OCR-Contract") == "pdf-v1"
-        assert request.headers.get("X-Frisket-Execution-Accounting") == "1"
+        assert request.headers.get("X-Frisket-Cloud-Protocol") == "1"
         assert request.headers["Idempotency-Key"] == "one-pdf-purchase"
         requests.append(request.method)
         if request.method == "POST":
@@ -1270,3 +1270,49 @@ async def test_cloud_known_execution_survives_standalone_network_failure(
     assert caught.value.post_egress_ambiguous is True
     assert caught.value.accounting is None
     assert seen == (["GET"] if method == "recover" else ["DELETE"])
+
+
+@pytest.mark.asyncio
+async def test_update_required_keeps_instruction_and_never_retries_cloud_purchase(
+    tmp_path,
+):
+    from frisket.ai.llm import LLMRequest, ModelRouter
+
+    seen = []
+    message = (
+        "Update Frisket Desktop at https://frisket.dev/ before using Frisket Cloud."
+    )
+
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(
+            426,
+            json={"error": "invalid_request", "message": message, "retryable": False},
+        )
+
+    transport = HttpCloudExecutionTransport(
+        _store(tmp_path),
+        "https://cloud.example.test",
+        http_transport=httpx.MockTransport(handler),
+    )
+    attempt = CloudExecutionAttempt(
+        "update-required", _payer(), CloudQuoteAuthority(None)
+    )
+    router = ModelRouter(use_env_keys=False, cache_mode="off", max_retries=3)
+    try:
+        with cloud_llm_execution_scope(CloudLLMExecutionBinding(transport, attempt)):
+            with pytest.raises(CloudExecutionRefused) as caught:
+                await router.complete_transport(
+                    LLMRequest(
+                        model=_payer().engine,
+                        messages=[{"role": "user", "content": "hello"}],
+                        max_tokens=128,
+                    )
+                )
+    finally:
+        await router.aclose()
+    assert caught.value.code == "desktop_update_required"
+    assert str(caught.value) == message
+    assert caught.value.retryable is False
+    assert len(seen) == 1
+    assert seen[0].headers["X-Frisket-Cloud-Protocol"] == "1"

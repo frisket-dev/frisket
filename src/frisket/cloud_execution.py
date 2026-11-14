@@ -30,6 +30,7 @@ import httpx
 from pydantic import ValidationError
 
 from frisket.contracts.http.cloud_connection import (
+    CLOUD_PROTOCOL_REVISION,
     CloudDocumentConvertOptions,
     CloudDocumentExecutionMetadata,
     CloudErrorResponse,
@@ -628,7 +629,7 @@ class HttpCloudExecutionTransport:
         token = self._access_token(attempt)
         headers = {
             "Accept": "application/json",
-            "X-Frisket-Execution-Accounting": "1",
+            "X-Frisket-Cloud-Protocol": CLOUD_PROTOCOL_REVISION,
             "Authorization": f"Bearer {token}",
             "Idempotency-Key": attempt.request_id,
         }
@@ -890,9 +891,11 @@ class HttpCloudExecutionTransport:
                 retryable=response.status_code >= 500,
             ) from None
         raise CloudExecutionRefused(
-            error.error,
+            "desktop_update_required" if response.status_code == 426 else error.error,
             error.message,
-            retryable=error.retryable or response.status_code >= 500,
+            retryable=False
+            if response.status_code == 426
+            else error.retryable or response.status_code >= 500,
         )
 
 

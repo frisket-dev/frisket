@@ -16,6 +16,10 @@ from frisket.contracts.http.models import WireModel
 from frisket.contracts.transcription_sidecar import TranscriptionOptions
 
 
+# Bump only for breaking Desktop/Cloud execution protocol changes, not releases.
+CLOUD_PROTOCOL_REVISION = "1"
+
+
 CloudAccountKind = Literal["personal", "organization"]
 CloudCapability = Literal["llm.complete", "ocr", "transcribe", "document.convert"]
 CloudLane = Literal["account_key", "frisket_credits"]
