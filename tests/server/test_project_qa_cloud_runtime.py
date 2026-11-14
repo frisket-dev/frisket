@@ -34,7 +34,6 @@ from frisket.contracts.http.project_qa import AskThreadCreate, AskTurnRequest
 from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
 from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.engine.runner.validation import NetworkDisabled
-from frisket.execution.pricing_policy import usd_to_micros
 from frisket.execution.resolver import Refusal
 from frisket.project_settings import ProjectSettings, write_project_settings
 from frisket.server.services.project_qa import ProjectQAService
@@ -617,13 +616,9 @@ def test_solo_workspace_routes_ask_through_selected_cloud_account(
         else:
             assert saved["status"] == "completed", saved["error_summary"]
             assert len(transport.calls) == 2
-        allowance = usd_to_micros(workspace.cost_preapproval_usd)
-        assert transport.calls[0][0].quote_authority.maximum_charge_micro == allowance
+        assert transport.calls[0][0].quote_authority.maximum_charge_micro is None
         if not disable_network_after_first_call:
-            assert (
-                transport.calls[1][0].quote_authority.maximum_charge_micro
-                == allowance - 25
-            )
+            assert transport.calls[1][0].quote_authority.maximum_charge_micro is None
         assert transport.calls[0][0].payer.account_id == 41
         assert transport.calls[0][0].payer.user_id == 7
         if not disable_network_after_first_call:

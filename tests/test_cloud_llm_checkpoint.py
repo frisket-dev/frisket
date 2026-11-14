@@ -16,6 +16,7 @@ from frisket.cloud_llm_checkpoint import CloudLLMCheckpointCoordinator
 from frisket.contracts.http.cloud_connection import (
     CloudCapabilityRoute,
     CloudExecutionReceipt,
+    CloudExecutionAccounting,
     CloudExecutionResponse,
     CloudLLMOptionSupport,
     CloudLLMRequest,
@@ -393,5 +394,36 @@ def test_router_selects_cloud_only_inside_exact_bound_model_scope(tmp_path):
 
         assert response.content == "answer"
         assert len(transport.calls) == 1
+
+    asyncio.run(scenario())
+
+
+def test_pending_accounting_does_not_block_next_approved_call(tmp_path):
+    async def scenario():
+        project = Project.create(tmp_path / "pending.frisket")
+        pending = _response(execution_id="first").model_copy(
+            update={
+                "receipt": None,
+                "accounting": CloudExecutionAccounting(
+                    status="pending",
+                    usage=CloudLLMUsage(kind="llm.complete", tokens_in=2, tokens_out=1),
+                    provider_cost_micro=10,
+                ),
+            }
+        )
+        transport = _Transport([pending, _response(execution_id="second")])
+        coordinator = _coordinator(project, transport, ceiling=None)
+        await coordinator.execute(_request(message="first"))
+        await coordinator.execute(_request(message="second"))
+        assert len(transport.calls) == 2
+        assert coordinator.returned_accounting[0]["cost"] is None
+        assert (
+            coordinator.returned_accounting[0]["cloud_accounting_status"] == "pending"
+        )
+        assert all(
+            call[0].quote_authority.maximum_charge_micro is None
+            for call in transport.calls
+        )
+        project.close()
 
     asyncio.run(scenario())

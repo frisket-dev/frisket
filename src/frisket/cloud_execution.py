@@ -117,9 +117,10 @@ class CloudQuoteAuthority:
     """Existing local consent that may answer one exact Cloud quote.
 
     Presence means the action/Ask gate already authorized this route.
-    ``maximum_charge_micro=None`` is an explicitly authorized unbounded spend,
-    distinct from an absent authority. For a credits lane this bounds the
-    Frisket charge; for an account-key lane it bounds the provider-direct cost.
+    Ordinary approximate approval has ``maximum_charge_micro=None``, distinct
+    from absent authority. A numeric maximum is reserved for a separately
+    requested research budget, never the displayed action estimate. Such an
+    explicit budget bounds Frisket charges or account-key provider-direct cost.
     The transport still compares every quote payer/route field to
     :class:`CloudPayerSubject` before echoing it.
     """
@@ -331,11 +332,10 @@ def cloud_quote_authority_for_row(
     *,
     row_id: int,
 ) -> CloudQuoteAuthority:
-    """Project an admitted row's exact spend ceiling into Cloud units.
+    """Carry approximate approval to Cloud without turning its estimate into a cap.
 
-    The attempt cost basis is already consent-bound. Cloud receives only the
-    allocation for this row, so a multi-row aggregate can never authorize one
-    row to consume another row's allowance.
+    The selected cohort remains fixed; Cloud checks actual funds independently
+    for every purchase. Explicit research budgets use a separate numeric authority.
     """
 
     from frisket.execution.promise_compiler import (
@@ -346,31 +346,17 @@ def cloud_quote_authority_for_row(
 
     if isinstance(cost_basis, PricedCostBasis):
         quantities = cost_basis.row_quote_quantities
-        if quantities is None:
-            if cost_basis.estimated_quantity is None:
-                # Reaching this effect site means the unbounded cost claim was
-                # already admitted. Preserve that explicit authority without
-                # inventing a numeric ceiling for an unmeasurable row.
-                return CloudQuoteAuthority(maximum_charge_micro=None)
-            raise CloudExecutionRefused(
-                "cloud_quote_unbound",
-                "Cloud execution requires an exact per-row quote allocation",
-            )
-        quantity = next(
-            (Decimal(raw) for candidate, raw in quantities if candidate == row_id),
-            None,
-        )
-        if quantity is None:
+        if quantities is not None and not any(
+            candidate == row_id for candidate, _ in quantities
+        ):
             raise CloudExecutionRefused(
                 "cloud_quote_unbound",
                 "Cloud execution row is absent from its admitted quote",
             )
-        rate_micro = Decimal(cost_basis.unit_rate) * Decimal(1_000_000)
-        micro = (rate_micro * quantity).to_integral_value(rounding=ROUND_CEILING)
-        maximum = 0 if rate_micro == 0 else max(1, int(micro))
-        return CloudQuoteAuthority(maximum_charge_micro=maximum)
+        return CloudQuoteAuthority(maximum_charge_micro=None)
     if isinstance(cost_basis, UnpriceableCost):
         return CloudQuoteAuthority(maximum_charge_micro=None)
+
     if isinstance(cost_basis, OperatorBorneZeroCost):
         raise CloudExecutionRefused(
             "cloud_quote_unbound",
@@ -642,6 +628,7 @@ class HttpCloudExecutionTransport:
         token = self._access_token(attempt)
         headers = {
             "Accept": "application/json",
+            "X-Frisket-Execution-Accounting": "1",
             "Authorization": f"Bearer {token}",
             "Idempotency-Key": attempt.request_id,
         }

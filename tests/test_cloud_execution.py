@@ -129,7 +129,7 @@ def test_cloud_ocr_usage_accepts_exactly_one_page_or_token_shape():
             CloudOCRUsage.model_validate(usage)
 
 
-def test_cloud_row_quote_authority_uses_only_the_admitted_row_allocation():
+def test_cloud_row_quote_authority_keeps_cohort_without_price_cap():
     basis = PricedCostBasis(
         pricing_key="cloud.ocr",
         unit_rate="0.0025",
@@ -148,7 +148,7 @@ def test_cloud_row_quote_authority_uses_only_the_admitted_row_allocation():
 
     authority = cloud_quote_authority_for_row(basis, row_id=11)
 
-    assert authority.maximum_charge_micro == 5_000
+    assert authority.maximum_charge_micro is None
 
 
 def test_cloud_unknown_cost_consent_is_explicitly_unbounded():
@@ -178,7 +178,7 @@ def test_cloud_priced_unknown_quantity_consent_is_explicitly_unbounded():
     assert authority.maximum_charge_micro is None
 
 
-def test_cloud_fractional_unit_quote_matches_server_ceiling_rounding():
+def test_cloud_fractional_unit_approval_does_not_become_a_price_cap():
     basis = PricedCostBasis(
         pricing_key="cloud.transcribe",
         unit_rate="0.000133",
@@ -197,7 +197,7 @@ def test_cloud_fractional_unit_quote_matches_server_ceiling_rounding():
 
     authority = cloud_quote_authority_for_row(basis, row_id=11)
 
-    assert authority.maximum_charge_micro == 1_397
+    assert authority.maximum_charge_micro is None
 
 
 @pytest.mark.parametrize("name", ["../secret.pdf", "folder/audio.wav", "", ".."])
@@ -264,6 +264,7 @@ async def test_cloud_pdf_companion_http_poll_and_recovery_keep_one_purchase(tmp_
 
     async def handler(request):
         assert request.headers.get("X-Frisket-OCR-Contract") == "pdf-v1"
+        assert request.headers.get("X-Frisket-Execution-Accounting") == "1"
         assert request.headers["Idempotency-Key"] == "one-pdf-purchase"
         requests.append(request.method)
         if request.method == "POST":
@@ -272,7 +273,7 @@ async def test_cloud_pdf_companion_http_poll_and_recovery_keep_one_purchase(tmp_
             assert b'"pdf_dpi":200' in body
             running = {**payload, "status": "running", "result": None, "receipt": None}
             return httpx.Response(202, json=running)
-        assert request.method == "GET"
+        assert request.method in {"GET", "DELETE"}
         return httpx.Response(200, json=payload)
 
     transport = HttpCloudExecutionTransport(
@@ -296,7 +297,8 @@ async def test_cloud_pdf_companion_http_poll_and_recovery_keep_one_purchase(tmp_
     )
     recovered = await transport.recover(attempt, result.execution_id)
     assert recovered == result
-    assert requests == ["POST", "GET", "GET"]
+    assert await transport.cancel(attempt, result.execution_id) == result
+    assert requests == ["POST", "GET", "GET", "DELETE"]
     assert recovered.receipt.usage.pages == 2
     assert recovered.result.pages[1].width == 200
 
