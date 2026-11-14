@@ -398,7 +398,8 @@ def test_router_selects_cloud_only_inside_exact_bound_model_scope(tmp_path):
     asyncio.run(scenario())
 
 
-def test_pending_accounting_does_not_block_next_approved_call(tmp_path):
+@pytest.mark.parametrize("ceiling", [None, 100])
+def test_pending_accounting_does_not_block_next_approved_call(tmp_path, ceiling):
     async def scenario():
         project = Project.create(tmp_path / "pending.frisket")
         pending = _response(execution_id="first").model_copy(
@@ -412,7 +413,7 @@ def test_pending_accounting_does_not_block_next_approved_call(tmp_path):
             }
         )
         transport = _Transport([pending, _response(execution_id="second")])
-        coordinator = _coordinator(project, transport, ceiling=None)
+        coordinator = _coordinator(project, transport, ceiling=ceiling)
         await coordinator.execute(_request(message="first"))
         await coordinator.execute(_request(message="second"))
         assert len(transport.calls) == 2
@@ -420,10 +421,12 @@ def test_pending_accounting_does_not_block_next_approved_call(tmp_path):
         assert (
             coordinator.returned_accounting[0]["cloud_accounting_status"] == "pending"
         )
-        assert all(
-            call[0].quote_authority.maximum_charge_micro is None
-            for call in transport.calls
-        )
+        assert [
+            call[0].quote_authority.maximum_charge_micro for call in transport.calls
+        ] == ([None, None] if ceiling is None else [100, 99])
+        # The explicit agent budget reserves a provisional estimate only; it
+        # never turns that estimate into a settled charge or receipt.
+        assert coordinator.returned_accounting[0]["cloud_receipt"] is None
         project.close()
 
     asyncio.run(scenario())

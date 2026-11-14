@@ -29,6 +29,7 @@ from frisket.contracts.http.cloud_connection import (
     CloudAccount,
     CloudCapabilityRoute,
     CloudExecutionQuote,
+    CloudExecutionAccounting,
     CloudErrorResponse,
     CloudLLMOptionSupport,
     CloudLLMResult,
@@ -1316,3 +1317,46 @@ async def test_update_required_keeps_instruction_and_never_retries_cloud_purchas
     assert caught.value.retryable is False
     assert len(seen) == 1
     assert seen[0].headers["X-Frisket-Cloud-Protocol"] == "1"
+
+
+@pytest.mark.asyncio
+async def test_failed_cloud_purchase_preserves_usage_while_accounting_is_pending(
+    tmp_path,
+):
+    terminal = _llm_response().model_copy(
+        update={
+            "status": "failed",
+            "receipt": None,
+            "accounting": CloudExecutionAccounting(
+                status="pending",
+                usage=CloudLLMUsage(kind="llm.complete", tokens_in=20, tokens_out=5),
+                provider_cost_micro=25000,
+            ),
+            "error": CloudErrorResponse(
+                error="provider_failed",
+                message="Provider failed after usage",
+                retryable=False,
+            ),
+        }
+    )
+    transport = HttpCloudExecutionTransport(
+        _store(tmp_path),
+        "https://cloud.example.test",
+        http_transport=httpx.MockTransport(
+            lambda _request: httpx.Response(200, json=terminal.model_dump(mode="json"))
+        ),
+    )
+    with pytest.raises(CloudExecutionRefused) as caught:
+        await transport.execute_llm(
+            CloudExecutionAttempt("failed-known-usage", _payer(), None), _llm_request()
+        )
+    error = caught.value
+    assert error.code == "provider_failed"
+    assert error.accounting is not None
+    assert error.accounting["cloud_accounting_status"] == "pending"
+    assert error.accounting["cloud_receipt"] is None
+    assert error.accounting["cost"] is None
+    [call] = error.accounting["model_calls"]
+    assert call["units"]["tokens_in"] == 20
+    assert call["units"]["tokens_out"] == 5
+    assert call["provider_cost_usd"] == 0.025

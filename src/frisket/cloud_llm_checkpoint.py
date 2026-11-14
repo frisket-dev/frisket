@@ -13,10 +13,12 @@ from frisket.cloud_execution import (
     CloudQuoteAuthority,
     CloudModelCapability,
     cloud_execution_accounting,
+    cloud_llm_estimated_spend_micro,
 )
 from frisket.contracts.http.cloud_connection import (
     CloudExecutionResponse,
     CloudLLMRequest,
+    CloudTokenPrice,
 )
 from frisket.engine.store.effect_checkpoints import (
     EffectCheckpointRef,
@@ -260,6 +262,16 @@ class CloudLLMCheckpointCoordinator:
             prior_cost = accounting["model_calls"][0]["units"].get(
                 "cloud_effective_cost_micro"
             )
+            if accounting.get("cloud_accounting_status") == "pending" and isinstance(
+                response.route.price, CloudTokenPrice
+            ):
+                # Only an explicitly configured agent budget reaches here.
+                # Reserve the saved call's estimate while settlement is pending;
+                # keep it out of the accounting envelope and actual charges.
+                prior_cost = cloud_llm_estimated_spend_micro(
+                    CloudLLMRequest.model_validate(row["payload"]["request"]),
+                    response.route.price,
+                )
             if isinstance(prior_cost, bool) or not isinstance(prior_cost, int):
                 raise CloudExecutionRefused(
                     "external_effect_reconciliation_required",

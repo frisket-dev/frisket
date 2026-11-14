@@ -851,6 +851,12 @@ class HttpCloudExecutionTransport:
         accounting = (
             cloud_execution_accounting(attempt, response, capability=capability)
             if response.receipt is not None
+            or (
+                response.status == "failed"
+                and response.accounting is not None
+                and response.accounting.status == "pending"
+                and response.accounting.usage is not None
+            )
             else None
         )
         unresolved = response.status == "reconciliation_required"
