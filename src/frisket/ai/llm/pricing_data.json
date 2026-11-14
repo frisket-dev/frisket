@@ -4,7 +4,7 @@
     "openrouter": "https://openrouter.ai/api/v1/models",
     "opendocrouter": "https://www.opendocrouter.ai/v1/models"
   },
-  "updated": "2026-11-13",
+  "updated": "2026-11-14",
   "text": {
     "claude-sonnet-5-5": [
       2.0,
@@ -271,8 +271,8 @@
       2.6
     ],
     "qwen/qwen3.5-9b": [
-      0.109,
-      0.16
+      0.071,
+      0.105
     ],
     "xiaomi/mimo-v2.5-pro": [
       0.435,
