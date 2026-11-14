@@ -1884,41 +1884,9 @@ class MapRunner:
                     for fname, payload in results.items()
                     if fname in out_cols
                 ]
-                # Preserve returned provider accounting even when cancellation
-                # seals the generation without publishing this result cell.
-                if cancelled():
-                    if checkpoint_id is None:
-                        progress.cost += self.run_store.write_returned_call_accounting(
-                            run_id,
-                            returned_batch,
-                            writer_attempt_id=(
-                                attempt.attempt_id if attempt is not None else None
-                            ),
-                            claim_token=claim_token,
-                            authorized_attempt_id=(
-                                attempt.attempt_id if attempt is not None else None
-                            ),
-                            claimless_direct_effect=self.claimless_direct_effect,
-                        )
-                    else:
-                        assert checkpoint_identity is not None
-                        progress.cost += (
-                            self.run_store.account_returned_row_effect_checkpoint(
-                                checkpoint_id,
-                                run_id=run_id,
-                                row_id=row_id,
-                                action_kind=spec["action_kind"],
-                                identity=checkpoint_identity,
-                                batch=returned_batch,
-                                replay_response=_accounted_replay_response(results),
-                                writer_attempt_id=(
-                                    attempt.attempt_id if attempt is not None else None
-                                ),
-                                claim_token=claim_token,
-                                claimless_direct_effect=self.claimless_direct_effect,
-                            )
-                        )
-                    return
+                # Stop future dispatch, but retain this already-submitted work.
+                # The ordinary result writer still checks the attempt/claim owner.
+                cancelled()
                 if checkpoint_id is None:
                     pending.extend(returned_batch)
                     pending_row_count += 1
