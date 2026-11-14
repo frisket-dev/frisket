@@ -5,6 +5,7 @@ import {
   type PreviewSampleResult, type RegisteredActionRequest, type SheetMeta,
 } from '../api/open';
 import { backfillWithConfirmation } from '../api/backfillWithConfirmation';
+import { retryWithConfirmation } from '../api/retryWithConfirmation';
 import { useDetailHandle } from '../bind/useDetailHandle';
 import { useGridViewHandle } from '../bind/useGridViewHandle';
 import { useJobsHandle } from '../bind/useJobsHandle';
@@ -183,7 +184,12 @@ export function useWorkspaceActionController({
     [runColumnBackfill, sheet],
   );
 
-  const resumeHaltedRun = runColumnBackfill;
+  const resumeHaltedRun = useCallback(async (sheetId: string, sourceRunId: string) => {
+    try {
+      const result = await retryWithConfirmation(projectApi, requestCostConfirmation, sheetId, sourceRunId);
+      if (result?.runId) afterBackfill(result.runId);
+    } catch (error) { showError(error instanceof Error ? error.message : String(error)); }
+  }, [afterBackfill, projectApi, requestCostConfirmation, showError]);
 
   const retryFailedRows = useCallback(
     async (targetColumnName: string, outcome: string): Promise<void> => {
@@ -199,14 +205,15 @@ export function useWorkspaceActionController({
           if (page.rows.length === 0 || offset >= page.total) break;
         }
         if (rowIds.length === 0) return;
-        const result = await backfillWithConfirmation(
-          projectApi,
-          requestCostConfirmation,
-          sheet.id,
-          targetColumnName,
-          rowIds,
+        const column = sheet.columns.find((candidate) => candidate.name === targetColumnName);
+        if (!column) return;
+        const history = await projectApi.getColumnRuns(column.id);
+        const source = history.latestRun ?? history.currentRun;
+        if (!source) throw new Error('No saved execution is available to retry.');
+        const result = await retryWithConfirmation(
+          projectApi, requestCostConfirmation, sheet.id, source.runId, rowIds,
         );
-        if (result) afterBackfill(result.runId);
+        if (result?.runId) afterBackfill(result.runId);
       } catch (e: unknown) {
         showError(e instanceof Error ? e.message : String(e));
       }

@@ -1,5 +1,5 @@
 import '../Modal.css';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import type { ReviewRun, ReviewRunCounts } from '../../api/types';
 import { WindowCloseButton } from '../WindowCloseButton';
 import { Download } from 'lucide-react';
@@ -67,11 +67,12 @@ function ResultRow({ label, counts }: { label: string; counts: ReviewRunCounts }
 export interface ReviewResultsPanelProps {
   run: ReviewRun;
   exportUrl?: string;
+  children?: ReactNode;
   onClose(): void;
 }
 
 /** Results intentionally describe this loaded run only; no historical trend is inferred. */
-export function ReviewResultsPanel({ run, exportUrl, onClose }: ReviewResultsPanelProps) {
+export function ReviewResultsPanel({ run, exportUrl, onClose, children }: ReviewResultsPanelProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -109,6 +110,7 @@ export function ReviewResultsPanel({ run, exportUrl, onClose }: ReviewResultsPan
         </div>
       </section>
       {exportUrl && <a className="btn" href={exportUrl} download><Download size={15} aria-hidden /> Download results CSV</a>}
+      {children && <div className="form-actions">{children}</div>}
     </dialog>
   );
 }

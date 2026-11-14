@@ -7,6 +7,7 @@ import type { ReviewBundlePage } from '../../src/api/types';
 import { createProjectApi } from '../../src/api/real';
 import { WorkspaceStoresContext } from '../../src/bind/workspaceStoresContext';
 import { ReviewSession } from '../../src/components/review/ReviewSession';
+import { ReviewQueue } from '../../src/components/ReviewQueue';
 import { ReviewShell } from '../../src/components/review/ReviewPresentation';
 import { installDialogPolyfill } from '../support/domPolyfills';
 import { createWorkspaceStores, type WorkspaceStores } from '../../src/state/createWorkspaceStores';
@@ -65,6 +66,38 @@ afterEach(() => {
 });
 
 const options = { order: 'shuffle' as const };
+
+it('reapplies saved results only after explicit replacement confirmation', async () => {
+  const counts = { eligibleCount: 1, reviewedCount: 0, acceptedCount: 0,
+    incorrectCount: 0, unreviewedCount: 1, confidenceCount: 1 };
+  vi.spyOn(stores.projectApi, 'listReviewRuns').mockResolvedValue({
+    schemaVersion: 'frisket.review_runs_page.v1', offset: 0, limit: 50, total: 1,
+    hasMore: false, nextOffset: null,
+    runs: [{ runId: '9', sheetId: '2', sheetName: 'Stories', actionKind: 'map.ask',
+      actionName: 'Ask', model: null, startedAt: '2026-11-14T00:00:00Z',
+      reviewStatus: 'open', reviewCompletedAt: null, total: counts,
+      fields: [{ columnId: '4', columnName: 'Answer', columnType: 'text', ...counts }] }],
+  });
+  vi.spyOn(stores.projectApi, 'getReviewBundles').mockResolvedValue(page('first'));
+  const submit = vi.spyOn(stores.projectApi, 'runAction').mockResolvedValue({
+    runId: null, jobId: null, receiptId: 'saved', status: 'completed', outputSheetId: '2',
+  });
+  const changed = vi.fn();
+  render(<WorkspaceStoresContext.Provider value={stores}>
+    <ReviewQueue onClose={vi.fn()} onChanged={changed} runId="9" />
+  </WorkspaceStoresContext.Provider>);
+  await screen.findByTestId('review-card');
+  fireEvent.click(await screen.findByRole('button', { name: 'Results', exact: true }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Reapply saved results' }));
+  expect(submit).not.toHaveBeenCalled();
+  expect(await screen.findByRole('dialog', { name: 'Reapply saved results?' })).toHaveTextContent('does not call a provider');
+  fireEvent.click(screen.getByRole('button', { name: 'Reapply results', exact: true }));
+  await waitFor(() => expect(submit).toHaveBeenCalledWith(expect.objectContaining({
+    action_id: 'run.reapply', params: { source_run_id: 9 }, replace_existing: true,
+  })));
+  await waitFor(() => expect(changed).toHaveBeenCalled());
+});
+
 function mount(onClose = vi.fn(), reviewOptions = options) {
   return render(<WorkspaceStoresContext.Provider value={stores}>
     <ReviewSession runId="9" options={reviewOptions} onChanged={vi.fn()} onClose={onClose}

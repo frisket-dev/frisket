@@ -83,6 +83,7 @@ export interface ReviewRunControlsProps {
   disabled?: boolean;
   /** Row navigation supplied by ReviewQueue, kept beside completion controls. */
   children?: ReactNode;
+  resultActions?(close: () => void): ReactNode;
   /** Paging stays with the queue owner; the toolbar only offers the next page. */
   onLoadMore?(): void;
   hasMore?: boolean;
@@ -104,6 +105,7 @@ export function ReviewRunControls({
   statusBusy = false,
   disabled = false,
   children,
+  resultActions,
   onLoadMore,
   hasMore = false,
   loadingMore = false,
@@ -268,7 +270,7 @@ export function ReviewRunControls({
           {!confidenceAvailable && <p className={styles.noConfidence}>No confidence values in this scope.</p>}
         </MenuPop>
       )}
-      {resultsOpen && run && <ReviewResultsPanel run={run} exportUrl={reviewExportUrl?.(run.runId)} onClose={() => setResultsOpen(false)} />}
+      {resultsOpen && run && <ReviewResultsPanel run={run} exportUrl={reviewExportUrl?.(run.runId)} onClose={() => setResultsOpen(false)}>{resultActions?.(() => setResultsOpen(false))}</ReviewResultsPanel>}
       {counts && (
         <div
           className={styles.progressBar}
