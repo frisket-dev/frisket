@@ -112,11 +112,84 @@ def _resolve(
     )
 
 
+def _resolve_retry(
+    project: Project, bound: BoundTypedActionRequest, source_run_id: int
+) -> _BackfillPlan:
+    from frisket.engine.store.execution_groups import execution_runs
+    from frisket.engine.store.runs import RunResultStore
+    from frisket.engine.store.result_generations import ResultGenerationStore
+
+    scope = bound.request.scope
+    if not isinstance(scope, SheetRows):
+        raise ValueError("Retry requires a sheet selection")
+    root_id, run_ids = execution_runs(project, source_run_id)
+    original = project.db.execute(
+        "SELECT * FROM runs WHERE id=?", (root_id,)
+    ).fetchone()
+    if original is None or original["sheet_id"] != scope.sheet_id:
+        raise ValueError("Execution does not belong to the selected sheet")
+    original_rows = set(RunResultStore(project).run_row_scope(root_id))
+    requested = original_rows if scope.row_ids is None else set(scope.row_ids)
+    if not requested.issubset(original_rows):
+        raise ValueError("Retry cannot expand the original execution cohort")
+    bindings = ResultGenerationStore(project).bindings_for_run(root_id)
+    if not bindings:
+        raise ValueError("Execution has no retained output schema")
+    ph = ",".join("?" for _ in run_ids)
+    # A row is finished only when all original outputs have successful saved
+    # outcomes; publication/undo does not discard useful accepted work.
+    done = {
+        row["row_id"]
+        for row in project.db.execute(
+            f"SELECT row_id FROM results WHERE run_id IN ({ph}) "
+            "AND outcome IN ('ok','empty') AND (review_decision IS NULL OR review_decision NOT IN ('reject','reject_clear')) "
+            "GROUP BY row_id HAVING COUNT(DISTINCT column_id)=?",
+            (*run_ids, len(bindings)),
+        )
+    }
+    remaining = sorted(requested - done)
+    if not remaining:
+        raise ValueError("Execution has no unfinished requested rows")
+    target = project.db.execute(
+        "SELECT name FROM columns WHERE id=?", (bindings[0].column_id,)
+    ).fetchone()
+    resolved = _resolve_backfill_target(
+        project,
+        sheet_id=scope.sheet_id,
+        column=target["name"],
+        row_ids=remaining,
+        confirmation=bound.request.confirmation,
+        source_run_id=root_id,
+    )
+    if isinstance(resolved, ActionError):
+        raise BackfillRefused(resolved)
+    spec = resolved["runner_spec"]
+    guard = _guard_backfill_run_spec(spec, project=project)
+    if guard is not None:
+        raise BackfillRefused(guard)
+    spec.pop("edition_run_context", None)
+    spec["execution_root_run_id"] = root_id
+    return _BackfillPlan(
+        scope.sheet_id,
+        target["name"],
+        bindings[0].column_id,
+        root_id,
+        tuple(remaining),
+        json.dumps(spec, sort_keys=True, separators=(",", ":")),
+    )
+
+
 class _RunBackfiller:
     def __init__(self, project: Project, bound: BoundTypedActionRequest):
         self.project = project
         self.bound = bound
         self.plans: dict[PreparedBackfill, _BackfillPlan] = {}
+
+    def retry(self, source_run_id: int) -> PreparedBackfill:
+        plan = _resolve_retry(self.project, self.bound, source_run_id)
+        handle = PreparedBackfill(selected_row_count=len(plan.row_ids))
+        self.plans[handle] = plan
+        return handle
 
     def prepare(self, column: ColumnRef[Any]) -> PreparedBackfill:
         plan = _resolve(self.project, self.bound, column)
@@ -191,7 +264,11 @@ def run_typed_backfill_action(
         plan = prepare_backfill_action(project, bound)
         # A callable may inspect other admitted preparations before choosing one.
         # Recheck the selected source after it returns, before reserving or running.
-        if _resolve(project, bound, ColumnRef[Any](plan.column)) != plan:
+        if (
+            _resolve_retry(project, bound, bound.params.source_run_id)
+            if hasattr(bound.params, "source_run_id")
+            else _resolve(project, bound, ColumnRef[Any](plan.column))
+        ) != plan:
             raise ValueError("the prepared backfill source changed before execution")
         spec = plan.spec()
         typed_program = bound_typed_program_request_from_runner_spec(

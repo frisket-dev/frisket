@@ -74,6 +74,15 @@ class AdmittedWebSearcher:
         from frisket.engine.executor.visual_cuts_read import _settle
 
         quote = self._service.quote(max_results=max_results)
+        policy = getattr(getattr(self._ctx, "router", None), "model_call_policy", None)
+        if policy is None:
+            policy = self._ctx.extras.get("service_operation_policy")
+        operation_id = None
+        if quote.provider != "ddgs" and policy is not None:
+            operation_id = policy.admit_search(
+                prepared={"query": query, "max_results": max_results},
+                quote=quote,
+            )
         task = asyncio.create_task(
             self._service.search(
                 query, max_results=max_results, timeout=timeout, quote=quote
@@ -97,6 +106,8 @@ class AdmittedWebSearcher:
                     error = exc
                 except Exception:  # receipt records failure; original propagates
                     pass
+            if operation_id is not None:
+                policy.finish_search(operation_id, response, error)
             self._record(attempt, response=response, error=error, quote=quote)
 
     def _record(

@@ -624,6 +624,13 @@ def run_action_spec(
             run_typed_page_capture_action,
         )
 
+        from frisket.actions.types import RetainedResultPublisher
+
+        if terminal.capabilities == (RetainedResultPublisher,):
+            from frisket.engine.executor.reapply_results import reapply_results
+
+            return reapply_results(project, project_id, typed)
+
         owners = [
             name
             for name, supports in (

@@ -552,8 +552,8 @@ def _offering(
             settlement=CommercialSettlementTerms(
                 meter_key="cloud_effective_cost_micro",
                 meter_units_per_quantity_unit="1000000",
-                ceiling_mode="consented_quantity",
-                row_settlement_mode="quoted_successful_rows",
+                ceiling_mode="none",
+                row_settlement_mode="all_metered",
             ),
             charge_authority="frisket_cloud_receipt",
             presentation=CommercialPresentation(
@@ -586,8 +586,8 @@ def _offering(
         settlement=CommercialSettlementTerms(
             meter_key="audio_seconds" if expected_unit == "audio_second" else "pages",
             meter_units_per_quantity_unit="1",
-            ceiling_mode="consented_quantity",
-            row_settlement_mode="quoted_successful_rows",
+            ceiling_mode="none",
+            row_settlement_mode="all_metered",
         ),
         charge_authority="frisket_cloud_receipt",
         presentation=CommercialPresentation(

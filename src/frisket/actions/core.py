@@ -211,6 +211,8 @@ from frisket.actions.types import (
     SourcePoller,
     SheetRefresher,
     RunBackfiller,
+    RetainedResultPublisher,
+    ReappliedResults,
     BackfilledRun,
     PreparedBackfill,
     RefreshedSheet,
@@ -859,6 +861,17 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
         ("replace_materialized_rows", "move_op_cursor", "advance_staleness_watermark"),
         cost_kind="none",
         requires_confirmation=True,
+    ),
+    _project_capability(
+        RetainedResultPublisher,
+        ReappliedResults,
+        ReappliedResults,
+        _project_errors(
+            ("invalid_params", "Saved result selection is invalid."),
+            write_failure="Saved results could not be published.",
+        ),
+        ("write_edits",),
+        cost_kind="none",
     ),
     _project_capability(
         RunBackfiller,
@@ -1894,6 +1907,7 @@ class CreateSheet(Generic[P, OutputT]):
 _ROW_SCOPED_PROJECT_CAPABILITIES = frozenset(
     {
         RunBackfiller,
+        RetainedResultPublisher,
         EnclosureMaterializer,
         TemporalExtractor,
         PageCapturer,
@@ -1906,6 +1920,7 @@ _ROW_SCOPED_PROJECT_CAPABILITIES = frozenset(
 )
 _OUTPUT_NAMING_PROJECT_CAPABILITIES = frozenset(
     {
+        RetainedResultPublisher,
         TemporalExtractor,
         PageCapturer,
         ValueClusterer,
@@ -1915,7 +1930,7 @@ _OUTPUT_NAMING_PROJECT_CAPABILITIES = frozenset(
 )
 _SHEET_CREATING_PROJECT_CAPABILITIES = frozenset({GroupSummarizer, FindScanner})
 _DYNAMIC_OUTPUT_PROJECT_CAPABILITIES = frozenset(
-    {TemporalExtractor, PageCapturer, FindScanner}
+    {TemporalExtractor, PageCapturer, FindScanner, RetainedResultPublisher}
 )
 
 

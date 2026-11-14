@@ -101,7 +101,7 @@ from frisket.actions.research import WEB_SEARCH
 from frisket.actions.resolve import COMBINE, FILL_MISSING, REPLACE, SUBSTITUTE
 from frisket.actions.sources import CHECK, CREATE, DELETE, UPDATE, POLL
 from frisket.actions.sheets import REFRESH
-from frisket.actions.runs import BACKFILL
+from frisket.actions.runs import BACKFILL, REAPPLY, RETRY
 from frisket.actions.text import CLEAN_DATES, TEMPLATE
 from frisket.actions.formula import FORMULA
 from frisket.actions.temporal_finders import FIND_TOPIC_SECTIONS, FIND_VISUAL_CUTS
@@ -147,7 +147,7 @@ RESOLVE_ACTIONS = ActionNamespace(
 SOURCE_ACTIONS = ActionNamespace(
     "source", actions=(CREATE, UPDATE, DELETE, CHECK, POLL)
 )
-RUN_ACTIONS = ActionNamespace("run", actions=(BACKFILL,))
+RUN_ACTIONS = ActionNamespace("run", actions=(BACKFILL, REAPPLY, RETRY))
 SHEET_ACTIONS = ActionNamespace("sheet", actions=(REFRESH,))
 PLUGIN_ACTIONS = ActionNamespace("plugin", actions=(LOAD,))
 COLUMN_ACTIONS = ActionNamespace(

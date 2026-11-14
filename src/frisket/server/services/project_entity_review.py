@@ -67,10 +67,13 @@ class ProjectEntityReviewService:
         *,
         sheet_id: int | None,
         run_id: int | None = None,
+        attempt_only: bool = False,
     ) -> list[dict[str, Any]]:
         project = self._project(project_id)
         return public_review_action_payloads(
-            review_queue(project, sheet_id=sheet_id, run_id=run_id)
+            review_queue(
+                project, sheet_id=sheet_id, run_id=run_id, attempt_only=attempt_only
+            )
         )
 
     def review_bundles(

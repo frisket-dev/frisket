@@ -1080,6 +1080,9 @@ def register_project_run_handler(
                         else None
                     ),
                     "search_service_factory": search_service_factory,
+                    "service_operation_policy": getattr(
+                        effective_router, "model_call_policy", None
+                    ),
                 },
                 allow_action_lifecycle_only_recipes=(
                     queued_v1_run_authorizes_action_lifecycle(

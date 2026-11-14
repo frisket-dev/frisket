@@ -644,15 +644,9 @@ class ModelRouter:
             self.cache_misses += 1
             raise CacheMiss(key)
 
-        try:
-            resp = await self._call_with_retry(
-                req, credential_source=credential_source, trace=trace
-            )
-        except LLMError as error:
-            for response in getattr(error, "wire_calls", []):
-                self._finish_live_response(req, response, credential_source)
-            raise
-        self._finish_live_response(req, resp, credential_source)
+        resp = await self._call_with_retry(
+            req, credential_source=credential_source, trace=trace
+        )
         if (
             self.cache is not None
             and self.cache_mode in ("replay", "fresh")
@@ -760,6 +754,7 @@ class ModelRouter:
                 if provider == "ollama" and cloud_adapter is None:
                     resp.model = req.model
                 resp.duration_ms = _record(attempt, t0, outcome="ok")
+                self._finish_live_response(req, resp, credential_source)
                 return resp
             except LLMError as e:
                 safe_error = self._safe_llm_error(e, secret_values)
@@ -790,21 +785,14 @@ class ModelRouter:
                 for response in getattr(safe_error, "wire_calls", []):
                     response.duration_ms = duration_ms
                     response.model = req.model
-                # A SchemaViolation is never blind-retried here with the
-                # identical body (`SchemaViolation.retryable=False`) — the
-                # StructuredCompleter owns schema repair for every
-                # schema-bearing caller, so a transport-level retry could
-                # never fix it anyway.  More generally, ``retryable`` is an
-                # eventual-resume classification, not proof that another
-                # immediate wire call is safe: an adapter can raise after the
-                # provider accepted work but before its response was decoded.
-                # Only a pre-egress connect/chaos failure or a categorical
-                # rate-limit rejection may be retried inside the router.
-                if (
-                    not safe_error.retryable
-                    or not retry_is_proven_safe
-                    or attempt == self.max_retries
-                ):
+                for response in getattr(safe_error, "wire_calls", []):
+                    self._finish_live_response(req, response, credential_source)
+                failure = getattr(self.model_call_policy, "failed_live", None)
+                if failure is not None:
+                    failure(req, safe_error, credential_source)
+                # Bounded inference retry is a distinct purchase, not settlement
+                # recovery. Ambiguous expense remains explicitly unknown.
+                if not safe_error.retryable or attempt == self.max_retries:
                     raise safe_error from None
                 await asyncio.sleep(
                     min(2**attempt * 0.5, 8.0) * (1.0 if self.chaos else 1.0)
@@ -819,12 +807,10 @@ class ModelRouter:
                     error=detail,
                     retryable=True,
                 )
-                # ConnectError proves no connection was established. Other
-                # transport failures (read timeout, protocol disconnect,
-                # partial write) may occur after accepted provider work and
-                # therefore stay with the durable row reservation for
-                # reconciliation rather than buying the row again.
-                if last.transport_kind != "connect" or attempt == self.max_retries:
+                failure = getattr(self.model_call_policy, "failed_live", None)
+                if failure is not None:
+                    failure(req, last, credential_source)
+                if attempt == self.max_retries:
                     raise last from None
                 await asyncio.sleep(min(2**attempt * 0.5, 8.0))
         raise LLMError(redact_text(f"exhausted retries: {last}")) from None

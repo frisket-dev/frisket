@@ -818,14 +818,10 @@ def _cloud_model_cost_basis(
         quantity_rounding_decimal_places=None,
         meter_key="cloud_effective_cost_micro",
         meter_units_per_quantity_unit="1000000",
-        ceiling_mode="consented_quantity",
-        row_settlement_mode="quoted_successful_rows",
+        ceiling_mode="none",
+        row_settlement_mode="all_metered",
         charge_authority="frisket_cloud_receipt",
-        row_quote_quantities=(
-            tuple((row_id, usd(micro)) for row_id, micro in sorted(row_micro.items()))
-            if row_micro is not None
-            else None
-        ),
+        row_quote_quantities=None,
     )
 
 

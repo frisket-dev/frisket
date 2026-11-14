@@ -192,6 +192,16 @@ class PreparedBackfill:
 class RunBackfiller(Protocol):
     def prepare(self, column: ColumnRef[Any]) -> PreparedBackfill: ...
 
+    def retry(self, source_run_id: int) -> PreparedBackfill: ...
+
+
+class ReappliedResults(BaseModel):
+    rows: int
+
+
+class RetainedResultPublisher(Protocol):
+    def reapply(self, source_run_id: int) -> ReappliedResults: ...
+
 
 class SourceCreateIntent(ActionParams):
     name: str = Field(min_length=1)

@@ -183,18 +183,27 @@ def review_queue(
     limit: int = 200,
     *,
     run_id: int | None = None,
+    attempt_only: bool = False,
 ) -> list[dict[str, Any]]:
     """Unreviewed primary results from current runs, least-confident first."""
     if run_id is not None:
-        ensure_run_review_stats(project.db, run_id)
+        from frisket.engine.store.execution_groups import execution_runs
+
+        execution_id, group = execution_runs(project, run_id)
+        ids = [run_id] if attempt_only else group
+        for item in ids:
+            ensure_run_review_stats(project.db, item)
         cte = ""
         current_join = ""
+        ph = ",".join("?" for _ in ids)
         where = (
-            "AND res.run_id=? AND runs.status<>'running' "
-            "AND EXISTS (SELECT 1 FROM ops review_op "
-            "WHERE review_op.id=runs.op_id AND review_op.status='applied')"
+            f"AND res.run_id IN ({ph}) AND runs.status<>'running' "
+            f"AND NOT EXISTS (SELECT 1 FROM results newer WHERE newer.run_id IN ({ph}) "
+            "AND newer.run_id>res.run_id AND newer.row_id=res.row_id AND newer.column_id=res.column_id "
+            "AND newer.outcome IN ('ok','empty') "
+            "AND (newer.review_decision IS NULL OR newer.review_decision NOT IN ('reject','reject_clear')))"
         )
-        params: tuple[Any, ...] = (run_id,)
+        params: tuple[Any, ...] = (*ids, *ids)
         if sheet_id is not None:
             where += " AND runs.sheet_id=?"
             params += (sheet_id,)
@@ -211,7 +220,10 @@ def review_queue(
         SELECT res.run_id, res.row_id, res.column_id,
                res.confidence, res.justification, res.error,
                res.review_decision, res.review_note,
-               review_field.column_name, c.sheet_id, runs.action_kind, runs.model
+               review_field.column_name, c.sheet_id, runs.action_kind, runs.model,
+               EXISTS (SELECT 1 FROM cell_result_heads head JOIN ops applied ON applied.id=runs.op_id
+                 WHERE head.run_id=res.run_id AND head.row_id=res.row_id AND head.column_id=res.column_id
+                 AND applied.status='applied') AS applied
         FROM results res
         {current_join}
         JOIN run_review_fields review_field
@@ -245,6 +257,13 @@ def review_queue(
             {
                 "bundle_id": f"{r['run_id']}:{r['row_id']}",
                 "run_id": r["run_id"],
+                "execution_run_id": execution_id if run_id is not None else r["run_id"],
+                "applied": bool(r["applied"]),
+                "result_ref": {
+                    "run_id": r["run_id"],
+                    "row_id": r["row_id"],
+                    "column_id": r["column_id"],
+                },
                 "row_id": r["row_id"],
                 "column_id": r["column_id"],
                 "column_name": r["column_name"],

@@ -97,6 +97,7 @@ def _resolve_backfill_target(
     column: str,
     row_ids: list[int] | None = None,
     confirmation: str | None = None,
+    source_run_id: int | None = None,
 ) -> dict[str, Any] | ActionError:
     action_kind = "run.backfill"
     column_name = column.strip()
@@ -132,7 +133,15 @@ def _resolve_backfill_target(
     ]
     generation_store = ResultGenerationStore(project)
     heads = generation_store.read_cell_heads(column_id)
-    if row_ids is not None:
+    if source_run_id is not None:
+        requested = set(row_ids or [])
+        if not requested.issubset(all_row_ids):
+            return ActionError(
+                code="invalid_row_ref", message="Retry rows must remain visible"
+            )
+        unrun_row_ids = [row_id for row_id in all_row_ids if row_id in requested]
+        source_run_ids = [source_run_id]
+    elif row_ids is not None:
         # An explicit retry inherits the action that produced those exact
         # cells. A scalar column pointer is only chronology after subset
         # publication and cannot identify their generation.
