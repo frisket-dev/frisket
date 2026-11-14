@@ -168,9 +168,11 @@ class SearchService:
         *,
         preference: SearchPreference | str = "auto",
         effective_keys: Mapping[str, str],
+        credential_source: str = "user_key",
         http: httpx.AsyncClient | None = None,
         ddgs_factory: Callable[..., Any] | None = None,
     ) -> None:
+        self.credential_source = credential_source
         self._keys = {
             provider: value.strip()
             for provider, value in effective_keys.items()

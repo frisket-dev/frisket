@@ -465,6 +465,9 @@ def build_run_search_service(
 
     return configured_search_service(
         workspace_root,
+        credential_source="org_byok"
+        if isinstance(handler_context.trusted_job_org_id, int)
+        else "user_key",
         effective_keys=resolve_run_search_credentials(
             workspace_root,
             handler_context=handler_context,

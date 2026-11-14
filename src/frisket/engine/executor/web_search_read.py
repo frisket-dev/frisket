@@ -74,7 +74,7 @@ class AdmittedWebSearcher:
         from frisket.engine.executor.visual_cuts_read import _settle
 
         quote = self._service.quote(max_results=max_results)
-        policy = getattr(getattr(self._ctx, "router", None), "model_call_policy", None)
+        policy = getattr(self._ctx.extras.get("router"), "model_call_policy", None)
         if policy is None:
             policy = self._ctx.extras.get("service_operation_policy")
         operation_id = None
@@ -82,6 +82,8 @@ class AdmittedWebSearcher:
             operation_id = policy.admit_search(
                 prepared={"query": query, "max_results": max_results},
                 quote=quote,
+                credential_source=self._service.credential_source,
+                context=self._ctx,
             )
         task = asyncio.create_task(
             self._service.search(

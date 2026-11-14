@@ -26,6 +26,9 @@ def reapply_results(project, project_id, bound):
                 if existing.params_hash != fingerprint:
                     raise ValueError("Idempotency key belongs to different work")
                 return _result_from_receipt(existing.parsed())
+            from frisket.engine.store.execution_groups import execution_runs
+
+            source, group = execution_runs(project, source)
             run = project.db.execute(
                 "SELECT * FROM runs WHERE id=?", (source,)
             ).fetchone()
@@ -37,16 +40,22 @@ def reapply_results(project, project_id, bound):
                 raise ValueError(
                     "Reapply cannot include rows outside the original execution"
                 )
+            ph = ",".join("?" for _ in group)
             stored = project.db.execute(
-                "SELECT row_id,column_id FROM results WHERE run_id=? AND outcome IN ('ok','empty') "
-                "AND (review_decision IS NULL OR review_decision NOT IN ('reject','reject_clear'))",
-                (source,),
+                f"SELECT run_id,row_id,column_id FROM results WHERE run_id IN ({ph}) AND outcome IN ('ok','empty') "
+                "AND (review_decision IS NULL OR review_decision NOT IN ('reject','reject_clear')) ORDER BY run_id",
+                group,
             ).fetchall()
-            coordinates = [
-                (source, r["row_id"], r["column_id"])
+            retained = {
+                (r["row_id"], r["column_id"]): (
+                    r["run_id"],
+                    r["row_id"],
+                    r["column_id"],
+                )
                 for r in stored
                 if r["row_id"] in requested
-            ]
+            }
+            coordinates = list(retained.values())
             if not coordinates:
                 raise ValueError("No retained accepted results are available")
             values = RunResultStore(project).decoded_result_rows(coordinates)
@@ -84,21 +93,21 @@ def reapply_results(project, project_id, bound):
                     created.append(targets[column_id])
             references = [
                 {
-                    "run_id": source,
+                    "run_id": result_run_id,
                     "row_id": row_id,
                     "column_id": column_id,
                     "target_column_id": targets[column_id],
                 }
-                for _, row_id, column_id in coordinates
+                for result_run_id, row_id, column_id in coordinates
             ]
             op_id = project.apply_edits(
                 [
                     {
                         "row_id": row_id,
                         "column_id": targets[column_id],
-                        "value": values[(source, row_id, column_id)]["value"],
+                        "value": values[(result_run_id, row_id, column_id)]["value"],
                     }
-                    for _, row_id, column_id in coordinates
+                    for result_run_id, row_id, column_id in coordinates
                 ],
                 label="Reapply saved execution results",
                 spec={
@@ -126,7 +135,7 @@ def reapply_results(project, project_id, bound):
                 )
                 links = project.db.execute(
                     "SELECT * FROM evidence_links WHERE run_id=? AND row_id=? AND column_id=?",
-                    (source, reference["row_id"], reference["column_id"]),
+                    (reference["run_id"], reference["row_id"], reference["column_id"]),
                 ).fetchall()
                 for link in links:
                     spans = [
@@ -144,7 +153,7 @@ def reapply_results(project, project_id, bound):
                         sheet_id=scope.sheet_id,
                         row_id=reference["row_id"],
                         column_id=target,
-                        run_id=source,
+                        run_id=reference["run_id"],
                         op_id=op_id,
                         link_role=link["link_role"],
                         confidence=link["confidence"],

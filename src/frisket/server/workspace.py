@@ -507,7 +507,9 @@ class Workspace:
             return local_search_service(self.root)
         else:
             keys = {}
-        return configured_search_service(self.root, effective_keys=keys)
+        return configured_search_service(
+            self.root, effective_keys=keys, credential_source="org_byok"
+        )
 
     def router_for(self, project: Project) -> ModelRouter:
         """Return the ordinary workspace router for non-action consumers."""

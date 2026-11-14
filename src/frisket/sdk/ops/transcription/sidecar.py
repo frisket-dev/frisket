@@ -83,26 +83,57 @@ class TranscriptionV1Adapter:
             sort_keys=True,
         )
         connection = route_gateway_connection(ctx, engine, light_engine=light_engine)
-        body = await sidecar_post(
-            ctx,
-            TRANSCRIPTION_ENDPOINT,
-            files=[
-                (
-                    "files",
-                    (p.name or "audio", p.read_bytes(), "application/octet-stream"),
-                )
-            ],
-            data={
-                "contract_version": TRANSCRIPTION_CONTRACT_VERSION,
-                "engine": engine,
-                "options": options_json,
-            },
-            op="transcribe",
-            light_engine=light_engine,
-            structured_errors=True,
-            timeout=sidecar_transcribe_timeout(connection),
-            connection=connection,
-        )
+        payload = p.read_bytes()
+        policy = getattr(
+            ctx.extras.get("router"), "model_call_policy", None
+        ) or ctx.extras.get("service_operation_policy")
+        operation_id = None
+        duration = None
+        if policy is not None:
+            import hashlib
+            from frisket.ops.media_probe import probe_for_ingest
+
+            digest = hashlib.sha256(payload).hexdigest()
+            duration = probe_for_ingest(p, digest=digest).get("duration_seconds")
+            operation_id = policy.admit_transcription(
+                engine=engine,
+                prepared={
+                    "engine": engine,
+                    "audio_digest": digest,
+                    "options": options_json,
+                },
+                audio_seconds=duration,
+                context=ctx,
+            )
+        try:
+            body = await sidecar_post(
+                ctx,
+                TRANSCRIPTION_ENDPOINT,
+                files=[
+                    (
+                        "files",
+                        (p.name or "audio", payload, "application/octet-stream"),
+                    )
+                ],
+                data={
+                    "contract_version": TRANSCRIPTION_CONTRACT_VERSION,
+                    "engine": engine,
+                    "options": options_json,
+                },
+                op="transcribe",
+                light_engine=light_engine,
+                structured_errors=True,
+                timeout=sidecar_transcribe_timeout(connection),
+                connection=connection,
+            )
+        except BaseException as error:
+            if operation_id is not None:
+                policy.fail_service(operation_id, error)
+            raise
+        if operation_id is not None:
+            policy.finish_service(
+                operation_id, result=body, usage={"audio_seconds": duration}
+            )
         return transcription_v1_result(
             body,
             wire_engine=engine,

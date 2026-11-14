@@ -109,6 +109,42 @@ async def execute_row(
     required_output_field_names: frozenset[str] = frozenset(),
     managed_publication: bool = False,
 ) -> dict[str, dict]:
+    from contextlib import nullcontext
+
+    policy = getattr(router, "model_call_policy", None)
+    capture = getattr(policy, "operation_scope", None)
+    with capture(ctx, row_id=row_id) if capture is not None else nullcontext():
+        return await _execute_row(
+            project,
+            router,
+            throttle,
+            recipe,
+            values,
+            spec,
+            ctx,
+            row_id=row_id,
+            recorder=recorder,
+            output_field_names=output_field_names,
+            required_output_field_names=required_output_field_names,
+            managed_publication=managed_publication,
+        )
+
+
+async def _execute_row(
+    project: Project,
+    router: ModelRouter,
+    throttle: AdaptiveThrottle,
+    recipe: Recipe,
+    values: dict,
+    spec: dict,
+    ctx: OpContext,
+    *,
+    row_id: int | None = None,
+    recorder: TraceWriter | None = None,
+    output_field_names: tuple[str, ...] | None = None,
+    required_output_field_names: frozenset[str] = frozenset(),
+    managed_publication: bool = False,
+) -> dict[str, dict]:
     """Execute a row and return publication/accounting data by field.
 
     Every model call is captured best-effort through a ``TracingRouter``.
