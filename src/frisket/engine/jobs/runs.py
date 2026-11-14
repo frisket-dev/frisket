@@ -51,7 +51,6 @@ from frisket.engine.sandbox.shim import SandboxTeardownError
 from frisket.engine.store import Project
 from frisket.engine.store.document_text import DocumentTextPublicationRefused
 from frisket.engine.store.output_claims import ClaimLeaseRenewalFailed
-from frisket.engine.store.receipts import FINISHED_RECEIPT_STATUSES, ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.worker_version import code_version
 from frisket.execution.credential_use import ActionCredentialResolver
@@ -688,15 +687,14 @@ def register_project_run_handler(
     """Register the project-run handler.
 
     Edition policy arrives as ports (`worker_ports`), never as an import: the
-    open default admits every run, settles nothing, and resolves org BYOK keys
+    open default admits every run and resolves org BYOK keys
     from the open identity control plane. An external composition injects its
-    own admission + settlement ports.
+    own admission and credential ports.
     """
 
     ports = coerce_worker_ports(worker_ports)
     credentials = ports.credentials()
     admission = ports.admission_port
-    settlement = ports.settlement_port
     root = Path(workspace_root)
     composition_factory = execution_composition_factory or open_execution_composition
     uses_open_composition = execution_composition_factory is None
@@ -726,31 +724,6 @@ def register_project_run_handler(
             credentials=credentials,
             control_database_url=db_url,
         )
-        key_providers = set(keys or {})
-
-        def settle() -> None:
-            """Hand the run's outcome to the settlement port, if any. The open
-            editions have none — they meter nothing and charge nobody."""
-            if settlement is None:
-                return
-            terminal_row = run_store.get_run(run_id)
-            terminal_status = (
-                None if terminal_row is None else str(terminal_row["status"])
-            )
-            if terminal_status not in {"completed", "failed", "cancelled"}:
-                raise RuntimeError(
-                    "settlement requires the run's durable terminal posture; "
-                    f"run {run_id} is {terminal_status!r}"
-                )
-            settlement.settle_run(
-                project=project,
-                project_id=project_id,
-                run_id=run_id,
-                trusted_job_org_id=handler_context.trusted_job_org_id,
-                control_database_url=db_url,
-                key_providers=key_providers,
-                terminal_status=terminal_status,
-            )
 
         run_store = RunResultStore(project)
         # Stamp the claiming process's code identity onto the run record itself
@@ -770,7 +743,6 @@ def register_project_run_handler(
         try:
             row = run_store.get_run(run_id)
             if row is not None and row["status"] != "running":
-                settle()
                 result = {
                     "project_id": project_id,
                     "run_id": run_id,
@@ -877,7 +849,6 @@ def register_project_run_handler(
                     error=None if cancel_requested else pre_run_error,
                     never_dispatched=True,
                 )
-                settle()
                 _enqueue_search_index_after_completion(
                     project,
                     queue=queue,
@@ -1144,7 +1115,6 @@ def register_project_run_handler(
                     ),
                     claim_token=(claim_token if defer_attempt_close else None),
                 )
-                settle()
                 _enqueue_search_index_after_completion(
                     project,
                     queue=queue,
@@ -1184,7 +1154,6 @@ def register_project_run_handler(
                     ),
                 )
                 row = run_store.get_run(run_id)
-                settle()
             else:
                 action_result = queued_v1_finalize_action_result(
                     project,
@@ -1197,7 +1166,6 @@ def register_project_run_handler(
                     ),
                     claim_token=(claim_token if defer_attempt_close else None),
                 )
-                settle()
             result = {
                 "project_id": project_id,
                 "run_id": progress.run_id,
@@ -1255,7 +1223,6 @@ def register_project_run_handler(
                 ),
                 never_dispatched=True,
             )
-            settle()
             row = run_store.get_run(run_id)
             return {
                 "project_id": project_id,
@@ -1287,7 +1254,6 @@ def register_project_run_handler(
                 claim_token=claim_token,
                 publication_refusal=exc,
             )
-            settle()
             row = run_store.get_run(run_id)
             return {
                 "project_id": project_id,
@@ -1330,7 +1296,6 @@ def register_project_run_handler(
                     # halt atomically. Preserve the action-specific typed
                     # receipt, then re-raise so the queue job still records
                     # the strict infrastructure failure and never auto-retries.
-                    settle()
                     queued_v1_finalize_action_result(
                         project,
                         payload,
@@ -1341,7 +1306,6 @@ def register_project_run_handler(
                 else:
                     if row and row["status"] == "running":
                         run_store.finish_run(run_id, "failed")
-                    settle()
                     queued_v1_worker_exception_failure_result(
                         project,
                         payload,
@@ -1390,9 +1354,7 @@ def register_action_run_handler(
     terminalizes the reserved (run_id=None) receipt.
 
     The admission port (if the composition injected one) decides whether an
-    action may execute at all; the open editions admit everything. A terminal
-    runless receipt is handed to the same edition settlement port used for
-    project runs.
+    action may execute at all; the open editions admit everything.
     """
 
     from frisket.engine.executor.action_jobs import (
@@ -1408,7 +1370,6 @@ def register_action_run_handler(
     _ = router  # executors that need a router pull it from their own ctx/gateway
     ports = coerce_worker_ports(worker_ports)
     admission = ports.admission_port
-    settlement = ports.settlement_port
 
     def handle(payload: dict, handler_context: JobHandlerContext) -> dict:
         project_id, project_root, project_path = claimed_project_location(
@@ -1487,22 +1448,6 @@ def register_action_run_handler(
                         )
                     ),
                 )
-            if envelope is not None and settlement is not None:
-                stored = ReceiptStore(project).find_by_id(envelope.receipt_id)
-                if (
-                    stored is not None
-                    and stored.parsed().status in FINISHED_RECEIPT_STATUSES
-                ):
-                    settlement.settle_action_receipt(
-                        project=project,
-                        project_id=project_id,
-                        receipt_id=envelope.receipt_id,
-                        trusted_job_org_id=handler_context.trusted_job_org_id,
-                        control_database_url=(
-                            control_database_url
-                            or os.environ.get("FRISKET_DATABASE_URL")
-                        ),
-                    )
             _enqueue_search_index_after_completion(
                 project,
                 queue=queue,

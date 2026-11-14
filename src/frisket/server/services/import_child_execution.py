@@ -15,7 +15,7 @@ def import_child_port(
     workspace: Any,
 ) -> Callable[..., AbstractContextManager[ExecutionCompositionContext]] | None:
     return getattr(
-        getattr(workspace, "direct_action_receipt_settlement_port", None),
+        getattr(workspace, "import_child_admission_port", None),
         "admit_import_child",
         None,
     )

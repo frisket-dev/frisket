@@ -419,8 +419,8 @@ def create_app(
     execution_router_factory: Callable[[], ModelRouter] | None = None,
     execution_composition_factory: ExecutionCompositionFactory | None = None,
     action_observer: ActionObserver | None = None,
-    direct_action_receipt_settlement_port: (
-        server_workspace.DirectActionReceiptSettlementPort | None
+    import_child_admission_port: (
+        server_workspace.ImportChildAdmissionPort | None
     ) = None,
     project_qa_runtime_port: server_workspace.ProjectQARuntimePort | None = None,
     project_qa_internal_error_reporter: ProjectQAInternalErrorReporter | None = None,
@@ -594,7 +594,7 @@ def create_app(
         plugin_composition_policy=plugin_composition_policy,
         execution_router_factory=execution_router_factory,
         execution_composition_factory=execution_composition_factory,
-        direct_action_receipt_settlement_port=(direct_action_receipt_settlement_port),
+        import_child_admission_port=(import_child_admission_port),
         action_observer=action_observer,
         project_qa_runtime_port=project_qa_runtime_port,
         edition=edition,
