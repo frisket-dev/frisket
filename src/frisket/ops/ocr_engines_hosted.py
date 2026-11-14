@@ -260,17 +260,56 @@ async def ocr_datalab(pages: list[Path], ctx: OpContext, usage: dict) -> list[di
             persist_hosted_accepted_accounting(ctx, accounting)
             usage.setdefault("model_calls", []).extend(accounting["model_calls"])
 
-        page_results, cost_usd = await datalab_ocr(
-            ctx.http,
-            api_key,
-            page_bytes,
-            p.name,
-            mime,
-            page_size=page_size,
-            should_cancel=should_cancel,
-            credential_source=credential_source,
-            on_accepted=persist_accepted,
-        )
+        policy = getattr(
+            ctx.extras.get("router"), "model_call_policy", None
+        ) or ctx.extras.get("service_operation_policy")
+        operation_id = None
+        if policy is not None:
+            from hashlib import sha256
+
+            rate = datalab_ocr_page_rate()
+            operation_id = policy.admit_external_service(
+                provider="datalab",
+                capability="ocr",
+                engine=DATALAB_ENGINE,
+                prepared={
+                    "image_digest": sha256(page_bytes).hexdigest(),
+                    "mime": mime,
+                    "pages": 1,
+                },
+                credential_source=credential_source,
+                estimated_cost_usd=float(rate) if rate is not None else None,
+                context=ctx,
+            )
+        try:
+            page_results, cost_usd = await datalab_ocr(
+                ctx.http,
+                api_key,
+                page_bytes,
+                p.name,
+                mime,
+                page_size=page_size,
+                should_cancel=should_cancel,
+                credential_source=credential_source,
+                on_accepted=persist_accepted,
+            )
+        except BaseException as error:
+            if accepted_accounting is not None:
+                # The provider may have priced its response before local decoding failed.
+                error.accounting = accepted_accounting
+                error.provider_job_accepted = True
+            if operation_id is not None:
+                policy.fail_service(operation_id, error)
+            raise
+        if operation_id is not None:
+            policy.finish_service(
+                operation_id,
+                result=page_results,
+                usage={"pages": 1},
+                provider_cost_micro=None
+                if cost_usd is None
+                else round(cost_usd * 1_000_000),
+            )
         if accepted_accounting is None:
             raise RuntimeError("Datalab returned without its accepted-job accounting")
         out.extend(page_results)

@@ -57,8 +57,41 @@ async def parse_with_context(
         if on_accounting:
             on_accounting(accounting)
 
+    policy = getattr(
+        ctx.extras.get("router"), "model_call_policy", None
+    ) or ctx.extras.get("service_operation_policy")
+    operation_id = None
+    if policy is not None:
+        from hashlib import sha256
+        from frisket.opendocrouter_catalog import find_model
+        from frisket.ops.integrations.opendocrouter import input_details
+
+        mime, page_count = input_details(path)
+        model = find_model(engine)
+        if model is None:
+            raise HostedEngineError("bad_request", "OpenDocRouter model is unavailable")
+        operation_id = policy.admit_external_service(
+            provider="opendocrouter",
+            capability=capability,
+            engine=engine,
+            prepared={
+                "document_digest": sha256(path.read_bytes()).hexdigest(),
+                "mime": mime,
+                "pages": page_count,
+                "layout": layout,
+                "engine": engine,
+            },
+            credential_source=credential.source,
+            estimated_cost_usd=page_count
+            * (
+                model.max_charge_per_page_usd
+                if model.max_charge_per_page_usd is not None
+                else model.avg_charge_per_page_usd
+            ),
+            context=ctx,
+        )
     try:
-        return await parse_document(
+        pages, accounting = await parse_document(
             ctx.http,
             path=path,
             engine=engine,
@@ -69,7 +102,22 @@ async def parse_with_context(
             should_cancel=(ctx.extras or {}).get("cancelled"),
             on_accounting=record,
         )
+        if operation_id is not None:
+            policy.finish_service(
+                operation_id,
+                result=pages,
+                usage={
+                    "pages": len(pages),
+                    "model_calls": accounting.get("model_calls", []),
+                },
+                provider_cost_micro=None
+                if accounting.get("cost") is None
+                else round(accounting["cost"] * 1_000_000),
+            )
+        return pages, accounting
     except HostedEngineError as exc:
+        if operation_id is not None:
+            policy.fail_service(operation_id, exc)
         # A halted/cancelled job has no returned-row writer. Preserve a final
         # charge learned during cancellation reconciliation before propagating.
         if (exc.provider_job_accepted or exc.post_egress_ambiguous) and exc.accounting:
@@ -79,6 +127,10 @@ async def parse_with_context(
                 # Keep the accepted-effect marker even when the ledger cannot
                 # be written: an ordinary row failure could be resubmitted.
                 raise exc from persistence_error
+        raise
+    except BaseException as error:
+        if operation_id is not None:
+            policy.fail_service(operation_id, error)
         raise
 
 

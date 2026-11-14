@@ -634,16 +634,63 @@ class _BoundDocumentConverter:
             accepted_accounting = accounting
             persist_hosted_accepted_accounting(ctx, accounting)
 
-        body, cost_usd = await datalab_convert(
-            ctx.http,
-            credential.value,
-            path.read_bytes(),
-            path.name,
-            mime,
-            should_cancel=should_cancel,
-            credential_source=credential.source,
-            on_accepted=persist_accepted,
-        )
+        payload = path.read_bytes()
+        policy = getattr(
+            ctx.extras.get("router"), "model_call_policy", None
+        ) or ctx.extras.get("service_operation_policy")
+        operation_id = None
+        if policy is not None:
+            from hashlib import sha256
+            from frisket.ops.media_probe import probe_for_ingest
+
+            digest = sha256(payload).hexdigest()
+            pages = (
+                probe_for_ingest(path, digest=digest).get("pages")
+                if mime == "application/pdf"
+                else 1
+                if mime.startswith("image/")
+                else None
+            )
+            rate = external_unit_price_usd(DATALAB_CONVERT_PAGE)
+            operation_id = policy.admit_external_service(
+                provider="datalab",
+                capability=CAPABILITY_TO_MARKDOWN,
+                engine=DATALAB_ENGINE,
+                prepared={"document_digest": digest, "mime": mime, "pages": pages},
+                credential_source=credential.source,
+                estimated_cost_usd=rate * pages
+                if rate is not None and pages is not None
+                else None,
+                context=ctx,
+            )
+        try:
+            body, cost_usd = await datalab_convert(
+                ctx.http,
+                credential.value,
+                payload,
+                path.name,
+                mime,
+                should_cancel=should_cancel,
+                credential_source=credential.source,
+                on_accepted=persist_accepted,
+            )
+        except BaseException as error:
+            if accepted_accounting is not None:
+                # The provider may have priced its response before local decoding failed.
+                error.accounting = accepted_accounting
+                error.provider_job_accepted = True
+            if operation_id is not None:
+                policy.fail_service(operation_id, error)
+            raise
+        if operation_id is not None:
+            policy.finish_service(
+                operation_id,
+                result=body,
+                usage={"pages": body.get("page_count")},
+                provider_cost_micro=None
+                if cost_usd is None
+                else round(cost_usd * 1_000_000),
+            )
         if accepted_accounting is None:
             raise RuntimeError("Datalab returned without its accepted-job accounting")
         meta = accepted_accounting
