@@ -93,6 +93,45 @@ _MIME_EXT = {
 }
 
 
+def _office_page_estimate(payload: bytes, suffix: str) -> int:
+    """Cheap admission estimate, never a usage fact or billing cap."""
+    from io import BytesIO
+    from xml.etree import ElementTree
+    from zipfile import BadZipFile, ZipFile
+
+    if suffix in {".docx", ".pptx"}:
+        try:
+            with ZipFile(BytesIO(payload)) as archive:
+                if suffix == ".pptx":
+                    pages = sum(
+                        name.startswith("ppt/slides/slide") and name.endswith(".xml")
+                        for name in archive.namelist()
+                    )
+                else:
+                    # Bound decompression of optional document properties.
+                    with archive.open("docProps/app.xml") as stream:
+                        properties = stream.read(65_537)
+                    if len(properties) > 65_536:
+                        raise ValueError("Oversized Office properties")
+                    pages = int(
+                        ElementTree.fromstring(properties).findtext("{*}Pages") or 0
+                    )
+                if pages > 0:
+                    return pages
+        except (
+            BadZipFile,
+            KeyError,
+            OSError,
+            RuntimeError,
+            ValueError,
+            ElementTree.ParseError,
+        ):
+            pass
+    # Legacy formats and missing metadata: a coarse 32 KiB/page heuristic.
+    # Compression and embedded media vary; returned pages/cost own settlement.
+    return max(1, (len(payload) + 32_767) // 32_768)
+
+
 def _engine_tier(engine: str) -> str:
     if engine in SIDECAR_ENGINES:
         return "sidecar"
@@ -649,7 +688,7 @@ class _BoundDocumentConverter:
                 if mime == "application/pdf"
                 else 1
                 if mime.startswith("image/")
-                else None
+                else _office_page_estimate(payload, suffix)
             )
             rate = external_unit_price_usd(DATALAB_CONVERT_PAGE)
             operation_id = policy.admit_external_service(
