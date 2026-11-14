@@ -76,21 +76,42 @@ def reapply_results(project, project_id, bound):
                 )
             }
             source_columns = dict.fromkeys(column_id for _, _, column_id in coordinates)
+            from frisket.engine.executor.run_backfill_action import backfill_program
+            from frisket.engine.runner.result_generations import _compatibility_key
+
             bindings = {
-                binding.column_id: binding.output_role
+                binding.column_id: binding
                 for binding in ResultGenerationStore(project).bindings_for_run(source)
             }
+            declared = {
+                field["name"]: field
+                for field in backfill_program(project, params).output_fields(params)
+            }
+            descriptors = {}
+            for column_id in source_columns:
+                binding = bindings[column_id]
+                descriptor = declared.get(binding.output_role)
+                if (
+                    descriptor is None
+                    or _compatibility_key(field=descriptor) != binding.compatibility_key
+                ):
+                    raise ValueError(
+                        "The saved output contract can no longer be reconstructed"
+                    )
+                descriptors[column_id] = descriptor
             logical_keys = {
-                column_id: inverse.get(bindings[column_id], bindings[column_id])
+                column_id: inverse.get(
+                    bindings[column_id].output_role, bindings[column_id].output_role
+                )
                 for column_id in source_columns
             }
             fields = tuple(
                 OutputField(
                     key=logical_keys[column_id],
-                    column_type=columns[column_id]["type"],
-                    schema={},
-                    format=columns[column_id]["format"],
-                    semantic_type=columns[column_id]["semantic_type"],
+                    column_type=descriptors[column_id]["column_type"],
+                    schema=descriptors[column_id].get("schema") or {},
+                    format=descriptors[column_id].get("format"),
+                    semantic_type=descriptors[column_id].get("semantic_type"),
                 )
                 for column_id in source_columns
             )
@@ -110,7 +131,7 @@ def reapply_results(project, project_id, bound):
             targets = {}
             created = []
             for column_id, logical in logical_keys.items():
-                original = columns[column_id]
+                descriptor = descriptors[column_id]
                 name = final_names[logical]
                 existing_id = preconditions[name]
                 targets[column_id] = (
@@ -119,9 +140,9 @@ def reapply_results(project, project_id, bound):
                     else project.add_column(
                         scope.sheet_id,
                         name,
-                        type=original["type"],
-                        format=original["format"],
-                        semantic_type=original["semantic_type"],
+                        type=descriptor["column_type"],
+                        format=descriptor.get("format"),
+                        semantic_type=descriptor.get("semantic_type"),
                         commit=False,
                     )
                 )

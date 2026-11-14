@@ -363,3 +363,35 @@ def test_retry_after_output_undo_explains_recovery_without_purchasing(work):
     assert retried.status == "failed"
     assert "Reapply saved results" in retried.errors[0].message
     assert len(calls) == 2
+
+
+def test_reapply_retains_original_output_type_after_column_retype(work):
+    project, sheet, source, rows, calls, adapter, run = work
+    original = start(run)
+    output = next(c for c in project.columns(sheet) if c["name"] == "Answer")
+    saved = dict(project.get_values(sheet, output["id"]))
+    project.set_column_type(output["id"], "number")
+    project.set_column_format(output["id"], "currency")
+    project.set_column_semantic_type(output["id"], "later_numeric_meaning")
+    refused = run(
+        "run.reapply",
+        {"source_run_id": original.run_id},
+        key="incompatible-target",
+        replace_existing=True,
+    )
+    assert refused.status == "failed"
+    assert refused.errors[0].code == "output_column_exists"
+    restored_result = run(
+        "run.reapply",
+        {"source_run_id": original.run_id},
+        output_names={"answer": "Restored"},
+    )
+    assert restored_result.status == "completed", restored_result.errors
+    restored = next(c for c in project.columns(sheet) if c["name"] == "Restored")
+    assert restored["type"] == "text"
+    assert restored["format"] == output["format"]
+    assert restored["semantic_type"] == output["semantic_type"]
+    assert dict(project.get_values(sheet, restored["id"])) == saved
+    _, refs = project.get_values_with_refs(sheet, restored["id"], row_ids=[rows[0]])
+    assert refs[rows[0]]["retained_result"]["run_id"] == original.run_id
+    assert len(calls) == 2
