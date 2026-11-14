@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import math
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -105,6 +106,27 @@ _TRANSCRIPTION_REQUEST_BUILDERS: dict[str, TranscriptionRequestBuilder] = {
 def _safe_remote_exception(prefix: str, error: BaseException, key: str) -> str:
     cause_detail = redact_text(error, secret_values=(key,), max_chars=300)
     return redact_text(f"{prefix}{cause_detail}", secret_values=(key,), max_chars=300)
+
+
+def _estimate_transcription_cost(
+    model_id: str, duration_seconds: float | None
+) -> float | None:
+    """Rough purchase headroom; the response's measured usage owns settlement."""
+    price = audio_price(model_id)
+    if price is None or duration_seconds is None:
+        return None
+    if "per_second" in price:
+        return duration_seconds * price["per_second"]
+    if "input_per_token" in price and "output_per_token" in price:
+        # Deliberately approximate audio encoding and transcript density. These
+        # are admission estimates, never billable usage or a whole-run ceiling.
+        audio_tokens = math.ceil(duration_seconds * 25)
+        transcript_tokens = math.ceil(duration_seconds * 5)
+        return (
+            audio_tokens * price["input_per_token"]
+            + transcript_tokens * price["output_per_token"]
+        )
+    return None
 
 
 def _remote_response_accounting(
@@ -246,7 +268,6 @@ class OpenAITranscriptionAdapter:
             duration = probe_for_ingest(Path(path), digest=digest).get(
                 "duration_seconds"
             )
-            rate = (audio_price(model_id) or {}).get("per_second")
             operation_id = policy.admit_external_service(
                 provider=provider,
                 capability="transcribe",
@@ -259,9 +280,7 @@ class OpenAITranscriptionAdapter:
                     "audio_seconds": duration,
                 },
                 credential_source=selected_source,
-                estimated_cost_usd=duration * rate
-                if duration is not None and rate is not None
-                else None,
+                estimated_cost_usd=_estimate_transcription_cost(model_id, duration),
                 context=ctx,
             )
         try:
