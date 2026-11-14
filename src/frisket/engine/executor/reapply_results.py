@@ -51,6 +51,14 @@ def reapply_results(project, project_id, bound):
                 raise ValueError(
                     "Reapply cannot include rows outside the original execution"
                 )
+            if scope.row_ids is not None and requested != set(
+                project.visible_row_ids(scope.sheet_id, list(requested))
+            ):
+                raise TypedMapRowsPlanError(
+                    "invalid_row_ref",
+                    "Reapply rows must remain visible",
+                    field="scope.row_ids",
+                )
             ph = ",".join("?" for _ in group)
             stored = project.db.execute(
                 f"SELECT run_id,row_id,column_id FROM results WHERE run_id IN ({ph}) AND outcome IN ('ok','empty') "

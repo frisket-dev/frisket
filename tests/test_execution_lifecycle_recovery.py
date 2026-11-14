@@ -532,3 +532,48 @@ def test_explicit_retry_buys_current_inputs_despite_old_unknown_effect(
         ).fetchone()[0]
         == "reserved"
     )
+
+
+@pytest.mark.parametrize(
+    "delete_failed_row,explicit_scope,expected_status",
+    [(True, True, "failed"), (False, True, "completed"), (True, False, "completed")],
+)
+def test_reapply_validates_explicit_rows_before_filtering_accepted_results(
+    work, delete_failed_row, explicit_scope, expected_status
+):
+    project, sheet, source, rows, calls, adapter, run = work
+    adapter.fail = "second"
+    original = start(run)
+    if delete_failed_row:
+        deleted = run(
+            "row.delete",
+            {"sheet_id": sheet, "row_ids": [rows[1]]},
+            scope={"kind": "project"},
+        )
+        assert deleted.status == "completed", deleted.errors
+    before_columns = [
+        dict(column) for column in project.columns(sheet, include_hidden=True)
+    ]
+    result = run(
+        "run.reapply",
+        {"source_run_id": original.run_id},
+        scope={
+            "kind": "sheet_rows",
+            "sheet_id": sheet,
+            **({"row_ids": rows} if explicit_scope else {}),
+        },
+        output_names={"answer": "Restored"},
+    )
+    assert result.status == expected_status, result.errors
+    assert len(calls) == 2
+    if expected_status == "failed":
+        assert result.errors[0].code == "invalid_row_ref"
+        assert "visible" in result.errors[0].message
+        assert [
+            dict(column) for column in project.columns(sheet, include_hidden=True)
+        ] == before_columns
+    else:
+        restored = next(
+            column for column in project.columns(sheet) if column["name"] == "Restored"
+        )
+        assert project.get_values(sheet, restored["id"])[rows[0]] == "answer 1"
