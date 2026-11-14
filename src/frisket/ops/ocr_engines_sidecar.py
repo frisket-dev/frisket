@@ -62,12 +62,16 @@ async def ocr_sidecar(engine: str, pages: list[Path], ctx: OpContext) -> list[di
             ),
             connection=connection,
         )
+        returned_pages = body.get("pages") if isinstance(body, dict) else None
+        if not isinstance(returned_pages, list):
+            raise ValueError("OCR sidecar response must contain a pages list")
+        returned_page_count = len(returned_pages)
     except BaseException as error:
         if operation_id is not None:
             policy.fail_service(operation_id, error)
         raise
     if operation_id is not None:
         policy.finish_service(
-            operation_id, result=body, usage={"pages": len(body["pages"])}
+            operation_id, result=body, usage={"pages": returned_page_count}
         )
-    return body["pages"]
+    return returned_pages

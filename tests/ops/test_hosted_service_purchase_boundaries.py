@@ -326,3 +326,79 @@ async def test_ask_search_owns_authority_in_actual_search_task():
         == "saved search result"
     )
     assert events == ["scope", "admit", "http", "finish"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body", [{}, {"pages": None}, {"pages": "not a list"}, []])
+async def test_sidecar_malformed_pages_fails_purchase_once(tmp_path, monkeypatch, body):
+    from frisket.ops import ocr_engines_sidecar as sidecar
+
+    policy, ctx, page, calls = _sidecar_purchase(tmp_path, monkeypatch, body)
+    with pytest.raises(
+        ValueError, match="OCR sidecar response must contain a pages list"
+    ) as error:
+        await sidecar.ocr_sidecar("dots.mocr", [page], ctx)
+    assert len(calls) == 1
+    assert [kind for kind, _ in policy.events] == ["admit", "fail"]
+    assert policy.events[-1][1]["error"] is error.value
+    assert policy.events[-1][1]["operation_id"] == "sidecar-operation"
+
+
+def _sidecar_purchase(tmp_path, monkeypatch, body):
+    from frisket.ops import ocr_engines_sidecar as sidecar
+
+    class SidecarPurchases(Purchases):
+        def admit_ocr(self, **request):
+            self.events.append(("admit", request))
+            return "sidecar-operation"
+
+    policy = SidecarPurchases()
+    ctx = context(policy)
+    page = tmp_path / "one.png"
+    Image.new("RGB", (4, 4)).save(page)
+    connection = SimpleNamespace(connect_timeout_seconds=10, timeout_seconds=60)
+    monkeypatch.setattr(
+        sidecar,
+        "routed_admission_in_scope",
+        lambda extras: SimpleNamespace(binding=SimpleNamespace(connection=connection)),
+    )
+    calls = []
+
+    async def post(*args, **kwargs):
+        calls.append(kwargs)
+        assert [kind for kind, _ in policy.events] == ["admit"]
+        return body
+
+    monkeypatch.setattr(sidecar, "sidecar_post", post)
+    return policy, ctx, page, calls
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("accounting_fails", [False, True])
+async def test_sidecar_valid_pages_retained_without_misclassifying_accounting_error(
+    tmp_path, monkeypatch, accounting_fails
+):
+    from frisket.ops import ocr_engines_sidecar as sidecar
+
+    body = {"pages": [{"text": "Saved OCR", "blocks": []}]}
+    policy, ctx, page, calls = _sidecar_purchase(tmp_path, monkeypatch, body)
+    finish = policy.finish_service
+
+    def record(operation_id, **facts):
+        finish(operation_id, **facts)
+        if accounting_fails:
+            raise RuntimeError("accounting unavailable")
+
+    monkeypatch.setattr(policy, "finish_service", record)
+    if accounting_fails:
+        with pytest.raises(RuntimeError, match="accounting unavailable"):
+            await sidecar.ocr_sidecar("dots.mocr", [page], ctx)
+    else:
+        assert await sidecar.ocr_sidecar("dots.mocr", [page], ctx) is body["pages"]
+    assert len(calls) == 1
+    assert [kind for kind, _ in policy.events] == ["admit", "finish"]
+    assert policy.events[-1][1] == {
+        "operation_id": "sidecar-operation",
+        "result": body,
+        "usage": {"pages": 1},
+    }
