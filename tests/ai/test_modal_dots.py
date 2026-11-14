@@ -40,6 +40,7 @@ def test_modal_registers_dots_mocr_as_an_isolated_worker() -> None:
     gateway = _function_spec(modal_sidecar, "hosted_models")
 
     assert _original(worker.image) is not _original(gateway.image)
+    assert worker.gpus == ["L4", "A10", "L40S", "A100-40GB", "A100-80GB"]
     assert "frisket-dots-link" in _named_secrets(worker)
     assert "frisket-dots-link" in _named_secrets(gateway)
 

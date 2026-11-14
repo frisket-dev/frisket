@@ -43,7 +43,8 @@ def test_modal_registers_parakeet_as_an_isolated_worker() -> None:
     assert _original(worker.image) is _original(modal_parakeet.image)
     assert _original(worker.image) is not _original(gateway.image)
     assert _named_secrets(worker) == {"frisket-moss-link"}
-    assert (worker.gpus, worker.cpu, worker.memory) == ("T4", 2.0, 16384)
+    assert worker.gpus == ["T4", "L4", "A10", "L40S", "A100-40GB", "A100-80GB"]
+    assert (worker.cpu, worker.memory) == (2.0, 16384)
     assert webhook.web_server_port == 9000
     assert webhook.web_server_startup_timeout == 5
 

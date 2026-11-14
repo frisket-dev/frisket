@@ -33,7 +33,7 @@ def _named_secrets(spec: Any) -> set[str]:
     }
 
 
-def test_modal_registers_paddle_engines_as_separate_l4_workers() -> None:
+def test_modal_registers_paddle_engines_as_separate_gpu_workers() -> None:
     pytest.importorskip("modal")
     from frisket.ai.models import modal_sidecar
 
@@ -45,12 +45,10 @@ def test_modal_registers_paddle_engines_as_separate_l4_workers() -> None:
     assert _original(pp_worker.image) is _original(modal_paddle.pp_ocrv6_image)
     assert _original(worker.image) is not _original(pp_worker.image)
     assert _original(worker.image) is not _original(gateway.image)
-    assert (worker.gpus, worker.cpu, worker.memory) == ("L4", 4.0, 32768)
-    assert (pp_worker.gpus, pp_worker.cpu, pp_worker.memory) == (
-        "L4",
-        4.0,
-        32768,
-    )
+    assert worker.gpus == ["L4", "A10", "L40S", "A100-40GB", "A100-80GB"]
+    assert pp_worker.gpus == ["L4", "A10", "L40S", "A100-40GB", "A100-80GB"]
+    assert (worker.cpu, worker.memory) == (4.0, 32768)
+    assert (pp_worker.cpu, pp_worker.memory) == (4.0, 32768)
     assert _named_secrets(worker) == {"frisket-models-edge"}
     assert _named_secrets(pp_worker) == {"frisket-models-edge"}
     assert set(worker.volumes) == {"/frisket-model-cache"}

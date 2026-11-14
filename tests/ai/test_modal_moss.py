@@ -63,7 +63,8 @@ def test_moss_modal_graph_uses_native_image_and_isolated_link_secret() -> None:
     )
     assert all("from_registry" not in item for item in lineage)
     assert _named_secrets(spec) == {"frisket-moss-link"}
-    assert (spec.gpus, spec.cpu, spec.memory) == ("A10", 2.0, 16384)
+    assert spec.gpus == ["A10", "L4", "L40S", "A100-40GB", "A100-80GB"]
+    assert (spec.cpu, spec.memory) == (2.0, 16384)
     assert webhook.web_server_port == 9000
     assert webhook.web_server_startup_timeout == 5
 
@@ -79,7 +80,8 @@ def test_models_sidecar_separates_edge_config_and_moss_link_secrets() -> None:
         "frisket-models-edge",
         "frisket-moss-link",
     }
-    assert (spec.gpus, spec.cpu, spec.memory) == ("T4", 4.0, 32768)
+    assert spec.gpus == ["T4", "L4", "A10", "L40S", "A100-40GB", "A100-80GB"]
+    assert (spec.cpu, spec.memory) == (4.0, 32768)
     assert set(spec.volumes) == {"/frisket-model-cache"}
 
 
