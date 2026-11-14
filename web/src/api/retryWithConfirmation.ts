@@ -26,3 +26,37 @@ export async function retryWithConfirmation(
     return api.runAction({ ...request, confirmation: error.estimate.promise_set_hash });
   }
 }
+
+/** Retry the executions that actually produced the selected column's failures. */
+export async function retryFailedRowsWithConfirmation(
+  api: Pick<ProjectApiPort, 'runAction' | 'getSheetData'>,
+  requestConfirmation: CostConfirmationRequester,
+  sheetId: string,
+  column: { id: string; name: string },
+  outcome: string,
+  afterRetry: (runId: string) => void,
+): Promise<void> {
+  const groups = new Map<string, number[]>();
+  for (let offset = 0; ; ) {
+    const page = await api.getSheetData(sheetId, offset, 1000, {
+      filter: { [column.name]: { failed: outcome } },
+      columnIds: [column.id], valueMode: 'bounded',
+    });
+    for (const row of page.rows) {
+      const ref = row.provenance[column.id]?.currentValueRef;
+      if (ref?.kind !== 'run_result' || !ref.runId) {
+        throw new Error('A failed row has no saved execution available to retry.');
+      }
+      const rowIds = groups.get(ref.runId) ?? [];
+      rowIds.push(Number(row.id));
+      groups.set(ref.runId, rowIds);
+    }
+    offset += page.rows.length;
+    if (page.rows.length === 0 || offset >= page.total) break;
+  }
+  for (const [sourceRunId, rowIds] of groups) {
+    const result = await retryWithConfirmation(api, requestConfirmation, sheetId, sourceRunId, rowIds);
+    if (result === null) return;
+    if (result.runId) afterRetry(result.runId);
+  }
+}

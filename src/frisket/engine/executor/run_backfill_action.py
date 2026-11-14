@@ -129,7 +129,11 @@ def _resolve_retry(
     if original is None or original["sheet_id"] != scope.sheet_id:
         raise ValueError("Execution does not belong to the selected sheet")
     original_rows = set(RunResultStore(project).run_row_scope(root_id))
-    requested = original_rows if scope.row_ids is None else set(scope.row_ids)
+    requested = (
+        original_rows.intersection(project.visible_row_ids(scope.sheet_id))
+        if scope.row_ids is None
+        else set(scope.row_ids)
+    )
     if not requested.issubset(original_rows):
         raise ValueError("Retry cannot expand the original execution cohort")
     bindings = ResultGenerationStore(project).bindings_for_run(root_id)

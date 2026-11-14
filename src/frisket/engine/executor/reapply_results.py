@@ -42,7 +42,11 @@ def reapply_results(project, project_id, bound):
             if run is None or run["sheet_id"] != scope.sheet_id:
                 raise ValueError("Saved run does not belong to the selected sheet")
             original_rows = set(RunResultStore(project).run_row_scope(source))
-            requested = original_rows if scope.row_ids is None else set(scope.row_ids)
+            requested = (
+                original_rows.intersection(project.visible_row_ids(scope.sheet_id))
+                if scope.row_ids is None
+                else set(scope.row_ids)
+            )
             if not requested.issubset(original_rows):
                 raise ValueError(
                     "Reapply cannot include rows outside the original execution"
@@ -124,6 +128,20 @@ def reapply_results(project, project_id, bound):
             target_request = bound.request.model_copy(
                 update={"output_names": output_names}
             )
+            # Producer-owned hidden columns are not available publication targets.
+            # Generic output preparation may revive them, but Reapply neither owns
+            # that producer nor may record a reused column as created for Undo.
+            hidden_targets = {
+                column["name"]
+                for column in columns.values()
+                if column["active"] and column["hidden"]
+            }.intersection(field.materialized_name(output_names) for field in fields)
+            if hidden_targets:
+                raise TypedMapRowsPlanError(
+                    "output_column_exists",
+                    "Reapply cannot replace hidden active output columns; choose a new name",
+                    details={"columns": sorted(hidden_targets)},
+                )
             final_names, preconditions = resolve_row_output_targets(
                 project, target_request, fields
             )

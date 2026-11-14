@@ -395,3 +395,140 @@ def test_reapply_retains_original_output_type_after_column_retype(work):
     _, refs = project.get_values_with_refs(sheet, restored["id"], row_ids=[rows[0]])
     assert refs[rows[0]]["retained_result"]["run_id"] == original.run_id
     assert len(calls) == 2
+
+
+@pytest.mark.parametrize("replace_existing", [False, True])
+def test_reapply_refuses_another_producers_hidden_active_output(work, replace_existing):
+    project, sheet, source, rows, calls, adapter, run = work
+    original = start(run)
+    adapter.fail = "first"
+    other = run(
+        "map.ask",
+        {
+            "source": ["source"],
+            "model": "anthropic/claude-haiku-4-5",
+            "question": "other",
+        },
+        output_names={"answer": "Other"},
+        scope={"kind": "sheet_rows", "sheet_id": sheet, "row_ids": [rows[0]]},
+    )
+    assert other.run_id is not None
+    target = next(
+        c for c in project.columns(sheet, include_hidden=True) if c["name"] == "Other"
+    )
+    assert target["active"] and target["hidden"]
+    before = dict(target)
+    result = run(
+        "run.reapply",
+        {"source_run_id": original.run_id},
+        output_names={"answer": "Other"},
+        replace_existing=replace_existing,
+    )
+    assert result.status == "failed", result.errors
+    assert "hidden" in result.errors[0].message.lower()
+    assert dict(project.get_column(target["id"])) == before
+    assert len(calls) == 3
+
+
+@pytest.mark.parametrize("action", ["run.retry", "run.reapply"])
+def test_default_recovery_skips_deleted_original_rows(work, action):
+    project, sheet, source, rows, calls, adapter, run = work
+    if action == "run.retry":
+        adapter.fail = "describe"
+    original = start(run)
+    deleted = run(
+        "row.delete",
+        {"sheet_id": sheet, "row_ids": [rows[1]]},
+        scope={"kind": "project"},
+    )
+    assert deleted.status == "completed", deleted.errors
+    adapter.fail = None
+    result = run(
+        action,
+        {"source_run_id": original.run_id},
+        scope={"kind": "sheet_rows", "sheet_id": sheet},
+        **({"output_names": {"answer": "Restored"}} if action == "run.reapply" else {}),
+    )
+    assert result.status == "completed", result.errors
+    assert len(calls) == (3 if action == "run.retry" else 2)
+    assert project.visible_row_ids(sheet) == [rows[0]]
+    refused = run(
+        action,
+        {"source_run_id": original.run_id},
+        key="explicit-deleted-row",
+        scope={"kind": "sheet_rows", "sheet_id": sheet, "row_ids": [rows[1]]},
+        **({"output_names": {"answer": "Explicit"}} if action == "run.reapply" else {}),
+    )
+    assert refused.status == "failed"
+
+
+def test_failed_row_retry_uses_its_head_after_unrelated_backfill(work):
+    from frisket.server.run_payloads import column_run_provenance_payload
+
+    project, sheet, source, rows, calls, adapter, run = work
+    adapter.fail = "second"
+    original = start(run)
+    column = next(c["id"] for c in project.columns(sheet) if c["name"] == "Answer")
+    adapter.fail = None
+    backfill = run(
+        "run.backfill",
+        {"column": "Answer"},
+        scope={"kind": "sheet_rows", "sheet_id": sheet, "row_ids": [rows[0]]},
+    )
+    assert backfill.status == "completed", backfill.errors
+    history = column_run_provenance_payload(project, column)
+    assert history["latest_run"]["run_id"] == backfill.run_id
+    _, refs = project.get_values_with_refs(sheet, column, row_ids=[rows[1]])
+    assert refs[rows[1]]["run_id"] == original.run_id
+    wrong_root = run(
+        "run.retry",
+        {"source_run_id": backfill.run_id},
+        key="wrong-root",
+        scope={"kind": "sheet_rows", "sheet_id": sheet, "row_ids": [rows[1]]},
+    )
+    assert wrong_root.status == "failed"
+    assert "cohort" in wrong_root.errors[0].message
+    retried = run(
+        "run.retry",
+        {"source_run_id": refs[rows[1]]["run_id"]},
+        scope={"kind": "sheet_rows", "sheet_id": sheet, "row_ids": [rows[1]]},
+    )
+    assert retried.status == "completed", retried.errors
+    assert len(calls) == 4
+
+
+def test_explicit_retry_buys_current_inputs_despite_old_unknown_effect(
+    work, monkeypatch
+):
+    from frisket.ai.llm import LLMError
+
+    project, sheet, source, rows, calls, adapter, run = work
+    complete = adapter.complete
+
+    async def lose_first_response(request, client):
+        if not calls:
+            calls.append(request)
+            raise LLMError("response lost after acceptance", status=502, retryable=True)
+        return await complete(request, client)
+
+    monkeypatch.setattr(adapter, "complete", lose_first_response)
+    original = start(run)
+    checkpoint = project.db.execute(
+        "SELECT id,state FROM effect_checkpoints WHERE family='row_effect' AND group_key=? AND state='reserved'",
+        (str(original.run_id),),
+    ).fetchone()
+    assert checkpoint is not None
+    project.apply_edits(
+        [{"row_id": rows[0], "column_id": source, "value": "changed current input"}]
+    )
+    retried = run("run.retry", {"source_run_id": original.run_id})
+    assert retried.status == "completed", retried.errors
+    assert any(
+        "changed current input" in json.dumps(call.messages) for call in calls[1:]
+    )
+    assert (
+        project.db.execute(
+            "SELECT state FROM effect_checkpoints WHERE id=?", (checkpoint["id"],)
+        ).fetchone()[0]
+        == "reserved"
+    )
