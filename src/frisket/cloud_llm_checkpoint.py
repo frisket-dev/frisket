@@ -268,10 +268,17 @@ class CloudLLMCheckpointCoordinator:
                 # Only an explicitly configured agent budget reaches here.
                 # Reserve the saved call's estimate while settlement is pending;
                 # keep it out of the accounting envelope and actual charges.
-                prior_cost = cloud_llm_estimated_spend_micro(
-                    CloudLLMRequest.model_validate(row["payload"]["request"]),
-                    response.route.price,
-                )
+                try:
+                    prior_cost = cloud_llm_estimated_spend_micro(
+                        CloudLLMRequest.model_validate(row["payload"]["request"]),
+                        response.route.price,
+                    )
+                except ValueError:
+                    raise CloudExecutionRefused(
+                        "external_effect_reconciliation_required",
+                        "Cloud accounting is pending and the prior call cannot be estimated for the explicit research budget",
+                        retryable=False,
+                    ) from None
             if isinstance(prior_cost, bool) or not isinstance(prior_cost, int):
                 raise CloudExecutionRefused(
                     "external_effect_reconciliation_required",

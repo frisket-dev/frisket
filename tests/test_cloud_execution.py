@@ -1274,8 +1274,10 @@ async def test_cloud_known_execution_survives_standalone_network_failure(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("body_kind", ["valid", "html", "malformed_json"])
 async def test_update_required_keeps_instruction_and_never_retries_cloud_purchase(
     tmp_path,
+    body_kind,
 ):
     from frisket.ai.llm import LLMRequest, ModelRouter
 
@@ -1284,8 +1286,17 @@ async def test_update_required_keeps_instruction_and_never_retries_cloud_purchas
         "Update Frisket Desktop at https://frisket.dev/ before using Frisket Cloud."
     )
 
+    if body_kind == "valid":
+        message = (
+            "Update Frisket Desktop at https://frisket.dev/ to use this Cloud release."
+        )
+
     def handler(request):
         seen.append(request)
+        if body_kind == "html":
+            return httpx.Response(426, text="<html>Upgrade required</html>")
+        if body_kind == "malformed_json":
+            return httpx.Response(426, json={"detail": "Upgrade required"})
         return httpx.Response(
             426,
             json={"error": "invalid_request", "message": message, "retryable": False},

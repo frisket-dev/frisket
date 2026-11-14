@@ -888,19 +888,22 @@ class HttpCloudExecutionTransport:
 
     @staticmethod
     def _raise_error(response: httpx.Response) -> None:
+        update_required = response.status_code == 426
         try:
             error = CloudErrorResponse.model_validate(response.json())
         except (ValueError, TypeError, ValidationError):
             raise CloudExecutionRefused(
-                "cloud_unavailable",
-                "Frisket Cloud could not complete the request",
-                retryable=response.status_code >= 500,
+                "desktop_update_required" if update_required else "cloud_unavailable",
+                "Update Frisket Desktop at https://frisket.dev/ before using Frisket Cloud."
+                if update_required
+                else "Frisket Cloud could not complete the request",
+                retryable=False if update_required else response.status_code >= 500,
             ) from None
         raise CloudExecutionRefused(
-            "desktop_update_required" if response.status_code == 426 else error.error,
+            "desktop_update_required" if update_required else error.error,
             error.message,
             retryable=False
-            if response.status_code == 426
+            if update_required
             else error.retryable or response.status_code >= 500,
         )
 
