@@ -108,9 +108,11 @@ class AdmittedWebSearcher:
                     error = exc
                 except Exception:  # receipt records failure; original propagates
                     pass
-            if operation_id is not None:
-                policy.finish_search(operation_id, response, error)
-            self._record(attempt, response=response, error=error, quote=quote)
+            try:
+                self._record(attempt, response=response, error=error, quote=quote)
+            finally:
+                if operation_id is not None:
+                    policy.finish_search(operation_id, response, error)
 
     def _record(
         self,

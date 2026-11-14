@@ -44,6 +44,9 @@ class _RecordingPolicy:
         if self.refuse_before_live:
             raise RuntimeError("policy refused live call")
 
+    def failed_live(self, request, error, credential_source):
+        self.events.append(("failed_live", credential_source, error.status))
+
     def after_live(
         self,
         request: LLMRequest,
@@ -251,6 +254,7 @@ async def test_before_live_runs_for_each_real_retry_but_after_live_runs_once(
         ("prepare", "platform_key", None),
         ("before_live", "platform_key", None),
         ("adapter", 1, None),
+        ("failed_live", "platform_key", 429),
         ("before_live", "platform_key", None),
         ("adapter", 2, None),
         ("after_live", "platform_key", "openai", "platform_key", 7, 3, 0.004),

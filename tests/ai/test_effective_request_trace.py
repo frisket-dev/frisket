@@ -58,6 +58,9 @@ class _Policy:
     def before_live(self, request: LLMRequest, credential_source: str) -> None:
         pass
 
+    def failed_live(self, request, error, credential_source):
+        pass
+
     def after_live(
         self, request: LLMRequest, response: LLMResponse, credential_source: str
     ) -> None:

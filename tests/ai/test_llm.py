@@ -406,7 +406,7 @@ class TestRouterFailureMechanics:
             api_key = secret
             base_url = "https://example.invalid/v1"
 
-            async def embed(self, texts, model, client):  # noqa: ANN001
+            async def embed_with_meta(self, texts, model, client):  # noqa: ANN001
                 raise LLMError(f"embedding rejected {secret}")
 
         class ProbeClient:
@@ -577,8 +577,8 @@ class TestRoutedProviderStamp:
                 model=request.model,
             )
 
-        async def embed(self, texts, model, client):
-            return [[0.0] for _ in texts]
+        async def embed_with_meta(self, texts, model, client):
+            return [[0.0] for _ in texts], {"actual_model_id": model}
 
     def _router(self, **kw):
         kw.setdefault("cache", None)
