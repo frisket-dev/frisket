@@ -6,6 +6,8 @@ import os
 import re
 from pathlib import Path
 
+from frisket.ai.models.modal_gpu import MOSS_GPUS, gpu_preferences
+
 try:
     import modal
 except ModuleNotFoundError:  # pragma: no cover - Modal is deployment-only
@@ -14,7 +16,7 @@ except ModuleNotFoundError:  # pragma: no cover - Modal is deployment-only
 MOSS_LINK_SECRET_NAME = os.environ.get(
     "FRISKET_MODAL_MOSS_LINK_SECRET", "frisket-moss-link"
 )
-GPU = os.environ.get("FRISKET_MODAL_MOSS_GPU", "A10")
+GPU = gpu_preferences("FRISKET_MODAL_MOSS_GPU", MOSS_GPUS)
 MAX_CONTAINERS = int(os.environ.get("FRISKET_MODAL_MOSS_MAX_CONTAINERS", "2"))
 TIMEOUT_SECONDS = int(os.environ.get("FRISKET_MODAL_MOSS_TIMEOUT", "3600"))
 _MODAL_IMAGE_ID = re.compile(r"^im-[A-Za-z0-9]+$")

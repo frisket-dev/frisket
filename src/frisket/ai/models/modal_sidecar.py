@@ -18,6 +18,8 @@ from frisket.ai.models.modal_paddle import (
     register_pp_ocrv6_worker,
 )
 
+from frisket.ai.models.modal_gpu import RESIDENT_GPUS, gpu_preferences
+
 try:
     import modal
 except ModuleNotFoundError:  # pragma: no cover - Modal is deployment-only
@@ -32,7 +34,7 @@ EDGE_SECRET_NAME = os.environ.get(
 MOSS_LINK_SECRET_NAME = os.environ.get(
     "FRISKET_MODAL_MOSS_LINK_SECRET", "frisket-moss-link"
 )
-GPU = os.environ.get("FRISKET_MODAL_SIDECAR_GPU", "T4")
+GPU = gpu_preferences("FRISKET_MODAL_SIDECAR_GPU", RESIDENT_GPUS)
 MAX_CONTAINERS = int(os.environ.get("FRISKET_MODAL_SIDECAR_MAX_CONTAINERS", "2"))
 TIMEOUT_SECONDS = int(os.environ.get("FRISKET_MODAL_SIDECAR_TIMEOUT", "3600"))
 MODEL_CACHE = "/frisket-model-cache"

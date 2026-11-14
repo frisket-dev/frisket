@@ -6,12 +6,14 @@ import os
 from pathlib import Path
 from typing import Any
 
+from frisket.ai.models.modal_gpu import OCR_GPUS, gpu_preferences
+
 try:
     import modal
 except ModuleNotFoundError:  # pragma: no cover - Modal is deployment-only
     modal = None  # type: ignore[assignment]
 
-GPU = os.environ.get("FRISKET_MODAL_GLM_OCR_GPU", "L4")
+GPU = gpu_preferences("FRISKET_MODAL_GLM_OCR_GPU", OCR_GPUS)
 MAX_CONTAINERS = int(os.environ.get("FRISKET_MODAL_GLM_OCR_MAX_CONTAINERS", "2"))
 TIMEOUT_SECONDS = int(os.environ.get("FRISKET_MODAL_GLM_OCR_TIMEOUT", "3600"))
 
@@ -37,7 +39,7 @@ def glm_ocr_worker() -> None:
 
 
 def register_glm_ocr_worker(app: Any, *, edge_secret_name: str):
-    """Register the GLM-OCR isolated scale-to-zero L4 worker."""
+    """Register the GLM-OCR isolated scale-to-zero GPU worker."""
 
     if modal is None:  # pragma: no cover - deployment-only dependency
         raise RuntimeError("Modal is required to register the GLM-OCR worker")

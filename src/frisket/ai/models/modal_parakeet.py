@@ -8,12 +8,14 @@ from typing import Any
 
 from frisket.ai.models.modal_moss import MOSS_LINK_SECRET_NAME, modal_runtime_image_id
 
+from frisket.ai.models.modal_gpu import RESIDENT_GPUS, gpu_preferences
+
 try:
     import modal
 except ModuleNotFoundError:  # pragma: no cover - Modal is deployment-only
     modal = None  # type: ignore[assignment]
 
-GPU = os.environ.get("FRISKET_MODAL_PARAKEET_GPU", "T4")
+GPU = gpu_preferences("FRISKET_MODAL_PARAKEET_GPU", RESIDENT_GPUS)
 MAX_CONTAINERS = int(os.environ.get("FRISKET_MODAL_PARAKEET_MAX_CONTAINERS", "2"))
 TIMEOUT_SECONDS = int(os.environ.get("FRISKET_MODAL_PARAKEET_TIMEOUT", "3600"))
 WORKER_PORT = "9000"

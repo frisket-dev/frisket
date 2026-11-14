@@ -40,7 +40,7 @@ def test_modal_registers_glm_ocr_as_an_isolated_worker() -> None:
 
     assert _original(worker.image) is not _original(gateway.image)
     assert "frisket-models-edge" in _named_secrets(worker)
-    assert worker.gpus == "L4"
+    assert worker.gpus == ["L4", "A10", "L40S", "A100-40GB", "A100-80GB"]
     assert worker.memory == 16384
 
 
