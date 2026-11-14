@@ -16,6 +16,7 @@ from frisket.engine.executor.map_rows_action import (
 )
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.result_generations import ResultGenerationStore
 
 
 def reapply_results(project, project_id, bound):
@@ -75,10 +76,12 @@ def reapply_results(project, project_id, bound):
                 )
             }
             source_columns = dict.fromkeys(column_id for _, _, column_id in coordinates)
+            bindings = {
+                binding.column_id: binding.output_role
+                for binding in ResultGenerationStore(project).bindings_for_run(source)
+            }
             logical_keys = {
-                column_id: inverse.get(
-                    columns[column_id]["name"], columns[column_id]["name"]
-                )
+                column_id: inverse.get(bindings[column_id], bindings[column_id])
                 for column_id in source_columns
             }
             fields = tuple(

@@ -309,3 +309,57 @@ def test_reapply_replaces_original_generated_output_with_saved_provenance(work):
     assert len(calls) == 2
     assert project.undo() is not None
     assert project.get_values(sheet, column)[rows[0]] == "manual edit"
+
+
+def test_backfill_after_retry_starts_a_separate_execution(work):
+    from frisket.engine.store.execution_groups import execution_runs
+
+    project, sheet, source, rows, calls, adapter, run = work
+    adapter.fail = "second"
+    original = start(run)
+    adapter.fail = None
+    retried = run("run.retry", {"source_run_id": original.run_id})
+    fresh = run(
+        "run.backfill",
+        {"column": "Answer"},
+        scope={"kind": "sheet_rows", "sheet_id": sheet, "row_ids": [rows[1]]},
+    )
+    assert fresh.status == "completed", fresh.errors
+    assert execution_runs(project, original.run_id) == (
+        original.run_id,
+        [original.run_id, retried.run_id],
+    )
+    assert execution_runs(project, fresh.run_id) == (fresh.run_id, [fresh.run_id])
+
+
+def test_reapply_uses_saved_logical_role_after_column_rename(work):
+    project, sheet, source, rows, calls, adapter, run = work
+    original = start(run)
+    output = next(c for c in project.columns(sheet) if c["name"] == "Answer")
+    project.db.execute(
+        "UPDATE columns SET name=? WHERE id=?", ("Renamed", output["id"])
+    )
+    project.db.commit()
+    reapplied = run(
+        "run.reapply",
+        {"source_run_id": original.run_id},
+        output_names={"answer": "Restored"},
+    )
+    assert reapplied.status == "completed", reapplied.errors
+    restored = next(c for c in project.columns(sheet) if c["name"] == "Restored")
+    assert dict(project.get_values(sheet, restored["id"])) == dict(
+        project.get_values(sheet, output["id"])
+    )
+    assert len(calls) == 2
+
+
+def test_retry_after_output_undo_explains_recovery_without_purchasing(work):
+    project, sheet, source, rows, calls, adapter, run = work
+    adapter.fail = "second"
+    original = start(run)
+    assert project.undo() is not None
+    adapter.fail = None
+    retried = run("run.retry", {"source_run_id": original.run_id})
+    assert retried.status == "failed"
+    assert "Reapply saved results" in retried.errors[0].message
+    assert len(calls) == 2

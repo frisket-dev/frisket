@@ -336,6 +336,7 @@ def _resolve_backfill_target(
             for logical, role in stored_output_names.items()
         }
         runner_spec["replace_existing"] = True
+    runner_spec.pop("execution_root_run_id", None)
     runner_spec.pop("confirmed", None)
     # The claims-gate echo is per-invocation retry-flow
     # plumbing, exactly like ``confirmed`` above. The stored spec's echo

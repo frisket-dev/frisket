@@ -8,55 +8,73 @@ from frisket.engine.store.project import ProjectReadSnapshot
 
 
 @pytest.mark.parametrize("template", ["", "Video: {{video}}"])
-def test_source_snapshot_is_captured_with_the_values_in_one_read(template):
-    calls = []
-    source = {"blob_hash": "source-blob"}
-    ref = {"kind": "raw", "id": 31}
+def test_source_snapshot_is_captured_with_the_values_in_one_read(
+    tmp_path, monkeypatch, template
+):
+    project = Project.create(tmp_path / "source.frisket")
+    try:
+        sheet = project.add_sheet("Source")
+        column = project.add_column(sheet, "video", type="text")
+        [row_id] = project.add_rows(
+            sheet, [{"video": "source text"}], {"video": column}
+        )
+        _, refs = project.get_values_with_refs(sheet, column, row_ids=[row_id])
+        calls = []
+        original = ProjectReadSnapshot.get_values_with_refs
 
-    def read_with_refs(sheet_id, column_id, *, row_ids):
-        calls.append((sheet_id, column_id, row_ids))
-        return {7: source}, {7: ref}
+        def read_with_refs(snapshot, sheet_id, column_id, **kwargs):
+            calls.append((sheet_id, column_id, kwargs["row_ids"]))
+            return original(snapshot, sheet_id, column_id, **kwargs)
 
-    project = SimpleNamespace(get_values_with_refs=read_with_refs)
-    recipe = SimpleNamespace(
-        capture_source_cells=True, source_columns=lambda spec: ["video"]
-    )
-    values = row_values(
-        project,
-        recipe,
-        {"sheet_id": 2, "input_template": template},
-        {"video": 4},
-        7,
-        for_model=False,
-        column_types={"video": "video"},
-    )
-    assert calls == [(2, 4, [7])]
-    assert values.source_cells == {
-        "video": {
-            "column_id": 4,
-            "column_type": "video",
-            "value": source,
-            "value_ref": ref,
+        monkeypatch.setattr(ProjectReadSnapshot, "get_values_with_refs", read_with_refs)
+        recipe = SimpleNamespace(
+            capture_source_cells=True, source_columns=lambda spec: ["video"]
+        )
+        values = row_values(
+            project,
+            recipe,
+            {"sheet_id": sheet, "input_template": template},
+            {"video": column},
+            row_id,
+            for_model=False,
+            column_types={"video": "text"},
+        )
+        assert calls == [(sheet, column, [row_id])]
+        assert values.source_cells == {
+            "video": {
+                "column_id": column,
+                "column_type": "text",
+                "value": "source text",
+                "value_ref": refs[row_id],
+            }
         }
-    }
-    if not template:
-        assert values["video"] == source
+        if not template:
+            assert values["video"] == "source text"
+    finally:
+        project.close()
 
 
-def test_unrelated_row_reader_does_not_request_source_references():
-    project = SimpleNamespace(get_values=lambda *args, **kwargs: {7: "plain"})
-    recipe = SimpleNamespace(source_columns=lambda spec: ["text"])
-    values = row_values(
-        project,
-        recipe,
-        {"sheet_id": 2},
-        {"text": 4},
-        7,
-        for_model=False,
-        column_types={"text": "text"},
-    )
-    assert values == {"text": "plain"}
-    assert values.source_cells is None
+def test_row_reader_keeps_current_source_reference(tmp_path):
+    project = Project.create(tmp_path / "plain.frisket")
+    try:
+        sheet = project.add_sheet("Source")
+        column = project.add_column(sheet, "text")
+        [row_id] = project.add_rows(sheet, [{"text": "plain"}], {"text": column})
+        recipe = SimpleNamespace(source_columns=lambda spec: ["text"])
+        values = row_values(
+            project,
+            recipe,
+            {"sheet_id": sheet},
+            {"text": column},
+            row_id,
+            for_model=False,
+            column_types={"text": "text"},
+        )
+        assert values == {"text": "plain"}
+        assert values.source_cells["text"]["value"] == "plain"
+        assert values.source_cells["text"]["value_ref"] is not None
+    finally:
+        project.close()
 
 
 def test_local_page_retains_exact_refs_after_source_edit_and_closes_snapshot(tmp_path):
@@ -86,21 +104,29 @@ def test_local_page_retains_exact_refs_after_source_edit_and_closes_snapshot(tmp
         newer = read_source_page(project, sheet, [column], [row_id])
         assert newer.cell(sheet, column, row_id)[0] == "edited"
         assert newer.cell(sheet, column, row_id)[1] != original_ref
-        for kwargs in (
-            {"for_model": True},
-            {"for_model": False, "admitted_work_scope": {}},
-        ):
-            with pytest.raises(ValueError, match="require live source reads"):
-                row_values(
-                    project,
-                    recipe,
-                    {"sheet_id": sheet},
-                    {"text": column},
-                    row_id,
-                    column_types={"text": "text"},
-                    source_page=page,
-                    **kwargs,
-                )
+        model_values = row_values(
+            project,
+            recipe,
+            {"sheet_id": sheet},
+            {"text": column},
+            row_id,
+            for_model=True,
+            column_types={"text": "text"},
+            source_page=newer,
+            admitted_work_scope={"row_ids": frozenset({row_id})},
+        )
+        assert model_values["text"] == "edited"
+        with pytest.raises(ValueError, match="outside the admitted selection"):
+            row_values(
+                project,
+                recipe,
+                {"sheet_id": sheet},
+                {"text": column},
+                row_id,
+                column_types={"text": "text"},
+                source_page=newer,
+                admitted_work_scope={"row_ids": []},
+            )
         # No reader remains pinned after loading a page.
         assert project.db.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0] == 0
     finally:

@@ -188,6 +188,11 @@ def row_values(
             spec["sheet_id"],
             [col_map[name] for name in names if name in col_map],
             [row_id],
+            preserve_invalid_column_ids=[
+                col_map[name]
+                for name in getattr(recipe, "preserve_invalid_source_columns", ())
+                if name in col_map
+            ],
         )
     if capture is None and (
         source_page is not None or getattr(recipe, "capture_source_cells", False)

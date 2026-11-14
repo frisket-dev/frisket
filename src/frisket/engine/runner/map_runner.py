@@ -1059,6 +1059,15 @@ class MapRunner:
             run_extras[ATTEMPT_EXTRA] = attempt
             progress.writer_attempt_id = attempt.attempt_id
 
+        admitted_work_scope = None
+        if attempt is not None and attempt.routed is not None:
+            snapshot = attempt.routed.work_scope_snapshot
+            # Membership is checked for every dispatched row; normalize once.
+            admitted_work_scope = {
+                **snapshot,
+                "row_ids": frozenset(snapshot.get("row_ids", ())),
+            }
+
         batch_local_results = bool(
             recipe.batch_local_results
             and attempt is not None
@@ -1205,11 +1214,7 @@ class MapRunner:
                         persist_result_batch=persist_result_batch,
                         progress=progress,
                         required_field_names=required_output_field_names,
-                        admitted_work_scope=(
-                            attempt.routed.work_scope_snapshot
-                            if attempt is not None and attempt.routed is not None
-                            else None
-                        ),
+                        admitted_work_scope=admitted_work_scope,
                         cancelled=cancelled,
                     )
                 )
@@ -1500,11 +1505,7 @@ class MapRunner:
                 for_model=recipe.is_llm(spec),
                 column_types=source_column_types,
                 capture=input_capture,
-                admitted_work_scope=(
-                    attempt.routed.work_scope_snapshot
-                    if attempt is not None and attempt.routed is not None
-                    else None
-                ),
+                admitted_work_scope=admitted_work_scope,
                 source_page=source_page,
             )
             checkpoint_id: str | None = None

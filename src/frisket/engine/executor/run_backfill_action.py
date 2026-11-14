@@ -150,9 +150,13 @@ def _resolve_retry(
     remaining = sorted(requested - done)
     if not remaining:
         raise ValueError("Execution has no unfinished requested rows")
-    target = project.db.execute(
-        "SELECT name FROM columns WHERE id=?", (bindings[0].column_id,)
-    ).fetchone()
+    columns = [project.get_column(binding.column_id) for binding in bindings]
+    if any(column is None or not column["active"] for column in columns):
+        raise ValueError(
+            "Original output columns are no longer active. Reapply saved results "
+            "to restore completed work, or start a new action for unfinished rows."
+        )
+    target = columns[0]
     resolved = _resolve_backfill_target(
         project,
         sheet_id=scope.sheet_id,
