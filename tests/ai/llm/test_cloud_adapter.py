@@ -428,3 +428,50 @@ def test_cloud_adapter_refuses_receipt_from_another_account():
             await router.aclose()
 
     asyncio.run(scenario())
+
+
+def test_completed_cloud_output_survives_pending_accounting_without_free_receipt():
+    from frisket.contracts.http.cloud_connection import CloudExecutionAccounting
+
+    async def scenario():
+        settled = _response(output_limited=False)
+        pending = settled.model_copy(
+            update={
+                "receipt": None,
+                "accounting": CloudExecutionAccounting(
+                    status="pending",
+                    usage=settled.receipt.usage,
+                    provider_cost_micro=12_000,
+                ),
+            }
+        )
+        transport = _CloudTransport(pending)
+        router = _router()
+        try:
+            with cloud_llm_execution_scope(
+                CloudLLMExecutionBinding(
+                    transport=transport,
+                    attempt=_attempt(),
+                )
+            ):
+                result = await router.complete(
+                    LLMRequest(
+                        model=MODEL,
+                        messages=[{"role": "user", "content": "one name"}],
+                    )
+                )
+            assert result.content == settled.result.content
+            assert len(transport.calls) == 1
+            assert result.actual_accounting.cost is None
+            assert result.actual_accounting.receipts == ()
+            metadata = wire_accounting_meta(MODEL, [result])
+            assert metadata["cost"] is None
+            assert "execution_receipts" not in metadata
+            fact = metadata["model_calls"][0]
+            assert fact["provider_cost_usd"] == 0.012
+            assert fact["units"]["cloud_accounting_status"] == "pending"
+            assert "cloud_charge_micro" not in fact["units"]
+        finally:
+            await router.aclose()
+
+    asyncio.run(scenario())

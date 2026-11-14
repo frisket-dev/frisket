@@ -472,12 +472,19 @@ class CloudErrorResponse(WireModel):
     execution_id: str | None = None
 
 
+class CloudExecutionAccounting(WireModel):
+    status: Literal["open", "pending", "settled", "absorbed"]
+    usage: CloudExecutionUsage | None = None
+    provider_cost_micro: int | None = Field(default=None, ge=0)
+
+
 class CloudExecutionResponse(WireModel):
     execution_id: str = Field(min_length=1)
     status: CloudExecutionStatus
     route: CloudCapabilityRoute
     result: CloudExecutionResult | None
     receipt: CloudExecutionReceipt | None
+    accounting: CloudExecutionAccounting | None = None
     error: CloudErrorResponse | None = None
 
 

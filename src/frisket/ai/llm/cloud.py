@@ -78,15 +78,22 @@ class CloudLLMAdapter:
         expected_usage = (
             CloudLLMUsage if capability == "llm.complete" else CloudOCRUsage
         )
-        if receipt is None or not isinstance(receipt.usage, expected_usage):
+        usage = (
+            receipt.usage
+            if receipt is not None
+            else (
+                response.accounting.usage if response.accounting is not None else None
+            )
+        )
+        if not isinstance(usage, expected_usage):
             raise CloudExecutionRefused(
                 "cloud_protocol_error", "Cloud LLM execution returned invalid usage"
             )
         if (
-            receipt.usage.tokens_in is None
-            or receipt.usage.tokens_out is None
-            or result.tokens_in != receipt.usage.tokens_in
-            or result.tokens_out != receipt.usage.tokens_out
+            usage.tokens_in is None
+            or usage.tokens_out is None
+            or result.tokens_in != usage.tokens_in
+            or result.tokens_out != usage.tokens_out
         ):
             raise CloudExecutionRefused(
                 "cloud_protocol_error",
@@ -120,7 +127,7 @@ class CloudLLMAdapter:
             actual_accounting=LLMActualAccounting.one(
                 cost=accounting["cost"],
                 model_call=dict(model_call),
-                receipt=dict(accounting["cloud_receipt"]),
+                receipt=accounting["cloud_receipt"],
             ),
         )
 

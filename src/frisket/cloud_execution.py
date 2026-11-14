@@ -1045,10 +1045,76 @@ def cloud_execution_accounting(
     """
 
     receipt = response.receipt
+    pending = response.accounting
     if receipt is None:
-        raise CloudExecutionRefused(
-            "cloud_receipt_missing", "Cloud execution returned no accounting receipt"
+        if (
+            pending is None
+            or pending.status != "pending"
+            or pending.usage is None
+            or response.status not in {"completed", "failed"}
+        ):
+            raise CloudExecutionRefused(
+                "cloud_receipt_missing",
+                "Cloud execution returned no accounting receipt",
+            )
+        payer = attempt.payer
+        route = response.route
+        if (
+            route.lane != payer.lane
+            or route.provider != payer.provider
+            or route.engine != payer.engine
+            or route.route_revision != payer.route_revision
+            or route.capability != capability
+            or pending.usage.kind != capability
+        ):
+            raise CloudExecutionRefused(
+                "route_changed",
+                "Cloud accounting differs from the admitted payer route",
+            )
+        from frisket.ai.models.metadata import ModelCallMeta
+
+        provider_cost = (
+            pending.provider_cost_micro / 1_000_000
+            if pending.provider_cost_micro is not None
+            else None
         )
+        units = pending.usage.model_dump(
+            mode="json", exclude={"kind"}, exclude_none=True
+        )
+        units.update(
+            {
+                "requests": 1,
+                "cloud_user_id": payer.user_id,
+                "cloud_account_id": payer.account_id,
+                "cloud_lane": payer.lane,
+                "cloud_accounting_status": "pending",
+            }
+        )
+        fact = ModelCallMeta(
+            id=response.execution_id,
+            capability=capability,
+            engine=payer.engine,
+            provider=payer.provider,
+            provider_kind="platform_api",
+            model_ids=[payer.engine],
+            credential_source="org_byok"
+            if payer.lane == "account_key"
+            else "platform_key",
+            provider_reported_cost_usd=provider_cost,
+            provider_cost_usd=provider_cost,
+            cost_source="provider_reported" if provider_cost is not None else "unknown",
+            units=units,
+            request_id=response.execution_id,
+            warnings=["Cloud accounting is pending"],
+            duration_ms=None,
+        ).as_dict()
+        return {
+            "cost": None,
+            "cost_source": "unknown",
+            "model_calls": [fact],
+            "cloud_receipt": None,
+            "cloud_accounting_status": "pending",
+        }
     payer = attempt.payer
     route = response.route
     if (
