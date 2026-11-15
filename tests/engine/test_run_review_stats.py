@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import queue
+import json
 import sqlite3
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -30,6 +31,20 @@ from frisket.engine.store.value_codec import encode_stored_value
 from tests.engine.test_bundle_schema_fence import _remove_extraction_layouts
 
 
+def _output_descriptor(project: Project, column_id: int) -> str:
+    column = project.db.execute(
+        "SELECT type,format,semantic_type FROM columns WHERE id=?", (column_id,)
+    ).fetchone()
+    return json.dumps(
+        {
+            "column_type": column["type"],
+            "schema": {},
+            "format": column["format"],
+            "semantic_type": column["semantic_type"],
+        }
+    )
+
+
 def _managed_run(
     project: Project,
     *,
@@ -52,7 +67,7 @@ def _managed_run(
     project.db.executemany(
         "INSERT INTO run_output_generations "
         "(run_id,column_id,output_role,compatibility_key,write_mode,state,"
-        "claim_token) VALUES (?,?,?,?,?,?,?)",
+        "claim_token,output_descriptor_json) VALUES (?,?,?,?,?,?,?,?)",
         [
             (
                 run_id,
@@ -62,6 +77,7 @@ def _managed_run(
                 "create",
                 "active",
                 f"claim:{run_id}",
+                _output_descriptor(project, column_id),
             )
             for column_id in columns
         ],
@@ -650,7 +666,7 @@ def test_review_stats_migration_backfills_history_and_rolls_back_as_one_unit(
         migrated.close()
 
 
-def test_migrated_running_run_remains_dirty_for_old_worker_completion(
+def test_historical_review_stats_migration_keeps_old_worker_completion_dirty(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "migration-running.frisket"
@@ -669,8 +685,8 @@ def test_migrated_running_run_remains_dirty_for_old_worker_completion(
     )
     project.db.execute(
         "INSERT INTO run_output_generations "
-        "(run_id,column_id,output_role,compatibility_key,write_mode,state,claim_token) "
-        "VALUES (?,?,?,?,?,?,?)",
+        "(run_id,column_id,output_role,compatibility_key,write_mode,state,claim_token,output_descriptor_json) "
+        "VALUES (?,?,?,?,?,?,?,?)",
         (
             run_id,
             output,
@@ -679,6 +695,7 @@ def test_migrated_running_run_remains_dirty_for_old_worker_completion(
             "create",
             "active",
             "claim",
+            _output_descriptor(project, output),
         ),
     )
     project.db.execute(
@@ -702,17 +719,25 @@ def test_migrated_running_run_remains_dirty_for_old_worker_completion(
     project.close()
     _downgrade_review_stats_schema(path)
 
-    migrated = Project(path)
-    try:
-        ready = migrated.db.execute(
-            "SELECT review_stats_ready FROM runs WHERE id=?", (run_id,)
-        ).fetchone()[0]
-        assert ready == 0
+    # Exercise the historical migration before the domain cutover. The latter
+    # deliberately stops old workers; it must not erase this earlier contract.
+    from frisket.engine.store.review_stats_migration import migrate_review_stats
 
+    historical = sqlite3.connect(path / "project.db")
+    historical.row_factory = sqlite3.Row
+    migrate_review_stats(historical)
+    ready = historical.execute(
+        "SELECT review_stats_ready FROM runs WHERE id=?", (run_id,)
+    ).fetchone()[0]
+    assert ready == 0
+    historical.close()
+    migrated = None
+    try:
         # A worker opened before migration does not know about the new dirty
         # flag. Its remaining writes and direct terminal status update must
         # therefore leave the migrated run eligible for a read-time rebuild.
         old_worker = sqlite3.connect(path / "project.db")
+        old_worker.row_factory = sqlite3.Row
         try:
             old_worker.execute("PRAGMA foreign_keys=ON")
             old_worker.execute(
@@ -737,10 +762,16 @@ def test_migrated_running_run_remains_dirty_for_old_worker_completion(
                 "WHERE id=?",
                 (run_id,),
             )
+            from frisket.engine.store.historical_current_cells import (
+                rebuild_current_cells,
+            )
+
+            rebuild_current_cells(old_worker)
             old_worker.commit()
         finally:
             old_worker.close()
 
+        migrated = Project(path)
         assert migrated.refresh_pending_review_summary() == 2
         totals = migrated.db.execute(
             "SELECT review_stats_ready,review_bundle_count,"
@@ -749,4 +780,5 @@ def test_migrated_running_run_remains_dirty_for_old_worker_completion(
         ).fetchone()
         assert tuple(totals) == (1, 2, 0)
     finally:
-        migrated.close()
+        if migrated is not None:
+            migrated.close()

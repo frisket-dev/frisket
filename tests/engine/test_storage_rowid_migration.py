@@ -189,9 +189,10 @@ def test_rowid_layout_migration_copies_values_provenance_constraints_and_plans(
     ] == ["row_id", "column_id"]
     with pytest.raises(sqlite3.IntegrityError):
         migrated.db.execute(
-            "INSERT INTO cells(row_id,column_id,value_kind,value) "
-            "VALUES (?,?,'text',?)",
-            (row_ids[0], title_id, "duplicate"),
+            "INSERT INTO cells(row_id,column_id,producer_id,value_kind,value) "
+            "SELECT row_id,column_id,producer_id,'text','duplicate' FROM cells "
+            "WHERE row_id=? AND column_id=?",
+            (row_ids[0], title_id),
         )
     migrated.db.rollback()
     with pytest.raises(sqlite3.IntegrityError):

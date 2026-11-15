@@ -664,8 +664,8 @@ def _a62_bundle(tmp_path):
         )
         db.execute(
             "INSERT INTO receipts (id,run_id,action_kind,status,body) "
-            "VALUES ('old-receipt',?,'map.classify','running','{}')",
-            (run,),
+            "VALUES ('old-receipt',?,'map.classify','running',?)",
+            (run, json.dumps({"receipt_id": "old-receipt", "status": "running"})),
         )
         db.execute(
             "UPDATE meta SET value=? WHERE key=?", (_A62_DIGEST, SCHEMA_DIGEST_META_KEY)
@@ -697,7 +697,7 @@ def test_a62_bundle_preserves_data_and_attempts_on_upgrade(tmp_path):
         attempt["run_id"],
         attempt["receipt_id"],
         attempt["state"],
-    ) == ("old-attempt", run, None, "dispatching")
+    ) == ("old-attempt", run, None, "abandoned")
     assert (
         project.db.execute(
             "SELECT run_id FROM receipts WHERE id='old-receipt'"
@@ -749,8 +749,8 @@ def test_receipt_attempt_constraints_match_fresh_and_upgraded_bundles(
     insert("run-first", run_id=run, seq=9, state="created")
     with pytest.raises(sqlite3.IntegrityError, match="UNIQUE"):
         insert("run-duplicate", run_id=run, seq=9)
-    if not upgraded:
-        insert("run-dispatch", run_id=run, seq=10, state="dispatching")
+    # The cutover retires historical dispatches; test the constraint with a new one.
+    insert("run-dispatch", run_id=run, seq=10, state="dispatching")
     with pytest.raises(sqlite3.IntegrityError, match="UNIQUE"):
         insert("double-run-dispatch", run_id=run, seq=11, state="dispatching")
     insert("orphan-one", state="dispatching")
