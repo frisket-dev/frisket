@@ -17,6 +17,7 @@ import sqlite3
 from pathlib import Path
 
 from .change_schema import CHANGE_SCHEMA_SQL
+from .keyed_updates import KEYED_UPDATE_SCHEMA
 from .citation_text import CITATION_TEXT_SCHEMA_SQL
 from .extraction_layouts import EXTRACTION_LAYOUTS_SCHEMA_SQL
 from .evaluation import EVALUATION_SCHEMA_SQL
@@ -2505,6 +2506,7 @@ SCHEMA += "\n" + DOCUMENT_TEXT_SCHEMA_SQL + "\n"
 SCHEMA += "\n" + DOCUMENT_TEXT_SELECTION_VIEW_SQL + "\n"
 SCHEMA += "\n" + PDF_SPLIT_SCHEMA_SQL + "\n"
 SCHEMA += "\n" + CHANGE_SCHEMA_SQL + "\n"
+SCHEMA += "\n" + KEYED_UPDATE_SCHEMA + "\n"
 # This durable bootstrap row gives the data-only OCR role repair an exact
 # schema endpoint. Fresh bundles start repaired; the known prior revision is
 # upgraded once during open and never needs a Review read-time compatibility
