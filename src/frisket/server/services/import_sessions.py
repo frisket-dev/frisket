@@ -339,17 +339,7 @@ class ImportSessionService:
                                 source_cursor=session.cursor,
                             )
                     writer = StreamingSheetWriter._from_session(project, session)
-                    cancelled = writer.cancel(expected_cursor=session.cursor)
-                    if header.intake_kind == "table":
-                        StreamingSheetWriter._from_session(
-                            project, cancelled
-                        ).finalize_session(
-                            expected_cursor=cancelled.cursor, keep_cancelled=True
-                        )
-                        with import_admit_lock(directory):
-                            header = set_import_resolution(directory, "kept")
-                        finish_table_intake(directory, exact_rows=None)
-                        compact_table_intake(directory)
+                    writer.cancel(expected_cursor=session.cursor)
                 elif session is None:
                     action_job_cancelled_result(
                         project,
@@ -417,6 +407,7 @@ class ImportSessionService:
                         writer.remove_session(expected_cursor=session.cursor)
                 try:
                     if header.intake_kind == "table":
+                        finish_table_intake(directory, exact_rows=None)
                         compact_table_intake(directory)
                     else:
                         compact_terminal_inventory(directory)

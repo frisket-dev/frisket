@@ -13,9 +13,7 @@ from typing import Any, Literal, Mapping
 
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.import_sessions import (
-    ImportInProgress,
     ImportSessionConflict,
-    active_import_session,
     invalidate_pdf_split_generation,
     set_import_session_rows_hidden,
     set_import_session_replaced_rows_hidden,
@@ -302,15 +300,20 @@ def step_operation(
     target_op_id = int(target["id"])
     if expected_op_id is not None and expected_op_id != target_op_id:
         raise OperationMismatch(expected_op_id, target_op_id)
-    session = project.db.execute(
-        "SELECT sheet_id FROM import_sessions WHERE op_id=? "
+    session_row = project.db.execute(
+        "SELECT id FROM import_sessions WHERE op_id=? "
         "AND state IN ('active','paused','cancelled')",
         (target_op_id,),
     ).fetchone()
-    if session is not None:
-        active = active_import_session(project.db, int(session["sheet_id"]))
-        if active is not None:
-            raise ImportInProgress(active)
+    if session_row is not None and reverting:
+        from .import_sessions import ImportSessionStore
+        from .streaming_import import StreamingSheetWriter
+
+        session = ImportSessionStore(project).get(str(session_row["id"]))
+        StreamingSheetWriter._from_session(project, session).prepare_removal(session)
+        target = project.db.execute(
+            "SELECT * FROM ops WHERE id=?", (target_op_id,)
+        ).fetchone()
     if reverting and target["barrier"]:
         raise IrreversibleOperation(target)
     try:

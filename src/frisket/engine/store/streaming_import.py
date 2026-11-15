@@ -7,7 +7,6 @@ visible; failures remove the staging sheet and its cascading row/cell state.
 
 from __future__ import annotations
 
-import json
 import uuid
 from dataclasses import dataclass
 from types import TracebackType
@@ -19,7 +18,6 @@ from frisket.engine.store.changes import ChangeStore
 from frisket.engine.store.cell_writes import (
     bind_base_cell_producer,
     create_base_cell_producer,
-    delete_sheet_rows,
     discard_pending_base_cell_producer,
 )
 from frisket.engine.store.import_blobs import (
@@ -293,6 +291,7 @@ class StreamingSheetWriter:
                 barrier=True,
                 commit=False,
             )
+            ChangeStore(project).start(op_id)
             op_log.set_undo_info(
                 project, op_id, {"created_sheets": [sheet_id]}, commit=False
             )
@@ -508,6 +507,8 @@ class StreamingSheetWriter:
                 },
                 commit=False,
             )
+            if created_column_ids:
+                ChangeStore(project).start(op_id)
             producer_id = create_base_cell_producer(
                 db, stage_id=f"import-session:{session_id}", op_id=op_id
             )
@@ -827,8 +828,7 @@ class StreamingSheetWriter:
         return publication
 
     def remove_session(self, *, expected_cursor: int) -> None:
-        """Remove a newly-created import sheet; appended rows use normal Undo."""
-
+        """Revert only this import's contribution using ordinary Change history."""
         self._require_session()
         db = self.project.db
         try:
@@ -839,65 +839,42 @@ class StreamingSheetWriter:
                 expected_cursor,
                 states=("cancelled",),
             )
-            operation = db.execute(
-                "SELECT undo_info FROM ops WHERE id=?", (session.op_id,)
-            ).fetchone()
-            undo_info = json.loads(operation["undo_info"] or "{}")
-            if "created_sheets" in undo_info:
-                foreign_row = db.execute(
-                    "SELECT 1 FROM rows AS r WHERE r.sheet_id=? AND NOT EXISTS ("
-                    "SELECT 1 FROM cells AS c WHERE c.row_id=r.id "
-                    "AND c.producer_id=?) LIMIT 1",
-                    (session.sheet_id, session.producer_id),
-                ).fetchone()
-                if foreign_row is not None:
-                    raise ImportSessionConflict(
-                        "import sheet has unrelated rows; keep it and use Undo"
-                    )
+            self.prepare_removal(session)
+            if (
                 db.execute(
-                    "DELETE FROM evidence_links WHERE sheet_id=? OR op_id=?",
-                    (session.sheet_id, session.op_id),
-                )
-                db.execute(
-                    "DELETE FROM artifact_timeline_segments WHERE "
-                    "derived_artifact_id IN (SELECT id FROM source_artifacts "
-                    "WHERE source_sheet_id=?) OR source_artifact_id IN "
-                    "(SELECT id FROM source_artifacts WHERE source_sheet_id=?)",
-                    (session.sheet_id, session.sheet_id),
-                )
-                db.execute(
-                    "DELETE FROM source_artifacts WHERE source_sheet_id=?",
-                    (session.sheet_id,),
-                )
-                delete_sheet_rows(
-                    db,
-                    sheet_id=session.sheet_id,
-                    producer_id=session.producer_id,
-                    import_writer_authority=self._writer_authority,
-                    import_expected_cursor=expected_cursor,
-                )
-            else:
-                raise ImportSessionConflict(
-                    "an existing-sheet import must be kept and removed with Undo"
-                )
-            stored = ReceiptStore(self.project).find_by_id(self._receipt_id)
-            if stored is None or stored.status != "running":
-                raise ImportSessionConflict("import receipt is no longer running")
-            receipt = self._completed_session_receipt(
-                stored.parsed(), row_count=0, status="cancelled"
-            )
-            if not ReceiptStore(self.project).update_body_status(
-                receipt, require_status="running", commit=False
+                    "SELECT change_order FROM ops WHERE id=?", (self._op_id,)
+                ).fetchone()[0]
+                is not None
             ):
-                raise ImportSessionConflict("import receipt cancellation lost its CAS")
-            ChangeStore(self.project).close(self._op_id)
-            db.execute("UPDATE ops SET barrier=0 WHERE id=?", (self._op_id,))
-            ImportSessionStore(self.project).remove(session)
+                op_log.step_operation(self.project, "revert", op_id=self._op_id)
             db.commit()
         except BaseException:
             db.rollback()
             raise
         self._closed = True
+
+    def prepare_removal(self, session: ImportSession) -> None:
+        """Fence acquisition and settle its receipt in the caller's Undo transaction.
+
+        Undo owns visibility changes; payloads and provenance remain available
+        for restoration. A restored import never resumes acquisition.
+        """
+        db = self.project.db
+        if not db.in_transaction:
+            raise RuntimeError("Import removal requires a history transaction")
+        stored = ReceiptStore(self.project).find_by_id(self._receipt_id)
+        if stored is None or stored.status != "running":
+            raise ImportSessionConflict("import receipt is no longer running")
+        receipt = self._completed_session_receipt(
+            stored.parsed(), row_count=0, status="cancelled"
+        )
+        if not ReceiptStore(self.project).update_body_status(
+            receipt, require_status="running", commit=False
+        ):
+            raise ImportSessionConflict("import receipt cancellation lost its CAS")
+        ChangeStore(self.project).close(self._op_id)
+        db.execute("UPDATE ops SET barrier=0 WHERE id=?", (self._op_id,))
+        ImportSessionStore(self.project).remove(session)
 
     def _completed_session_receipt(
         self, receipt: Receipt, *, row_count: int, status: str

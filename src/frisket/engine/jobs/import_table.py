@@ -376,6 +376,7 @@ def run_table_import(
                 "completed",
                 "kept",
                 "removed",
+                "cancelled",
             }:
                 return {
                     "status": session.state,
@@ -440,23 +441,21 @@ def run_table_import(
                 header = read_import_header(directory)
                 session = sessions.get(import_ref)
                 assert session is not None
+                if session.state in {"cancelled", "removed"}:
+                    return {
+                        "status": session.state,
+                        "completed_rows": session.committed_rows,
+                        "sheet_id": session.sheet_id,
+                        "problems": table_import_status(directory).problem_count,
+                    }
                 if header.cancel_requested or not live():
                     writer = StreamingSheetWriter._from_session(project, session)
                     if header.cancel_requested:
                         cancelled = writer.cancel(expected_cursor=session.cursor)
-                        writer = StreamingSheetWriter._from_session(project, cancelled)
-                        publication = writer.finalize_session(
-                            expected_cursor=cancelled.cursor,
-                            keep_cancelled=True,
-                        )
-                        with import_admit_lock(directory):
-                            set_import_resolution(directory, "kept")
-                        finish_table_intake(directory, exact_rows=None)
-                        compact_table_intake(directory)
                         return {
-                            "status": "kept",
-                            "completed_rows": publication.row_count,
-                            "sheet_id": publication.sheet_id,
+                            "status": "cancelled",
+                            "completed_rows": cancelled.committed_rows,
+                            "sheet_id": cancelled.sheet_id,
                             "problems": table_import_status(directory).problem_count,
                         }
                     writer.pause(expected_cursor=session.cursor)

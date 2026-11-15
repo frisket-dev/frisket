@@ -275,7 +275,9 @@ def test_resumable_session_rejects_stale_writer_and_keeps_cancelled_rows(
         project.close()
 
 
-def test_cancelled_session_can_remove_only_its_visible_sheet(tmp_path: Path) -> None:
+def test_cancelled_session_removal_retains_saved_data_for_restore(
+    tmp_path: Path, monkeypatch
+) -> None:
     project = Project.create(tmp_path / "remove.frisket", name="remove")
     try:
         writer = _start_session(project)
@@ -309,10 +311,24 @@ def test_cancelled_session_can_remove_only_its_visible_sheet(tmp_path: Path) -> 
         # This proves corpus-sized cancellation works under SQLite's bound limit.
         project.db.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 64)
         writer.cancel(expected_cursor=2)
+        with monkeypatch.context() as failed:
+
+            def fail_unapply(_operation):
+                raise RuntimeError("interrupted removal")
+
+            failed.setattr(project, "_unapply", fail_unapply)
+            with pytest.raises(RuntimeError, match="interrupted removal"):
+                writer.remove_session(expected_cursor=2)
+        assert ImportSessionStore(project).get("import:one").state == "cancelled"
+        assert (
+            ReceiptStore(project).find_by_id("receipt:inventory-one").status
+            == "running"
+        )
+        assert project.sheets()[0]["id"] == writer.sheet_id
         writer.remove_session(expected_cursor=2)
 
-        assert [sheet["name"] for sheet in project.sheets()] == ["Visible import"]
-        assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 0
+        assert project.sheets() == []
+        assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 2
         removed_receipt = ReceiptStore(project).find_by_id("receipt:inventory-one")
         assert removed_receipt is not None and removed_receipt.status == "cancelled"
         assert removed_receipt.parsed().op_ids == [writer._op_id]
@@ -324,10 +340,10 @@ def test_cancelled_session_can_remove_only_its_visible_sheet(tmp_path: Path) -> 
         )
         assert (
             project.db.execute("SELECT COUNT(*) FROM source_artifacts").fetchone()[0]
-            == 0
+            == 130
         )
         assert (
-            project.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0] == 0
+            project.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0] == 1
         )
         session = ImportSessionStore(project).get("import:one")
         assert session is not None and session.state == "removed"
@@ -361,13 +377,22 @@ def _assert_committed_staging(
         ).fetchone()[0]
         == expected_cell_count
     )
-    assert (
-        list(project.get_values(sheet_id, int(columns["ordinal"]["id"])).values())
-        == ordinals
-    )
-    subjects = list(
-        project.get_values(sheet_id, int(columns["subject"]["id"])).values()
-    )
+    # Unbound staging payloads are durable but not current values yet.
+    assert set(
+        project.get_values(sheet_id, int(columns["ordinal"]["id"])).values()
+    ) == {None}
+    raw = project.db.execute(
+        "SELECT value FROM cells WHERE column_id=? ORDER BY row_id",
+        (int(columns["ordinal"]["id"]),),
+    ).fetchall()
+    assert [row[0] for row in raw] == ordinals
+    subjects = [
+        row[0]
+        for row in project.db.execute(
+            "SELECT value FROM cells WHERE column_id=? ORDER BY row_id",
+            (int(columns["subject"]["id"]),),
+        )
+    ]
     assert subjects[0] in {"first", "message 0"}
     assert subjects[-1] in {"second", "fourth", f"message {ordinals[-1]}"}
 
@@ -477,7 +502,7 @@ def test_committed_batches_stay_hidden_until_atomic_publish(tmp_path: Path) -> N
         )
         assert list(
             observer.get_values(writer.sheet_id, int(attachment_column["id"])).values()
-        ) == [attachment, None, None, None]
+        ) == [None, None, None, None]
     finally:
         observer.close()
 
@@ -860,3 +885,56 @@ def test_cancel_requires_explicit_resolution_and_fences_old_writer(tmp_path: Pat
         assert ImportSessionStore(project).get(session.id).state == "kept"
     finally:
         project.close()
+
+
+def test_cancelled_append_remove_preserves_other_changes_and_restores_saved_rows(
+    tmp_path,
+):
+    from frisket.engine.store.op_log import step_operation
+
+    from contextlib import closing
+
+    with closing(Project.create(tmp_path / "append-remove.frisket")) as project:
+        sheet = project.add_sheet("Existing")
+        column = project.add_column(sheet, "value", "text")
+        original = project.add_rows(sheet, [{"value": "original"}], {"value": column})
+        writer = StreamingSheetWriter.start_append_session(
+            project,
+            session_id="append:one",
+            writer_authority="worker:one",
+            sheet_id=sheet,
+            columns=[{"name": "value", "type": "text"}],
+            project_id="project",
+            action_kind="import.append_rows",
+            idempotency_key="append:one",
+            params_hash="hash:one",
+            action_id="action:one",
+            receipt_id="receipt:one",
+            source_ref={"kind": "file", "label": "rows.csv"},
+        )
+        added = writer.append_page(
+            [{"value": "imported"}], expected_cursor=0, next_cursor=1
+        )
+        stale_writer = StreamingSheetWriter._from_session(
+            project, ImportSessionStore(project).get("append:one")
+        )
+        unrelated = project.add_rows(
+            sheet, [{"value": "independent"}], {"value": column}
+        )
+        writer.cancel(expected_cursor=1)
+        writer.remove_session(expected_cursor=1)
+        assert project.visible_row_ids(sheet) == original + unrelated
+        assert project.get_values(sheet, column, original + unrelated) == {
+            original[0]: "original",
+            unrelated[0]: "independent",
+        }
+        project.db.execute("BEGIN IMMEDIATE")
+        step_operation(project, "restore", op_id=writer._op_id)
+        project.db.commit()
+        assert project.visible_row_ids(sheet) == original + added + unrelated
+        assert project.get_values(sheet, column, added) == {added[0]: "imported"}
+        assert ImportSessionStore(project).get("append:one").state == "removed"
+        with pytest.raises(ImportSessionConflict):
+            stale_writer.append_page(
+                [{"value": "late"}], expected_cursor=1, next_cursor=2
+            )

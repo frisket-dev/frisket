@@ -208,6 +208,10 @@ class ImportSessionStore:
     ) -> ImportSession:
         return self._stop(session_id, authority, expected_cursor, "cancel")
 
+    def cancel_in_transaction(self, session: ImportSession) -> ImportSession:
+        """Stop acquisition while preserving published work for Keep/Remove."""
+        return self._transition(session, "cancel")
+
     def finish(
         self, session: ImportSession, *, keep: bool, enumeration_complete: bool = False
     ) -> ImportSession:
@@ -218,6 +222,8 @@ class ImportSessionStore:
         return self._transition(session, "keep" if keep else "complete")
 
     def remove(self, session: ImportSession) -> ImportSession:
+        if session.state in ("active", "paused"):
+            session = self.cancel_in_transaction(session)
         return self._transition(session, "remove")
 
     def discard_setup(self, session: ImportSession) -> ImportSession:

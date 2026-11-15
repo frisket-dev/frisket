@@ -985,13 +985,18 @@ def test_stop_keeps_committed_table_rows_and_finishes_intake(tmp_path: Path) -> 
         )
         status = ImportSessionService(workspace).cancel(PROJECT_ID, IMPORT_REF)
         assert (status.state, status.committed_rows, status.processed_rows) == (
-            "kept",
+            "cancelled",
             1,
             1,
         )
         session = ImportSessionStore(project).get(IMPORT_REF)
-        assert session is not None and session.state == "kept"
+        assert session is not None and session.state == "cancelled"
         assert project.row_count(session.sheet_id) == 1
+        assert table_import_status(directory).phase == "committed"
+        kept = ImportSessionService(workspace).resolve(
+            PROJECT_ID, IMPORT_REF, decision="keep"
+        )
+        assert kept.state == "kept"
         assert table_import_status(directory).phase == "terminal"
         assert (directory / "source").is_file()
 
@@ -1001,9 +1006,11 @@ def test_stop_keeps_committed_table_rows_and_finishes_intake(tmp_path: Path) -> 
         assert listed.can_rerun_workbook is True
 
 
-@pytest.mark.parametrize("fail_inside_page", [False, True])
+@pytest.mark.parametrize(
+    "fail_inside_page,remove_partial", [(False, False), (True, False), (False, True)]
+)
 def test_keyed_table_worker_validates_whole_source_and_resumes_atomic_pages(
-    tmp_path, monkeypatch, fail_inside_page
+    tmp_path, monkeypatch, fail_inside_page, remove_partial
 ):
     from frisket.engine.store.keyed_updates import observation
     from frisket.engine.store.table_import_intake import TableImportUpdate
@@ -1110,6 +1117,34 @@ def test_keyed_table_worker_validates_whole_source_and_resumes_atomic_pages(
                     observation(project.db, "test:table", row_ids[1])[str(value_col)]
                     == "updated-b"
                 )
+        if remove_partial:
+            with closing(Project(project_path)) as project:
+                session = ImportSessionStore(project).get(IMPORT_REF)
+                project.apply_edits(
+                    [{"row_id": row_ids[1], "column_id": value_col, "value": "manual"}]
+                )
+                writer = StreamingSheetWriter._from_session(project, session)
+                writer.cancel(expected_cursor=session.cursor)
+                writer.remove_session(expected_cursor=session.cursor)
+                assert project.get_values(sheet, value_col, row_ids) == {
+                    row_ids[0]: "original",
+                    row_ids[1]: "manual",
+                    row_ids[2]: "original",
+                }
+                assert (
+                    observation(project.db, "test:table", row_ids[1])[str(value_col)]
+                    == "updated-b"
+                )
+                project.undo()  # Undo the independent edit, not the selective removal.
+                assert project.get_values(sheet, value_col, row_ids) == dict.fromkeys(
+                    row_ids, "original"
+                )
+                assert ImportSessionStore(project).get(IMPORT_REF).state == "removed"
+                assert (
+                    ReceiptStore(project).find_by_id(session.receipt_id).status
+                    == "cancelled"
+                )
+            return
         monkeypatch.setattr(keyed_writer, "observe", original_observe)
         monkeypatch.setattr(table_job, "publish_keyed_page", original_publish)
         queue.enqueue(IMPORT_TABLE_STREAM_KIND, payload)

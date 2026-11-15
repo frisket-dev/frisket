@@ -191,7 +191,8 @@ def test_http_import_worker_and_user_resolution(
         assert inventory.through == 2
         assert inventory.sealed
         assert inventory.page(limit=1) == []
-    assert project.row_count(sheet) == (0 if finish == "remove" else 2)
+    # Removing the import reverts its sheet; saved rows remain for restoration.
+    assert project.row_count(sheet) == 2
     receipt_id = project.db.execute(
         "SELECT receipt_id FROM import_sessions WHERE id=?", (ref,)
     ).fetchone()[0]
@@ -201,7 +202,10 @@ def test_http_import_worker_and_user_resolution(
         == {"remove": "cancelled", "keep": "partial", "complete": "completed"}[finish]
     )
     assert project.db.execute("SELECT count(*) FROM receipts").fetchone()[0] == 1
-    assert client.delete(f"/api/projects/{pid}/sheets/{sheet}").status_code == 200
+    if finish == "remove":
+        assert sheet not in [row["id"] for row in project.sheets()]
+    else:
+        assert client.delete(f"/api/projects/{pid}/sheets/{sheet}").status_code == 200
 
 
 @pytest.mark.parametrize("automatic,with_files", [(False, True), (True, False)])
