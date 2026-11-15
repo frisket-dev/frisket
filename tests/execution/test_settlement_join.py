@@ -1609,10 +1609,13 @@ def test_a_replayed_batch_cannot_flip_a_failed_quoted_row_to_succeeded(
                 attempt_id=attempt.attempt_id,
             ),
         )
-    assert project.db.execute(
-        "SELECT COUNT(*) FROM model_calls WHERE id=?",
-        ("terminal-immutable-row1-replay",),
-    ).fetchone()[0] == 1
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM model_calls WHERE id=?",
+            ("terminal-immutable-row1-replay",),
+        ).fetchone()[0]
+        == 1
+    )
 
     # The money consequence the fence exists for: the successful-row debit
     # did not grow. A flipped row 1 would have minted the "0.2" charge.

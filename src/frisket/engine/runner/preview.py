@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from frisket.ai.llm import ModelRouter
+from frisket.ai.models.accounting import wire_accounting_meta
 from frisket.cloud_execution import cloud_llm_execution_scope
 from frisket.cloud_runtime_binding import CloudRuntimeBinding, cloud_runtime_binding
 from frisket.ops.base import OpContext, Recipe, RecipeInvocationHalt
@@ -607,9 +608,10 @@ async def run_preview(
             lock = asyncio.Lock()
             worker_count = row_worker_count(recipe, spec)
             semaphore = asyncio.Semaphore(worker_count)
+            stopped: asyncio.CancelledError | None = None
 
             async def one_row(row_id: int) -> None:
-                nonlocal done
+                nonlocal done, stopped
                 async with semaphore:
                     if is_cancelled():
                         return
@@ -647,24 +649,48 @@ async def run_preview(
                     llm_binding = (
                         cloud_binding.llm_binding if cloud_binding is not None else None
                     )
-                    with (
-                        cloud_llm_execution_scope(llm_binding)
-                        if llm_binding is not None
-                        else nullcontext()
-                    ):
-                        cells = await execute_row(
-                            project,
-                            router,
-                            throttle,
-                            recipe,
-                            row_input_values,
-                            spec,
-                            row_ctx,
-                            row_id=row_id,
-                            recorder=None,
-                            required_output_field_names=required_field_names,
-                            managed_publication=managed_publication,
-                        )
+                    try:
+                        with (
+                            cloud_llm_execution_scope(llm_binding)
+                            if llm_binding is not None
+                            else nullcontext()
+                        ):
+                            cells = await execute_row(
+                                project,
+                                router,
+                                throttle,
+                                recipe,
+                                row_input_values,
+                                spec,
+                                row_ctx,
+                                row_id=row_id,
+                                recorder=None,
+                                required_output_field_names=required_field_names,
+                                managed_publication=managed_publication,
+                            )
+                    except asyncio.CancelledError as exc:
+                        cells = {}
+                        calls = list(getattr(exc, "wire_calls", ()) or ())
+                        if field_names:
+                            cells[field_names[0]] = {
+                                "value": None,
+                                "outcome": "cancelled",
+                                **(
+                                    wire_accounting_meta(spec["model"], calls)
+                                    if calls
+                                    else {}
+                                ),
+                            }
+                        task = asyncio.current_task()
+                        if not is_cancelled() or (
+                            task is not None and task.cancelling()
+                        ):
+                            record_row(row_id, cells, cloud_binding)
+                            raise
+                        # Stop refuses a new purchase; it must not cancel a sibling
+                        # already waiting for paid work. Retain any earlier repair
+                        # calls attached to this row before joining those siblings.
+                        stopped = stopped or exc
                     async with lock:
                         record_row(row_id, cells, cloud_binding)
                         # Cancellation fence: mirror the durable path — a
@@ -691,6 +717,8 @@ async def run_preview(
                     spec, ctx, expected_rows=total_sample
                 ):
                     await _await_owned_tasks(*(one_row(row_id) for row_id in row_ids))
+                    if stopped is not None:
+                        raise stopped
 
     except BaseException as exc:
         primary = exc

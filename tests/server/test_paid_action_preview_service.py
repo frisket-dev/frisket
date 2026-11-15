@@ -171,8 +171,9 @@ def test_paid_preview_ordinary_confirmation_and_terminal_facts(
         project.close()
 
 
+@pytest.mark.parametrize("invalid", [False, True])
 def test_cancel_joins_returned_paid_call_before_receipt_completion(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, invalid
 ):
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
     entered = threading.Event()
@@ -184,7 +185,29 @@ def test_cancel_joins_returned_paid_call_before_receipt_completion(
             await asyncio.to_thread(release.wait)
             return await super().complete(request, client)
 
-    adapter = Adapter()
+    # Hold the other row at its dispatch boundary until Stop. Its refused
+    # purchase must not cancel the sibling already inside the provider.
+    import frisket.engine.runner.preview as preview_module
+
+    second_waiting = threading.Event()
+    release_second = threading.Event()
+    second_rejected = threading.Event()
+    original_execute_row = preview_module.execute_row
+
+    async def execute_with_second_row_barrier(*args, **kwargs):
+        if kwargs["row_id"] == 2:
+            second_waiting.set()
+            await asyncio.to_thread(release_second.wait)
+            try:
+                return await original_execute_row(*args, **kwargs)
+            except asyncio.CancelledError:
+                second_rejected.set()
+                raise
+        return await original_execute_row(*args, **kwargs)
+
+    monkeypatch.setattr(preview_module, "execute_row", execute_with_second_row_barrier)
+
+    adapter = Adapter(invalid=invalid)
     service, project, body = _fixture(tmp_path, adapter)
     before = _outputs(project)
     try:
@@ -192,20 +215,25 @@ def test_cancel_joins_returned_paid_call_before_receipt_completion(
         assert started.status_code == 202, started.payload
         preview_id = started.payload["preview_id"]
         assert entered.wait(10)
+        assert second_waiting.wait(10)
         service.cancel_preview("paid", preview_id)
         pending = service.get_preview("paid", preview_id).payload
         assert pending["status"] == "running"
         assert pending["accounting"]["status"] == "running"
+        release_second.set()
+        assert second_rejected.wait(10)
         release.set()
         result = _wait(service, preview_id)
         assert result["status"] == "cancelled" and "result" not in result
         assert result["accounting"]["status"] == "cancelled"
-        assert result["accounting"]["cost_actual"] > 0
+        assert result["accounting"]["cost_actual"] == pytest.approx(0.01)
+        assert len(adapter.calls) == 1
         receipt_id = result["accounting"]["receipt_id"]
         assert ReceiptStore(project).parsed_by_id(receipt_id).status == "cancelled"
         assert RunResultStore(project).model_calls(receipt_id=receipt_id)
         assert _outputs(project) == before
     finally:
+        release_second.set()
         release.set()
         service._registry.shutdown()
         project.close()

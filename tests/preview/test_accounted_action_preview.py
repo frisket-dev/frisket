@@ -214,7 +214,9 @@ def test_paid_preview_binds_scope_but_reads_current_source(
             assert len(runner.run_store.model_calls()) == len(rows)
 
 
-@pytest.mark.parametrize("terminal", ["success", "failure", "cancel", "fatal"])
+@pytest.mark.parametrize(
+    "terminal", ["success", "failure", "cancel", "task_cancel", "fatal"]
+)
 def test_real_ocr_preview_retains_returned_capability_facts(
     source, monkeypatch, terminal
 ):
@@ -245,8 +247,11 @@ def test_real_ocr_preview_retains_returned_capability_facts(
                 duration_ms=5,
             ).as_dict()
         ]
-        if terminal == "cancel":
+        if terminal in {"cancel", "task_cancel"}:
             cancelled.set()
+            if terminal == "task_cancel":
+                asyncio.current_task().cancel()
+                await asyncio.sleep(0)
             raise asyncio.CancelledError
         if terminal == "failure":
             raise ValueError("provider returned before decoding failed")
@@ -273,8 +278,8 @@ def test_real_ocr_preview_retains_returned_capability_facts(
     )
     before = _outputs(project)
     spec, attempt = _admit(runner, plan)
-    if terminal in {"cancel", "fatal"}:
-        error = asyncio.CancelledError if terminal == "cancel" else SandboxTeardownError
+    if terminal in {"cancel", "task_cancel", "fatal"}:
+        error = SandboxTeardownError if terminal == "fatal" else asyncio.CancelledError
         with pytest.raises(error):
             asyncio.run(
                 runner.preview(
