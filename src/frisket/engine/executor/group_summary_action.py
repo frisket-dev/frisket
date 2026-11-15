@@ -172,7 +172,7 @@ def run_typed_group_summary_action(
     existing = _receipt_for_idempotency(project, action.idempotency_key)
     from .action_reservations import _recover_stale_receipt_attempt
 
-    _recover_stale_receipt_attempt(project, existing, identity)
+    existing = _recover_stale_receipt_attempt(project, existing, identity)
     recovery_run = runtime._recoverable_group_run(project, existing, identity)
     if existing is not None and recovery_run is None:
         return runtime._reduce_group_summary_result_from_existing_receipt(
@@ -318,33 +318,22 @@ def run_typed_group_summary_action(
             computations=computations,
             publication=publication,
         )
-    except StaleAttemptWriter as exc:
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=ActionError(
-                code="stale_attempt_writer", message=str(exc), action_kind=action.kind
-            ),
-        )
-    except GroupPublicationError as exc:
-        if publication.envelope is None:
-            ReceiptStore(project).delete_running(reservation["receipt_id"])
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=ActionError(
-                code="project_write_failed", message=str(exc), action_kind=action.kind
-            ),
-        )
     except Exception as exc:
+        if publication.stopped():
+            return publication.finish_cancelled()
         if publication.envelope is None:
             ReceiptStore(project).delete_running(reservation["receipt_id"])
+        code = (
+            "stale_attempt_writer"
+            if isinstance(exc, StaleAttemptWriter)
+            else "project_write_failed"
+            if isinstance(exc, GroupPublicationError)
+            else "model_run_failed"
+        )
         return _failed_result(
             project_id=project_id,
             action_kind=action.kind,
-            error=ActionError(
-                code="model_run_failed", message=str(exc), action_kind=action.kind
-            ),
+            error=ActionError(code=code, message=str(exc), action_kind=action.kind),
         )
     finally:
         publication.close()

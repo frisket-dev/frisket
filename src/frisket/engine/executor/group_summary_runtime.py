@@ -1268,49 +1268,9 @@ def _write_reduce_group_summary_result(
         if authority_effect is not None and run_store.cancellation_requested(
             int(authority_effect["run_id"])
         ):
-            cancelled_run = int(authority_effect["run_id"])
-            writer_attempt = str(authority_effect["attempt_id"])
-            from frisket.engine.store.receipts import ReceiptStore
-
-            cancelled_receipt = (
-                ReceiptStore(project)
-                .parsed_by_id(receipt_id)
-                .model_copy(update={"run_id": cancelled_run, "status": "cancelled"})
-            )
-            ResultGenerationStore(project).seal(
-                cancelled_run,
-                [publication.write.column_ids[params.summary_column_name]],
-                claim_token=publication.claim_token,
-                terminal_disposition="cancelled",
-                commit=False,
-            )
-            terminal = terminalize_project_run(
-                project,
-                run_id=cancelled_run,
-                receipt_id=receipt_id,
-                status="cancelled",
-                terminal_receipt=cancelled_receipt,
-                authority=CurrentWriterTerminalAuthority(
-                    writer_attempt_id=writer_attempt,
-                    claim_token=publication.claim_token,
-                    claimless_direct_effect=False,
-                ),
-                commit=False,
-            )
-            if terminal.disposition != "terminalized":
-                raise StaleAttemptWriter(
-                    terminal.reason or "cancelled summary could not close"
-                )
-            publication.release_target()
+            result = publication.finish_cancelled()
             project.db.commit()
-            return ActionResult(
-                action=ActionIdentity(kind=action.kind, action_id=action_id),
-                status="cancelled",
-                project_id=project_id,
-                run_id=cancelled_run,
-                op_ids=[int(authority_effect["op_id"])],
-                receipt_id=receipt_id,
-            )
+            return result
 
         write = publication.write
         op_id, summary_sheet_id, column_ids, summary_row_ids = (

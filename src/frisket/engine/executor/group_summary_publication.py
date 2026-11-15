@@ -88,6 +88,52 @@ class GroupPublication:
             self.project
         ).cancellation_requested(self.envelope["run_id"])
 
+    def finish_cancelled(self):
+        """Close this invocation's stopped owner without publishing more data."""
+        from .action_receipts import _result_from_receipt
+        from .project_run_terminalization import (
+            CurrentWriterTerminalAuthority,
+            terminalize_project_run,
+        )
+        from frisket.engine.store.receipts import ReceiptStore
+        from frisket.execution.attempt import StaleAttemptWriter
+
+        db = self.project.db
+        owns_transaction = not db.in_transaction
+        if owns_transaction:
+            db.execute("BEGIN IMMEDIATE")
+        try:
+            if not self.stopped():
+                raise StaleAttemptWriter(
+                    "grouped cancellation needs durable Stop intent"
+                )
+            terminal = terminalize_project_run(
+                self.project,
+                run_id=int(self.envelope["run_id"]),
+                receipt_id=self.receipt_id,
+                status="cancelled",
+                authority=CurrentWriterTerminalAuthority(
+                    writer_attempt_id=str(self.envelope["attempt_id"]),
+                    claim_token=self.claim_token,
+                ),
+                commit=False,
+            )
+            if terminal.disposition != "terminalized":
+                raise StaleAttemptWriter(
+                    terminal.reason or "cancelled summary could not close"
+                )
+            self.release_target()
+            result = _result_from_receipt(
+                ReceiptStore(self.project).parsed_by_id(self.receipt_id)
+            )
+            if owns_transaction:
+                db.commit()
+            return result
+        except BaseException:
+            if owns_transaction:
+                db.rollback()
+            raise
+
     def start(self, resolved, envelope):
         try:
             self._start(resolved, envelope)

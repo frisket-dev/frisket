@@ -483,18 +483,42 @@ def _running_receipt_is_stale(created_at: Any) -> bool:
 
 
 def _recover_stale_receipt_attempt(project, receipt, params_hash):
-    """Retry admission may retire an expired dispatch; read-only peeks may not."""
+    """Retry admission repairs a dead owner; read-only peeks never mutate it."""
     if (
-        receipt is not None
-        and _row_value(receipt, "status") == "running"
-        and _row_value(receipt, "params_hash") == params_hash
-        and _row_value(receipt, "run_id") is not None
+        receipt is None
+        or _row_value(receipt, "status") != "running"
+        or _row_value(receipt, "params_hash") != params_hash
+        or _row_value(receipt, "run_id") is None
     ):
-        abandon_stale_dispatching_attempts(
-            project,
-            int(_row_value(receipt, "run_id")),
-            commit=not project.db.in_transaction,
+        return receipt
+    run_id = int(_row_value(receipt, "run_id"))
+    owns_transaction = not project.db.in_transaction
+    abandon_stale_dispatching_attempts(project, run_id, commit=owns_transaction)
+    run = project.db.execute(
+        "SELECT status,cancel_requested_at FROM runs WHERE id=?", (run_id,)
+    ).fetchone()
+    if (
+        run is not None
+        and run["status"] == "running"
+        and run["cancel_requested_at"] is not None
+    ):
+        from .project_run_terminalization import (
+            AbandonedRunRecoveryAuthority,
+            terminalize_project_run,
         )
+
+        # A stopped Change cannot resume. Its abandoned exact run may still
+        # close the receipt and claims; returned facts remain intact. The
+        # owner refuses live writers and ambiguous reserved effects itself.
+        terminalize_project_run(
+            project,
+            run_id=run_id,
+            receipt_id=str(_row_value(receipt, "id")),
+            status="cancelled",
+            authority=AbandonedRunRecoveryAuthority(require_cancel_intent=True),
+            commit=owns_transaction,
+        )
+    return ReceiptStore(project).find_by_id(str(_row_value(receipt, "id")))
 
 
 def _running_receipt_has_live_owner(project: Any, receipt: Any) -> bool:
@@ -579,7 +603,19 @@ def _running_receipt_stale_result(
         ):
             project.db.rollback()
             return None
-        _recover_stale_receipt_attempt(project, current, params_hash)
+        current = _recover_stale_receipt_attempt(project, current, params_hash)
+        if current["status"] != "running":
+            project.db.commit()
+            return _result_from_receipt(current.parsed())
+        stopped = project.db.execute(
+            "SELECT 1 FROM runs WHERE id=? AND cancel_requested_at IS NOT NULL",
+            (current["run_id"],),
+        ).fetchone()
+        if stopped is not None:
+            # Live or ambiguous stopped ownership belongs to terminal repair,
+            # never deletion of its receipt and accounting lineage.
+            project.db.commit()
+            return None
         if _running_receipt_has_live_owner(project, current):
             project.db.commit()
             return None

@@ -349,7 +349,7 @@ def run_typed_sheet_refresh_action(
         from .group_summary_runtime import _recoverable_group_run
         from .action_reservations import _recover_stale_receipt_attempt
 
-        _recover_stale_receipt_attempt(project, existing, request_hash)
+        existing = _recover_stale_receipt_attempt(project, existing, request_hash)
         if _recoverable_group_run(project, existing, request_hash) is not None:
             return None
         return _result_from_receipt(
