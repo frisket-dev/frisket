@@ -40,43 +40,23 @@ class _DeleteEffects:
     index_id: str | None = None
 
 
-def _referenced_index_id(raw: Any, *, lens: bool = False) -> str | None:
-    try:
-        value = raw if isinstance(raw, dict) else json.loads(raw or "{}")
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return None
-    if not isinstance(value, dict):
-        return None
-    query = value.get("query") if lens else value
-    if not isinstance(query, dict):
-        return None
-    index_id = query.get("embedding_index_id")
-    return index_id.strip() if isinstance(index_id, str) else None
-
-
 def _require_unreferenced(project: Project, index_id: str) -> None:
-    watches = [
-        row
-        for row in project.watches()
-        if bool(row["enabled"]) and _referenced_index_id(row["query"]) == index_id
-    ]
-    lenses = [
-        row
-        for row in project.lenses()
-        if _referenced_index_id(row["spec"], lens=True) == index_id
-    ]
-    if not watches and not lenses:
-        return
-    references = [f"watch {row['id']} ({row['name']})" for row in watches]
-    references.extend(f"lens {row['id']} ({row['name']})" for row in lenses)
-    preview = ", ".join(references[:5])
-    if len(references) > 5:
-        preview = f"{preview}, and {len(references) - 5} more"
-    raise _DeleteRefused(
-        "embedding_index_in_use",
-        f"Index {index_id!r} is still used by {preview}. "
-        "Remove those saved searches before deleting it.",
-    )
+    references = []
+    for row in project.views():
+        try:
+            selection = json.loads(row["spec"]).get("selection") or {}
+        except (TypeError, ValueError):
+            continue
+        if (selection.get("similarity") or {}).get("embedding_index_id") == index_id:
+            references.append(f"view {row['id']} ({row['name']})")
+    if references:
+        preview = ", ".join(references[:5])
+        if len(references) > 5:
+            preview += f", and {len(references) - 5} more"
+        raise _DeleteRefused(
+            "embedding_index_in_use",
+            f"Index {index_id!r} is still used by {preview}. Remove those saved views before deleting it.",
+        )
 
 
 def _resolve_delete_effects(project: Project, _params: Any) -> _DeleteEffects:

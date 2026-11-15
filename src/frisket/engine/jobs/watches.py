@@ -13,7 +13,6 @@ evaluator itself never calls a provider (row anchors only).
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -35,14 +34,12 @@ WATCH_EVALUATE_KIND = "watch.evaluate"
 
 
 def _watch_query(row: Any) -> dict[str, Any]:
-    raw = row["query"]
-    if isinstance(raw, dict):
-        return raw
+    from frisket.features.watchlists.service import watch_query
+
     try:
-        query = json.loads(raw or "{}")
-    except (TypeError, ValueError):
+        return watch_query(row)
+    except WatchBindingError:
         return {}
-    return query if isinstance(query, dict) else {}
 
 
 def find_embedding_similarity_watches(project: Project, index_id: str) -> list[Any]:
@@ -51,9 +48,7 @@ def find_embedding_similarity_watches(project: Project, index_id: str) -> list[A
     for watch in project.watches():
         if not bool(watch["enabled"]):
             continue
-        query = _watch_query(watch)
-        if str(query.get("kind") or "").strip().lower() != "embedding_similarity":
-            continue
+        query = _watch_query(watch).get("similarity") or {}
         if str(query.get("embedding_index_id") or "") == index_id:
             out.append(watch)
     return out
@@ -256,8 +251,7 @@ def register_watch_evaluate_handler(
                     "skipped": True,
                     "reason": "disabled",
                 }
-            query_kind = str(_watch_query(row).get("kind") or "").strip().lower()
-            if query_kind in {"fts", "search.fts"}:
+            if _watch_query(row).get("search"):
                 from .search_index import index_work_marker, process_index_batches
 
                 # Keyword watches depend only on lexical publication. Running

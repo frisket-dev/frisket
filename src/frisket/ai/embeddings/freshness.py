@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from frisket.ai.embeddings.scope import (
@@ -311,7 +311,9 @@ def _missing_scope_row_pages(
         offset += len(rows)
 
 
-def index_freshness(project: Project, index: Any) -> IndexFreshness:
+def index_freshness(
+    project: Project, index: Any, *, scope: Any = None
+) -> IndexFreshness:
     """Read exact counts without reconstructing every ready source payload.
 
     Published members are authoritative when their stored recipe, embedding
@@ -371,6 +373,19 @@ def index_freshness(project: Project, index: Any) -> IndexFreshness:
             plan = index_scope_plan(reader, pinned_index)
             if plan is None:
                 return IndexFreshness(scope_resolved=False)
+            if scope is not None:
+                from frisket.retrieval.scope import compile_scope
+
+                selected = compile_scope(reader, scope)
+                plan = replace(
+                    plan,
+                    where_sql=f"({plan.where_sql}) AND r.id IN (WITH {selected.cte_sql} SELECT row_id FROM scoped_bindings WHERE sheet_id=?)",
+                    where_params=[
+                        *plan.where_params,
+                        *selected.params,
+                        int(pinned_index["sheet_id"]),
+                    ],
+                )
             descriptor, _declared_space = descriptor_space(space)
             recipe = recipe_for_index(reader, pinned_index, descriptor)
             dataset_id = str(pinned_index["id"])

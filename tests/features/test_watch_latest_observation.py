@@ -1,3 +1,4 @@
+from tests.watch_helpers import add_watch
 import json
 
 import pytest
@@ -15,7 +16,8 @@ def scene(tmp_path):
         rows = project.add_rows(
             sheet, [{"value": "old"} for _ in range(3)], {"value": column}
         )
-        watch = project.add_watch(
+        watch = add_watch(
+            project,
             "Monitor",
             scope="sheet",
             sheet_id=sheet,
@@ -96,13 +98,15 @@ def test_definition_change_during_staging_cannot_publish_old_check(scene):
     def arriving_hits():
         yield {"sheet_id": sheet, "row_id": rows[0]}
         project.db.execute(
-            "UPDATE watches SET query=? WHERE id=?",
+            "UPDATE views SET spec=? WHERE id=(SELECT view_id FROM watches WHERE id=?)",
             (
                 json.dumps(
                     {
-                        "kind": "filter",
-                        "sheet_id": sheet,
-                        "filter": {"value": {"eq": "new"}},
+                        "selection": {
+                            "scope": {"kind": "sheet", "sheet_id": sheet},
+                            "filters": [],
+                        },
+                        "presentation": {},
                     }
                 ),
                 watch,
@@ -138,7 +142,7 @@ def test_all_changes_counted_with_bounded_previews_and_one_summary_key(scene):
     assert len(small["source_event_ids"]) == 5
 
 
-def test_detection_change_rebaselines_but_rename_does_not(scene):
+def test_new_condition_initializes_without_swallowing_existing_entry_alerts(scene):
     project, _, _, rows, watch = scene
     first = record(scene, rows[:1])
     project.update_watch(watch, name="Renamed")
@@ -152,7 +156,7 @@ def test_detection_change_rebaselines_but_rename_does_not(scene):
     )
     project.db.commit()
     new_baseline = record(scene, rows)
-    assert kinds(project, new_baseline) == []
+    assert kinds(project, new_baseline) == ["row_entered"]
     assert project.get_watch(watch)["baseline_run_id"] == new_baseline
     assert project.get_watch_run(first)["detection_policy"] is not None
 
@@ -299,3 +303,70 @@ def test_failed_notification_does_not_block_later_checks(scene, monkeypatch):
         ).fetchone()[0]
         == 2
     )
+
+
+def test_unchanged_membership_and_fields_are_not_rewritten(scene):
+    project, _, _, rows, watch = scene
+    record(scene, rows)
+    first_members = [
+        tuple(row)
+        for row in project.db.execute(
+            "SELECT * FROM watch_seen_rows WHERE watch_id=?", (watch,)
+        )
+    ]
+    first_fields = [
+        tuple(row)
+        for row in project.db.execute(
+            "SELECT * FROM watch_row_field_state WHERE watch_id=?", (watch,)
+        )
+    ]
+    statements = []
+    project.db.set_trace_callback(statements.append)
+    try:
+        second = record(scene, rows)
+    finally:
+        project.db.set_trace_callback(None)
+    assert kinds(project, second) == []
+    assert [
+        tuple(row)
+        for row in project.db.execute(
+            "SELECT * FROM watch_seen_rows WHERE watch_id=?", (watch,)
+        )
+    ] == first_members
+    assert [
+        tuple(row)
+        for row in project.db.execute(
+            "SELECT * FROM watch_row_field_state WHERE watch_id=?", (watch,)
+        )
+    ] == first_fields
+
+
+def test_terminal_monitored_cell_is_an_observation_not_permanent_block(scene):
+    from frisket.engine.store.result_generations import ResultGenerationStore
+    from frisket.engine.store.runs import RunResultStore
+    from helpers import run_writer_authority_fixture
+
+    project, sheet, column, rows, watch = scene
+    record(scene, rows)
+    op = project.append_op("map.ask", label="failed observation")
+    run = RunResultStore(project).start_run(
+        op, sheet, "map.ask", row_ids=rows, total_rows=len(rows)
+    )
+    authority = run_writer_authority_fixture(project, run, output_column_ids={column})
+    generations = ResultGenerationStore(project)
+    generations.declare(
+        run,
+        column,
+        output_role="answer",
+        compatibility_key="sha256:test",
+        write_mode="replace_scope",
+        claim_token=authority.claim_token,
+    )
+    generations.seal(
+        run, [column], claim_token=authority.claim_token, terminal_disposition="failed"
+    )
+    RunResultStore(project).finish_run(run, "failed")
+    checked = record(scene, rows)
+    assert project.get_watch_run(checked)["status"] == "ok"
+    assert kinds(project, checked) == ["row_changed"] * len(rows)
+    assert "not_completed" in project.watch_run_events(checked)[0]["after_json"]

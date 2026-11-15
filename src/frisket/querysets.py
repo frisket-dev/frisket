@@ -281,9 +281,13 @@ def _sheet_row_scope_plan(
 
     cols = project.columns(sheet_id)
     columns_by_name = {c["name"]: c for c in cols}
-    columns_by_id = {int(c["id"]): c for c in cols}
-    filters = _parse_sheet_filter(filter_, columns_by_name, project)
-    sorts = _parse_sheet_sort(sort, columns_by_name)
+    columns_by_id = {
+        int(c["id"]): c
+        for c in project.columns(sheet_id, include_hidden=True)
+        if c["active"]
+    }
+    filters = _parse_sheet_filter(filter_, columns_by_name, project, columns_by_id)
+    sorts = _parse_sheet_sort(sort, columns_by_name, columns_by_id)
     required_numeric_columns: set[int] = set()
     required_comparison_columns: set[int] = set()
     for filter_item in filters:
@@ -1431,7 +1435,10 @@ def _parse_list_contains_any_filter(
 
 
 def _parse_sheet_filter(
-    raw: str | None, columns_by_name: dict[str, Any], project: Project
+    raw: str | None,
+    columns_by_name: dict[str, Any],
+    project: Project,
+    columns_by_id: dict[int, Any] | None = None,
 ) -> list[SheetFilter]:
     if raw is None or raw == "":
         return []
@@ -1439,8 +1446,33 @@ def _parse_sheet_filter(
         spec = json.loads(raw)
     except json.JSONDecodeError as exc:
         raise SheetRowSetError(f"invalid filter JSON: {exc.msg}") from exc
+    if isinstance(spec, list):
+        # Saved selections bind identities; names remain an input convenience
+        # for the ordinary transient grid filter UI.
+        bound: dict[str, Any] = {}
+        columns_by_name = dict(columns_by_name)
+        for item in spec:
+            if (
+                not isinstance(item, dict)
+                or not isinstance(item.get("column_id"), int)
+                or isinstance(item["column_id"], bool)
+            ):
+                raise SheetRowSetError("saved filters require a column_id")
+            column = (columns_by_id or {}).get(item["column_id"])
+            if column is None:
+                raise SheetRowSetError(
+                    f"filter column is unavailable: {item['column_id']}"
+                )
+            key = f"__bound_{item['column_id']}"
+            columns_by_name[key] = column
+            if key in bound:
+                raise SheetRowSetError("duplicate filter column")
+            bound[key] = item.get("condition")
+        spec = bound
     if not isinstance(spec, dict):
-        raise SheetRowSetError("filter must be a JSON object")
+        raise SheetRowSetError(
+            "filter must be a JSON object or bound column conditions"
+        )
 
     out: list[SheetFilter] = []
     runtime_bindings = _runtime_operator_bindings(project)
@@ -1784,7 +1816,9 @@ def _validate_runtime_operator_plan(
 
 
 def _parse_sheet_sort(
-    raw: str | None, columns_by_name: dict[str, Any]
+    raw: str | None,
+    columns_by_name: dict[str, Any],
+    columns_by_id: dict[int, Any] | None = None,
 ) -> list[tuple[Any, str]]:
     if raw is None or raw == "":
         return []
@@ -1800,10 +1834,18 @@ def _parse_sheet_sort(
         if not isinstance(item, dict):
             raise SheetRowSetError("sort entries must be objects")
         name = item.get("column")
-        if not isinstance(name, str) or name not in columns_by_name:
-            raise SheetRowSetError(f"unknown sort column: {name}")
+        if "column_id" in item:
+            column = (columns_by_id or {}).get(item["column_id"])
+            if column is None:
+                raise SheetRowSetError(
+                    f"sort column is unavailable: {item['column_id']}"
+                )
+        else:
+            if not isinstance(name, str) or name not in columns_by_name:
+                raise SheetRowSetError(f"unknown sort column: {name}")
+            column = columns_by_name[name]
         direction = str(item.get("dir", "asc")).lower()
         if direction not in {"asc", "desc"}:
             raise SheetRowSetError(f"unsupported sort direction: {direction}")
-        out.append((columns_by_name[name], direction))
+        out.append((column, direction))
     return out

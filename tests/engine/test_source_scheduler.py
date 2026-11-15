@@ -7,6 +7,8 @@ action.
 
 from __future__ import annotations
 
+from tests.watch_helpers import add_watch
+
 import json
 from datetime import UTC, datetime
 
@@ -176,7 +178,8 @@ def test_source_poll_watch_notification_enqueues_external_delivery_only_for_even
     q.enqueue(SOURCE_POLL_KIND, {"project_id": "news", "source_id": sid})
     assert worker.run_once()
     p = Project(workspace / "news.frisket")
-    watch_id = p.add_watch(
+    watch_id = add_watch(
+        p,
         "Budget watch",
         scope="project",
         query={"kind": "fts", "q": "budget", "limit": 20},

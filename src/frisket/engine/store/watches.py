@@ -23,9 +23,12 @@ from frisket.features.watchlists.events import (
 from frisket.features.watchlists.specs import (
     normalize_detection_policy,
     canonical_json,
-    watch_spec_metadata,
     detection_conditions,
 )
+
+
+class WatchCheckConflict(ValueError):
+    """A check lost its definition/baseline race and should be retried."""
 
 
 def _decode_watch_detection_policy(value: Any) -> dict[str, Any]:
@@ -64,13 +67,16 @@ def _threshold_crossing(
 
 def watches(project: Any) -> list[sqlite3.Row]:
     return project.db.execute(
-        "SELECT * FROM watches ORDER BY created_at, id"
+        "SELECT watches.*, views.spec AS view_spec, views.sheet_id FROM watches "
+        "JOIN views ON views.id=watches.view_id ORDER BY watches.created_at, watches.id"
     ).fetchall()
 
 
 def get_watch(project: Any, watch_id: int) -> sqlite3.Row | None:
     return project.db.execute(
-        "SELECT * FROM watches WHERE id=?", (watch_id,)
+        "SELECT watches.*, views.spec AS view_spec, views.sheet_id FROM watches "
+        "JOIN views ON views.id=watches.view_id WHERE watches.id=?",
+        (watch_id,),
     ).fetchone()
 
 
@@ -78,34 +84,26 @@ def add_watch(
     project: Any,
     name: str,
     *,
-    scope: str,
-    query: dict[str, Any],
-    sheet_id: int | None = None,
+    view_id: int,
     detection_policy: dict[str, Any] | None = None,
     enabled: bool = True,
     commit: bool = True,
 ) -> int:
-    metadata = watch_spec_metadata(
-        query,
-        scope=scope,
-        sheet_id=sheet_id,
-        detection_policy=detection_policy,
-    )
-    query_json = json.dumps(query, sort_keys=True)
+    from .saved_views import get_view
+    from frisket.features.views.specs import stored_selection, normalize_selection
+
+    view = get_view(project, view_id)
+    if view is None:
+        raise ValueError("view not found")
+    normalize_selection(project, stored_selection(json.loads(view["spec"])))
+    if project.db.execute(
+        "SELECT 1 FROM watches WHERE view_id=?", (view_id,)
+    ).fetchone():
+        raise ValueError("This view already has alert settings.")
+    policy = detection_conditions(normalize_detection_policy(detection_policy))
     cur = project.db.execute(
-        "INSERT INTO watches (name, scope, sheet_id, query, query_version, "
-        "query_hash, detection_policy, enabled, last_status) "
-        "VALUES (?,?,?,?,?,?,?,?, 'never')",
-        (
-            name,
-            scope,
-            sheet_id,
-            query_json,
-            metadata["query_version"],
-            metadata["query_hash"],
-            metadata["detection_policy"],
-            int(enabled),
-        ),
+        "INSERT INTO watches (name,view_id,detection_policy,enabled,last_status) VALUES (?,?,?,?, 'never')",
+        (name, view_id, canonical_json(policy), int(enabled)),
     )
     if commit:
         project.db.commit()
@@ -118,6 +116,7 @@ def update_watch(
     *,
     name: str | None = None,
     enabled: bool | None = None,
+    detection_policy: dict[str, Any] | None = None,
 ) -> sqlite3.Row | None:
     """Apply the small lifecycle surface without touching execution state."""
     sets: list[str] = []
@@ -128,6 +127,13 @@ def update_watch(
     if enabled is not None:
         sets.append("enabled=?")
         values.append(int(enabled))
+    if detection_policy is not None:
+        sets.append("detection_policy=?")
+        values.append(
+            canonical_json(
+                detection_conditions(normalize_detection_policy(detection_policy))
+            )
+        )
     if not sets:
         return get_watch(project, watch_id)
     sets.append("updated_at=datetime('now')")
@@ -281,8 +287,7 @@ def watch_events_for_notification(
 
 def _watch_definition(row: Any) -> tuple[Any, ...]:
     return tuple(
-        row[key]
-        for key in ("query", "detection_policy", "scope", "sheet_id", "enabled")
+        row[key] for key in ("view_id", "view_spec", "detection_policy", "enabled")
     )
 
 
@@ -342,12 +347,23 @@ def record_watch_run(
             db.execute("BEGIN IMMEDIATE")
             current = project.get_watch(watch_id)
             if current is None:
-                raise ValueError("watch was deleted during evaluation")
+                raise WatchCheckConflict("watch was deleted during evaluation")
             if _watch_definition(current) != _watch_definition(expected):
-                raise ValueError("watch definition changed during evaluation; retry")
+                raise WatchCheckConflict(
+                    "watch definition changed during evaluation; retry"
+                )
             if current["last_run_id"] != expected["last_run_id"]:
-                raise ValueError(
+                raise WatchCheckConflict(
                     "another watch check completed during evaluation; retry"
+                )
+            if (
+                status == "ok"
+                and db.execute(
+                    "SELECT 1 FROM watch_observation.members now LEFT JOIN rows ON rows.id=now.row_id AND rows.sheet_id=now.sheet_id WHERE rows.id IS NULL LIMIT 1"
+                ).fetchone()
+            ):
+                raise WatchCheckConflict(
+                    "source rows were permanently removed during evaluation; retry"
                 )
             previous = db.execute(
                 "SELECT * FROM watch_runs WHERE id=? AND watch_id=? AND status='ok'",
@@ -356,7 +372,13 @@ def record_watch_run(
             baseline = (
                 previous is not None
                 and previous["resolved_query_hash"] == resolved_query_hash
-                and previous["detection_policy"] == canonical_json(policy)
+            )
+            previous_policy = (
+                detection_conditions(
+                    _decode_watch_detection_policy(previous["detection_policy"])
+                )
+                if baseline
+                else {}
             )
             previous_count = int(previous["matched_rows"]) if baseline else 0
             matched = db.execute(
@@ -443,7 +465,11 @@ def record_watch_run(
                                 rank=0,
                             )
                         )
-                if policy["count_changed"] and previous_count != matched:
+                if (
+                    policy["count_changed"]
+                    and previous_policy.get("count_changed")
+                    and previous_count != matched
+                ):
                     record(
                         count_changed_event(
                             run_id=run_id,
@@ -454,7 +480,7 @@ def record_watch_run(
                         )
                     )
                 threshold = policy.get("threshold")
-                if threshold:
+                if threshold and threshold == previous_policy.get("threshold"):
                     crossing = _threshold_crossing(
                         previous_count=previous_count,
                         current_count=matched,
@@ -512,21 +538,30 @@ def record_watch_run(
                     "SELECT ?,now.sheet_id,now.row_id,now.column_id,now.rank,now.snippet,"
                     "(? AND NOT EXISTS (SELECT 1 FROM watch_seen_rows old WHERE old.watch_id=? "
                     "AND old.sheet_id=now.sheet_id AND old.row_id=now.row_id)) "
-                    "FROM watch_observation.members now ORDER BY now.rank LIMIT 500",
+                    "FROM watch_observation.members now JOIN rows ON rows.id=now.row_id AND rows.sheet_id=now.sheet_id ORDER BY now.rank LIMIT 500",
                     (run_id, int(baseline), watch_id),
                 )
-                db.execute("DELETE FROM watch_seen_rows WHERE watch_id=?", (watch_id,))
+                # Diff-apply: unchanged million-row checks must not rewrite their baseline.
+                db.execute(
+                    "DELETE FROM watch_seen_rows WHERE watch_id=? AND NOT EXISTS (SELECT 1 FROM watch_observation.members now WHERE now.sheet_id=watch_seen_rows.sheet_id AND now.row_id=watch_seen_rows.row_id)",
+                    (watch_id,),
+                )
                 db.execute(
                     "INSERT INTO watch_seen_rows (watch_id,sheet_id,row_id,first_seen_run_id,last_seen_run_id) "
-                    "SELECT ?,sheet_id,row_id,?,? FROM watch_observation.members",
+                    "SELECT ?,sheet_id,row_id,?,? FROM watch_observation.members WHERE 1 "
+                    "ON CONFLICT(watch_id,sheet_id,row_id) DO NOTHING",
                     (watch_id, run_id, run_id),
                 )
                 db.execute(
-                    "DELETE FROM watch_row_field_state WHERE watch_id=?", (watch_id,)
+                    "DELETE FROM watch_row_field_state WHERE watch_id=? AND NOT EXISTS (SELECT 1 FROM watch_observation.fields now WHERE now.sheet_id=watch_row_field_state.sheet_id AND now.row_id=watch_row_field_state.row_id AND now.column_id=watch_row_field_state.column_id)",
+                    (watch_id,),
                 )
                 db.execute(
                     "INSERT INTO watch_row_field_state (watch_id,sheet_id,row_id,column_id,value_json,value_hash,last_observed_run_id) "
-                    "SELECT ?,sheet_id,row_id,column_id,value_json,value_hash,? FROM watch_observation.fields",
+                    "SELECT ?,sheet_id,row_id,column_id,value_json,value_hash,? FROM watch_observation.fields WHERE 1 "
+                    "ON CONFLICT(watch_id,sheet_id,row_id,column_id) DO UPDATE SET "
+                    "value_json=excluded.value_json,value_hash=excluded.value_hash,last_observed_run_id=excluded.last_observed_run_id "
+                    "WHERE watch_row_field_state.value_json!=excluded.value_json",
                     (watch_id, run_id),
                 )
                 db.execute(

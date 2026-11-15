@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tests.watch_helpers import add_watch
+
 import threading
 from pathlib import Path
 
@@ -10,11 +12,11 @@ def test_watch_delete_serializes_a_concurrent_different_row_update(
     tmp_path: Path,
 ) -> None:
     project = Project.create(tmp_path / "watch-delete.frisket", name="Watches")
-    delete_id = project.add_watch(
-        "Delete me", scope="project", query={"kind": "fts", "q": "one"}
+    delete_id = add_watch(
+        project, "Delete me", scope="project", query={"kind": "fts", "q": "one"}
     )
-    update_id = project.add_watch(
-        "Update me", scope="project", query={"kind": "fts", "q": "two"}
+    update_id = add_watch(
+        project, "Update me", scope="project", query={"kind": "fts", "q": "two"}
     )
     delete_entered = threading.Event()
     release_delete = threading.Event()

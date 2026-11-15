@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tests.watch_helpers import add_watch
+
 import json
 from typing import Any
 
@@ -356,7 +358,7 @@ def test_post_commit_cleanup_failure_keeps_committed_authoritative_delete(
         project.close()
 
 
-@pytest.mark.parametrize("reference_kind", ["watch", "lens"])
+@pytest.mark.parametrize("reference_kind", ["watch", "view"])
 def test_delete_refuses_live_saved_search_references(tmp_path, reference_kind):
     project = Project.create(tmp_path / "project")
     try:
@@ -370,26 +372,31 @@ def test_delete_refuses_live_saved_search_references(tmp_path, reference_kind):
             "anchor": {"kind": "row", "row_id": row_id},
         }
         if reference_kind == "watch":
-            project.add_watch(
+            add_watch(
+                project,
                 "Similar stories",
                 scope="sheet",
                 sheet_id=seeded["sheet_id"],
                 query=query,
             )
         else:
-            from frisket.features.watchlists.specs import normalize_lens_spec
+            from frisket.features.views.specs import legacy_selection
 
-            project.add_lens(
+            project.add_view(
                 "Similar stories",
-                normalize_lens_spec(query),
-                sheet_id=seeded["sheet_id"],
+                {
+                    "selection": legacy_selection(
+                        project, sheet_id=seeded["sheet_id"], spec=query
+                    ),
+                    "presentation": {},
+                },
             )
 
         result = run_action_spec(project, _request(index_id), project_id="p")
 
         assert result.status == "failed"
         assert result.errors[0].code == "embedding_index_in_use"
-        assert reference_kind in result.errors[0].message
+        assert "view" in result.errors[0].message
         assert EmbeddingStore(project).get_index(index_id) is not None
         assert (
             project.db.execute(
@@ -412,7 +419,8 @@ def test_disabled_watch_does_not_block_index_delete(tmp_path):
     try:
         seeded = _seed(project, tmp_path)
         index_id = seeded["index_id"]
-        project.add_watch(
+        add_watch(
+            project,
             "Paused similarity",
             scope="sheet",
             sheet_id=seeded["sheet_id"],

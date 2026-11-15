@@ -14,6 +14,9 @@ def migrate_alert_baselines(db: sqlite3.Connection) -> None:
     """
     columns = {row[1] for row in db.execute("PRAGMA table_info(watches)")}
     if "baseline_run_id" in columns:
+        db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_watch_runs_notification_pending ON watch_runs(id) WHERE notification_pending=1"
+        )
         return
     db.execute("ALTER TABLE watches ADD COLUMN baseline_run_id INTEGER")
     db.execute("ALTER TABLE watch_runs ADD COLUMN detection_policy TEXT")
@@ -22,3 +25,7 @@ def migrate_alert_baselines(db: sqlite3.Connection) -> None:
     )
     db.execute("DELETE FROM watch_seen_rows")
     db.execute("DELETE FROM watch_row_field_state")
+
+    db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_watch_runs_notification_pending ON watch_runs(id) WHERE notification_pending=1"
+    )

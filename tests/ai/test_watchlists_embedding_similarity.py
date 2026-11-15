@@ -9,6 +9,8 @@ provider (row anchors only).
 
 from __future__ import annotations
 
+from tests.watch_helpers import add_watch
+
 from fastapi.testclient import TestClient
 
 from frisket.ai.embeddings import build_batch_result
@@ -307,7 +309,8 @@ def test_evaluator_blocks_legacy_cross_sheet_watch(tmp_path):
     _refresh(project, pid, index_id)
     cat = _row_id(project, sheet, col, "cat")
     other_sheet = project.add_sheet("other")
-    watch_id = project.add_watch(
+    watch_id = add_watch(
+        project,
         "legacy cross sheet",
         scope="sheet",
         sheet_id=other_sheet,

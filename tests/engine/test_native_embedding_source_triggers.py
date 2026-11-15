@@ -10,6 +10,8 @@ Proves the recurring/source-triggered path is queue-shaped, not inline:
 
 from __future__ import annotations
 
+from tests.watch_helpers import add_watch
+
 from types import SimpleNamespace
 
 import pytest
@@ -425,7 +427,8 @@ def _full_refresh(env, index_id):
 
 
 def _embedding_watch(env, index_id, anchor_row):
-    return env.project.add_watch(
+    return add_watch(
+        env.project,
         "similar",
         scope="sheet",
         sheet_id=env.sheet,
@@ -584,7 +587,8 @@ def test_source_poll_skips_embedding_watches_inline(env):
     index_id = _create_index(env)
     _full_refresh(env, index_id)
     emb_watch = _embedding_watch(env, index_id, _row_id(env, "story 0"))
-    fts_watch = env.project.add_watch(
+    fts_watch = add_watch(
+        env.project,
         "fts",
         scope="sheet",
         sheet_id=env.sheet,

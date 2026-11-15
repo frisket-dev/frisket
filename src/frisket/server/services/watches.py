@@ -5,9 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from frisket.ai.embeddings import EmbeddingStore
 from frisket.engine.jobs import enqueue_notification_emit_result
-from frisket.querysets import SheetRowSetError, validate_sheet_filter_sort
 from frisket.server.paging import offset_page_meta
 from frisket.server.workspace import Workspace
 from frisket.engine.store import Project
@@ -18,7 +16,6 @@ from frisket.features.watchlists.events import (
 )
 from frisket.features.watchlists.specs import (
     normalize_detection_policy,
-    normalize_query_spec,
 )
 from frisket.features.watchlists.service import WatchBindingError, run_watch_evaluation
 
@@ -51,8 +48,7 @@ class WatchService:
         project_id: str,
         *,
         name: str,
-        scope: dict[str, Any] | None,
-        query: dict[str, Any],
+        view_id: int,
         detection_policy: dict[str, Any] | None,
         enabled: bool,
     ) -> dict[str, Any]:
@@ -60,11 +56,10 @@ class WatchService:
         watch_name = name.strip()
         if not watch_name:
             raise WatchRequestError("watch name is required")
-        scope_name, sheet_id, normalized_query = self._normalize_watch_body(
-            project,
-            scope=scope,
-            query=query,
-        )
+        view = project.get_view(view_id)
+        if view is None:
+            raise WatchRequestError("view not found", status_code=404)
+        sheet_id = view["sheet_id"]
         normalized_policy = _normalize_watch_detection_policy(
             project,
             sheet_id=sheet_id,
@@ -73,9 +68,7 @@ class WatchService:
         try:
             watch_id = project.add_watch(
                 watch_name,
-                scope=scope_name,
-                sheet_id=sheet_id,
-                query=normalized_query,
+                view_id=view_id,
                 detection_policy=normalized_policy,
                 enabled=enabled,
             )
@@ -126,7 +119,7 @@ class WatchService:
     ) -> dict[str, Any]:
         if not fields:
             raise WatchRequestError("at least one watch field is required")
-        unsupported = set(fields) - {"name", "enabled"}
+        unsupported = set(fields) - {"name", "enabled", "detection_policy"}
         if unsupported:
             raise WatchRequestError("unsupported watch field")
         name = fields.get("name")
@@ -140,10 +133,23 @@ class WatchService:
         if "enabled" in fields and not isinstance(enabled, bool):
             raise WatchRequestError("enabled must be a boolean")
         project = self._workspace.get(project_id)
+        existing = project.get_watch(watch_id)
+        if existing is None:
+            raise WatchNotFound("watch not found")
+        policy = (
+            _normalize_watch_detection_policy(
+                project,
+                sheet_id=existing["sheet_id"],
+                policy=fields["detection_policy"],
+            )
+            if "detection_policy" in fields
+            else None
+        )
         row = project.update_watch(
             watch_id,
             name=name if "name" in fields else None,
             enabled=enabled if "enabled" in fields else None,
+            detection_policy=policy,
         )
         if row is None:
             raise WatchNotFound("watch not found")
@@ -225,41 +231,6 @@ class WatchService:
             "events": events,
         }
 
-    def _normalize_watch_body(
-        self,
-        project: Project,
-        *,
-        scope: dict[str, Any] | None,
-        query: dict[str, Any],
-    ) -> tuple[str, int | None, dict[str, Any]]:
-        if not isinstance(query, dict):
-            raise WatchRequestError("watch requires query")
-        raw_query = dict(query)
-        raw_scope = dict(scope or {})
-
-        kind = str(raw_query.get("kind") or "").strip().lower()
-        if kind == "fts":
-            return _normalize_fts_watch_query(
-                project,
-                raw_query,
-                raw_scope,
-            )
-        if kind == "filter":
-            return _normalize_filter_watch_query(
-                project,
-                raw_query,
-                raw_scope,
-            )
-        if kind == "embedding_similarity":
-            return _normalize_embedding_watch_query(
-                project,
-                raw_query,
-                raw_scope,
-            )
-        raise WatchRequestError(
-            "watch query kind must be fts, filter, or embedding_similarity"
-        )
-
 
 def _json_obj(value: Any, *, field: str) -> dict[str, Any]:
     try:
@@ -269,10 +240,6 @@ def _json_obj(value: Any, *, field: str) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise WatchRequestError(f"stored {field} must be an object")
     return data
-
-
-def _watch_query(row) -> dict[str, Any]:
-    return _json_obj(row["query"], field="watch query")
 
 
 def _watch_detection_policy(row) -> dict[str, Any]:
@@ -320,146 +287,13 @@ def _watch_dict(project: Project, row) -> dict[str, Any]:
     data = dict(row)
     data.pop("baseline_run_id", None)
     data["enabled"] = bool(data.get("enabled"))
-    data["query"] = _watch_query(row)
+    data.pop("view_spec", None)
     data["detection_policy"] = _watch_detection_policy(row)
     latest = project.watch_latest_run(data["id"])
     data["latest_run"] = (
         _watch_run_dict(project, latest) if latest is not None else None
     )
     return data
-
-
-def _coerce_positive_int(value: Any, field: str, default: int) -> int:
-    if value is None:
-        return default
-    try:
-        out = int(value)
-    except (TypeError, ValueError):
-        raise WatchRequestError(f"{field} must be an integer") from None
-    if out < 1:
-        raise WatchRequestError(f"{field} must be positive")
-    return out
-
-
-def _coerce_sheet_id(value: Any, field: str = "sheet_id") -> int:
-    try:
-        sheet_id = int(value)
-    except (TypeError, ValueError):
-        raise WatchRequestError(f"{field} is required") from None
-    if sheet_id <= 0:
-        raise WatchRequestError(f"{field} is required")
-    return sheet_id
-
-
-def _ensure_sheet(project: Project, sheet_id: int) -> None:
-    if not any(int(sheet["id"]) == sheet_id for sheet in project.sheets()):
-        raise WatchRequestError("sheet not found", status_code=404)
-
-
-def _validate_filter_watch_query(project: Project, query: dict[str, Any]) -> None:
-    sheet_id = _coerce_sheet_id(query.get("sheet_id"))
-    _ensure_sheet(project, sheet_id)
-    filter_spec = query.get("filter", {})
-    if not isinstance(filter_spec, dict):
-        raise WatchRequestError("filter watch query filter must be an object")
-    try:
-        validate_sheet_filter_sort(
-            project,
-            sheet_id,
-            filter_=json.dumps(filter_spec),
-            sort=None,
-        )
-    except SheetRowSetError as exc:
-        raise WatchRequestError(str(exc)) from exc
-
-
-def _normalize_fts_watch_query(
-    project: Project,
-    raw_query: dict[str, Any],
-    raw_scope: dict[str, Any],
-) -> tuple[str, int | None, dict[str, Any]]:
-    q = str(raw_query.get("q") or "").strip()
-    if not q:
-        raise WatchRequestError("fts watch query requires q")
-    mode = str(raw_query.get("mode") or "keyword").strip().lower()
-    if mode != "keyword":
-        raise WatchRequestError("watchlists MVP supports keyword fts only")
-    rerank = str(raw_query.get("rerank") or "off").strip().lower()
-    if rerank not in {"off", "auto"}:
-        raise WatchRequestError("rerank must be off or auto")
-    limit = _coerce_positive_int(raw_query.get("limit"), "limit", 50)
-    scope = str(raw_scope.get("kind") or "project").strip().lower()
-    sheet_id = None
-    if scope == "sheet":
-        sheet_id = _coerce_sheet_id(raw_scope.get("sheet_id"))
-        _ensure_sheet(project, sheet_id)
-    elif scope != "project":
-        raise WatchRequestError("watch scope must be project or sheet")
-    return (
-        scope,
-        sheet_id,
-        {
-            "kind": "fts",
-            "q": q,
-            "mode": "keyword",
-            "rerank": rerank,
-            "limit": limit,
-        },
-    )
-
-
-def _normalize_filter_watch_query(
-    project: Project,
-    raw_query: dict[str, Any],
-    raw_scope: dict[str, Any],
-) -> tuple[str, int, dict[str, Any]]:
-    sheet_id = _coerce_sheet_id(raw_query.get("sheet_id") or raw_scope.get("sheet_id"))
-    filter_spec = raw_query.get("filter", {})
-    if not isinstance(filter_spec, dict):
-        raise WatchRequestError("filter watch query filter must be an object")
-    normalized: dict[str, Any] = {
-        "kind": "filter",
-        "sheet_id": sheet_id,
-        "filter": filter_spec,
-    }
-    _validate_filter_watch_query(project, normalized)
-    return "sheet", sheet_id, normalized
-
-
-def _normalize_embedding_watch_query(
-    project: Project,
-    raw_query: dict[str, Any],
-    raw_scope: dict[str, Any],
-) -> tuple[str, int, dict[str, Any]]:
-    sheet_id = _coerce_sheet_id(raw_query.get("sheet_id") or raw_scope.get("sheet_id"))
-    _ensure_sheet(project, sheet_id)
-    index_id = raw_query.get("embedding_index_id")
-    index = (
-        EmbeddingStore(project).get_index(index_id)
-        if isinstance(index_id, str) and index_id
-        else None
-    )
-    if index is None:
-        raise WatchRequestError("embedding index not found")
-    if index["sheet_id"] is not None and int(index["sheet_id"]) != sheet_id:
-        raise WatchRequestError(
-            f"watch sheet {sheet_id} does not match embedding index sheet "
-            f"{int(index['sheet_id'])}"
-        )
-    normalized: dict[str, Any] = {
-        "kind": "embedding_similarity",
-        "scope": {"kind": "sheet", "sheet_id": sheet_id},
-        "embedding_index_id": index_id,
-        "anchor": raw_query.get("anchor"),
-    }
-    for key in ("limit", "threshold", "space_id"):
-        if raw_query.get(key) is not None:
-            normalized[key] = raw_query[key]
-    try:
-        normalize_query_spec(normalized)
-    except ValueError as exc:
-        raise WatchRequestError(str(exc)) from exc
-    return "sheet", sheet_id, normalized
 
 
 def _normalize_watch_detection_policy(

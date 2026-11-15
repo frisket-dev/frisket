@@ -26,6 +26,7 @@ from frisket.retrieval.query import (
     RetrievalQueryError,
     RetrievalQueryService,
     SemanticQueryVectors,
+    source_anchor_vectors,
 )
 from frisket.retrieval.ranking import RankingError
 from frisket.retrieval.store import RetrievalStore
@@ -312,6 +313,76 @@ def _load_index(
     return index, space, descriptor, facade_space
 
 
+def prepared_similarity_request(
+    project: Any, query: dict[str, Any], *, scope: RetrievalScope
+) -> tuple[SearchRequest, SemanticQueryVectors | None]:
+    """Bind an existing row or cached query vector; never perform model work."""
+    index, space, descriptor, facade_space = _load_index(project, query)
+    if index["sheet_id"] is None:
+        raise SimilarityError(
+            "embedding_index_scope_invalid", "The similarity index has no sheet."
+        )
+    if scope.sheets is None or any(
+        item.sheet_id != int(index["sheet_id"]) for item in scope.sheets
+    ):
+        raise SimilarityError(
+            "embedding_index_sheet_mismatch",
+            "The view and similarity index must use the same sheet.",
+        )
+    anchor = query.get("anchor", {})
+    vectors = None
+    with RetrievalStore(project) as retrieval:
+        if anchor.get("kind") in _ROW_ANCHOR_KINDS:
+            bound_query = _row_anchor(
+                project, retrieval, index=index, space=space, anchor=anchor
+            )
+            vectors = source_anchor_vectors(
+                project,
+                SearchRequest(
+                    scope=RetrievalScope(
+                        (
+                            SheetScope(
+                                int(index["sheet_id"]), row_ids=(int(anchor["row_id"]),)
+                            ),
+                        )
+                    ),
+                    query=bound_query,
+                    mode="semantic",
+                    group_by="row",
+                    limit=1,
+                    named_index_id=str(index["id"]),
+                    space_id=str(space["id"]),
+                ),
+            )
+        elif anchor.get("kind") == "manual_text_query":
+            bound_query, vectors, _ = _manual_query(
+                project,
+                retrieval,
+                index=index,
+                space=space,
+                descriptor=descriptor,
+                facade_space=facade_space,
+                anchor=anchor,
+                maximum_distance=_threshold(query),
+                gateway=None,
+                effect_project=None,
+                allow_prepare=False,
+            )
+        else:
+            raise SimilarityError(
+                "embedding_source_unsupported", "Unsupported similarity anchor."
+            )
+    return SearchRequest(
+        scope=scope,
+        query=bound_query,
+        mode="semantic",
+        group_by="row",
+        limit=9223372036854775807,
+        named_index_id=str(index["id"]),
+        space_id=str(space["id"]),
+    ), vectors
+
+
 def resolve_embedding_similarity(
     project: Project,
     query: dict[str, Any],
@@ -521,6 +592,7 @@ def _manual_query(
     maximum_distance: float | None,
     gateway: Any,
     effect_project: Project | None,
+    allow_prepare: bool = True,
 ) -> tuple[WeightedSemanticQuery, SemanticQueryVectors, QueryEmbeddingUse | None]:
     if descriptor["modality"] not in _EMBEDDABLE_MODALITIES:
         raise SimilarityError(
@@ -543,6 +615,11 @@ def _manual_query(
     accounting_project = effect_project if effect_project is not None else project
 
     def admit_fresh(_fresh_inputs):
+        if not allow_prepare:
+            raise SimilarityError(
+                "selection_needs_preparation",
+                "Prepare the saved similarity query before using this view or alert.",
+            )
         if provider_kind not in REMOTE_PROVIDER_KINDS:
             return
         if gateway is None:

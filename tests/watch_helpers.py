@@ -13,3 +13,19 @@ def seed_empty_watch_baseline(project, watch_id):
         resolved_query_hash=resolution["resolved_query_hash"],
         resolved_query=resolution["resolved_query"],
     )
+
+
+def add_watch(project, name, *, query, scope="sheet", sheet_id=None, **kwargs):
+    """Author existing scenario fixtures through the unified View/alert API."""
+    from frisket.features.views.specs import legacy_selection
+
+    scope_def = {"kind": scope}
+    if sheet_id is not None:
+        scope_def["sheet_id"] = sheet_id
+    selection = legacy_selection(
+        project,
+        sheet_id=sheet_id,
+        spec={**query, "scope": query.get("scope", scope_def)},
+    )
+    view_id = project.add_view(name, {"selection": selection, "presentation": {}})
+    return project.add_watch(name, view_id=view_id, **kwargs)

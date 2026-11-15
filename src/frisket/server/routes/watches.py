@@ -50,8 +50,7 @@ def register_watch_routes(
         return service.create_watch(
             pid,
             name=body.name,
-            scope=body.scope,
-            query=body.query,
+            view_id=body.view_id,
             detection_policy=body.detection_policy,
             enabled=body.enabled,
         )
@@ -65,7 +64,7 @@ def register_watch_routes(
         fields = {
             field: getattr(body, field)
             for field in body.model_fields_set
-            if field in {"name", "enabled"}
+            if field in {"name", "enabled", "detection_policy"}
         }
         return service.patch_watch(pid, watch_id, fields=fields)
 

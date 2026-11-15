@@ -180,7 +180,7 @@ from frisket.server.routes.sheet_features import (
 from frisket.server.routes.sheet_grid import register_sheet_grid_routes
 from frisket.server.routes.spend import register_spend_routes
 from frisket.server.routes.sources import register_source_routes
-from frisket.server.routes.views import register_view_lens_routes
+from frisket.server.routes.views import register_view_routes
 from frisket.server.routes.watches import register_watch_routes
 from frisket.server.routes.walkthroughs import register_walkthrough_routes
 from frisket.server.routes.workbench import register_workbench_routes
@@ -247,7 +247,7 @@ from frisket.server.services.sheet_export import SheetDatasetExportService
 from frisket.server.services.sheet_grid import SheetGridService
 from frisket.server.services.spend import SpendService
 from frisket.server.services.sources import SourceService
-from frisket.server.services.views import ViewLensService
+from frisket.server.services.views import ViewService
 from frisket.server.services.watches import WatchService
 from frisket.server.services.work_log_exports import WorkLogExportService
 from frisket.server.services.workbench import WorkbenchService
@@ -1203,8 +1203,8 @@ def create_app(
 
     register_spend_routes(app, service=SpendService(ws))
 
-    view_lens_service = ViewLensService(ws)
-    register_view_lens_routes(app, service=view_lens_service)
+    view_service = ViewService(ws)
+    register_view_routes(app, service=view_service)
 
     register_watch_routes(
         app,

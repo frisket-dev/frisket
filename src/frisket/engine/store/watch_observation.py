@@ -69,13 +69,15 @@ def stage_watch_observation(
                     if not rows:
                         continue
                     placeholders = ",".join("?" for _ in rows)
-                    unavailable = project.db.execute(
-                        "SELECT 1 FROM current_cell_values WHERE column_id=? "
-                        f"AND row_id IN ({placeholders}) "
-                        "AND outcome IN ('pending','failed','not_completed') LIMIT 1",
-                        (column, *rows),
-                    ).fetchone()
-                    if unavailable:
+                    states = {
+                        int(cell["row_id"]): cell["outcome"]
+                        for cell in project.db.execute(
+                            "SELECT row_id,outcome FROM current_cell_values WHERE column_id=? "
+                            f"AND row_id IN ({placeholders})",
+                            (column, *rows),
+                        )
+                    }
+                    if "pending" in states.values():
                         raise WatchObservationIncomplete(
                             "A monitored value is not available yet."
                         )
@@ -95,7 +97,12 @@ def stage_watch_observation(
                             for row in rows
                             for value in [
                                 json.dumps(
-                                    values.get(row), ensure_ascii=False, sort_keys=True
+                                    {
+                                        "outcome": states.get(row, "empty"),
+                                        "value": values.get(row),
+                                    },
+                                    ensure_ascii=False,
+                                    sort_keys=True,
                                 )
                             ]
                         ],

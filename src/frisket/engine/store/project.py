@@ -920,7 +920,7 @@ class Project:
         name: str,
         spec: dict[str, Any] | None = None,
         *,
-        sheet_id: int,
+        sheet_id: int | None = None,
         commit: bool = True,
     ) -> int:
         return saved_views.add_view(self, name, spec, sheet_id=sheet_id, commit=commit)
@@ -936,33 +936,6 @@ class Project:
     def delete_view(self, view_id: int) -> None:
         saved_views.delete_view(self, view_id)
 
-    def lenses(self, sheet_id: int | None = None) -> list[sqlite3.Row]:
-        return saved_views.lenses(self, sheet_id)
-
-    def get_lens(self, lens_id: int) -> sqlite3.Row | None:
-        return saved_views.get_lens(self, lens_id)
-
-    def add_lens(
-        self,
-        name: str,
-        spec: dict[str, Any],
-        sheet_id: int | None = None,
-    ) -> int:
-        return saved_views.add_lens(self, name, spec, sheet_id)
-
-    def update_lens(
-        self,
-        lens_id: int,
-        name: str | None = None,
-        spec: dict[str, Any] | None = None,
-    ) -> None:
-        saved_views.update_lens(self, lens_id, name, spec)
-
-    def delete_lens(self, lens_id: int) -> None:
-        saved_views.delete_lens(self, lens_id)
-
-    # ----- saved lenses -----
-
     # ---------- watchlists ----------
 
     def watches(self) -> list[sqlite3.Row]:
@@ -975,9 +948,7 @@ class Project:
         self,
         name: str,
         *,
-        scope: str,
-        query: dict[str, Any],
-        sheet_id: int | None = None,
+        view_id: int,
         detection_policy: dict[str, Any] | None = None,
         enabled: bool = True,
         commit: bool = True,
@@ -985,9 +956,7 @@ class Project:
         return watches.add_watch(
             self,
             name,
-            scope=scope,
-            query=query,
-            sheet_id=sheet_id,
+            view_id=view_id,
             detection_policy=detection_policy,
             enabled=enabled,
             commit=commit,
@@ -999,12 +968,14 @@ class Project:
         *,
         name: str | None = None,
         enabled: bool | None = None,
+        detection_policy: dict[str, Any] | None = None,
     ) -> sqlite3.Row | None:
         return watches.update_watch(
             self,
             watch_id,
             name=name,
             enabled=enabled,
+            detection_policy=detection_policy,
         )
 
     def delete_watch(self, watch_id: int) -> bool:

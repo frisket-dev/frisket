@@ -1823,36 +1823,17 @@ CREATE TABLE IF NOT EXISTS source_items (
 CREATE INDEX IF NOT EXISTS idx_source_items_run
   ON source_items(last_seen_run_id);
 
--- Saved views. A view is a named,
--- reusable filter/sort over a sheet. Creating or updating one is logged
--- as an op (ops.kind='view'), so sort/filter becomes provenance-bearing
--- instead of an ephemeral, unlogged grid setting (the Cheatsheet "sort the
--- sheet" provenance gap). `spec` is JSON: {filter, sort, columns, ...}.
+-- A View owns the selection; alerts only reference it.
 CREATE TABLE IF NOT EXISTS views (
   id INTEGER PRIMARY KEY,
-  sheet_id INTEGER NOT NULL REFERENCES sheets(id) ON DELETE CASCADE,
+  sheet_id INTEGER REFERENCES sheets(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
-  spec TEXT NOT NULL DEFAULT '{}',       -- JSON: filter / sort / columns
-  op_id INTEGER REFERENCES ops(id),      -- the op that created/last-saved it
+  spec TEXT NOT NULL DEFAULT '{}',
+  op_id INTEGER REFERENCES ops(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_views_sheet ON views(sheet_id);
-
--- Saved lenses: a named LensSpec — a normalized QuerySpec (e.g.
--- a row-anchor embedding_similarity) + presentation. Unlike a `views` row (a
--- presentation-only filter/sort blob) a lens carries the query KIND, so it can be
--- re-resolved on demand into a row-set with distance/score through the query spine.
-CREATE TABLE IF NOT EXISTS lenses (
-  id INTEGER PRIMARY KEY,
-  sheet_id INTEGER REFERENCES sheets(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  spec TEXT NOT NULL DEFAULT '{}',       -- JSON: frisket.lens.v1 {query, presentation}
-  op_id INTEGER REFERENCES ops(id),      -- the op that created/last-saved it
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_lenses_sheet ON lenses(sheet_id);
 
 -- Watchlists promote saved queries into recurring checks. A watch is a
 -- saved query with its own cursor and manual run history. Notification
@@ -1860,11 +1841,7 @@ CREATE INDEX IF NOT EXISTS idx_lenses_sheet ON lenses(sheet_id);
 CREATE TABLE IF NOT EXISTS watches (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
-  scope TEXT NOT NULL DEFAULT 'project', -- project | sheet
-  sheet_id INTEGER REFERENCES sheets(id) ON DELETE CASCADE,
-  query TEXT NOT NULL,
-  query_version TEXT,
-  query_hash TEXT,
+  view_id INTEGER NOT NULL REFERENCES views(id) ON DELETE CASCADE,
   detection_policy TEXT NOT NULL DEFAULT '{"kind":"new_matches"}',
   enabled INTEGER NOT NULL DEFAULT 1,
   last_evaluated_op INTEGER NOT NULL DEFAULT 0,
@@ -1874,7 +1851,7 @@ CREATE TABLE IF NOT EXISTS watches (
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-CREATE INDEX IF NOT EXISTS idx_watches_sheet ON watches(sheet_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_watches_view ON watches(view_id);
 
 CREATE TABLE IF NOT EXISTS watch_runs (
   id INTEGER PRIMARY KEY,
@@ -1893,6 +1870,7 @@ CREATE TABLE IF NOT EXISTS watch_runs (
   started_at TEXT NOT NULL DEFAULT (datetime('now')),
   finished_at TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_watch_runs_notification_pending ON watch_runs(id) WHERE notification_pending=1;
 CREATE INDEX IF NOT EXISTS idx_watch_runs_watch_started
   ON watch_runs(watch_id, started_at DESC, id DESC);
 
