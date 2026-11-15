@@ -142,9 +142,22 @@ class ScratchActionPreviewRunContext:
             return
         from frisket.cloud_execution import cloud_llm_execution_scope
 
-        with cloud_llm_execution_scope(binding.llm_binding):
-            yield ctx
-        binding.llm_coordinator.retire_returned()
+        from frisket.execution.runtime_binding import bind_fact_to_route
+
+        try:
+            with cloud_llm_execution_scope(binding.llm_binding):
+                yield ctx
+        finally:
+            # Parsing or rendering may fail after Cloud has returned paid work.
+            # The scope owns these facts independently of the engine's output.
+            calls = [
+                bind_fact_to_route(binding.route, call)
+                for accounting in binding.llm_coordinator.returned_accounting
+                for call in accounting.get("model_calls", ())
+            ]
+            self.write_model_calls(calls)
+            # If recording fails, leave the returned checkpoint recoverable.
+            binding.llm_coordinator.retire_returned()
 
     @property
     def resolved_for_preview(self) -> ResolvedExecution | None:

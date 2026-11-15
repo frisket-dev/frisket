@@ -183,13 +183,13 @@ def paid_transcribe_scratch_plan(
                         ),
                         media={"filename": filename, "mime": mime},
                     )
+                    context.write_model_calls(list(result.model_calls))
                     runtime_ms = max(0, round((time.perf_counter() - started) * 1000))
             except HostedEngineError as exc:
                 context.write_model_calls(
                     list((exc.accounting or {}).get("model_calls") or [])
                 )
                 raise
-            context.write_model_calls(list(result.model_calls))
             out = result.output
             context.progress(1, 1)
             return TablePreviewResult(
