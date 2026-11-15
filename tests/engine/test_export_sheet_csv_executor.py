@@ -100,24 +100,19 @@ def _map_risk_action(sheet_id: int) -> dict[str, Any]:
     }
 
 
-def _review_edit_action(
+def _edit_action(
     *,
-    run_id: int,
     row_id: int,
     column_id: int,
     value: str,
 ) -> dict[str, Any]:
     return {
-        "action_id": "review.decision",
+        "action_id": "cell.edit",
         "scope": {"kind": "project"},
         "params": {
-            "run_id": run_id,
-            "row_id": row_id,
-            "column_id": column_id,
-            "decision": "edit",
-            "value": value,
+            "edits": [{"row_id": row_id, "column_id": column_id, "value": value}]
         },
-        "idempotency_key": "sheet_csv_review_edit@sha256:v1",
+        "idempotency_key": "sheet_csv_cell_edit@sha256:v1",
     }
 
 
@@ -155,7 +150,7 @@ def _seed(project: Project, tmp_path: Path) -> dict[str, Any]:
             (sheet_id,),
         ).fetchone()["id"]
     )
-    mapped = _run_seed_action(project, _map_risk_action(sheet_id))
+    _run_seed_action(project, _map_risk_action(sheet_id))
     risk_column_id = int(
         project.db.execute(
             "SELECT id FROM columns WHERE sheet_id=? AND name='risk'",
@@ -164,8 +159,7 @@ def _seed(project: Project, tmp_path: Path) -> dict[str, Any]:
     )
     _run_seed_action(
         project,
-        _review_edit_action(
-            run_id=mapped.run_id,
+        _edit_action(
             row_id=first_row_id,
             column_id=risk_column_id,
             value="medium, verified",

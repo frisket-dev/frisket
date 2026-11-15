@@ -75,27 +75,6 @@ INTENTIONALLY_DIRECT_V1_ACTIONS = MappingProxyType(
             ),
             owner="typed-table-runtime",
         ),
-        "import.update_csv": DirectV1ActionPolicy(
-            reason=(
-                "CSV update uses the typed-table mutation runtime and publishes "
-                "its receipt inline, not through the project.run row queue."
-            ),
-            owner="typed-table-runtime",
-        ),
-        "import.update_rows": DirectV1ActionPolicy(
-            reason=(
-                "Row update uses the typed-table mutation runtime and publishes "
-                "its receipt inline, not through the project.run row queue."
-            ),
-            owner="typed-table-runtime",
-        ),
-        "import.update_xlsx": DirectV1ActionPolicy(
-            reason=(
-                "XLSX update uses the typed-table mutation runtime and publishes "
-                "its receipt inline, not through the project.run row queue."
-            ),
-            owner="typed-table-runtime",
-        ),
         "source.poll": DirectV1ActionPolicy(
             reason=(
                 "Generic source polling owns source_items/source_runs receipt "
@@ -142,6 +121,14 @@ INTENTIONALLY_DIRECT_V1_ACTIONS = MappingProxyType(
                 "semantics rather than project.run queue ownership in v1."
             ),
             owner="reduce-runtime",
+        ),
+        "run.reapply": DirectV1ActionPolicy(
+            reason="Reapply publishes retained results as a local Change without provider work.",
+            owner="retained-results",
+        ),
+        "run.retry": DirectV1ActionPolicy(
+            reason="Retry resolves unfinished original scope and delegates to the existing run owner.",
+            owner="run-controls",
         ),
         "run.backfill": DirectV1ActionPolicy(
             reason=(

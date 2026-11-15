@@ -136,11 +136,13 @@ def _unconfirmed_cost_action(seeded: dict[str, Any]) -> dict[str, Any]:
 
 
 def _colliding_output_action(seeded: dict[str, Any]) -> dict[str, Any]:
-    return _map_translate_action(
+    action = _map_translate_action(
         seeded["sheet_id"],
         idempotency_key="map_translate@sha256:collision",
-        output_name="statement",
+        output_name="speaker",
     )
+    action["params"]["source"] = ["statement"]
+    return action
 
 
 def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:

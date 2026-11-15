@@ -28,6 +28,7 @@ from frisket.sdk import (
 class ExampleParams(ActionParams):
     message: str = Field(alias="text")
     labels: list[str] = Field(default_factory=list)
+    note: str | None = None
 
 
 class Output(BaseModel):
@@ -180,13 +181,19 @@ def test_registration_uses_output_binding_but_catalog_reads_do_not_rebind():
 
 
 def test_omitted_fields_and_explicit_null_are_not_interchanged():
-    [accepted, edited] = ACTION_REGISTRY.get("review.decision").catalog_entry()[
-        "examples"
-    ]
-    assert "value" not in accepted["params"]
-    assert edited["params"]["value"] is None
-    assert validate_root_action(accepted).ok
-    assert validate_root_action(edited).ok
+    registered = _register(
+        _definition(
+            examples=(
+                ExampleParams(text="omitted"),
+                ExampleParams(text="null", note=None),
+            )
+        )
+    )
+    omitted, explicit_null = registered.catalog_entry()["examples"]
+    assert "note" not in omitted["params"]
+    assert explicit_null["params"]["note"] is None
+    registered.bind_request(ActionRequest.model_validate(omitted))
+    registered.bind_request(ActionRequest.model_validate(explicit_null))
     [updated] = ACTION_REGISTRY.get("source.update").catalog_entry()["examples"]
     assert updated["params"]["patch"] == {"enabled": False}
 

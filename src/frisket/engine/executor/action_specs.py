@@ -263,6 +263,7 @@ ACCEPTED_EXECUTION_OUTLIERS: Mapping[str, str] = MappingProxyType({})
 _RUNLESS_ACTION_KINDS: frozenset[str] = frozenset(
     {
         "media.extract_document",
+        "run.reapply",
         "cell.edit",
         "cell.edit_query",
         "column.add",
@@ -609,6 +610,8 @@ _INLINE_KINDS: Mapping[str, str] = MappingProxyType(
             "Grouped reduce uses reduce-family aggregation/receipt semantics "
             "rather than project.run queue ownership in v1."
         ),
+        "run.retry": "Retry resolves unfinished original scope through the existing run-control owner.",
+        "run.reapply": "Reapply publishes retained results as a local Change without purchasing provider work.",
         "run.backfill": (
             "Backfill is tied to existing column run/retry controls; direct "
             "until run-control queue semantics are admitted separately."

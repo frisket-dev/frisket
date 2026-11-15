@@ -294,7 +294,7 @@ def _check_undo_state(project: Project, seeded: dict[str, Any], result: Any) -> 
         "SELECT hidden, name FROM sheets WHERE id=?", (seeded["child_sheet_id"],)
     ).fetchone()
     assert int(child["hidden"]) == 1
-    assert child["name"] == f"Entities (undone:{seeded['child_sheet_id']})"
+    assert child["name"] == "Entities"
     hidden_rows = project.db.execute(
         "SELECT id FROM rows WHERE sheet_id=? AND hidden=1 ORDER BY position",
         (seeded["child_sheet_id"],),

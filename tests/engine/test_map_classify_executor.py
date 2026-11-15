@@ -173,7 +173,7 @@ def _collision_action(seeded: dict[str, Any]) -> dict[str, Any]:
     action = _map_classify_action(
         seeded["sheet_id"], idempotency_key="map_classify@sha256:collision"
     )
-    action["params"]["fields"][0]["name"] = "story"
+    action["params"]["fields"][0]["name"] = "source_url"
     return action
 
 

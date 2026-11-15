@@ -65,6 +65,19 @@ def test_known_runless_actions_allow_runless_provider_effect_facts() -> None:
     )
 
 
+def test_saved_results_reapply_is_local_while_retry_keeps_run_ownership() -> None:
+    assert (
+        EXECUTION_REGISTRY["run.reapply"].run_coordinate is RunCoordinatePolicy.RUNLESS
+    )
+    assert (
+        EXECUTION_REGISTRY["run.retry"].run_coordinate is RunCoordinatePolicy.RUN_BOUND
+    )
+    assert (
+        EXECUTION_REGISTRY["run.reapply"].lifecycle.placement is PlacementPolicy.INLINE
+    )
+    assert EXECUTION_REGISTRY["run.retry"].lifecycle.placement is PlacementPolicy.INLINE
+
+
 def test_run_backed_actions_guarantee_run_bound_provider_effect_facts() -> None:
     # The recipe registry is retired: every project-run program is now typed,
     # so the run-bound roster is the declared queued placement plus the

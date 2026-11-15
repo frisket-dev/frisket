@@ -119,9 +119,10 @@ CHECKPOINT_AUTHORITIES: dict[str, str] = {
 #: one effect site — the row_effect fence applies there, not in their own
 #: executor.
 DELEGATES_TO_ROW_EFFECT = {
-    # runs._run_backfill re-enters MapRunner.run(resume_run_id=...); every
-    # provider call it can cause is a row execution under the same fence.
+    # Both RunBackfiller controls delegate provider work to MapRunner; every
+    # call is a row execution under its attempt-owned checkpoint fence.
     "run.backfill",
+    "run.retry",
 }
 
 #: Paid kinds genuinely OUTSIDE checkpoint authority.  Each line carries the

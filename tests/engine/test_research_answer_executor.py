@@ -367,11 +367,13 @@ def _bad_input_action(seeded: dict[str, Any]) -> dict[str, Any]:
 
 
 def _collision_action(seeded: dict[str, Any]) -> dict[str, Any]:
-    return _research_answer_action(
+    action = _research_answer_action(
         seeded["sheet_id"],
         idempotency_key="research_answer@sha256:collision",
-        output_name="company",
+        output_name="topic",
     )
+    action["params"]["source"] = ["company"]
+    return action
 
 
 def _conflict_action(seeded: dict[str, Any]) -> dict[str, Any]:
