@@ -677,6 +677,7 @@ async def _complete_reduce_group_summary_call(
     recorder: TraceWriter | None,
     request: LLMRequest,
     trace_record: list[dict[str, Any] | None],
+    publication,
 ) -> Any:
     traced_router: Any = router
     row_trace = None
@@ -689,10 +690,11 @@ async def _complete_reduce_group_summary_call(
             row_trace = None
             traced_router = router
     try:
-        response = await traced_router.complete(
-            request, recipe_version="group_summary.v1"
-        )
-    except Exception as exc:
+        async with publication.provider_lease():
+            response = await traced_router.complete(
+                request, recipe_version="group_summary.v1"
+            )
+    except BaseException as exc:
         if recorder is not None and row_trace is not None:
             trace_record[0] = traced_router.record(error=str(exc))
         raise
@@ -816,6 +818,7 @@ async def _complete_reduce_group_summaries_unfenced(
                 recorder,
                 request,
                 trace_record,
+                publication,
             )
         except Exception as exc:  # noqa: BLE001 - per-group failure is persisted
             computations.append(
@@ -1094,6 +1097,7 @@ async def _reduce_group_summary_checkpointed_loop(
         )
         trace_record: list[dict[str, Any] | None] = [None]
         unresolved = False
+        task_cancellation = None
         try:
             from frisket.engine.store.source_dependencies import (
                 require_execution_sources,
@@ -1105,6 +1109,7 @@ async def _reduce_group_summary_checkpointed_loop(
                 recorder,
                 request,
                 trace_record,
+                publication,
             )
         except (Exception, asyncio.CancelledError) as exc:
             unresolved = bool(getattr(exc, "post_egress_ambiguous", False))
@@ -1112,10 +1117,19 @@ async def _reduce_group_summary_checkpointed_loop(
             if isinstance(exc, asyncio.CancelledError):
                 if not wires:
                     raise
+                task = asyncio.current_task()
+                if task is not None and task.cancelling():
+                    task_cancellation = exc
                 computation = {
                     "summary": None,
-                    "error": "Run stopped before the next model request.",
-                    "error_code": "cancelled",
+                    "error": (
+                        "Model work was interrupted before the next request."
+                        if task_cancellation is not None
+                        else "Run stopped before the next model request."
+                    ),
+                    "error_code": "model_call_interrupted"
+                    if task_cancellation is not None
+                    else "cancelled",
                     **wire_accounting_meta(params.model, wires),
                 }
             else:
@@ -1158,6 +1172,8 @@ async def _reduce_group_summary_checkpointed_loop(
                 authorized_attempt_id=str(envelope["attempt_id"]),
                 claim_token=publication.claim_token,
             )
+            if task_cancellation is not None:
+                raise task_cancellation
             return _reduce_effect_reconciliation_error(
                 "The provider may have accepted this group's final request; known returned usage was retained, but refusing another submission until the unresolved request is reconciled."
             )
@@ -1198,6 +1214,10 @@ async def _reduce_group_summary_checkpointed_loop(
             claim_token=publication.claim_token,
             claimless_direct_effect=False,
         )
+        if task_cancellation is not None:
+            # Owner-task cancellation is an interruption, not an operator Stop
+            # or a failed group to publish. Its known purchases are durable now.
+            raise task_cancellation
         computation = {
             "group": {
                 key: value for key, value in plan["group"].items() if key != "rows"

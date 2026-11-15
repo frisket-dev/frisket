@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+from contextlib import asynccontextmanager
 from dataclasses import replace
 
 from frisket.engine.store.changes import ChangeStore
@@ -31,6 +33,9 @@ from frisket.engine.store.runs import RunResultStore
 from frisket.engine.runner.result_generations import _compatibility_key
 
 
+_PROVIDER_LEASE_RENEW_SECONDS = 60.0
+
+
 class GroupPublicationError(RuntimeError):
     pass
 
@@ -48,6 +53,7 @@ class GroupPublication:
         self.completed = 0
         self.recovery_run = recovery_run
         self.saved_capture = None
+        self._lease_failure = None
 
     def recovery_claim_token(self):
         if self.recovery_run is None:
@@ -436,6 +442,10 @@ class GroupPublication:
     def _require_writer(self):
         from .sheet_refresh_ownership import require_refresh_writer
 
+        if self._lease_failure is not None:
+            raise GroupPublicationError(
+                "Grouped refresh lease renewal failed"
+            ) from self._lease_failure
         ChangeStore(self.project).require_publication(self.write.op_id)
         OutputColumnClaimStore.require_current_writer(
             self.project.db,
@@ -458,6 +468,41 @@ class GroupPublication:
             lease_seconds=300,
             commit=False,
         )
+
+    def _renew_provider_lease(self):
+        with self.project.transaction_scope():
+            self._require_writer()
+
+    @asynccontextmanager
+    async def provider_lease(self):
+        """Keep this owner's existing leases alive only during provider work.
+
+        The task ends with its invocation; process death leaves the ordinary
+        lease expiry intact. Renewal failure fences the next publication,
+        after the already-submitted response can retain its facts.
+        """
+        self._renew_provider_lease()
+
+        async def renew():
+            while True:
+                await asyncio.sleep(_PROVIDER_LEASE_RENEW_SECONDS)
+                try:
+                    if self.stopped():
+                        return
+                    self._renew_provider_lease()
+                except Exception as exc:
+                    self._lease_failure = exc
+                    return
+
+        task = asyncio.create_task(renew(), name="group-provider-lease")
+        try:
+            yield
+        finally:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
     def _saved_write(
         self, op_id, sheet_id, *, row_ids=(), source_row_ids=(), memberships=()
