@@ -86,6 +86,20 @@ afterEach(() => {
 });
 
 describe('WatchesPanel pending actions', () => {
+  it('describes an enabled threshold-only alert instead of calling it paused', async () => {
+    const item = watch(1, 'Threshold alert');
+    item.detectionPolicy = { kind: 'conditions', entered: false, exited: false, count_changed: false,
+      fields: [], threshold: { kind: 'threshold_crossed', metric: 'matched_rows', threshold: 10, direction: 'at_or_above' } };
+    const projectApi = {
+      qa: projectQAFixture(), listWatches: vi.fn().mockResolvedValue([item]),
+      getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
+    } as unknown as ProjectApiPort;
+    const harness = createWorkspaceTestHarness({ projectId: 'threshold-alert', api: { projectApi } });
+    harness.render(<WatchesPanel canEdit />);
+    expect(await screen.findByText('Threshold crossings')).toBeInTheDocument();
+    expect(screen.queryByText('Alerts paused')).not.toBeInTheDocument();
+  });
+
   it('changes independent alert conditions on the same saved View', async () => {
     const item = watch(1, 'Open contracts');
     const projectApi = {

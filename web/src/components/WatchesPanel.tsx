@@ -84,7 +84,7 @@ function reduceWatchesPanelState(
 
 function watchSummary(watch: WatchInfo): string {
   const policy = watch.detectionPolicy;
-  return [policy.entered && 'New matches', policy.fields.length > 0 && 'Changed values', policy.exited && 'Rows leaving', policy.count_changed && 'Count changes'].filter(Boolean).join(' · ') || 'Alerts paused';
+  return [policy.entered && 'New matches', policy.fields.length > 0 && 'Changed values', policy.exited && 'Rows leaving', policy.count_changed && 'Count changes', policy.threshold && 'Threshold crossings'].filter(Boolean).join(' · ') || 'Alerts paused';
 }
 function blockedEmbeddingIndexId(watch: WatchInfo): string | null {
   const query = watch.latestRun?.resolvedQuery;

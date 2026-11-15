@@ -365,7 +365,12 @@ def test_terminal_monitored_cell_is_an_observation_not_permanent_block(scene):
     generations.seal(
         run, [column], claim_token=authority.claim_token, terminal_disposition="failed"
     )
-    RunResultStore(project).finish_run(run, "failed")
+    RunResultStore(project).finish_run(
+        run,
+        "failed",
+        writer_attempt_id=authority.writer_attempt_id,
+        claim_token=authority.claim_token,
+    )
     checked = record(scene, rows)
     assert project.get_watch_run(checked)["status"] == "ok"
     assert kinds(project, checked) == ["row_changed"] * len(rows)
