@@ -548,6 +548,7 @@ def _publish(
 
     run_id, receipt_id = kwargs["run_id"], kwargs["receipt_id"]
     writer, claim = kwargs["writer_attempt_id"], kwargs["claim_token"]
+    terminal_status = kwargs.get("terminal_status", "completed")
     project.db.execute("BEGIN IMMEDIATE")
     try:
         run = project.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
@@ -568,8 +569,8 @@ def _publish(
                 message="Formula cancelled before publication",
                 action_kind=action.kind,
             )
-        elif run["status"] not in {"completed", "partial"} and not (
-            run["status"] == "failed"
+        elif terminal_status not in {"completed", "partial"} and not (
+            terminal_status == "failed"
             and project.db.execute(
                 "SELECT count(*)>0 AND MIN(outcome='not_completed') FROM results WHERE run_id=?",
                 (run_id,),
@@ -621,7 +622,7 @@ def _publish(
                 run_id,
                 column_ids,
                 claim_token=claim,
-                terminal_disposition=run["status"],
+                terminal_disposition=terminal_status,
                 publish=True,
                 commit=False,
             )
@@ -644,6 +645,9 @@ def _publish(
                 plan=plan,
                 params_hash=kwargs["params_hash"],
             )
+            receipt_status = kwargs.get("receipt_status")
+            if receipt_status is not None:
+                receipt = receipt.model_copy(update={"status": receipt_status})
             conflict = _finalize_reserved_action_receipt(
                 project,
                 action,
@@ -659,9 +663,15 @@ def _publish(
             if conflict:
                 project.db.rollback()
                 return conflict
-            from frisket.engine.store.run_lifecycle import close_run_change
+            from frisket.engine.store.runs import RunResultStore
 
-            close_run_change(project, run_id)
+            RunResultStore(project).finish_run(
+                run_id,
+                terminal_status,
+                commit=False,
+                writer_attempt_id=writer,
+                claim_token=claim,
+            )
             set_attempt_state(project, writer, "effected", commit=False)
             if not claims.release(claim_token=claim, status="released", commit=False):
                 raise StaleAttemptWriter("Formula publication lost its output claim")

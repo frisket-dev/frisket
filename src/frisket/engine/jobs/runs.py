@@ -1163,7 +1163,6 @@ def register_project_run_handler(
                         claim_token if progress.writer_attempt_claimed else None
                     ),
                 )
-                row = run_store.get_run(run_id)
             else:
                 action_result = queued_v1_finalize_action_result(
                     project,
@@ -1176,7 +1175,7 @@ def register_project_run_handler(
                     ),
                     claim_token=(claim_token if defer_attempt_close else None),
                 )
-                row = run_store.get_run(run_id)
+            row = run_store.get_run(run_id)
             result = {
                 "project_id": project_id,
                 "run_id": progress.run_id,

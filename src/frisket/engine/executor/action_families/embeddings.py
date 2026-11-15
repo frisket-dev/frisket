@@ -1050,7 +1050,13 @@ def _run_paid_embedding_dimension_probe(
         )
     except Exception:
         project.db.execute("BEGIN IMMEDIATE")
-        run_store.finish_run(run_id, "failed", commit=False)
+        run_store.finish_run(
+            run_id,
+            "failed",
+            commit=False,
+            writer_attempt_id=attempt_id,
+            claimless_direct_effect=True,
+        )
         set_attempt_state(project, attempt_id, "halted", commit=False)
         ReceiptStore(project).delete_running(receipt_id, commit=False)
         project.db.commit()
@@ -1071,7 +1077,13 @@ def _run_paid_embedding_dimension_probe(
         )
     except EmbeddingBackendUnavailable as exc:
         project.db.execute("BEGIN IMMEDIATE")
-        run_store.finish_run(run_id, "failed", commit=False)
+        run_store.finish_run(
+            run_id,
+            "failed",
+            commit=False,
+            writer_attempt_id=attempt_id,
+            claimless_direct_effect=True,
+        )
         set_attempt_state(project, attempt_id, "halted", commit=False)
         ReceiptStore(project).delete_running(receipt_id, commit=False)
         project.db.commit()
@@ -1120,7 +1132,12 @@ def _run_paid_embedding_dimension_probe(
     probe_for_fact.setdefault("actual_model_id", params.model or str(cap["model_id"]))
     provider_fact = _embedding_provider_fact(probe_for_fact)
     if provider_fact is None:  # pragma: no cover - non-None result above
-        run_store.finish_run(run_id, "failed")
+        run_store.finish_run(
+            run_id,
+            "failed",
+            writer_attempt_id=attempt_id,
+            claimless_direct_effect=True,
+        )
         return _error(
             action,
             project_id,
@@ -1149,7 +1166,13 @@ def _run_paid_embedding_dimension_probe(
             claimless_direct_effect=True,
             authorized_attempt_id=attempt_id,
         )
-        run_store.finish_run(run_id, "failed", commit=False)
+        run_store.finish_run(
+            run_id,
+            "failed",
+            commit=False,
+            writer_attempt_id=attempt_id,
+            claimless_direct_effect=True,
+        )
         set_attempt_state(project, attempt_id, "effected", commit=False)
         project.db.commit()
         return _error(
@@ -1251,7 +1274,13 @@ def _run_paid_embedding_dimension_probe(
                 authorized_attempt_id=attempt_id,
             )
             project.db.execute("BEGIN IMMEDIATE")
-            run_store.finish_run(run_id, "failed", commit=False)
+            run_store.finish_run(
+                run_id,
+                "failed",
+                commit=False,
+                writer_attempt_id=attempt_id,
+                claimless_direct_effect=True,
+            )
             set_attempt_state(project, attempt_id, "effected", commit=False)
             project.db.commit()
         except BaseException:
@@ -1509,7 +1538,9 @@ def _create_index(
         budget = embedding_model_size_budget_gb()
         if size_gb > budget:
             if probe_run_id is not None and probe_run_store is not None:
-                probe_run_store.finish_run(probe_run_id, "failed")
+                probe = probe_run_store.get_run(probe_run_id)
+                if probe is not None and probe["status"] == "running":
+                    probe_run_store.finish_run(probe_run_id, "failed")
             return _error(
                 action,
                 project_id,
@@ -1686,7 +1717,9 @@ def _create_index(
         if isinstance(exc, StaleAttemptWriter):
             raise
         if probe_run_id is not None and probe_run_store is not None:
-            probe_run_store.finish_run(probe_run_id, "failed")
+            probe = probe_run_store.get_run(probe_run_id)
+            if probe is not None and probe["status"] == "running":
+                probe_run_store.finish_run(probe_run_id, "failed")
         if not isinstance(exc, Exception):
             raise
         logger.debug(
@@ -2677,7 +2710,12 @@ def _do_refresh(
                 # Normal Python failures quarantine the accounting envelope.
                 # A hard process crash intentionally leaves it running so stale-
                 # run recovery can surface/reconcile it rather than call it free.
-                run_store.finish_run(run_id, "failed")
+                run_store.finish_run(
+                    run_id,
+                    "failed",
+                    writer_attempt_id=(attempt_id if not attempt_closed else None),
+                    claimless_direct_effect=(bool(attempt_id and not attempt_closed)),
+                )
         if not stale_writer and attempt_id is not None and not attempt_closed:
             # In-process failure: the dispatch is over.  A hard process crash
             # skips this by construction, leaving 'dispatching' for the

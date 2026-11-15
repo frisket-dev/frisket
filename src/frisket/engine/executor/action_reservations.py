@@ -482,6 +482,55 @@ def _running_receipt_is_stale(created_at: Any) -> bool:
     return age.total_seconds() >= RUNNING_RECEIPT_STALE_AFTER_SECONDS
 
 
+def _running_receipt_has_live_owner(project: Any, receipt: Any) -> bool:
+    """Keep stale-looking reservations while their durable owner can still act."""
+    receipt_id = str(_row_value(receipt, "id"))
+    run_id = _row_value(receipt, "run_id")
+    run = None
+    if run_id is not None:
+        run = project.db.execute(
+            "SELECT status,current_attempt_id FROM runs WHERE id=?", (int(run_id),)
+        ).fetchone()
+        # A terminal run with a still-running receipt belongs to terminal
+        # repair, not age-based reservation cleanup.
+        if run is None or str(run["status"]) != "running":
+            return True
+
+    if project.db.execute(
+        "SELECT 1 FROM output_column_claims WHERE status='active' AND "
+        "(receipt_id=? OR run_id=?) LIMIT 1",
+        (receipt_id, run_id),
+    ).fetchone():
+        return True
+
+    if run_id is not None:
+        attempts = project.db.execute(
+            "SELECT id,state FROM execution_attempts WHERE run_id=?",
+            (int(run_id),),
+        ).fetchall()
+        current_attempt_id = (
+            None
+            if run["current_attempt_id"] is None
+            else str(run["current_attempt_id"])
+        )
+        states = {str(row["id"]): str(row["state"]) for row in attempts}
+        if current_attempt_id is not None:
+            # Only an abandoned attempt is eligible for the existing stale
+            # retry path. Missing or otherwise terminal-but-unsettled current
+            # attempts require normal run recovery.
+            return states.get(current_attempt_id) != "abandoned"
+        if any(
+            state in {"created", "admitted", "dispatching"} for state in states.values()
+        ):
+            return True
+        return False
+
+    attempts = project.db.execute(
+        "SELECT state FROM execution_attempts WHERE receipt_id=?", (receipt_id,)
+    ).fetchall()
+    return any(str(row["state"]) not in {"abandoned", "superseded"} for row in attempts)
+
+
 def _running_receipt_stale_result(
     project: Any,
     existing: Any,
@@ -506,6 +555,9 @@ def _running_receipt_stale_result(
             or current["status"] != "running"
             or not _running_receipt_is_stale(current["created_at"])
         ):
+            project.db.rollback()
+            return None
+        if _running_receipt_has_live_owner(project, current):
             project.db.rollback()
             return None
         receipts.delete_if_status(receipt_id, "running", commit=False)

@@ -649,6 +649,7 @@ def _run_in_txn_idempotent_perform(
     if not owns_transaction and post_commit_fn is not None:
         raise RuntimeError("an action with post-commit work must own its transaction")
     savepoint = f"plain_action_write_{uuid4().hex}"
+    perform_started = False
 
     def rollback_write():
         if owns_transaction:
@@ -657,7 +658,11 @@ def _run_in_txn_idempotent_perform(
             try:
                 cur.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
             except sqlite3.OperationalError as exc:
-                if "no such savepoint" not in str(exc).lower():
+                if "no such savepoint" not in str(exc).lower() or perform_started:
+                    if "no such savepoint" in str(exc).lower():
+                        raise RuntimeError(
+                            "nested action escaped its savepoint by committing the caller transaction"
+                        ) from exc
                     raise
             else:
                 cur.execute(f"RELEASE SAVEPOINT {savepoint}")
@@ -712,6 +717,7 @@ def _run_in_txn_idempotent_perform(
                 return early
         action_id = _new_id("act")
         receipt_id = _new_id("receipt")
+        perform_started = True
         result = perform_fn(cur, action_id=action_id, receipt_id=receipt_id)
         committed = result.status == "completed" or (
             persist_failure and result.status == "failed"
@@ -1996,10 +2002,24 @@ def _run_reserved_maprunner_action(
     try:
         write_kwargs: dict[str, Any] = {}
         if deferred_terminal_close:
+            terminal_status = (
+                "cancelled"
+                if progress.cancelled and progress.completed < progress.total
+                else "completed"
+            )
+            receipt_status = terminal_status
+            if terminal_status == "completed" and progress.failed > 0:
+                receipt_status = (
+                    "failed"
+                    if progress.total > 0 and progress.failed >= progress.total
+                    else "partial"
+                )
             write_kwargs.update(
                 {
                     "writer_attempt_id": progress.writer_attempt_id,
                     "claim_token": claim_token,
+                    "terminal_status": terminal_status,
+                    "receipt_status": receipt_status,
                 }
             )
         if prepared_execution is not None and write_fn is None:

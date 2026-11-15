@@ -405,6 +405,29 @@ def test_failed_nested_savepoint_preserves_parent_and_cleans_staged_export(
     project.db.rollback()
 
 
+def test_nested_action_commit_that_escapes_savepoint_fails_loudly(project):
+    project.db.execute("BEGIN IMMEDIATE")
+    project.db.execute("SAVEPOINT caller_work")
+    project.db.execute("UPDATE sheets SET name='Caller edit'")
+
+    def commit_caller_transaction(cur, **_kwargs):
+        cur.execute("UPDATE rows SET position=position+1")
+        project.db.commit()
+        return SimpleNamespace(status="completed")
+
+    with pytest.raises(RuntimeError, match="escaped its savepoint"):
+        lifecycle._run_in_txn_idempotent_perform(
+            project,
+            _action(),
+            project_id="p",
+            params_hash="hash",
+            perform_fn=commit_caller_transaction,
+        )
+
+    assert not project.db.in_transaction
+    assert project.db.execute("SELECT name FROM sheets").fetchone()[0] == "Caller edit"
+
+
 @pytest.mark.parametrize("failure", FAILURES)
 def test_cleanup_failure_preserves_interruption_and_ordinary_error_policy(
     project, failure

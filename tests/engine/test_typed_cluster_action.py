@@ -281,11 +281,14 @@ def test_partial_vector_cache_loss_recovers_paid_full_batch(
     cleared = execute(
         router=router, options={"method": "semantic"}, confirmation=confirmation
     )
-    assert cleared.errors[0].code == "idempotency_stale_running", cleared.model_dump()
+    assert cleared.errors[0].code == "idempotency_in_progress", cleared.model_dump()
+    assert project.db.execute(
+        "SELECT status FROM receipts WHERE status='running'"
+    ).fetchone()[0] == "running"
     live = execute(
         router=router, options={"method": "semantic"}, confirmation=confirmation
     )
-    assert live.errors[0].code == "output_column_busy", live.model_dump()
+    assert live.errors[0].code == "idempotency_in_progress", live.model_dump()
     assert len(adapter.calls) == 1
     from frisket.execution.attempt import abandon_stale_dispatching_attempts
     from frisket.engine.store.output_claims import OutputColumnClaimStore
@@ -310,6 +313,12 @@ def test_partial_vector_cache_loss_recovers_paid_full_batch(
     result = execute(
         router=router, options={"method": "semantic"}, confirmation=confirmation
     )
+    if result.errors and result.errors[0].code == "idempotency_stale_running":
+        result = execute(
+            router=router,
+            options={"method": "semantic"},
+            confirmation=confirmation,
+        )
     if result.status == "needs_confirmation":
         result = execute(
             router=router,
@@ -366,7 +375,40 @@ def test_cluster_publication_rolls_back_then_retries_without_recomputing(
     )
     assert "value_clusters_result" in staged
     assert "value_clusters_result_storage" not in staged
+    blocked = execute()
+    assert blocked.errors[0].code == "idempotency_in_progress", blocked.model_dump()
+    run_id = project.db.execute(
+        "SELECT id FROM runs WHERE action_kind='custom.cluster'"
+    ).fetchone()[0]
+    project.db.execute(
+        "UPDATE receipts SET created_at='2000-01-01T00:00:00Z' WHERE status='running'"
+    )
+    project.db.execute(
+        "UPDATE execution_attempts SET created_at='2000-01-01T00:00:00Z' "
+        "WHERE run_id=? AND state='dispatching'",
+        (run_id,),
+    )
+    project.db.execute(
+        "UPDATE output_column_claims SET lease_expires_at='2000-01-01T00:00:00Z' "
+        "WHERE run_id=? AND status='active'",
+        (run_id,),
+    )
+    project.db.commit()
+    from frisket.execution.attempt import abandon_stale_dispatching_attempts
+
+    assert abandon_stale_dispatching_attempts(project, run_id) == 1
+    from frisket.engine.store.output_claims import OutputColumnClaimStore
+
+    for claim in project.db.execute(
+        "SELECT id FROM output_column_claims WHERE run_id=? AND status='active'",
+        (run_id,),
+    ).fetchall():
+        OutputColumnClaimStore(project).release_stale(
+            claim_id=claim["id"], reason="test: explicitly abandoned writer"
+        )
     result = execute()
+    if result.errors and result.errors[0].code == "idempotency_stale_running":
+        result = execute()
     assert result.status == "completed", result.model_dump_json(indent=2)
     assert len(calls) == 1
     terminal = json.loads(

@@ -143,6 +143,55 @@ def test_purged_rows_and_columns_are_fenced_from_restore_and_mutation(project):
             step_operation(project, "restore", op_id=column_op)
 
 
+def test_restoring_source_change_keeps_purged_cell_absent(project):
+    from frisket.engine.store.cell_writes import (
+        BaseCellWrite,
+        create_base_cell_producer,
+        replace_base_cells,
+    )
+    from frisket.engine.store.changes import ChangeStore
+    from frisket.engine.store.op_log import step_operation
+
+    sheet = project.add_sheet("source restore")
+    column = project.add_column(sheet, "value", type="text")
+    rows = project.add_rows(
+        sheet, [{"value": "old one"}, {"value": "old two"}], {"value": column}
+    )
+    project.db.execute("BEGIN IMMEDIATE")
+    op = project.append_op("source.refresh", {}, label="source refresh", commit=False)
+    producer = create_base_cell_producer(project.db, stage_id=f"op:{op}", op_id=op)
+    replace_base_cells(
+        project.db,
+        producer_id=producer,
+        column_ids=[column],
+        row_ids=rows,
+        cells=[
+            BaseCellWrite(rows[0], column, "new one"),
+            BaseCellWrite(rows[1], column, "new two"),
+        ],
+    )
+    ChangeStore(project).close(op)
+    project.db.commit()
+
+    assert project.undo() == op
+    finish_purge(project, begin_purge(project, row_ids=[rows[0]]))
+
+    project.db.execute("BEGIN IMMEDIATE")
+    step_operation(project, "restore", op_id=op)
+    project.db.commit()
+
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM cells WHERE row_id=? AND column_id=?",
+            (rows[0], column),
+        ).fetchone()[0]
+        == 0
+    )
+    values = project.get_values(sheet, column, row_ids=rows)
+    assert rows[0] not in values
+    assert values[rows[1]] == "new two"
+
+
 def test_purged_undone_row_cannot_be_restored(project):
     from frisket.engine.store.op_log import step_operation
 
@@ -212,7 +261,11 @@ def test_purge_keeps_independent_reapply_results_replayable(project):
         claim_token=authority.claim_token,
         terminal_disposition="completed",
     )
-    runs.finish_run(source_run)
+    runs.finish_run(
+        source_run,
+        writer_attempt_id=authority.writer_attempt_id,
+        claim_token=authority.claim_token,
+    )
     destination = project.add_sheet("copies")
     output = project.add_column(destination, "saved", type="text", ai_generated=True)
     first, second = project.add_rows(
@@ -304,7 +357,11 @@ def test_real_reapply_after_source_cohort_purge_refuses_only_purged_row(project)
         claim_token=authority.claim_token,
         terminal_disposition="completed",
     )
-    runs.finish_run(run_id)
+    runs.finish_run(
+        run_id,
+        writer_attempt_id=authority.writer_attempt_id,
+        claim_token=authority.claim_token,
+    )
     # The independently retained outcome on the row being purged keeps its
     # source result alive while that source row itself is removed.
     saved_sheet = project.add_sheet("independent-copy")
@@ -414,7 +471,11 @@ def test_purge_removes_unowned_published_result_but_retains_shared_result(projec
         claim_token=authority.claim_token,
         terminal_disposition="completed",
     )
-    runs.finish_run(run_id)
+    runs.finish_run(
+        run_id,
+        writer_attempt_id=authority.writer_attempt_id,
+        claim_token=authority.claim_token,
+    )
 
     # The global immutability backstop remains active without exact purge scope.
     with pytest.raises(sqlite3.IntegrityError, match="published result is immutable"):

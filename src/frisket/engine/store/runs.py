@@ -3171,31 +3171,140 @@ class RunResultStore:
         status: str = "completed",
         *,
         commit: bool = True,
-        defer_publication_close: bool = False,
+        writer_attempt_id: str | None = None,
+        claim_token: str | None = None,
+        claimless_direct_effect: bool = False,
+        prepared_attempt_id: str | None = None,
     ) -> None:
-        """Record worker completion; coupled publishers close after materialization.
+        """Terminalize a running run under its existing publication owner.
 
-        Only a caller owning deferred generation publication may defer closure.
-        Its final transaction must seal results and close the Change together.
+        Dispatching attempts require the exact current writer. A synchronous
+        local publisher may use its exact active output claim; a pre-dispatch
+        finalizer may name its exact created/admitted attempt. Unclaimed closes
+        are accepted only when the durable run has no live attempt or claim.
+        Coupled publishers call this only after sealing and materializing their
+        output family in the same transaction.
         """
-        # Whole-action previews may bind their running receipt to a published
-        # run after provider accounting. Keep fact ownership immutable and
-        # project its recorded cost through that explicit receipt link.
-        self._project_cost_actual(run_id)
-        self.db.execute(
-            "UPDATE runs SET status=?, finished_at=datetime('now') WHERE id=?",
-            (status, run_id),
-        )
-        from .run_lifecycle import close_run_change
+        from frisket.execution.attempt import StaleAttemptWriter
 
-        if not defer_publication_close:
+        if status not in {"completed", "partial", "failed", "cancelled"}:
+            raise ValueError(f"unsupported terminal run status: {status}")
+        if writer_attempt_id is not None and prepared_attempt_id is not None:
+            raise ValueError(
+                "a terminal run cannot have both prepared and current writers"
+            )
+        owns_transaction = not self.db.in_transaction
+        if commit and owns_transaction:
+            self.db.execute("BEGIN IMMEDIATE")
+        elif not commit and owns_transaction:
+            raise RuntimeError("finish_run(commit=False) requires a caller transaction")
+        try:
+            run = self.db.execute(
+                "SELECT run.status,run.current_attempt_id,op.publication_closed "
+                "FROM runs run JOIN ops op ON op.id=run.op_id WHERE run.id=?",
+                (int(run_id),),
+            ).fetchone()
+            if run is None:
+                raise ValueError(f"unknown run {int(run_id)}")
+            if str(run["status"]) != "running":
+                raise StaleAttemptWriter(
+                    f"run {int(run_id)} is {run['status']!r}, not running"
+                )
+
+            if writer_attempt_id is not None:
+                from .run_lifecycle import require_terminal_writer
+
+                generation_columns = frozenset(
+                    int(row[0])
+                    for row in self.db.execute(
+                        "SELECT column_id FROM run_output_generations WHERE run_id=?",
+                        (int(run_id),),
+                    ).fetchall()
+                )
+                require_terminal_writer(
+                    self.project,
+                    run_id=int(run_id),
+                    writer_attempt_id=writer_attempt_id,
+                    claim_token=claim_token,
+                    terminal_status=status,
+                    claimless_direct_effect=claimless_direct_effect,
+                    output_column_ids=generation_columns,
+                )
+            else:
+                if claimless_direct_effect:
+                    raise StaleAttemptWriter(
+                        "claimless terminalization requires its exact current attempt"
+                    )
+                if run["current_attempt_id"] is not None:
+                    raise StaleAttemptWriter(
+                        "terminalization requires the run's current writer"
+                    )
+                attempts = self.db.execute(
+                    "SELECT id,state FROM execution_attempts WHERE run_id=?",
+                    (int(run_id),),
+                ).fetchall()
+                open_attempts = {
+                    str(row["id"]): str(row["state"])
+                    for row in attempts
+                    if str(row["state"]) in {"created", "admitted", "dispatching"}
+                }
+                if prepared_attempt_id is None:
+                    if open_attempts:
+                        raise StaleAttemptWriter(
+                            "pre-dispatch terminalization requires its exact prepared attempt"
+                        )
+                elif set(open_attempts) != {prepared_attempt_id} or open_attempts.get(
+                    prepared_attempt_id
+                ) not in {"created", "admitted"}:
+                    raise StaleAttemptWriter(
+                        "prepared terminalization does not own the only open attempt"
+                    )
+                active_claims = self.db.execute(
+                    "SELECT claim_token FROM output_column_claims "
+                    "WHERE run_id=? AND status='active'",
+                    (int(run_id),),
+                ).fetchall()
+                if active_claims and (
+                    not claim_token
+                    or any(row["claim_token"] != claim_token for row in active_claims)
+                ):
+                    raise StaleAttemptWriter(
+                        "terminalization does not own the active output claim"
+                    )
+                if claim_token and not active_claims:
+                    raise StaleAttemptWriter(
+                        "terminalization output claim is no longer active"
+                    )
+
+            # Whole-action previews may bind their running receipt to a
+            # published run after provider accounting. Keep fact ownership
+            # immutable and project its recorded cost through that receipt link.
+            self._project_cost_actual(run_id)
+            updated = self.db.execute(
+                "UPDATE runs SET status=?, finished_at=datetime('now') "
+                "WHERE id=? AND status='running'",
+                (status, int(run_id)),
+            )
+            if updated.rowcount != 1:
+                raise StaleAttemptWriter(
+                    "run terminal status changed before completion"
+                )
+            from .run_lifecycle import close_run_change
+
             close_run_change(self.project, run_id)
-        from .review_stats import mark_run_review_stats_dirty, rebuild_run_review_stats
+            from .review_stats import (
+                mark_run_review_stats_dirty,
+                rebuild_run_review_stats,
+            )
 
-        mark_run_review_stats_dirty(self.db, run_id)
-        if commit:
-            rebuild_run_review_stats(self.db, run_id)
-            self.db.commit()
+            mark_run_review_stats_dirty(self.db, run_id)
+            if commit:
+                rebuild_run_review_stats(self.db, run_id)
+                self.db.commit()
+        except Exception:
+            if commit and owns_transaction:
+                self.db.rollback()
+            raise
 
     def request_cancel(self, run_id: int, *, commit: bool = True) -> bool:
         """Durably request cooperative cancellation of a live run.

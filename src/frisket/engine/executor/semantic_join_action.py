@@ -402,6 +402,7 @@ def finalize_semantic_join(
     run_id = int(kwargs["run_id"])
     claim = kwargs.get("claim_token")
     writer = kwargs.get("writer_attempt_id")
+    terminal_status = kwargs.get("terminal_status", "completed")
     receipt_id = kwargs["receipt_id"]
     if writer is None or claim != _output_claim_token(receipt_id):
         raise StaleAttemptWriter(
@@ -465,7 +466,7 @@ def finalize_semantic_join(
                 "semantic join result sheet name was taken after admission"
             )
         run = project.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
-        if run["status"] not in {"completed", "failed", "cancelled"}:
+        if terminal_status not in {"completed", "failed", "cancelled"}:
             raise ValueError(
                 "semantic join rows have not reached a terminal checkpoint"
             )
@@ -499,7 +500,7 @@ def finalize_semantic_join(
             run_id,
             column_ids,
             claim_token=claim,
-            terminal_disposition=run["status"],
+            terminal_disposition=terminal_status,
             publish=True,
             commit=False,
         )
@@ -558,6 +559,9 @@ def finalize_semantic_join(
             if receipt_fn is not None
             else semantic_receipt
         )
+        receipt_status = kwargs.get("receipt_status")
+        if receipt_status is not None:
+            receipt = receipt.model_copy(update={"status": receipt_status})
         roles = {
             name: ("target_row_id" if key == "matched_row_id" else key)
             for key, name in plan.output_names.items()
@@ -677,9 +681,15 @@ def finalize_semantic_join(
         if result is not None:
             project.db.rollback()
             return result
-        from frisket.engine.store.run_lifecycle import close_run_change
+        from frisket.engine.store.runs import RunResultStore
 
-        close_run_change(project, run_id)
+        RunResultStore(project).finish_run(
+            run_id,
+            terminal_status,
+            commit=False,
+            writer_attempt_id=writer,
+            claim_token=claim,
+        )
         set_attempt_state(project, writer, "effected", commit=False)
         if not OutputColumnClaimStore(project).release(
             claim_token=claim,

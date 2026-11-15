@@ -755,7 +755,7 @@ def run_typed_column_transform_action(
             terminal_disposition="completed",
             commit=False,
         )
-        runs.finish_run(run_id, "completed", commit=False)
+        runs.finish_run(run_id, "completed", commit=False, claim_token=token)
         OutputColumnClaimStore(project).release(claim_token=token, commit=False)
         if not receipts.update_body_status(
             receipt, require_status="running", commit=False

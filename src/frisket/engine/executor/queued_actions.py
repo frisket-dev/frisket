@@ -140,6 +140,8 @@ class QueuedV1PayloadEnvelope:
         run_id: int,
         writer_attempt_id: str | None = None,
         claim_token: str | None = None,
+        terminal_status: str | None = None,
+        receipt_status: str | None = None,
     ) -> dict[str, Any]:
         kwargs = {
             "runner_spec": self.runner_spec,
@@ -154,6 +156,10 @@ class QueuedV1PayloadEnvelope:
         # ResolvedAction, the same shape the sync path passes.
         decoded = queued_v1_finalize_kwargs(self.entry, self.payload)
         kwargs["resolved"] = ResolvedAction.from_resolve_dict(decoded)
+        if terminal_status is not None:
+            kwargs["terminal_status"] = terminal_status
+        if receipt_status is not None:
+            kwargs["receipt_status"] = receipt_status
         if writer_attempt_id is not None:
             kwargs["writer_attempt_id"] = writer_attempt_id
             kwargs["claim_token"] = claim_token
@@ -173,6 +179,23 @@ class QueuedV1PayloadEnvelope:
         writer_attempt_id: str | None = None,
         claim_token: str | None = None,
     ) -> ActionResult:
+        run = project.db.execute(
+            "SELECT status,total_rows,failed_rows FROM runs WHERE id=?", (run_id,)
+        ).fetchone()
+        terminal_status = "completed"
+        receipt_status = "completed"
+        if run is not None:
+            run_status = str(run["status"])
+            if run_status in {"completed", "partial", "failed", "cancelled"}:
+                terminal_status = run_status
+                receipt_status = run_status
+            else:
+                failed_rows = int(run["failed_rows"] or 0)
+                total_rows = int(run["total_rows"] or 0)
+                if failed_rows:
+                    receipt_status = (
+                        "failed" if total_rows and failed_rows >= total_rows else "partial"
+                    )
         return self.entry.finalize_action(
             project,
             self.action,
@@ -182,6 +205,8 @@ class QueuedV1PayloadEnvelope:
                 run_id=run_id,
                 writer_attempt_id=writer_attempt_id,
                 claim_token=claim_token,
+                terminal_status=terminal_status,
+                receipt_status=receipt_status,
             ),
         )
 

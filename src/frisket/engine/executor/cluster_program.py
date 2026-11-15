@@ -275,6 +275,37 @@ class _ClusterProgram(_TypedMapBatchProgram):
         # The admission guard ran on entering this scope. Computation and its
         # provider inputs use the exact rows paired with the runner's capture.
         values = {row_id: row.get(source_name) for row_id, row in values_by_row.items()}
+        if not values_by_row and state["source"]["row_ids"]:
+            run = ctx.project.db.execute(
+                "SELECT op_id FROM runs WHERE id=?",
+                (int(ctx.extras["run_id"]),),
+            ).fetchone()
+            op = (
+                None
+                if run is None
+                else ctx.project.db.execute(
+                    "SELECT spec FROM ops WHERE id=?", (int(run["op_id"]),)
+                ).fetchone()
+            )
+            fact = (
+                None
+                if op is None
+                else json.loads(op["spec"]).get(CLUSTER_RESULT_SPEC_KEY)
+            )
+            if fact is not None:
+                if (
+                    fact.get("source") != state["source"]
+                    or [item.get("row_id") for item in fact.get("canonical_values", [])]
+                    != state["source"]["row_ids"]
+                ):
+                    raise RecipeInvocationHalt(
+                        "promise_violation",
+                        "Saved clustering output does not match the admitted source",
+                    )
+                return {
+                    item["row_id"]: {self._output_names["canonical"]: item["value"]}
+                    for item in fact["canonical_values"]
+                }
         if set(values) != set(state["source"]["row_ids"]):
             raise RecipeInvocationHalt(
                 "promise_violation",

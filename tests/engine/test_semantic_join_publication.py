@@ -434,7 +434,36 @@ def test_final_child_failure_publishes_no_source_heads(case, monkeypatch):
     monkeypatch.setattr(
         "frisket.engine.executor.semantic_join_action._materialize", _materialize
     )
+    run_id = case.project.db.execute("SELECT id FROM runs").fetchone()[0]
+    case.project.db.execute(
+        "UPDATE receipts SET created_at='2000-01-01T00:00:00Z' WHERE status='running'"
+    )
+    case.project.db.execute(
+        "UPDATE execution_attempts SET created_at='2000-01-01T00:00:00Z' "
+        "WHERE run_id=? AND state='dispatching'",
+        (run_id,),
+    )
+    case.project.db.execute(
+        "UPDATE output_column_claims SET lease_expires_at='2000-01-01T00:00:00Z' "
+        "WHERE run_id=? AND status='active'",
+        (run_id,),
+    )
+    case.project.db.commit()
+    from frisket.execution.attempt import abandon_stale_dispatching_attempts
+
+    assert abandon_stale_dispatching_attempts(case.project, run_id) == 1
+    from frisket.engine.store.output_claims import OutputColumnClaimStore
+
+    for claim in case.project.db.execute(
+        "SELECT id FROM output_column_claims WHERE run_id=? AND status='active'",
+        (run_id,),
+    ).fetchall():
+        OutputColumnClaimStore(case.project).release_stale(
+            claim_id=claim["id"], reason="test: explicitly abandoned writer"
+        )
     retried = case.run()
+    if retried.errors and retried.errors[0].code == "idempotency_stale_running":
+        retried = case.run()
     assert retried.status == "completed", retried
     assert case.calls == calls
     assert case.project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 1

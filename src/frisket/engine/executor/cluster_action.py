@@ -198,6 +198,7 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
     state = kwargs["resolved"].facts["cluster_values"]
     run_id, receipt_id = kwargs["run_id"], kwargs["receipt_id"]
     writer, claim = kwargs.get("writer_attempt_id"), kwargs.get("claim_token")
+    terminal_status = kwargs.get("terminal_status", "completed")
     if writer is None or claim != _output_claim_token(receipt_id):
         raise StaleAttemptWriter("Cluster publication needs its exact writer claim")
 
@@ -279,11 +280,11 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
         ):
             code = "embedding_backend_unavailable"
         return abort(code, detail)
-    if run["status"] != "completed":
+    if terminal_status != "completed":
         return abort(
             "cluster_failed",
             "Clustering did not complete the whole column",
-            status="cancelled" if run["status"] == "cancelled" else "failed",
+            status="cancelled" if terminal_status == "cancelled" else "failed",
         )
     plan = cluster_plan_from_state(bound, state)
     try:
@@ -315,7 +316,7 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
             run_id,
             column_ids,
             claim_token=claim,
-            terminal_disposition="completed",
+            terminal_disposition=terminal_status,
             publish=True,
             commit=False,
         )
@@ -343,6 +344,9 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
             plan=plan,
             params_hash=kwargs["params_hash"],
         )
+        receipt_status = kwargs.get("receipt_status")
+        if receipt_status is not None:
+            receipt = receipt.model_copy(update={"status": receipt_status})
         provider_use = _cluster_provider_use(project, run_id)
         if not provider_use and state["embedding_model"] is not None:
             from frisket.ai.embeddings.backends import embedder_is_remote
@@ -411,9 +415,15 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
             "UPDATE ops SET spec=? WHERE id=?",
             (json.dumps(op_spec, sort_keys=True, allow_nan=False), run["op_id"]),
         )
-        from frisket.engine.store.run_lifecycle import close_run_change
+        from frisket.engine.store.runs import RunResultStore
 
-        close_run_change(project, run_id)
+        RunResultStore(project).finish_run(
+            run_id,
+            terminal_status,
+            commit=False,
+            writer_attempt_id=writer,
+            claim_token=claim,
+        )
         set_attempt_state(project, writer, "effected", commit=False)
         if not claims.release(claim_token=claim, status="released", commit=False):
             raise StaleAttemptWriter("Cluster publication lost its output claim")

@@ -29,6 +29,8 @@ def _finalize_run_in_transaction(
     run_id: int,
     status: str,
     out_cols: dict[str, int],
+    writer_attempt_id: str | None = None,
+    claimless_direct_effect: bool = False,
     keep_zero_success_output_columns: bool = False,
     halted_code: str | None = None,
     halted_reason: str | None = None,
@@ -96,13 +98,23 @@ def _finalize_run_in_transaction(
             terminal_disposition=status,
             commit=False,
         )
-    # Publication must land before finish_run closes the owning Change.
-    if not defer_terminal_status:
+    # Coupled publishers retain the current writer and running status until
+    # their materialization transaction seals outputs and terminalizes the run.
+    if defer_generation_seal and terminal_attempt_id is not None:
+        raise RuntimeError(
+            "deferred publication cannot close its current writer before materialization"
+        )
+    if not defer_terminal_status and not defer_generation_seal:
         run_store.finish_run(
             run_id,
             status,
             commit=False,
-            defer_publication_close=defer_generation_seal,
+            writer_attempt_id=writer_attempt_id,
+            claim_token=generation_claim_token,
+            claimless_direct_effect=claimless_direct_effect,
+            prepared_attempt_id=(
+                terminal_attempt_id if writer_attempt_id is None else None
+            ),
         )
     never_point = {int(column_id) for column_id in never_point_column_ids}
     if never_point:
@@ -238,6 +250,8 @@ def finalize_dispatched_run(
                 writer_attempt_id if terminal_attempt_state is not None else None
             ),
             terminal_attempt_state=terminal_attempt_state,
+            writer_attempt_id=writer_attempt_id,
+            claimless_direct_effect=claimless_direct_effect,
             **kwargs,
         )
         project.db.commit()

@@ -25,6 +25,7 @@ from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.attempt import (
+    StaleAttemptWriter,
     abandon_stale_dispatching_attempts,
     open_attempt,
 )
@@ -1703,7 +1704,7 @@ def test_abandoned_writer_terminalization_rolls_back_when_claim_release_fails(
     assert _durable_snapshot(project, orphan) == before
 
 
-def test_deferred_writer_closes_change_when_terminal_status_is_already_recorded(
+def test_run_store_refuses_current_writer_without_authority(
     project,
 ):
     orphan = _seed_orphaned_run(project, request_cancel=False)
@@ -1724,13 +1725,16 @@ def test_deferred_writer_closes_change_when_terminal_status_is_already_recorded(
     ).fetchone()[0]
     start_change(project.db, op_id, writing=True)
     RunResultStore(project).request_cancel(orphan.run_id, commit=False)
-    RunResultStore(project).finish_run(
-        orphan.run_id,
-        "cancelled",
-        commit=False,
-        defer_publication_close=True,
-    )
     project.db.commit()
+    assert (
+        RunResultStore(project).get_run(orphan.run_id)["status"] == "running"
+    )
+    with pytest.raises(StaleAttemptWriter, match="current writer"):
+        RunResultStore(project).finish_run(
+            orphan.run_id,
+            "cancelled",
+        )
+    project.db.rollback()
     assert (
         project.db.execute(
             "SELECT publication_closed FROM ops WHERE id=?",

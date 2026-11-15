@@ -8,7 +8,8 @@ import pytest
 from frisket.engine.store import Project
 from frisket.engine.store.result_generations import GenerationSealedError
 from frisket.engine.store.runs import RunResultStore
-from helpers import write_claimed_test_results
+from frisket.execution.attempt import StaleAttemptWriter
+from helpers import run_writer_authority_fixture, write_claimed_test_results
 
 
 def _seed_project(
@@ -137,7 +138,17 @@ def test_run_result_store_preserves_scopes_results_model_calls_and_pointers(
     assert sorted(call["id"] for call in calls) == ["call-score-1", "call-score-2"]
     assert json.loads(calls[0]["model_ids"]) == ["fixture-model"]
 
-    store.finish_run(run_id)
+    authority = run_writer_authority_fixture(
+        project, run_id, output_column_ids={columns["score"]}
+    )
+    with pytest.raises(StaleAttemptWriter):
+        store.finish_run(run_id)
+    assert store.get_run(run_id)["status"] == "running"
+    store.finish_run(
+        run_id,
+        writer_attempt_id=authority.writer_attempt_id,
+        claim_token=authority.claim_token,
+    )
     store.point_column_at_run(op_id, columns["score"], run_id)
     assert project.get_column(columns["score"])["current_run_id"] == run_id
     project.undo()
