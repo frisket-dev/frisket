@@ -17,6 +17,7 @@ from typing import Any, Callable, Mapping
 from pydantic import BaseModel, TypeAdapter, ValidationError
 from pydantic_core import SchemaValidator
 
+from frisket.ai.models.usage_counts import model_call_token_counts
 from frisket.actions.geospatial_types import Geocoder, CensusDemographics
 from frisket.actions.document_types import DocumentConverter
 from frisket.actions.media_types import OcrReader, Transcriber, TranscriptText, OcrText
@@ -93,7 +94,7 @@ from frisket.engine.executor.action_reservations import (
     _queued_receipt_job_id,
 )
 from frisket.engine.executor.action_receipts import _result_from_receipt
-from frisket.engine.executor.action_support import _failed_result
+from frisket.engine.executor.action_support import _failed_result, _model_call_units
 from frisket.engine.executor.action_support import (
     _external_cost_requires_confirmation_error,
     _model_cost_requires_confirmation_error,
@@ -3474,11 +3475,12 @@ def _typed_receipt(
                     "model": facts.model,
                     "model_call_ids": facts.model_call_ids,
                     "model_call_count": len(facts.model_call_ids),
-                    "tokens_in": sum(
-                        int(item.get("tokens_in") or 0) for item in provider_use
-                    ),
-                    "tokens_out": sum(
-                        int(item.get("tokens_out") or 0) for item in provider_use
+                    **model_call_token_counts(
+                        {
+                            "capability": call["capability"],
+                            "units": _model_call_units(call),
+                        }
+                        for call in facts.model_calls
                     ),
                     "cost_actual": facts.cost_actual,
                     "op_id": facts.op_id,

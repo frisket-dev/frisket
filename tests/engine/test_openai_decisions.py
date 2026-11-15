@@ -222,6 +222,7 @@ async def test_unknown_usage_stays_unknown_and_errors_do_not_leak(monkeypatch):
         monkeypatch, lambda _: httpx.Response(200, json=reply(usage={}))
     )
     assert accounting["cost"] is None
+    assert accounting["model_calls"][0]["units"]["input_tokens"] is None
     with pytest.raises(RowError) as raised:
         await invoke(
             monkeypatch,

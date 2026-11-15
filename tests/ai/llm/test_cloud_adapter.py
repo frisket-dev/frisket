@@ -273,7 +273,9 @@ def test_cloud_adapter_preserves_ocr_identity_and_token_receipt():
                 ),
                 "receipt": _response().receipt.model_copy(
                     update={
-                        "usage": CloudOCRUsage(kind="ocr", tokens_in=23, tokens_out=7)
+                        "usage": CloudOCRUsage(
+                            kind="ocr", meter="tokens", tokens_in=23, tokens_out=7
+                        )
                     }
                 ),
             }
@@ -509,6 +511,7 @@ def test_cloud_adapter_and_cache_preserve_unknown_usage(tmp_path, capability):
         )
         payload["route"]["capability"] = capability
         if capability == "ocr":
+            payload["accounting"]["usage"]["meter"] = "tokens"
             payload["route"]["options"] = CloudOCROptionSupport(
                 kind="ocr", language=True, geometry=True, searchable_pdf=False
             ).model_dump(mode="json")
@@ -536,8 +539,8 @@ def test_cloud_adapter_and_cache_preserve_unknown_usage(tmp_path, capability):
             assert result.actual_accounting.receipts == ()
             [fact] = result.actual_accounting.model_calls
             assert fact["provider_cost_usd"] is None
-            assert fact["units"].get("tokens_in") is None
-            assert fact["units"].get("tokens_out") is None
+            assert fact["units"]["tokens_in"] is None
+            assert fact["units"]["tokens_out"] is None
             cache = ResponseCache(tmp_path / "responses.sqlite")
             try:
                 cache.put("unknown-usage", result)

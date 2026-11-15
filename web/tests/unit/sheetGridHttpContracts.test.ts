@@ -966,6 +966,7 @@ describe('sheet and grid HTTP contracts', () => {
       });
     }));
     const columnRunInfo = vi.fn(() => ({
+      runId: '4',
       actionName: 'Remembered action',
       prompt: 'Remembered prompt',
       model: 'remembered-model',
@@ -1064,7 +1065,7 @@ describe('sheet and grid HTTP contracts', () => {
     )).rejects.toThrow('Full sheet-data response omitted its exact total');
   });
 
-  it('maps managed mixed-origin columns without promoting the latest family to value authority', async () => {
+  it.each(['6', '4'])('keeps cached run %s metadata scoped to matching mixed-origin values', async (cachedRunId) => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
       total: 2,
       columns: [{
@@ -1109,7 +1110,7 @@ describe('sheet and grid HTTP contracts', () => {
       }],
     })));
     const api = createSheetGridDomainApi(contractError, {
-      columnRunInfo: () => ({ actionName: 'AI run', prompt: '', model: '' }),
+      columnRunInfo: () => ({ runId: cachedRunId, actionName: 'Cached action', prompt: '', model: `cached-${cachedRunId}` }),
       v1ActionSession: createV1ActionSession('mixed-project'),
     }, 'mixed-project');
 
@@ -1121,15 +1122,16 @@ describe('sheet and grid HTTP contracts', () => {
       generationManaged: true,
       mixedOrigins: true,
       replayPendingCount: 0,
+      ai: { model: cachedRunId === '6' ? 'cached-6' : '' },
     });
     expect(page.rows).toMatchObject([{
       cells: { 9: null },
       cellStates: { 9: 'error' },
       cellErrors: { 9: 'new exact error' },
-      provenance: { 9: { currentValueRef: { runId: '6', opId: '16' } } },
+      provenance: { 9: { currentValueRef: { runId: '6', opId: '16' }, model: cachedRunId === '6' ? 'cached-6' : '' } },
     }, {
       cells: { 9: 'retained old exact value' },
-      provenance: { 9: { currentValueRef: { runId: '4', opId: '14' } } },
+      provenance: { 9: { currentValueRef: { runId: '4', opId: '14' }, model: cachedRunId === '4' ? 'cached-4' : '' } },
     }]);
   });
 

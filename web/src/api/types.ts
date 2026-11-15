@@ -3037,6 +3037,7 @@ export interface RunProgress {
   actionKind: string;
   retrySupported?: boolean;
   sheetId: string;
+  /** Durable declared output ID; empty until the server binds an output. */
   targetColumnId: string;
   /** Row scope the run targets (spec.row_ids), remembered client-side at
    *  launch. `null`/absent means the whole sheet — the live-cell-fill pulse

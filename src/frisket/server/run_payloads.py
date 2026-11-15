@@ -208,6 +208,21 @@ def run_duration_ms(project: Project, run_id: int) -> int | None:
 def run_tokens(project: Project, run_id: int, column: str) -> int | None:
     if column not in _RUN_TOKEN_COLUMNS:
         raise ValueError(f"unsupported token column: {column}")
+    # Cell counters are attributed to one output per row; NULL on sibling
+    # outputs means "already counted", whereas missing provider usage means
+    # "unknown". Physical call facts distinguish those cases and include retries.
+    meter = "input_tokens" if column == "tokens_in" else "output_tokens"
+    path, meter_path = f"$.{column}", f"$.{meter}"
+    facts = project.db.execute(
+        "SELECT COUNT(*) AS calls, COUNT(value) AS known, SUM(value) AS total "
+        "FROM (SELECT CASE WHEN json_type(units, ?) IS NOT NULL "
+        "THEN json_extract(units, ?) ELSE json_extract(units, ?) END AS value "
+        "FROM model_calls WHERE run_id=? AND (capability='llm.complete' "
+        "OR json_type(units, ?) IS NOT NULL OR json_type(units, ?) IS NOT NULL))",
+        (path, path, meter_path, run_id, path, meter_path),
+    ).fetchone()
+    if facts["calls"]:
+        return int(facts["total"]) if facts["known"] == facts["calls"] else None
     value = project.db.execute(
         f"SELECT SUM({column}) AS total FROM results WHERE run_id=?",  # noqa: S608
         (run_id,),

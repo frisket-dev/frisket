@@ -417,6 +417,7 @@ class CloudLLMUsage(WireModel):
 
 class CloudOCRUsage(WireModel):
     kind: Literal["ocr"]
+    meter: Literal["pages", "tokens"]
     pages: int | None = Field(
         default=None, ge=0, exclude_if=lambda value: value is None
     )
@@ -432,7 +433,11 @@ class CloudOCRUsage(WireModel):
         has_pages = self.pages is not None
         has_tokens = self.tokens_in is not None and self.tokens_out is not None
         has_partial_tokens = (self.tokens_in is None) != (self.tokens_out is None)
-        if has_partial_tokens or (has_pages and has_tokens):
+        if (
+            has_partial_tokens
+            or (self.meter == "pages" and has_tokens)
+            or (self.meter == "tokens" and has_pages)
+        ):
             raise ValueError("OCR usage cannot mix pages and token counts")
         return self
 

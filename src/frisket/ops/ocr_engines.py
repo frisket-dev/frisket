@@ -145,8 +145,8 @@ class OcrEngines:
             provider_cost_usd=cost,
             units={
                 **units,
-                "tokens_in": usage.get("in", 0),
-                "tokens_out": usage.get("out", 0),
+                "tokens_in": usage.get("in"),
+                "tokens_out": usage.get("out"),
             },
             cost_source="pricing_data" if cost is not None else "unknown",
             warnings=[] if cost is not None else ["remote provider cost is unknown"],

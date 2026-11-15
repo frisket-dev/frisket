@@ -372,7 +372,7 @@ def test_retry_and_terminal_errors_keep_response_proven_accounting(monkeypatch, 
             asyncio.run(_lookup("address", _context(handler, engine="opencage")))
         accounting = error.value.accounting
     assert len(calls) == 2
-    assert len(accounting["model_calls"]) == 2
+    assert len(accounting["model_calls"]) == (1 if final == "transport" else 2)
     first = accounting["model_calls"][0]
     assert first["request_id"] == "retry-1"
     assert first["provider_cost_usd"] is None
@@ -484,8 +484,9 @@ async def test_geocode_transport_certainty_reaches_purchase_owner(
         assert failures == [caught.value]
         assert caught.value.post_egress_ambiguous is uncertain
         assert caught.value.purchase_dispatched is (None if uncertain else False)
-        assert caught.value.accounting == geocoder.accounting_by_row[1]
-        assert geocoder.request_count == len(calls) == 1
+        assert caught.value.accounting == geocoder.accounting_by_row.get(1)
+        assert geocoder.request_count == int(uncertain)
+        assert len(calls) == 1
     finally:
         await ctx.http.aclose()
 
@@ -543,5 +544,59 @@ async def test_geocode_record_failure_keeps_one_returned_fact(monkeypatch, cance
         assert fact["request_id"] == "known"
         assert fact["units"] == {"requests": 1, "rows": 1}
         assert fact["provider_cost_usd"] == 0.01
+    finally:
+        await ctx.http.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error_type", [httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout]
+)
+@pytest.mark.parametrize("prior_response", [False, True])
+async def test_geocode_unsent_failure_preserves_only_previous_response(
+    monkeypatch, error_type, prior_response
+):
+    from frisket.execution.purchases import LocalPurchasePolicy
+
+    async def no_sleep(_delay):
+        pass
+
+    monkeypatch.setattr(module.asyncio, "sleep", no_sleep)
+    calls, returned = [], []
+
+    class Policy(LocalPurchasePolicy):
+        def record_purchase(self, request, admission, observation):
+            returned.append(geocoder.accounting_by_row[1])
+
+    def send(request):
+        calls.append(request)
+        if prior_response and len(calls) == 1:
+            return httpx.Response(429, headers={"x-request-id": "prior-response"})
+        raise error_type("not sent", request=request)
+
+    ctx = _context(send, engine="opencage")
+    ctx.extras["service_operation_policy"] = Policy()
+    geocoder = AdmittedGeocoder(ctx)
+    try:
+        with pytest.raises(GeocodeEngineError) as caught:
+            await geocoder._get(
+                ctx,
+                module.OPENCAGE_URL,
+                {},
+                engine="opencage",
+                pricing_key=module.GEOCODE_EXTERNAL_GEOCODER,
+                credential_source="project_key",
+            )
+        assert caught.value.purchase_dispatched is False
+        assert len(calls) == (2 if prior_response else 1)
+        assert geocoder.request_count == int(prior_response)
+        if prior_response:
+            assert caught.value.accounting is returned[0]
+            assert geocoder.accounting_by_row[1] is returned[0]
+            assert len(returned[0]["model_calls"]) == 1
+            assert returned[0]["model_calls"][0]["request_id"] == "prior-response"
+        else:
+            assert caught.value.accounting is None
+            assert geocoder.accounting_by_row == {}
     finally:
         await ctx.http.aclose()

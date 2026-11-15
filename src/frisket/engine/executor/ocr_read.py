@@ -15,6 +15,7 @@ from frisket.actions.media_types import OcrText, RecognizedDocument
 from frisket.actions.types import ColumnRef, Outcome, RowError
 from frisket.execution.resolver import preview_resolution_in_scope
 from frisket.ai.models.metadata import model_calls_cost_actual
+from frisket.ai.models.usage_counts import model_call_token_counts
 from frisket.ai.models.accounting import merge_accounting_meta
 from frisket.ops import ocr_engines as engines
 from frisket.engine.executor.blob_outputs import RowBlobOutput, RowBlobPlan
@@ -502,8 +503,7 @@ class _BoundOcrReader:
                             ]
                         owner.accounting_by_row[self._row_id] = copy.deepcopy(
                             {
-                                "tokens_in": usage["in"],
-                                "tokens_out": usage["out"],
+                                **model_call_token_counts(calls),
                                 "cost": model_calls_cost_actual(calls),
                                 "model_calls": calls,
                             }

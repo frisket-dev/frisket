@@ -136,12 +136,12 @@ export function useWorkspaceActionController({
   }, [afterBackfill, projectApi, requestCostConfirmation, showError]);
 
   const retryFailedRows = useCallback(
-    async (sheetId: string, targetColumnName: string, outcome: string): Promise<boolean> => {
+    async (sheetId: string, targetColumnId: string, outcome: string): Promise<boolean> => {
       const sourceSheet = projectData.store.get().sheets.find((candidate) => candidate.id === sheetId);
       if (!sourceSheet) return false;
       let accepted = false;
       try {
-        const column = sourceSheet.columns.find((candidate) => candidate.name === targetColumnName);
+        const column = sourceSheet.columns.find((candidate) => candidate.id === targetColumnId);
         if (!column) return false;
         return await retryFailedRowsWithConfirmation(
           projectApi, requestCostConfirmation, sourceSheet.id, column, outcome, (runId) => {

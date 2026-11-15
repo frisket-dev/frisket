@@ -160,7 +160,7 @@ class _Transport:
             result = CloudOCRResult(
                 pages=[CloudOCRPage(page=1, text="Cloud OCR", blocks=[])]
             )
-            usage = CloudOCRUsage(kind="ocr", pages=1)
+            usage = CloudOCRUsage(kind="ocr", meter="pages", pages=1)
             charge = 2500
         else:
             result = CloudDocumentConvertResult(
@@ -209,7 +209,9 @@ class _Transport:
                 else {}
             )
             route = _route("vision_ocr")
-            usage = CloudOCRUsage(kind="ocr", tokens_in=12, tokens_out=4)
+            usage = CloudOCRUsage(
+                kind="ocr", meter="tokens", tokens_in=12, tokens_out=4
+            )
         else:
             data = {"value": "Cloud result"} if repaired else {}
             route = _route("llm")

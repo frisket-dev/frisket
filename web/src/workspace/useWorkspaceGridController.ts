@@ -256,9 +256,10 @@ export function useWorkspaceGridController({
   );
 
   const applyGridFailedFilter = useCallback(
-    (sheetId: string, columnName: string, outcome: string) => {
+    (sheetId: string, columnId: string, outcome: string) => {
       const sourceSheet = projectData.store.get().sheets.find((candidate) => candidate.id === sheetId);
-      if (!sourceSheet?.columns.some((column) => column.name === columnName)) return;
+      const column = sourceSheet?.columns.find((candidate) => candidate.id === columnId);
+      if (!column) return;
       route.navigate({ ...route.baseRoute(), sheetId, actionKind: null, review: false, panel: null }, 'push');
       applyGridBboxFilterTransition(
         { gridView, detail, selection, workView },
@@ -266,7 +267,8 @@ export function useWorkspaceGridController({
         { promotedViews, activePromotedKey },
         sheetId,
         {
-          filter: { [columnName]: { failed: outcome } },
+          filter: { [column.name]: { failed: outcome } },
+          filterColumnIds: { [column.name]: Number(column.id) },
         },
       );
     },

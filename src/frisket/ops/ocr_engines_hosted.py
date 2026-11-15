@@ -14,6 +14,7 @@ import base64
 from pathlib import Path
 from typing import Any
 
+from frisket.ai.models.usage_counts import sum_known_counts
 from frisket.ai.vision.coordinates import (
     CoordinateProfile,
     GENERIC_COORDINATE_PROFILE,
@@ -549,8 +550,13 @@ def accumulate_vlm_response_usage(usage: dict, resp: Any) -> None:
     usage["requests"] = usage.get("requests", 0) + int(
         not getattr(resp, "cached", False)
     )
-    usage["in"] += resp.tokens_in or 0
-    usage["out"] += resp.tokens_out or 0
+    known_usage = getattr(resp, "usage_available", True)
+    usage["in"] = sum_known_counts(
+        (usage["in"], resp.tokens_in if known_usage else None)
+    )
+    usage["out"] = sum_known_counts(
+        (usage["out"], resp.tokens_out if known_usage else None)
+    )
     actual = getattr(resp, "actual_accounting", None)
     if actual is not None:
         usage.setdefault("model_calls", []).extend(

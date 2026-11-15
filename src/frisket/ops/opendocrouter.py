@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from frisket.ai.models.usage_counts import model_call_token_counts
+
 from frisket.execution.purchases import (
     PurchaseRequest,
     PurchaseObservation,
@@ -224,13 +226,14 @@ async def ocr_pages(
     def record(accounting):
         for fact in accounting["model_calls"]:
             facts[fact["id"]] = fact
+        tokens = model_call_token_counts(facts.values())
         usage.update(
             model_calls=list(facts.values()),
             calls=len(facts),
             cost=provider_cost_total(f["provider_cost_usd"] for f in facts.values()),
             **{
-                "in": sum(f["units"].get("input_tokens", 0) for f in facts.values()),
-                "out": sum(f["units"].get("output_tokens", 0) for f in facts.values()),
+                "in": tokens["tokens_in"],
+                "out": tokens["tokens_out"],
             },
         )
 

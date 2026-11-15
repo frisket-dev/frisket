@@ -446,6 +446,7 @@ class AdmittedGeocoder:
                 )
 
             async def invoke():
+                previous_accounting = self.accounting_by_row.get(ctx.extras["row_id"])
                 self.request_count += 1
                 attempts.append((0, None))
                 self.accounting_by_row[ctx.extras["row_id"]] = (
@@ -462,12 +463,23 @@ class AdmittedGeocoder:
                     return await ctx.http.get(url, params=params, headers=headers)
                 except httpx.HTTPError as exc:
                     uncertain = transport_outcome_is_uncertain(exc)
+                    if not uncertain:
+                        # Connection/pool failure proves this request never left us.
+                        # Restore the prior response facts without minting new IDs.
+                        attempts.pop()
+                        self.request_count -= 1
+                        if previous_accounting is None:
+                            self.accounting_by_row.pop(ctx.extras["row_id"], None)
+                        else:
+                            self.accounting_by_row[ctx.extras["row_id"]] = (
+                                previous_accounting
+                            )
                     raise GeocodeEngineError(
                         code="transport",
                         message=f"geocoding request could not reach {urlsplit(url).hostname}: "
                         + redact_text(str(exc), secret_values=secret_values)[:300],
                         retryable=True,
-                        accounting=self.accounting_by_row[ctx.extras["row_id"]],
+                        accounting=self.accounting_by_row.get(ctx.extras["row_id"]),
                         post_egress_ambiguous=uncertain,
                         purchase_dispatched=None if uncertain else False,
                     ) from None

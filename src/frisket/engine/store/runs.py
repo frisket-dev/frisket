@@ -3086,8 +3086,14 @@ class RunResultStore:
 
         old_units = json.loads(existing["units"])
         incoming_units = dict(call.get("units") or {})
-        if any(incoming_units.get(key) != value for key, value in old_units.items()):
+        if any(
+            value is not None and incoming_units.get(key) != value
+            for key, value in old_units.items()
+        ):
             raise RuntimeError(f"model-call reconciliation meter drift for {call_id!r}")
+        # Unknown applicable meters may become known. A partial observation
+        # must retain the other explicit unknown keys, not erase applicability.
+        incoming_units = {**old_units, **incoming_units}
 
         # duration_ms is enriched via COALESCE: the accepted row's NULL may be
         # filled in exactly once by the terminal poll's bracketed elapsed

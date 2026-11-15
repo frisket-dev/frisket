@@ -39,7 +39,11 @@ export async function retryFailedRowsWithConfirmation(
   const groups = new Map<string, number[]>();
   for (let offset = 0; ; ) {
     const page = await api.getSheetData(sheetId, offset, 1000, {
-      filter: { [column.name]: { failed: outcome } },
+      selection: {
+        scope: { kind: 'sheet', sheet_id: Number(sheetId) },
+        filters: [{ column_id: Number(column.id), condition: { failed: outcome } }],
+        order: [], limit: null,
+      },
       columnIds: [column.id], valueMode: 'bounded',
     });
     for (const row of page.rows) {

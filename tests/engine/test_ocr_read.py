@@ -1190,3 +1190,31 @@ async def test_rapidocr_reuses_pool_and_releases_lease_after_children_stop(
         "close",
         "poison" if teardown_failed else "release",
     ]
+
+
+@pytest.mark.parametrize("counts", [(20, 10), (None, None), None])
+@pytest.mark.asyncio
+async def test_ocr_reader_uses_reported_fact_counts_not_initialized_totals(
+    source, monkeypatch, counts
+):
+    from frisket.ai.models.metadata import ModelCallMeta
+
+    async def recognize(self, engine, pages, ctx, *, usage, **kwargs):
+        units = {"pages": 1}
+        if counts is not None:
+            units.update(tokens_in=counts[0], tokens_out=counts[1])
+        usage["model_calls"] = [
+            ModelCallMeta.local(
+                capability="ocr",
+                engine=engine,
+                model_ids=[engine],
+                units=units,
+            ).as_dict()
+        ]
+        return [{"text": "Recognized", "blocks": []}]
+
+    monkeypatch.setattr(engines.OcrEngines, "run_engine_on_pages", recognize)
+    async with _reader(source) as (owner, reader, row, options):
+        await reader.recognize(row, ColumnRef("scan"), options=options)
+        meta = owner.accounting_by_row[source[3]]
+        assert (meta["tokens_in"], meta["tokens_out"]) == (counts or (None, None))

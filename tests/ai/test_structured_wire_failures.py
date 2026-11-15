@@ -61,9 +61,21 @@ def test_unknown_usage_survives_structured_aggregation_and_cache(tmp_path):
     assert combined.usage_available is False
     assert combined.cost is None
     assert combined.tokens_in == 42  # Available diagnostic counts remain useful.
-    facts = wire_accounting_meta(known.model, [unknown, known])["model_calls"]
-    assert facts[0]["units"] == {}
+    aggregate = wire_accounting_meta(known.model, [unknown, known])
+    assert aggregate["tokens_in"] is None
+    assert aggregate["tokens_out"] is None
+    facts = aggregate["model_calls"]
+    assert facts[0]["units"] == {"tokens_in": None, "tokens_out": None}
     assert facts[1]["units"] == {"tokens_in": 42, "tokens_out": 17}
+    from frisket.ai.models.accounting import merge_accounting_meta
+    from frisket.engine.executor.action_support import _model_call_provider_use
+
+    merged = merge_accounting_meta(aggregate, aggregate)
+    assert merged["tokens_in"] is None
+    assert merged["tokens_out"] is None
+    [provider_use] = _model_call_provider_use(facts, model=known.model, run=None)
+    assert provider_use["tokens_in"] is None
+    assert provider_use["tokens_out"] is None
     cache = ResponseCache(tmp_path / "cache.db")
     try:
         cache.put("unknown-usage", combined)
@@ -74,6 +86,9 @@ def test_unknown_usage_survives_structured_aggregation_and_cache(tmp_path):
         replay_total = _sum_response(known.model, [replay], replay.data)
         assert replay_total.usage_available is False
         assert replay_total.cost == 0  # Replaying content makes no paid request.
+        replay_accounting = wire_accounting_meta(known.model, [replay])
+        assert replay_accounting["tokens_in"] is None
+        assert replay_accounting["cost"] == 0
     finally:
         cache.close()
 
@@ -99,7 +114,7 @@ def test_research_uses_shared_accounting_and_provider_kind(provider, kind):
         usage_available=False,
     )
     [fact] = model_call_accounting(response.model, [response])["model_calls"]
-    assert fact["units"] == {}
+    assert fact["units"] == {"tokens_in": None, "tokens_out": None}
     assert fact["provider_kind"] == kind
 
 

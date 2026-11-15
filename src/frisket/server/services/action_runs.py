@@ -48,6 +48,7 @@ from frisket.server.action_observation import ActionObservation
 from frisket.execution.provider import ExactExecutionMatch, ExecutionComposition
 from frisket.execution.targets import CAPABILITY_LLM
 from frisket.engine.store import Project
+from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.import_intake import import_intake_dir
 from frisket.engine.store.receipts import (
     ReceiptStore,
@@ -183,7 +184,7 @@ def _attach_job_contexts(
     """Resolve bounded job metadata together, without reading result cells."""
     run_ids = sorted({p["run_id"] for p in payloads if p.get("run_id") is not None})
     run_sheets: dict[int, int] = {}
-    outputs: dict[int, list[dict[str, Any]]] = {}
+    outputs = ResultGenerationStore(project).output_columns_for_runs(run_ids)
     if run_ids:
         placeholders = ",".join("?" for _ in run_ids)
         run_sheets = {
@@ -192,16 +193,6 @@ def _attach_job_contexts(
                 f"SELECT id, sheet_id FROM runs WHERE id IN ({placeholders})", run_ids
             )
         }
-        for row in project.db.execute(
-            f"""SELECT g.run_id, c.id, c.name
-                FROM run_output_generations g JOIN columns c ON c.id = g.column_id
-                WHERE g.run_id IN ({placeholders})
-                ORDER BY g.run_id, c.position, c.id""",
-            run_ids,
-        ):
-            outputs.setdefault(int(row["run_id"]), []).append(
-                {"id": int(row["id"]), "name": row["name"]}
-            )
     for payload in payloads:
         sheet_id = run_sheets.get(payload.get("run_id"))
         if sheet_id is not None:

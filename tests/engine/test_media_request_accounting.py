@@ -142,3 +142,45 @@ def test_ocr_vlm_cached_pages_do_not_count_as_requests(tmp_path, include_uncache
     finally:
         asyncio.run(router.aclose())
         router.cache.close()
+
+
+@pytest.mark.parametrize("missing_page", [0, 1, None])
+def test_vlm_ocr_unknown_tokens_survive_page_aggregation(tmp_path, missing_page):
+    from frisket.ai.models.accounting import merge_accounting_meta
+    from frisket.ops.ocr_engines_hosted import accumulate_vlm_response_usage
+
+    usage = {"calls": 0, "in": 0, "out": 0, "cost": 0.0}
+    for page in range(2):
+        known = page != missing_page
+        accumulate_vlm_response_usage(
+            usage,
+            LLMResponse(
+                content="text",
+                data=None,
+                model="openai/gpt-4.1-mini",
+                tokens_in=10 if known else 0,
+                tokens_out=2 if known else 0,
+                usage_available=known,
+                cost=0.002 if known else None,
+            ),
+        )
+    expected = (20, 4) if missing_page is None else (None, None)
+    assert (usage["in"], usage["out"]) == expected
+    engines = OcrEngines()
+    fact = engines._model_call_for(
+        "openai/gpt-4.1-mini",
+        tmp_path / "scan.pdf",
+        [{"text": "one"}, {"text": "two"}],
+        usage,
+        ctx=SimpleNamespace(extras={}),
+    ).as_dict()
+    native = engines._model_call_for(
+        "rapidocr",
+        tmp_path / "scan.pdf",
+        [{"text": "native"}],
+        {},
+        ctx=SimpleNamespace(extras={}),
+    ).as_dict()
+    assert "tokens_in" not in native["units"]
+    merged = merge_accounting_meta({"model_calls": [fact]}, {"model_calls": [native]})
+    assert (merged["tokens_in"], merged["tokens_out"]) == expected

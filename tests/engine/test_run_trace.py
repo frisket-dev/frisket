@@ -112,10 +112,69 @@ def _run(client: TestClient, pid: str, action: dict) -> int:
     return run_id
 
 
+@pytest.mark.parametrize("mixed", [False, True])
+def test_missing_provider_usage_remains_unknown_in_cells_run_and_trace(tmp_path, mixed):
+    from frisket.server.run_payloads import action_run_rows_payload, run_tokens
+    from frisket.engine.store.receipts import ReceiptStore
+
+    class UnknownUsage(_StubAdapter):
+        async def complete(self, req, client):
+            response = await super().complete(req, client)
+            if mixed and self.calls == 1:
+                return response
+            response.tokens_in = response.tokens_out = 0
+            response.usage_available = False
+            response.cost = None
+            return response
+
+    with _client(UnknownUsage({"beat": "a"}), tmp_path) as client:
+        pid, sid = _seed(client)
+        run_id = _run(client, pid, _action(sid))
+        project = client.app.state.workspace.get(pid)
+        run_rows = action_run_rows_payload(project, run_id)["rows"]
+        assert sum(row["tokens_in"] == 50 for row in run_rows) == int(mixed)
+        assert run_tokens(project, run_id, "tokens_in") is None
+        assert run_tokens(project, run_id, "tokens_out") is None
+        for row in run_rows:
+            if mixed and row["tokens_in"] == 50:
+                continue
+            assert row["tokens_in"] is None and row["tokens_out"] is None
+            assert all(cell["tokens_in"] is None for cell in row["cells"])
+        traces = client.get(f"/api/projects/{pid}/actions/runs/{run_id}/trace").json()[
+            "trace"
+        ]
+        for row in traces["rows"]:
+            if mixed and row["tokens_in"] == 50:
+                continue
+            assert row["tokens_in"] is None and row["tokens_out"] is None
+            for call in row["calls"]:
+                assert call["tokens_in"] is None and call["tokens_out"] is None
+        receipt_id = project.db.execute(
+            "SELECT id FROM receipts WHERE run_id=?", (run_id,)
+        ).fetchone()[0]
+        receipt = ReceiptStore(project).parsed_by_id(receipt_id)
+        for provider_use in receipt.provider_use:
+            assert (
+                provider_use["tokens_in"] is None and provider_use["tokens_out"] is None
+            )
+        model_evidence = next(
+            item.ref
+            for item in receipt.evidence
+            if item.ref.get("kind") == "model_rows_model_calls"
+        )
+        assert (
+            model_evidence["tokens_in"] is None and model_evidence["tokens_out"] is None
+        )
+
+
 def test_model_run_traces_by_default_and_threads_trace_id(tmp_path):
     client = _client(_StubAdapter({"beat": "a"}), tmp_path)
     pid, sid = _seed(client)
     rid = _run(client, pid, _action(sid))
+    from frisket.server.run_payloads import run_tokens
+
+    assert run_tokens(client.app.state.workspace.get(pid), rid, "tokens_in") == 100
+    assert run_tokens(client.app.state.workspace.get(pid), rid, "tokens_out") == 100
 
     response = client.get(f"/api/projects/{pid}/actions/runs/{rid}/trace")
     assert response.status_code == 200, response.text

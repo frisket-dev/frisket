@@ -37,6 +37,8 @@ from frisket.contracts.http.cloud_connection import (
     CloudExecutionResponse,
     CloudLLMExecutionRequest,
     CloudLLMRequest,
+    CloudLLMUsage,
+    CloudOCRUsage,
     CloudTokenPrice,
     CloudLane,
     CloudOCRExecutionMetadata,
@@ -1070,6 +1072,16 @@ async def execute_bound_cloud_llm(
     )
 
 
+def _cloud_usage_units(usage) -> dict[str, Any]:
+    units = usage.model_dump(mode="json", exclude={"kind", "meter"}, exclude_none=True)
+    if isinstance(usage, CloudLLMUsage) or (
+        isinstance(usage, CloudOCRUsage) and usage.meter == "tokens"
+    ):
+        # Null means applicable but unknown; absent token keys mean non-token work.
+        units.update(tokens_in=usage.tokens_in, tokens_out=usage.tokens_out)
+    return units
+
+
 def cloud_execution_accounting(
     attempt: CloudExecutionAttempt,
     response: CloudExecutionResponse,
@@ -1118,9 +1130,7 @@ def cloud_execution_accounting(
             if pending.provider_cost_micro is not None
             else None
         )
-        units = pending.usage.model_dump(
-            mode="json", exclude={"kind"}, exclude_none=True
-        )
+        units = _cloud_usage_units(pending.usage)
         units.update(
             {
                 "requests": 1,
@@ -1185,7 +1195,7 @@ def cloud_execution_accounting(
         if receipt.provider_cost_micro is not None
         else None
     )
-    units = usage.model_dump(mode="json", exclude={"kind"}, exclude_none=True)
+    units = _cloud_usage_units(usage)
     units.update(
         {
             "requests": 1,

@@ -114,25 +114,38 @@ def test_cloud_llm_execution_request_defaults_to_llm_and_accepts_exact_ocr():
 
 
 def test_cloud_ocr_usage_accepts_known_shape_or_explicitly_unknown_usage():
-    page_usage = CloudOCRUsage(kind="ocr", pages=2)
+    page_usage = CloudOCRUsage(kind="ocr", meter="pages", pages=2)
     assert page_usage.pages == 2
-    assert page_usage.model_dump(mode="json") == {"kind": "ocr", "pages": 2}
-    token_usage = CloudOCRUsage(kind="ocr", tokens_in=120, tokens_out=24)
+    assert page_usage.model_dump(mode="json") == {
+        "kind": "ocr",
+        "meter": "pages",
+        "pages": 2,
+    }
+    token_usage = CloudOCRUsage(
+        kind="ocr", meter="tokens", tokens_in=120, tokens_out=24
+    )
     assert (token_usage.tokens_in, token_usage.tokens_out) == (120, 24)
     assert token_usage.model_dump(mode="json") == {
         "kind": "ocr",
+        "meter": "tokens",
         "tokens_in": 120,
         "tokens_out": 24,
     }
 
-    unknown = CloudOCRUsage(kind="ocr")
-    assert unknown.model_dump(mode="json") == {"kind": "ocr"}
+    unknown = CloudOCRUsage(kind="ocr", meter="tokens")
+    assert unknown.model_dump(mode="json") == {"kind": "ocr", "meter": "tokens"}
     assert unknown.pages is unknown.tokens_in is unknown.tokens_out is None
 
     for usage in (
-        {"kind": "ocr", "tokens_in": 120},
-        {"kind": "ocr", "tokens_out": 24},
-        {"kind": "ocr", "pages": 2, "tokens_in": 120, "tokens_out": 24},
+        {"kind": "ocr", "meter": "tokens", "tokens_in": 120},
+        {"kind": "ocr", "meter": "tokens", "tokens_out": 24},
+        {
+            "kind": "ocr",
+            "meter": "pages",
+            "pages": 2,
+            "tokens_in": 120,
+            "tokens_out": 24,
+        },
     ):
         with pytest.raises(ValueError, match="cannot mix pages and token counts"):
             CloudOCRUsage.model_validate(usage)
@@ -248,7 +261,7 @@ def _response(*, account_id: int = 41) -> CloudExecutionResponse:
             engine="anthropic/claude-haiku-4-5",
             charge_micro=25_000,
             provider_cost_micro=None,
-            usage=CloudOCRUsage(kind="ocr", pages=2),
+            usage=CloudOCRUsage(kind="ocr", meter="pages", pages=2),
         ),
     )
 
@@ -520,7 +533,9 @@ async def test_http_model_transport_sends_and_validates_exact_ocr_capability(tmp
             "receipt": base.receipt.model_copy(
                 update={
                     "provider_cost_micro": 20,
-                    "usage": CloudOCRUsage(kind="ocr", tokens_in=12, tokens_out=4),
+                    "usage": CloudOCRUsage(
+                        kind="ocr", meter="tokens", tokens_in=12, tokens_out=4
+                    ),
                 }
             ),
         }

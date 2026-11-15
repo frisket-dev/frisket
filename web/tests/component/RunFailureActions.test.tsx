@@ -45,10 +45,10 @@ it('retries failures on the source sheet while a same-named column is selected e
   vi.spyOn(stores.job, 'afterBackfill').mockImplementation(() => {});
   mount();
   let accepted = false;
-  await act(async () => { accepted = await actions.retryFailedRows('2', 'Answer', 'any'); });
+  await act(async () => { accepted = await actions.retryFailedRows('2', '22', 'any'); });
   expect(accepted).toBe(true);
   expect(getSheetData).toHaveBeenCalledWith('2', 0, 1000, {
-    filter: { Answer: { failed: 'any' } }, columnIds: ['22'], valueMode: 'bounded',
+    selection: { scope: { kind: 'sheet', sheet_id: 2 }, filters: [{ column_id: 22, condition: { failed: 'any' } }], order: [], limit: null }, columnIds: ['22'], valueMode: 'bounded',
   });
   expect(runAction).toHaveBeenCalledWith(expect.objectContaining({
     action_id: 'run.retry', scope: { kind: 'sheet_rows', sheet_id: 2, row_ids: [3] }, params: { source_run_id: 9 },
@@ -68,15 +68,15 @@ it('reports cancelled confirmation as unaccepted and permits a later request', a
   vi.spyOn(stores.job, 'requestCostConfirmation').mockResolvedValue(false);
   vi.spyOn(stores.job, 'afterBackfill').mockImplementation(() => {});
   mount();
-  await act(async () => { expect(await actions.retryFailedRows('2', 'Answer', 'any')).toBe(false); });
+  await act(async () => { expect(await actions.retryFailedRows('2', '22', 'any')).toBe(false); });
   expect(runAction).toHaveBeenCalledTimes(1);
-  await act(async () => { expect(await actions.retryFailedRows('2', 'Answer', 'any')).toBe(true); });
+  await act(async () => { expect(await actions.retryFailedRows('2', '22', 'any')).toBe(true); });
   expect(showError).not.toHaveBeenCalled();
 });
 
 it('shows failures on the source sheet and binds the source column after route reset', () => {
   mount();
-  act(() => grid.applyGridFailedFilter('2', 'Answer', 'any'));
+  act(() => grid.applyGridFailedFilter('2', '22', 'any'));
   expect(stores.route.store.get().sheetId).toBe('2');
   expect(stores.gridView.store.get().applied).toMatchObject({
     filter: { Answer: { failed: 'any' } }, filterColumnIds: { Answer: 22 },
@@ -99,7 +99,7 @@ it('keeps Retry accepted when a later original execution fails admission', async
   mount();
   render(<RunFailureTriage rowErrors={{ totalFailedRows: 2, groups: [{
     message: 'Failed', count: 2, code: 'model_error', outcome: 'model_error', terminal: false, rowIds: ['3', '4'],
-  }] }} onRetryRows={(outcome) => actions.retryFailedRows('2', 'Answer', outcome)} />);
+  }] }} onRetryRows={(outcome) => actions.retryFailedRows('2', '22', outcome)} />);
   const button = screen.getByRole('button', { name: 'Retry' });
   fireEvent.click(button);
   await waitFor(() => expect(button.textContent).toBe('Retry requested'));
@@ -109,3 +109,25 @@ it('keeps Retry accepted when a later original execution fails admission', async
   fireEvent.click(button);
   expect(runAction).toHaveBeenCalledTimes(2);
 });
+
+it('keeps retry and filter bindings on the original column after rename and reuse of its old name', async () => {
+  const renamed: SheetMeta = { ...sheets[1], columns: [
+    { ...sheets[1].columns[0], name: 'Renamed answer' },
+    columnDef({ id: '33', name: 'Answer', type: 'text' }),
+  ] };
+  const getSheetData = vi.spyOn(api, 'getSheetData').mockResolvedValue({ rows: [], total: 0, columns: renamed.columns });
+  mount();
+  act(() => {
+    stores.projectData.store.set((state) => ({ ...state, sheets: [sheets[0], renamed] }));
+    navigateToSource();
+    stores.gridView.applyFilter({ filter: { 'Renamed answer': { failed: 'any' } }, filterColumnIds: { 'Renamed answer': 33 } });
+    grid.applyGridFailedFilter('2', '22', 'any');
+  });
+  expect(stores.gridView.store.get().applied.filterColumnIds).toEqual({ 'Renamed answer': 22 });
+  await act(async () => { await actions.retryFailedRows('2', '22', 'any'); });
+  expect(getSheetData).toHaveBeenCalledWith('2', 0, 1000, {
+    selection: { scope: { kind: 'sheet', sheet_id: 2 }, filters: [{ column_id: 22, condition: { failed: 'any' } }], order: [], limit: null },
+    columnIds: ['22'], valueMode: 'bounded',
+  });
+});
+function navigateToSource() { stores.route.navigate({ ...stores.route.baseRoute(), sheetId: '2' }, 'push'); }

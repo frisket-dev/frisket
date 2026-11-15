@@ -10,7 +10,6 @@ import {
 } from './v1ActionSession';
 import {
   actionExecutionName,
-  actionExecutionPrimaryOutput,
   actionExecutionRowIds,
   actionExecutionSheetId,
   isRegisteredActionRequest,
@@ -29,13 +28,13 @@ import {
 interface RunContext {
   actionName: string;
   sheetId: string;
-  targetColumnId: string;
   /** Explicit row scope (spec.row_ids) when the run targets selected rows;
    * null means the whole sheet. */
   rowIds: string[] | null;
 }
 
 export interface ColumnRunInfo {
+  runId: string;
   actionName: string;
   prompt: string;
   model: string;
@@ -100,21 +99,16 @@ export class ActionRunsApi {
     return JSON.stringify([projectId, runId]);
   }
 
-  private columnRunNameKey(projectId: string, sheetId: string, name: string): string {
-    return JSON.stringify([projectId, 'sheet', sheetId, name]);
-  }
-
   private columnRunIdKey(projectId: string, columnId: string): string {
     return JSON.stringify([projectId, 'column', columnId]);
   }
 
   columnRunInfo(
     projectId: string,
-    sheetId: string,
-    column: { id: string; name: string },
+    _sheetId: string,
+    column: { id: string },
   ): ColumnRunInfo | undefined {
-    return this.colRunInfo.get(this.columnRunNameKey(projectId, sheetId, column.name))
-      ?? this.colRunInfo.get(this.columnRunIdKey(projectId, column.id));
+    return this.colRunInfo.get(this.columnRunIdKey(projectId, column.id));
   }
 
   rememberColumnRunInfo(projectId: string, columnId: string, info: ColumnRunInfo): void {
@@ -184,7 +178,6 @@ export class ActionRunsApi {
     this.runMeta.set(this.runMetaKey(projectId, runId), {
       actionName,
       sheetId: actionExecutionSheetId(req),
-      targetColumnId: actionExecutionPrimaryOutput(req),
       rowIds: actionExecutionRowIds(req) ?? null,
     });
   }
@@ -309,15 +302,18 @@ export class ActionRunsApi {
     this.runMeta.set(this.runMetaKey(invocation.projectId, runId), {
       actionName,
       sheetId: actionExecutionSheetId(req),
-      targetColumnId: actionExecutionPrimaryOutput(req),
       rowIds: actionExecutionRowIds(req) ?? null,
     });
     throwIfActionAborted(invocation.signal);
-    this.colRunInfo.set(this.columnRunNameKey(invocation.projectId, actionExecutionSheetId(req), actionExecutionPrimaryOutput(req)), {
-      actionName,
-      prompt: String(extraction.params.instruction ?? ''),
-      model: String(extraction.params.model ?? ''),
-    });
+    const outputColumnId = namedResult.ref?.column_id ?? namedResult.column_id;
+    if (typeof outputColumnId === 'number') {
+      this.rememberColumnRunInfo(invocation.projectId, String(outputColumnId), {
+        runId,
+        actionName,
+        prompt: String(extraction.params.instruction ?? ''),
+        model: String(extraction.params.model ?? ''),
+      });
+    }
     return { runId, status: deriveResult.status,
       receiptId: deriveResult.receipt_id ?? null,
       outputSheetId: firstOutputSheetId(deriveResult.outputs) };
@@ -342,7 +338,6 @@ export class ActionRunsApi {
         || context?.actionName
         || this.dependencies.actionDisplayNameFromActionKind(progress.actionKind),
       sheetId: progress.sheetId || context?.sheetId || '',
-      targetColumnId: context?.targetColumnId ?? '',
       targetRowIds: context?.rowIds ?? null,
     };
   }

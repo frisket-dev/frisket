@@ -993,7 +993,11 @@ class ModelRouter:
 
             vectors, meta = result
             usage = dict(meta.get("usage") or {})
-            input_tokens = usage.get("prompt_tokens", usage.get("total_tokens"))
+            input_tokens = usage.get(
+                "input_tokens", usage.get("prompt_tokens", usage.get("total_tokens"))
+            )
+            usage["input_tokens"] = input_tokens
+            meta["usage"] = usage
             provider_cost = meta.get("provider_cost_usd")
             cost_source = meta.get("cost_source")
             if (

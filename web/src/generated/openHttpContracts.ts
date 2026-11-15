@@ -3686,6 +3686,11 @@ type HttpActionRunStatus_ActionFileWorkProgress = ({
   "total": (number);
 });
 
+type HttpActionRunStatus_ActionJobColumn = ({
+  "id": (number);
+  "name": (string);
+});
+
 type HttpActionRunStatus_ActionPreparationHint = ({
   "message": (string);
 });
@@ -3750,6 +3755,7 @@ type HttpActionRunStatus_ActionRunStatusRun = ({
   "cost_estimate": (((number)) | ((null)));
   "failed_rows": (number);
   "id": (number);
+  "output_columns"?: (Array<(HttpActionRunStatus_ActionJobColumn)>);
   "public_status": (HttpActionRunStatus_ActionRunPublicStatus);
   "row_errors"?: (((HttpActionRunStatus_RunRowErrorSummary)) | ((null)));
   "sheet_id": (number);

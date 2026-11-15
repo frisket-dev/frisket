@@ -11,6 +11,7 @@ from frisket.ai.models.metadata import (
     PROVIDER_KIND,
     model_calls_cost_actual,
 )
+from frisket.ai.models.usage_counts import model_call_token_counts, sum_known_counts
 from frisket.local_model_ids import bare_model_name
 
 
@@ -24,11 +25,10 @@ def wire_accounting_meta(
     calls: list[dict[str, Any]] = []
     execution_receipts: list[dict[str, Any]] = []
     for wire in wire_responses:
-        units = (
-            {"tokens_in": wire.tokens_in, "tokens_out": wire.tokens_out}
-            if wire.usage_available
-            else {}
-        )
+        units = {
+            "tokens_in": wire.tokens_in if wire.usage_available else None,
+            "tokens_out": wire.tokens_out if wire.usage_available else None,
+        }
         if wire.output_limited:
             units["output_limited"] = True
         if wire.cached:
@@ -79,8 +79,12 @@ def wire_accounting_meta(
     else:
         cost = sum(item for item in live_costs if item is not None)
     result = {
-        "tokens_in": sum(wire.tokens_in for wire in wire_responses),
-        "tokens_out": sum(wire.tokens_out for wire in wire_responses),
+        "tokens_in": sum_known_counts(
+            wire.tokens_in if wire.usage_available else None for wire in wire_responses
+        ),
+        "tokens_out": sum_known_counts(
+            wire.tokens_out if wire.usage_available else None for wire in wire_responses
+        ),
         "cost": cost,
         "model_calls": calls,
     }
@@ -110,12 +114,7 @@ def merge_accounting_meta(*parts: dict[str, Any] | None) -> dict[str, Any] | Non
                 receipts.append(receipt)
     calls = list(calls_by_id.values())
     merged = {
-        "tokens_in": sum(
-            call.get("units", {}).get("tokens_in", 0) or 0 for call in calls
-        ),
-        "tokens_out": sum(
-            call.get("units", {}).get("tokens_out", 0) or 0 for call in calls
-        ),
+        **model_call_token_counts(calls),
         "cost": model_calls_cost_actual(calls),
         "model_calls": calls,
     }

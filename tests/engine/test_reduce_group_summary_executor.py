@@ -980,11 +980,13 @@ def test_reduce_group_summary_persists_pricing_source_by_value(
         ("anthropic/claude-haiku-4-5", "checkpointed"),
     ],
 )
+@pytest.mark.parametrize("usage_known", [True, False])
 def test_reduce_group_summary_traces_free_and_checkpointed_calls(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     model: str,
     execution_path: str,
+    usage_known: bool,
 ) -> None:
     if model.startswith("ollama/"):
         adapter: Any = _PricedSummaryAdapter()
@@ -1006,6 +1008,18 @@ def test_reduce_group_summary_traces_free_and_checkpointed_calls(
     else:
         router, adapter = _summary_router()
 
+    if not usage_known:
+        complete = adapter.complete
+
+        async def without_usage(*args, **kwargs):
+            response = await complete(*args, **kwargs)
+            response.usage_available = False
+            response.tokens_in = response.tokens_out = 0
+            response.cost = None
+            return response
+
+        monkeypatch.setattr(adapter, "complete", without_usage)
+
     with case_env(CASES[0], tmp_path, monkeypatch) as env:
         env.run_kwargs["router"] = router
         result = env.run(
@@ -1025,6 +1039,11 @@ def test_reduce_group_summary_traces_free_and_checkpointed_calls(
         assert trace is not None
         assert trace["action_kind"] == "reduce.group_summary"
         assert len(trace["rows"]) == 2
+        if not usage_known:
+            assert all(
+                row["tokens_in"] is None and row["tokens_out"] is None
+                for row in trace["rows"]
+            )
         summary_rows = next(
             output.row_ids for output in result.outputs if output.kind == "rows"
         )

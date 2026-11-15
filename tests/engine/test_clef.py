@@ -224,6 +224,7 @@ async def test_missing_usage_does_not_fabricate_zero_cost(monkeypatch):
         ),
     )
     assert accounting["cost"] is None
+    assert accounting["model_calls"][0]["units"]["input_tokens"] is None
     assert accounting["cost_source"] == "unknown"
 
 

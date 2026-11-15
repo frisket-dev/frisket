@@ -23,6 +23,7 @@ from itertools import islice
 from pathlib import Path
 from typing import Any, Awaitable, Iterable, Protocol
 
+from frisket.ai.models.usage_counts import sum_known_counts
 from frisket.ai.llm.types import (
     LLMRequest,
     LLMResponse,
@@ -725,8 +726,12 @@ class TracingRouter:
             wires = wire_responses(responses)
             if entry is None or not wires:
                 return
-            entry["tokens_in"] = sum(wire.tokens_in for wire in wires)
-            entry["tokens_out"] = sum(wire.tokens_out for wire in wires)
+            entry["tokens_in"] = sum_known_counts(
+                wire.tokens_in if wire.usage_available else None for wire in wires
+            )
+            entry["tokens_out"] = sum_known_counts(
+                wire.tokens_out if wire.usage_available else None for wire in wires
+            )
             live = [wire for wire in wires if not wire.cached]
             entry["cost"] = (
                 None
@@ -739,8 +744,12 @@ class TracingRouter:
                     [
                         {
                             "model": wire.model,
-                            "tokens_in": wire.tokens_in,
-                            "tokens_out": wire.tokens_out,
+                            "tokens_in": wire.tokens_in
+                            if wire.usage_available
+                            else None,
+                            "tokens_out": wire.tokens_out
+                            if wire.usage_available
+                            else None,
                             "cost": wire.cost,
                             "cached": wire.cached,
                             "duration_ms": wire.duration_ms,

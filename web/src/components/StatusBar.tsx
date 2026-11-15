@@ -155,9 +155,9 @@ export interface StatusBarProps {
   onCancelRun(runId: string): void;
   /** Failure triage (run watcher popover): filter the grid to the target
    *  column's failing rows for an outcome bucket ('any' = all buckets). */
-  onShowFailedRows?(sheetId: string, columnName: string, outcome: string): void;
+  onShowFailedRows?(sheetId: string, columnId: string, outcome: string): void;
   /** Failure triage: retry exactly one bucket's rows via run.backfill row_ids. */
-  onRetryFailedRows?(sheetId: string, columnName: string, outcome: string): Promise<boolean>;
+  onRetryFailedRows?(sheetId: string, columnId: string, outcome: string): Promise<boolean>;
 }
 
 export function StatusBar({
@@ -699,8 +699,8 @@ function RunWatcherBody({
 }) {
   const pct = (100 * run.completedRows) / Math.max(1, run.totalRows);
   const files = activeOcrFiles(run);
-  // Triage acts on the run's target column; a run restored without launch
-  // context has no column name — the buckets still render, the actions do not.
+  // Triage retains the declared output ID even when its display name changes.
+  // A run without a declared output still shows its failure buckets.
   const triageColumn = run.targetColumnId;
 
   return (

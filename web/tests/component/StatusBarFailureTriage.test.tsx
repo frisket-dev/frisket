@@ -48,7 +48,7 @@ const finishedRun = (over: Partial<RunProgress> = {}): RunProgress => ({
   actionName: 'Classify docket',
   actionKind: 'map.classify',
   sheetId: 'sheet-1',
-  targetColumnId: 'relevance',
+  targetColumnId: '41',
   status: 'complete',
   completedRows: 100,
   totalRows: 100,
@@ -114,12 +114,12 @@ describe('StatusBar failure triage', () => {
     expect(screen.getByTestId('run-failure-triage')).toHaveTextContent('12 failed rows');
 
     fireEvent.click(screen.getByTestId('run-failure-retry-all'));
-    expect(onRetryFailedRows).toHaveBeenCalledWith('sheet-1', 'relevance', 'any');
+    expect(onRetryFailedRows).toHaveBeenCalledWith('sheet-1', '41', 'any');
     // Retry keeps the popover open so "Retry requested" stays visible.
     expect(screen.getByTestId('run-failure-triage')).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('run-failure-show-all'));
-    expect(onShowFailedRows).toHaveBeenCalledWith('sheet-1', 'relevance', 'any');
+    expect(onShowFailedRows).toHaveBeenCalledWith('sheet-1', '41', 'any');
     // Show closes the popover so the freshly filtered grid is visible.
     expect(screen.queryByTestId('run-failure-triage')).not.toBeInTheDocument();
   });
@@ -354,5 +354,5 @@ it('gives each terminal run a fresh retry state', async () => {
   fireEvent.click(screen.getByTestId('run-watcher-toggle'));
   expect(screen.getByTestId('run-failure-retry-all')).toBeEnabled();
   fireEvent.click(screen.getByTestId('run-failure-retry-all'));
-  await waitFor(() => expect(props.onRetryFailedRows).toHaveBeenLastCalledWith('sheet-2', 'relevance', 'any'));
+  await waitFor(() => expect(props.onRetryFailedRows).toHaveBeenLastCalledWith('sheet-2', '41', 'any'));
 });

@@ -22,6 +22,7 @@ type ReceiptWire = HttpContractSuccessResponse<'tenant.v1_receipt_lookup.get'>;
 function mapPublicRunProgress(
   status: ActionRunPublicStatusWire,
   sheetId: number,
+  outputColumns: readonly { id: number }[] = [],
 ): RunProgress {
   return {
     runId: String(status.run_id),
@@ -29,7 +30,7 @@ function mapPublicRunProgress(
     actionName: status.action_name,
     retrySupported: status.retry_supported,
     sheetId: String(sheetId),
-    targetColumnId: '',
+    targetColumnId: outputColumns[0] ? String(outputColumns[0].id) : '',
     targetRowIds: null,
     status: toRunProgressStatus(status),
     completedRows: status.completed,
@@ -65,7 +66,7 @@ function mapPublicRunProgress(
 }
 
 function mapRunProgress(wire: ActionRunStatusWire): RunProgress {
-  return mapPublicRunProgress(wire.run.public_status, wire.run.sheet_id);
+  return mapPublicRunProgress(wire.run.public_status, wire.run.sheet_id, wire.run.output_columns ?? []);
 }
 
 function mapRunRows(wire: ActionRunRowsWire): RunRowsPage {
@@ -185,7 +186,7 @@ function mapActionJob(wire: ActionJobWire): ActionJob {
     error: wire.error,
     resultSummary: wire.result_summary ?? {},
     importErrors: wire.import_errors ?? [],
-    progress: wire.progress ? mapPublicRunProgress(wire.progress, wire.progress.sheet_id) : null,
+    progress: wire.progress ? mapPublicRunProgress(wire.progress, wire.progress.sheet_id, wire.context?.output_columns ?? []) : null,
   };
 }
 

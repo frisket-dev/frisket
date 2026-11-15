@@ -215,6 +215,26 @@ class ResultGenerationStore:
         ).fetchall()
         return [self._generation_from_row(row) for row in rows]
 
+    def output_columns_for_runs(
+        self, run_ids: Iterable[int]
+    ) -> dict[int, list[dict[str, Any]]]:
+        """Read declared output identities with their current display labels."""
+        outputs: dict[int, list[dict[str, Any]]] = {}
+        for chunk in _chunks(sorted({int(run_id) for run_id in run_ids})):
+            placeholders = ",".join("?" for _ in chunk)
+            for row in self.db.execute(
+                f"""SELECT generation.run_id, column_meta.id, column_meta.name
+                    FROM run_output_generations generation
+                    JOIN columns column_meta ON column_meta.id=generation.column_id
+                    WHERE generation.run_id IN ({placeholders})
+                    ORDER BY generation.run_id, column_meta.position, column_meta.id""",
+                chunk,
+            ):
+                outputs.setdefault(int(row["run_id"]), []).append(
+                    {"id": int(row["id"]), "name": row["name"]}
+                )
+        return outputs
+
     def bindings_for_op(self, op_id: int) -> list[RunOutputGeneration]:
         rows = self.db.execute(
             "SELECT generation.* FROM run_output_generations generation "

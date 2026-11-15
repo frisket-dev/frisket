@@ -11,6 +11,7 @@ from frisket.authoring.action_metadata import (
 )
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.operability.trace import read_trace, read_trace_row
 
 ACTION_SCHEMA_VERSION = "frisket.actions.v1"
@@ -187,6 +188,9 @@ def run_status(project_id: str, project: Project, run_id: int) -> dict[str, Any]
         "failed_rows": int(row["failed_rows"] or 0),
         "cost_actual": row["cost_actual"],
         "cost_estimate": row["cost_estimate"],
+        "output_columns": ResultGenerationStore(project)
+        .output_columns_for_runs([run_id])
+        .get(run_id, []),
     }
     # Distinct per-row failure messages grouped with counts + example row
     # ids. Omitted (not stamped {}) when nothing failed.

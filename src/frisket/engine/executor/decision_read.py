@@ -146,7 +146,7 @@ class _BoundDecisionClassifier:
 
         def record(tokens=None, usage=None, rejected_status=None):
             units = {"requests": 1}
-            if tokens is not None:
+            if tokens is not None or owner.engine != "clef-flash":
                 units["input_tokens"] = tokens
             if owner.engine == "clef-flash":
                 cost = 0.0

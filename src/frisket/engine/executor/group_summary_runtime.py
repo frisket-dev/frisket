@@ -707,8 +707,8 @@ async def _complete_reduce_group_summary_call(
         trace_record[0] = traced_router.record(
             data=response.content if response.content is not None else response.data,
             meta={
-                "tokens_in": response.tokens_in,
-                "tokens_out": response.tokens_out,
+                "tokens_in": response.tokens_in if response.usage_available else None,
+                "tokens_out": response.tokens_out if response.usage_available else None,
                 "cost": response.cost,
             },
         )

@@ -43,6 +43,7 @@ type ReplayAcceptColumnActionParams = GeneratedActionParams['replay.accept_colum
 type ReplayDismissActionParams = GeneratedActionParams['replay.dismiss'];
 
 export interface SheetGridColumnRunInfo {
+  runId: string;
   actionName: string;
   prompt: string;
   model: string;
@@ -232,7 +233,7 @@ export function createSheetGridDomainApi(
   ): Column {
     if (!column.ai) return column;
     const info = dependencies.columnRunInfo(project.cacheId, sheetId, column);
-    if (!info) return column;
+    if (!info || info.runId !== (column.latestRunId ?? column.currentRunId)) return column;
     return {
       ...column,
       ai: {
@@ -260,6 +261,9 @@ export function createSheetGridDomainApi(
           const info = column
             ? dependencies.columnRunInfo(project.cacheId, sheetId, column)
             : undefined;
+          const sourceRunId = provenance.currentValueRef?.kind === 'run_result'
+            ? provenance.currentValueRef.runId : null;
+          if (!info || info.runId !== sourceRunId) return [columnId, provenance];
           return [columnId, {
             ...provenance,
             model: info?.model ?? provenance.model,

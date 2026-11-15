@@ -85,7 +85,9 @@ class CloudLLMAdapter:
                 response.accounting.usage if response.accounting is not None else None
             )
         )
-        if not isinstance(usage, expected_usage):
+        if not isinstance(usage, expected_usage) or (
+            isinstance(usage, CloudOCRUsage) and usage.meter != "tokens"
+        ):
             raise CloudExecutionRefused(
                 "cloud_protocol_error", "Cloud LLM execution returned invalid usage"
             )

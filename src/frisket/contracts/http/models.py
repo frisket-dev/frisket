@@ -640,6 +640,11 @@ class ActionJobProgress(ActionRunPublicStatus):
     sheet_id: int
 
 
+class ActionJobColumn(WireModel):
+    id: int
+    name: str
+
+
 class ActionRunStatusRun(WireModel):
     id: int
     sheet_id: int
@@ -651,6 +656,7 @@ class ActionRunStatusRun(WireModel):
     failed_rows: int = Field(ge=0)
     cost_actual: float | None
     cost_estimate: float | None
+    output_columns: list[ActionJobColumn] = Field(default_factory=list)
     row_errors: RunRowErrorSummary | None = None
     public_status: ActionRunPublicStatus
 
@@ -730,11 +736,6 @@ class ActionJobTiming(WireModel):
     created_at: str | None
     started_at: str | None
     finished_at: str | None
-
-
-class ActionJobColumn(WireModel):
-    id: int
-    name: str
 
 
 class ActionJobContext(WireModel):

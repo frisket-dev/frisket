@@ -111,6 +111,8 @@ function createGridViewState(): GridViewState {
 
 export interface GridViewFilterApplication {
   filter: GridFilterSpec;
+  /** A source-owned column identity takes precedence over an earlier display-name binding. */
+  filterColumnIds?: Record<string, number>;
   /** See GridViewAppliedState.filterValueLabel. Optional because exactly one
    *  of the five call sites that build this shape (useWorkspaceModel.tsx's
    *  applyGridEntityFilter, fed by the Mentions panel's group click) knows a
@@ -188,7 +190,7 @@ export function createGridViewStore(currentSheet: () => SheetMeta | undefined = 
         applied: {
           ...s.applied,
           filter: spec.filter,
-          filterColumnIds: bindColumns(Object.keys(spec.filter), s.applied.filterColumnIds),
+          filterColumnIds: bindColumns(Object.keys(spec.filter), spec.filterColumnIds ?? s.applied.filterColumnIds),
           filterValueLabel: spec.filterValueLabel ?? null,
         },
       }));

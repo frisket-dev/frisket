@@ -1,12 +1,12 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CellValue, SheetMeta } from '../api/open';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
-import { useProjectDataResource } from '../bind/useRouteHandle';
+import { useProjectDataResource, useRouteHandle } from '../bind/useRouteHandle';
 import type { ColumnAnnotation } from '../grid/columnAnnotations';
 import {
   advanceAfterAction,
-  buildReplayPendingAnnotation,
   firstPendingRowId,
+  buildReplayPendingAnnotation,
   replayPendingChipLabel,
 } from '../grid/replayPending';
 import { ReplayAcceptPopover } from './ReplayAcceptPopover';
@@ -17,6 +17,14 @@ interface ReplayReviewEntry {
   fresh: CellValue;
   hash: string;
   runId: string;
+}
+interface ReplayReviewTarget {
+  generation: number;
+  sheetId: string;
+  columnId: string;
+  columnName: string;
+  entries: ReplayReviewEntry[];
+  activeRowId: string | null;
 }
 const REPLAY_REVIEW_PAGE_SIZE = 500;
 
@@ -31,18 +39,32 @@ export function useReplayReviewController({
 }) {
   const { projectApi } = useWorkspaceStores();
   const projectData = useProjectDataResource();
-  const [replayReview, setReplayReview] = useState<{
-    columnId: string;
-    columnName: string;
-    entries: ReplayReviewEntry[];
-    activeRowId: string | null;
-  } | null>(null);
+  const route = useRouteHandle();
+  const [replayReview, setReplayReview] = useState<ReplayReviewTarget | null>(null);
   const [replayBusy, setReplayBusy] = useState(false);
+  const [reviewSheetId, setReviewSheetId] = useState(sheet?.id);
+  if (reviewSheetId !== sheet?.id) {
+    setReviewSheetId(sheet?.id);
+    setReplayReview(null);
+    setReplayBusy(false);
+  }
+  const generation = useRef(0);
+  useLayoutEffect(() => {
+    generation.current += 1;
+    return () => { generation.current += 1; };
+  }, [sheet?.id]);
+  const isCurrent = useCallback((sheetId: string, token: number) => (
+    generation.current === token && route.store.get().sheetId === sheetId
+  ), [route]);
+  const closeReplayReview = useCallback(() => {
+    generation.current += 1;
+    setReplayReview(null);
+    setReplayBusy(false);
+  }, []);
 
   const loadReplayPending = useCallback(
-    async (columnId: string): Promise<ReplayReviewEntry[]> => {
-      if (!sheet) return [];
-      const page = await projectApi.getSheetData(sheet.id, 0, REPLAY_REVIEW_PAGE_SIZE, {
+    async (sheetId: string, columnId: string): Promise<ReplayReviewEntry[]> => {
+      const page = await projectApi.getSheetData(sheetId, 0, REPLAY_REVIEW_PAGE_SIZE, {
         columnIds: [columnId], valueMode: 'bounded',
       });
       const entries: ReplayReviewEntry[] = [];
@@ -60,38 +82,48 @@ export function useReplayReviewController({
       }
       return entries;
     },
-    [projectApi, sheet],
+    [projectApi],
   );
 
   const startReplayReview = useCallback(
     async (columnId: string, columnName: string) => {
+      if (!sheet || route.store.get().sheetId !== sheet.id) return;
+      const sheetId = sheet.id;
+      const token = ++generation.current;
+      setReplayReview(null);
+      setReplayBusy(false);
       try {
-        const entries = await loadReplayPending(columnId);
-        if (entries.length === 0) return;
+        const entries = await loadReplayPending(sheetId, columnId);
+        if (!isCurrent(sheetId, token) || entries.length === 0) return;
         const first = firstPendingRowId(entries.map((entry) => Number(entry.rowId)));
         setReplayReview({
+          generation: token,
+          sheetId,
           columnId,
           columnName,
           entries,
           activeRowId: first != null ? String(first) : entries[0].rowId,
         });
       } catch (e: unknown) {
-        showError(e instanceof Error ? e.message : String(e));
+        if (isCurrent(sheetId, token)) showError(e instanceof Error ? e.message : String(e));
       }
     },
-    [loadReplayPending, showError],
+    [isCurrent, loadReplayPending, route, sheet, showError],
   );
 
   const refreshReplayAfterAction = useCallback(
-    async (columnId: string, columnName: string, actedRowId: string) => {
-      const orderedBefore = replayReview?.entries.map((entry) => Number(entry.rowId)) ?? [];
+    async (target: ReplayReviewTarget, actedRowId: string, token: number) => {
+      const { sheetId, columnId, columnName } = target;
+      const orderedBefore = target.entries.map((entry) => Number(entry.rowId));
       const nextNum = advanceAfterAction(orderedBefore, Number(actedRowId));
       projectData.invalidate();
       void refreshHistory();
       // Refresh metadata before surfacing replay-pending counts.
 
       void refreshSheets();
-      const entries = await loadReplayPending(columnId);
+      if (!isCurrent(sheetId, token)) return;
+      const entries = await loadReplayPending(sheetId, columnId);
+      if (!isCurrent(sheetId, token)) return;
       if (entries.length === 0) {
         setReplayReview(null);
         return;
@@ -101,73 +133,79 @@ export function useReplayReviewController({
         nextNum != null && stillPending.has(String(nextNum))
           ? String(nextNum)
           : entries[0].rowId;
-      setReplayReview({ columnId, columnName, entries, activeRowId: nextId });
+      setReplayReview({ generation: token, sheetId, columnId, columnName, entries, activeRowId: nextId });
     },
-    [replayReview, loadReplayPending, projectData, refreshHistory, refreshSheets],
+    [isCurrent, loadReplayPending, projectData, refreshHistory, refreshSheets],
   );
 
   const acceptActiveReplay = useCallback(async () => {
-    if (!sheet || !replayReview?.activeRowId) return;
-    const { columnId, columnName, activeRowId } = replayReview;
+    if (!replayReview?.activeRowId || !isCurrent(replayReview.sheetId, replayReview.generation)) return;
+    const { sheetId, columnId, activeRowId } = replayReview;
+    const token = replayReview.generation;
     setReplayBusy(true);
     try {
       const entry = replayReview.entries.find((candidate) => candidate.rowId === activeRowId);
       if (!entry) return;
       await projectApi.acceptReplayValue(
-        sheet.id, columnId, activeRowId, entry.hash, entry.runId,
+        sheetId, columnId, activeRowId, entry.hash, entry.runId,
       );
-      await refreshReplayAfterAction(columnId, columnName, activeRowId);
+      await refreshReplayAfterAction(replayReview, activeRowId, token);
     } catch (e: unknown) {
-      showError(e instanceof Error ? e.message : String(e));
+      if (isCurrent(sheetId, token)) showError(e instanceof Error ? e.message : String(e));
     } finally {
-      setReplayBusy(false);
+      if (isCurrent(sheetId, token)) setReplayBusy(false);
     }
-  }, [projectApi, sheet, replayReview, refreshReplayAfterAction, showError]);
+  }, [isCurrent, projectApi, replayReview, refreshReplayAfterAction, showError]);
 
   const keepActiveReplay = useCallback(async () => {
-    if (!sheet || !replayReview?.activeRowId) return;
-    const { columnId, columnName, activeRowId, entries } = replayReview;
+    if (!replayReview?.activeRowId || !isCurrent(replayReview.sheetId, replayReview.generation)) return;
+    const { sheetId, columnId, activeRowId, entries } = replayReview;
+    const token = replayReview.generation;
     const entry = entries.find((candidate) => candidate.rowId === activeRowId);
     if (!entry) return;
     setReplayBusy(true);
     try {
-      await projectApi.dismissReplayPending(sheet.id, columnId, activeRowId, entry.hash, entry.runId);
-      await refreshReplayAfterAction(columnId, columnName, activeRowId);
+      await projectApi.dismissReplayPending(sheetId, columnId, activeRowId, entry.hash, entry.runId);
+      await refreshReplayAfterAction(replayReview, activeRowId, token);
     } catch (e: unknown) {
-      showError(e instanceof Error ? e.message : String(e));
+      if (isCurrent(sheetId, token)) showError(e instanceof Error ? e.message : String(e));
     } finally {
-      setReplayBusy(false);
+      if (isCurrent(sheetId, token)) setReplayBusy(false);
     }
-  }, [projectApi, sheet, replayReview, refreshReplayAfterAction, showError]);
+  }, [isCurrent, projectApi, replayReview, refreshReplayAfterAction, showError]);
 
   const acceptAllReplay = useCallback(
     async (columnId: string) => {
-      if (!sheet) return;
+      if (!sheet || route.store.get().sheetId !== sheet.id) return;
+      const sheetId = sheet.id;
+      const token = ++generation.current;
       setReplayBusy(true);
       try {
-        await projectApi.acceptReplayValuesInColumn(sheet.id, columnId);
+        await projectApi.acceptReplayValuesInColumn(sheetId, columnId);
         projectData.invalidate();
         void refreshHistory();
         void refreshSheets();
-        setReplayReview(null);
+        if (isCurrent(sheetId, token)) setReplayReview(null);
       } catch (e: unknown) {
-        showError(e instanceof Error ? e.message : String(e));
+        if (isCurrent(sheetId, token)) showError(e instanceof Error ? e.message : String(e));
       } finally {
-        setReplayBusy(false);
+        if (isCurrent(sheetId, token)) setReplayBusy(false);
       }
     },
-    [projectApi, sheet, projectData, refreshHistory, refreshSheets, showError],
+    [isCurrent, projectApi, route, sheet, projectData, refreshHistory, refreshSheets, showError],
   );
 
   const dismissColumnReplay = useCallback(
     async (columnId: string) => {
-      if (!sheet) return;
+      if (!sheet || route.store.get().sheetId !== sheet.id) return;
+      const sheetId = sheet.id;
+      const token = ++generation.current;
       try {
-        const entries = await loadReplayPending(columnId);
+        const entries = await loadReplayPending(sheetId, columnId);
         await Promise.all(
           entries.map((entry) =>
             projectApi.dismissReplayPending(
-              sheet.id,
+              sheetId,
               columnId,
               entry.rowId,
               entry.hash,
@@ -178,12 +216,12 @@ export function useReplayReviewController({
         projectData.invalidate();
         void refreshHistory();
         void refreshSheets();
-        setReplayReview(null);
+        if (isCurrent(sheetId, token)) setReplayReview(null);
       } catch (e: unknown) {
-        showError(e instanceof Error ? e.message : String(e));
+        if (isCurrent(sheetId, token)) showError(e instanceof Error ? e.message : String(e));
       }
     },
-    [projectApi, sheet, loadReplayPending, projectData, refreshHistory, refreshSheets, showError],
+    [isCurrent, projectApi, route, sheet, loadReplayPending, projectData, refreshHistory, refreshSheets, showError],
   );
 
   const replayColumnAnnotations = useMemo<ColumnAnnotation[]>(() => {
@@ -194,6 +232,8 @@ export function useReplayReviewController({
       const latestRunId = column.latestRunId;
       if (!count || latestRunId == null) continue;
       annotations.push(
+        // The annotation stores event callbacks; it never invokes them during rendering.
+        // eslint-disable-next-line react-hooks/refs
         buildReplayPendingAnnotation({
           columnId: column.id,
           runId: Number(latestRunId),
@@ -229,7 +269,7 @@ export function useReplayReviewController({
     ? replayReview.entries.find((entry) => entry.rowId === replayReview.activeRowId)
     : undefined;
 
-  const replayReviewPopover = useMemo(() => replayReview && replayReviewEntry ? (
+  const replayReviewPopover = useMemo(() => replayReview && replayReview.sheetId === sheet?.id && replayReviewEntry ? (
     <ReplayAcceptPopover
       columnName={replayReview.columnName}
       yourEdit={replayReviewEntry.edit}
@@ -237,8 +277,8 @@ export function useReplayReviewController({
       busy={replayBusy}
       onAccept={() => void acceptActiveReplay()}
       onKeep={() => void keepActiveReplay()}
-      onClose={() => setReplayReview(null)}
+      onClose={closeReplayReview}
     />
-  ) : null, [replayReview, replayReviewEntry, replayBusy, acceptActiveReplay, keepActiveReplay]);
+  ) : null, [replayReview, replayReviewEntry, replayBusy, acceptActiveReplay, closeReplayReview, keepActiveReplay, sheet?.id]);
   return { replayColumnAnnotations, replayReviewPopover };
 }

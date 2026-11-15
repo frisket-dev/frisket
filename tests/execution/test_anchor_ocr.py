@@ -316,7 +316,7 @@ def test_cloud_pdf_companion_uploads_original_without_local_rasters(
                         engine=route.engine,
                         charge_micro=2500 * count,
                         provider_cost_micro=2000 * count,
-                        usage=CloudOCRUsage(kind="ocr", pages=count),
+                        usage=CloudOCRUsage(kind="ocr", meter="pages", pages=count),
                     ),
                 )
 
@@ -535,7 +535,7 @@ def test_cloud_ocr_reserves_durable_request_before_transport(tmp_path):
                     engine=engine,
                     charge_micro=2_500,
                     provider_cost_micro=2_000,
-                    usage=CloudOCRUsage(kind="ocr", pages=1),
+                    usage=CloudOCRUsage(kind="ocr", meter="pages", pages=1),
                 ),
             )
 
@@ -666,7 +666,7 @@ def test_cloud_ocr_recovery_retires_key_before_intentional_third_run(
                     engine=engine,
                     charge_micro=2_500,
                     provider_cost_micro=2_000,
-                    usage=CloudOCRUsage(kind="ocr", pages=1),
+                    usage=CloudOCRUsage(kind="ocr", meter="pages", pages=1),
                 ),
             )
 
@@ -854,7 +854,7 @@ def test_cloud_ocr_terminal_failure_records_charge_and_allows_fresh_purchase(
                     engine="datalab",
                     charge_micro=2_500,
                     provider_cost_micro=2_000,
-                    usage=CloudOCRUsage(kind="ocr", pages=1),
+                    usage=CloudOCRUsage(kind="ocr", meter="pages", pages=1),
                 ),
                 error=CloudErrorResponse(
                     error="provider_failed",

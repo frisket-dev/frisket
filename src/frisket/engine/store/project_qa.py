@@ -17,6 +17,8 @@ from typing import Any
 from statemachine import State, StateMachine
 from statemachine.exceptions import TransitionNotAllowed
 
+from frisket.ai.models.usage_counts import sum_known_counts
+
 
 class AskTurnLifecycle(StateMachine):
     """The parent turn owns permission to start work and terminal outcomes."""
@@ -1468,8 +1470,10 @@ class ProjectQAStore:
         total_cost = 0.0
         for row in rows:
             payload = json.loads(row["payload_json"])
-            tokens_in += int(payload.get("tokens_in", 0))
-            tokens_out += int(payload.get("tokens_out", 0))
+            # Search/action events carry no chat token counters. Model events
+            # explicitly carry None when their provider did not report usage.
+            tokens_in = sum_known_counts((tokens_in, payload.get("tokens_in", 0)))
+            tokens_out = sum_known_counts((tokens_out, payload.get("tokens_out", 0)))
             cost = payload.get("cost")
             if cost is None:
                 unknown_cost = True

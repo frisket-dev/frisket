@@ -1764,6 +1764,7 @@ class RealApi implements FrisketApi {
       ?? result.runs[0];
     if (selectedRun) {
       this.actionRuns.rememberColumnRunInfo(projectId, columnId, {
+        runId: selectedRun.runId,
         actionName: selectedRun.actionName,
         prompt: promptFromRunSpec(selectedRun.spec),
         model: selectedRun.model,

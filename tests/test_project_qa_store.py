@@ -21,6 +21,54 @@ def _store(tmp_path) -> tuple[Project, ProjectQAStore]:
     return project, ProjectQAStore(project)
 
 
+def test_turn_usage_keeps_unknown_counts_in_mixed_calls(tmp_path):
+    project, store = _store(tmp_path)
+    try:
+        thread = store.create_thread(title="Ask")
+        turn = store.submit_turn(
+            thread["id"], request_id="unknown-usage", question="One"
+        )
+        for known in (True, False):
+            accounting = wire_accounting_meta(
+                "anthropic/test",
+                [
+                    LLMResponse(
+                        content="ok",
+                        data=None,
+                        tokens_in=7 if known else 0,
+                        tokens_out=4 if known else 0,
+                        cost=None,
+                        model="anthropic/test",
+                        provider="anthropic",
+                        usage_available=known,
+                    )
+                ],
+            )
+            [call] = accounting["model_calls"]
+            store.record_usage(
+                turn["id"],
+                call_id=call["id"],
+                calls=[call],
+                payload={
+                    "call_id": call["id"],
+                    "tokens_in": accounting["tokens_in"],
+                    "tokens_out": accounting["tokens_out"],
+                    "cost": None,
+                },
+            )
+            if known:
+                store.append_event(
+                    turn["id"], kind="usage", payload={"operation": "search", "cost": 0}
+                )
+                summary, _ = store._usage_summary(project.db, turn["id"])
+                assert summary["tokens_in"] == 7 and summary["tokens_out"] == 4
+        finished = store.finish_turn(turn["id"], status="completed")
+        assert finished["usage"] == {"calls": 3, "tokens_in": None, "tokens_out": None}
+        assert finished["cost_actual"] is None
+    finally:
+        project.close()
+
+
 def test_threads_keep_project_scope_preferences_creator_and_revision(tmp_path) -> None:
     project, store = _store(tmp_path)
     try:
