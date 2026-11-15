@@ -60,3 +60,19 @@ it('labels manually refreshable outputs without implying automatic updates', () 
   expect(screen.getByTestId('sheet-info-rerun-scope')).toBeInTheDocument();
   expect(screen.getByTestId('sheet-info-badge')).not.toHaveTextContent('Live');
 });
+
+it.each([
+  ['unknown', 'Source changes not checked'],
+  ['checking', 'Checking source changes…'],
+] as const)('does not present %s source freshness as up to date', (syncState, label) => {
+  render(<SheetInfoPopover
+    sheet={{ ...derivedSheet(true), syncState }}
+    onClose={vi.fn()}
+    onNavigateParent={vi.fn()}
+    onViewLineage={vi.fn()}
+    refreshSheets={vi.fn()}
+  />);
+  expect(screen.getByTestId('sheet-info-badge')).toHaveTextContent(label);
+  expect(screen.getByTestId('sheet-info-badge')).toHaveAttribute('data-tone', 'neutral');
+  expect(screen.getByTestId('sheet-info-badge')).not.toHaveTextContent('Up to date');
+});

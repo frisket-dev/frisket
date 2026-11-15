@@ -10,6 +10,7 @@ import { StatusChip } from '../components/PanelPrimitives';
 import { quotedCost } from '../actions/quotedCost';
 import { CascadeConfirmDialog } from '../workbench/LineagePanel';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
+import { sourceFreshnessLabel } from '../workbench/lineageStale';
 
 export function SheetStalePill({
   staleDeepestFirst,
@@ -113,11 +114,11 @@ export function SheetInfoPopover({
         <div className="sheet-info-head">
           <span className="sheet-info-name">{sheet.name}</span>
           <StatusChip
-            tone={refreshable ? (stale ? 'warning' : 'success') : 'neutral'}
+            tone={refreshable ? (stale ? 'warning' : sheet.syncState === 'synced' ? 'success' : 'neutral') : 'neutral'}
             size="md"
             testId="sheet-info-badge"
           >
-            {refreshable ? (stale ? 'Source changed' : 'Up to date') : 'Run once'}
+            {refreshable ? sourceFreshnessLabel(sheet.syncState) : 'Run once'}
           </StatusChip>
         </div>
         <div className="sheet-info-section">

@@ -3,6 +3,15 @@
 
 import type { SheetMeta } from '../api/open';
 
+export function sourceFreshnessLabel(state: SheetMeta['syncState']): string {
+  switch (state) {
+    case 'synced': return 'Up to date';
+    case 'stale': return 'Source changed';
+    case 'checking': return 'Checking source changes…';
+    default: return 'Source changes not checked';
+  }
+}
+
 /** Stale sheets ordered deepest-first (chain length to the root via parent
  *  links) — the display order of the cascade confirm; refresh runs the
  *  REVERSE (shallow→deep) so children re-materialize against fresh parents. */

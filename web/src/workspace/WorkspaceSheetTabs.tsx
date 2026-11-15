@@ -7,7 +7,7 @@ import { useAnchoredPosition } from '../hooks/useAnchoredPosition';
 import { useSheetTabsOverflow } from '../workbench/useSheetTabsOverflow';
 import { ConfirmDeleteSheetModal } from '../components/ConfirmDeleteSheetModal';
 import { AddSheetButton } from '../components/TabStripButtons';
-import { staleSheetsDeepestFirst } from '../workbench/lineageStale';
+import { sourceFreshnessLabel, staleSheetsDeepestFirst } from '../workbench/lineageStale';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { previewViewForSheet } from '../state/previewViewStore';
 import { useChromeHandle } from '../bind/useChromeHandle';
@@ -171,16 +171,8 @@ export const WorkspaceMainViewTabs = memo(function WorkspaceMainViewTabs() {
                     className="workbench-mainView-tab-syncDot"
                     data-sync-state={tabSheet.syncState}
                     data-testid={`workbench-mainView-tab-syncDot-${tabSheet.id}`}
-                    aria-label={
-                      tabSheet.syncState === 'stale'
-                        ? 'Source changed'
-                        : 'Up to date'
-                    }
-                    title={
-                      tabSheet.syncState === 'stale'
-                        ? 'Source changed'
-                        : 'Up to date'
-                    }
+                    aria-label={sourceFreshnessLabel(tabSheet.syncState)}
+                    title={sourceFreshnessLabel(tabSheet.syncState)}
                   />
                 )}
                 {active && (
