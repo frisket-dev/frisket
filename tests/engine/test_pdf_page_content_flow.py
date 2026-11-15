@@ -181,7 +181,8 @@ def test_native_pages_real_conversion_and_ordinary_consumers(tmp_path: Path) -> 
         assert {
             row[0]
             for row in project.db.execute(
-                "SELECT value_kind FROM cells WHERE column_id=?", (columns["text"],)
+                "SELECT cell.value_kind FROM cells cell JOIN effective_current_cells head ON head.row_id=cell.row_id AND head.column_id=cell.column_id AND head.base_producer_id=cell.producer_id WHERE cell.column_id=?",
+                (columns["text"],),
             )
         } == {"prepared_content_ref"}
 

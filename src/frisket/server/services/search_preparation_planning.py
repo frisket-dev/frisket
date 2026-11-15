@@ -353,7 +353,7 @@ def _has_current_result(project: Any, source: Any, kind: str) -> bool:
             kind != "ocr"
             or prepared["has_text"]
             or prepared["is_manual"]
-            or prepared["preparation_kind"] != "media.read_pdf_text"
+            or prepared["preparation_kind"] not in {"media.read_pdf_text", "import.pdf"}
         )
     if kind != "transcribe":
         return False

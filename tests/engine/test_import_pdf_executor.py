@@ -191,6 +191,7 @@ def test_pdf_publication_retains_pages_original_and_replays_without_source(
         stored_text = project.db.execute(
             "SELECT cell.value_kind,cell.value FROM cells AS cell "
             "JOIN rows AS row ON row.id=cell.row_id "
+            "JOIN effective_current_cells head ON head.row_id=cell.row_id AND head.column_id=cell.column_id AND head.base_producer_id=cell.producer_id "
             "WHERE row.sheet_id=? AND cell.column_id=? ORDER BY row.position",
             (sheet_id, columns["text"]),
         ).fetchall()
@@ -297,7 +298,8 @@ def test_pdf_prepared_text_uses_renamed_output_column(tmp_path: Path) -> None:
         assert {
             row["value_kind"]
             for row in project.db.execute(
-                "SELECT value_kind FROM cells WHERE column_id=?", (columns["body"],)
+                "SELECT cell.value_kind FROM cells cell JOIN effective_current_cells head ON head.row_id=cell.row_id AND head.column_id=cell.column_id AND head.base_producer_id=cell.producer_id WHERE cell.column_id=?",
+                (columns["body"],),
             )
         } == {"prepared_content_ref"}
     finally:
@@ -368,6 +370,7 @@ def test_pdf_page_text_failure_keeps_empty_cell_without_prepared_version(
         stored = project.db.execute(
             "SELECT cell.value_kind FROM cells AS cell "
             "JOIN rows AS row ON row.id=cell.row_id "
+            "JOIN effective_current_cells head ON head.row_id=cell.row_id AND head.column_id=cell.column_id AND head.base_producer_id=cell.producer_id "
             "WHERE row.sheet_id=? AND cell.column_id=? ORDER BY row.position",
             (sheet_id, columns["text"]),
         ).fetchall()
