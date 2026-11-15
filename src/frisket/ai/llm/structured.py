@@ -973,12 +973,12 @@ class StructuredCompleter:
                 raw_text=last_raw,
                 wire_calls=list(model.wire_calls),
             ) from e
-        except Exception as e:
-            # A corrective request can fail at the transport after an earlier
-            # schema-invalid response already returned (and was billed).  The
-            # transport exception remains the row's real failure, but it must
-            # carry the successful wire history so the outer runner can write
-            # those provider facts instead of erasing them with the repair.
+        except BaseException as e:
+            # A corrective request can fail or be cancelled after an earlier
+            # schema-invalid response already returned (and was billed).
+            # Preserve that history on the original exception, including
+            # cancellation; the outer owner must retain the paid facts without
+            # converting cancellation into an ordinary error or retry.
             prior = list(getattr(e, "wire_calls", []) or [])
             seen = {id(call) for call in model.wire_calls}
             e.wire_calls = [

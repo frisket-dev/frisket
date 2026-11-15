@@ -10,6 +10,7 @@ import pytest
 from PIL import Image
 
 from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.map.find_source import AddressedUnit
 from frisket.ai.vision.region_locator import prepare_image_asset
 from frisket.actions.types import ActionRequest
@@ -426,7 +427,10 @@ def test_scan_locates_distinct_occurrences_and_dedupes_exact_locations(
 
         scan = asyncio.run(
             scan_find_plans(
-                params, plans, router=router, record_calls=lambda calls: None
+                params,
+                plans,
+                router=router.for_execution(STANDALONE),
+                record_calls=lambda calls: None,
             )
         )
         estimate = estimate_find_scan_cost(params, plans)
@@ -505,7 +509,7 @@ def test_scan_keeps_distinct_occurrences_sharing_one_positive_span() -> None:
         scan_find_plans(
             params,
             plan_find_scan(params, (source,)),
-            router=router,
+            router=router.for_execution(STANDALONE),
             record_calls=lambda calls: None,
         )
     )
@@ -572,7 +576,7 @@ def test_scan_orders_multi_unit_citations_by_resolved_match_position() -> None:
         scan_find_plans(
             params,
             plan_find_scan(params, (source,)),
-            router=router,
+            router=router.for_execution(STANDALONE),
             record_calls=lambda calls: None,
         )
     )
@@ -631,7 +635,7 @@ def test_scan_exact_duplicate_retains_earliest_cited_evidence() -> None:
         scan_find_plans(
             params,
             plan_find_scan(params, (source,)),
-            router=router,
+            router=router.for_execution(STANDALONE),
             record_calls=lambda calls: None,
         )
     )
@@ -703,7 +707,7 @@ def test_scan_globally_orders_matches_across_overlap_windows() -> None:
         scan_find_plans(
             params,
             plan_find_scan(params, (source,)),
-            router=router,
+            router=router.for_execution(STANDALONE),
             record_calls=lambda calls: None,
         )
     )
@@ -766,7 +770,7 @@ def test_scan_preserves_visual_region_page_order() -> None:
         scan_find_plans(
             params,
             plan_find_scan(params, (source,)),
-            router=router,
+            router=router.for_execution(STANDALONE),
             record_calls=lambda calls: None,
         )
     )
