@@ -29,7 +29,6 @@ from frisket.engine.executor.table_action import run_typed_create_sheet_action
 from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.sheet_lifecycle import (
-    SheetDeleteBlocked,
     delete_sheet,
     dependent_sheets,
 )
@@ -173,9 +172,6 @@ def test_empty_or_unmatched_links_retain_both_sheet_dependencies(
     ).fetchone()
     for parent in (seed["source_sheet_id"], seed["target_sheet_id"]):
         assert child in {item["id"] for item in dependent_sheets(project, parent)}
-        with pytest.raises(SheetDeleteBlocked) as blocked:
-            delete_sheet(project, parent)
-        assert child in blocked.value.dependent_sheet_ids
     assert not sheet_is_stale(project, child)
     company = next(
         c["id"]
@@ -192,6 +188,16 @@ def test_empty_or_unmatched_links_retain_both_sheet_dependencies(
         ]
     )
     assert sheet_is_stale(project, child)
+    # Deletion preserves independently materialized outputs and their lineage.
+    for parent in (seed["source_sheet_id"], seed["target_sheet_id"]):
+        delete_sheet(project, parent)
+        assert (
+            project.db.execute(
+                "SELECT hidden FROM sheets WHERE id=?", (child,)
+            ).fetchone()[0]
+            == 0
+        )
+        assert project.visible_row_ids(child) == rows
 
 
 @pytest.mark.parametrize(

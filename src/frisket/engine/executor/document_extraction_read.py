@@ -381,6 +381,7 @@ class AdmittedPositionedDocumentReader:
                 raise TableError("invalid_input_ref", str(exc)) from exc
         self.scope = scope
         self.rows = AdmittedSheetRowsReader(project, scope=scope, params=params)
+        self.consumed_captures = self.rows.consumed_captures
         self.parent_sheet_id = scope.sheet_id
         self.sources = self.rows.sources
         self.facts = self.rows.facts

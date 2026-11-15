@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from typing import Any
 
 JUDGMENT_SCHEMA_SQL = """
@@ -115,3 +116,44 @@ def project_judgments(project: Any, op_id: int) -> None:
                 "UPDATE copied_result_outcomes SET review_state=?,review_decision=?,review_note=? WHERE op_id=? AND row_id=? AND column_id=?",
                 (state, decision, note, owner, row_id, column_id),
             )
+    if targets:
+        from .current_cells import refresh_current_cell_pairs
+
+        # This is a guard for readers that consume judgments. Value-only
+        # fingerprints still compare the same immutable cell contributions.
+        refresh_current_cell_pairs(
+            db,
+            [
+                (parse_result_key(target)[2], parse_result_key(target)[3])
+                for (target,) in targets
+            ],
+        )
+
+
+def decision_scope_identity(
+    db, run_id: int, column_ids, row_ids
+) -> tuple[set[int], str]:
+    """Stream effective judgment identities for one admitted saved-result scope."""
+    digest = hashlib.sha256()
+    owners: set[int] = set()
+    rows = sorted(set(row_ids))
+    columns = json.dumps(sorted(set(column_ids)))
+    for offset in range(0, len(rows), 500):
+        for row in db.execute(
+            "SELECT wanted.value row_id,cols.value column_id,result.review_state,result.review_decision,"
+            "coalesce((SELECT contribution.op_id FROM result_judgment_changes contribution "
+            "JOIN ops op ON op.id=contribution.op_id "
+            "WHERE contribution.target=(?||':'||wanted.value||':'||cols.value) "
+            "AND contribution.property='decision' AND op.status='applied' AND op.change_order IS NOT NULL "
+            "ORDER BY op.change_order DESC LIMIT 1),0) owner "
+            "FROM json_each(?) wanted CROSS JOIN json_each(?) cols "
+            "LEFT JOIN results result ON result.run_id=? AND result.row_id=wanted.value AND result.column_id=cols.value "
+            "ORDER BY wanted.value,cols.value",
+            (run_id, json.dumps(rows[offset : offset + 500]), columns, run_id),
+        ):
+            digest.update(
+                json.dumps(tuple(row), separators=(",", ":")).encode() + b"\n"
+            )
+            if row["owner"]:
+                owners.add(int(row["owner"]))
+    return owners, digest.hexdigest()

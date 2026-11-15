@@ -298,6 +298,69 @@ def read_consumed_source(
     return cohort, values, capture
 
 
+def capture_read_scope(
+    snapshot: Any,
+    sheet_id: int,
+    column_ids: Sequence[int],
+    row_ids: Sequence[int],
+    *,
+    scope_intent: str = "selected",
+) -> dict[str, Any]:
+    """Capture metadata inside the snapshot that supplied a reader's values.
+
+    Readers with their own typed value resolver need no second payload copy.
+    This must run before that resolver's read transaction closes, never later
+    at publication against potentially newer source identities.
+    """
+    if not snapshot.db.in_transaction:
+        raise RuntimeError("source metadata capture requires its actual read snapshot")
+    if scope_intent not in {"whole", "selected"}:
+        raise ValueError("source scope must retain whole or selected intent")
+    columns = sorted(set(map(int, column_ids)))
+    ordered = sorted(set(map(int, row_ids)))
+    scope = {
+        "sheet_id": int(sheet_id),
+        "column_ids": columns,
+        "intent": scope_intent,
+        "cohort": ordered if scope_intent == "selected" else None,
+        "max_row_id": max(ordered, default=0),
+        "partitions": [],
+    }
+    descriptors = _descriptors(snapshot, columns)
+    previous_hi = 0
+    for offset in range(0, max(1, len(ordered)), CAPTURE_BATCH_SIZE):
+        part = ordered[offset : offset + CAPTURE_BATCH_SIZE]
+        members = _members(snapshot, sheet_id, part)
+        refs = {
+            column: _current_refs(
+                snapshot, sheet_id, column, part, include_validity=True
+            )
+            for column in columns
+        }
+        scope["partitions"].append(
+            {
+                "lo": previous_hi + 1
+                if scope_intent == "whole"
+                else min(part, default=0),
+                "hi": max(part, default=0),
+                "fingerprint": _hash(
+                    _records(sheet_id, columns, members, descriptors, refs)
+                ),
+                "count": len(part),
+                "member_count": len(members),
+            }
+        )
+        previous_hi = max(part, default=0)
+    return {
+        "schema_version": 1,
+        "kind": "aggregate",
+        "scopes": [scope],
+        "revisions": authority_revisions(snapshot, columns),
+        "coherent": True,
+        "fingerprint": _hash([scope]),
+    }
+
+
 def trim_consumed_page(
     capture: dict[str, Any],
     reads: Sequence[Mapping[str, Any]],
@@ -644,6 +707,17 @@ def _verify_aggregate(
             return None
         sheet_id = int(scope["sheet_id"])
         columns = scope["column_ids"]
+        if judgments := scope.get("judgments"):
+            from .review_judgments import decision_scope_identity
+
+            _, fingerprint = decision_scope_identity(
+                snapshot.db,
+                judgments["run_id"],
+                judgments["column_ids"],
+                scope["cohort"],
+            )
+            if fingerprint != judgments["fingerprint"]:
+                return False
         if scope["intent"] == "retained":
             selected = scope["cohort"]
             for part in scope["partitions"]:

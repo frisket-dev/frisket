@@ -207,6 +207,7 @@ class AdmittedClusterReceiptReader:
         self.source_roles: dict[RowSource, str] = {}
         self.parent_sheet_id: int | None = None
         self.facts: list[dict[str, Any]] = []
+        self.consumed_captures: list[dict[str, Any]] = []
 
     def read(self, source: ClusterReceiptSource) -> tuple[EntityCluster, ...]:
         if not isinstance(source, ClusterReceiptSource):
@@ -225,6 +226,17 @@ class AdmittedClusterReceiptReader:
                     "invalid_input_ref", "Cluster receipt source references disagree"
                 )
             values = project.get_values(sheet_id, column_id)
+            from frisket.engine.store.consumed_sources import capture_read_scope
+
+            self.consumed_captures.append(
+                capture_read_scope(
+                    project,
+                    sheet_id,
+                    [column_id, published["output"]["column_id"]],
+                    column["row_ids"],
+                    scope_intent="whole",
+                )
+            )
             groups = published.get("clusters")
             if not isinstance(groups, list):
                 raise TableError("invalid_input_ref", "Cluster receipt lacks groups")

@@ -1245,6 +1245,11 @@ def run_table_source(
                 "parent_sheet_id": parent,
                 "sources": sources,
                 "reads": reads,
+                "consumed_captures": [
+                    capture
+                    for reader in prepared.readers.values()
+                    for capture in getattr(reader, "consumed_captures", ())
+                ],
                 "op_spec": identity,
                 "list_reader": list_reader,
                 "resolved_output_names": prepared.resolved_output_names,
@@ -1676,16 +1681,7 @@ def _perform_table_in_txn(
     }
     from frisket.engine.store.consumed_sources import merge_captures, store_capture
 
-    consumed_captures = [
-        capture
-        for reader in (
-            list_reader,
-            resolved.get("joined_tables_reader"),
-            resolved.get("sheet_rows_reader"),
-        )
-        if reader is not None
-        for capture in getattr(reader, "consumed_captures", ())
-    ]
+    consumed_captures = resolved.get("consumed_captures", ())
     if consumed_captures:
         store_capture(
             project,
