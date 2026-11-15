@@ -124,12 +124,13 @@ def publish_refresh(
     return op_id, output_ids
 
 
-def reconcile_into_open_change(
+def reconcile_rows_into_open_change(
     db, *, op_id, sheet_id, config, columns, rows, policy="keep_changes"
 ):
-    """Reconcile a complete enumeration into the caller's open Change.
+    """Publish one bounded, identity-validated batch; never infer absence.
 
-    The owning execution seals results and closes publication after this call.
+    The owner stages duplicate validation before the first call. Returned IDs
+    align with input rows; a conflicting retained identity returns None.
     """
     from collections import defaultdict
     from types import SimpleNamespace
@@ -143,8 +144,7 @@ def reconcile_into_open_change(
     from .changes import ChangeStore
     from .current_value_windows import read_current_column
     from .materialization import _insert_materialized_row_source
-    from .op_log import set_undo_info
-    from .structural_changes import note_row_membership_change
+    from .structural_changes import record_structural_changes
 
     if not db.in_transaction:
         raise RuntimeError("derived refresh requires a caller transaction")
@@ -192,8 +192,9 @@ def reconcile_into_open_change(
     observed = {
         row["key"]: row
         for row in db.execute(
-            "SELECT o.*,r.hidden FROM keyed_observations o JOIN rows r ON r.id=o.row_id WHERE o.relationship_id=? AND (o.observed_present=1 OR ?)",
-            (relationship_id, int(bool(config["keyed"]))),
+            "SELECT o.*,r.hidden FROM keyed_observations o JOIN rows r ON r.id=o.row_id "
+            "WHERE o.relationship_id=? AND o.key IN (SELECT value FROM json_each(?))",
+            (relationship_id, json.dumps(list(incoming)) if config["keyed"] else "[]"),
         )
     }
     # Derivation-owned identity is immutable, rather than inferred from editable
@@ -201,8 +202,9 @@ def reconcile_into_open_change(
     duplicates = {
         row[0]
         for row in db.execute(
-            "SELECT key FROM keyed_observations WHERE relationship_id=? GROUP BY key HAVING COUNT(*)>1",
-            (relationship_id,),
+            "SELECT key FROM keyed_observations WHERE relationship_id=? "
+            "AND key IN (SELECT value FROM json_each(?)) GROUP BY key HAVING COUNT(*)>1",
+            (relationship_id, json.dumps(list(incoming)) if config["keyed"] else "[]"),
         )
     }
     conflicts.update(duplicates)
@@ -262,6 +264,7 @@ def reconcile_into_open_change(
     created_cells = []
     for key, row in incoming.items():
         if key in conflicts:
+            output_ids.append(None)
             continue
         incoming_values = {
             str(owned_columns[name]): value for name, value in row.values.items()
@@ -319,18 +322,6 @@ def reconcile_into_open_change(
             observed_present=True,
         )
         output_ids.append(row_id)
-    for key, previous in observed.items():
-        if config["keyed"] and key in incoming or key in conflicts:
-            continue
-        # Observing absence twice must not reverse a later manual Restore/Undo.
-        if previous["observed_present"] and not previous["hidden"]:
-            row_id = int(previous["row_id"])
-            db.execute("UPDATE rows SET hidden=1 WHERE id=?", (row_id,))
-            info["deleted_rows"].append(row_id)
-        db.execute(
-            "UPDATE keyed_observations SET observed_present=0 WHERE relationship_id=? AND row_id=?",
-            (relationship_id, previous["row_id"]),
-        )
     initialize_base_cells(db, producer_id=producer_id, cells=created_cells)
     for column_ids, records in writes.items():
         replace_base_cells(
@@ -344,11 +335,104 @@ def reconcile_into_open_change(
                 for column, value in changes.items()
             ],
         )
-    descriptor_info = json.loads(
-        db.execute("SELECT undo_info FROM ops WHERE id=?", (op_id,)).fetchone()[0]
-        or "{}"
-    )
-    set_undo_info(project, op_id, {**descriptor_info, **info}, commit=False)
-    if any(info.values()):
-        note_row_membership_change(db, [sheet_id])
+    record_structural_changes(db, op_id, info)
+    _refresh_membership_batch(db, op_id, sheet_id, info, owned_columns.values())
     return output_ids
+
+
+def _refresh_membership_batch(db, op_id, sheet_id, info, initialized_columns=()):
+    from .structural_changes import note_row_additions, project_structural_changes
+    from .current_cells import refresh_current_cells
+
+    created = info.get("created_rows", [])
+    changed = [*info.get("deleted_rows", []), *info.get("restored_rows", [])]
+    if created or changed:
+        project_structural_changes(db, op_id, object_ids=[*created, *changed])
+    if created:
+        note_row_additions(
+            db, sheet_id, created, initialized_columns=initialized_columns
+        )
+    if changed:
+        refresh_current_cells(
+            db,
+            column_ids=[
+                row[0]
+                for row in db.execute(
+                    "SELECT id FROM columns WHERE sheet_id=?", (sheet_id,)
+                )
+            ],
+            row_ids=changed,
+        )
+
+
+def absent_derived_batches(db, *, config, seen, batch_size=256):
+    """Keyset-scan retained observations; scratch membership is disk-backed."""
+    after = 0
+    while True:
+        rows = db.execute(
+            "SELECT o.*,r.hidden FROM keyed_observations o JOIN rows r ON r.id=o.row_id "
+            "WHERE o.relationship_id=? AND o.observed_present=1 AND o.row_id>? "
+            "ORDER BY o.row_id LIMIT ?",
+            (config["relationship_id"], after, batch_size),
+        ).fetchall()
+        if not rows:
+            return
+        after = rows[-1]["row_id"]
+        present = seen.contains(
+            keys=[row["key"] for row in rows], row_ids=[row["row_id"] for row in rows]
+        )
+        absent = [
+            row
+            for row in rows
+            if (row["key"] if config["keyed"] else row["row_id"]) not in present
+        ]
+        if absent:
+            yield absent
+
+
+def complete_derived_membership(db, *, op_id, sheet_id, config, observed_rows):
+    """Retire a bounded absent-members batch, only after successful EOF."""
+    from types import SimpleNamespace
+    from .changes import ChangeStore
+    from .structural_changes import record_structural_changes
+
+    ChangeStore(SimpleNamespace(db=db)).require_publication(op_id)
+    hidden = [int(row["row_id"]) for row in observed_rows if not row["hidden"]]
+    db.executemany("UPDATE rows SET hidden=1 WHERE id=?", ((row,) for row in hidden))
+    db.executemany(
+        "UPDATE keyed_observations SET observed_present=0 WHERE relationship_id=? AND row_id=?",
+        ((config["relationship_id"], row["row_id"]) for row in observed_rows),
+    )
+    info = {"deleted_rows": hidden}
+    record_structural_changes(db, op_id, info)
+    _refresh_membership_batch(db, op_id, sheet_id, info)
+
+
+def reconcile_into_open_change(
+    db, *, op_id, sheet_id, config, columns, rows, policy="keep_changes"
+):
+    """Compatibility wrapper for complete in-transaction enumeration callers."""
+    from .derived_refresh_stage import DerivedRefreshStage
+
+    with DerivedRefreshStage(keyed=bool(config["keyed"])) as stage:
+        for row in rows:
+            stage.add(row)
+        stage.seal()
+        output_ids = []
+        for batch in stage.batches():
+            written = reconcile_rows_into_open_change(
+                db,
+                op_id=op_id,
+                sheet_id=sheet_id,
+                config=config,
+                columns=columns,
+                rows=[row for _, row, _ in batch],
+                policy=policy,
+            )
+            stage.record_published(written)
+            output_ids.extend(row for row in written if row is not None)
+        for absent in absent_derived_batches(db, config=config, seen=stage):
+            complete_derived_membership(
+                db, op_id=op_id, sheet_id=sheet_id, config=config, observed_rows=absent
+            )
+        return output_ids

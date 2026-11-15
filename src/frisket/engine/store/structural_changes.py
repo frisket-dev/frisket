@@ -121,7 +121,7 @@ def record_structural_changes(db, op_id, info):
         )
 
 
-def project_structural_changes(db, op_id):
+def project_structural_changes(db, op_id, *, object_ids=None):
     """Project only the touched identities from their winning active Change."""
     if not db.in_transaction:
         raise RuntimeError("structural projection requires a caller-owned transaction")
@@ -150,8 +150,17 @@ def project_structural_changes(db, op_id):
             if kind == "column"
             else ""
         )
+        scope_sql = ""
+        scope_args = []
+        if object_ids is not None:
+            import json
+
+            scope_sql = " AND object_id IN (SELECT value FROM json_each(?))"
+            scope_args = [json.dumps(list(object_ids))]
         db.execute(
-            "WITH touched AS (SELECT object_id FROM structural_changes WHERE op_id=? AND kind=?), "
+            "WITH touched AS (SELECT object_id FROM structural_changes WHERE op_id=? AND kind=?"
+            + scope_sql
+            + "), "
             "ranked AS (SELECT effect.object_id,effect.after_visible,owner.status, "
             "FIRST_VALUE(effect.before_visible) OVER (PARTITION BY effect.object_id ORDER BY owner.change_order) AS baseline, "
             "ROW_NUMBER() OVER (PARTITION BY effect.object_id ORDER BY (owner.status='applied') DESC,owner.change_order DESC) AS rank "
@@ -161,5 +170,5 @@ def project_structural_changes(db, op_id):
             "FROM ranked WHERE rank=1) "
             f"UPDATE {table} SET {field}=(SELECT {visible} FROM winners WHERE winners.object_id={table}.id){hidden_update} "
             "WHERE id IN (SELECT object_id FROM winners)",
-            (op_id, kind, kind),
+            (op_id, kind, *scope_args, kind),
         )
