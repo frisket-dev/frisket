@@ -126,6 +126,8 @@ WHERE source_column.sheet_id=text_column.sheet_id
           AND source_span.page_start=ref.page_number
           AND source_span.page_end=ref.page_number
           AND source_link.status='active'
+          AND (source_link.op_id IS NULL OR EXISTS (SELECT 1 FROM ops evidence_owner
+            WHERE evidence_owner.id=source_link.op_id AND evidence_owner.status='applied'))
           AND source_link.link_role='primary_support'
           AND source_link.subject_kind='cell_value'
           AND source_link.sheet_id=source_column.sheet_id
@@ -599,6 +601,10 @@ def _prepared_result_matches_source_sql(result_alias: str) -> str:
                 AND source_span.page_start=ref.page_number
                 AND source_span.page_end=ref.page_number
                 AND source_link.status='active'
+                AND (source_link.op_id IS NULL OR EXISTS (
+                  SELECT 1 FROM ops evidence_owner
+                  WHERE evidence_owner.id=source_link.op_id
+                    AND evidence_owner.status='applied'))
                 AND source_link.link_role='primary_support'
                 AND source_link.subject_kind='cell_value'
                 AND source_link.sheet_id=source_column.sheet_id

@@ -28,10 +28,10 @@ from frisket.engine.store.result_generations import ResultGenerationStore
 
 def _copy_evidence(project, op_id: int, sheet_id: int) -> None:
     """Copy link ownership, not source spans or per-cell receipt payloads."""
-    from frisket.engine.store.evidence import record_evidence_link
+    from frisket.engine.store.evidence import copy_evidence_links
 
     links = project.db.execute(
-        "SELECT link.*,copy.row_id AS target_row_id,copy.column_id AS target_column_id "
+        "SELECT link.id,copy.row_id AS target_row_id,copy.column_id AS target_column_id "
         "FROM copied_result_outcomes copy JOIN evidence_links link "
         "ON link.run_id=copy.source_run_id AND link.row_id=copy.source_row_id "
         "AND link.column_id=copy.source_column_id WHERE copy.op_id=? "
@@ -40,38 +40,33 @@ def _copy_evidence(project, op_id: int, sheet_id: int) -> None:
     )
     # Read only evidence owned by the producing run, never another copy.
     while batch := links.fetchmany(200):
+        rows_by_column = {}
         for link in batch:
-            row_id, column_id = link["target_row_id"], link["target_column_id"]
-            _, refs = project.get_values_with_refs(
-                sheet_id, column_id, row_ids=[row_id]
+            rows_by_column.setdefault(link["target_column_id"], set()).add(
+                link["target_row_id"]
             )
-            spans = [
-                dict(span)
-                for span in project.db.execute(
-                    "SELECT span_id,rank,span_role,required,note FROM evidence_link_spans WHERE link_id=?",
-                    (link["id"],),
-                )
-            ]
-            record_evidence_link(
-                project,
-                subject_kind=link["subject_kind"],
-                subject_ref=refs[row_id],
-                spans=spans,
-                sheet_id=sheet_id,
-                row_id=row_id,
-                column_id=column_id,
-                run_id=link["run_id"],
-                op_id=op_id,
-                link_role=link["link_role"],
-                confidence=link["confidence"],
-                pinned=True,
-                producer=json.loads(link["producer_json"]),
-                layer_family=link["layer_family"],
-                metadata={
-                    **json.loads(link["metadata"]),
-                    "reapplied_from": link["stable_id"],
-                },
-            )
+        refs_by_column = {
+            column: project.get_values_with_refs(
+                sheet_id, column, row_ids=sorted(rows)
+            )[1]
+            for column, rows in rows_by_column.items()
+        }
+        copy_evidence_links(
+            project,
+            op_id=op_id,
+            sheet_id=sheet_id,
+            copies=[
+                {
+                    "source_link_id": link["id"],
+                    "row_id": link["target_row_id"],
+                    "column_id": link["target_column_id"],
+                    "subject_ref": refs_by_column[link["target_column_id"]][
+                        link["target_row_id"]
+                    ],
+                }
+                for link in batch
+            ],
+        )
 
 
 def _outcome_counts(project, op_id: int) -> dict[str, int]:

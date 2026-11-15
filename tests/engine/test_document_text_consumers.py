@@ -672,3 +672,53 @@ def test_find_ignores_later_partial_quote_and_newline_only_prepared_page(tmp_pat
             project.db.execute("SELECT count(*) FROM source_spans").fetchone()[0]
             == span_count
         )
+
+
+def test_page_selection_requires_applied_owner_of_primary_support(tmp_path):
+    from frisket.engine.store.changes import ChangeStore
+    from frisket.engine.store.document_text import (
+        DocumentTextUnavailable,
+        resolve_document_text_selection,
+    )
+
+    with closing(Project.create(tmp_path / "page-evidence-owner.frisket")) as project:
+        cell, _text, _other, _blob, chosen, _alternative = _document(project, page=2)
+        # A page derived from another document needs the retained primary link;
+        # the artifact no longer claims to have originated at this file cell.
+        [parent_row] = project.add_rows(cell[0], [{}], {})
+        project.db.execute(
+            "UPDATE source_artifacts SET source_row_id=? WHERE id=?",
+            (parent_row, chosen[1]),
+        )
+        project.db.commit()
+        with pytest.raises(DocumentTextUnavailable, match="selection stale or missing"):
+            resolve_document_text_selection(project, cell)
+        _, refs = project.get_values_with_refs(cell[0], cell[2], row_ids=[cell[1]])
+        span = record_source_span(
+            project,
+            artifact_id=chosen[1],
+            span_kind="page",
+            page_start=2,
+            page_end=2,
+        )
+        with project.transaction_scope():
+            op = project.append_op("evidence.attach", commit=False)
+            ChangeStore(project).start(op)
+            record_evidence_link(
+                project,
+                subject_kind="cell_value",
+                subject_ref=refs[cell[1]],
+                spans=[{"span_id": span["id"]}],
+                sheet_id=cell[0],
+                row_id=cell[1],
+                column_id=cell[2],
+                op_id=op,
+                link_role="primary_support",
+            )
+            ChangeStore(project).close(op)
+        assert resolve_document_text_selection(project, cell) is not None
+        assert project.undo() == op
+        with pytest.raises(DocumentTextUnavailable, match="selection stale or missing"):
+            resolve_document_text_selection(project, cell)
+        assert project.redo() == op
+        assert resolve_document_text_selection(project, cell) is not None
