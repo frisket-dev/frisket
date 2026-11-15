@@ -176,25 +176,7 @@ class GroupPublication:
                 self.config = refresh_config(
                     db.execute("SELECT * FROM ops WHERE id=?", (op_id,)).fetchone()
                 )
-                write = AggregateSheetWrite(
-                    op_id=op_id,
-                    sheet_id=int(existing_sheet["id"]),
-                    column_ids=self.config["columns"],
-                    row_ids=[],
-                    source_row_ids_by_row=[],
-                    membership_rows=[],
-                    undo_info={},
-                    materialized_sheet_ref={
-                        "kind": "materialized_sheet",
-                        "sheet_id": int(existing_sheet["id"]),
-                        "op_id": op_id,
-                    },
-                    materialized_column_refs={},
-                    materialized_rows_ref={},
-                    materialized_row_sources_ref=materialized_row_sources_ref(
-                        op_id=op_id, rows=[], include_rows=False
-                    ),
-                )
+                write = self._saved_write(op_id, int(existing_sheet["id"]))
             elif params.refresh_target is None:
                 write = write_aggregate_sheet(
                     db.cursor(),
@@ -243,25 +225,7 @@ class GroupPublication:
                 db.execute(
                     "UPDATE ops SET spec=? WHERE id=?", (json.dumps(op_spec), op_id)
                 )
-                write = AggregateSheetWrite(
-                    op_id=op_id,
-                    sheet_id=target.sheet_id,
-                    column_ids=self.config["columns"],
-                    row_ids=[],
-                    source_row_ids_by_row=[],
-                    membership_rows=[],
-                    undo_info={},
-                    materialized_sheet_ref={
-                        "kind": "materialized_sheet",
-                        "sheet_id": target.sheet_id,
-                        "op_id": op_id,
-                    },
-                    materialized_column_refs={},
-                    materialized_rows_ref={},
-                    materialized_row_sources_ref=materialized_row_sources_ref(
-                        op_id=op_id, rows=[], include_rows=False
-                    ),
-                )
+                write = self._saved_write(op_id, target.sheet_id)
             self.write = write
             db.commit()
             rows = []
@@ -378,6 +342,30 @@ class GroupPublication:
             db.rollback()
             raise
 
+    def _saved_write(
+        self, op_id, sheet_id, *, row_ids=(), source_row_ids=(), memberships=()
+    ):
+        """Describe an existing materialization without creating another sheet."""
+        return AggregateSheetWrite(
+            op_id=op_id,
+            sheet_id=sheet_id,
+            column_ids=self.config["columns"],
+            row_ids=list(row_ids),
+            source_row_ids_by_row=list(source_row_ids),
+            membership_rows=[],
+            undo_info={},
+            materialized_sheet_ref={
+                "kind": "materialized_sheet",
+                "sheet_id": sheet_id,
+                "op_id": op_id,
+            },
+            materialized_column_refs={},
+            materialized_rows_ref={},
+            materialized_row_sources_ref=materialized_row_sources_ref(
+                op_id=op_id, rows=memberships, include_rows=False
+            ),
+        )
+
     def _resume(self, resolved, envelope):
         project, db, params = self.project, self.project.db, self.params
         op_id, run_id = int(envelope["op_id"]), int(envelope["run_id"])
@@ -406,26 +394,14 @@ class GroupPublication:
         memberships = load_materialized_row_sources_for_op(
             db, op_id=op_id, roles=("aggregate_source",)
         )
-        self.write = AggregateSheetWrite(
-            op_id=op_id,
-            sheet_id=sheet_id,
-            column_ids=self.config["columns"],
+        self.write = self._saved_write(
+            op_id,
+            sheet_id,
             row_ids=[
                 self.positions[str(g["identity_key"])] for g in resolved["groups"]
             ],
-            source_row_ids_by_row=[g["source_row_ids"] for g in resolved["groups"]],
-            membership_rows=[],
-            undo_info={},
-            materialized_sheet_ref={
-                "kind": "materialized_sheet",
-                "sheet_id": sheet_id,
-                "op_id": op_id,
-            },
-            materialized_column_refs={},
-            materialized_rows_ref={},
-            materialized_row_sources_ref=materialized_row_sources_ref(
-                op_id=op_id, rows=memberships, include_rows=False
-            ),
+            source_row_ids=[g["source_row_ids"] for g in resolved["groups"]],
+            memberships=memberships,
         )
         self.claim_token = binding.claim_token
         claim = db.execute(
