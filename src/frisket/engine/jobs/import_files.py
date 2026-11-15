@@ -177,12 +177,9 @@ def register_import_files_handler(
                         if session is not None
                         else 0,
                     }
-                if stored.status == "queued":
-                    ReceiptStore(project).update_body_status(
-                        stored.parsed().model_copy(update={"status": "running"}),
-                        require_status="queued",
-                    )
-                elif stored.status != "running":
+                # The streaming writer starts the receipt together with its
+                # session and Change. A queue claim alone owns no publication.
+                if stored.status not in {"queued", "running"}:
                     return {"status": stored.status}
                 if session is not None:
                     StreamingSheetWriter.resume_session(
@@ -229,7 +226,7 @@ def register_import_files_handler(
                                     stored.parsed().model_copy(
                                         update={"status": "cancelled"}
                                     ),
-                                    require_status="running",
+                                    require_status=stored.status,
                                 )
                             return {
                                 "status": "cancelled"

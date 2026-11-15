@@ -104,6 +104,58 @@ def enqueue(queue, through):
     )
 
 
+def test_destination_refusal_does_not_start_a_receipt_without_a_session(tmp_path):
+    envelope, directory = setup_import(tmp_path, sealed=True)
+    write_import_header(
+        directory,
+        replace(read_import_header(directory), destination_sheet_id=987654),
+    )
+    with closing(SqliteJobQueue(tmp_path / "queue.db")) as queue:
+        worker = Worker(queue, registry_for(tmp_path, queue))
+        first = enqueue(queue, 5)
+        run_until_attempted(worker, queue, first)
+        assert queue.get(first).error
+        with closing(Project(tmp_path / "files.frisket")) as project:
+            assert ImportSessionStore(project).get(REF) is None
+            assert (
+                ReceiptStore(project).find_by_id(envelope.receipt_id).status == "queued"
+            )
+            assert project.db.execute("SELECT count(*) FROM ops").fetchone()[0] == 0
+        write_import_header(
+            directory,
+            replace(read_import_header(directory), destination_sheet_id=None),
+        )
+        retry = enqueue(queue, 5)
+        run_until_settled(worker, queue, retry)
+        assert queue.get(retry).status == "done", queue.get(retry).error
+        with closing(Project(tmp_path / "files.frisket")) as project:
+            session = ImportSessionStore(project).get(REF)
+            assert session.state == "completed"
+            assert session.committed_rows == 5
+            assert (
+                ReceiptStore(project).find_by_id(envelope.receipt_id).status
+                == "completed"
+            )
+
+
+def test_cancel_before_first_page_never_starts_an_import_session(tmp_path):
+    envelope, directory = setup_import(tmp_path, sealed=True)
+    write_import_header(
+        directory, replace(read_import_header(directory), cancel_requested=True)
+    )
+    with closing(SqliteJobQueue(tmp_path / "queue.db")) as queue:
+        worker = Worker(queue, registry_for(tmp_path, queue))
+        job_id = enqueue(queue, 5)
+        run_until_settled(worker, queue, job_id)
+        assert queue.get(job_id).status == "done", queue.get(job_id).error
+    with closing(Project(tmp_path / "files.frisket")) as project:
+        assert ImportSessionStore(project).get(REF) is None
+        assert (
+            ReceiptStore(project).find_by_id(envelope.receipt_id).status == "cancelled"
+        )
+        assert project.db.execute("SELECT count(*) FROM ops").fetchone()[0] == 0
+
+
 def test_worker_consumes_uploaded_cursor_then_seal_finalizes_same_receipt(tmp_path):
     envelope, directory = setup_import(tmp_path)
     with closing(SqliteJobQueue(tmp_path / "queue.db")) as queue:
