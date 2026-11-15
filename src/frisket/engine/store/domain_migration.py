@@ -125,7 +125,7 @@ def archive_history(db: sqlite3.Connection) -> None:
 
 
 # Pinned endpoint: later schema changes must extend this cutover explicitly.
-DOMAIN_TO_DIGEST = "frisket.schema.v1:dcb5327cd7de0357d88f54ee68f86465"
+DOMAIN_TO_DIGEST = "frisket.schema.v1:6f84353f6511a8e33cc2acf4699ef0ac"
 
 
 def _execute_ddl(db: sqlite3.Connection, sql: str) -> None:
@@ -216,6 +216,7 @@ def migrate_domain(db: sqlite3.Connection) -> None:
     from .keyed_updates import KEYED_UPDATE_SCHEMA
     from .consumed_sources import CONSUMED_SOURCE_SCHEMA_SQL
     from .purge import PURGE_SCHEMA_SQL
+    from .materialized_lineage import migrate_materialized_lineage
     from .schema import (
         CURRENT_CELL_VALUES_SQL,
         UNMODIFIED_CELL_VALUES_SQL,
@@ -273,6 +274,7 @@ def migrate_domain(db: sqlite3.Connection) -> None:
         _execute_ddl(db, CHANGE_SCHEMA_SQL)
         _execute_ddl(db, DESCRIPTOR_SCHEMA_SQL)
         _execute_ddl(db, STRUCTURAL_SCHEMA_SQL)
+        migrate_materialized_lineage(db)
         migrate_alert_baselines(db)
         _execute_ddl(db, KEYED_UPDATE_SCHEMA)
         _execute_ddl(db, CONSUMED_SOURCE_SCHEMA_SQL)
