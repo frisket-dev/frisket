@@ -227,3 +227,44 @@ def test_trust_label_open_family_fallback():
         "Media is handled by an execution venue of class 'future_class'."
     )
     assert cost_posture_label("future_posture") == "cost posture 'future_posture'"
+
+
+def test_uncapped_compiled_cost_retains_known_estimate_without_authority():
+    from dataclasses import replace
+    from frisket.execution.promise_compiler import (
+        PricedCostBasis,
+        compile_route_promises,
+    )
+
+    facts = _facts("third_party_api", "acme-ai", "operator_borne")
+    basis = PricedCostBasis(
+        pricing_key="acme.page",
+        unit_rate="0.02",
+        estimated_quantity="75",
+        quantity_unit="page",
+        terms_version=None,
+        quantity_rounding_mode="exact",
+        quantity_rounding_decimal_places=None,
+        meter_key="pages",
+        meter_units_per_quantity_unit="1",
+        ceiling_mode="none",
+        row_settlement_mode="all_metered",
+        charge_authority="acme",
+    )
+    for quantity, amount in (("75", "$1.50"), ("0", "$0.00"), (None, None)):
+        promises = compile_route_promises(
+            facts, replace(basis, estimated_quantity=quantity)
+        )
+        [cost] = [p for p in promises.promises if p.field == "cost"]
+        assert cost.op == "unbounded"
+        assert cost.value is None
+        assert cost.basis["estimated_quantity"] == quantity
+        assert cost.basis["unit_rate"] == "0.02"
+        assert cost.basis["ceiling_mode"] == "none"
+        display = claim_display(cost, facts)
+        if amount is None:
+            assert "cannot be estimated" in display
+        else:
+            assert amount in display
+            assert "not a spending cap" in display
+        assert "Maximum" not in display

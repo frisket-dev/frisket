@@ -329,9 +329,7 @@ def compile_route_promises(
                 basis={
                     "pricing_key": cost.pricing_key,
                     "unit_rate": cost.unit_rate,
-                    "estimated_quantity": cost.estimated_quantity
-                    if cost.ceiling_mode == "consented_quantity"
-                    else None,
+                    "estimated_quantity": cost.estimated_quantity,
                     "quantity_unit": cost.quantity_unit,
                     "terms_version": cost.terms_version,
                     "quantity_rounding_mode": cost.quantity_rounding_mode,

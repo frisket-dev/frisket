@@ -129,6 +129,21 @@ def claim_display(
         return label
     if promise.field == "cost":
         if promise.op == "unbounded":
+            # An uncapped purchase can still have a useful estimate. Retain
+            # its quantity/rate without treating either as spend authority.
+            basis = promise.basis or {}
+            rate = _plain_decimal(basis.get("unit_rate"))
+            quantity = _plain_decimal(basis.get("estimated_quantity"))
+            estimate = (
+                _usd(Decimal(rate) * Decimal(quantity))
+                if rate is not None and quantity is not None
+                else None
+            )
+            if estimate is not None:
+                return (
+                    f"Estimated provider cost ${estimate}; this pre-run estimate is not a spending cap "
+                    f"({cost_posture_label(posture, presentation)})."
+                )
             return (
                 "Cost cannot be estimated for this run "
                 f"({cost_posture_label(posture, presentation)})."

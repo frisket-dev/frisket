@@ -8,7 +8,9 @@ from typing import Any
 import pytest
 from PIL import Image
 
+from frisket.ai.llm import ModelRouter
 from frisket.ai.llm.structured import StructuredCompleter
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ops.base import OpContext
 from frisket.ops.ocr_engines_hosted import (
     accumulate_vlm_response_usage,
@@ -121,7 +123,13 @@ async def test_positioned_ocr_uses_generic_contract_and_preserves_line_order(
     result = await ocr_vlm(
         "mock/vision",
         [_page(tmp_path)],
-        OpContext(http=None, extras={"router": object()}),
+        OpContext(
+            http=None,
+            extras={
+                "router": ModelRouter(use_env_keys=False),
+                "standalone_dispatch": STANDALONE,
+            },
+        ),
         usage,
         recipe_version="test-v1",
     )
@@ -175,7 +183,13 @@ async def test_positioned_ocr_uses_known_yxyx_profile(
     result = await ocr_vlm(
         "gemini/gemini-3.6-flash",
         [_page(tmp_path, size=(1_000, 600))],
-        OpContext(http=None, extras={"router": object()}),
+        OpContext(
+            http=None,
+            extras={
+                "router": ModelRouter(use_env_keys=False),
+                "standalone_dispatch": STANDALONE,
+            },
+        ),
         _usage(),
         recipe_version="test-v1",
     )
@@ -206,7 +220,13 @@ async def test_positioned_ocr_reports_exif_display_coordinate_frame(
     result = await ocr_vlm(
         "mock/vision",
         [page],
-        OpContext(http=None, extras={"router": object()}),
+        OpContext(
+            http=None,
+            extras={
+                "router": ModelRouter(use_env_keys=False),
+                "standalone_dispatch": STANDALONE,
+            },
+        ),
         _usage(),
         recipe_version="test-v1",
     )
@@ -241,7 +261,13 @@ async def test_text_only_ocr_retains_existing_request_and_result_shape(
     result = await ocr_vlm(
         "mock/vision",
         [_page(tmp_path)],
-        OpContext(http=None, extras={"router": object()}),
+        OpContext(
+            http=None,
+            extras={
+                "router": ModelRouter(use_env_keys=False),
+                "standalone_dispatch": STANDALONE,
+            },
+        ),
         _usage(),
         language="Welsh",
         recipe_version="test-v1",
@@ -271,7 +297,13 @@ async def test_invalid_positioned_box_fails_after_preserving_wire_accounting(
         await ocr_vlm(
             "mock/vision",
             [_page(tmp_path)],
-            OpContext(http=None, extras={"router": object()}),
+            OpContext(
+                http=None,
+                extras={
+                    "router": ModelRouter(use_env_keys=False),
+                    "standalone_dispatch": STANDALONE,
+                },
+            ),
             usage,
             recipe_version="test-v1",
         )
@@ -294,7 +326,13 @@ async def test_minimax_positioned_resize_maps_back_to_original_page(
     result = await ocr_vlm(
         "openrouter/minimax/minimax-m3",
         [_page(tmp_path, size=(4_000, 400))],
-        OpContext(http=None, extras={"router": object()}),
+        OpContext(
+            http=None,
+            extras={
+                "router": ModelRouter(use_env_keys=False),
+                "standalone_dispatch": STANDALONE,
+            },
+        ),
         _usage(),
         recipe_version="test-v1",
     )
@@ -339,7 +377,13 @@ async def test_openai_positioned_ocr_requests_tested_high_detail(
     await ocr_vlm(
         "openrouter/openai/gpt-6.1-sol",
         [_page(tmp_path)],
-        OpContext(http=None, extras={"router": object()}),
+        OpContext(
+            http=None,
+            extras={
+                "router": ModelRouter(use_env_keys=False),
+                "standalone_dispatch": STANDALONE,
+            },
+        ),
         _usage(),
         recipe_version="test-v1",
     )
@@ -383,7 +427,13 @@ async def test_claude_positioned_resize_maps_inference_pixels_to_original_page(
     result = await ocr_vlm(
         "openrouter/anthropic/claude-sonnet-5",
         [_page(tmp_path, size=source_size)],
-        OpContext(http=None, extras={"router": object()}),
+        OpContext(
+            http=None,
+            extras={
+                "router": ModelRouter(use_env_keys=False),
+                "standalone_dispatch": STANDALONE,
+            },
+        ),
         _usage(),
         recipe_version="test-v1",
     )

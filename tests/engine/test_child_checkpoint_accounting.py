@@ -119,6 +119,7 @@ def test_returned_child_keeps_original_owner_when_parent_recovers(
             cloud_llm_execution_scope,
         )
         from frisket.operability.trace import TraceWriter, TracingRouter
+        from frisket.execution.dispatch_control import RunDispatch
         from frisket.authoring.actions import run_trace_row
 
         replay_transport = _Transport(
@@ -141,7 +142,12 @@ def test_returned_child_keeps_original_owner_when_parent_recovers(
             recorder = TraceWriter.open(
                 project.path, current_run, action_kind="map.extract", model=MODEL
             )
-            traced = TracingRouter(router, recorder.row_trace(row))
+            traced = TracingRouter(
+                router.for_execution(
+                    RunDispatch(project, current_run, "attempt-second")
+                ),
+                recorder.row_trace(row),
+            )
             try:
                 with cloud_llm_execution_scope(
                     CloudLLMExecutionBinding(coordinator=coordinator)

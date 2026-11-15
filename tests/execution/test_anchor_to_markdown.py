@@ -17,6 +17,7 @@ makes "refuses PRE-EFFECT" a fact rather than a claim.
 
 from __future__ import annotations
 
+from frisket.ai.llm.execution import ExecutionModelRouter
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 
 import asyncio
@@ -113,6 +114,9 @@ def test_anchor_to_markdown_org_byok_consent_refuses_the_deployments_env_key(
         return httpx.Response(200, json=complete)
 
     class StubRouter:
+        def for_execution(self, execution):
+            return ExecutionModelRouter(self, execution)
+
         client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
     # The hosted org composition, resolved for real: the resolver pins

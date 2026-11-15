@@ -17,6 +17,8 @@ import cv2
 import numpy as np
 import pytest
 
+from frisket.ai.llm.execution import ExecutionModelRouter
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.llm import LLMResponse, ModelRouter
 from frisket.engine.executor import run_action_spec
 from frisket.engine.store import Project
@@ -303,6 +305,9 @@ def test_ocr_sidecar_posts_pages_with_bearer(tmp_path, monkeypatch):
             return FakeResponse()
 
     class StubRouter:
+        def for_execution(self, execution):
+            return ExecutionModelRouter(self, execution)
+
         client = FakeHttp()
 
     router = StubRouter()
@@ -334,6 +339,9 @@ def test_ocr_remote_vlm_engine_rides_router(tmp_path, monkeypatch):
     seen = {}
 
     class StubRouter:
+        def for_execution(self, execution):
+            return ExecutionModelRouter(self, execution)
+
         client = None
 
         def credential_source_for(self, provider):
@@ -355,9 +363,11 @@ def test_ocr_remote_vlm_engine_rides_router(tmp_path, monkeypatch):
             recipe_version="1",
             trace=None,  # noqa: ANN001
             on_request=None,
+            _execution,
         ):
+            _execution.check()
             return await self.complete_transport(
-                req, recipe_version=recipe_version, trace=trace
+                req, recipe_version=recipe_version, trace=trace, _execution=_execution
             )
 
         async def complete_transport(
@@ -367,7 +377,9 @@ def test_ocr_remote_vlm_engine_rides_router(tmp_path, monkeypatch):
             recipe_version="1",
             trace=None,  # noqa: ANN001
             on_request=None,
+            _execution,
         ):
+            _execution.check()
             seen["model"] = req.model
             parts = req.messages[-1]["content"]
             seen["has_image"] = any(p.get("type") == "image" for p in parts)
@@ -427,6 +439,9 @@ def test_minimax_m3_ocr_uses_publisher_request_profile(tmp_path):
     seen = {}
 
     class StubRouter:
+        def for_execution(self, execution):
+            return ExecutionModelRouter(self, execution)
+
         client = None
 
         def secret_values_for_model(self, _model):  # noqa: ANN001
@@ -442,7 +457,9 @@ def test_minimax_m3_ocr_uses_publisher_request_profile(tmp_path):
             recipe_version="1",
             trace=None,  # noqa: ANN001
             on_request=None,
+            _execution,
         ):
+            _execution.check()
             del recipe_version, trace
             seen["request"] = req
             seen["part_types"] = [part["type"] for part in req.messages[-1]["content"]]
@@ -481,7 +498,10 @@ def test_minimax_m3_ocr_uses_publisher_request_profile(tmp_path):
         ocr_module.OcrEngines()._ocr_vlm(
             "openrouter/minimax/minimax-m3",
             [path],
-            ocr_module.OpContext(http=None, extras={"router": StubRouter()}),
+            ocr_module.OpContext(
+                http=None,
+                extras={"router": StubRouter(), "standalone_dispatch": STANDALONE},
+            ),
             usage,
         )
     )
@@ -518,6 +538,9 @@ def test_ocr_vlm_language_hint_reaches_prompt(tmp_path, monkeypatch):
     seen = {}
 
     class StubRouter:
+        def for_execution(self, execution):
+            return ExecutionModelRouter(self, execution)
+
         client = None
 
         def credential_source_for(self, provider):
@@ -539,9 +562,11 @@ def test_ocr_vlm_language_hint_reaches_prompt(tmp_path, monkeypatch):
             recipe_version="1",
             trace=None,  # noqa: ANN001
             on_request=None,
+            _execution,
         ):
+            _execution.check()
             return await self.complete_transport(
-                req, recipe_version=recipe_version, trace=trace
+                req, recipe_version=recipe_version, trace=trace, _execution=_execution
             )
 
         async def complete_transport(
@@ -551,7 +576,9 @@ def test_ocr_vlm_language_hint_reaches_prompt(tmp_path, monkeypatch):
             recipe_version="1",
             trace=None,  # noqa: ANN001
             on_request=None,
+            _execution,
         ):
+            _execution.check()
             parts = req.messages[-1]["content"]
             seen["ask"] = next(p["text"] for p in parts if p.get("type") == "text")
             return LLMResponse(

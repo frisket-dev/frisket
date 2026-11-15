@@ -12,6 +12,7 @@ import zipfile
 
 import pytest
 
+from frisket.ai.llm.execution import ExecutionModelRouter
 from frisket.ai.llm import ModelRouter
 from frisket.engine.store import Project
 from frisket.engine.executor import run_action_spec
@@ -270,6 +271,9 @@ def test_convert_sidecar_posts_bytes_with_bearer(tmp_path, monkeypatch):
             return FakeResponse()
 
     class StubRouter:
+        def for_execution(self, execution):
+            return ExecutionModelRouter(self, execution)
+
         client = FakeHttp()
 
     monkeypatch.setenv("FRISKET_MODELS_URL", "http://models:9000")

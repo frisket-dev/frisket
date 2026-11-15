@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 
+from frisket.ai.llm.execution import ExecutionModelRouter
 from frisket.ai.llm import ModelRouter
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.contracts.actions.schemas._engines import (
@@ -131,6 +132,9 @@ def test_document_models_route_to_sidecar_to_markdown(tmp_path, monkeypatch, eng
             return FakeResponse()
 
     class StubRouter:
+        def for_execution(self, execution):
+            return ExecutionModelRouter(self, execution)
+
         client = FakeHttp()
 
     monkeypatch.setenv("FRISKET_MODELS_URL", "http://models:9000")
