@@ -122,7 +122,7 @@ def test_lineage_endpoint_returns_sheet_tier_and_derive_edge(tmp_path: Path) -> 
     )
 
 
-def test_lineage_endpoint_does_not_project_sync_for_one_time_outputs(
+def test_lineage_endpoint_reports_unknown_sources_without_refresh_capability(
     tmp_path: Path,
 ) -> None:
     client = TestClient(create_app(tmp_path / "workspace"))
@@ -141,13 +141,13 @@ def test_lineage_endpoint_does_not_project_sync_for_one_time_outputs(
         node for node in body["nodes"] if node["id"] == f"sheet:{snapshot_id}"
     )
     assert snapshot["derived"] is True
-    assert snapshot["syncState"] is None
+    assert snapshot["syncState"] == "unknown"
     edge = next(edge for edge in body["edges"] if edge["to"] == snapshot["id"])
     assert edge["stale"] is False
     listed = client.get(f"/api/projects/{pid}/sheets").json()
     listed_snapshot = next(sheet for sheet in listed if sheet["id"] == snapshot_id)
     assert listed_snapshot["refreshable"] is False
-    assert "syncState" not in listed_snapshot
+    assert listed_snapshot["syncState"] == "unknown"
 
 
 def test_lineage_endpoint_flags_stale_node_and_edge_amber(tmp_path: Path) -> None:
@@ -209,3 +209,47 @@ def test_lineage_endpoint_includes_source_tier(tmp_path: Path) -> None:
     source_edge = next(e for e in body["edges"] if e["from"] == src["id"])
     assert source_edge["to"] == f"sheet:{parent_id}"
     assert source_edge["kind"] == "source"
+
+
+def test_retained_output_reports_stale_sources_when_recipe_is_unavailable(
+    tmp_path: Path,
+) -> None:
+    from frisket.engine.store.changes import start_change, close_change
+    from frisket.engine.store.consumed_sources import (
+        read_consumed_source,
+        store_capture,
+    )
+
+    client = TestClient(create_app(tmp_path / "workspace"))
+    pid, parent_id, column_id, rows = _build(client)
+    project = client.app.state.workspace.get(pid)
+    owner = project.append_op("uninstalled_plugin.derive", {})
+    child = project.add_sheet(
+        "Retained output", parent_sheet_id=parent_id, parent_op_id=owner
+    )
+    _, _, capture = read_consumed_source(project, parent_id, [column_id])
+    with project.transaction_scope():
+        start_change(project.db, owner)
+        store_capture(project, capture, owner_op_id=owner, output_sheet_id=child)
+        close_change(project.db, owner)
+    project.apply_edits(
+        [{"row_id": rows[0], "column_id": column_id, "value": [{"vendor": "Changed"}]}]
+    )
+    listed = next(
+        sheet
+        for sheet in client.get(f"/api/projects/{pid}/sheets").json()
+        if sheet["id"] == child
+    )
+    assert listed["refreshable"] is False
+    assert listed["syncState"] == "stale"
+    graph = client.get(f"/api/projects/{pid}/lineage").json()
+    assert (
+        next(node for node in graph["nodes"] if node["id"] == f"sheet:{child}")[
+            "syncState"
+        ]
+        == "stale"
+    )
+    assert (
+        next(edge for edge in graph["edges"] if edge["to"] == f"sheet:{child}")["stale"]
+        is True
+    )

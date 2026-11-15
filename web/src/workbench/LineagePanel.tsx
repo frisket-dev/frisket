@@ -110,16 +110,9 @@ export function CascadeConfirmDialog({
               </li>
             ))}
           </ol>
-          {/* Ruling 4 honesty: sheet.refresh cannot resume — it rebuilds each
-              sheet from its parent, replacing every derived row. Naming the
-              scope before the click was not enough: this door re-runs a whole
-              CASCADE, so the copy also says it is a fresh purchase of every
-              listed sheet. The cost gate then prices model steps. */}
           <p className="muted" data-testid="cascade-rerun-scope">
-            Re-running rebuilds each sheet from its parent — every row is
-            replaced and re-derived, not just the changed ones. That makes it
-            a new run, not a resume: every derived row in every sheet listed
-            above is charged again.
+            Refresh these sheets from current sources using their saved settings.
+            Paid steps may require confirmation.
           </p>
           {error && <div className="sheet-cascade-confirm-error">{error}</div>}
           <div className="sheet-cascade-confirm-actions">

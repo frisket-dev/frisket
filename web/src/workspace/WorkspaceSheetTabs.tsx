@@ -121,7 +121,7 @@ export const WorkspaceMainViewTabs = memo(function WorkspaceMainViewTabs() {
                 <span key={tabSheet.id} className={`workbench-mainView-tab${tabSheet.id === sheet?.id && hasActiveSheet ? ' active' : ''}`}>
                   {tabSheet.parent ? <GitFork size={13} className="workbench-mainView-tab-glyph" /> : <SheetGlyph size={13} className="workbench-mainView-tab-glyph" />}
                   <span className="workbench-mainView-tab-name">{tabSheet.name}</span>
-                  {tabSheet.parent && tabSheet.refreshable && tabSheet.syncState && (
+                  {tabSheet.parent && tabSheet.syncState && (
                     <span className="workbench-mainView-tab-syncDot" />
                   )}
                   {tabSheet.id === sheet?.id && hasActiveSheet && <>
@@ -166,7 +166,7 @@ export const WorkspaceMainViewTabs = memo(function WorkspaceMainViewTabs() {
                   <SheetGlyph size={13} className="workbench-mainView-tab-glyph" aria-hidden />
                 )}
                 <span className="workbench-mainView-tab-name">{tabSheet.name}</span>
-                {derived && tabSheet.refreshable && tabSheet.syncState && (
+                {derived && tabSheet.syncState && (
                   <span
                     className="workbench-mainView-tab-syncDot"
                     data-sync-state={tabSheet.syncState}

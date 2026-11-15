@@ -114,11 +114,11 @@ export function SheetInfoPopover({
         <div className="sheet-info-head">
           <span className="sheet-info-name">{sheet.name}</span>
           <StatusChip
-            tone={refreshable ? (stale ? 'warning' : sheet.syncState === 'synced' ? 'success' : 'neutral') : 'neutral'}
+            tone={stale ? 'warning' : sheet.syncState === 'synced' ? 'success' : 'neutral'}
             size="md"
             testId="sheet-info-badge"
           >
-            {refreshable ? sourceFreshnessLabel(sheet.syncState) : 'Run once'}
+            {sourceFreshnessLabel(sheet.syncState)}
           </StatusChip>
         </div>
         <div className="sheet-info-section">
@@ -141,10 +141,8 @@ export function SheetInfoPopover({
 
         {refreshable && (
           <p className="muted" data-testid="sheet-info-rerun-scope">
-            Re-running rebuilds this sheet from{' '}
-            {parent?.sheetName ?? 'its parent'} — every row is replaced, not just
-            the changed ones. That makes it a new run, not a resume: every
-            derived row is charged again.
+            Refresh this sheet from current sources using its saved settings.
+            Paid steps may require confirmation.
           </p>
         )}
         {refreshable && error && <div className="sheet-info-error">{error}</div>}

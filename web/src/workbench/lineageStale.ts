@@ -27,6 +27,6 @@ export function staleSheetsDeepestFirst(sheets: SheetMeta[]): SheetMeta[] {
     return depth;
   };
   return sheets
-    .filter((s) => s.syncState === 'stale')
+    .filter((s) => s.syncState === 'stale' && s.refreshable === true)
     .sort((a, b) => depthOf(b) - depthOf(a));
 }

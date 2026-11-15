@@ -69,8 +69,8 @@ function mapSheetList(wire: SheetListWire): SheetMeta[] {
       dependentSheetIds: (sheet.dependent_sheet_ids ?? []).map(String),
       refreshable: sheet.refreshable,
     };
-    if (sheet.refreshable && (sheet.syncState === 'synced' || sheet.syncState === 'stale'
-      || sheet.syncState === 'unknown' || sheet.syncState === 'checking')) {
+    if (sheet.syncState === 'synced' || sheet.syncState === 'stale'
+      || sheet.syncState === 'unknown' || sheet.syncState === 'checking') {
       meta.syncState = sheet.syncState;
       meta.staleReason = sheet.stale_reason ?? null;
     }

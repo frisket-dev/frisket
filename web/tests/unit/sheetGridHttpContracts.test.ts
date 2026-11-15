@@ -607,7 +607,7 @@ describe('sheet and grid HTTP contracts', () => {
     const [sheet] = await pending;
     expect(sheet).toEqual(expect.objectContaining({ id: '7', refreshable: false }));
     expect(sheet.documentTextColumnIds).toEqual(['9']);
-    expect(sheet).not.toHaveProperty('syncState');
+    expect(sheet.syncState).toBe('stale');
     expect(requests).toEqual([
       '/api/projects/project-a/sheets',
     ]);
