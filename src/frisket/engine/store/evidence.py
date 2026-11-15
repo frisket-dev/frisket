@@ -8,6 +8,8 @@ knowing the project-db schema.
 
 from __future__ import annotations
 
+from frisket.engine.store.cell_reference import evidence_subject_ref_json
+
 import hashlib
 import json
 import re
@@ -427,7 +429,7 @@ def record_evidence_link(
             (
                 link_stable_id,
                 subject_kind,
-                _json_dumps(subject_ref),
+                evidence_subject_ref_json(subject_ref),
                 sheet_id,
                 row_id,
                 column_id,
@@ -525,7 +527,7 @@ def list_cell_evidence(
                 "WHERE row_id=? AND column_id=? AND status='active' "
                 "AND subject_ref_json=? "
                 "ORDER BY created_at, id",
-                (row_id, column_id, _json_dumps(current_ref)),
+                (row_id, column_id, evidence_subject_ref_json(current_ref)),
             ).fetchall()
         )
     stale_count = int(
@@ -607,7 +609,9 @@ def list_column_evidence(
         # only counts for a row if it was recorded against that row's CURRENT
         # value ref, excluding stale/superseded links left behind by an
         # earlier run/edit that a later run/edit has since replaced.
-        if ref is None or link_row["subject_ref_json"] != _json_dumps(ref):
+        if ref is None or link_row["subject_ref_json"] != evidence_subject_ref_json(
+            ref
+        ):
             continue
         by_row.setdefault(link_row["row_id"], []).append(link_row)
     return {
@@ -704,7 +708,7 @@ def list_row_evidence(
     params: list[Any] = [int(sheet_id), int(row_id)]
     if subject_ref is not None:
         where += " AND subject_ref_json=?"
-        params.append(_json_dumps(subject_ref))
+        params.append(evidence_subject_ref_json(subject_ref))
     sql = f"SELECT * FROM evidence_links {where} ORDER BY created_at, id"
     if limit is not None:
         sql += " LIMIT ?"
@@ -1112,7 +1116,7 @@ def mark_evidence_stale_for_cell_refs(
                 select_params = (
                     row_id,
                     column_id,
-                    _json_dumps(ref),
+                    evidence_subject_ref_json(ref),
                     *(
                         (_MAP_EXTRACT_ITEM_EVIDENCE_SCHEMA_VERSION,)
                         if preserve_map_extract_item_links
@@ -1129,7 +1133,7 @@ def mark_evidence_stale_for_cell_refs(
                     reason,
                     row_id,
                     column_id,
-                    _json_dumps(ref),
+                    evidence_subject_ref_json(ref),
                     *(
                         (_MAP_EXTRACT_ITEM_EVIDENCE_SCHEMA_VERSION,)
                         if preserve_map_extract_item_links

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from frisket.engine.store.cell_reference import evidence_subject_ref_json
+
 import json
 import sqlite3
 import threading
@@ -314,9 +316,7 @@ def resolve_prepared_source(
                 + " ORDER BY link.id LIMIT 1",
                 [
                     *selected.text_cell,
-                    json.dumps(
-                        ref, sort_keys=True, ensure_ascii=False, separators=(",", ":")
-                    ),
+                    evidence_subject_ref_json(ref),
                     selected.source_artifact_id,
                     *link_params,
                 ],
@@ -384,9 +384,7 @@ def resolve_prepared_source(
                 for key, value in prepared_meta["value_ref"].items()
                 if key != "validity"
             }
-            if candidate["subject_ref_json"] != json.dumps(
-                prepared_ref, sort_keys=True, ensure_ascii=False, separators=(",", ":")
-            ):
+            if candidate["subject_ref_json"] != evidence_subject_ref_json(prepared_ref):
                 continue
             return {
                 "cell": prepared_cell,
@@ -444,9 +442,7 @@ def read_prepared_passages(
         ref = {
             key: value for key, value in meta["value_ref"].items() if key != "validity"
         }
-        ref_json = json.dumps(
-            ref, sort_keys=True, ensure_ascii=False, separators=(",", ":")
-        )
+        ref_json = evidence_subject_ref_json(ref)
         conditions = [
             "l.sheet_id=?",
             "l.row_id=?",

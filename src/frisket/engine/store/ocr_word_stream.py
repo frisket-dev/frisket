@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from frisket.engine.store.cell_reference import evidence_subject_ref
+
 import json
 from dataclasses import dataclass
 from typing import Any
@@ -150,7 +152,7 @@ def resolve_current_ocr_evidence(
             not isinstance(value, str)
             or not value.strip()
             or not isinstance(value_ref, dict)
-            or _loads(row["subject_ref_json"], {}) != value_ref
+            or _loads(row["subject_ref_json"], {}) != evidence_subject_ref(value_ref)
         ):
             continue
         span_rows = project.db.execute(
