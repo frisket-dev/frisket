@@ -434,8 +434,12 @@ def test_url_import_failure_becomes_truthful_missing_document_without_provider_c
         async def post(self, *args: Any, **kwargs: Any) -> None:
             pytest.fail("a missing imported document must not call the sidecar")
 
-    class NoCallRouter:
-        client = NoCallClient()
+    from frisket.ai.llm import ModelRouter
+
+    class NoCallRouter(ModelRouter):
+        @property
+        def client(self):
+            return NoCallClient()
 
         @staticmethod
         def local_endpoint_url_for_model(model: str) -> None:
@@ -484,6 +488,7 @@ def test_url_import_failure_becomes_truthful_missing_document_without_provider_c
             project, action, project_id=PROJECT_ID, router=NoCallRouter()
         )
         assert result.status == "failed", result.errors
+        assert result.run_id is not None, result.errors
         run_id = int(result.run_id)
         failures = project.db.execute(
             "SELECT DISTINCT error_code,error FROM results WHERE run_id=?",

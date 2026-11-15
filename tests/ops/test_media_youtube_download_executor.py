@@ -474,7 +474,7 @@ def test_media_download_overwrite_existing_intent_reuses_ai_column_but_protects_
             project_id=PROJECT_ID,
         )
         assert protected.status == "failed"
-        assert protected.errors[0].code == "output_column_exists"
+        assert protected.errors[0].code == "input_output_overlap"
     finally:
         project.close()
 

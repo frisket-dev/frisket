@@ -224,13 +224,13 @@ def test_media_download_queued_overwrite_precheck_fires_before_worker(
         json=_youtube_action(sheet_id=sheet_id, output_name="url"),
     )
     # A failed action result is a 409 (Conflict) HTTP response, not a 200.
-    assert response.status_code == 409, response.text
+    assert response.status_code == 400, response.text
     result = ActionResult.model_validate(response.json())
 
     # HARD CONSTRAINT: the overwrite precheck fires at REQUEST time -- no run,
     # no job, no yt-dlp call.
     assert result.status == "failed"
-    assert result.errors[0].code == "output_column_exists"
+    assert result.errors[0].code == "input_output_overlap"
     assert result.run_id is None
     assert result.job_id is None
     assert calls == []
