@@ -143,19 +143,21 @@ def test_redo_keeps_output_but_not_materialized_ancestry(project):
     project.redo()
 
 
-def test_discarded_edit_remains_a_physical_blob_root(project):
-    digest = project.add_blob(b"discarded edit history")
+def test_inactive_edit_remains_a_physical_blob_root(project):
+    digest = project.add_blob(b"inactive edit history")
     column, row = root(project, None)
     edit_op = project.apply_edits(
         [{"row_id": row, "column_id": column, "value": {"blob": digest}}]
     )
     assert project.undo() == edit_op
-    project.append_op("branch.after.undo")
+    project.apply_edits(
+        [{"row_id": row, "column_id": column, "value": {"note": "new branch"}}]
+    )
     assert (
         project.db.execute("SELECT status FROM ops WHERE id=?", (edit_op,)).fetchone()[
             0
         ]
-        == "discarded"
+        == "undone"
     )
 
     reclaim_local_blobs(project, dry_run=False)

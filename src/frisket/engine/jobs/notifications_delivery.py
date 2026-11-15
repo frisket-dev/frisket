@@ -390,12 +390,22 @@ def deliver_notification_request(
             request=request,
             channel_kind=channel_kind,
         )
-        message = _render_message(
-            project,
-            project_id=project_id,
-            request=request,
-            provider_idempotency_key=effect.provider_idempotency_key,
-        )
+        try:
+            message = _render_message(
+                project,
+                project_id=project_id,
+                request=request,
+                provider_idempotency_key=effect.provider_idempotency_key,
+            )
+        except NotificationContentUnavailable:
+            if project.notification_delivery_request(request_id) is None:
+                return {"request_id": request_id, "status": "skipped"}
+            return _skip_request(
+                project,
+                request=request,
+                channel=channel,
+                error="notification content is no longer available",
+            )
         channel_payload = _channel_payload(
             channel,
             secret_value=secret_value,
@@ -1027,6 +1037,10 @@ def _emit_delivery_health_notification(
         return
 
 
+class NotificationContentUnavailable(ValueError):
+    """Ordinary delivery content was removed before dispatch."""
+
+
 def _render_message(
     project: Project,
     *,
@@ -1039,6 +1053,8 @@ def _render_message(
             render_notification_digest_message,
         )
 
+        if not project.notification_digest_items(int(request["digest_run_id"])):
+            raise NotificationContentUnavailable("notification digest has no content")
         return replace(
             render_notification_digest_message(
                 project,
@@ -1058,12 +1074,14 @@ def _render_message(
         source_kind = str(item["source_kind"])
         severity = str(item["severity"])
         deep_link = _loads_object(item["deep_link"])
-    else:
+    elif request["delivery_kind"] == "test" and request["notification_id"] is None:
         title = "Test notification"
         summary = "This is a notification route test."
         source_kind = None
         severity = None
         deep_link = {}
+    else:
+        raise NotificationContentUnavailable("notification item is unavailable")
     return NotificationRenderedMessage(
         project_id=project_id,
         delivery_request_id=int(request["id"]),
