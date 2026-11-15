@@ -19,7 +19,7 @@ from frisket.authoring.request_templates import (
     scan_request_tokens,
 )
 from frisket.contracts.actions.schemas._validators import validate_positive_finite_rate
-from frisket.credentials import resolve_credential
+from frisket.credentials import resolve_project_secret
 from frisket.ops.api_call_request import (
     CookieInjection,
     HeaderInjection,
@@ -127,7 +127,7 @@ class AdmittedHttpRequester:
         # live request with a blank credential.
         secret_values: dict[str, str] = {}
         for secret_name in tokens.secrets:
-            value = resolve_credential(ctx.project, secret_name)
+            value = resolve_project_secret(ctx.project, secret_name)
             if value is None:
                 return self._error("missing_secret", method)
             secret_values[secret_name] = value
