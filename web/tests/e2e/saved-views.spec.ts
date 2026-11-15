@@ -14,22 +14,21 @@ import {
   uniqueName,
 } from './helpers';
 
-const filterSpec = { status: { eq: 'open' } };
-
 function savedViewData(
   name: string,
   sheetId: number,
-  definition: Partial<Record<'filter' | 'sort' | 'columns' | 'column_groups', unknown>> = {},
+  definition: { filters?: { column_id: number; condition: Record<string, string> }[]; order?: { column_id: number; dir: 'asc' | 'desc' }[]; columns?: string[] } = {},
 ) {
   return {
     name,
-    sheet_id: sheetId,
-    filter: {},
-    sort: null,
-    columns: null,
-    column_groups: null,
-    ...definition,
+    selection: { scope: { kind: 'sheet', sheet_id: sheetId }, filters: definition.filters ?? [], order: definition.order ?? [], limit: null },
+    presentation: { columns: definition.columns ?? null, column_groups: null },
   };
+}
+
+function hasOpenFilter(url: URL, columnId: number): boolean {
+  const selection = JSON.parse(url.searchParams.get('selection') ?? '{}');
+  return selection.filters?.some((item: { column_id: number; condition: { eq?: string } }) => item.column_id === columnId && item.condition.eq === 'open') ?? false;
 }
 
 async function openViewsPanel(page: Page): Promise<void> {
@@ -63,6 +62,8 @@ test('Saved Views is a sheet-scoped Discover contribution with list, create, and
     'city,status\nAlbany,open\nBuffalo,closed\nSyracuse,open\n',
   );
   const columns = await sheetColumns(page.request, pid, sheetId);
+  const statusColumnId = columns.find((column) => column.name === 'status')!.id;
+  const filters = [{ column_id: statusColumnId, condition: { eq: 'open' } }];
   await openProject(page, pid, sheetId);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
 
@@ -85,7 +86,7 @@ test('Saved Views is a sheet-scoped Discover contribution with list, create, and
     const url = new URL(res.url());
     return (
       url.pathname === `/api/projects/${pid}/sheets/${sheetId}/data` &&
-      url.searchParams.get('filter') === JSON.stringify(filterSpec)
+      hasOpenFilter(url, statusColumnId)
     );
   });
   await page.getByTestId('facet-check-status-open').check();
@@ -104,14 +105,14 @@ test('Saved Views is a sheet-scoped Discover contribution with list, create, and
   );
   await createForm.getByRole('button', { name: 'Save view' }).click();
   const saved = await (await createResponse).json();
-  expect(saved).toMatchObject({ name: 'Open only', sheet_id: sheetId, spec: { filter: filterSpec } });
+  expect(saved).toMatchObject({ name: 'Open only', sheet_id: sheetId, spec: { selection: { filters } } });
 
   // Success returns to the list, where the persisted filter is legible.
   await expect(createForm).toHaveCount(0);
   const savedItem = viewsContribution.getByTestId('saved-view-item').filter({ hasText: 'Open only' });
   await expect(savedItem).toBeVisible();
   await expect(savedItem).toBeFocused();
-  await expect(savedItem.getByTestId('saved-view-filter-summary')).toContainText(/status.*open/i);
+  await expect(savedItem.getByTestId('saved-view-filter-summary')).toContainText('1 filter');
 
   // Applying marks the grid as actively represented by this Saved View.
   await savedItem.getByTestId('apply-saved-view').click();
@@ -125,7 +126,7 @@ test('Saved Views is a sheet-scoped Discover contribution with list, create, and
   await expect(page.getByTestId('active-grid-filter')).toHaveCount(0);
   await savedItem.getByRole('button', { name: 'Rename Open only' }).click();
   const editForm = viewsContribution.getByTestId('saved-view-edit');
-  await expect(editForm.getByTestId('saved-view-filter-summary')).toContainText(/status.*open/i);
+  await expect(editForm.getByTestId('saved-view-filter-summary')).toContainText('1 filter');
   const nameInput = editForm.getByLabel('View name');
   const renameButton = editForm.getByRole('button', { name: 'Rename view' });
   await nameInput.fill('   ');
@@ -154,7 +155,7 @@ test('Saved Views is a sheet-scoped Discover contribution with list, create, and
   await renameButton.click();
   const patch = await patchResponse;
   expect(patch.request().postDataJSON()).toEqual({ name: 'Open status' });
-  expect(await patch.json()).toMatchObject({ name: 'Open status', spec: { filter: filterSpec } });
+  expect(await patch.json()).toMatchObject({ name: 'Open status', spec: { selection: { filters } } });
 
   await expect(editForm).toHaveCount(0);
   const renamedItem = viewsContribution.getByTestId('saved-view-item').filter({ hasText: 'Open status' });
@@ -163,7 +164,7 @@ test('Saved Views is a sheet-scoped Discover contribution with list, create, and
   const stored = await (await page.request.get(`/api/projects/${pid}/views?sheet_id=${sheetId}`)).json();
   expect(stored.find((view: { id: number }) => view.id === saved.id)).toMatchObject({
     name: 'Open status',
-    spec: { filter: filterSpec },
+    spec: { selection: { filters } },
   });
 
   // A definition update is deliberately separate from Rename. It captures
@@ -172,7 +173,7 @@ test('Saved Views is a sheet-scoped Discover contribution with list, create, and
   await updateAction.click();
   const updateDialog = page.getByTestId('update-saved-view-confirmation');
   await expect(updateDialog).toBeVisible();
-  await expect(updateDialog).toContainText('Replace this Saved View’s filters');
+  await expect(updateDialog).toContainText('current selection');
   let definitionRequests = 0;
   page.on('request', (request) => {
     if (
@@ -196,13 +197,11 @@ test('Saved Views is a sheet-scoped Discover contribution with list, create, and
   await page.getByTestId('confirm-update-saved-view').click();
   const definition = await definitionResponse;
   expect(definition.request().postDataJSON()).toMatchObject({
-    filter: {},
-    sort: null,
-    columns: null,
-    column_groups: null,
+    selection: { scope: { kind: 'sheet', sheet_id: sheetId }, filters: [], order: [] },
+    presentation: { columns: null, column_groups: null },
   });
   await expect(renamedItem).toBeFocused();
-  await expect(page.getByText('Saved current display to Open status.', { exact: true })).toBeAttached();
+  await expect(page.getByText('Saved changes to Open status.', { exact: true })).toBeAttached();
 
   const deleteResponse = page.waitForResponse((res) =>
     res.url().includes(`/api/projects/${pid}/views/${saved.id}`) &&
@@ -229,9 +228,10 @@ test('Saved Views is a sheet-scoped Discover contribution with list, create, and
 test('Saved Views overflow offers new, apply, and open-panel shortcuts', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-saved-views-overflow'));
   const sheetId = await importCsv(page.request, pid, 'rows.csv', 'status\nopen\nclosed\n');
+  const statusColumnId = (await sheetColumns(page.request, pid, sheetId)).find((column) => column.name === 'status')!.id;
   const seeded = await (
     await page.request.post(`/api/projects/${pid}/views`, {
-      data: savedViewData('Open only', sheetId, { filter: filterSpec }),
+      data: savedViewData('Open only', sheetId, { filters: [{ column_id: statusColumnId, condition: { eq: 'open' } }] }),
     })
   ).json();
   await page.request.post(`/api/projects/${pid}/views`, {
@@ -280,7 +280,7 @@ test('Saved Views overflow offers new, apply, and open-panel shortcuts', async (
     const url = new URL(res.url());
     return (
       url.pathname === `/api/projects/${pid}/sheets/${sheetId}/data` &&
-      url.searchParams.get('filter') === JSON.stringify(filterSpec)
+      hasOpenFilter(url, statusColumnId)
     );
   });
   await page.getByTestId(`saved-views-overflow-view-${seeded.id}`).click();
@@ -310,7 +310,7 @@ test('a delayed Sheet A response cannot replace the active Sheet B Views list', 
   const sheetA = await importCsv(page.request, pid, 'a.csv', 'status\nopen\n');
   const sheetB = await importCsv(page.request, pid, 'b.csv', 'status\nclosed\n');
   await page.request.post(`/api/projects/${pid}/views`, {
-    data: savedViewData('Sheet A view', sheetA, { filter: filterSpec }),
+    data: savedViewData('Sheet A view', sheetA, { filters: [{ column_id: (await sheetColumns(page.request, pid, sheetA))[0].id, condition: { eq: 'open' } }] }),
   });
   await page.request.post(`/api/projects/${pid}/views`, {
     data: savedViewData('Sheet B view', sheetB),
@@ -330,8 +330,7 @@ test('a delayed Sheet A response cannot replace the active Sheet B Views list', 
     (url) => {
       const parsed = new URL(url);
       return (
-        parsed.pathname === `/api/projects/${pid}/views` &&
-        parsed.searchParams.get('sheet_id') === String(sheetA)
+        parsed.pathname === `/api/projects/${pid}/views`
       );
     },
     async (route) => {
@@ -339,6 +338,7 @@ test('a delayed Sheet A response cannot replace the active Sheet B Views list', 
       await delayedSheetA;
       await route.continue();
     },
+    { times: 1 },
   );
 
   await openToolbarOverflow(page);
@@ -371,7 +371,7 @@ test('same-sheet Saved View publications retire older list success and failure',
   const staleCreateList = new Promise<void>((resolve) => { releaseStaleCreateList = resolve; });
   let observeStaleCreateList!: () => void;
   const staleCreateListRequested = new Promise<void>((resolve) => { observeStaleCreateList = resolve; });
-  await page.route(`**/api/projects/${pid}/views?sheet_id=${sheetId}`, async (route) => {
+  await page.route(`**/api/projects/${pid}/views`, async (route) => {
     observeStaleCreateList();
     await staleCreateList;
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify([existing]) });
@@ -400,7 +400,7 @@ test('same-sheet Saved View publications retire older list success and failure',
   const staleDeleteList = new Promise<void>((resolve) => { releaseStaleDeleteList = resolve; });
   let observeStaleDeleteList!: () => void;
   const staleDeleteListRequested = new Promise<void>((resolve) => { observeStaleDeleteList = resolve; });
-  await page.route(`**/api/projects/${pid}/views?sheet_id=${sheetId}`, async (route) => {
+  await page.route(`**/api/projects/${pid}/views`, async (route) => {
     observeStaleDeleteList();
     await staleDeleteList;
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify([existing, created]) });
@@ -420,7 +420,7 @@ test('same-sheet Saved View publications retire older list success and failure',
   let releaseStaleFailure!: () => void;
   const staleFailure = new Promise<void>((resolve) => { releaseStaleFailure = resolve; });
   let requestNumber = 0;
-  await page.route(`**/api/projects/${pid}/views?sheet_id=${sheetId}`, async (route) => {
+  await page.route(`**/api/projects/${pid}/views`, async (route) => {
     requestNumber += 1;
     if (requestNumber === 1) {
       await staleFailure;
@@ -545,8 +545,8 @@ test('Saved Views summarizes filters, sorting, and custom displayed columns in o
   );
   await page.request.post(`/api/projects/${pid}/views`, {
     data: savedViewData('Open cities', sheetId, {
-      filter: filterSpec,
-      sort: [{ column: 'city', dir: 'asc' }],
+      filters: [{ column_id: (await sheetColumns(page.request, pid, sheetId)).find((column) => column.name === 'status')!.id, condition: { eq: 'open' } }],
+      order: [{ column_id: (await sheetColumns(page.request, pid, sheetId)).find((column) => column.name === 'city')!.id, dir: 'asc' }],
       columns: ['city', 'status'],
     }),
   });
@@ -559,7 +559,7 @@ test('Saved Views summarizes filters, sorting, and custom displayed columns in o
 
   const views = page.getByTestId('saved-views-list');
   await expect(views.getByTestId('saved-view-item').filter({ hasText: 'Open cities' }))
-    .toContainText('status equals open · city ascending · 2 columns');
+    .toContainText('1 filter · 1 sort · 2 columns');
   await expect(views.getByTestId('saved-view-item').filter({ hasText: 'Everything' }))
     .toContainText('No filters');
   await expect(views.getByTestId('saved-view-item').filter({ hasText: 'Everything' }))

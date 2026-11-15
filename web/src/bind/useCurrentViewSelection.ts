@@ -13,7 +13,7 @@ export function useCurrentViewSelection(sheet: SheetMeta | undefined | null) {
   const child = useSelector(detail.store, (state) => state.childFilter);
   return useMemo(() => {
     if (!sheet) return null;
-    const selection = selectionFromGrid(sheet, applied.filter, applied.sort, applied.scopeRowIds ?? null, applied.selection);
+    const selection = selectionFromGrid(sheet, applied.filter, applied.sort, applied.scopeRowIds ?? null, applied.selection, applied);
     if (child?.sheetId === sheet.id && selection.scope.kind === 'sheet') selection.scope.parent_row_id = Number(child.parentRowId);
     return selection;
   }, [sheet, applied, child]);

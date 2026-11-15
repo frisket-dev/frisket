@@ -171,7 +171,7 @@ export function createWorkspaceStores(
   // gridView is not project-scoped persistence (its localStorage keys
   // are written by the bind-layer caller, not the store — see
   // gridViewStore.ts), so projectId is unused here.
-  const gridView = createGridViewStore();
+  const gridView = createGridViewStore(() => projectData.store.get().sheets.find((sheet) => sheet.id === route.store.get().sheetId));
   const qa = createProjectQAStore(projectApi.qa);
   // job is not project-scoped persistence either (run/poll state is
   // intentionally NOT carried across a project switch — a new project starts

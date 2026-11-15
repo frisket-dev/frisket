@@ -3,7 +3,7 @@ import { normalizeGridFilterSpec } from './gridColumnState';
 import type { GridFilterSpec, GridSortSpec, SheetMeta, ViewSelection, SavedViewDefinitionInput } from '../api/types';
 
 /** Resolve display names at the browser boundary; saved definitions use stable IDs. */
-export function selectionFromGrid(sheet: SheetMeta, filter: GridFilterSpec | null, sort: GridSortSpec | null, rowIds: number[] | null, base?: ViewSelection | null): ViewSelection {
+export function selectionFromGrid(sheet: SheetMeta, filter: GridFilterSpec | null, sort: GridSortSpec | null, rowIds: number[] | null, base?: ViewSelection | null, bindings?: { filterColumnIds?: Record<string, number>; sortColumnIds?: Record<string, number> }): ViewSelection {
   const columnId = (name: string) => {
     const column = sheet.columns.find((item) => item.name === name);
     if (!column) throw new Error(`Column “${name}” is unavailable.`);
@@ -12,8 +12,8 @@ export function selectionFromGrid(sheet: SheetMeta, filter: GridFilterSpec | nul
   return {
     ...base,
     scope: { kind: 'sheet', sheet_id: Number(sheet.id), ...(rowIds !== null ? { row_ids: rowIds } : {}), ...(base?.scope.kind === 'sheet' && base.scope.parent_row_id ? { parent_row_id: base.scope.parent_row_id } : {}) },
-    filters: Object.entries(filter ?? {}).map(([name, condition]) => ({ column_id: columnId(name), condition: toWireJsonObject(condition) })),
-    order: sort?.map((item) => ({ column_id: columnId(item.column), dir: item.dir })) ?? base?.order.filter((item) => 'score' in item) ?? [],
+    filters: Object.entries(filter ?? {}).map(([name, condition]) => ({ column_id: bindings?.filterColumnIds?.[name] ?? columnId(name), condition: toWireJsonObject(condition) })),
+    order: sort?.map((item) => ({ column_id: bindings?.sortColumnIds?.[item.column] ?? columnId(item.column), dir: item.dir })) ?? base?.order.filter((item) => 'score' in item) ?? [],
     limit: base?.limit ?? null,
   };
 }

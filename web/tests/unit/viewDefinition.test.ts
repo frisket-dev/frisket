@@ -24,3 +24,24 @@ it('invalidates cached pages when any selection criterion or saved view identity
   expect(computeRowCacheKey('1', 0, { selection: { ...selection, limit: 21 } })).not.toBe(key);
   expect(computeRowCacheKey('1', 0, { viewId: 4 })).not.toBe(computeRowCacheKey('1', 0, { viewId: 5 }));
 });
+
+it('keeps applied criteria bound across rename, deletion and reuse of a display name', async () => {
+  const { createGridViewStore } = await import('../../src/state/gridViewStore');
+  let current = sheet;
+  const grid = createGridViewStore(() => current);
+  grid.applyFilter({ filter: { amount: { gte: '100' } } });
+  grid.applySort({ column: 'amount', direction: 'desc', sort: [{ column: 'amount', dir: 'desc' }] });
+  current = { ...sheet, columns: [{ ...sheet.columns[0], name: 'renamed_amount' }, { ...sheet.columns[1], name: 'amount' }] };
+  const read = () => {
+    const applied = grid.store.get().applied;
+    return selectionFromGrid(current, applied.filter, applied.sort, null, applied.selection, applied);
+  };
+  expect(read().filters[0].column_id).toBe(10);
+  expect(read().order[0]).toEqual({ column_id: 10, dir: 'desc' });
+  current = { ...current, columns: [current.columns[1]] };
+  expect(read().filters[0].column_id).toBe(10); // Server reports unavailable; never widen or switch.
+  grid.clearFilter();
+  grid.clearSort();
+  grid.applyFilter({ filter: { amount: { gte: '200' } } });
+  expect(read().filters[0].column_id).toBe(11); // Explicitly choosing the replacement binds it.
+});

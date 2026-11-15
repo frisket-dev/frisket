@@ -1,4 +1,4 @@
-import { selectionFromGrid } from './viewDefinition';
+import { useCurrentViewSelection } from '../bind/useCurrentViewSelection';
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo } from 'react';
 import { ActionDrawer } from '../workbench/ActionDrawer';
 import { isRunActionBlockedStatus } from '../runStatusModel';
@@ -39,7 +39,6 @@ export const WorkspaceActionDrawerRegion = memo(function WorkspaceActionDrawerRe
   const sheetId = sheet?.id ?? null;
   const gridView = useGridViewHandle();
   const baseSelection = useSelector(gridView.store, (state) => state.applied.selection ?? null);
-  const activeGridSort = useSelector(gridView.store, (state) => state.applied.sort);
   const activeGridFilter = useSelector(gridView.store, (state) => state.applied.filter);
   const scopeRowIds = useSelector(gridView.store, (state) => state.applied.scopeRowIds ?? null);
   const chrome = useChromeHandle();
@@ -57,13 +56,12 @@ export const WorkspaceActionDrawerRegion = memo(function WorkspaceActionDrawerRe
   const route = useRouteHandle();
   const routeActionKind = useSelector(route.store, (s) => s.actionKind);
   const hasActionTarget = Boolean(routeActionKind || proposalInspect);
+  const currentSelection = useCurrentViewSelection(sheet);
   const viewSelection = useMemo(() => {
     if (!sheet || selectedRowIdsForSheet.length > 0) return null;
     if (!baseSelection && !activeGridFilter && !activeChildFilter && scopeRowIds === null) return null;
-    const definition = selectionFromGrid(sheet, activeGridFilter, activeGridSort, scopeRowIds, baseSelection);
-    if (activeChildFilter && definition.scope.kind === 'sheet') definition.scope.parent_row_id = Number(activeChildFilter.parentRowId);
-    return definition;
-  }, [sheet, selectedRowIdsForSheet.length, baseSelection, activeGridFilter, activeGridSort, activeChildFilter, scopeRowIds]);
+    return currentSelection;
+  }, [sheet, selectedRowIdsForSheet.length, baseSelection, activeGridFilter, activeChildFilter, scopeRowIds, currentSelection]);
 
   const closeDrawer = useCallback(() => {
     hideActionPanel();

@@ -15,6 +15,7 @@ import type {
   GridSortDirection,
   GridSortSpec,
   ViewSelection,
+  SheetMeta,
 } from '../api/open';
 import type { ColumnGroupViewSpec } from '../grid/SheetGrid';
 import {
@@ -32,6 +33,9 @@ export interface GridViewAppliedState {
   selection?: ViewSelection | null;
   filter: GridFilterSpec | null;
   sort: GridSortSpec | null;
+  /** Bound when a criterion is applied; renames cannot silently retarget it. */
+  filterColumnIds?: Record<string, number>;
+  sortColumnIds?: Record<string, number>;
   /** The spelling the applied filter's VALUE is known by, when the payload
    *  itself cannot carry one. Exactly one filter kind needs this: an
    *  `entity_eq` fingerprint selector holds an internal comparison token
@@ -137,7 +141,7 @@ export interface GridViewSavedViewApplication {
   columnGroupSpecs: ColumnGroupViewSpec[];
 }
 
-export function createGridViewStore(): {
+export function createGridViewStore(currentSheet: () => SheetMeta | undefined = () => undefined): {
   store: Store<GridViewState>;
   applyFilter(spec: GridViewFilterApplication): void;
   applySort(spec: GridViewSortApplication): void;
@@ -167,6 +171,13 @@ export function createGridViewStore(): {
   setColumnGroupSpecs(specs: ColumnGroupViewSpec[]): void;
 } {
   const store = createStore<GridViewState>(createGridViewState());
+  const bindColumns = (names: string[], previous: Record<string, number> = {}) => {
+    const columns = currentSheet()?.columns ?? [];
+    return Object.fromEntries(names.flatMap((name) => {
+      const id = previous[name] ?? columns.find((column) => column.name === name)?.id;
+      return id === undefined ? [] : [[name, Number(id)]];
+    }));
+  };
 
   return {
     store,
@@ -177,6 +188,7 @@ export function createGridViewStore(): {
         applied: {
           ...s.applied,
           filter: spec.filter,
+          filterColumnIds: bindColumns(Object.keys(spec.filter), s.applied.filterColumnIds),
           filterValueLabel: spec.filterValueLabel ?? null,
         },
       }));
@@ -186,21 +198,21 @@ export function createGridViewStore(): {
       store.set((s) => ({
         ...s,
         draft: { ...s.draft, sortColumn: spec.column, sortDirection: spec.direction },
-        applied: { ...s.applied, sort: spec.sort },
+        applied: { ...s.applied, sort: spec.sort, sortColumnIds: bindColumns(spec.sort.map((item) => item.column), s.applied.sortColumnIds) },
       }));
     },
 
     clearFilter() {
       store.set((s) => ({
         ...s,
-        applied: { ...s.applied, filter: null, filterValueLabel: null },
+        applied: { ...s.applied, filter: null, filterColumnIds: {}, filterValueLabel: null },
       }));
     },
 
     clearSort() {
       store.set((s) => ({
         ...s,
-        applied: { ...s.applied, sort: null },
+        applied: { ...s.applied, sort: null, sortColumnIds: {} },
       }));
     },
 
@@ -214,7 +226,7 @@ export function createGridViewStore(): {
         // A saved view restores a filter SPEC and nothing else: the spelling
         // the user originally clicked was never persisted, so the chip falls
         // back to naming the type rather than carrying a stale one.
-        applied: { filter: grid.filter, sort: grid.sort, selection: grid.selection ?? null, filterValueLabel: null, ...(grid.scopeRowIds != null ? { scopeRowIds: grid.scopeRowIds } : {}) },
+        applied: { filter: grid.filter, sort: grid.sort, filterColumnIds: bindColumns(Object.keys(grid.filter ?? {})), sortColumnIds: bindColumns((grid.sort ?? []).map((item) => item.column)), selection: grid.selection ?? null, filterValueLabel: null, ...(grid.scopeRowIds != null ? { scopeRowIds: grid.scopeRowIds } : {}) },
         columnOrderBySheet: { ...s.columnOrderBySheet, [grid.sheetId]: grid.columns },
         hiddenColumnsBySheet: { ...s.hiddenColumnsBySheet, [grid.sheetId]: grid.hiddenColumns },
         columnGroupSpecs: grid.columnGroupSpecs,

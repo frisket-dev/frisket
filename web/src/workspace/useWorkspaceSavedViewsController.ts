@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { ProjectInfo, SavedView, SheetMeta, GridSortDirection } from '../api/open';
 import { canEditProject } from '../api/projectRole';
 import type { ColumnGroupViewSpec } from '../grid/SheetGrid';
+import { useCurrentViewSelection } from '../bind/useCurrentViewSelection';
 import { useDetailHandle } from '../bind/useDetailHandle';
 import { useGridViewHandle } from '../bind/useGridViewHandle';
 import { useProjectDataResource } from '../bind/useRouteHandle';
@@ -16,7 +17,7 @@ import {
   normalizeGridFilterSpec, normalizeGridSortSpec, normalizeColumnOrder,
   exactViewHiddenColumns, columnOrderKey, hiddenColumnsKey,
 } from './gridColumnState';
-import { selectionFromGrid, gridFromSelection, sameViewDefinition } from './viewDefinition';
+import { gridFromSelection, sameViewDefinition } from './viewDefinition';
 import { groupManagedHiddenColumnNames } from './workspaceColumnVisibility';
 import type { useWorkspaceChromeState } from './useWorkspaceChromeState';
 import type { useWorkbenchContributionVisibility } from './useWorkbenchContributionVisibility';
@@ -40,12 +41,7 @@ export function useWorkspaceSavedViewsController({
   const gridView = useGridViewHandle();
   const detail = useDetailHandle();
   const selection = useSelectionHandle();
-  const childFilter = useSelector(detail.store, (state) => state.childFilter);
   const watchRunLink = useWatchRunLinkHandle();
-  const activeGridFilter = useSelector(gridView.store, (state) => state.applied.filter);
-  const activeGridSort = useSelector(gridView.store, (state) => state.applied.sort);
-  const baseSelection = useSelector(gridView.store, (state) => state.applied.selection ?? null);
-  const scopeRowIds = useSelector(gridView.store, (state) => state.applied.scopeRowIds ?? null);
   const columnGroupSpecs = useSelector(gridView.store, (state) => state.columnGroupSpecs);
   const { openDiscover } = chromeState;
   const { isContributionHidden, revealContribution } = visibility;
@@ -137,15 +133,14 @@ export function useWorkspaceSavedViewsController({
     [canCreateSavedView, openSavedViews, startCreatingSavedView],
   );
 
+  const currentSelection = useCurrentViewSelection(sheet);
   const currentViewDefinition = useCallback(() => {
-    if (!sheet) throw new Error('Choose a sheet first.');
-    const selected = selectionFromGrid(sheet, activeGridFilter, activeGridSort, scopeRowIds, baseSelection);
-    if (childFilter?.sheetId === sheet.id && selected.scope.kind === 'sheet') selected.scope.parent_row_id = Number(childFilter.parentRowId);
+    if (!currentSelection) throw new Error('Choose a sheet first.');
     return {
-      selection: selected,
+      selection: currentSelection,
       presentation: { columns: currentViewColumns, column_groups: columnGroupSpecs.length > 0 ? columnGroupSpecs : null },
     };
-  }, [sheet, childFilter, activeGridFilter, activeGridSort, scopeRowIds, baseSelection, currentViewColumns, columnGroupSpecs]);
+  }, [currentSelection, currentViewColumns, columnGroupSpecs]);
   const activeView = views.find((view) => view.id === activeSavedViewId);
   const currentDefinition = useMemo(() => sheet ? currentViewDefinition() : null, [sheet, currentViewDefinition]);
   const viewModified = !!activeView?.spec && !!currentDefinition && !sameViewDefinition(activeView.spec, currentDefinition);
