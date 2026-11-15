@@ -375,7 +375,7 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
         assert calls == [(recovery_key, recovery_bundle)]
         assert direct_opens == []
 
-        # Registration must pass the opener into the real recovery callback.
+        # Registration must pass the opener into the periodic maintenance callback.
         registry = HandlerRegistry()
         notifications.register_notification_handlers(
             registry,
@@ -385,7 +385,7 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
         )
         calls.clear()
         direct_opens.clear()
-        registry.run_recovery_hooks(queue)
+        registry.run_maintenance_hooks(queue, now=0.0)
         assert calls == [(recovery_key, recovery_bundle)]
         assert direct_opens == []
 

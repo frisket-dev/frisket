@@ -25,6 +25,7 @@ from frisket.features.watchlists.service import WatchBindingError, run_watch_eva
 
 from .queue import JobQueue, TERMINAL, claimed_project_location
 from .project_opener import (
+    project_bundle_paths,
     ProjectOpener,
     claimed_opener_key,
     require_opener_storage_org_id,
@@ -114,9 +115,7 @@ def enqueue_due_watch_evaluations(
     root = Path(workspace_root)
     now = (now or datetime.now(UTC)).astimezone(UTC)
     enqueued = []
-    for bundle in sorted(root.glob("*.frisket")):
-        if not (bundle / "manifest.json").exists():
-            continue
+    for bundle in project_bundle_paths(root, require_slug=project_opener is not None):
         project_id = bundle.stem
         project = (
             Project(bundle)

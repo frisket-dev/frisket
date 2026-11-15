@@ -29,7 +29,7 @@ from frisket.server.notifications.producers import (
     delivery_health_notification_candidate,
 )
 from frisket.server.notifications.service import NotificationEmitResult
-from frisket.project_identity import ProjectStorageKey
+from frisket.project_identity import ProjectStorageKey, validate_project_slug
 from frisket.engine.store import Project
 from frisket.engine.store.notifications import TERMINAL_REQUEST_STATUSES
 from frisket.engine.store.effect_checkpoints import (
@@ -38,6 +38,7 @@ from frisket.engine.store.effect_checkpoints import (
 )
 
 from .project_opener import (
+    project_bundle_paths,
     ProjectOpener,
     claimed_opener_key,
     require_opener_storage_org_id,
@@ -819,18 +820,14 @@ def _recovery_targets(
     layout and are skipped rather than opened under a guessed key.
     """
     if project_opener is None:
-        flat = (
-            [workspace / f"{project_id}.frisket"]
-            if project_id is not None
-            else sorted(workspace.glob("*.frisket"))
-        )
+        flat = project_bundle_paths(workspace, project_id=project_id)
         return [(None, path) for path in flat]
+    if project_id is not None:
+        validate_project_slug(project_id)
     if storage_org_id is not None:
         org_id = require_opener_storage_org_id(storage_org_id)
-        paths = (
-            [workspace / f"{project_id}.frisket"]
-            if project_id is not None
-            else sorted(workspace.glob("*.frisket"))
+        paths = project_bundle_paths(
+            workspace, project_id=project_id, require_slug=True
         )
         return [
             (ProjectStorageKey(storage_org_id=org_id, project_slug=path.stem), path)
@@ -844,9 +841,9 @@ def _recovery_targets(
             org_id = require_opener_storage_org_id(int(org_dir.name))
         except ValueError:
             continue
-        for path in sorted(org_dir.glob("*.frisket")):
-            if project_id is not None and path.stem != project_id:
-                continue
+        for path in project_bundle_paths(
+            org_dir, project_id=project_id, require_slug=True
+        ):
             targets.append(
                 (ProjectStorageKey(storage_org_id=org_id, project_slug=path.stem), path)
             )

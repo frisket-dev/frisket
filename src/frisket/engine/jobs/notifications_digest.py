@@ -19,6 +19,7 @@ from frisket.project_identity import ProjectStorageKey
 from frisket.engine.store import Project
 
 from .project_opener import (
+    project_bundle_paths,
     ProjectOpener,
     claimed_opener_key,
     require_opener_storage_org_id,
@@ -41,15 +42,11 @@ def enqueue_due_notification_digests(
     project_opener: ProjectOpener | None = None,
 ) -> int:
     workspace = Path(workspace_root)
-    project_paths = (
-        [workspace / f"{project_id}.frisket"]
-        if project_id is not None
-        else sorted(workspace.glob("*.frisket"))
+    project_paths = project_bundle_paths(
+        workspace, project_id=project_id, require_slug=project_opener is not None
     )
     enqueued = 0
     for project_path in project_paths:
-        if not (project_path / "project.db").exists():
-            continue
         project = (
             Project(project_path)
             if project_opener is None

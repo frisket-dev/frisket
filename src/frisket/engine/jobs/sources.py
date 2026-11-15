@@ -31,6 +31,7 @@ from .schedule import _parse_time, _schedule_interval
 from frisket.project_identity import ProjectStorageKey
 
 from .project_opener import (
+    project_bundle_paths,
     ProjectOpener,
     open_payload_project,
     require_opener_storage_org_id,
@@ -605,9 +606,7 @@ def enqueue_due_source_polls(
     root = Path(workspace_root)
     now = (now or datetime.now(UTC)).astimezone(UTC)
     enqueued: list[dict[str, int | str]] = []
-    for bundle in sorted(root.glob("*.frisket")):
-        if not (bundle / "manifest.json").exists():
-            continue
+    for bundle in project_bundle_paths(root, require_slug=project_opener is not None):
         project_id = bundle.stem
         if project_opener is None:
             project = Project(bundle)

@@ -14,6 +14,7 @@ from frisket.project_opener import (
     open_claimed_project,
     open_payload_project,
     require_opener_storage_org_id,
+    project_bundle_paths,
 )
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "open_claimed_project",
     "open_payload_project",
     "require_opener_storage_org_id",
+    "project_bundle_paths",
 ]
