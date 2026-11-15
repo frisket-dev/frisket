@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tests.watch_helpers import post_watch
+
 from pathlib import Path
 from typing import Any
 
@@ -74,7 +76,8 @@ def test_watch_event_routes_through_worker_to_recorded_slack_transport(
     assert imported.status_code == 200, imported.text
     drain_queue(client, worker_id="notification-watch-setup")
     drain_index(client.app.state.workspace.get(pid))
-    watch_response = client.post(
+    watch_response = post_watch(
+        client,
         f"/api/projects/{pid}/watches",
         json={
             "name": "Budget watch",

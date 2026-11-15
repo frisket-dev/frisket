@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import sqlite3
-import tempfile
-from contextlib import contextmanager
+import uuid
+from contextlib import contextmanager, nullcontext
 from itertools import islice
 from pathlib import Path
 from typing import Any, Iterator
@@ -43,6 +43,26 @@ class SelectionRead:
         ).fetchone()[0]
         self.total = (
             min(count, selection["limit"]) if selection["limit"] is not None else count
+        )
+
+    def ordered_rows_sql(
+        self, *, include_ordinal: bool = False
+    ) -> tuple[str, list[Any]]:
+        """Compose membership in SQL on this read's snapshot connection.
+
+        Limit before downstream keyset predicates; callers needing stable outer
+        order may request an ordinal rather than relying on subquery ordering.
+        """
+        projection = "*"
+        params = []
+        if include_ordinal:
+            projection += (
+                f",ROW_NUMBER() OVER (ORDER BY {self._order}) AS selection_ordinal"
+            )
+            params.extend(self._order_params)
+        return (
+            f"SELECT {projection} FROM {self._relation} ORDER BY {self._order} LIMIT ?",
+            [*params, *self._params, *self._order_params, self.total],
         )
 
     def hits(
@@ -167,7 +187,9 @@ def _stage_matches(
             if not fresh.scope_resolved or fresh.missing_count or fresh.stale_count:
                 raise SelectionUnavailable(
                     "Refresh the similarity index before checking this view.",
-                    code="selection_incomplete",
+                    code="embedding_index_stale"
+                    if fresh.stale_count
+                    else "embedding_index_incomplete",
                 )
             request, vectors = prepared_similarity_request(snapshot, query, scope=scope)
             criteria.append(("similarity", request, vectors))
@@ -203,90 +225,93 @@ def open_selection(project: Any, definition: dict[str, Any]) -> Iterator[Selecti
     disposable disk relation so composing/sorting a million matches does not
     require a Python list. This is not another persisted source of truth.
     """
-    with tempfile.TemporaryDirectory(prefix="frisket-view-") as directory:
-        with project.read_snapshot() as snapshot:
-            selection = normalize_selection(snapshot, definition)
-            sheets, retrieval_scope = _scope(snapshot, selection)
-            _require_available_filter_inputs(snapshot, selection)
-            has_matches = "search" in selection or "similarity" in selection
-            if has_matches:
-                path = Path(directory) / "matches.sqlite"
-                _stage_matches(snapshot, selection, retrieval_scope, path)
-                snapshot.db.execute(
-                    "ATTACH DATABASE ? AS view_selection", (f"file:{path}?mode=ro",)
-                )
-            clauses, params, order, order_params = [], [], [], []
-            for sheet in sheets:
-                plan = sheet_row_scope_plan(
-                    snapshot,
-                    sheet,
-                    filter_=canonical_json(selection["filters"]),
-                    sort=canonical_json(
-                        [item for item in selection["order"] if "column_id" in item]
-                    ),
-                    row_ids=selection["scope"].get("row_ids"),
-                    parent_row_id=selection["scope"].get("parent_row_id"),
-                )
-                terms = iter(plan.order_terms[:-2])
-                selections, per_sheet_order, per_sheet_params = [], [], []
-                # Project query values are projections, not stored data columns.
-                if has_matches:
-                    selections.extend(
-                        ["matched.search_score", "matched.similarity_score"]
-                    )
-                else:
-                    selections.extend(["NULL search_score", "NULL similarity_score"])
-                for number, item in enumerate(selection["order"]):
-                    if "column_id" in item:
-                        for suffix in ("null", "value"):
-                            term = next(terms)
-                            alias = f"sort_{number}_{suffix}"
-                            selections.append(f"{term.sql}{term.collation} AS {alias}")
-                            per_sheet_params.extend(term.params)
-                            per_sheet_order.append(
-                                f"{alias} {'DESC' if term.descending else 'ASC'}"
-                            )
-                    else:
-                        per_sheet_order.append(
-                            f"{item['score']}_score {item.get('dir', 'asc').upper()}"
-                        )
-                join = ""
-                where = plan.where_sql
-                if has_matches:
-                    join = " JOIN view_selection.matches matched ON matched.sheet_id=r.sheet_id AND matched.row_id=r.id"
-                    if selection.get("ranking") != "hybrid":
-                        where += "".join(
-                            f" AND matched.{kind}_score IS NOT NULL"
-                            for kind in ("search", "similarity")
-                            if kind in selection
-                        )
-                    selections.append(
-                        f"COALESCE(1.0/({selection.get('rank_constant', 60)}+matched.search_rank),0)+COALESCE(1.0/({selection.get('rank_constant', 60)}+matched.similarity_rank),0) AS relevance_score"
-                    )
-                else:
-                    selections.append("NULL relevance_score")
-                clauses.append(
-                    f"SELECT r.sheet_id,r.id row_id,NULL column_id,r.position,{','.join(selections)} FROM {plan.from_sql}{join} WHERE {where}"
-                )
-                params.extend(
-                    [*per_sheet_params, *plan.join_params, *plan.where_params]
-                )
-                order = per_sheet_order
-            if not clauses:
-                clauses = [
-                    "SELECT NULL sheet_id,NULL row_id,NULL column_id,NULL position,NULL search_score,NULL similarity_score,NULL relevance_score WHERE 0"
-                ]
-            if not order and has_matches:
-                score = (
-                    "relevance"
-                    if selection.get("ranking") == "hybrid"
-                    else "similarity"
-                    if "similarity" in selection
-                    else "search"
-                )
-                order = [f"{score}_score DESC"]
-            order += ["sheet_id ASC", "position ASC", "row_id ASC"]
-            relation = "(" + " UNION ALL ".join(clauses) + ") AS selected"
-            yield SelectionRead(
-                snapshot, selection, relation, params, ",".join(order), order_params
+    context = (
+        nullcontext(project)
+        if getattr(project, "is_read_snapshot", False)
+        else project.read_snapshot()
+    )
+    with context as snapshot:
+        selection = normalize_selection(snapshot, definition)
+        sheets, retrieval_scope = _scope(snapshot, selection)
+        _require_available_filter_inputs(snapshot, selection)
+        has_matches = "search" in selection or "similarity" in selection
+        if has_matches:
+            path = (
+                snapshot.temporary_directory(prefix="frisket-view-") / "matches.sqlite"
             )
+            match_schema = "view_" + uuid.uuid4().hex
+            _stage_matches(snapshot, selection, retrieval_scope, path)
+            snapshot.db.execute(
+                f"ATTACH DATABASE ? AS {match_schema}", (f"file:{path}?mode=ro",)
+            )
+        clauses, params, order, order_params = [], [], [], []
+        for sheet in sheets:
+            plan = sheet_row_scope_plan(
+                snapshot,
+                sheet,
+                filter_=canonical_json(selection["filters"]),
+                sort=canonical_json(
+                    [item for item in selection["order"] if "column_id" in item]
+                ),
+                row_ids=selection["scope"].get("row_ids"),
+                parent_row_id=selection["scope"].get("parent_row_id"),
+            )
+            terms = iter(plan.order_terms[:-2])
+            selections, per_sheet_order, per_sheet_params = [], [], []
+            # Project query values are projections, not stored data columns.
+            if has_matches:
+                selections.extend(["matched.search_score", "matched.similarity_score"])
+            else:
+                selections.extend(["NULL search_score", "NULL similarity_score"])
+            for number, item in enumerate(selection["order"]):
+                if "column_id" in item:
+                    for suffix in ("null", "value"):
+                        term = next(terms)
+                        alias = f"sort_{number}_{suffix}"
+                        selections.append(f"{term.sql}{term.collation} AS {alias}")
+                        per_sheet_params.extend(term.params)
+                        per_sheet_order.append(
+                            f"{alias} {'DESC' if term.descending else 'ASC'}"
+                        )
+                else:
+                    per_sheet_order.append(
+                        f"{item['score']}_score {item.get('dir', 'asc').upper()}"
+                    )
+            join = ""
+            where = plan.where_sql
+            if has_matches:
+                join = f" JOIN {match_schema}.matches matched ON matched.sheet_id=r.sheet_id AND matched.row_id=r.id"
+                if selection.get("ranking") != "hybrid":
+                    where += "".join(
+                        f" AND matched.{kind}_score IS NOT NULL"
+                        for kind in ("search", "similarity")
+                        if kind in selection
+                    )
+                selections.append(
+                    f"COALESCE(1.0/({selection.get('rank_constant', 60)}+matched.search_rank),0)+COALESCE(1.0/({selection.get('rank_constant', 60)}+matched.similarity_rank),0) AS relevance_score"
+                )
+            else:
+                selections.append("NULL relevance_score")
+            clauses.append(
+                f"SELECT r.sheet_id,r.id row_id,NULL column_id,r.position,{','.join(selections)} FROM {plan.from_sql}{join} WHERE {where}"
+            )
+            params.extend([*per_sheet_params, *plan.join_params, *plan.where_params])
+            order = per_sheet_order
+        if not clauses:
+            clauses = [
+                "SELECT NULL sheet_id,NULL row_id,NULL column_id,NULL position,NULL search_score,NULL similarity_score,NULL relevance_score WHERE 0"
+            ]
+        if not order and has_matches:
+            score = (
+                "relevance"
+                if selection.get("ranking") == "hybrid"
+                else "similarity"
+                if "similarity" in selection
+                else "search"
+            )
+            order = [f"{score}_score DESC"]
+        order += ["sheet_id ASC", "position ASC", "row_id ASC"]
+        relation = "(" + " UNION ALL ".join(clauses) + ") AS selected"
+        yield SelectionRead(
+            snapshot, selection, relation, params, ",".join(order), order_params
+        )

@@ -15,6 +15,8 @@ the guard is load-bearing (rather than incidentally unnecessary) is
 
 from __future__ import annotations
 
+from tests.watch_helpers import post_watch
+
 import json
 
 import pytest
@@ -153,7 +155,7 @@ def test_entity_eq_survives_a_run_backed_column(project):
     )
     store = RunResultStore(project)
     op = project.append_op("map", {"action_kind": "map.ner"})
-    run = store.start_run(op, sheet, "map.ner", total_rows=len(rows))
+    run = store.start_run(op, sheet, "map.ner", total_rows=len(rows), row_ids=rows)
     write_claimed_test_results(
         project,
         run,
@@ -381,29 +383,36 @@ def test_saved_views_preserve_entity_eq_filter_json(tmp_path):
     entity_filter = {
         "entities": {"entity_eq": {"type": "organization", "fingerprint": "acme corp"}}
     }
+    project = client.app.state.workspace.get(pid)
+    columns = {row["name"]: row["id"] for row in project.columns(sheet_id)}
+    selection = {
+        "scope": {"kind": "sheet", "sheet_id": sheet_id},
+        "filters": [
+            {"column_id": columns["entities"], "condition": entity_filter["entities"]}
+        ],
+        "order": [{"column_id": columns["title"], "dir": "asc"}],
+    }
     response = client.post(
         f"/api/projects/{pid}/views",
         json={
             "name": "Acme mentions",
-            "sheet_id": sheet_id,
-            "filter": entity_filter,
-            "sort": [{"column": "title", "dir": "asc"}],
+            "selection": selection,
         },
     )
     assert response.status_code == 200, response.text
     view = response.json()
-    assert view["spec"]["filter"] == entity_filter
+    assert view["spec"]["selection"]["filters"] == selection["filters"]
 
     listed = client.get(
         f"/api/projects/{pid}/views", params={"sheet_id": sheet_id}
     ).json()
     saved = next(item for item in listed if item["id"] == view["id"])
-    assert saved["spec"]["filter"] == entity_filter
+    assert saved["spec"]["selection"]["filters"] == selection["filters"]
 
     # and the restored filter still selects rows
     grid = client.get(
         f"/api/projects/{pid}/sheets/{sheet_id}/data",
-        params={"filter": json.dumps(saved["spec"]["filter"])},
+        params={"filter": json.dumps(saved["spec"]["selection"]["filters"])},
     )
     assert grid.status_code == 200, grid.text
     assert grid.json()["total"] == 2
@@ -471,7 +480,8 @@ def test_entity_eq_reaches_the_shared_query_and_watch_consumers(tmp_path):
         "sheet_id": sheet_id,
         "filter": {"entities": {"entity_eq": {"type": "organization"}}},
     }
-    watch = client.post(
+    watch = post_watch(
+        client,
         f"/api/projects/{pid}/watches",
         json={
             "name": "Acme rows",
@@ -480,13 +490,19 @@ def test_entity_eq_reaches_the_shared_query_and_watch_consumers(tmp_path):
     )
     assert watch.status_code == 200, watch.text
 
+    project = client.app.state.workspace.get(pid)
+    column = next(
+        col["id"] for col in project.columns(sheet_id) if col["name"] == "entities"
+    )
     bad_watch = client.post(
-        f"/api/projects/{pid}/watches",
+        f"/api/projects/{pid}/views",
         json={
             "name": "Broken",
-            "query": {
-                **watch_query,
-                "filter": {"entities": {"entity_eq": {"nope": 1}}},
+            "selection": {
+                "scope": {"kind": "sheet", "sheet_id": sheet_id},
+                "filters": [
+                    {"column_id": column, "condition": {"entity_eq": {"nope": 1}}}
+                ],
             },
         },
     )

@@ -285,6 +285,15 @@ def watch_events_for_notification(
     ).fetchall()
 
 
+def _display_observed(raw: str) -> Any:
+    observed = json.loads(raw)
+    return (
+        observed["value"]
+        if observed.get("outcome") in {"completed", "empty"}
+        else observed
+    )
+
+
 def _watch_definition(row: Any) -> tuple[Any, ...]:
     return tuple(
         row[key] for key in ("view_id", "view_spec", "detection_policy", "enabled")
@@ -524,8 +533,8 @@ def record_watch_run(
                                     "sheet_id": sheet,
                                     "column_id": cell["column_id"],
                                     "name": cell["name"],
-                                    "before": json.loads(cell["before_value"]),
-                                    "after": json.loads(cell["after_value"]),
+                                    "before": _display_observed(cell["before_value"]),
+                                    "after": _display_observed(cell["after_value"]),
                                 }
                                 for cell in changes
                             ],

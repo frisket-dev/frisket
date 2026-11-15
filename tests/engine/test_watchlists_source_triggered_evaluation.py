@@ -27,8 +27,14 @@ def test_standalone_index_race_retries_only_failed_keyword_watch(monkeypatch):
     import frisket.search
 
     watches = [
-        {"id": 1, "query": '{"kind":"fts","q":"one"}'},
-        {"id": 2, "query": '{"kind":"fts","q":"two"}'},
+        {
+            "id": 1,
+            "view_spec": '{"selection":{"scope":{"kind":"project"},"search":{"text":"one"}}}',
+        },
+        {
+            "id": 2,
+            "view_spec": '{"selection":{"scope":{"kind":"project"},"search":{"text":"two"}}}',
+        },
     ]
     calls = {1: 0, 2: 0}
     drains = []

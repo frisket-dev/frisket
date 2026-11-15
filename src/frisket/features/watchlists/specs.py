@@ -1,7 +1,6 @@
-"""Versioned watchlist query and subscription spec helpers.
+"""Shared query-preview normalization and independent alert conditions.
 
-The Stage 1 foundation keeps the public Watchlists MVP API stable while adding
-canonical, hashable shapes for later watch and notification lanes.
+Saved selection and presentation belong to View; alerts reference that View.
 """
 
 from __future__ import annotations
@@ -12,8 +11,6 @@ from copy import deepcopy
 from typing import Any
 
 QUERY_SPEC_VERSION = "frisket.query.v1"
-LENS_SPEC_VERSION = "frisket.lens.v1"
-WATCH_SPEC_VERSION = "frisket.watch.v1"
 DETECTION_POLICY_NEW_MATCHES = "new_matches"
 DETECTION_POLICY_MEMBERSHIP_CHANGED = "membership_changed"
 DETECTION_POLICY_COUNT_CHANGED = "count_changed"
@@ -22,19 +19,10 @@ DETECTION_POLICY_ROW_CHANGED = "row_changed"
 DETECTION_POLICY_CONDITIONS = "conditions"
 EMBEDDING_SIMILARITY_KIND = "embedding_similarity"
 EMBEDDING_HYBRID_KIND = "embedding_hybrid"
-# Anchors a watch can re-evaluate deterministically WITHOUT a provider call. Only a
-# `row` anchor (the whole-row vector) is watchable in this slice: manual_text_query
-# re-embeds (and may egress) per run, vector_ref is not re-resolvable, and
-# `row_cell` is NOT actually column-specific yet (the resolver uses the same
-# whole-row vector as `row`), so
-# accepting it would be a misleading contract.
-_EMBEDDING_WATCH_ANCHOR_KINDS = {"row"}
-# The LENS / resolve path additionally accepts `row_cell` (a column-scoped row
-# anchor, resolver-safe — reads the stored whole-row vector, NO provider call) AND
-# `manual_text_query` (a saved/composed text search that RE-EMBEDS
-# its terms on each open, egress-gated like Show-Similar). Watches stay row-only:
-# a manual_text_query watch would re-embed (and maybe egress) on every scheduled run.
-_EMBEDDING_LENS_ANCHOR_KINDS = {"row", "row_cell", "manual_text_query"}
+# Legacy query-preview consumers may still request row-only anchors. Unified
+# Views permit prepared text and truthful single-column cell anchors as well.
+_ROW_ANCHOR_KINDS = {"row"}
+_PREPARED_ANCHOR_KINDS = {"row", "row_cell", "manual_text_query"}
 
 DETECTION_POLICY_KINDS = {
     DETECTION_POLICY_NEW_MATCHES,
@@ -62,12 +50,6 @@ def normalize_query_spec(
     scope: dict[str, Any] | None = None,
     allow_row_cell: bool = False,
 ) -> dict[str, Any]:
-    # ``allow_row_cell`` widens the embedding_similarity anchor set to include
-    # ``row_cell`` for the LENS / resolve path. A row_cell anchor is resolver-safe
-    # (similarity.py reads the stored whole-row vector, NO provider call), so a
-    # saved lens may carry it; WATCHES keep the default row-only set because a
-    # row_cell anchor is not column-specific yet and re-evaluating it as a watch
-    # would be a misleading contract (see ``_EMBEDDING_WATCH_ANCHOR_KINDS``).
     if not isinstance(query, dict):
         raise ValueError("query spec must be an object")
     kind = str(query.get("kind") or "").strip().lower()
@@ -93,24 +75,6 @@ def normalize_query_spec(
         "watch query kind must be fts/search.fts, filter/sheet.filter, "
         "embedding_similarity, or embedding_hybrid"
     )
-
-
-def normalize_lens_spec(
-    query: dict[str, Any],
-    *,
-    presentation: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    if presentation is None:
-        presentation = {}
-    if not isinstance(presentation, dict):
-        raise ValueError("lens presentation must be an object")
-    return {
-        "schema_version": LENS_SPEC_VERSION,
-        # Row and row_cell lens anchors reuse stored vectors; manual similarity and
-        # hybrid lenses compute a query embedding when resolved. Watches stay row-only.
-        "query": normalize_query_spec(query, allow_row_cell=True),
-        "presentation": deepcopy(presentation),
-    }
 
 
 def normalize_detection_policy(policy: dict[str, Any] | None) -> dict[str, Any]:
@@ -168,43 +132,6 @@ def detection_conditions(policy: dict[str, Any]) -> dict[str, Any]:
         "count_changed": kind == DETECTION_POLICY_COUNT_CHANGED,
         "fields": policy.get("fields", []),
         **({"threshold": policy} if kind == DETECTION_POLICY_THRESHOLD_CROSSED else {}),
-    }
-
-
-def normalize_watch_spec(
-    query: dict[str, Any],
-    *,
-    detection_policy: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    normalized_query = normalize_query_spec(query)
-    normalized_policy = normalize_detection_policy(detection_policy)
-    return {
-        "schema_version": WATCH_SPEC_VERSION,
-        "query": normalized_query,
-        "query_hash": query_spec_hash(normalized_query),
-        "detection_policy": normalized_policy,
-    }
-
-
-def watch_spec_metadata(
-    query: dict[str, Any],
-    *,
-    scope: str | dict[str, Any] | None = None,
-    sheet_id: int | None = None,
-    detection_policy: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    scope_spec = _scope_from_watch(scope, sheet_id)
-    normalized_query = normalize_query_spec(query, scope=scope_spec)
-    watch_spec = normalize_watch_spec(
-        normalized_query,
-        detection_policy=detection_policy,
-    )
-    return {
-        "query_version": QUERY_SPEC_VERSION,
-        "query_hash": watch_spec["query_hash"],
-        "detection_policy": canonical_json(watch_spec["detection_policy"]),
-        "query_spec": watch_spec["query"],
-        "watch_spec": watch_spec,
     }
 
 
@@ -283,11 +210,7 @@ def _normalize_embedding_similarity_query(
     if not isinstance(anchor, dict):
         raise ValueError("embedding_similarity watch query requires an anchor object")
     anchor_kind = str(anchor.get("kind") or "").strip().lower()
-    allowed = (
-        _EMBEDDING_LENS_ANCHOR_KINDS
-        if allow_row_cell
-        else _EMBEDDING_WATCH_ANCHOR_KINDS
-    )
+    allowed = _PREPARED_ANCHOR_KINDS if allow_row_cell else _ROW_ANCHOR_KINDS
     if anchor_kind not in allowed:
         if allow_row_cell:
             raise ValueError(
@@ -300,11 +223,11 @@ def _normalize_embedding_similarity_query(
             "not column-specific yet, so neither is watchable"
         )
     if anchor_kind == "manual_text_query":
-        # A composed text search saved as a lens. Store canonical
+        # Store canonical
         # `terms` (single `text` -> one term weight 1.0) and, when present, canonical
         # `exclude` (hard NOT) — hash-stable, and the raw query string never leaks into
         # the stored spec. Shared with the resolver (similarity.normalize_*). A query
-        # with no `exclude` stores no `exclude` field, so existing lenses keep their hash.
+        # with no `exclude` stores no `exclude` field, so query cache identities stay stable.
         from frisket.ai.embeddings.similarity import (
             normalize_manual_text_excludes,
             normalize_manual_text_terms,
@@ -322,9 +245,12 @@ def _normalize_embedding_similarity_query(
             "kind": anchor_kind,
             "row_id": _positive_int(anchor.get("row_id"), "anchor.row_id"),
         }
-        # A row_cell anchor may name the originating column (provenance only; the
-        # resolver uses the whole-row vector). Preserve it when present so the lens
-        # records which cell the "similar to" came from.
+        # Preserve the cell binding; the resolver verifies the prepared index
+        # represents exactly that column.
+        if anchor_kind == "row_cell" and anchor.get("column_id") is not None:
+            normalized_anchor["column_id"] = _positive_int(
+                anchor["column_id"], "anchor.column_id"
+            )
         if anchor_kind == "row_cell" and anchor.get("column") is not None:
             column = str(anchor["column"]).strip()
             if column:
@@ -398,22 +324,6 @@ def _normalize_scope(
         sheet_id = scope.get("sheet_id", fallback_sheet_id)
         return {"kind": "sheet", "sheet_id": _positive_int(sheet_id, "sheet_id")}
     raise ValueError("query scope must be project or sheet")
-
-
-def _scope_from_watch(
-    scope: str | dict[str, Any] | None,
-    sheet_id: int | None,
-) -> dict[str, Any] | None:
-    if scope is None:
-        if sheet_id is None:
-            return None
-        return {"kind": "sheet", "sheet_id": sheet_id}
-    if isinstance(scope, dict):
-        return deepcopy(scope)
-    kind = str(scope or "project").strip().lower()
-    if kind == "sheet":
-        return {"kind": "sheet", "sheet_id": sheet_id}
-    return {"kind": kind}
 
 
 def _positive_int(value: Any, field: str) -> int:

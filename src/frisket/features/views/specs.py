@@ -26,10 +26,7 @@ def normalize_selection(project: Any, value: dict[str, Any]) -> dict[str, Any]:
     """Validate and retain stable column identities; never bind by a new name."""
     from frisket.contracts.view import ViewSelection
 
-    if isinstance(value, ViewSelection):
-        value = value.model_dump(exclude_none=True)
-    if not isinstance(value, dict):
-        raise ValueError("selection must be an object")
+    value = ViewSelection.model_validate(value).model_dump(exclude_none=True)
     unknown = set(value) - {
         "scope",
         "filters",
@@ -132,6 +129,30 @@ def normalize_selection(project: Any, value: dict[str, Any]) -> dict[str, Any]:
         query = normalize_query_spec(value["similarity"], allow_row_cell=True)
         if query["kind"] != "embedding_similarity":
             raise ValueError("similarity requires an embedding similarity query")
+        from frisket.ai.embeddings import EmbeddingStore
+        from frisket.ai.embeddings.similarity import (
+            validate_row_cell_anchor,
+            SimilarityError,
+        )
+
+        index = EmbeddingStore(project).get_index(query["embedding_index_id"])
+        if index is None:
+            raise SelectionUnavailable(
+                "The similarity index is unavailable.", code="embedding_index_not_found"
+            )
+        if (
+            scope["kind"] != "sheet"
+            or index["sheet_id"] != scope["sheet_id"]
+            or query["scope"].get("sheet_id") != scope["sheet_id"]
+        ):
+            raise SelectionUnavailable(
+                "The view's sheet does not match the similarity index sheet.",
+                code="embedding_index_sheet_mismatch",
+            )
+        try:
+            validate_row_cell_anchor(project, index, query["anchor"])
+        except SimilarityError as exc:
+            raise SelectionUnavailable(str(exc), code=exc.code) from exc
         query.pop("limit", None)
         out["similarity"] = query
     if value.get("ranking") is not None:

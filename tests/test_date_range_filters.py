@@ -379,25 +379,30 @@ def test_date_range_filters_validate_bounds_and_column_type(client):
 
 
 def test_saved_views_preserve_date_range_filter_json(client):
-    pid, sheet_id, _columns, _rows = _date_sheet(client)
+    pid, sheet_id, columns, _rows = _date_sheet(client)
     date_filter = {
         "published": {"between": {"start": "2026-01-01", "end": "2026-03-31"}}
+    }
+    selection = {
+        "scope": {"kind": "sheet", "sheet_id": sheet_id},
+        "filters": [
+            {"column_id": columns["published"], "condition": date_filter["published"]}
+        ],
+        "order": [{"column_id": columns["published"], "dir": "asc"}],
     }
     response = client.post(
         f"/api/projects/{pid}/views",
         json={
             "name": "Q1 dates",
-            "sheet_id": sheet_id,
-            "filter": date_filter,
-            "sort": [{"column": "published", "dir": "asc"}],
+            "selection": selection,
         },
     )
     assert response.status_code == 200, response.text
     view = response.json()
-    assert view["spec"]["filter"] == date_filter
+    assert view["spec"]["selection"]["filters"] == selection["filters"]
 
     listed = client.get(
         f"/api/projects/{pid}/views", params={"sheet_id": sheet_id}
     ).json()
     saved = next(item for item in listed if item["id"] == view["id"])
-    assert saved["spec"]["filter"] == date_filter
+    assert saved["spec"]["selection"]["filters"] == selection["filters"]

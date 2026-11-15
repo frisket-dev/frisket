@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tests.watch_helpers import post_watch
+
 from pathlib import Path
 from typing import Any
 
@@ -54,7 +56,8 @@ def _create_filter_watch(
     *,
     policy: dict[str, Any],
 ) -> dict[str, Any]:
-    response = client.post(
+    response = post_watch(
+        client,
         f"/api/projects/{pid}/watches",
         json={
             "name": f"{policy['kind']} watch",
@@ -70,7 +73,9 @@ def _create_filter_watch(
     )
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["detection_policy"] == policy
+    from frisket.features.watchlists.specs import detection_conditions
+
+    assert body["detection_policy"] == detection_conditions(policy)
     return body
 
 
@@ -307,7 +312,8 @@ def test_detection_policy_validation_rejects_unbounded_or_bad_combinations(
     client = _client(tmp_path)
     pid, sheet_id = _seed_project(client)
 
-    empty_fields = client.post(
+    empty_fields = post_watch(
+        client,
         f"/api/projects/{pid}/watches",
         json={
             "name": "bad row changed",
@@ -323,7 +329,8 @@ def test_detection_policy_validation_rejects_unbounded_or_bad_combinations(
     assert empty_fields.status_code == 400, empty_fields.text
     assert "fields" in empty_fields.json()["detail"]
 
-    bad_metric = client.post(
+    bad_metric = post_watch(
+        client,
         f"/api/projects/{pid}/watches",
         json={
             "name": "bad threshold",

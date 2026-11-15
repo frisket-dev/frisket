@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tests.watch_helpers import post_watch
+
 from pathlib import Path
 from typing import Any
 
@@ -88,7 +90,8 @@ def _seed_watch_events(client: TestClient) -> tuple[str, dict[str, Any], list[di
     assert import_response.status_code == 200, import_response.text
     drain_queue(client, worker_id="notification-delivery-setup")
     drain_index(client.app.state.workspace.get(pid))
-    watch_response = client.post(
+    watch_response = post_watch(
+        client,
         f"/api/projects/{pid}/watches",
         json={
             "name": "Budget watch",

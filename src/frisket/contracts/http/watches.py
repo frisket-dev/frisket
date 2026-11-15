@@ -1,7 +1,6 @@
 """HTTP contracts for the watchlist browser routes.
 
-These DTOs freeze the executable wire truth the watch service/store producers
-emit. A Watch owns one normalized query captured at creation time.
+A Watch enables alerts on a saved View; selection belongs to that View.
 """
 
 from __future__ import annotations

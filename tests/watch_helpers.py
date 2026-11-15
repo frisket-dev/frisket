@@ -29,3 +29,32 @@ def add_watch(project, name, *, query, scope="sheet", sheet_id=None, **kwargs):
     )
     view_id = project.add_view(name, {"selection": selection, "presentation": {}})
     return project.add_watch(name, view_id=view_id, **kwargs)
+
+
+def post_watch(client, path, *, json):
+    """Build a saved View for an existing alert scenario, then call the real API."""
+    from frisket.features.views.specs import legacy_selection
+
+    pid = path.split("/")[3]
+    project = client.app.state.workspace.get(pid)
+    body = dict(json)
+    query = body.pop("query")
+    scope = body.pop(
+        "scope",
+        query.get("scope")
+        or (
+            {"kind": "sheet", "sheet_id": query["sheet_id"]}
+            if query.get("sheet_id") is not None
+            else {"kind": "project"}
+        ),
+    )
+    selection = legacy_selection(
+        project, sheet_id=scope.get("sheet_id"), spec={**query, "scope": scope}
+    )
+    view = client.post(
+        f"/api/projects/{pid}/views",
+        json={"name": body["name"], "selection": selection},
+    )
+    if view.status_code != 200:
+        return view
+    return client.post(path, json={**body, "view_id": view.json()["id"]})

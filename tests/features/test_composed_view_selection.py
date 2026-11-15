@@ -39,6 +39,11 @@ def test_order_limit_then_pagination_and_snapshot(data):
     with open_selection(project, spec) as selection:
         assert selection.total == 2
         assert [hit["row_id"] for hit in selection.hits()] == [rows[1], rows[2]]
+        sql, params = selection.ordered_rows_sql()
+        composed = selection.snapshot.db.execute(
+            f"SELECT row_id FROM ({sql}) chosen WHERE row_id<>?", [*params, rows[1]]
+        ).fetchall()
+        assert [row["row_id"] for row in composed] == [rows[2]]
         project.apply_edits([{"row_id": rows[0], "column_id": amount, "value": 90}])
         assert [hit["row_id"] for hit in selection.hits(offset=1, limit=2)] == [rows[2]]
     with open_selection(project, spec) as current:
@@ -218,3 +223,41 @@ def test_incomplete_search_check_never_invents_departures(data):
     final = run_watch_evaluation(project, project.get_watch(watch))
     assert final["run"]["matched_rows"] == 3
     assert not project.watch_run_events(final["run_id"])
+
+
+def test_search_selections_borrow_one_snapshot_and_cleanup_attachments(data):
+    from pathlib import Path
+
+    project, sheet, text, amount, rows = data
+    drain_index(project)
+    paths = []
+    with project.read_snapshot() as snapshot:
+        for word, expected in [
+            ("budget", [rows[0], rows[1], rows[3]]),
+            ("roads", [rows[2]]),
+        ]:
+            with open_selection(
+                snapshot,
+                {
+                    "scope": {"kind": "sheet", "sheet_id": sheet},
+                    "search": {"text": word},
+                },
+            ) as selected:
+                assert selected.snapshot is snapshot
+                sql, params = selected.ordered_rows_sql(include_ordinal=True)
+                found = snapshot.db.execute(
+                    f"SELECT row_id,selection_ordinal FROM ({sql}) ORDER BY selection_ordinal",
+                    params,
+                ).fetchall()
+                assert {row["row_id"] for row in found} == set(expected)
+                assert [row["selection_ordinal"] for row in found] == list(
+                    range(1, len(expected) + 1)
+                )
+            assert snapshot.row_count(sheet) == 4
+        paths = [
+            Path(row[2])
+            for row in snapshot.db.execute("PRAGMA database_list")
+            if row[1].startswith("view_")
+        ]
+        assert len(paths) == 2 and all(path.exists() for path in paths)
+    assert all(not path.exists() for path in paths)

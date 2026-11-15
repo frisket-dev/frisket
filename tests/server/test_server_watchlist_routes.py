@@ -44,7 +44,7 @@ def test_watch_route_order_after_lenses_before_notifications(tmp_path: Path) -> 
     routes = _api_routes(app)
 
     expected = [
-        (["GET"], "/api/projects/{pid}/lenses/{lens_id}/resolve", "resolve_lens"),
+        (["GET"], "/api/projects/{pid}/views/{view_id}/resolve", "resolve_view"),
         *WATCH_ROUTE_ENTRIES,
         (["GET"], "/api/projects/{pid}/notifications", "list_notifications"),
     ]
@@ -67,8 +67,7 @@ def test_watch_routes_bind_schema_queries_and_map_service_errors() -> None:
         "/api/projects/p/watches",
         json={
             "name": "Budget",
-            "scope": {"kind": "project"},
-            "query": {"kind": "fts", "q": "budget"},
+            "view_id": 7,
             "enabled": False,
         },
     )
@@ -77,8 +76,7 @@ def test_watch_routes_bind_schema_queries_and_map_service_errors() -> None:
         "create_watch",
         "p",
         "Budget",
-        {"kind": "project"},
-        {"kind": "fts", "q": "budget"},
+        7,
         None,
         False,
     )
@@ -87,8 +85,7 @@ def test_watch_routes_bind_schema_queries_and_map_service_errors() -> None:
         "/api/projects/p/watches",
         json={
             "name": "bad",
-            "scope": {"kind": "project"},
-            "query": {"kind": "fts", "q": "budget"},
+            "view_id": 7,
         },
     )
     assert bad_create.status_code == 400
@@ -101,7 +98,7 @@ def test_watch_routes_bind_schema_queries_and_map_service_errors() -> None:
         "/api/projects/p/watches",
         json={
             "name": "Retired source",
-            "query": {"kind": "fts", "q": "budget"},
+            "view_id": 7,
             "source_view_id": 7,
         },
     )
@@ -111,7 +108,7 @@ def test_watch_routes_bind_schema_queries_and_map_service_errors() -> None:
         "/api/projects/p/watches",
         json={
             "name": "Inline source",
-            "query": {"kind": "fts", "q": "budget"},
+            "view_id": 7,
             "source_view": {"name": "Source", "sheet_id": 7, "filter": {}},
         },
     )
@@ -199,11 +196,8 @@ def _watch_payload(watch_id: int, *, name: str = "Budget") -> dict[str, Any]:
     return {
         "id": watch_id,
         "name": name,
-        "scope": "project",
+        "view_id": 7,
         "sheet_id": None,
-        "query": {},
-        "query_version": None,
-        "query_hash": None,
         "detection_policy": {"kind": "new_matches"},
         "enabled": True,
         "last_evaluated_op": 0,
@@ -228,8 +222,7 @@ class _FakeWatchService:
         project_id: str,
         *,
         name: str,
-        scope: dict[str, Any] | None,
-        query: dict[str, Any],
+        view_id: int,
         detection_policy: dict[str, Any] | None,
         enabled: bool,
     ) -> dict:
@@ -238,8 +231,7 @@ class _FakeWatchService:
                 "create_watch",
                 project_id,
                 name,
-                scope,
-                query,
+                view_id,
                 detection_policy,
                 enabled,
             )

@@ -1,9 +1,7 @@
 """HTTP-06-F6: watchlist routes have exact typed HTTP owners.
 
-All five watch routes become browser-projected typed owners. This is an
-existing-behavior migration: the DTO graph freezes the executable wire truth
-(service/store producers), and the live oracles prove the payloads, defaults,
-ignored unknown queries, and error envelopes do not move.
+Alerts bind one saved View. These tests retain typed boundary, paging,
+authorization and failure coverage while selection has one canonical owner.
 """
 
 from __future__ import annotations
@@ -25,6 +23,7 @@ from frisket.contracts.http.models import HttpError, WireModel
 from frisket.features.watchlists.events import WATCH_RUN_EVENT_SCHEMA_VERSION
 from frisket.server.app import create_app
 from frisket.search_index import drain_index
+from tests.watch_helpers import post_watch
 
 
 _CONTRACT_MODULE = "frisket.contracts.http.watches"
@@ -34,11 +33,8 @@ _WATCH_FIELDS = frozenset(
     {
         "id",
         "name",
-        "scope",
+        "view_id",
         "sheet_id",
-        "query",
-        "query_version",
-        "query_hash",
         "detection_policy",
         "enabled",
         "last_evaluated_op",
@@ -52,8 +48,6 @@ _WATCH_FIELDS = frozenset(
 _WATCH_NULLABLE_FIELDS = frozenset(
     {
         "sheet_id",
-        "query_version",
-        "query_hash",
         "last_run_id",
         "last_status",
         "latest_run",
@@ -141,13 +135,12 @@ _EVENTS_PAGE_FIELDS = frozenset(
 _CREATE_REQUEST_FIELDS = frozenset(
     {
         "name",
-        "scope",
-        "query",
+        "view_id",
         "detection_policy",
         "enabled",
     }
 )
-_PATCH_REQUEST_FIELDS = frozenset({"name", "enabled"})
+_PATCH_REQUEST_FIELDS = frozenset({"name", "enabled", "detection_policy"})
 
 _GET_NO_QUERY_ERRORS = frozenset({401, 403, 404, 409, 500})
 _GET_PAGED_ERRORS = frozenset({401, 403, 404, 409, 422, 500})
@@ -385,11 +378,8 @@ def _watch_payload(
     return {
         "id": watch_id,
         "name": "Budget",
-        "scope": "project",
+        "view_id": 7,
         "sheet_id": None,
-        "query": {"kind": "fts", "q": "budget", "limit": 50},
-        "query_version": "frisket.query.v1",
-        "query_hash": "sha256:abc",
         "detection_policy": {"kind": "new_matches"},
         "enabled": True,
         "last_evaluated_op": 3,
@@ -523,13 +513,12 @@ def test_watch_create_request_is_closed_strict_and_query_authoritative() -> None
         for name, model_field in request.model_fields.items()
     } == {
         "name": str,
-        "query": dict[str, JsonValue],
-        "scope": dict[str, JsonValue] | None,
+        "view_id": int,
         "detection_policy": dict[str, JsonValue] | None,
         "enabled": bool,
     }
 
-    direct = request.model_validate({"name": " W ", "query": {"kind": "fts"}})
+    direct = request.model_validate({"name": " W ", "view_id": 7})
     assert direct.name == "W"
     for invalid in (
         {},
@@ -552,7 +541,11 @@ def test_watch_patch_request_is_closed_nonempty_and_validated() -> None:
     assert {
         name: model_field.annotation
         for name, model_field in request.model_fields.items()
-    } == {"name": str | None, "enabled": bool | None}
+    } == {
+        "name": str | None,
+        "enabled": bool | None,
+        "detection_policy": dict[str, JsonValue] | None,
+    }
 
     assert request.model_validate({"name": " Renamed "}).name == "Renamed"
     assert request.model_validate({"enabled": False}).model_fields_set == {"enabled"}
@@ -606,11 +599,8 @@ def test_watch_and_run_and_hit_rows_freeze_the_wire_graph() -> None:
     watch_annotations = {
         "id": int,
         "name": str,
-        "scope": str,
+        "view_id": int,
         "sheet_id": int | None,
-        "query": dict[str, JsonValue],
-        "query_version": str | None,
-        "query_hash": str | None,
         "detection_policy": dict[str, JsonValue],
         "enabled": bool,
         "last_evaluated_op": int,
@@ -707,7 +697,12 @@ def test_watch_and_run_and_hit_rows_freeze_the_wire_graph() -> None:
     )
     # query/binding/policy stay recursive JSON, not narrowed objects.
     for spec in ({}, {"a": [1, {"b": None}]}, {"c": "s"}, {"d": True}):
-        assert watch.model_validate({**watch_payload, "query": spec}).query == spec
+        assert (
+            watch.model_validate(
+                {**watch_payload, "detection_policy": spec}
+            ).detection_policy
+            == spec
+        )
 
 
 def test_watch_run_result_and_pages_freeze_their_envelopes() -> None:
@@ -880,7 +875,8 @@ def test_live_watch_routes_preserve_their_current_payloads(tmp_path: Path) -> No
     with TestClient(app) as client:
         assert client.get(f"/api/projects/{project_id}/watches").json() == []
 
-        created = client.post(
+        created = post_watch(
+            client,
             f"/api/projects/{project_id}/watches",
             json={
                 "name": "Budget",
@@ -890,16 +886,15 @@ def test_live_watch_routes_preserve_their_current_payloads(tmp_path: Path) -> No
         assert created.status_code == 200, created.text
         watch = created.json()
         assert set(watch) == _WATCH_FIELDS
-        assert watch["scope"] == "project"
+        assert watch["view_id"] > 0
         assert watch["sheet_id"] is None
         assert watch["enabled"] is True
-        assert watch["detection_policy"] == {"kind": "new_matches"}
-        assert watch["query"] == {
-            "kind": "fts",
-            "q": "budget",
-            "mode": "keyword",
-            "rerank": "off",
-            "limit": 50,
+        assert watch["detection_policy"] == {
+            "kind": "conditions",
+            "entered": True,
+            "exited": False,
+            "count_changed": False,
+            "fields": [],
         }
         assert watch["latest_run"] is None
         watch_id = watch["id"]
@@ -910,7 +905,7 @@ def test_live_watch_routes_preserve_their_current_payloads(tmp_path: Path) -> No
         )
         assert renamed.status_code == 200, renamed.text
         assert renamed.json()["name"] == "Renamed budget"
-        assert renamed.json()["query"] == watch["query"]
+        assert renamed.json()["view_id"] == watch["view_id"]
         assert renamed.json()["enabled"] is True
 
         paused = client.patch(
@@ -984,7 +979,8 @@ def test_watch_error_oracles_preserve_existing_http_behavior(tmp_path: Path) -> 
     project_id = str(workspace.create("watch errors")["id"])
 
     with TestClient(app) as client:
-        watch_id = client.post(
+        watch_id = post_watch(
+            client,
             f"/api/projects/{project_id}/watches",
             json={
                 "name": "W",
@@ -1003,10 +999,7 @@ def test_watch_error_oracles_preserve_existing_http_behavior(tmp_path: Path) -> 
                 "query": {"kind": "unsupported"},
             },
         )
-        assert bad_kind.status_code == 400
-        assert bad_kind.json() == {
-            "detail": "watch query kind must be fts, filter, or embedding_similarity"
-        }
+        assert bad_kind.status_code == 422
 
         retired_source = client.post(
             f"/api/projects/{project_id}/watches",

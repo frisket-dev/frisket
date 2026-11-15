@@ -18,11 +18,12 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import tempfile
 import threading
 import uuid
 import weakref
 from collections.abc import Mapping
-from contextlib import AbstractContextManager, contextmanager
+from contextlib import AbstractContextManager, ExitStack, contextmanager
 from pathlib import Path
 from typing import Any, Collection, Iterator
 
@@ -108,6 +109,7 @@ class ProjectReadSnapshot:
         self.blob_store = owner.blob_store
         self._close_lock = threading.Lock()
         self._connection: sqlite3.Connection | None = None
+        self._read_resources = ExitStack()
 
         connection = sqlite3.connect(
             self.db_path,
@@ -196,6 +198,15 @@ class ProjectReadSnapshot:
     ) -> list[int]:
         return cells.visible_row_ids(self, sheet_id, row_ids)
 
+    def temporary_directory(self, *, prefix: str = "frisket-read-") -> Path:
+        """Retain attached temporary databases until this connection is closed."""
+        self.db  # Refuse resources after the snapshot lifetime ends.
+        return Path(
+            self._read_resources.enter_context(
+                tempfile.TemporaryDirectory(prefix=prefix)
+            )
+        )
+
     def close(self) -> None:
         with self._close_lock:
             connection = self._connection
@@ -212,6 +223,8 @@ class ProjectReadSnapshot:
                 connection.close()
             except sqlite3.Error:
                 pass
+            finally:
+                self._read_resources.close()
 
     def __enter__(self) -> ProjectReadSnapshot:
         return self

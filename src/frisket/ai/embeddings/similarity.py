@@ -502,6 +502,34 @@ def resolve_embedding_similarity(
     )
 
 
+def validate_row_cell_anchor(project: Any, index: Any, anchor: dict[str, Any]) -> None:
+    """A prepared row vector is a cell vector only for a single-column index."""
+    if anchor.get("kind") != "row_cell":
+        return
+    source_columns = json.loads(index["source_columns_json"])
+    selected = anchor.get("column_id")
+    columns = project.columns(int(index["sheet_id"]), include_hidden=True)
+    source = next(
+        (
+            col
+            for col in columns
+            if len(source_columns) == 1
+            and col["name"] == source_columns[0]
+            and col["active"]
+        ),
+        None,
+    )
+    if (
+        source is None
+        or (selected is not None and selected != source["id"])
+        or (anchor.get("column") is not None and anchor["column"] != source["name"])
+    ):
+        raise SimilarityError(
+            "embedding_cell_anchor_unavailable",
+            "This index combines columns; use a single-column index for cell similarity.",
+        )
+
+
 def _row_anchor(
     project: Project,
     retrieval: RetrievalStore,
@@ -510,6 +538,7 @@ def _row_anchor(
     space: Any,
     anchor: dict[str, Any],
 ) -> SourceAnchor:
+    validate_row_cell_anchor(project, index, anchor)
     row_id = anchor.get("row_id")
     if not isinstance(row_id, int) or isinstance(row_id, bool) or row_id <= 0:
         raise SimilarityError(

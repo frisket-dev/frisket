@@ -414,7 +414,7 @@ def test_delete_refuses_live_saved_search_references(tmp_path, reference_kind):
         project.close()
 
 
-def test_disabled_watch_does_not_block_index_delete(tmp_path):
+def test_pausing_alert_does_not_remove_its_saved_view_index_dependency(tmp_path):
     project = Project.create(tmp_path / "project")
     try:
         seeded = _seed(project, tmp_path)
@@ -438,8 +438,9 @@ def test_disabled_watch_does_not_block_index_delete(tmp_path):
 
         result = run_action_spec(project, _request(index_id), project_id="p")
 
-        assert result.status == "completed", result.errors
-        assert EmbeddingStore(project).get_index(index_id) is None
+        assert result.status == "failed"
+        assert result.errors[0].code == "embedding_index_in_use"
+        assert EmbeddingStore(project).get_index(index_id) is not None
     finally:
         project.close()
 

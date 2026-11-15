@@ -724,21 +724,36 @@ class TestSavedViews:
     sort over a sheet, and saving one is a LOGGED op (provenance), not an
     ephemeral grid setting."""
 
+    @staticmethod
+    def selection(client, pid, sheet, *, word=None, sorted_=False):
+        column = next(
+            col["id"]
+            for col in client.app.state.workspace.get(pid).columns(sheet)
+            if col["name"] == "snippet"
+        )
+        return {
+            "scope": {"kind": "sheet", "sheet_id": sheet},
+            "filters": [{"column_id": column, "condition": {"contains": word}}]
+            if word
+            else [],
+            "order": [{"column_id": column, "dir": "asc"}] if sorted_ else [],
+            "limit": None,
+        }
+
     def test_create_view_is_logged_op(self, client):
         pid, sheet_id = make_project_with_data(client)
         spec = {
             "name": "high-confidence",
-            "sheet_id": sheet_id,
-            "filter": {"confidence": {"gte": 0.8}},
-            "sort": [{"column": "snippet", "dir": "asc"}],
+            "selection": self.selection(
+                client, pid, sheet_id, word="council", sorted_=True
+            ),
         }
         r = client.post(f"/api/projects/{pid}/views", json=spec)
         assert r.status_code == 200, r.text
         view = r.json()
         assert view["name"] == "high-confidence"
         assert view["sheet_id"] == sheet_id
-        assert view["spec"]["filter"] == {"confidence": {"gte": 0.8}}
-        assert view["spec"]["sort"] == [{"column": "snippet", "dir": "asc"}]
+        assert view["spec"]["selection"] == spec["selection"]
         # the provenance contract: saving a view appends a 'view' op to history
         hist = client.get(f"/api/projects/{pid}/history").json()["ops"]
         view_ops = [o for o in hist if o["kind"] == "view"]
@@ -749,7 +764,7 @@ class TestSavedViews:
         pid, sheet_id = make_project_with_data(client)
         vid = client.post(
             f"/api/projects/{pid}/views",
-            json={"name": "v1", "sheet_id": sheet_id, "filter": {}},
+            json={"name": "v1", "selection": self.selection(client, pid, sheet_id)},
         ).json()["id"]
         listing = client.get(f"/api/projects/{pid}/views").json()
         assert any(v["id"] == vid for v in listing)
@@ -766,7 +781,10 @@ class TestSavedViews:
         pid, sheet_id = make_project_with_data(client)
         vid = client.post(
             f"/api/projects/{pid}/views",
-            json={"name": "v", "sheet_id": sheet_id, "filter": {"a": 1}},
+            json={
+                "name": "v",
+                "selection": self.selection(client, pid, sheet_id, word="one"),
+            },
         ).json()["id"]
         before = len(
             [
@@ -778,14 +796,13 @@ class TestSavedViews:
         r = client.put(
             f"/api/projects/{pid}/views/{vid}/definition",
             json={
-                "filter": {"a": 2},
-                "sort": None,
-                "columns": None,
-                "column_groups": None,
+                "selection": self.selection(client, pid, sheet_id, word="two"),
             },
         )
         assert r.status_code == 200, r.text
-        assert r.json()["spec"]["filter"] == {"a": 2}
+        assert r.json()["spec"]["selection"] == self.selection(
+            client, pid, sheet_id, word="two"
+        )
         after = len(
             [
                 o
@@ -801,24 +818,25 @@ class TestSavedViews:
             f"/api/projects/{pid}/views",
             json={
                 "name": "v",
-                "sheet_id": sheet_id,
-                "filter": {"status": {"eq": "open"}},
-                "sort": [{"column": "snippet", "dir": "asc"}],
-                "columns": ["snippet"],
+                "selection": self.selection(
+                    client, pid, sheet_id, word="open", sorted_=True
+                ),
+                "presentation": {"columns": ["snippet"]},
             },
         ).json()["id"]
 
         r = client.put(
             f"/api/projects/{pid}/views/{vid}/definition",
             json={
-                "filter": {},
-                "sort": None,
-                "columns": None,
-                "column_groups": None,
+                "selection": self.selection(client, pid, sheet_id),
+                "presentation": {},
             },
         )
         assert r.status_code == 200, r.text
-        assert r.json()["spec"] == {"filter": {}}
+        assert r.json()["spec"] == {
+            "selection": self.selection(client, pid, sheet_id),
+            "presentation": {},
+        }
 
     def test_backfill_resume_keeps_run_counters_within_total(self, client):
         pid, sheet_id = make_project_with_data(client)
@@ -865,7 +883,7 @@ class TestSavedViews:
         pid, sheet_id = make_project_with_data(client)
         vid = client.post(
             f"/api/projects/{pid}/views",
-            json={"name": "v", "sheet_id": sheet_id, "filter": {}},
+            json={"name": "v", "selection": self.selection(client, pid, sheet_id)},
         ).json()["id"]
         r = client.delete(f"/api/projects/{pid}/views/{vid}")
         assert r.status_code == 200 and r.json()["deleted"] == vid
