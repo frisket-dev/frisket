@@ -340,7 +340,6 @@ def test_cutover_normalizes_swapped_output_roles_atomically(old_db):
     } == {"{}"}
 
 
-
 @pytest.mark.parametrize(
     "details,params",
     [

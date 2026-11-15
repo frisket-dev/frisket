@@ -461,9 +461,7 @@ def test_explicit_value_page_uses_rowid_lookup_and_preserves_scope(
 
     assert values == {rows["a"]: "A start"}
     source_query = next(
-        query
-        for query in traced
-        if "FROM rows r NOT INDEXED LEFT JOIN" in query
+        query for query in traced if "FROM rows r NOT INDEXED LEFT JOIN" in query
     )
     query_plan = project.db.execute("EXPLAIN QUERY PLAN " + source_query).fetchall()
     assert any("USING INTEGER PRIMARY KEY" in row["detail"] for row in query_plan)

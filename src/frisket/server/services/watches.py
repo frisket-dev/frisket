@@ -255,7 +255,9 @@ def _watch_detection_policy(row) -> dict[str, Any]:
     except (TypeError, ValueError):
         policy = {}
     try:
-        return detection_conditions(normalize_detection_policy(policy if isinstance(policy, dict) else {}))
+        return detection_conditions(
+            normalize_detection_policy(policy if isinstance(policy, dict) else {})
+        )
     except ValueError:
         return detection_conditions({"kind": "new_matches"})
 

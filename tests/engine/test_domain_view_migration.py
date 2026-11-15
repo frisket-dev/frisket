@@ -72,7 +72,10 @@ def test_all_old_definitions_and_watch_identity_survive_one_time_cutover(tmp_pat
         assert json.loads(broken["spec"])["unavailable_reason"]
         saved = json.loads(project.get_view(7)["spec"])
         assert saved["selection"]["filters"][0]["column_id"] == col
-        assert saved["presentation"] == {"columns": [col], "column_groups": [{"run_id": 44, "label": "Facts", "columns": [col]}]}
+        assert saved["presentation"] == {
+            "columns": [col],
+            "column_groups": [{"run_id": 44, "label": "Facts", "columns": [col]}],
+        }
         with open_selection(project, saved["selection"]) as selected:
             assert selected.total == 1
         migrate_unified_views(db)

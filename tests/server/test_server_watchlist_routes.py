@@ -335,23 +335,38 @@ class _FakeWatchService:
         }
 
 
-def test_listing_legacy_alert_policy_returns_canonical_conditions(tmp_path: Path) -> None:
-    app = create_app(tmp_path / 'legacy-alert-wire')
+def test_listing_legacy_alert_policy_returns_canonical_conditions(
+    tmp_path: Path,
+) -> None:
+    app = create_app(tmp_path / "legacy-alert-wire")
     with TestClient(app) as client:
-        pid = client.post('/api/projects', json={'name': 'Legacy alerts'}).json()['id']
+        pid = client.post("/api/projects", json={"name": "Legacy alerts"}).json()["id"]
         project = app.state.workspace.get(pid)
-        sheet_id = project.add_sheet('Records')
-        view_id = project.add_view('Records', {'selection': {
-            'scope': {'kind': 'sheet', 'sheet_id': sheet_id},
-            'filters': [], 'order': [], 'limit': None,
-        }, 'presentation': {}})
-        watch_id = project.add_watch('Legacy watch', view_id=view_id)
-        for stored in ('{"kind":"new_matches"}', 'invalid json'):
-            project.db.execute('UPDATE watches SET detection_policy=? WHERE id=?', (stored, watch_id))
+        sheet_id = project.add_sheet("Records")
+        view_id = project.add_view(
+            "Records",
+            {
+                "selection": {
+                    "scope": {"kind": "sheet", "sheet_id": sheet_id},
+                    "filters": [],
+                    "order": [],
+                    "limit": None,
+                },
+                "presentation": {},
+            },
+        )
+        watch_id = project.add_watch("Legacy watch", view_id=view_id)
+        for stored in ('{"kind":"new_matches"}', "invalid json"):
+            project.db.execute(
+                "UPDATE watches SET detection_policy=? WHERE id=?", (stored, watch_id)
+            )
             project.db.commit()
-            response = client.get(f'/api/projects/{pid}/watches')
+            response = client.get(f"/api/projects/{pid}/watches")
             assert response.status_code == 200, response.text
-            assert response.json()[0]['detection_policy'] == {
-                'kind': 'conditions', 'entered': True, 'exited': False,
-                'count_changed': False, 'fields': [],
+            assert response.json()[0]["detection_policy"] == {
+                "kind": "conditions",
+                "entered": True,
+                "exited": False,
+                "count_changed": False,
+                "fields": [],
             }

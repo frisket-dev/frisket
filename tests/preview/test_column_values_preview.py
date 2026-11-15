@@ -205,13 +205,20 @@ def test_bad_paging_and_search_params_are_invalid_params(tmp_path, kwargs, field
 
 
 def test_preview_borrows_existing_snapshot_without_recursion_or_closing_it(tmp_path):
-    project, sheet = _seed(tmp_path, ['Acme', 'Acme', 'Other'])
+    project, sheet = _seed(tmp_path, ["Acme", "Acme", "Other"])
     try:
         with project.read_snapshot() as snapshot:
-            result = resolve_column_values_preview(snapshot, sheet_id=sheet, input_column='org')
-            assert result['total_rows'] == 3
-            assert result['distinct'] == 2
-            assert snapshot.db.execute('SELECT COUNT(*) FROM rows').fetchone()[0] == 3
-        assert resolve_column_values_preview(project, sheet_id=sheet, input_column='org')['distinct'] == 2
+            result = resolve_column_values_preview(
+                snapshot, sheet_id=sheet, input_column="org"
+            )
+            assert result["total_rows"] == 3
+            assert result["distinct"] == 2
+            assert snapshot.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 3
+        assert (
+            resolve_column_values_preview(project, sheet_id=sheet, input_column="org")[
+                "distinct"
+            ]
+            == 2
+        )
     finally:
         project.close()
