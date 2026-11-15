@@ -1067,7 +1067,13 @@ def _run_paid_embedding_dimension_probe(
             "embedding probe egress reservation could not be written",
         )
 
-    gateway = embedding_gateway or EmbeddingGateway(router=router)
+    from frisket.execution.dispatch_control import RunDispatch
+
+    execution = RunDispatch(project, run_id, attempt_id)
+    execution.check()
+    gateway = embedding_gateway or EmbeddingGateway(
+        router=router.for_execution(execution) if router is not None else None
+    )
     try:
         probe = gateway.embed(
             ["dimension probe"],
@@ -1926,7 +1932,8 @@ def _refresh_index(
             index=index,
             space=space,
             modality=modality,
-            gateway=embedding_gateway or EmbeddingGateway(router=router),
+            gateway=embedding_gateway,
+            router=router,
             params_hash=params_hash,
             row_ids=candidate_row_ids,
             reserved_action_id=reserved_action_id,
@@ -1959,6 +1966,7 @@ def _do_refresh(
     space,
     modality,
     gateway,
+    router,
     params_hash,
     row_ids,
     reserved_action_id=None,
@@ -2249,8 +2257,17 @@ def _do_refresh(
                                     ),
                                     field="params.index_id",
                                 )
+                        from frisket.execution.dispatch_control import RunDispatch
+
+                        execution = RunDispatch(project, run_id, attempt_id)
+                        execution.check()
+                        batch_gateway = gateway or EmbeddingGateway(
+                            router=router.for_execution(execution)
+                            if router is not None
+                            else None
+                        )
                         try:
-                            result = gateway.embed(
+                            result = batch_gateway.embed(
                                 gateway_inputs,
                                 provider=space["provider_id"],
                                 model=space["actual_model_id"],

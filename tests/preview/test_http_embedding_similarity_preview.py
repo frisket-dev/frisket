@@ -51,6 +51,10 @@ class _RaisingRouter:
     """A router that fails if any embedding provider call is made — used to prove
     a row anchor never hits a provider."""
 
+    def for_execution(self, execution):
+        execution.check()
+        return self
+
     def embed_batch(self, *a, **k):
         raise AssertionError("provider was called for a row anchor")
 
@@ -163,7 +167,8 @@ def _run_paid_preview(client, pid, kind, query):
 
 
 def _install_paid_project_key_embed(monkeypatch, calls, *, dimension=1536):
-    async def embed_batch(self, texts, *, model, modality):
+    async def embed_batch(self, texts, *, model, modality, _execution):
+        _execution.check()
         provider, actual_model = model.split("/", 1)
         credential_source = self.credential_source_for(provider)
         calls.append(

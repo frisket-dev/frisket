@@ -231,6 +231,11 @@ async def run_turn(
             )
         return call_scope() if call_scope is not None else nullcontext()
 
+    from frisket.execution.dispatch_control import TransientDispatch
+
+    router = router.for_execution(
+        TransientDispatch(lambda: store.get_turn(turn["id"])["status"] != "running")
+    )
     model = FrisketRouterModel(
         router,
         model_id,

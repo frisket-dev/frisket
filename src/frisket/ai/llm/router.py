@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol
 import httpx
 
 from frisket.redaction import canonical_error_code, redact_text, redact_value
-from frisket.execution.dispatch_control import DispatchControl, STANDALONE
+from frisket.execution.dispatch_control import DispatchControl
 
 from .adapters import AnthropicAdapter, OpenAICompatAdapter
 from .cache import CacheMiss, ResponseCache, request_key
@@ -578,7 +578,7 @@ class ModelRouter:
         recipe_version: str = "1",
         trace: ModelTrace | None = None,
         on_request: Callable[[LLMRequest], None] | None = None,
-        _execution: DispatchControl = STANDALONE,
+        _execution: DispatchControl,
     ) -> LLMResponse:
         """When ``trace`` is given, the router
         appends one event dict per cache decision and per adapter attempt —
@@ -636,7 +636,7 @@ class ModelRouter:
         recipe_version: str = "1",
         trace: ModelTrace | None = None,
         on_request: Callable[[LLMRequest], None] | None = None,
-        _execution: DispatchControl = STANDALONE,
+        _execution: DispatchControl,
     ) -> LLMResponse:
         """Execute one wire call through the router's public transport seam.
 
@@ -658,7 +658,7 @@ class ModelRouter:
         recipe_version: str = "1",
         trace: ModelTrace | None = None,
         on_request: Callable[[LLMRequest], None] | None = None,
-        _execution: DispatchControl = STANDALONE,
+        _execution: DispatchControl,
     ) -> LLMResponse:
         """Execute one router-level wire attempt below structured repair."""
         _execution.check()
@@ -753,7 +753,7 @@ class ModelRouter:
         *,
         credential_source: str,
         trace: ModelTrace | None = None,
-        _execution: DispatchControl = STANDALONE,
+        _execution: DispatchControl,
     ) -> LLMResponse:
         provider = provider_from_model_id(req.model)
         cloud_adapter = None
@@ -923,7 +923,7 @@ class ModelRouter:
         texts: list[str],
         *,
         model: str = "openai/text-embedding-3-small",
-        _execution: DispatchControl = STANDALONE,
+        _execution: DispatchControl,
     ) -> list[list[float]]:
         """Embed ``texts`` into vectors via an OpenAI-compatible /embeddings
         endpoint. Raises LLMError if the provider isn't configured.
@@ -940,7 +940,7 @@ class ModelRouter:
         *,
         model: str = "openai/text-embedding-3-small",
         modality: str = "text",
-        _execution: DispatchControl = STANDALONE,
+        _execution: DispatchControl,
     ) -> "EmbeddingBatchResult":
         """Metadata-rich embedding: vectors PLUS the provider/model facts native
         embedding spaces need (actual model id, provider id/kind, dimension,

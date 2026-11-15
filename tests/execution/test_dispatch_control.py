@@ -12,7 +12,11 @@ from frisket.ai.llm.types import LLMRequest
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.changes import ChangeStore
-from frisket.execution.dispatch_control import RunDispatch, dispatch_for_context
+from frisket.execution.dispatch_control import (
+    STANDALONE,
+    RunDispatch,
+    dispatch_for_context,
+)
 from frisket.ops._sidecar import sidecar_post
 from tests.engine.test_result_generation_store import _start_claimed_run
 from tests.ai.test_structured_wire_failures import UsagePolicy
@@ -149,7 +153,7 @@ async def test_bound_runs_do_not_mutate_shared_router(owned):
         results = await asyncio.gather(
             one.complete(request()), two.complete(request()), return_exceptions=True
         )
-        standalone = await router.complete(request())
+        standalone = await router.for_execution(STANDALONE).complete(request())
     assert isinstance(results[0], asyncio.CancelledError)
     assert results[1].content == standalone.content == "done"
     assert one.for_execution(control) is one
@@ -225,3 +229,81 @@ async def test_dispatch_reads_current_thread_connection_and_claim(owned):
     OutputColumnClaimStore(project).release(claim_token=run.authority.claim_token)
     with pytest.raises(asyncio.CancelledError):
         await asyncio.to_thread(control.check)
+
+
+@pytest.mark.asyncio
+async def test_unbound_router_cannot_silently_dispatch_standalone():
+    from frisket.execution.dispatch_control import STANDALONE
+
+    calls = []
+
+    def respond(req):
+        calls.append(req)
+        return response()
+
+    router = ModelRouter(keys={"openai": "test"}, use_env_keys=False)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        router._client = client
+        for method, args in (
+            (router.complete, (request(),)),
+            (router.complete_transport, (request(),)),
+            (router.embed, (["test"],)),
+            (router.embed_batch, (["test"],)),
+        ):
+            with pytest.raises(TypeError, match="_execution"):
+                await method(*args)
+        assert not calls
+        assert (
+            await router.for_execution(STANDALONE).complete(request())
+        ).content == "done"
+        assert len(calls) == 1
+
+
+def test_embedding_refresh_checks_run_cancellation_before_provider(
+    tmp_path, monkeypatch
+):
+    from frisket.engine.executor import run_action_spec
+    from frisket.engine.executor.action_families import embeddings
+    from tests.engine.test_embedding_index_actions import (
+        _create_action,
+        _refresh_action,
+    )
+
+    calls = []
+    with closing(Project.create(tmp_path / "embedding-dispatch.frisket")) as project:
+        sheet = project.add_sheet("data")
+        column = project.add_column(sheet, "headline")
+        project.add_rows(sheet, [{"headline": "hello"}], {"headline": column})
+        router = ModelRouter(keys={"openai": "test"}, use_env_keys=False)
+
+        class Adapter:
+            base_url = "https://example.invalid"
+
+            async def embed_with_meta(self, *args):
+                calls.append(args)
+                pytest.fail("Cancelled work reached the provider")
+
+        router._adapters["openai"] = Adapter()
+        created = run_action_spec(
+            project,
+            _create_action(sheet, provider="openai", policy={"allow_remote": True}),
+            project_id="test",
+            router=router,
+        )
+        assert created.status == "completed", created.errors
+        index_id = created.outputs[0].ref["index_id"]
+        mint = embeddings.mint_direct_effect_attempt
+
+        def cancel_before_dispatch(current, **kwargs):
+            commitment = mint(current, **kwargs)
+            RunResultStore(current).request_cancel(kwargs["run_id"])
+            return commitment
+
+        monkeypatch.setattr(
+            embeddings, "mint_direct_effect_attempt", cancel_before_dispatch
+        )
+        with pytest.raises(asyncio.CancelledError):
+            run_action_spec(
+                project, _refresh_action(index_id), project_id="test", router=router
+            )
+        assert not calls

@@ -141,6 +141,9 @@ async def probe_mechanism(
     call, by design (record-don't-experiment: a failed probe records
     ``unsupported``, i.e. the conservative json_loose fallback stays in
     force, not an automatic cascade through the other three)."""
+    from frisket.execution.dispatch_control import STANDALONE
+
+    router = router.for_execution(STANDALONE)
     req = StructuredRequest(
         model=model,
         messages=list(PROBE_MESSAGES),
