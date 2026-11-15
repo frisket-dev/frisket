@@ -398,8 +398,9 @@ def test_text_layer_hash_mismatch_flagged_when_cell_reprocessed_without_stalenes
         # ("fires from only 2 of many mutation sites"). The render path must
         # independently catch the drift via the stored text_layer_hash.
         run_store: RunResultStore = seeded["run_store"]
+        second_op_id = project.append_op("media.to_markdown")
         second_run_id = run_store.start_run(
-            seeded["op_id"],
+            second_op_id,
             seeded["sheet_id"],
             "media.to_markdown",
             total_rows=1,
@@ -417,9 +418,7 @@ def test_text_layer_hash_mismatch_flagged_when_cell_reprocessed_without_stalenes
             ],
         )
         run_store.finish_run(second_run_id)
-        run_store.point_column_at_run(
-            seeded["op_id"], seeded["output_col"], second_run_id
-        )
+        run_store.point_column_at_run(second_op_id, seeded["output_col"], second_run_id)
 
         mismatched_viewer = resolve_evidence_viewer(
             project, seeded["link"]["stable_id"], project_id=PROJECT_ID

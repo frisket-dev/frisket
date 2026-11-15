@@ -339,6 +339,8 @@ def write_claimed_test_results(
     project: Any,
     run_id: int,
     batch: list[dict[str, Any]],
+    *,
+    output_roles: dict[int, str] | None = None,
     **kwargs: Any,
 ) -> None:
     """Publish a fixture batch through the universal generation protocol.
@@ -354,7 +356,8 @@ def write_claimed_test_results(
     This helper intentionally seals on each call.  Tests for open-generation
     recovery use the lower-level generation helpers directly; silently
     reopening a sealed fixture run here would recreate the retired in-place
-    resume contract.
+    resume contract. Explicit ``output_roles`` names logical outputs when they
+    differ from the physical column labels.
     """
 
     from frisket.engine.runner.result_generations import _compatibility_key
@@ -416,7 +419,7 @@ def write_claimed_test_results(
                 output_role=(
                     base_binding.output_role
                     if base_binding is not None
-                    else str(column["name"])
+                    else (output_roles or {}).get(column_id, str(column["name"]))
                 ),
                 compatibility_key=(
                     base_binding.compatibility_key

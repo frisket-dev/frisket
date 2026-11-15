@@ -629,6 +629,7 @@ def test_prepared_ocr_indexes_one_text_source_and_skips_positions_metadata(tmp_p
                     },
                 },
             ],
+            output_roles={ocr_text: "text", positions: "blocks"},
         )
         drain_index(project)
         request = SearchRequest(

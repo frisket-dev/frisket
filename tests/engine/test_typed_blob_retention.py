@@ -18,6 +18,7 @@ from frisket.engine.store.prepared_content import (
 )
 from frisket.engine.store.project_blobs import reclaim_local_blobs
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.purge import begin_purge, finish_purge
 
 
 @pytest.fixture
@@ -134,8 +135,14 @@ def test_prepared_content_is_kept_by_independent_copy_and_removed_after_last_own
         == shared.ref_id
     )
     project.delete_sheet(second)
-    result = reclaim_local_blobs(project, dry_run=False)
-    assert result["prepared_pages_reclaimable"] == 1
+    # Reversible deletion retains both owners for Undo. Permanent removal is explicit.
+    assert reclaim_local_blobs(project)["prepared_pages_reclaimable"] == 0
+    finish_purge(project, begin_purge(project, sheet_ids=[first]))
+    assert project.db.execute(
+        "SELECT 1 FROM prepared_content_refs WHERE id=?", (shared.ref_id,)
+    ).fetchone()
+    finish_purge(project, begin_purge(project, sheet_ids=[second]))
+    reclaim_local_blobs(project, dry_run=False)
     assert (
         project.db.execute("SELECT count(*) FROM prepared_page_versions").fetchone()[0]
         == 0

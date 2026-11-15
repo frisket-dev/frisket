@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -21,6 +22,7 @@ from frisket.contracts.http.pdf_packet_splits import (
 from frisket.engine.pdf_render import PdfRenderResult
 from frisket.engine.executor.table_preview import TablePreviewResult
 from frisket.engine.store.evidence import resolve_evidence_viewer
+from frisket.engine.store.cell_reference import evidence_subject_ref
 from frisket.engine.store.ocr_word_stream import (
     resolve_current_ocr_evidence,
     resolve_ocr_word_stream,
@@ -442,6 +444,17 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
     ).fetchall()
     assert [row["link_role"] for row in links].count("source_provenance") == 2
     assert [row["link_role"] for row in links].count("media_ocr_grounding") == 2
+    for link in project.db.execute(
+        "SELECT row_id,column_id,subject_ref_json FROM evidence_links WHERE sheet_id=?",
+        (sheet_id,),
+    ):
+        _, refs = project.get_values_with_refs(
+            sheet_id, link["column_id"], row_ids=[link["row_id"]]
+        )
+        assert json.loads(link["subject_ref_json"]) == evidence_subject_ref(
+            refs[link["row_id"]]
+        )
+        assert refs[link["row_id"]]["producer_id"] > 0
     ocr_column = next(row for row in project.columns(sheet_id) if row["name"] == "text")
     assert ocr_column["default_hidden"] == 0
     assert sorted(project.get_values(sheet_id, ocr_column["id"]).values()) == [

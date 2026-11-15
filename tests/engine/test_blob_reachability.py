@@ -81,7 +81,8 @@ def test_prepared_text_and_citation_positions_do_not_own_mentioned_blobs(project
     project.add_rows(sheet, [{"text": prepared}], {"text": column})
 
     project.undo()
-    assert project.undo() == producing_op_id
+    # Staging bytes is not a published Change or an Undo event.
+    assert project.undo() is None
 
     assert set(project.gc_blobs()["hashes"]) == {orphan, text_blob, positions_blob}
     assert project._referenced_blob_hashes() == set()
@@ -389,6 +390,8 @@ def test_delete_sheet_streams_surviving_roots_in_bounded_batches(project, monkey
     monkeypatch.setattr(project_blobs, "_insert_live_hashes", bounded_insert)
     monkeypatch.setattr(project, "_referenced_blob_hashes", forbid_set)
     project.delete_sheet(doomed)
+    assert observed == []  # Logical deletion retains Undo data without scanning files.
+    project.gc_blobs()
     assert max(observed) <= 512
     assert sum(observed) == count
     assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == count
