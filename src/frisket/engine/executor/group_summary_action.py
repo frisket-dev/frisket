@@ -106,6 +106,7 @@ class AdmittedGroupSummarizer:
                 GroupSummaryParams(source=columns, **options.model_dump()),
             )
         except TypedMapRowsPlanError as exc:
+            resolved["groups"].close()
             raise GroupSummaryRefused(
                 ActionError(
                     code=exc.code,
@@ -119,6 +120,7 @@ class AdmittedGroupSummarizer:
             self.project, operation
         )
         if duplicate is not None:
+            resolved["groups"].close()
             raise GroupSummaryRefused(duplicate)
         handle = PreparedGroupSummary(
             len(resolved["source_row_ids"]), len(resolved["groups"])
@@ -337,6 +339,7 @@ def run_typed_group_summary_action(
         )
     finally:
         publication.close()
+        prepared.resolved["groups"].close()
     if (
         result.status == "failed"
         and result.receipt_id is None

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Iterator, Mapping
 
 import asyncio
 import hashlib
@@ -54,7 +54,6 @@ from frisket.ai.models.accounting import wire_accounting_meta
 from frisket.ops.group_summary import (
     estimate_group_summary,
     group_summary_messages,
-    group_summary_rows,
 )
 from frisket.engine.store import Project
 from frisket.engine.store.result_generations import ResultGenerationStore
@@ -262,43 +261,69 @@ def _resolve_reduce_group_summary_inputs(
             field="scope.row_ids",
         )
 
-    from frisket.engine.store.consumed_sources import read_consumed_source
+    from contextlib import nullcontext, closing
+    from frisket.engine.store.consumed_source_pages import iter_consumed_source_pages
+    from .group_input_stage import GroupInputStage
 
-    consumed_capture = None
-    if capture_inputs:
-        _, source_values, consumed_capture = read_consumed_source(
-            project,
-            params.sheet_id,
-            [int(columns[name]["id"]) for name in needed],
-            row_ids=row_ids,
-            scope_intent="selected" if params.row_ids is not None else "whole",
-        )
-        values_by_column = {
-            name: source_values[int(columns[name]["id"])] for name in needed
-        }
-    else:
-        # Preview/confirmation estimates do not capture a million identities.
-        values_by_column = {
-            name: project.get_values(
-                params.sheet_id, int(columns[name]["id"]), row_ids=row_ids
-            )
-            for name in needed
-        }
-    groups = group_summary_rows(
-        {
-            row_id: {
-                name: values.get(row_id) for name, values in values_by_column.items()
-            }
-            for row_id in row_ids
-        },
+    groups = GroupInputStage(
+        row_ids,
         source=params.input_columns,
         group_by=params.group_by,
-        group_type=(
-            str(columns[params.group_by]["type"])
-            if params.group_by is not None
-            else None
-        ),
+        group_type=str(columns[params.group_by]["type"])
+        if params.group_by is not None
+        else None,
     )
+    captures = []
+    context = (
+        nullcontext(project) if project.db.in_transaction else project.read_snapshot()
+    )
+    try:
+        with context as snapshot:
+            if capture_inputs:
+                pages = iter_consumed_source_pages(
+                    snapshot,
+                    params.sheet_id,
+                    [int(columns[name]["id"]) for name in needed],
+                    row_ids=row_ids,
+                    scope_intent="selected" if params.row_ids is not None else "whole",
+                    captures=captures,
+                )
+            else:
+
+                def advisory_pages():
+                    # Advisory quotes read values in bounded pages, without
+                    # creating source-identity captures or approval snapshots.
+                    for offset in range(0, len(row_ids), 256):
+                        part = row_ids[offset : offset + 256]
+                        yield (
+                            part,
+                            {
+                                int(columns[name]["id"]): snapshot.get_values(
+                                    params.sheet_id,
+                                    int(columns[name]["id"]),
+                                    row_ids=part,
+                                )
+                                for name in needed
+                            },
+                            {},
+                        )
+
+                pages = advisory_pages()
+            with closing(pages):
+                for page, values, _refs in pages:
+                    for row_id in page:
+                        groups.add(
+                            row_id,
+                            {
+                                name: values[int(columns[name]["id"])].get(row_id)
+                                for name in needed
+                            },
+                        )
+        groups.seal()
+    except BaseException:
+        groups.close()
+        raise
+    consumed_capture = captures[0] if capture_inputs else None
 
     source_columns = {
         name: {
@@ -393,9 +418,9 @@ def _estimate_reduce_group_summary_cost(
     params: GroupSummaryPlan,
     resolved: dict[str, Any],
 ) -> dict[str, Any]:
-    resolved_messages = [
+    resolved_messages = (
         _reduce_group_summary_messages(params, group) for group in resolved["groups"]
-    ]
+    )
     return estimate_group_summary(params.model, resolved_messages)
 
 
@@ -443,10 +468,8 @@ def _reduce_group_summary_effect_group_key(params: GroupSummaryPlan) -> str:
 def _reduce_group_summary_unit_plans(
     params: GroupSummaryPlan,
     resolved: dict[str, Any],
-) -> list[dict[str, Any]]:
-    """One checkpoint unit per group summary call: key, identity, messages."""
-
-    plans: list[dict[str, Any]] = []
+):
+    """Yield one group's complete request without retaining other prompts."""
     for group in resolved["groups"]:
         messages = _reduce_group_summary_messages(params, group)
         unit_key = (
@@ -471,16 +494,13 @@ def _reduce_group_summary_unit_plans(
                 allow_nan=False,
             ).encode("utf-8")
         ).hexdigest()
-        plans.append(
-            {
-                "group": group,
-                "messages": messages,
-                "unit_key": unit_key,
-                "identity": identity,
-                "consumed_capture": resolved["consumed_capture"],
-            }
-        )
-    return plans
+        yield {
+            "group": {key: value for key, value in group.items() if key != "rows"},
+            "messages": messages,
+            "unit_key": unit_key,
+            "identity": identity,
+            "consumed_capture": resolved["consumed_capture"],
+        }
 
 
 def _reduce_group_summary_prompt_hash(params: GroupSummaryPlan) -> str:
@@ -571,6 +591,9 @@ async def _complete_reduce_group_summaries(
     Free/local/cached-strict-replay runs take the unfenced loop: zero durable
     checkpoint writes at $0 stakes."""
 
+    # The quote's payload is no longer needed; actual execution stages current
+    # inputs afresh under the already admitted cohort, without two corpus spools.
+    resolved["groups"].close()
     current = _resolve_reduce_group_summary_inputs(
         project,
         params,
@@ -797,7 +820,9 @@ async def _complete_reduce_group_summaries_unfenced(
         except Exception as exc:  # noqa: BLE001 - per-group failure is persisted
             computations.append(
                 {
-                    "group": group,
+                    "group": {
+                        key: value for key, value in group.items() if key != "rows"
+                    },
                     **_reduce_group_summary_failure_computation(params, router, exc),
                     "direct_effect": envelope,
                     "consumed_capture": resolved["consumed_capture"],
@@ -809,7 +834,7 @@ async def _complete_reduce_group_summaries_unfenced(
             continue
         computations.append(
             {
-                "group": group,
+                "group": {key: value for key, value in group.items() if key != "rows"},
                 **_reduce_group_summary_response_computation(params.model, response),
                 "direct_effect": envelope,
                 "consumed_capture": resolved["consumed_capture"],
@@ -836,8 +861,11 @@ async def _complete_reduce_group_summaries_checkpointed(
     store = EffectCheckpointStore(project.db)
     run_store = RunResultStore(project)
     group_key = _reduce_group_summary_effect_group_key(params)
-    plans = _reduce_group_summary_unit_plans(params, resolved)
-    plan_units = {plan["unit_key"] for plan in plans}
+
+    def plans():
+        return _reduce_group_summary_unit_plans(params, resolved)
+
+    plan_units = {plan["unit_key"] for plan in plans()}
     existing = {
         checkpoint["unit_key"]: checkpoint
         for checkpoint in store.list_group(
@@ -854,7 +882,7 @@ async def _complete_reduce_group_summaries_checkpointed(
             "groups this request no longer produces; refusing to abandon those "
             "effects or call the provider again until they are reconciled"
         )
-    for plan in plans:
+    for plan in plans():
         checkpoint = existing.get(plan["unit_key"])
         if checkpoint is None:
             continue
@@ -888,6 +916,10 @@ async def _complete_reduce_group_summaries_checkpointed(
                 "a returned group-summary effect checkpoint is incomplete or "
                 "corrupt; refusing another provider call until it is reconciled"
             )
+
+    if plan_units:
+        # Preflight retains only keys/identities, never its last full prompt.
+        del plan
 
     # The durable accounting envelope: reused from the crashed invocation's
     # checkpoints when one exists (facts and spend already live on that run),
@@ -935,12 +967,12 @@ async def _complete_reduce_group_summaries_checkpointed(
             model=params.model,
             prompt_hash=_reduce_group_summary_prompt_hash(params),
             params={},
-            total_rows=len(plans),
+            total_rows=len(resolved["groups"]),
             cost_estimate=estimate["cost"],
         )
         envelope = {"op_id": op_id, "run_id": run_id, "attempt_id": None}
 
-    if plans:
+    if resolved["groups"]:
         try:
             commitment = mint_direct_effect_attempt(
                 project,
@@ -982,7 +1014,7 @@ async def _complete_reduce_group_summaries_checkpointed(
 
 async def _reduce_group_summary_checkpointed_loop(
     params: GroupSummaryPlan,
-    plans: list[dict[str, Any]],
+    plans: Callable[[], Iterator[dict[str, Any]]],
     existing: dict[str, dict[str, Any]],
     *,
     envelope: dict[str, Any],
@@ -1006,7 +1038,7 @@ async def _reduce_group_summary_checkpointed_loop(
     )
 
     computations: list[dict[str, Any]] = []
-    for plan in plans:
+    for plan in plans():
         if publication.stopped():
             break
         saved = publication.saved(plan["group"])
@@ -1166,7 +1198,12 @@ async def _reduce_group_summary_checkpointed_loop(
             claim_token=publication.claim_token,
             claimless_direct_effect=False,
         )
-        computation = {"group": plan["group"], **replay_computation}
+        computation = {
+            "group": {
+                key: value for key, value in plan["group"].items() if key != "rows"
+            },
+            **replay_computation,
+        }
         computation["effect"] = {**unit_effect, "checkpoint_id": checkpoint_id}
         computation["_trace_record"] = trace_record[0]
         computations.append(computation)

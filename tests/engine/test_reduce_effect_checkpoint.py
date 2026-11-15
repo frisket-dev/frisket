@@ -420,7 +420,7 @@ def test_reserved_reduce_checkpoint_refuses_resume(project) -> None:
     params = prepared.operation
     resolved = prepared.resolved
     assert isinstance(resolved, dict)
-    plans = reduces._reduce_group_summary_unit_plans(params, resolved)
+    plans = list(reduces._reduce_group_summary_unit_plans(params, resolved))
     group_key = reduces._reduce_group_summary_effect_group_key(params)
     store = EffectCheckpointStore(project.db)
     assert store.reserve(

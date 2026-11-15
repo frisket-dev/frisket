@@ -8,13 +8,21 @@ from .consumed_sources import _descriptors, _hash, _records, authority_revisions
 
 
 def iter_consumed_source_pages(
-    snapshot, sheet_id, column_ids, *, row_ids=None, batch_size=256, captures
+    snapshot,
+    sheet_id,
+    column_ids,
+    *,
+    row_ids=None,
+    batch_size=256,
+    captures,
+    scope_intent=None,
 ):
     """Yield actual value/ref pages; retain one compact capture only on EOF.
 
     Whole-source iteration never materializes its full row roster or values.
-    Explicit selected IDs remain the required frozen cohort. Closing early
-    leaves no complete-source certificate for uncommitted staging work.
+    Explicit IDs freeze the execution cohort; scope_intent separately retains
+    whether later whole-source membership changes matter. Closing early leaves
+    no complete-source certificate for uncommitted staging work.
     """
     if not snapshot.db.in_transaction:
         raise RuntimeError("source pages require their actual read snapshot")
@@ -22,14 +30,21 @@ def iter_consumed_source_pages(
         raise ValueError("source page size must be between 1 and 1000")
     columns = sorted(set(map(int, column_ids)))
     selected = sorted(set(map(int, row_ids))) if row_ids is not None else None
+    intent = (
+        ("whole" if selected is None else "selected")
+        if scope_intent is None
+        else scope_intent
+    )
+    if intent not in {"whole", "selected"} or intent == "selected" and selected is None:
+        raise ValueError("source scope must retain whole or selected intent")
     descriptors = _descriptors(snapshot, columns)
     if any(value is None for value in descriptors.values()):
         raise ValueError("source column is unavailable")
     scope = {
         "sheet_id": int(sheet_id),
         "column_ids": columns,
-        "intent": "whole" if selected is None else "selected",
-        "cohort": selected,
+        "intent": intent,
+        "cohort": selected if intent == "selected" else None,
         "max_row_id": 0,
         "partitions": [],
     }
@@ -58,7 +73,7 @@ def iter_consumed_source_pages(
                 )
             scope["partitions"].append(
                 {
-                    "lo": previous_hi + 1 if selected is None else page[0],
+                    "lo": previous_hi + 1 if intent == "whole" else page[0],
                     "hi": page[-1],
                     "fingerprint": _hash(
                         _records(
@@ -81,7 +96,7 @@ def iter_consumed_source_pages(
         if not scope["partitions"]:
             scope["partitions"].append(
                 {
-                    "lo": 1 if selected is None else 0,
+                    "lo": 1 if intent == "whole" else 0,
                     "hi": 0,
                     "fingerprint": _hash(
                         _records(
@@ -96,13 +111,22 @@ def iter_consumed_source_pages(
                     "member_count": 0,
                 }
             )
+        coherent = True
+        if intent == "whole" and selected is not None:
+            coherent = (
+                count
+                == snapshot.db.execute(
+                    "SELECT count(*) FROM rows WHERE sheet_id=? AND hidden=0",
+                    (sheet_id,),
+                ).fetchone()[0]
+            )
         captures.append(
             {
                 "schema_version": 1,
                 "kind": "aggregate",
                 "scopes": [scope],
                 "revisions": revisions,
-                "coherent": True,
+                "coherent": coherent,
                 "fingerprint": _hash([scope]),
             }
         )

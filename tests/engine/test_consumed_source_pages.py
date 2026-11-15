@@ -87,3 +87,36 @@ def test_early_close_keeps_no_complete_source_capture(tmp_path):
             list(iter_consumed_source_pages(project, sheet, [column], captures=[]))
     finally:
         project.close()
+
+
+@pytest.mark.parametrize("intent", ["whole", "selected"])
+def test_frozen_execution_cohort_retains_independent_source_scope_intent(
+    tmp_path, intent
+):
+    project, sheet, column, _, rows, owner = _seed(tmp_path, count=2)
+    try:
+        frozen = list(rows)
+        project.add_rows(
+            sheet, [{"input": "arrived after admission"}], {"input": column}
+        )
+        captures, consumed = [], []
+        with project.read_snapshot() as snapshot:
+            for ids, _values, _refs in iter_consumed_source_pages(
+                snapshot,
+                sheet,
+                [column],
+                row_ids=frozen,
+                scope_intent=intent,
+                captures=captures,
+            ):
+                consumed.extend(ids)
+        assert consumed == frozen
+        with project.transaction_scope():
+            bundle = store_capture(
+                project, captures[0], owner_op_id=owner, output_sheet_id=sheet
+            )
+        assert bundle_state(project, bundle) == (
+            "stale" if intent == "whole" else "fresh"
+        )
+    finally:
+        project.close()
