@@ -1030,15 +1030,20 @@ def _estimate_run(
             # An unavailable route has no executable quote. Do not discard its
             # reason and ask the recipe to invent a second, unrouted estimate.
             raise ExecutionResolutionRefused(resolution)
-        col_map = {c["name"]: c["id"] for c in project.columns(spec["sheet_id"])}
-        values = [
-            row_values(project, recipe, spec, col_map, row_id, for_model=False)
-            for row_id in rows
-        ]
-        if resolution is not None and recipe.consumes_resolution:
-            est = recipe.estimate(project, spec, values, resolution=resolution)
+        if not recipe.consumes_resolution and recipe.cost_class_for(spec) == "free":
+            # A declared free, unrouted action has no purchase to estimate.
+            # Do not read every source cell before the bounded execution read.
+            est = unestimated_cost(recipe, spec)
         else:
-            est = recipe.estimate(project, spec, values)
+            col_map = {c["name"]: c["id"] for c in project.columns(spec["sheet_id"])}
+            values = [
+                row_values(project, recipe, spec, col_map, row_id, for_model=False)
+                for row_id in rows
+            ]
+            if resolution is not None and recipe.consumes_resolution:
+                est = recipe.estimate(project, spec, values, resolution=resolution)
+            else:
+                est = recipe.estimate(project, spec, values)
         out = {
             "rows": len(rows),
             **(est if est is not None else unestimated_cost(recipe, spec)),

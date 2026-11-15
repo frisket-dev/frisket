@@ -17,7 +17,10 @@ from frisket.actions.registry import ACTION_REGISTRY
 from frisket.actions.system import BoundTypedActionRequest
 from frisket.actions.types import ActionRequest
 from frisket.engine.executor import ExecutorDeps, http_request, run_action_spec
-from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
+from frisket.engine.executor.map_rows_action import (
+    TypedMapRowsPlanError,
+    build_typed_map_rows_plan,
+)
 from frisket.engine.runner import validation
 from frisket.engine.runner.map_runner import MapRunner, NetworkDisabled
 from frisket.engine.runner.network_policy import remote_capability_for_spec
@@ -142,7 +145,6 @@ def test_off_rejects_typed_api_call_at_validate_and_dispatch(
         table: project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
         for table in ("runs", "ops", "results", "receipts")
     }
-    project.set_network_policy(mode="off")
     runner = MapRunner(project, _router(), authority=UnroutedOnlyAuthority(project))
     request = ActionRequest(
         action_id="map.api_call",
@@ -154,6 +156,15 @@ def test_off_rejects_typed_api_call_at_validate_and_dispatch(
         project,
         BoundTypedActionRequest.bind(ACTION_REGISTRY.get("map.api_call"), request),
     )
+    project.set_network_policy(mode="off")
+    with pytest.raises(TypedMapRowsPlanError) as plan_error:
+        build_typed_map_rows_plan(
+            project,
+            BoundTypedActionRequest.bind(ACTION_REGISTRY.get("map.api_call"), request),
+        )
+    assert plan_error.value.code == "network_disabled"
+    assert plan_error.value.details["capability"] == "external:api_call"
+    # A plan prepared before the policy changed must also fail at dispatch.
     with pytest.raises(NetworkDisabled) as excinfo:
         validation.validate_spec(
             runner.project,
