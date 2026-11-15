@@ -15,6 +15,7 @@ from pathlib import Path
 from filelock import FileLock, Timeout
 
 from frisket.runtime.supervisor import spawn_service, stop_service
+from frisket.runtime._environment_use import LOCK_NAME
 
 _RUNTIME_DIR_ENV = "FRISKET_MODEL_RUNTIME_DIR"
 _READY_MARKER = ".ready"
@@ -158,18 +159,21 @@ def _probe_python(python: Path, statement: str) -> bool:
     """Run one import/readiness statement inside an optional environment."""
 
     try:
-        result = subprocess.run(  # noqa: S603
+        process = spawn_service(
             [str(python), "-c", statement],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             env=model_child_environment(),
-            check=False,
-            timeout=60,
+            runtime_ready=False,
         )
+        try:
+            returncode = process.wait(timeout=60)
+        finally:
+            stop_service(process)
     except (OSError, subprocess.TimeoutExpired):
         return False
-    return result.returncode == 0
+    return returncode == 0
 
 
 def _probe_install() -> bool:
@@ -221,6 +225,7 @@ def _run_uv(
     *,
     should_cancel: Callable[[], bool],
     progress: Callable[[str], None],
+    runtime_root: Path | None = None,
 ) -> None:
     process = spawn_service(
         argv,
@@ -228,6 +233,9 @@ def _run_uv(
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         env=model_child_environment(installer=True),
+        runtime_root=runtime_root,
+        runtime_ready=False,
+        runtime_exclusive=runtime_root is not None,
     )
     while process.poll() is None:
         if should_cancel():
@@ -264,9 +272,13 @@ def _install_profile(
         root=profile.root, should_cancel=should_cancel, progress=progress
     )
     try:
-        if _is_installed(profile.root):
+        if _is_installed(profile.root) and profile.probe():
+            if should_cancel():
+                raise ModelInstallCancelled
             progress(profile.already_installed_message)
             return
+        if should_cancel():
+            raise ModelInstallCancelled
         source = model_server_source()
         constraint = (
             source / profile.constraint_file
@@ -286,49 +298,85 @@ def _install_profile(
             raise RuntimeError(
                 "bundled dependency requirements are missing; reinstall Frisket"
             )
-        (profile.root / _READY_MARKER).unlink(missing_ok=True)
-        uv = _uv_command()
-        progress(profile.create_message)
-        venv_argv = [
-            *uv,
-            "venv",
-            "--python",
-            sys.executable,
-            str(profile.root / "venv"),
-        ]
-        if (profile.root / "venv").exists():
-            venv_argv.append("--clear")
-        _run_uv(
-            venv_argv,
-            should_cancel=should_cancel,
-            progress=progress,
+        # Only explicit setup probes health. Repair may replace the venv,
+        # but cannot remove dependencies beneath any guarded model user.
+        usage = FileLock(profile.root / LOCK_NAME, timeout=0)
+        try:
+            usage.acquire()
+        except Timeout as exc:
+            raise RuntimeError(
+                "the local model environment is in use; stop local model work "
+                "and restart Frisket before repairing it"
+            ) from exc
+        try:
+            (profile.root / _READY_MARKER).unlink(missing_ok=True)
+        finally:
+            usage.release()
+        # Every native child retains its own guardian lease if this installer
+        # owner dies. The absent marker keeps model users out between steps.
+        _rebuild_profile(
+            profile, source, constraint, requirements, should_cancel, progress
         )
-        install_argv = [
-            *uv,
-            *(["--no-config"] if requirements is not None else []),
-            "pip",
-            "install",
-            "--python",
-            str(_runtime_python(profile.root)),
-        ]
-        if sys.platform in {"linux", "win32"}:
-            install_argv.extend(["--torch-backend", "cpu"])
-        if constraint is not None:
-            install_argv.extend(["--constraint", str(constraint)])
-        if requirements is not None:
-            if profile.require_hashes:
-                install_argv.append("--require-hashes")
-            install_argv.extend(["--requirement", str(requirements)])
-        else:
-            install_argv.append(f"{source}[{profile.extra}]")
-        progress(profile.install_message)
-        _run_uv(install_argv, should_cancel=should_cancel, progress=progress)
-        if not profile.probe():
-            raise RuntimeError(profile.probe_failure_message)
-        (profile.root / _READY_MARKER).touch()
-        progress(profile.installed_message)
     finally:
         lock.release()
+
+
+def _rebuild_profile(
+    profile: _InstallProfile,
+    source: Path,
+    constraint: Path | None,
+    requirements: Path | None,
+    should_cancel: Callable[[], bool],
+    progress: Callable[[str], None],
+) -> None:
+    uv = _uv_command()
+    progress(profile.create_message)
+    venv_argv = [
+        *uv,
+        "venv",
+        "--python",
+        sys.executable,
+        str(profile.root / "venv"),
+    ]
+    if (profile.root / "venv").exists():
+        venv_argv.append("--clear")
+    _run_uv(
+        venv_argv,
+        should_cancel=should_cancel,
+        progress=progress,
+        runtime_root=profile.root,
+    )
+    install_argv = [
+        *uv,
+        *(["--no-config"] if requirements is not None else []),
+        "pip",
+        "install",
+        "--python",
+        str(_runtime_python(profile.root)),
+    ]
+    if sys.platform in {"linux", "win32"}:
+        install_argv.extend(["--torch-backend", "cpu"])
+    if constraint is not None:
+        install_argv.extend(["--constraint", str(constraint)])
+    if requirements is not None:
+        if profile.require_hashes:
+            install_argv.append("--require-hashes")
+        install_argv.extend(["--requirement", str(requirements)])
+    else:
+        install_argv.append(f"{source}[{profile.extra}]")
+    progress(profile.install_message)
+    _run_uv(
+        install_argv,
+        should_cancel=should_cancel,
+        progress=progress,
+        runtime_root=profile.root,
+    )
+    if not profile.probe():
+        raise RuntimeError(profile.probe_failure_message)
+    if should_cancel():
+        raise ModelInstallCancelled
+    (profile.root / _READY_MARKER).touch()
+    progress(profile.installed_message)
 
 
 def install_docling(

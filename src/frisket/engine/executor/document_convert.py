@@ -592,20 +592,78 @@ class _BoundDocumentConverter:
         for a routed call, never a fresh ephemeral dereference."""
         if not path.exists():
             raise RowError("invalid_input_ref", f"convert input not found: {path}")
-        files = [("files", (path.name, path.read_bytes(), "application/octet-stream"))]
-        body = await sidecar_post(
-            self._ctx,
-            "/to-markdown",
-            files=files,
-            data={"engine": engine},
-            op="convert",
-            light_engine=LIGHT_ENGINE,
-            connection=self._route_connection(),
-            dispatch=dispatch_for_context(self._ctx),
+        from hashlib import sha256
+        from frisket.ai.models.metadata import ModelCallMeta
+        from frisket.ops.media_probe import probe_for_ingest
+
+        payload = path.read_bytes()
+        files = [("files", (path.name, payload, "application/octet-stream"))]
+        policy = getattr(
+            self._ctx.extras.get("router"), "model_call_policy", None
+        ) or self._ctx.extras.get("service_operation_policy")
+        operation_id = None
+        if policy is not None:
+            digest = sha256(payload).hexdigest()
+            pages = (
+                probe_for_ingest(path, digest=digest).get("pages")
+                if payload.startswith(b"%PDF-")
+                else _office_page_estimate(payload, path.suffix.lower())
+                if path.suffix.lower() in {".doc", ".docx", ".ppt", ".pptx"}
+                else 1
+            )
+            operation_id = policy.admit_document_conversion(
+                engine=engine,
+                prepared={"engine": engine, "document_digest": digest},
+                page_count=pages,
+                context=self._ctx,
+            )
+        try:
+            body = await sidecar_post(
+                self._ctx,
+                "/to-markdown",
+                files=files,
+                data={"engine": engine},
+                op="convert",
+                light_engine=LIGHT_ENGINE,
+                connection=self._route_connection(),
+                dispatch=dispatch_for_context(self._ctx),
+            )
+            docs = body.get("documents") or body.get("results")
+            doc = docs[0] if docs else body
+            markdown, ocr_used = doc.get("markdown", ""), doc.get("ocr_used") or []
+            if not isinstance(markdown, str) or not isinstance(ocr_used, list):
+                raise ValueError("document sidecar returned an invalid document")
+            if operation_id is not None and not ocr_used:
+                raise ValueError("document sidecar returned no page usage")
+            if not all(isinstance(page, bool) for page in ocr_used):
+                raise ValueError("document sidecar returned invalid per-page OCR usage")
+        except BaseException as error:
+            if operation_id is not None:
+                policy.fail_service(operation_id, error)
+            raise
+        # A response may arrive after Stop. Record its measured work before
+        # publication checks, just like OCR/transcription; never bill estimates.
+        if operation_id is not None:
+            policy.finish_service(
+                operation_id, result=body, usage={"pages": len(ocr_used)}
+            )
+        self._store_hosted_accounting(
+            {
+                "model_calls": [
+                    ModelCallMeta.sidecar(
+                        capability=CAPABILITY_TO_MARKDOWN,
+                        engine=engine,
+                        model_ids=[engine],
+                        units={
+                            "pages": len(ocr_used),
+                            "requests": 1,
+                            "input_bytes": len(payload),
+                        },
+                    ).as_dict()
+                ]
+            }
         )
-        docs = body.get("documents") or body.get("results")
-        doc = docs[0] if docs else body
-        return doc.get("markdown", ""), doc.get("ocr_used") or []
+        return markdown, ocr_used
 
     async def _convert_datalab(self, path: Path) -> tuple[str, dict[str, Any]]:
         """Datalab's hosted Marker /convert (pay-per-call).  Credential-gated

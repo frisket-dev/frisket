@@ -10,7 +10,7 @@ import pytest
 
 from frisket.engine.jobs import model_pull_store as store
 from frisket.engine.jobs.ports import JobHandlerContext
-from frisket.engine.jobs.artifact_pull import run_artifact_pull
+from frisket.engine.jobs.artifact_pull import artifact_staging_token, run_artifact_pull
 from frisket.engine.jobs.artifact_ref import normalize_artifact_ref
 from frisket.engine.jobs.queue import open_queue
 from frisket.engine._workers.parakeet_artifacts import huggingface_hub_cache
@@ -108,7 +108,9 @@ def test_happy_path_two_file_pair(tmp_path):
         assert (install / "model.bin").read_bytes() == b"weights-bytes"
         assert (install / "source.spm").read_bytes() == b"spm-bytes"
         # staging is gone (moved into place)
-        assert not model_cache.tmp_dir(pull_id, root=tmp_path / "cache").exists()
+        assert not model_cache.tmp_dir(
+            artifact_staging_token(queue.engine, pull_id), root=tmp_path / "cache"
+        ).exists()
     finally:
         queue.close()
 
@@ -141,7 +143,9 @@ def test_checksum_mismatch_is_terminal_and_cleans_up(tmp_path):
         assert not model_cache.artifact_install_dir(
             art, root=tmp_path / "cache"
         ).exists()
-        assert not model_cache.tmp_dir(pull_id, root=tmp_path / "cache").exists()
+        assert not model_cache.tmp_dir(
+            artifact_staging_token(queue.engine, pull_id), root=tmp_path / "cache"
+        ).exists()
     finally:
         queue.close()
 
@@ -214,7 +218,9 @@ def test_cancel_between_chunks_discards_partial(tmp_path):
         assert not model_cache.artifact_install_dir(
             art, root=tmp_path / "cache"
         ).exists()
-        assert not model_cache.tmp_dir(pull_id, root=tmp_path / "cache").exists()
+        assert not model_cache.tmp_dir(
+            artifact_staging_token(queue.engine, pull_id), root=tmp_path / "cache"
+        ).exists()
     finally:
         queue.close()
 
@@ -564,7 +570,9 @@ def test_resume_appends_from_partial_via_range_206(tmp_path):
         )
         cache = tmp_path / "cache"
         # Pre-seed a partial download of the first 800 bytes.
-        staging = model_cache.tmp_dir(row.id, root=cache)
+        staging = model_cache.tmp_dir(
+            artifact_staging_token(queue.engine, row.id), root=cache
+        )
         staging.mkdir(parents=True)
         (staging / "model.gguf").write_bytes(full[:800])
 
@@ -619,7 +627,9 @@ def test_resume_falls_back_to_full_rewrite_on_200(tmp_path):
             engine, workspace_root=str(tmp_path), model_ref=ref
         )
         cache = tmp_path / "cache"
-        staging = model_cache.tmp_dir(row.id, root=cache)
+        staging = model_cache.tmp_dir(
+            artifact_staging_token(queue.engine, row.id), root=cache
+        )
         staging.mkdir(parents=True)
         (staging / "m.gguf").write_bytes(b"STALE-PARTIAL")  # wrong prefix
 
@@ -684,7 +694,12 @@ def test_truncated_resume_keeps_partial_for_next_attempt(tmp_path):
         assert row2.status == store.STATUS_RUNNING  # retryable, still active
         assert row2.error_code == "artifact_source_unreachable"
         # the partial is KEPT (not discarded) so the next attempt resumes
-        partial = model_cache.tmp_dir(row.id, root=cache) / "m.gguf"
+        partial = (
+            model_cache.tmp_dir(
+                artifact_staging_token(queue.engine, row.id), root=cache
+            )
+            / "m.gguf"
+        )
         assert partial.exists() and partial.stat().st_size == 400
     finally:
         queue.close()
@@ -769,7 +784,9 @@ def test_hf_snapshot_delegates_to_snapshot_download(tmp_path, monkeypatch):
             f"hf-revision:{snapshot.repo_id}@{snapshot.revision}"
         )
         # no model_cache install dir is created for a thin-delegated snapshot
-        assert not model_cache.tmp_dir(pull_id, root=tmp_path / "cache").exists()
+        assert not model_cache.tmp_dir(
+            artifact_staging_token(queue.engine, pull_id), root=tmp_path / "cache"
+        ).exists()
     finally:
         queue.close()
 

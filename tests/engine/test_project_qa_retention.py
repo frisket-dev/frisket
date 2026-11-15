@@ -58,12 +58,17 @@ def _conversation(project, target, *, handle=True, tool=False, terminal=True):
         write_mode="ask_each",
         max_turns=None,
     )
-    research_store.update(
+    research_store.checkpoint(
+        research["id"], [{"role": "tool", "content": "sensitive tool response"}]
+    )
+    research_store.publish_approval(
         research["id"],
-        expected_revision=research["revision"],
-        state="interrupted",
-        saved_messages=[{"role": "tool", "content": "sensitive tool response"}],
-        pending_approval={"prompt": "sensitive request"},
+        {
+            "id": "sensitive-approval",
+            "operation_id": "write-1",
+            "kind": "action",
+            "prompt": "sensitive request",
+        },
     )
     project.db.execute(
         "INSERT INTO project_qa_research_operations(research_id,operation_id,payload_identity,operation_kind,estimate_micros,actual_micros,metadata_json,created_at) VALUES (?,?,?,'model',230000,230000,?,datetime('now'))",

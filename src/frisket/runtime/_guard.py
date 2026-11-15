@@ -8,6 +8,7 @@ or kills its guardian; sandbox policy supplies the separate security boundary.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 import signal
 import subprocess
 import sys
@@ -21,8 +22,23 @@ def main() -> int:
     grace = float(sys.argv[2])
     if parent_pid < 1 or not 0 < grace <= 10:
         raise ValueError("invalid guardian configuration")
+    command = sys.argv[3:]
+    runtime_root = None
+    runtime_exclusive = False
+    runtime_ready = True
+    if command[:1] == ["--runtime-root"]:
+        if (
+            len(command) < 5
+            or not Path(command[1]).is_absolute()
+            or command[2] not in {"shared", "exclusive"}
+            or command[3] not in {"ready", "verify"}
+        ):
+            raise ValueError("invalid runtime usage lease")
+        runtime_root = Path(command[1])
+        runtime_exclusive = command[2] == "exclusive"
+        runtime_ready = command[3] == "ready"
+        command = command[4:]
     if sys.platform == "win32":
-        from pathlib import Path
         import json
         import tempfile
 
@@ -35,12 +51,23 @@ def main() -> int:
             config.write_text(
                 json.dumps(
                     {
-                        "command": sys.argv[3],
-                        "args": sys.argv[4:],
+                        "command": command[0],
+                        "args": command[1:],
                         "parentPid": os.getpid(),
                         "ownerPid": parent_pid,
                         "stop": str(root / "stop"),
                         "proof": str(root / "clean"),
+                        **(
+                            {
+                                "runtimeLock": str(runtime_root / ".runtime-use.lock"),
+                                "runtimeReady": str(runtime_root / ".ready")
+                                if runtime_ready
+                                else "",
+                                "runtimeExclusive": runtime_exclusive,
+                            }
+                            if runtime_root is not None
+                            else {}
+                        ),
                     }
                 ),
                 encoding="utf-8",
@@ -91,7 +118,26 @@ def main() -> int:
         libc = ctypes.CDLL(None, use_errno=True)
         if libc.prctl(36, 1, 0, 0, 0) != 0:  # PR_SET_CHILD_SUBREAPER
             raise OSError(ctypes.get_errno(), "worker subreaper setup failed")
-    child = subprocess.Popen(sys.argv[3:], start_new_session=True)
+    # Load only the signed, stdlib helper; importing the application here
+    # would precede the target's sandbox policy bootstrap.
+    import runpy
+
+    runtime_use = runpy.run_path(str(Path(__file__).with_name("_environment_use.py")))[
+        "runtime_use"
+    ]
+    with runtime_use(
+        runtime_root,
+        lambda: stopped or os.getppid() != parent_pid,
+        exclusive=runtime_exclusive,
+        require_ready=runtime_ready,
+    ) as admitted:
+        if not admitted:
+            return 0
+        return _run_target(command, parent_pid, grace, lambda: stopped)
+
+
+def _run_target(command, parent_pid, grace, stopped):
+    child = subprocess.Popen(command, start_new_session=True)
 
     def reap():
         child.poll()
@@ -120,7 +166,7 @@ def main() -> int:
             return False
 
     try:
-        while child.poll() is None and not stopped and os.getppid() == parent_pid:
+        while child.poll() is None and not stopped() and os.getppid() == parent_pid:
             time.sleep(0.025)
     finally:
         send(signal.SIGTERM)

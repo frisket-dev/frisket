@@ -104,6 +104,13 @@ class Engine:
 
     def get(self) -> Any:
         """Return the adapter or raise for a missing/failed engine."""
+        return self._get(retry_failed=False)
+
+    def retry_load(self) -> Any:
+        """Deliberately retry a failed load; retain an already loaded adapter."""
+        return self._get(retry_failed=True)
+
+    def _get(self, *, retry_failed: bool) -> Any:
         if self.state.adapter is not None:
             return self._route_adapter()
         if not self.installed:
@@ -122,6 +129,8 @@ class Engine:
                 f"'frisket-models[{extra}]')"
             )
         with self.state.lock:
+            if retry_failed and self.state.adapter is None:
+                self.state.error = None
             if self.state.adapter is None and self.state.error is None:
                 try:
                     self.state.adapter = self.loader()

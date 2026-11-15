@@ -22,7 +22,7 @@ distinct download paths depending on the pinned entry's integrity guarantee
    operator accepts responsibility for that path).
 2. Records the artifact provenance on the pull row.
 3. Fast-paths an already-installed artifact (cheap presence+size probe).
-4. Streams each file into ``.pull-tmp/<pull_id>/``, computing the running
+4. Streams each file into ``.pull-tmp/<workspace/ref hash>-<pull_id>/``, computing the running
    SHA256, updating byte progress, checking cooperative cancel between chunks.
 5. Verifies each pinned file's SHA256 before promotion (mismatch is terminal
    ``checksum_mismatch``).
@@ -436,6 +436,15 @@ def _unpinned_hf_plan(art: ArtifactRef) -> tuple[str, list[PinnedFile]]:
     ]
 
 
+def artifact_staging_token(engine, pull_id: int) -> str:
+    """Queue IDs are workspace-local; temporary model bytes are user-wide."""
+    row = model_pull_store.get(engine, pull_id)
+    scope = hashlib.sha256(
+        (row.workspace_root + "\0" + row.model_ref).encode()
+    ).hexdigest()
+    return f"{scope}-{pull_id}"
+
+
 def _run_artifact_pull_unlocked(
     client: httpx.Client,
     *,
@@ -450,6 +459,7 @@ def _run_artifact_pull_unlocked(
 ) -> dict:
     """Run one attempt of an artifact pull. Returns the terminal handler dict
     (``{"status": "done"|"cancelled", ...}``) or raises via ``_fail``."""
+    staging_token = artifact_staging_token(engine, pull_id)
     pinned = manifest_lookup(art.canonical)
 
     # hf_snapshot (revision-pinned, thin delegation to snapshot_download) is a
@@ -564,7 +574,7 @@ def _run_artifact_pull_unlocked(
             return {"status": "done", "already_installed": True}
 
     if should_cancel():
-        model_cache.discard_tmp(pull_id, root=cache_root)
+        model_cache.discard_tmp(staging_token, root=cache_root)
         model_pull_store.mark_cancelled(engine, pull_id)
         return {"status": "cancelled"}
 
@@ -575,7 +585,7 @@ def _run_artifact_pull_unlocked(
     # Accept-Ranges: bytes, 206 on an explicit Range). We do NOT discard
     # staging at attempt start; only a cancel or a terminal failure discards,
     # so a retryable drop keeps its progress for the next attempt.
-    staging = model_cache.tmp_dir(pull_id, root=cache_root)
+    staging = model_cache.tmp_dir(staging_token, root=cache_root)
     staging.mkdir(parents=True, exist_ok=True)
 
     prior_files_bytes = 0  # fully-downloaded bytes of files completed this run
@@ -617,7 +627,7 @@ def _run_artifact_pull_unlocked(
                 status = response.status_code
                 if status == 404:
                     response.close()
-                    model_cache.discard_tmp(pull_id, root=cache_root)
+                    model_cache.discard_tmp(staging_token, root=cache_root)
                     raise _fail(
                         engine,
                         pull_id,
@@ -658,7 +668,7 @@ def _run_artifact_pull_unlocked(
                     )
                 if status not in (200, 206):
                     response.close()
-                    model_cache.discard_tmp(pull_id, root=cache_root)
+                    model_cache.discard_tmp(staging_token, root=cache_root)
                     raise _fail(
                         engine,
                         pull_id,
@@ -694,7 +704,7 @@ def _run_artifact_pull_unlocked(
                         if should_cancel():
                             response.close()
                             handle.close()
-                            model_cache.discard_tmp(pull_id, root=cache_root)
+                            model_cache.discard_tmp(staging_token, root=cache_root)
                             model_pull_store.mark_cancelled(engine, pull_id)
                             return {"status": "cancelled"}
                         handle.write(chunk)
@@ -742,7 +752,7 @@ def _run_artifact_pull_unlocked(
 
         # Verify the pin (pinned files only; unpinned files carry sha256="").
         if pinned_file.sha256 and computed != pinned_file.sha256:
-            model_cache.discard_tmp(pull_id, root=cache_root)
+            model_cache.discard_tmp(staging_token, root=cache_root)
             raise _fail(
                 engine,
                 pull_id,
@@ -784,9 +794,9 @@ def _run_artifact_pull_unlocked(
         completed_bytes=completed_total,
     )
     try:
-        model_cache.promote(pull_id, art, root=cache_root)
+        model_cache.promote(staging_token, art, root=cache_root)
     except OSError as exc:
-        model_cache.discard_tmp(pull_id, root=cache_root)
+        model_cache.discard_tmp(staging_token, root=cache_root)
         raise _fail(
             engine,
             pull_id,
@@ -834,7 +844,8 @@ def run_artifact_pull(
         art, cache_root=cache_root, should_cancel=should_cancel
     )
     if lock is None:
-        model_cache.discard_tmp(pull_id, root=cache_root)
+        staging_token = artifact_staging_token(engine, pull_id)
+        model_cache.discard_tmp(staging_token, root=cache_root)
         model_pull_store.mark_cancelled(engine, pull_id)
         return {"status": "cancelled"}
     try:
@@ -853,10 +864,35 @@ def run_artifact_pull(
         lock.release()
 
 
+def uninstall_artifact(
+    engine,
+    *,
+    workspace_root: str,
+    art: ArtifactRef,
+    cache_root: Path | None = None,
+) -> model_pull_store.ModelPullRow | None:
+    """Own removal and its record under the same lock used by provisioning."""
+    lock_path = model_cache.artifact_lock_path(art, root=cache_root)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with FileLock(lock_path, timeout=0):
+            with model_pull_store.uninstalling_ref(
+                engine, workspace_root=workspace_root, model_ref=art.canonical
+            ) as row:
+                if row is not None:
+                    model_cache.uninstall(art, root=cache_root)
+            return row
+    except Timeout as exc:
+        raise model_pull_store.UninstallInFlightError(
+            "the model is being installed or removed; try again when it finishes"
+        ) from exc
+
+
 __all__ = [
     "ArtifactProvisionError",
     "ProvisionCancelled",
     "default_manifest_lookup",
     "provision_pinned",
     "run_artifact_pull",
+    "uninstall_artifact",
 ]

@@ -10,7 +10,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 
-RESEARCH_STATES = frozenset({"running", "paused", "interrupted", "completed"})
 WRITE_MODES = frozenset({"ask_each", "ask_overwrite", "full_access"})
 OPERATION_KINDS = frozenset({"model", "action", "search"})
 _UNSET = object()
@@ -224,6 +223,11 @@ class ProjectQAResearchStore:
                         "turn already has different research settings"
                     )
                 return self._run_record(existing)
+            parent = db.execute(
+                "SELECT status FROM project_qa_turns WHERE id=?", (turn_id,)
+            ).fetchone()
+            if parent is None or parent["status"] != "running":
+                raise ProjectQAResearchConflictError("This research run has stopped.")
             now = _now()
             research_id = _id()
             db.execute(
@@ -253,27 +257,63 @@ class ProjectQAResearchStore:
 
         return self._write(write)
 
-    def update(
+    def _active(
+        self, research_id: str, *, allow_stopping: bool = False
+    ) -> dict[str, Any]:
+        current = self.get(research_id)
+        parent = self.db.execute(
+            "SELECT status FROM project_qa_turns WHERE id=?", (current["turn_id"],)
+        ).fetchone()
+        allowed = {"running", "stopping"} if allow_stopping else {"running"}
+        if parent is None or parent["status"] not in allowed:
+            raise ProjectQAResearchConflictError("This research run has stopped.")
+        return current
+
+    def assert_running(self, research_id: str) -> dict[str, Any]:
+        """Observe parent authority without installing or changing permission."""
+        return self._active(research_id)
+
+    def publish_approval(
+        self, research_id: str, pending_approval: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        """Publish one exact operation while its parent still admits work."""
+        pending = _mapping(pending_approval, name="pending_approval")
+        for field in ("id", "operation_id", "kind"):
+            _nonempty(pending.get(field), name=field)
+
+        def write(db: sqlite3.Connection) -> dict[str, Any]:
+            current = self._active(research_id)
+            if current["pending_approval"] is not None:
+                raise ProjectQAResearchConflictError("An approval is already pending.")
+            db.execute(
+                "UPDATE project_qa_research_runs SET state='paused',pending_approval_json=?,"
+                "revision=revision+1,updated_at=? WHERE id=?",
+                (_json(pending), _now(), research_id),
+            )
+            return self.get(research_id)
+
+        return self._write(write)
+
+    def resume(
         self,
         research_id: str,
         *,
+        approval_id: str,
         expected_revision: int,
-        state: str | object = _UNSET,
+        decision: str,
+        actor: str | None,
         budget_micros: int | object = _UNSET,
         write_mode: str | object = _UNSET,
         max_turns: int | None | object = _UNSET,
-        saved_messages: Sequence[Any] | object = _UNSET,
-        pending_approval: Mapping[str, Any] | None | object = _UNSET,
-        output_grants: Sequence[Any] | object = _UNSET,
     ) -> dict[str, Any]:
-        research_id = _nonempty(research_id, name="research_id")
+        """Consume one decision and its preference changes in one transaction."""
         if isinstance(expected_revision, bool) or not isinstance(
             expected_revision, int
         ):
             raise ValueError("expected_revision must be an integer")
+        if decision not in {"continue", "approve", "skip"}:
+            raise ValueError("unsupported research decision")
         values: dict[str, Any] = {}
-        if state is not _UNSET:
-            values["state"] = _choice(state, name="state", choices=RESEARCH_STATES)
         if budget_micros is not _UNSET:
             values["budget_micros"] = _nonnegative_int(
                 budget_micros, name="budget_micros"
@@ -284,63 +324,87 @@ class ProjectQAResearchStore:
             )
         if max_turns is not _UNSET:
             values["max_turns"] = _positive_int_or_none(max_turns, name="max_turns")
-        if saved_messages is not _UNSET:
-            values["saved_messages_json"] = _json(
-                _list(saved_messages, name="saved_messages")
-            )
-        if pending_approval is not _UNSET:
-            values["pending_approval_json"] = (
-                None
-                if pending_approval is None
-                else _json(_mapping(pending_approval, name="pending_approval"))
-            )
-        if output_grants is not _UNSET:
-            values["output_grants_json"] = _json(
-                _list(output_grants, name="output_grants")
-            )
 
         def write(db: sqlite3.Connection) -> dict[str, Any]:
-            existing = db.execute(
-                "SELECT revision,turn_count FROM project_qa_research_runs WHERE id=?",
-                (research_id,),
-            ).fetchone()
-            if existing is None:
-                raise ProjectQAResearchNotFound("research run not found")
-            if existing["revision"] != expected_revision:
+            current = self._active(research_id)
+            if current["actor"] != actor:
+                raise PermissionError(
+                    "Only the person who started this run can approve it."
+                )
+            if current["revision"] != expected_revision:
                 raise ProjectQAResearchConflictError("research revision changed")
+            pending = current["pending_approval"] or {}
+            if pending.get("id") != approval_id:
+                raise ProjectQAResearchConflictError(
+                    "This approval is no longer pending."
+                )
+            if pending.get("kind") == "unknown_cost":
+                raise ValueError(
+                    "Cost is unavailable. Stop this run and choose a priced model or engine."
+                )
+            if pending.get("kind") == "action" and decision not in {"approve", "skip"}:
+                raise ValueError("Approve or skip this action.")
             if "budget_micros" in values:
-                committed = db.execute(
-                    "SELECT COALESCE(SUM(COALESCE(actual_micros,estimate_micros)),0) "
-                    "FROM project_qa_research_operations WHERE research_id=?",
-                    (research_id,),
-                ).fetchone()[0]
-                if values["budget_micros"] < committed:
+                if (
+                    values["budget_micros"]
+                    < self.budget_summary(research_id)["committed_micros"]
+                ):
                     raise ValueError(
                         "The total budget cannot be less than spent and committed costs."
                     )
             if (
                 values.get("max_turns") is not None
-                and values["max_turns"] < existing["turn_count"]
+                and values["max_turns"] < current["turn_count"]
             ):
                 raise ValueError(
                     "The turn limit cannot be less than turns already used."
                 )
             assignments = [f"{column}=?" for column in values]
-            arguments = list(values.values())
-            assignments.extend(["revision=revision+1", "updated_at=?"])
-            arguments.extend([_now(), research_id, expected_revision])
-            changed = db.execute(
-                f"UPDATE project_qa_research_runs SET {','.join(assignments)} "
-                "WHERE id=? AND revision=?",
-                arguments,
+            assignments.extend(
+                [
+                    "state='running'",
+                    "pending_approval_json=NULL",
+                    "revision=revision+1",
+                    "updated_at=?",
+                ]
             )
-            if changed.rowcount != 1:
-                raise ProjectQAResearchConflictError("research revision changed")
-            return self._run_record(
+            db.execute(
+                f"UPDATE project_qa_research_runs SET {','.join(assignments)} WHERE id=?",
+                [*values.values(), _now(), research_id],
+            )
+            return self.get(research_id)
+
+        return self._write(write)
+
+    def checkpoint(self, research_id: str, messages: Sequence[Any]) -> dict[str, Any]:
+        """Save messages without gaining authority or changing preferences."""
+        serialized = _json(_list(messages, name="messages"))
+
+        def write(db: sqlite3.Connection) -> dict[str, Any]:
+            self._active(research_id, allow_stopping=True)
+            db.execute(
+                "UPDATE project_qa_research_runs SET saved_messages_json=?,"
+                "revision=revision+1,updated_at=? WHERE id=?",
+                (serialized, _now(), research_id),
+            )
+            return self.get(research_id)
+
+        return self._write(write)
+
+    def add_output_grant(self, research_id: str, receipt_id: str) -> dict[str, Any]:
+        """Retain a returned child receipt, including during cancellation drain."""
+        receipt_id = _nonempty(receipt_id, name="receipt_id")
+
+        def write(db: sqlite3.Connection) -> dict[str, Any]:
+            current = self.get(research_id)
+            grants = current["output_grants"]
+            if receipt_id not in grants:
                 db.execute(
-                    "SELECT * FROM project_qa_research_runs WHERE id=?", (research_id,)
-                ).fetchone()
-            )
+                    "UPDATE project_qa_research_runs SET output_grants_json=?,"
+                    "revision=revision+1,updated_at=? WHERE id=?",
+                    (_json([*grants, receipt_id]), _now(), research_id),
+                )
+            return self.get(research_id)
 
         return self._write(write)
 
@@ -351,27 +415,6 @@ class ProjectQAResearchStore:
                 "WHERE research_id=? AND operation_id=?",
                 (research_id, operation_id),
             ).fetchone()
-        )
-
-    def interrupt_abandoned(self) -> None:
-        """Follow parent reconciliation; never recover or dispatch saved work."""
-        self._write(
-            lambda db: db.execute(
-                "UPDATE project_qa_research_runs SET state='interrupted',revision=revision+1,updated_at=? "
-                "WHERE state IN ('running','paused') AND turn_id IN "
-                "(SELECT id FROM project_qa_turns WHERE status NOT IN ('running','stopping'))",
-                (_now(),),
-            )
-        )
-
-    def finish(self, research_id: str, *, completed: bool) -> None:
-        """The live owner terminalizes without racing approval revision changes."""
-        self._write(
-            lambda db: db.execute(
-                "UPDATE project_qa_research_runs SET state=?,pending_approval_json=NULL,"
-                "revision=revision+1,updated_at=? WHERE id=? AND state IN ('running','paused')",
-                ("completed" if completed else "interrupted", _now(), research_id),
-            )
         )
 
     def operations(self, research_id: str) -> list[dict[str, Any]]:

@@ -24,6 +24,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import Any
+from collections.abc import Iterator
 
 import sqlalchemy as sa
 
@@ -774,20 +775,6 @@ def mark_failed(
     return res.rowcount > 0
 
 
-def mark_uninstalled(engine: sa.engine.Engine, pull_id: int) -> bool:
-    """Transition a completed (``done``) artifact pull to ``uninstalled`` after
-    its on-disk bytes are removed. Guarded on ``done`` so an active
-    or already-terminal row is left alone. Returns whether it applied."""
-    c = model_pulls_table.c
-    with engine.begin() as cx:
-        res = cx.execute(
-            model_pulls_table.update()
-            .where(c.id == pull_id, c.status == STATUS_DONE)
-            .values(status=STATUS_UNINSTALLED, finished_at=_now())
-        )
-    return res.rowcount > 0
-
-
 def find_done_for_ref(
     engine: sa.engine.Engine, *, workspace_root: str, model_ref: str
 ) -> ModelPullRow | None:
@@ -809,24 +796,22 @@ def find_done_for_ref(
 
 
 class UninstallInFlightError(RuntimeError):
-    """Raised by :func:`mark_ref_uninstalled` when an active (pending/running)
+    """Raised by :func:`uninstalling_ref` when an active (pending/running)
     pull exists for the ref -- uninstalling out from under an in-flight install
     would race the worker's atomic promote. The route surfaces this as 409."""
 
 
-def mark_ref_uninstalled(
+@contextmanager
+def uninstalling_ref(
     engine: sa.engine.Engine, *, workspace_root: str, model_ref: str
-) -> ModelPullRow | None:
-    """Atomically fence and tombstone an uninstall.
+) -> Iterator[ModelPullRow | None]:
+    """Fence local pull admission until the artifact owner removes the bytes.
 
-    In ONE write transaction: (1) refuse if any active pull exists for the ref
-    (:class:`UninstallInFlightError` -- never uninstall bytes an in-flight pull
-    is about to promote); (2) flip EVERY ``done`` row for (workspace, ref) to
-    ``uninstalled`` (not just one -- a duplicate historical ``done`` row must
-    not resurrect the artifact as "installed"). Returns the latest flipped row
-    (for the DTO), or ``None`` when nothing was installed. The caller removes
-    the on-disk bytes AFTER this returns; translator-cache invalidation covers
-    the brief in-flight-load window."""
+    The owner must already hold the user-wide artifact lock. The transaction
+    rolls back the tombstone if removal fails, allowing an explicit retry.
+    This is not an atomic filesystem/database transaction: after a crash,
+    passive byte checks remain authoritative and removal is idempotent.
+    """
     c = model_pulls_table.c
     with _write_transaction(engine) as cx:
         active = cx.execute(
@@ -852,7 +837,8 @@ def mark_ref_uninstalled(
             .values(status=STATUS_UNINSTALLED, finished_at=_now())
         )
         if res.rowcount == 0:
-            return None
+            yield None
+            return
         latest = cx.execute(
             sa.select(model_pulls_table)
             .where(
@@ -863,7 +849,7 @@ def mark_ref_uninstalled(
             .order_by(c.id.desc())
             .limit(1)
         ).first()
-    return _row(latest) if latest is not None else None
+        yield _row(latest) if latest is not None else None
 
 
 def mark_cancelled(engine: sa.engine.Engine, pull_id: int) -> bool:

@@ -60,22 +60,24 @@ def test_create_is_idempotent_and_lifecycle_updates_use_revision_cas(tmp_path) -
                 max_turns=None,
             )
 
-        paused = store.update(
-            research["id"],
-            expected_revision=1,
-            state="paused",
-            saved_messages=[{"role": "assistant", "content": "partial"}],
-            pending_approval={"operation_id": "write-1"},
-            output_grants=[{"column_id": 8}],
-        )
-        assert paused["revision"] == 2
+        store.checkpoint(research["id"], [{"role": "assistant", "content": "partial"}])
+        store.add_output_grant(research["id"], "receipt-8")
+        pending = {"id": "approval-1", "operation_id": "write-1", "kind": "action"}
+        paused = store.publish_approval(research["id"], pending)
+        assert paused["revision"] == 4
         assert paused["state"] == "paused"
         assert paused["saved_messages"][0]["content"] == "partial"
-        assert paused["pending_approval"] == {"operation_id": "write-1"}
-        assert paused["output_grants"] == [{"column_id": 8}]
+        assert paused["pending_approval"] == pending
+        assert paused["output_grants"] == ["receipt-8"]
         assert paused["turn_count"] == 0
         with pytest.raises(ProjectQAResearchConflictError, match="revision"):
-            store.update(research["id"], expected_revision=1, state="running")
+            store.resume(
+                research["id"],
+                approval_id="approval-1",
+                expected_revision=1,
+                decision="approve",
+                actor="owner",
+            )
     finally:
         project.close()
 
@@ -167,7 +169,18 @@ def test_admission_is_exact_idempotent_and_settlement_replaces_reservation(
             "provider": "example"
         }
 
-        limited = store.update(research["id"], expected_revision=1, max_turns=1)
+        store.publish_approval(
+            research["id"],
+            {"id": "limit", "operation_id": "call-3", "kind": "turn_limit"},
+        )
+        limited = store.resume(
+            research["id"],
+            approval_id="limit",
+            expected_revision=2,
+            decision="continue",
+            actor="owner",
+            max_turns=1,
+        )
         assert limited["turn_count"] == 1
         with pytest.raises(ProjectQAResearchTurnLimitReached):
             store.admit_operation(

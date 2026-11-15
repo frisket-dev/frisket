@@ -206,7 +206,7 @@ def uninstall(ref: "ArtifactRef", *, root: Path | None = None) -> bool:
         return False
     install_dir = artifact_install_dir(ref, root=root)
     if install_dir.exists():
-        shutil.rmtree(install_dir, ignore_errors=True)
+        shutil.rmtree(install_dir)
         return True
     return False
 

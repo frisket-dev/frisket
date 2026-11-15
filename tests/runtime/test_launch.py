@@ -10,7 +10,27 @@ import venv
 
 import pytest
 
-from frisket.runtime.launch import PythonRuntime, worker_argv
+from frisket.runtime.launch import PythonRuntime, optional_runtime_root, worker_argv
+
+
+def test_optional_runtime_identity_preserves_interpreter_symlink(tmp_path, monkeypatch):
+    from frisket.runtime import model_install
+
+    monkeypatch.setenv("FRISKET_MODEL_RUNTIME_DIR", str(tmp_path))
+    root = tmp_path / "classification-v1"
+    python = model_install._runtime_python(root)
+    python.parent.mkdir(parents=True)
+    try:
+        python.symlink_to(sys.executable)
+    except OSError:
+        pytest.skip("interpreter symlink requires Windows developer privileges")
+    command = worker_argv(
+        "runtime-info",
+        runtime=PythonRuntime(python, PythonRuntime.current().app_code_root),
+    )
+    assert command[0] == str(python)
+    assert optional_runtime_root(command) == root
+    assert optional_runtime_root([str(python.resolve())]) is None
 
 
 def test_classifier_policy_only_accepts_owned_optional_runtime(monkeypatch, tmp_path):

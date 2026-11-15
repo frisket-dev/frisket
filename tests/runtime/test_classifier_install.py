@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import subprocess
 import tomllib
 from pathlib import Path
 
@@ -76,16 +75,15 @@ def test_classifier_install_uses_its_own_profile_and_cpu_dependencies(
         def poll(self):
             return self.returncode
 
+        def wait(self, timeout=None):
+            return self.returncode
+
     monkeypatch.setattr(
         model_install,
         "spawn_service",
         lambda argv, **_kwargs: calls.append(argv) or CompletedProcess(),
     )
-    monkeypatch.setattr(
-        model_install.subprocess,
-        "run",
-        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 0),
-    )
+    monkeypatch.setattr(classifier_install, "_probe_install", lambda: True)
     progress: list[str] = []
 
     classifier_install.install_classifiers(
@@ -138,9 +136,17 @@ def test_classifier_probe_uses_the_profile_interpreter_and_optional_imports(
 
     def run(argv, **kwargs):
         seen.append((argv, kwargs))
-        return subprocess.CompletedProcess([], 0)
 
-    monkeypatch.setattr(model_install.subprocess, "run", run)
+        class Completed:
+            returncode = 0
+
+            def wait(self, timeout=None):
+                return 0
+
+        return Completed()
+
+    monkeypatch.setattr(model_install, "spawn_service", run)
+    monkeypatch.setattr(model_install, "stop_service", lambda _: None)
 
     assert classifier_install._probe_install() is True
     argv, kwargs = seen[0]
@@ -176,6 +182,7 @@ def test_classifier_install_reuses_completed_profile(tmp_path, monkeypatch) -> N
     python.parent.mkdir(parents=True)
     python.touch()
     (classifier_install.runtime_dir() / ".ready").touch()
+    monkeypatch.setattr(classifier_install, "_probe_install", lambda: True)
     monkeypatch.setattr(
         model_install,
         "spawn_service",

@@ -710,6 +710,7 @@ def _run_docling_setup(
     from frisket.runtime.model_server import (
         LOCAL_MODELS_TOKEN_ENV,
         LOCAL_MODELS_URL_ENV,
+        retry_failed_engine,
         wait_until_ready,
     )
 
@@ -728,6 +729,7 @@ def _run_docling_setup(
         engine, pull_id, phase="provisioning", total_bytes=None, completed_bytes=0
     )
     installed = False
+    server_ready = False
     try:
         install_docling(should_cancel=should_cancel, progress=lambda _message: None)
         installed = True
@@ -739,6 +741,12 @@ def _run_docling_setup(
             if should_cancel():
                 raise ModelInstallCancelled
             raise RuntimeError("installed model server did not become ready")
+        server_ready = True
+        retry_failed_engine(
+            url, token, name="docling", route="/to-markdown", stopped=should_cancel
+        )
+        if should_cancel():
+            raise ModelInstallCancelled
     except ModelInstallCancelled:
         model_pull_store.mark_cancelled(engine, pull_id)
         return {"status": "cancelled"}
@@ -747,10 +755,17 @@ def _run_docling_setup(
             engine,
             pull_id,
             error_code=(
-                "model_server_start_failed" if installed else "engine_setup_unavailable"
+                "engine_load_failed"
+                if server_ready
+                else "model_server_start_failed"
+                if installed
+                else "engine_setup_unavailable"
             ),
             message=(
-                "Docling is installed, but its local server did not start. "
+                "Docling is installed and its server is ready, but the model could not load. "
+                "Retry setup; check the local server log if it persists."
+                if server_ready
+                else "Docling is installed, but its local server did not start. "
                 "Restart Frisket and retry; check the local server log if it persists."
                 if installed
                 else "could not install the native Docling model server"

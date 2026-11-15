@@ -14,6 +14,37 @@ from collections.abc import Callable, Collection, Mapping
 from datetime import datetime, timezone
 from typing import Any
 
+from statemachine import State, StateMachine
+from statemachine.exceptions import TransitionNotAllowed
+
+
+class AskTurnLifecycle(StateMachine):
+    """The parent turn owns permission to start work and terminal outcomes."""
+
+    running = State(initial=True)
+    stopping = State()
+    completed = State(final=True)
+    stopped = State(final=True)
+    failed = State(final=True)
+    interrupted = State(final=True)
+
+    request_stop = running.to(stopping)
+    complete = running.to(completed)
+    fail = running.to(failed)
+    interrupt = running.to(interrupted)
+    stop = stopping.to(stopped)
+
+
+def _turn_transition(status: str, event: str) -> str:
+    machine = AskTurnLifecycle(start_value=status)
+    try:
+        machine.send(event)
+    except TransitionNotAllowed as exc:
+        raise ProjectQAConflictError(
+            f"cannot {event} a turn in state {status}"
+        ) from exc
+    return next(iter(machine.configuration)).id
+
 
 ACTIVE_TURN_STATUSES = frozenset({"running", "stopping"})
 TERMINAL_TURN_STATUSES = frozenset({"completed", "stopped", "failed", "interrupted"})
@@ -1214,9 +1245,15 @@ class ProjectQAStore:
             )
             if turn["status"] == "running":
                 now = _now()
+                target = _turn_transition(turn["status"], "request_stop")
                 db.execute(
-                    "UPDATE project_qa_turns SET status='stopping' WHERE id=?",
-                    (turn_id,),
+                    "UPDATE project_qa_turns SET status=? WHERE id=?",
+                    (target, turn_id),
+                )
+                db.execute(
+                    "UPDATE project_qa_research_runs SET state='running',pending_approval_json=NULL,"
+                    "revision=revision+1,updated_at=? WHERE turn_id=?",
+                    (now, turn_id),
                 )
                 db.execute(
                     "UPDATE project_qa_threads SET updated_at=? WHERE id=?",
@@ -1279,6 +1316,15 @@ class ProjectQAStore:
                 raise ProjectQAConflictError("only a stopping turn may become stopped")
             if status != "stopped" and turn["status"] == "stopping":
                 raise ProjectQAConflictError("a stopping turn must become stopped")
+            _turn_transition(
+                turn["status"],
+                {
+                    "completed": "complete",
+                    "failed": "fail",
+                    "interrupted": "interrupt",
+                    "stopped": "stop",
+                }[status],
+            )
             now = _now()
             derived_usage, derived_cost = self._usage_summary(db, turn_id)
             saved_usage = dict(usage) if usage is not None else derived_usage
@@ -1294,6 +1340,7 @@ class ProjectQAStore:
                     turn_id,
                 ),
             )
+            self._finish_research(db, turn_id, status, now)
             self._append_event(
                 db,
                 thread_id=turn["thread_id"],
@@ -1349,13 +1396,23 @@ class ProjectQAStore:
             )
             if turn["status"] in TERMINAL_TURN_STATUSES:
                 return turn
-            target = "stopped" if turn["status"] == "stopping" else status
+            event = (
+                "stop"
+                if turn["status"] == "stopping"
+                else {
+                    "completed": "complete",
+                    "failed": "fail",
+                    "interrupted": "interrupt",
+                }[status]
+            )
+            target = _turn_transition(turn["status"], event)
             now = _now()
             usage, cost = self._usage_summary(db, turn_id)
             db.execute(
                 "UPDATE project_qa_turns SET status=?,finished_at=?,usage_json=?,cost_actual=?,error_summary=? WHERE id=?",
                 (target, now, _json(usage), cost, error_summary, turn_id),
             )
+            self._finish_research(db, turn_id, target, now)
             self._append_event(
                 db,
                 thread_id=turn["thread_id"],
@@ -1383,6 +1440,18 @@ class ProjectQAStore:
             )
 
         return self._write(write)
+
+    @staticmethod
+    def _finish_research(
+        db: sqlite3.Connection, turn_id: str, status: str, now: str
+    ) -> None:
+        # Research state is a stored projection of the parent outcome. There
+        # is no independently writable research terminal transition.
+        db.execute(
+            "UPDATE project_qa_research_runs SET state=?,pending_approval_json=NULL,"
+            "revision=revision+1,updated_at=? WHERE turn_id=?",
+            ("completed" if status == "completed" else "interrupted", now, turn_id),
+        )
 
     @staticmethod
     def _usage_summary(
@@ -1425,7 +1494,10 @@ class ProjectQAStore:
             reconciled: list[str] = []
             for row in rows:
                 turn = self._turn_record(row)
-                status = "stopped" if turn["status"] == "stopping" else "interrupted"
+                status = _turn_transition(
+                    turn["status"],
+                    "stop" if turn["status"] == "stopping" else "interrupt",
+                )
                 now = _now()
                 db.execute(
                     "UPDATE project_qa_turns SET status=?,finished_at=? WHERE id=?",
@@ -1443,7 +1515,18 @@ class ProjectQAStore:
                     payload={"status": status},
                     created_at=now,
                 )
+                self._finish_research(db, turn["id"], status, now)
                 reconciled.append(turn["id"])
+            # Repair projections written by an earlier process that finished
+            # parent and research separately. Never revive or dispatch work.
+            for row in db.execute(
+                "SELECT t.id,t.status FROM project_qa_turns t "
+                "JOIN project_qa_research_runs r ON r.turn_id=t.id "
+                "WHERE t.status NOT IN ('running','stopping') AND "
+                "(r.state != CASE WHEN t.status='completed' THEN 'completed' ELSE 'interrupted' END "
+                "OR r.pending_approval_json IS NOT NULL)"
+            ).fetchall():
+                self._finish_research(db, row["id"], row["status"], _now())
             return reconciled
 
         return self._write(write)

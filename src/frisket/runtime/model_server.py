@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import secrets
@@ -11,8 +12,11 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable, MutableMapping
+
+from statemachine import State, StateMachine
 
 from frisket.runtime.model_install import (
     is_installed,
@@ -28,6 +32,23 @@ _POLL_SECONDS = 1.0
 _RETRY_SECONDS = 30.0
 
 logger = logging.getLogger(__name__)
+
+
+class _ModelServerLifecycle(StateMachine):
+    stopped = State(initial=True)
+    starting = State()
+    ready = State()
+    stopping = State()
+    cleanup_failed = State()
+
+    begin_start = stopped.to(starting)
+    observe_ready = starting.to(ready)
+    spawn_failed = starting.to(stopped)
+    begin_stop = (
+        starting.to(stopping) | ready.to(stopping) | cleanup_failed.to(stopping)
+    )
+    cleanup_succeeded = stopping.to(stopped)
+    cleanup_refused = stopping.to(cleanup_failed)
 
 
 def _child_environment(source: MutableMapping[str, str]) -> dict[str, str]:
@@ -71,6 +92,59 @@ def wait_until_ready(
     return False
 
 
+def retry_failed_engine(
+    url: str,
+    token: str,
+    *,
+    name: str,
+    route: str,
+    stopped: Callable[[], bool],
+) -> None:
+    """An explicit setup may retry one cached loader failure, never cold load."""
+    if stopped():
+        return
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    headers = {"Authorization": f"Bearer {token}"}
+    request = urllib.request.Request(f"{url}/capabilities", headers=headers)
+    try:
+        with opener.open(request, timeout=5) as response:
+            capabilities = json.load(response)
+    except ValueError as exc:
+        raise RuntimeError("model server returned invalid capabilities") from exc
+    engines = capabilities.get("engines") if isinstance(capabilities, dict) else None
+    if not isinstance(engines, list):
+        raise RuntimeError("model server returned invalid capabilities")
+    matches = [
+        engine
+        for engine in engines
+        if isinstance(engine, dict)
+        and engine.get("name") == name
+        and engine.get("route") == route
+    ]
+    if len(matches) != 1:
+        raise RuntimeError("model server does not offer the requested engine route")
+    if not matches[0].get("error") or stopped():
+        return
+    endpoint = urllib.parse.quote(name, safe="")
+    query = urllib.parse.urlencode({"route": route})
+    request = urllib.request.Request(
+        f"{url}/engines/{endpoint}/retry?{query}", headers=headers, method="POST"
+    )
+    try:
+        with opener.open(request, timeout=45) as response:
+            recovered = json.load(response)
+    except ValueError as exc:
+        raise RuntimeError("model server returned an invalid recovery result") from exc
+    if (
+        not isinstance(recovered, dict)
+        or recovered.get("name") != name
+        or recovered.get("route") != route
+        or recovered.get("loaded") is not True
+        or recovered.get("error") is not None
+    ):
+        raise RuntimeError("model server could not recover its failed engine")
+
+
 def _reserve_loopback_port() -> int:
     """Ask the OS for a loopback port, then release it for the child bind."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -92,6 +166,7 @@ class LocalModelServer:
         self._token = secrets.token_hex(32)
         self._url = f"http://127.0.0.1:{self._port}"
         self._process: subprocess.Popen | None = None
+        self._lifecycle = _ModelServerLifecycle()
         self._next_attempt = 0.0
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -106,11 +181,32 @@ class LocalModelServer:
     def url(self) -> str:
         return self._url
 
+    @property
+    def state(self) -> str:
+        with self._lock:
+            return next(iter(self._lifecycle.configuration)).id
+
+    def _cleanup_owned(self) -> None:
+        """Called under the owner lock; relinquish only verified process trees."""
+        process = self._process
+        if process is None:
+            return
+        self._lifecycle.begin_stop()
+        try:
+            stop_service(process)
+        except BaseException:
+            self._lifecycle.cleanup_refused()
+            raise
+        self._process = None
+        self._lifecycle.cleanup_succeeded()
+
     def _start_if_installed(self) -> bool:
         with self._lock:
+            if self._stop.is_set() or self._lifecycle.cleanup_failed.is_active:
+                return False
             if self._process is not None:
                 if self._process.poll() is None:
-                    return True
+                    return self._lifecycle.ready.is_active
                 logger.error(
                     "local_model_server_exited",
                     extra={
@@ -118,12 +214,17 @@ class LocalModelServer:
                         "returncode": self._process.returncode,
                     },
                 )
-                self._process = None
+                try:
+                    self._cleanup_owned()
+                except Exception:
+                    logger.exception("local_model_server_cleanup_failed")
+                    return False
                 self._next_attempt = time.monotonic() + _RETRY_SECONDS
             if time.monotonic() < self._next_attempt or not is_installed():
                 return False
             child_env = _child_environment(self._environ)
             child_env[LOCAL_MODELS_TOKEN_ENV] = self._token
+            self._lifecycle.begin_start()
             try:
                 self._process = spawn_service(
                     [
@@ -142,30 +243,44 @@ class LocalModelServer:
                     stderr=sys.stderr,
                     env=child_env,
                 )
-            except (OSError, RuntimeError):
+            except Exception:
+                self._lifecycle.spawn_failed()
                 logger.exception("local_model_server_start_failed")
                 self._next_attempt = time.monotonic() + _RETRY_SECONDS
                 return False
             process = self._process
 
-        if self._wait_until_ready(process):
-            logger.info(
-                "local_model_server_ready",
-                extra={"event": "local_model_server_ready", "url": self.url},
-            )
-            return True
+        try:
+            ready = self._wait_until_ready(process)
+        except Exception:
+            logger.exception("local_model_server_readiness_failed")
+            ready = False
         returncode = process.poll()
         with self._lock:
-            if self._process is process:
-                self._process = None
+            if self._process is not process:
+                return False
+            if ready and not self._stop.is_set() and returncode is None:
+                self._lifecycle.observe_ready()
+                logger.info(
+                    "local_model_server_ready",
+                    extra={"event": "local_model_server_ready", "url": self.url},
+                )
+                return True
             self._next_attempt = time.monotonic() + _RETRY_SECONDS
-        try:
-            stop_service(process)
-        except RuntimeError:
-            logger.exception("local_model_server_cleanup_failed")
+            cleanup_verified = True
+            try:
+                self._cleanup_owned()
+            except Exception:
+                cleanup_verified = False
+                logger.exception("local_model_server_cleanup_failed")
         logger.error(
-            "Local model server did not become ready; will retry. "
-            "If this persists, restart Frisket to choose a fresh port.",
+            (
+                "Local model server did not become ready; will retry. "
+                "If this persists, restart Frisket to choose a fresh port."
+                if cleanup_verified
+                else "Local model server cleanup is unverified; replacement is blocked. "
+                "Retry shutdown before restarting."
+            ),
             extra={
                 "event": "local_model_server_start_failed",
                 "url": self.url,
@@ -183,35 +298,52 @@ class LocalModelServer:
         )
 
     def start(self) -> None:
-        """Start now when installed and keep watching for a later install."""
-        self._start_if_installed()
-        if self._monitor is not None:
-            return
+        """Observe/start the optional service without holding up app readiness."""
 
         def monitor() -> None:
-            while not self._stop.wait(_POLL_SECONDS):
+            while not self._stop.is_set():
                 try:
                     self._start_if_installed()
                 except Exception:  # noqa: BLE001 - optional service cannot kill Solo
                     logger.exception("local_model_server_monitor_failed")
+                if self._stop.wait(_POLL_SECONDS):
+                    break
 
-        self._monitor = threading.Thread(
-            target=monitor, name="frisket-model-server-monitor", daemon=True
-        )
-        self._monitor.start()
+        with self._lock:
+            if self._lifecycle.cleanup_failed.is_active:
+                raise RuntimeError("model server cleanup is unresolved; retry restart")
+            if self._monitor is not None and self._monitor.is_alive():
+                if self._stop.is_set():
+                    raise RuntimeError("model server monitor has not stopped")
+                return
+            self._stop.clear()
+            self._environ[LOCAL_MODELS_URL_ENV] = self.url
+            self._environ[LOCAL_MODELS_TOKEN_ENV] = self._token
+            self._monitor = threading.Thread(
+                target=monitor, name="frisket-model-server-monitor", daemon=True
+            )
+            self._monitor.start()
 
     def stop(self) -> None:
         """Stop monitoring and synchronously tear down the owned process tree."""
         self._stop.set()
+        with self._lock:
+            self._cleanup_owned()
         if self._monitor is not None:
             self._monitor.join(timeout=2)
-        with self._lock:
-            process, self._process = self._process, None
-        stop_service(process)
+            if self._monitor.is_alive():
+                raise RuntimeError("model server monitor has not stopped")
         if self._environ.get(LOCAL_MODELS_URL_ENV) == self.url:
             self._environ.pop(LOCAL_MODELS_URL_ENV, None)
         if self._environ.get(LOCAL_MODELS_TOKEN_ENV) == self._token:
             self._environ.pop(LOCAL_MODELS_TOKEN_ENV, None)
+
+    def restart(self) -> None:
+        """Deliberately retry cleanup before permitting another child to start."""
+        self.stop()
+        with self._lock:
+            self._next_attempt = 0.0
+        self.start()
 
 
 __all__ = [

@@ -756,3 +756,113 @@ def test_errored_row_writes_no_document_link(project, monkeypatch):
         "SELECT COUNT(*) FROM evidence_links WHERE column_id=?", (md_col,)
     ).fetchone()[0]
     assert link == 0
+
+
+@pytest.mark.parametrize("engine", ["docling", "lightonocr-3-0.8b"])
+def test_sidecar_conversion_persists_actual_page_meter(project, monkeypatch, engine):
+    """Native hosted billing needs returned page units, including non-OCR pages."""
+    monkeypatch.setenv("FRISKET_MODELS_URL", "http://gateway-a:9000")
+    monkeypatch.setenv("FRISKET_MODELS_TOKEN", "synthetic-token")
+
+    async def fake_post(ctx, route, **kwargs):
+        assert route == "/to-markdown"
+        return {
+            "documents": [
+                {"markdown": "# Three pages", "ocr_used": [True, False, True]}
+            ]
+        }
+
+    monkeypatch.setattr(module, "sidecar_post", fake_post)
+    value = _datalab_pdf(project)
+    sheet, _, _ = _seed(project, value, coltype="file")
+    result = _execute(project, sheet, engine)
+    assert result.status == "completed", result.errors
+    calls = RunResultStore(project).model_calls(result.run_id)
+    assert len(calls) == 1, "Sidecar conversion returned without a durable usage fact"
+    assert calls[0]["capability"] == "document.convert"
+    assert calls[0]["engine"] == engine
+    assert json.loads(calls[0]["units"])["pages"] == 3
+    assert json.loads(calls[0]["units"])["requests"] == 1
+
+
+@pytest.mark.parametrize(
+    "outcome", ["success", "returned_after_cancel", "http_failure"]
+)
+def test_sidecar_conversion_policy_brackets_actual_returned_usage(
+    tmp_path, monkeypatch, outcome
+):
+    from types import SimpleNamespace
+    import httpx
+
+    events = []
+    cancelled = [False]
+
+    class Policy:
+        def admit_document_conversion(self, *, engine, prepared, page_count, context):
+            events.append("admit")
+            assert engine == "lightonocr-3-0.8b"
+            assert page_count == 1
+            return "conversion-operation"
+
+        def finish_service(self, operation_id, *, result, usage):
+            events.append("finish")
+            assert operation_id == "conversion-operation"
+            assert result["documents"][0]["markdown"] == "# Returned"
+            assert usage == {"pages": 3}
+
+        def fail_service(self, operation_id, error):
+            events.append("fail")
+            assert operation_id == "conversion-operation"
+            assert isinstance(error, httpx.HTTPStatusError)
+
+    async def post(ctx, route, **kwargs):
+        events.append("post")
+        if outcome == "http_failure":
+            response = httpx.Response(
+                503,
+                request=httpx.Request(
+                    "POST", "https://gateway.example.test/to-markdown"
+                ),
+            )
+            response.raise_for_status()
+        if outcome == "returned_after_cancel":
+            cancelled[0] = True
+        return {
+            "documents": [{"markdown": "# Returned", "ocr_used": [True, False, True]}]
+        }
+
+    monkeypatch.setattr(module, "sidecar_post", post)
+    ctx = OpContext(
+        project=None,
+        http=object(),
+        extras={
+            "service_operation_policy": Policy(),
+            "cancelled": lambda: cancelled[0],
+            "row_id": 1,
+            "preview": True,
+        },
+    )
+    owner = AdmittedDocumentConverter(ctx, engine="lightonocr-3-0.8b")
+    bound = module._BoundDocumentConverter(owner, Row({}), 1, 1, {}, ctx)
+    monkeypatch.setattr(
+        bound,
+        "_route_connection",
+        lambda: SimpleNamespace(
+            base_url="https://gateway.example.test", token="test-token"
+        ),
+    )
+    source = tmp_path / "scan.png"
+    source.write_bytes(b"fixture image")
+    if outcome == "http_failure":
+        with pytest.raises(httpx.HTTPStatusError):
+            asyncio.run(bound._convert_sidecar("lightonocr-3-0.8b", source))
+    else:
+        assert asyncio.run(bound._convert_sidecar("lightonocr-3-0.8b", source)) == (
+            "# Returned",
+            [True, False, True],
+        )
+    assert events == [
+        "admit",
+        "post",
+        "fail" if outcome == "http_failure" else "finish",
+    ]

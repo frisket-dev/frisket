@@ -179,6 +179,218 @@ def test_failed_readiness_stops_child_and_throttles_retry(
         owned.stop()
 
 
+def test_failed_cleanup_keeps_child_owned_and_blocks_replacement(tmp_path, monkeypatch):
+    from frisket.runtime import model_server
+
+    launches = []
+    cleanup_allowed = False
+    monkeypatch.setattr(model_server, "is_installed", lambda: True)
+    monkeypatch.setattr(model_server, "runtime_dir", lambda: tmp_path)
+    monkeypatch.setattr(model_server, "runtime_python", lambda: tmp_path / "python")
+    monkeypatch.setattr(
+        model_server,
+        "spawn_service",
+        lambda *_args, **_kwargs: launches.append(_Process()) or launches[-1],
+    )
+
+    def stop(process):
+        if process is None:
+            return
+        if not cleanup_allowed:
+            raise RuntimeError("process tree cleanup could not be verified")
+        process.returncode = 0
+
+    monkeypatch.setattr(model_server, "stop_service", stop)
+    owned = model_server.LocalModelServer(environ={})
+    monkeypatch.setattr(owned, "_wait_until_ready", lambda _process: False)
+    try:
+        assert owned._start_if_installed() is False
+        original = launches[0]
+        assert owned._process is original
+        assert owned.state == "cleanup_failed"
+        # Readiness failure is retryable only after cleanup actually succeeds.
+        owned._next_attempt = 0
+        monkeypatch.setattr(owned, "_wait_until_ready", lambda _process: True)
+        assert owned._start_if_installed() is False
+        assert owned._process is original
+        assert launches == [original]
+        with pytest.raises(RuntimeError, match="cleanup"):
+            owned.restart()
+        assert owned._process is original
+        assert launches == [original]
+
+        # Deliberate recovery retries cleanup before admitting a fresh child.
+        cleanup_allowed = True
+        owned.restart()
+        deadline = time.monotonic() + 1
+        while len(launches) < 2 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert len(launches) == 2
+        assert launches[0].returncode == 0
+        assert owned._process is launches[1]
+    finally:
+        cleanup_allowed = True
+        owned.stop()
+    assert owned._process is None
+
+
+@pytest.mark.parametrize("cleanup_error", [RuntimeError, KeyboardInterrupt])
+def test_shutdown_cleanup_failure_can_be_retried_without_losing_child(
+    tmp_path, monkeypatch, cleanup_error
+):
+    from frisket.runtime import model_server
+
+    process = _Process()
+    attempts = []
+    monkeypatch.setattr(model_server, "is_installed", lambda: True)
+    monkeypatch.setattr(model_server, "runtime_dir", lambda: tmp_path)
+    monkeypatch.setattr(model_server, "runtime_python", lambda: tmp_path / "python")
+    monkeypatch.setattr(model_server, "spawn_service", lambda *_a, **_kw: process)
+
+    def stop(child):
+        attempts.append(child)
+        if len(attempts) == 1:
+            raise cleanup_error("process tree cleanup could not be verified")
+        if child is not None:
+            child.returncode = 0
+
+    monkeypatch.setattr(model_server, "stop_service", stop)
+    owned = model_server.LocalModelServer(environ={})
+    monkeypatch.setattr(owned, "_wait_until_ready", lambda _process: True)
+    assert owned._start_if_installed()
+    with pytest.raises(cleanup_error, match="cleanup"):
+        owned.stop()
+    assert owned._process is process
+    assert owned.state == "cleanup_failed"
+    owned.stop()
+    assert attempts == [process, process]
+    assert owned._process is None
+    assert owned.state == "stopped"
+
+
+def test_exited_child_still_requires_verified_tree_cleanup(tmp_path, monkeypatch):
+    from frisket.runtime import model_server
+
+    process = _Process()
+    launches, cleanups = [], []
+    cleanup_allowed = False
+    monkeypatch.setattr(model_server, "is_installed", lambda: True)
+    monkeypatch.setattr(model_server, "runtime_dir", lambda: tmp_path)
+    monkeypatch.setattr(model_server, "runtime_python", lambda: tmp_path / "python")
+
+    def spawn(*_args, **_kwargs):
+        launches.append(process)
+        return process
+
+    def stop(child):
+        if child is None:
+            return
+        cleanups.append(child)
+        if not cleanup_allowed:
+            raise RuntimeError("process tree cleanup could not be verified")
+
+    monkeypatch.setattr(model_server, "spawn_service", spawn)
+    monkeypatch.setattr(model_server, "stop_service", stop)
+    owned = model_server.LocalModelServer(environ={})
+    monkeypatch.setattr(owned, "_wait_until_ready", lambda _process: True)
+    try:
+        assert owned._start_if_installed()
+        process.returncode = 1
+        assert owned._start_if_installed() is False
+        assert cleanups == [process]
+        assert owned._process is process
+        owned._next_attempt = 0
+        assert owned._start_if_installed() is False
+        assert launches == [process]
+    finally:
+        cleanup_allowed = True
+        owned.stop()
+
+
+def test_optional_server_start_returns_while_readiness_is_pending(
+    tmp_path, monkeypatch
+):
+    from frisket.runtime import model_server
+
+    readiness_entered = threading.Event()
+    release_readiness = threading.Event()
+    startup_returned = threading.Event()
+    process = _Process()
+    monkeypatch.setattr(model_server, "is_installed", lambda: True)
+    monkeypatch.setattr(model_server, "runtime_dir", lambda: tmp_path)
+    monkeypatch.setattr(model_server, "runtime_python", lambda: tmp_path / "python")
+    monkeypatch.setattr(model_server, "spawn_service", lambda *_a, **_kw: process)
+    monkeypatch.setattr(model_server, "stop_service", lambda _process: None)
+    owned = model_server.LocalModelServer(environ={})
+
+    def wait(_process):
+        readiness_entered.set()
+        assert release_readiness.wait(2)
+        return True
+
+    monkeypatch.setattr(owned, "_wait_until_ready", wait)
+
+    def start():
+        owned.start()
+        startup_returned.set()
+
+    caller = threading.Thread(target=start)
+    caller.start()
+    try:
+        assert readiness_entered.wait(1)
+        # Desktop and CLI may continue app startup before the optional model
+        # endpoint becomes ready; no 45-second probe on their caller thread.
+        assert startup_returned.wait(0.25)
+        assert not release_readiness.is_set()
+    finally:
+        release_readiness.set()
+        caller.join(timeout=2)
+        owned.stop()
+    assert not caller.is_alive()
+
+
+def test_readiness_result_cannot_revive_a_stopped_owner(tmp_path, monkeypatch):
+    from frisket.runtime import model_server
+
+    process = _Process()
+    readiness_entered = threading.Event()
+    results = []
+    monkeypatch.setattr(model_server, "is_installed", lambda: True)
+    monkeypatch.setattr(model_server, "runtime_dir", lambda: tmp_path)
+    monkeypatch.setattr(model_server, "runtime_python", lambda: tmp_path / "python")
+    monkeypatch.setattr(model_server, "spawn_service", lambda *_a, **_kw: process)
+
+    def stop(child):
+        if child is not None:
+            child.returncode = 0
+
+    monkeypatch.setattr(model_server, "stop_service", stop)
+    owned = model_server.LocalModelServer(environ={})
+
+    def wait(_process):
+        readiness_entered.set()
+        assert owned._stop.wait(1)
+        # An HTTP probe that was already returning can report success even
+        # though shutdown was requested while it was in flight.
+        return True
+
+    monkeypatch.setattr(owned, "_wait_until_ready", wait)
+    starting = threading.Thread(
+        target=lambda: results.append(owned._start_if_installed())
+    )
+    starting.start()
+    try:
+        assert readiness_entered.wait(1)
+        owned.stop()
+    finally:
+        owned._stop.set()
+        starting.join(timeout=2)
+    assert not starting.is_alive()
+    assert results == [False]
+    assert owned._process is None
+    assert owned.state == "stopped"
+
+
 def test_readiness_retries_until_authenticated_response(monkeypatch):
     from frisket.runtime import model_server
     from contextlib import nullcontext

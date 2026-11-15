@@ -848,19 +848,19 @@ async def run_turn(
         agent.tool_plain(find_in_source, name="find_in_source")
         agent.tool_plain(list_sources, name="list_sources")
         if turn["web"]:
-            agent.tool_plain(search_web, name="search_web")
+            agent.tool_plain(search_web, name="search_web", sequential=True)
             agent.tool_plain(open_web_page, name="open_web_page")
         if turn["suggest_actions"] or execution is not None:
             agent.tool_plain(search_actions, name="search_actions")
             agent.tool_plain(describe_action, name="describe_action")
-            agent.tool_plain(propose_action, name="propose_action")
+            agent.tool_plain(propose_action, name="propose_action", sequential=True)
         if execution is not None:
-            agent.tool_plain(prepare_action, name="prepare_action")
-            agent.tool_plain(execute_action, name="execute_action")
+            agent.tool_plain(prepare_action, name="prepare_action", sequential=True)
+            agent.tool_plain(execute_action, name="execute_action", sequential=True)
         if skill_authoring is not None:
             agent.tool_plain(list_skills, name="list_skills")
             agent.tool_plain(read_skill, name="read_skill")
-            agent.tool_plain(propose_skill, name="propose_skill")
+            agent.tool_plain(propose_skill, name="propose_skill", sequential=True)
 
         @agent.output_validator
         def known_citations(

@@ -245,6 +245,56 @@
         "frisket.team.*"
       ],
       "reject_unresolved_dynamic": false
+    },
+    {
+      "id": "artifact-mutations-belong-to-artifact-pull",
+      "comment": "Promotion and removal require the shared artifact lock plus operation-store admission. Read-only cache helpers remain available to consumers.",
+      "modules": [
+        "frisket",
+        "frisket.*"
+      ],
+      "exclude": [
+        "frisket.engine.jobs.artifact_pull"
+      ],
+      "forbidden_members": [
+        "frisket.ai.models.model_cache.promote",
+        "frisket.ai.models.model_cache.uninstall",
+        "frisket.engine.jobs.model_pull_store.uninstalling_ref"
+      ],
+      "reject_unresolved_dynamic": false
+    },
+    {
+      "id": "model-process-lifecycle-has-one-owner",
+      "comment": "Call the LocalModelServer start/stop/restart commands; never mutate its process handle or drive its private transition machine outside the owner. Other supervised processes retain their own owners.",
+      "modules": [
+        "frisket",
+        "frisket.*"
+      ],
+      "exclude": [
+        "frisket.runtime.model_server"
+      ],
+      "forbidden_members": [
+        "frisket.runtime.model_server._ModelServerLifecycle",
+        "frisket.runtime.model_server.LocalModelServer._*"
+      ],
+      "reject_unresolved_dynamic": false
+    },
+    {
+      "id": "chat-turn-lifecycle-has-one-owner",
+      "comment": "Named ProjectQAStore commands own transitions and atomic child terminal projection. Callers must not drive the transition machine or private SQL projection themselves.",
+      "modules": [
+        "frisket",
+        "frisket.*"
+      ],
+      "exclude": [
+        "frisket.engine.store.project_qa"
+      ],
+      "forbidden_members": [
+        "frisket.engine.store.project_qa.AskTurnLifecycle",
+        "frisket.engine.store.project_qa._turn_transition",
+        "frisket.engine.store.project_qa.ProjectQAStore._finish_research"
+      ],
+      "reject_unresolved_dynamic": false
     }
   ]
 }

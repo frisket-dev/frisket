@@ -99,6 +99,10 @@ class ModelCallPolicy(Protocol):
         context: Any,
     ) -> str: ...
 
+    def admit_document_conversion(
+        self, *, engine: str, prepared: dict, page_count: int | None, context: Any
+    ) -> str | None: ...
+
     def admit_transcription(
         self,
         *,

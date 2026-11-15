@@ -508,7 +508,7 @@ def test_engine_setup_cancel_is_terminal_without_resolver(
         queue.close()
 
 
-@pytest.mark.parametrize("readiness", ["ready", "failed", "cancelled"])
+@pytest.mark.parametrize("readiness", ["ready", "failed", "load_failed", "cancelled"])
 def test_docling_engine_setup_waits_for_server_before_marking_done(
     tmp_path, monkeypatch, readiness
 ) -> None:
@@ -539,10 +539,21 @@ def test_docling_engine_setup_waits_for_server_before_marking_done(
             assert seen == {"cancelled": False}
             assert store.get(queue.engine, row.id).status != store.STATUS_DONE
             cancelled = readiness == "cancelled"
-            return readiness == "ready"
+            return readiness in {"ready", "load_failed"}
 
         monkeypatch.setattr(
             "frisket.runtime.model_server.wait_until_ready", wait_until_ready
+        )
+        recoveries = []
+
+        def recover(url, token, **kwargs):
+            recoveries.append((url, token, kwargs))
+            if readiness == "load_failed":
+                raise RuntimeError("model loader failed again")
+
+        monkeypatch.setattr(
+            "frisket.runtime.model_server.retry_failed_engine",
+            recover,
         )
         kwargs = dict(
             engine=queue.engine,
@@ -550,12 +561,19 @@ def test_docling_engine_setup_waits_for_server_before_marking_done(
             should_cancel=lambda: cancelled,
             is_final_attempt=True,
         )
-        if readiness == "failed":
-            with pytest.raises(RuntimeError, match="model_server_start_failed"):
+        if readiness in {"failed", "load_failed"}:
+            code = (
+                "engine_load_failed"
+                if readiness == "load_failed"
+                else "model_server_start_failed"
+            )
+            with pytest.raises(RuntimeError, match=code):
                 engine_setup.run_engine_setup(**kwargs)
             failed = store.get(queue.engine, row.id)
             assert failed.status == store.STATUS_FAILED
             assert "Docling is installed" in failed.error_message
+            if readiness == "load_failed":
+                assert "server is ready" in failed.error_message
         else:
             result = engine_setup.run_engine_setup(**kwargs)
             expected = "done" if readiness == "ready" else "cancelled"
@@ -563,6 +581,11 @@ def test_docling_engine_setup_waits_for_server_before_marking_done(
             assert store.get(queue.engine, row.id).status == expected
 
         assert seen == {"cancelled": False}
+        assert len(recoveries) == (1 if readiness in {"ready", "load_failed"} else 0)
+        if recoveries:
+            assert recoveries[0][:2] == ("http://127.0.0.1:1234", "private-test-token")
+            assert recoveries[0][2]["name"] == "docling"
+            assert recoveries[0][2]["route"] == "/to-markdown"
     finally:
         queue.close()
 

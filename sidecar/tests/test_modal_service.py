@@ -27,15 +27,17 @@ def test_hosted_app_declares_only_the_approved_resident_bundle(
     app = create_hosted_app(token=TOKEN)
 
     assert {
-        entry["name"]: entry["route"] for entry in app.state.registry.describe()
+        (entry["name"], entry["route"]) for entry in app.state.registry.describe()
     } == {
-        "dots.mocr": "/ocr",
-        "glm-ocr": "/ocr",
-        "paddleocr-vl": "/ocr",
-        "pp-ocrv6": "/ocr",
-        "docling": "/to-markdown",
-        "gliner": "/ner",
-        "whisper-turbo": "/v1/transcribe",
+        ("dots.mocr", "/ocr"),
+        ("glm-ocr", "/ocr"),
+        ("paddleocr-vl", "/ocr"),
+        ("pp-ocrv6", "/ocr"),
+        ("docling", "/to-markdown"),
+        ("lightonocr-3-0.8b", "/ocr"),
+        ("lightonocr-3-0.8b", "/to-markdown"),
+        ("gliner", "/ner"),
+        ("whisper-turbo", "/v1/transcribe"),
     }
     assert "surya2" not in {entry["name"] for entry in app.state.registry.describe()}
 
@@ -60,3 +62,17 @@ def test_hosted_app_keeps_moss_behind_its_existing_worker_descriptor(
 
     assert endpoint.expected_engine == "moss"
     assert endpoint.descriptor == MOSS_DESCRIPTOR
+
+
+def test_hosted_lighton_has_both_routes_with_one_resident_model(monkeypatch):
+    from frisket_models.modal_service import create_hosted_app
+
+    _clear_worker_environment(monkeypatch)
+    registry = create_hosted_app(token=TOKEN).state.registry
+    ocr = registry.get("lightonocr-3-0.8b", route="/ocr")
+    markdown = registry.get("lightonocr-3-0.8b", route="/to-markdown")
+    assert ocr.state is markdown.state
+    assert not ocr.loaded
+    assert not markdown.loaded
+    with pytest.raises(KeyError):
+        registry.get("lightonocr-3-4b", route="/ocr")

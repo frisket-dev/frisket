@@ -695,3 +695,73 @@ def test_language_engine_setup_is_allowlisted(tmp_path, setup_ref):
     pull = response.json()["pull"]
     assert pull["model"] == setup_ref
     assert pull["operation_kind"] == "engine_setup"
+
+
+def test_uninstall_cannot_cross_a_provisioning_operation(tmp_path, monkeypatch):
+    """The user-wide artifact lock also fences installers in other workspaces."""
+    from filelock import FileLock
+    from frisket.ai.models import model_cache
+    from frisket.engine.jobs.artifact_ref import normalize_artifact_ref
+
+    monkeypatch.setenv("FRISKET_MODEL_CACHE_DIR", str(tmp_path / "cache"))
+    client = _client(tmp_path)
+    workspace = client.app.state.workspace
+    engine = workspace.queue.engine
+    art = normalize_artifact_ref("opus-mt:en-es")
+    row, _ = store.create_or_get_active(
+        engine, workspace_root=str(workspace.root), model_ref=art.canonical
+    )
+    store.mark_running(engine, row.id, job_id=1)
+    store.mark_done(engine, row.id)
+    installed = model_cache.artifact_install_dir(art)
+    installed.mkdir(parents=True)
+    (installed / "model.bin").write_bytes(b"new installation")
+    with FileLock(model_cache.artifact_lock_path(art)):
+        response = client.post(
+            "/api/providers/models/uninstall", json={"ref": art.canonical}
+        )
+    assert response.status_code == 409
+    assert store.get(engine, row.id).status == store.STATUS_DONE
+    assert (installed / "model.bin").read_bytes() == b"new installation"
+
+
+def test_uninstall_failure_keeps_record_retryable(tmp_path, monkeypatch):
+    from frisket.ai.models import model_cache
+    from frisket.engine.jobs.artifact_ref import normalize_artifact_ref
+
+    monkeypatch.setenv("FRISKET_MODEL_CACHE_DIR", str(tmp_path / "cache"))
+    client = _client(tmp_path)
+    engine = client.app.state.workspace.queue.engine
+    art = normalize_artifact_ref("opus-mt:en-es")
+    row, _ = store.create_or_get_active(
+        engine,
+        workspace_root=str(client.app.state.workspace.root),
+        model_ref=art.canonical,
+    )
+    store.mark_running(engine, row.id, job_id=1)
+    store.mark_done(engine, row.id)
+    installed = model_cache.artifact_install_dir(art)
+    installed.mkdir(parents=True)
+    (installed / "model.bin").write_bytes(b"in use")
+    original = model_cache.shutil.rmtree
+
+    def busy(path, *args, **kwargs):
+        if path == installed:
+            if kwargs.get("ignore_errors"):
+                return
+            raise PermissionError("file in use")
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(model_cache.shutil, "rmtree", busy)
+    response = client.post(
+        "/api/providers/models/uninstall", json={"ref": art.canonical}
+    )
+    assert response.status_code == 409
+    assert store.get(engine, row.id).status == store.STATUS_DONE
+    monkeypatch.setattr(model_cache.shutil, "rmtree", original)
+    response = client.post(
+        "/api/providers/models/uninstall", json={"ref": art.canonical}
+    )
+    assert response.status_code == 200
+    assert store.get(engine, row.id).status == store.STATUS_UNINSTALLED
+    assert not installed.exists()

@@ -16,7 +16,9 @@ allowlisted.
 
 from __future__ import annotations
 
+import importlib
 import importlib.util
+import fnmatch
 import json
 from pathlib import Path
 
@@ -69,3 +71,34 @@ def test_every_import_boundaries_json_module_resolves() -> None:
         f"{BOUNDARY_CONFIG} names module paths that do not resolve — the rule "
         f"is fencing ghosts and must be updated: {missing}"
     )
+
+
+def test_every_protected_member_resolves_to_a_live_owner_api() -> None:
+    # rule19: diffs independently maintained boundary policy against live owner APIs
+    payload = json.loads(BOUNDARY_CONFIG.read_text(encoding="utf-8"))
+    missing: list[str] = []
+    for rule in payload["rules"]:
+        for reference in rule.get("forbidden_members", ()):
+            parts = reference.split(".")
+            owner = None
+            members: list[str] = []
+            for count in range(len(parts) - 1, 0, -1):
+                module_name = ".".join(parts[:count])
+                try:
+                    spec = importlib.util.find_spec(module_name)
+                except (ModuleNotFoundError, AttributeError):
+                    continue
+                if spec is not None:
+                    owner = importlib.import_module(module_name)
+                    members = parts[count:]
+                    break
+            for member in members:
+                matches = fnmatch.filter(dir(owner), member)
+                if not matches:
+                    owner = None
+                    break
+                if "*" not in member:
+                    owner = getattr(owner, member)
+            if owner is None:
+                missing.append(reference)
+    assert not missing, f"protected member rules fence missing APIs: {missing}"

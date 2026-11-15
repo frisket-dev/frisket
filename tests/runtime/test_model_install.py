@@ -1,14 +1,71 @@
 from __future__ import annotations
 
 import sys
-import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from filelock import FileLock
+from filelock import Timeout
 
 from frisket.runtime import model_install
+
+
+def _installed_profile(tmp_path, monkeypatch):
+    monkeypatch.setenv("FRISKET_MODEL_RUNTIME_DIR", str(tmp_path))
+    python = model_install.runtime_python()
+    python.parent.mkdir(parents=True)
+    python.touch()
+    (tmp_path / ".ready").touch()
+    monkeypatch.setattr(model_install, "_uv_command", lambda: ["/bundled/uv"])
+
+
+def test_explicit_setup_verifies_completed_environment_under_install_lock(
+    tmp_path, monkeypatch
+):
+    _installed_profile(tmp_path, monkeypatch)
+    verified = []
+
+    def probe():
+        with pytest.raises(Timeout):
+            FileLock(tmp_path / ".install.lock", timeout=0).acquire()
+        verified.append(True)
+        return True
+
+    monkeypatch.setattr(model_install, "_probe_install", probe)
+    monkeypatch.setattr(
+        model_install, "_run_uv", lambda *_a, **_k: pytest.fail("healthy environment")
+    )
+    model_install.install_docling(should_cancel=lambda: False, progress=lambda _: None)
+    assert verified == [True]
+
+
+def test_explicit_setup_repairs_broken_completed_environment(tmp_path, monkeypatch):
+    _installed_profile(tmp_path, monkeypatch)
+    probes = iter([False, True])
+    monkeypatch.setattr(model_install, "_probe_install", lambda: next(probes))
+    commands = []
+
+    def install(argv, **_kwargs):
+        assert not (tmp_path / ".ready").exists()
+        commands.append(argv)
+
+    monkeypatch.setattr(model_install, "_run_uv", install)
+    model_install.install_docling(should_cancel=lambda: False, progress=lambda _: None)
+    assert len(commands) == 2
+    assert "--clear" in commands[0]
+    assert (tmp_path / ".ready").is_file()
+
+
+def test_failed_repair_never_republishes_ready_marker(tmp_path, monkeypatch):
+    _installed_profile(tmp_path, monkeypatch)
+    monkeypatch.setattr(model_install, "_probe_install", lambda: False)
+    monkeypatch.setattr(model_install, "_run_uv", lambda *_a, **_k: None)
+    with pytest.raises(RuntimeError, match="failed its import check"):
+        model_install.install_docling(
+            should_cancel=lambda: False, progress=lambda _: None
+        )
+    assert not (tmp_path / ".ready").exists()
 
 
 def test_runtime_paths_follow_xdg_cache(tmp_path, monkeypatch) -> None:
@@ -71,16 +128,14 @@ def test_uv_and_probe_receive_only_allowlisted_environment(monkeypatch) -> None:
         def poll(self):
             return 0
 
+        def wait(self, timeout=None):
+            return 0
+
     def spawn(*_args, **kwargs):
         seen.append(kwargs["env"])
         return CompletedProcess()
 
-    def run(*_args, **kwargs):
-        seen.append(kwargs["env"])
-        return subprocess.CompletedProcess([], 0)
-
     monkeypatch.setattr(model_install, "spawn_service", spawn)
-    monkeypatch.setattr(model_install.subprocess, "run", run)
     model_install._run_uv(
         ["uv", "--version"],
         should_cancel=lambda: False,

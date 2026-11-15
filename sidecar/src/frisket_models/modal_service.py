@@ -13,6 +13,7 @@ HOSTED_ENGINE_NAMES = (
     "paddleocr-vl",
     "pp-ocrv6",
     "docling",
+    "lightonocr-3-0.8b",
     "gliner",
     "whisper-turbo",
 )
@@ -30,7 +31,13 @@ def create_hosted_app(
     """
 
     available = default_registry()
-    hosted = Registry([available.get(name) for name in HOSTED_ENGINE_NAMES])
+    hosted = Registry(
+        [
+            available.get(entry["name"], route=entry["route"])
+            for entry in available.describe()
+            if entry["name"] in HOSTED_ENGINE_NAMES
+        ]
+    )
     return create_app(token=token, registry=hosted, concurrency=concurrency)
 
 
