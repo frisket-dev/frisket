@@ -201,12 +201,9 @@ async def ocr_datalab(pages: list[Path], ctx: OpContext, usage: dict) -> list[di
     ``usage["cost_estimated"] = True`` so the caller can mark the
     result as estimated rather than reported.
 
-    Cancellation checks
-    ``ctx.extras['cancelled']`` (the SAME cooperative-cancel signal
-    MapRunner checks between rows, runner/map_runner.py's ``one_row``)
-    before every page, and threads it into ``datalab_ocr`` so a
-    multi-minute poll loop mid-page stops promptly instead of only
-    after the whole row completes."""
+    Check the execution owner before each new page purchase. Finish polling an
+    already accepted page so returned usage survives cancellation; the next
+    dispatch is refused and result publication independently checks ownership."""
     from frisket.execution.price_book import datalab_ocr_page_rate
     from frisket.ops.integrations.datalab import DatalabEngineError, datalab_ocr
     from frisket.ops.media_metadata import image_dimensions
@@ -237,14 +234,12 @@ async def ocr_datalab(pages: list[Path], ctx: OpContext, usage: dict) -> list[di
             context=ctx.credential_use_context,
         )
     usage["credential_source"] = credential_source
-    should_cancel = (ctx.extras or {}).get("cancelled")
+    from frisket.execution.dispatch_control import dispatch_for_context
+
+    dispatch = dispatch_for_context(ctx)
     out: list[dict] = []
     for p in pages:
-        if should_cancel is not None and should_cancel():
-            raise DatalabEngineError(
-                code="cancelled",
-                message="Datalab OCR stopped: the run was cancelled.",
-            )
+        dispatch.check()
         page_bytes = p.read_bytes()
         mime = "image/png" if p.suffix.lower() == ".png" else "image/jpeg"
         page_size = image_dimensions(page_bytes)
@@ -289,7 +284,8 @@ async def ocr_datalab(pages: list[Path], ctx: OpContext, usage: dict) -> list[di
                 p.name,
                 mime,
                 page_size=page_size,
-                should_cancel=should_cancel,
+                # Finish accepted accounting; stop before the next purchase.
+                should_cancel=None,
                 credential_source=credential_source,
                 on_accepted=persist_accepted,
             )
@@ -363,6 +359,10 @@ async def ocr_vlm(
     )
 
     router = (ctx.extras or {}).get("router")
+    if router is not None:
+        from frisket.execution.dispatch_control import dispatch_for_context
+
+        router = router.for_execution(dispatch_for_context(ctx))
     if router is None:
         raise RuntimeError("remote ocr engines need the model router in OpContext")
     routed = routed_admission_in_scope(ctx.extras)

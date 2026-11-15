@@ -81,10 +81,13 @@ class ScratchActionPreviewRunContext:
     execution_limits: Any
     progress: Callable[[int, int | None], None]
     cancel_event: threading.Event
+    owner_cancelled: Callable[[], bool] | None = None
 
     @property
     def cancelled(self) -> bool:
-        return self.cancel_event.is_set()
+        return self.cancel_event.is_set() or (
+            self.owner_cancelled is not None and self.owner_cancelled()
+        )
 
     def op_context(self, *, http: Any = None) -> OpContext:
         return self._op_context(self._cloud_binding(), http=http)
@@ -94,7 +97,7 @@ class ScratchActionPreviewRunContext:
             "preview": True,
             "preview_execution": self.resolved_for_preview,
             "router": self.router,
-            "cancelled": self.cancel_event.is_set,
+            "cancelled": lambda: self.cancelled,
         }
         if self.attempt is not None:
             extras[ATTEMPT_EXTRA] = self.attempt

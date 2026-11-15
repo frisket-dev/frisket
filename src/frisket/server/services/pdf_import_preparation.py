@@ -577,6 +577,16 @@ class PdfImportPreparationCoordinator:
             else None
         )
         project = self.workspace.get(project_id)
+        from frisket.engine.store.import_sessions import ImportExecutionOwner
+
+        parent = project.db.execute(
+            "SELECT id,op_id FROM import_sessions WHERE receipt_id=?",
+            (import_receipt_id,),
+        ).fetchone()
+        if parent is None:
+            raise RouteError(409, "PDF preparation has no admitted parent import")
+        owner = ImportExecutionOwner(str(parent["id"]), int(parent["op_id"]))
+        owner.require_current(project.db)
         source = next(
             (
                 column
@@ -655,6 +665,7 @@ class PdfImportPreparationCoordinator:
             }
             run_kwargs: dict[str, Any] = {
                 "background_priority": "pdf_import_ocr" if ocr else None,
+                "import_owner": owner,
             }
             if ocr and grant is not None:
                 run_kwargs["trusted_consent_authorizer"] = self._grant_authorizer(
@@ -1092,7 +1103,18 @@ class PdfImportPreparationCoordinator:
                 or session.producer_id is None
             ):
                 return 0
+            from frisket.engine.store.import_sessions import (
+                ImportExecutionOwner,
+                ImportSessionConflict,
+            )
+
             with PdfImportPreparationStore(directory / "inventory.db") as preparation:
+                try:
+                    ImportExecutionOwner(session.id, session.op_id).require_current(
+                        project.db
+                    )
+                except ImportSessionConflict:
+                    preparation.stop()
                 if preparation.stopped():
                     return preparation.scheduled_through()
                 scheduled_through = preparation.scheduled_through()

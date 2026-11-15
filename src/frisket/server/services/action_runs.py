@@ -9,6 +9,7 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any, Callable, Literal, Mapping
 
+from frisket.engine.store.import_sessions import ImportExecutionOwner
 from frisket.actions.system import action_id_from_request
 from frisket.ai.llm import ModelRouter
 from frisket.contracts.action import (
@@ -381,6 +382,7 @@ class ActionRunService:
         admitted_sources: Mapping[str, BoundLocalFile] | None = None,
         required_execution_target: ExactExecutionMatch | None = None,
         background_priority: Literal["pdf_import_ocr"] | None = None,
+        import_owner: ImportExecutionOwner | None = None,
         trusted_consent_authorizer: TrustedConsentAuthorizer | None = None,
         trusted_consent_principal: str | None = None,
     ) -> ActionRunResponse:
@@ -395,6 +397,7 @@ class ActionRunService:
             admitted_sources=admitted_sources,
             required_execution_target=required_execution_target,
             background_priority=background_priority,
+            import_owner=import_owner,
             trusted_consent_authorizer=trusted_consent_authorizer,
             trusted_consent_principal=trusted_consent_principal,
             _observation_state=state,
@@ -471,6 +474,7 @@ class ActionRunService:
         admitted_sources: Mapping[str, BoundLocalFile] | None = None,
         required_execution_target: ExactExecutionMatch | None = None,
         background_priority: Literal["pdf_import_ocr"] | None = None,
+        import_owner: ImportExecutionOwner | None = None,
         trusted_consent_authorizer: TrustedConsentAuthorizer | None = None,
         trusted_consent_principal: str | None = None,
         _observation_state: dict[str, Any] | None = None,
@@ -606,6 +610,7 @@ class ActionRunService:
                 request_executor_deps=request_executor_deps,
                 trusted_consent_authorizer=trusted_consent_authorizer,
                 trusted_consent_principal=trusted_consent_principal,
+                import_owner=import_owner,
             ),
             execution_context=execution_context,
             background_priority=background_priority,

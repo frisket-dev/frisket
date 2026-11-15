@@ -14,7 +14,6 @@ from typing import Any, Literal, Mapping
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.import_sessions import (
     ImportSessionConflict,
-    invalidate_pdf_split_generation,
     set_import_session_rows_hidden,
     set_import_session_replaced_rows_hidden,
 )
@@ -947,8 +946,9 @@ def _is_review_state_key(value: Any) -> bool:
 def _unapply(project: Any, op: sqlite3.Row) -> None:
     """Restore pointer state captured in undo_info. Never deletes data."""
     info = json.loads(op["undo_info"] or "{}")
-    if op["kind"] == "pdf.split":
-        invalidate_pdf_split_generation(project.db, op_id=int(op["id"]))
+    from .import_sessions import invalidate_import_generation
+
+    invalidate_import_generation(project, op_id=int(op["id"]))
     for col_id, prev_run in info.get("column_pointers", {}).items():
         project.db.execute(
             "UPDATE columns SET current_run_id=? WHERE id=?",

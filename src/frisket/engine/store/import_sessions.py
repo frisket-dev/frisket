@@ -377,18 +377,78 @@ def import_session_generation_is_applied(
     )
 
 
-def invalidate_pdf_split_generation(db: Any, *, op_id: int) -> None:
-    """Invalidate queued preparation in the same transaction as split Undo."""
-    if not db.in_transaction:
-        raise RuntimeError(
-            "split generation invalidation requires a history transaction"
+@dataclass(frozen=True)
+class ImportExecutionOwner:
+    session_id: str
+    op_id: int
+
+    def require_current(self, db: Any) -> None:
+        if (
+            db.execute(
+                "SELECT 1 FROM import_sessions session JOIN ops ON ops.id=session.op_id "
+                "WHERE session.id=? AND session.op_id=? AND ops.status='applied' "
+                "AND session.state IN ('active','paused','kept','completed') "
+                "AND session.writer_authority NOT LIKE 'undone:%'",
+                (self.session_id, self.op_id),
+            ).fetchone()
+            is None
+        ):
+            raise ImportSessionConflict(
+                "The parent import no longer permits preparation"
+            )
+
+    def bind_run(self, project: Any, run_id: int) -> None:
+        """Persist parent ownership before publishing a queued child."""
+        if not project.db.in_transaction:
+            raise RuntimeError(
+                "Import child binding requires its admission transaction"
+            )
+        self.require_current(project.db)
+        row = project.db.execute(
+            "SELECT op.id,op.spec FROM runs run JOIN ops op ON op.id=run.op_id WHERE run.id=?",
+            (int(run_id),),
+        ).fetchone()
+        if row is None:
+            raise ValueError("Import child has no admitted run")
+        spec = json.loads(row["spec"])
+        owner = {"session_id": self.session_id, "op_id": self.op_id}
+        if spec.get("import_execution_owner", owner) != owner:
+            raise ImportSessionConflict("Import child belongs to another parent")
+        spec["import_execution_owner"] = owner
+        project.db.execute(
+            "UPDATE ops SET spec=? WHERE id=?", (json.dumps(spec), row["id"])
         )
-    db.execute(
+
+
+def require_import_execution_owner(db: Any, spec: dict[str, Any]) -> None:
+    owner = spec.get("import_execution_owner")
+    if owner is not None:
+        ImportExecutionOwner(**owner).require_current(db)
+
+
+def invalidate_import_generation(project: Any, *, op_id: int) -> None:
+    """Undo stops acquisition and owned preparation without erasing returned usage."""
+    db = project.db
+    if not db.in_transaction:
+        raise RuntimeError("Import invalidation requires a history transaction")
+    changed = db.execute(
         "UPDATE import_sessions SET writer_authority='undone:' || lower(hex(randomblob(16))),"
-        "updated_at=datetime('now') WHERE op_id=? "
-        "AND EXISTS(SELECT 1 FROM ops WHERE id=? AND kind='pdf.split')",
-        (int(op_id), int(op_id)),
+        "updated_at=datetime('now') WHERE op_id=?",
+        (int(op_id),),
     )
+    if changed.rowcount == 0:
+        return
+    from .runs import RunResultStore
+    from .run_lifecycle import close_run_change
+
+    for child in db.execute(
+        "SELECT run.id FROM runs run JOIN ops child ON child.id=run.op_id "
+        "WHERE run.status='running' AND child.status='applied' "
+        "AND json_extract(child.spec,'$.import_execution_owner.op_id')=?",
+        (int(op_id),),
+    ).fetchall():
+        RunResultStore(project).request_cancel(int(child[0]), commit=False)
+        close_run_change(project, int(child[0]))
 
 
 def require_import_sheet_write(
@@ -444,5 +504,7 @@ __all__ = [
     "set_import_session_rows_hidden",
     "set_import_session_replaced_rows_hidden",
     "import_session_generation_is_applied",
-    "invalidate_pdf_split_generation",
+    "ImportExecutionOwner",
+    "invalidate_import_generation",
+    "require_import_execution_owner",
 ]

@@ -173,7 +173,7 @@ def paid_ocr_scratch_plan(
                 "filename": filename or source.name,
                 "mime": source_mime,
             }
-            recipe_impl = OcrEngines(cancelled=context.cancel_event.is_set)
+            recipe_impl = OcrEngines(cancelled=lambda: context.cancelled)
             async with AsyncExitStack() as stack:
                 if (
                     canonical_engine == LIGHT_ENGINE
@@ -373,7 +373,7 @@ def paid_ocr_scratch_plan(
                         "{source_stem}.searchable.pdf", {"source_stem": stem}
                     )
                     stager = AdmittedImportBlobStager(
-                        cancelled=context.cancel_event.is_set
+                        cancelled=lambda: context.cancelled
                     )
                     handle = stager.stage(
                         io.BytesIO(searchable),

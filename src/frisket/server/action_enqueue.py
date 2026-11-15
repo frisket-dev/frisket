@@ -16,6 +16,7 @@ from frisket.execution.action_admission import (
     missing_action_credential_error as missing_action_credential_error,
     network_disabled_error,
 )
+from frisket.engine.store.import_sessions import ImportExecutionOwner
 from frisket.actions.types import RowError
 from frisket.engine.executor.action_support import _row_input_action_error
 
@@ -244,6 +245,7 @@ class QueuedV1ActionRunContext:
     request_executor_deps: Callable[[], ExecutorDeps] = ExecutorDeps
     trusted_consent_authorizer: TrustedConsentAuthorizer | None = None
     trusted_consent_principal: str | None = None
+    import_owner: ImportExecutionOwner | None = None
 
 
 def attach_run_edition_run_context(
@@ -488,6 +490,9 @@ def _queue_v1_project_run_request(
                 execution_context.edition_snapshot,
                 commit=not atomic_publication,
             )
+            if ctx.import_owner is not None:
+                with project.transaction_scope():
+                    ctx.import_owner.bind_run(project, progress.run_id)
             if atomic_publication:
                 project.db.commit()
         except CostGate as exc:
@@ -642,6 +647,9 @@ def _queue_v1_project_run_request(
                     reservation_snapshot=reservation_snapshot,
                     commit=False,
                 )
+            if ctx.import_owner is not None:
+                with project.transaction_scope():
+                    ctx.import_owner.bind_run(project, progress.run_id)
             if atomic_publication:
                 attach_run_edition_run_context(
                     project,

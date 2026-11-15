@@ -39,6 +39,13 @@ from frisket.engine.store import Project
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "datalab"
 
 
+class _HttpRouter:
+    def for_execution(self, execution):
+        from frisket.ai.llm.execution import ExecutionModelRouter
+
+        return ExecutionModelRouter(self, execution)
+
+
 def _load(name: str) -> dict[str, Any]:
     return json.loads((FIXTURES / name).read_text(encoding="utf-8"))
 
@@ -709,7 +716,7 @@ def test_datalab_ocr_dispatch_routes_to_the_client_and_records_real_cost(
             return httpx.Response(200, json=submit)
         return httpx.Response(200, json=complete)
 
-    class StubRouter:
+    class StubRouter(_HttpRouter):
         client = _mock(handler)
 
     page = tmp_path / "page.png"
@@ -744,7 +751,7 @@ def test_datalab_convert_dispatch_routes_to_the_client_and_records_real_cost(
             return httpx.Response(200, json=submit)
         return httpx.Response(200, json=complete)
 
-    class StubRouter:
+    class StubRouter(_HttpRouter):
         client = _mock(handler)
 
     # A real local path with a supported (.pdf) extension. The engine gate uses
@@ -796,7 +803,7 @@ def test_datalab_accepted_job_error_stays_reconciliation_required(
             return httpx.Response(200, json=submit)
         return httpx.Response(503, json={"detail": "poll unavailable"})
 
-    class StubRouter:
+    class StubRouter(_HttpRouter):
         client = _mock(handler)
 
     doc = tmp_path / "accepted.pdf"
@@ -840,7 +847,7 @@ def test_datalab_convert_rejects_unsupported_input_type_before_any_network_call(
         called["n"] += 1
         return httpx.Response(200, json={})
 
-    class StubRouter:
+    class StubRouter(_HttpRouter):
         client = _mock(handler)
 
     p, sheet = _project(tmp_path, [{"doc": "<html><body>hi</body></html>"}], "text")
@@ -878,7 +885,7 @@ def test_datalab_ocr_falls_back_to_external_pricing_estimate_when_cost_missing(
             return httpx.Response(200, json=submit)
         return httpx.Response(200, json=complete_no_cost)
 
-    class StubRouter:
+    class StubRouter(_HttpRouter):
         client = _mock(handler)
 
     page = tmp_path / "page.png"
@@ -968,7 +975,7 @@ def test_datalab_missing_key_refuses_the_run_with_the_remedy(tmp_path, monkeypat
     """
     monkeypatch.delenv("DATALAB_API_KEY", raising=False)
 
-    class StubRouter:
+    class StubRouter(_HttpRouter):
         client = httpx.AsyncClient(
             transport=httpx.MockTransport(lambda r: httpx.Response(200, json={}))
         )
@@ -1328,3 +1335,42 @@ def test_project_action_catalog_payload_threads_org_provider_keys(monkeypatch):
     ]
     assert openai_engines
     assert all(row["available"] for row in openai_engines)
+
+
+@pytest.mark.asyncio
+async def test_ocr_dispatch_finishes_accepted_page_but_refuses_next_purchase(
+    tmp_path, monkeypatch
+):
+    import asyncio
+
+    from frisket.ops.base import OpContext
+    from frisket.ops.ocr_engines_hosted import ocr_datalab
+
+    monkeypatch.setenv("DATALAB_API_KEY", "test-key")
+    cancelled = False
+    calls = []
+
+    def handler(request):
+        nonlocal cancelled
+        calls.append(request.method)
+        if request.method == "POST":
+            # Ownership is withdrawn after acceptance, before the response poll.
+            cancelled = True
+            return httpx.Response(200, json=_load("ocr_submit.json"))
+        return httpx.Response(200, json=_load("ocr_complete.json"))
+
+    page = tmp_path / "page.png"
+    page.write_bytes(b"\x89PNG\r\n\x1a\n page-bytes")
+    usage = {"cost": 0.0, "calls": 0}
+    async with _mock(handler) as http:
+        context = OpContext(
+            project=None,
+            http=http,
+            extras={"preview": True, "cancelled": lambda: cancelled},
+        )
+        with pytest.raises(asyncio.CancelledError):
+            await ocr_datalab([page, page], context, usage)
+    assert calls == ["POST", "GET"]
+    assert usage["calls"] == 1
+    assert usage["cost"] == pytest.approx(0.01)
+    assert usage["model_calls"][0]["provider_cost_usd"] == pytest.approx(0.01)

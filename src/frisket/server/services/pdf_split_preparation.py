@@ -1,12 +1,13 @@
 """Original-page OCR admission over the ordinary accounted scratch executor.
 
 Only immutable page references live in the import preparation inventory.  Text
-bodies remain in prepared_content; publishing a finished page into a child is
-owned by the split writer, never by a second map operation.
+bodies remain in prepared_content. A finished page publishes through its own
+preparation Change, fenced by the parent import generation.
 """
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from collections.abc import Callable, Mapping, Sequence
@@ -531,14 +532,17 @@ class PdfSplitPreparationAdapter:
         preview_runs: Any,
         inventory_path: Path,
         project_id: str,
-        publish_child_page: Callable[[PdfSplitChildBinding, int], bool] | None = None,
+        publish_child_pages: Callable[
+            [Sequence[PdfSplitChildBinding], int], Sequence[bool]
+        ]
+        | None = None,
         admitted_sources: Mapping[str, Any] | None = None,
     ) -> None:
         self.workspace = workspace
         self.preview_runs = preview_runs
         self.inventory_path = inventory_path
         self.project_id = project_id
-        self.publish_child_page = publish_child_page
+        self.publish_child_pages = publish_child_pages
         self.admitted_sources = dict(admitted_sources or {})
         self._lock = FileLock(
             str(inventory_path.with_name(".pdf-source-preparation.lock"))
@@ -930,7 +934,7 @@ class PdfSplitPreparationAdapter:
         self.fanout(work)
 
     def fanout(self, work: PdfSplitPageWork) -> int:
-        if self.publish_child_page is None:
+        if self.publish_child_pages is None:
             return 0
         published = 0
         with PdfSplitPreparationStore(self.inventory_path) as store:
@@ -951,8 +955,8 @@ class PdfSplitPreparationAdapter:
             while bindings := store.bindings(
                 work.work_key, generation=work.generation, after_row_id=after_row_id
             ):
-                for binding in bindings:
-                    applied = self.publish_child_page(binding, int(row[1]))
+                outcomes = self.publish_child_pages(bindings, int(row[1]))
+                for binding, applied in zip(bindings, outcomes, strict=True):
                     store.mark_published(binding, applied=applied)
                     if applied:
                         published += 1
@@ -1132,9 +1136,24 @@ class PdfSplitPreparationAdapter:
                 async def run_leased(
                     context, run=run, lease=lease, flight=flight, work=work
                 ):
+                    def owner_cancelled():
+                        with PdfSplitPreparationStore(self.inventory_path) as owner:
+                            return not self._generation_current(
+                                owner, work, explicit_preview=explicit_preview
+                            )
+
+                    # The import owns dispatch as well as publication. Reuse its
+                    # durable generation fence before every provider retry; a
+                    # returned response is still recorded by scratch accounting.
+                    context = replace(context, owner_cancelled=owner_cancelled)
                     failure = None
                     try:
+                        if context.cancelled:
+                            raise asyncio.CancelledError
                         return await run(context)
+                    except asyncio.CancelledError:
+                        context.cancel_event.set()
+                        raise
                     except BaseException as exc:
                         failure = exc
                         raise

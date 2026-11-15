@@ -41,6 +41,12 @@ def require_execution_sources(project: Any, op_id: int) -> None:
         raise ExecutionSourceUnavailable(
             "The execution was cancelled; run the action again with available inputs"
         )
+    from .import_sessions import ImportSessionConflict, require_import_execution_owner
+
+    try:
+        require_import_execution_owner(project.db, spec)
+    except ImportSessionConflict as exc:
+        raise ExecutionSourceUnavailable(str(exc)) from exc
     binding = spec.get(SOURCE_BINDING)
     if binding is None:
         return

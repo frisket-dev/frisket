@@ -45,7 +45,7 @@ class RunDispatch:
 
     def check(self) -> None:
         live = self.project.db.execute(
-            "SELECT 1 FROM runs run JOIN ops op ON op.id=run.op_id "
+            "SELECT op.id FROM runs run JOIN ops op ON op.id=run.op_id "
             "JOIN execution_attempts attempt ON attempt.run_id=run.id "
             "WHERE run.id=? AND attempt.id=? AND attempt.state='dispatching' "
             "AND run.current_attempt_id=attempt.id AND run.status='running' "
@@ -56,9 +56,14 @@ class RunDispatch:
         if live is None or (self.cancelled is not None and self.cancelled()):
             raise asyncio.CancelledError
         from frisket.engine.store.output_claims import OutputColumnClaimStore
+        from frisket.engine.store.source_dependencies import (
+            ExecutionSourceUnavailable,
+            require_execution_sources,
+        )
         from frisket.execution.attempt import StaleAttemptWriter
 
         try:
+            require_execution_sources(self.project, int(live[0]))
             OutputColumnClaimStore.require_current_writer(
                 self.project.db,
                 run_id=self.run_id,
@@ -66,7 +71,7 @@ class RunDispatch:
                 claim_token=self.claim_token,
                 claimless_direct_effect=self.claim_token is None,
             )
-        except StaleAttemptWriter:
+        except (StaleAttemptWriter, ExecutionSourceUnavailable):
             raise asyncio.CancelledError from None
 
 
