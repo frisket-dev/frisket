@@ -295,6 +295,7 @@ def _write_extract_in_transaction(
             )
             for item, stored_clip in zip(staged, committed, strict=True)
         ],
+        close_change=False,
     )
     created_column_ids = [output_column_id]
     transcript_column_ids: dict[int, int] = {}
@@ -324,7 +325,12 @@ def _write_extract_in_transaction(
                         value=projection.text,
                     )
                 )
-        insert_edits(project.db, op_id=op_id, edits=transcript_edits)
+        insert_edits(
+            project.db,
+            op_id=op_id,
+            edits=transcript_edits,
+            close_change=False,
+        )
     annotations_by_column = {
         annotation.column_id: annotation
         for annotation in _staged_extract_annotations(staged)
@@ -407,6 +413,7 @@ def _write_extract_in_transaction(
                         value=projection.value,
                     )
                 ],
+                close_change=False,
             )
             annotation_row_ids[annotation.column_id].append(source.row_id)
             receipt_evidence.append(
@@ -573,4 +580,7 @@ def _write_extract_in_transaction(
     )
     if not updated:
         raise RuntimeError("temporal extract receipt update did not land")
+    from frisket.engine.store.changes import ChangeStore
+
+    ChangeStore(project).close(op_id)
     return _result_from_receipt(receipt)

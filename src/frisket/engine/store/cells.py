@@ -156,19 +156,32 @@ def add_sheet(
     parent_op_id: int | None = None,
     *,
     commit: bool = True,
+    close_change: bool = True,
 ) -> int:
-    cur = project.db.execute(
-        "INSERT INTO sheets (name, position, parent_sheet_id, parent_op_id) "
-        "VALUES (?, (SELECT COALESCE(MAX(position),0)+1 FROM sheets), ?, ?)",
-        (name, parent_sheet_id, parent_op_id),
+    owns_transaction = bool(
+        parent_op_id is not None and commit and not project.db.in_transaction
     )
-    if parent_op_id is not None:
-        from .changes import start_change
+    if owns_transaction:
+        project.db.execute("BEGIN IMMEDIATE")
+    try:
+        if parent_op_id is not None:
+            from .changes import close_change as _close_change, start_change
 
-        start_change(project.db, parent_op_id)
-    if commit:
-        project.db.commit()
-    return cur.lastrowid
+            start_change(project.db, int(parent_op_id), writing=True)
+        cur = project.db.execute(
+            "INSERT INTO sheets (name, position, parent_sheet_id, parent_op_id) "
+            "VALUES (?, (SELECT COALESCE(MAX(position),0)+1 FROM sheets), ?, ?)",
+            (name, parent_sheet_id, parent_op_id),
+        )
+        if parent_op_id is not None and close_change:
+            _close_change(project.db, int(parent_op_id))
+        if commit:
+            project.db.commit()
+        return cur.lastrowid
+    except BaseException:
+        if owns_transaction:
+            project.db.rollback()
+        raise
 
 
 def sheets(project: Any, include_hidden: bool = False) -> list[sqlite3.Row]:

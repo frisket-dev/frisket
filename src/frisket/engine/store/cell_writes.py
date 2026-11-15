@@ -20,7 +20,7 @@ from .current_cells import (
     refresh_current_cell_pairs,
     refresh_current_cells,
 )
-from .changes import start_change
+from .changes import close_change as _close_change, start_change
 from .import_sessions import (
     ImportInProgress,
     active_import_session,
@@ -542,9 +542,18 @@ def replace_base_cells(
 
 
 def insert_edits(
-    db: sqlite3.Connection, *, op_id: int, edits: Iterable[EditCellWrite]
+    db: sqlite3.Connection,
+    *,
+    op_id: int,
+    edits: Iterable[EditCellWrite],
+    close_change: bool = True,
 ) -> int:
-    """Insert operation-owned edit overlays and refresh their exact cells."""
+    """Insert operation-owned edit overlays and refresh their exact cells.
+
+    One-shot writers close their Change in this call. A caller that owns a
+    larger publication transaction may pass ``close_change=False`` and close
+    the Change after its final related write.
+    """
 
     _require_transaction(db)
     op_id = int(op_id)
@@ -565,12 +574,12 @@ def insert_edits(
         db,
         [(row_id, column_id) for _op, row_id, column_id, _kind, _value in encoded],
     )
+    start_change(db, op_id, writing=True)
     db.executemany(
         "INSERT INTO edits (op_id,row_id,column_id,value_kind,value) "
         "VALUES (?,?,?,?,?)",
         encoded,
     )
-    start_change(db, op_id)
     # Import lazily: document_text owns optional role metadata while this
     # generic writer also runs during migrations that predate that schema.
     from .document_text import inherit_document_text_manual_pins
@@ -580,4 +589,6 @@ def insert_edits(
         db,
         {(row_id, column_id) for _op, row_id, column_id, _kind, _value in encoded},
     )
+    if close_change:
+        _close_change(db, op_id)
     return len(encoded)

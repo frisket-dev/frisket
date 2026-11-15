@@ -319,6 +319,7 @@ def _materialize(
             parent_sheet_id=sheet_id,
             parent_op_id=op_id,
             commit=False,
+            close_change=False,
         )
     else:
         old_rows = project.visible_row_ids(child_id)

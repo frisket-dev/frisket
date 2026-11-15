@@ -75,6 +75,29 @@ def start_change(db: sqlite3.Connection, op_id: int, *, writing: bool = False) -
     return order
 
 
+def close_change(db: sqlite3.Connection, op_id: int) -> None:
+    """Close one Change inside the caller's transaction."""
+    if not db.in_transaction:
+        raise RuntimeError("Change commands require a caller-owned transaction")
+    row = db.execute(
+        "SELECT status,publication_closed FROM ops WHERE id=?", (op_id,)
+    ).fetchone()
+    if row is None:
+        raise ValueError(f"unknown Change {op_id}")
+    state = "inactive" if row[0] != "applied" else ("applied" if row[1] else "writing")
+    machine = ChangeLifecycle(start_value=state)
+    machine.send("close")
+    target = next(iter(machine.configuration)).id
+    db.execute(
+        "UPDATE ops SET status=?,publication_closed=? WHERE id=?",
+        (
+            "undone" if target == "inactive" else "applied",
+            int(target != "writing"),
+            op_id,
+        ),
+    )
+
+
 class ChangeStore:
     def __init__(self, project: Any):
         self.project = project
@@ -115,7 +138,7 @@ class ChangeStore:
         )
 
     def close(self, op_id: int) -> None:
-        self._transition(op_id, "close")
+        close_change(self.db, op_id)
 
     def revert(self, op_id: int) -> None:
         self._transition(op_id, "revert")

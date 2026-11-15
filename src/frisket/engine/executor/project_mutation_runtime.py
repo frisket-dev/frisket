@@ -105,6 +105,7 @@ def write_edit_overlay(
         targets=targets,
         stale_reason=stale_reason,
         undo_info=undo_info,
+        close_change=False,
     )
 
 

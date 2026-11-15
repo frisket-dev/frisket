@@ -50,10 +50,37 @@ def _run(project, sheet, column, rows):
     return run
 
 
-def test_same_change_manual_correction_wins_over_source_version(tmp_path):
+def test_manual_correction_starts_and_closes_its_own_change(tmp_path):
     from frisket.engine.store.cell_writes import EditCellWrite, insert_edits
 
     project = Project.create(tmp_path / "same-change.frisket")
+    try:
+        sheet = project.add_sheet("Source")
+        column = project.add_column(sheet, "text")
+        row = project.add_rows(sheet, [{"text": "original"}], {"text": column})[0]
+        project.db.execute("BEGIN")
+        with project.db:
+            op = project.append_op("edit", {}, label="manual correction", commit=False)
+            insert_edits(
+                project.db, op_id=op, edits=[EditCellWrite(row, column, "corrected")]
+            )
+        state = project.db.execute(
+            "SELECT change_order,publication_closed FROM ops WHERE id=?", (op,)
+        ).fetchone()
+        assert state[0] is not None
+        assert state[1] == 1
+        values, refs = project.get_values_with_refs(sheet, column, [row])
+        assert values[row] == "corrected"
+        assert refs[row]["kind"] == "manual_edit"
+    finally:
+        project.close()
+
+
+def test_shared_writers_reject_closed_change_before_dml(tmp_path):
+    from frisket.engine.store.cell_writes import EditCellWrite, insert_edits
+    from frisket.engine.store.changes import ChangePublicationClosed
+
+    project = Project.create(tmp_path / "closed-writers.frisket")
     try:
         sheet = project.add_sheet("Source")
         column = project.add_column(sheet, "text")
@@ -63,15 +90,111 @@ def test_same_change_manual_correction_wins_over_source_version(tmp_path):
             "ON producer.id=cell.producer_id WHERE cell.row_id=? AND cell.column_id=?",
             (row, column),
         ).fetchone()[0]
-        project.db.execute("BEGIN")
-        with project.db:
+        before_sheets = project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0]
+
+        project.db.execute("BEGIN IMMEDIATE")
+        with pytest.raises(ChangePublicationClosed):
             insert_edits(
-                project.db, op_id=op, edits=[EditCellWrite(row, column, "corrected")]
+                project.db,
+                op_id=op,
+                edits=[EditCellWrite(row, column, "too late")],
             )
-        values, refs = project.get_values_with_refs(sheet, column, [row])
-        assert values[row] == "corrected"
-        assert refs[row]["kind"] == "manual_edit"
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM edits WHERE op_id=?", (op,)
+            ).fetchone()[0]
+            == 0
+        )
+        project.db.rollback()
+
+        project.db.execute("BEGIN IMMEDIATE")
+        with pytest.raises(ChangePublicationClosed):
+            project.add_sheet("Too late", parent_op_id=op, commit=False)
+        assert (
+            project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0]
+            == before_sheets
+        )
+        project.db.rollback()
+
+        one_shot = project.append_op("derive.once", {}, label="one-shot")
+        created = project.add_sheet("One-shot child", parent_op_id=one_shot)
+        assert (
+            project.db.execute(
+                "SELECT parent_op_id FROM sheets WHERE id=?", (created,)
+            ).fetchone()[0]
+            == one_shot
+        )
+        one_shot_state = project.db.execute(
+            "SELECT change_order,publication_closed FROM ops WHERE id=?", (one_shot,)
+        ).fetchone()
+        assert one_shot_state[0] is not None
+        assert one_shot_state[1] == 1
     finally:
+        if project.db.in_transaction:
+            project.db.rollback()
+        project.close()
+
+
+def test_open_change_accepts_multiple_edit_writes_until_owner_closes(tmp_path):
+    from frisket.engine.store.cell_writes import EditCellWrite, insert_edits
+    from frisket.engine.store.changes import ChangeStore, start_change
+
+    project = Project.create(tmp_path / "multi-writer.frisket")
+    try:
+        sheet = project.add_sheet("Source")
+        column = project.add_column(sheet, "text")
+        rows = project.add_rows(
+            sheet, [{"text": "one"}, {"text": "two"}], {"text": column}
+        )
+        project.db.execute("BEGIN IMMEDIATE")
+        op = project.append_op("edit", {}, label="multi-write", commit=False)
+        start_change(project.db, op, writing=True)
+        child_sheet = project.add_sheet(
+            "Owned child",
+            parent_sheet_id=sheet,
+            parent_op_id=op,
+            commit=False,
+            close_change=False,
+        )
+        insert_edits(
+            project.db,
+            op_id=op,
+            edits=[EditCellWrite(rows[0], column, "one edited")],
+            close_change=False,
+        )
+        insert_edits(
+            project.db,
+            op_id=op,
+            edits=[EditCellWrite(rows[1], column, "two edited")],
+            close_change=False,
+        )
+        assert (
+            project.db.execute(
+                "SELECT publication_closed FROM ops WHERE id=?", (op,)
+            ).fetchone()[0]
+            == 0
+        )
+        ChangeStore(project).close(op)
+        project.db.commit()
+        assert (
+            project.db.execute(
+                "SELECT publication_closed FROM ops WHERE id=?", (op,)
+            ).fetchone()[0]
+            == 1
+        )
+        assert (
+            project.db.execute(
+                "SELECT parent_op_id FROM sheets WHERE id=?", (child_sheet,)
+            ).fetchone()[0]
+            == op
+        )
+        assert project.get_values(sheet, column, rows) == {
+            rows[0]: "one edited",
+            rows[1]: "two edited",
+        }
+    finally:
+        if project.db.in_transaction:
+            project.db.rollback()
         project.close()
 
 

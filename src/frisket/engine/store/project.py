@@ -622,6 +622,7 @@ class Project:
         parent_op_id: int | None = None,
         *,
         commit: bool = True,
+        close_change: bool = True,
     ) -> int:
         return cells.add_sheet(
             self,
@@ -629,6 +630,7 @@ class Project:
             parent_sheet_id,
             parent_op_id,
             commit=commit,
+            close_change=close_change,
         )
 
     def sheets(self, include_hidden: bool = False) -> list[sqlite3.Row]:
