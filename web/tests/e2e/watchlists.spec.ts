@@ -1,5 +1,17 @@
-import { expect, test, type Locator } from '@playwright/test';
-import { createProject, importCsv, openDiscoverTab, openPalette, openProject, uniqueName } from './helpers';
+import { expect, test, type Locator, type APIRequestContext } from '@playwright/test';
+import { createProject, importCsv, openDiscoverTab, openPalette, openProject, sheetColumns, uniqueName } from './helpers';
+
+async function createSearchWatch(request: APIRequestContext, pid: string, sheetId: number, name: string) {
+  const view = await request.post(`/api/projects/${pid}/views`, { data: {
+    name, selection: { scope: { kind: 'sheet', sheet_id: sheetId }, search: { text: 'budget' }, filters: [], order: [], limit: null },
+    presentation: { columns: null, column_groups: null },
+  } });
+  expect(view.ok()).toBeTruthy();
+  return request.post(`/api/projects/${pid}/watches`, { data: {
+    name, view_id: (await view.json()).id,
+    detection_policy: { kind: 'conditions', entered: true, exited: false, count_changed: false, fields: [] },
+  } });
+}
 
 async function declaredCapabilities(contribution: Locator): Promise<string[]> {
   return (await contribution.getAttribute('data-required-capabilities'))
@@ -11,9 +23,10 @@ function watchWire(overrides: Record<string, unknown> = {}): Record<string, unkn
   return {
     id: 81,
     name: 'Open rows watch',
-    scope: 'project',
+    view_id: 81,
+    schedule: '@hourly',
     sheet_id: null,
-    query: { kind: 'filter' },
+    detection_policy: { kind: 'conditions', entered: true, exited: false, count_changed: false, fields: [] },
     enabled: true,
     last_evaluated_op: 0,
     last_run_id: null,
@@ -36,12 +49,15 @@ test('watchlists promote searches, then show manual run history', async ({ page 
       'Bridge repair,closed,The bridge repair vote was tabled.\n' +
       'Budget audit,open,Auditors found budget variances.\n',
   );
+  const columns = await sheetColumns(page.request, pid, sheetId);
+  const columnId = (name: string) => columns.find(column => column.name === name)!.id;
   const viewResponse = await page.request.post(`/api/projects/${pid}/views`, {
     data: {
       name: 'Open rows',
-      sheet_id: sheetId,
-      filter: { status: { eq: 'open' } },
-      sort: [{ column: 'title', dir: 'asc' }],
+      selection: { scope: { kind: 'sheet', sheet_id: sheetId },
+        filters: [{ column_id: columnId('status'), condition: { eq: 'open' } }],
+        order: [{ column_id: columnId('title'), dir: 'asc' }], limit: null },
+      presentation: { columns: null, column_groups: null },
     },
   });
   expect(viewResponse.ok()).toBeTruthy();
@@ -78,6 +94,7 @@ test('watchlists promote searches, then show manual run history', async ({ page 
 
   await openPalette(page);
   await page.getByTestId('command-palette-input').fill('budget');
+  await page.getByTestId('search-mode-select').selectOption('lexical');
   await expect(page.getByTestId('search-results')).toBeVisible();
 
   const searchWatchResponse = page.waitForResponse((res) => {
@@ -87,12 +104,8 @@ test('watchlists promote searches, then show manual run history', async ({ page 
   await page.getByTestId('watch-search-button').click();
   const searchWatch = await (await searchWatchResponse).json();
   expect(searchWatch.name).toBe('Search: budget');
-  expect(searchWatch.query).toMatchObject({
-    kind: 'fts',
-    q: 'budget',
-    mode: 'keyword',
-    rerank: 'off',
-  });
+  const watchedView = await (await page.request.get(`/api/projects/${pid}/views/${searchWatch.view_id}`)).json();
+  expect(watchedView.spec.selection).toMatchObject({ search: { text: 'budget' } });
   await page.keyboard.press('Escape');
 
   await expect(page.getByTestId('watches-panel')).toBeVisible();
@@ -107,8 +120,9 @@ test('watchlists promote searches, then show manual run history', async ({ page 
   const runBody = await (await runResponse).json();
   expect(runBody.schema_version).toBe('frisket.watch_run.v1');
   expect(runBody.run.matched_rows).toBe(2);
-  expect(runBody.run.new_rows).toBe(2);
-  await expect(searchWatchItem.getByTestId('watch-latest-run')).toContainText('2 new');
+  // The first successful check establishes the View's baseline.
+  expect(runBody.run.new_rows).toBe(0);
+  await expect(searchWatchItem.getByTestId('watch-latest-run')).toContainText('0 new');
 
   const historyResponse = page.waitForResponse((res) => {
     if (res.request().method() !== 'GET') return false;
@@ -123,11 +137,11 @@ test('watchlists promote searches, then show manual run history', async ({ page 
   const historyBody = await (await historyResponse).json();
   expect(historyBody.schema_version).toBe('frisket.watch_runs_page.v1');
   expect(historyBody.runs[0].hits.length).toBeGreaterThan(0);
-  await expect(searchWatchItem.getByTestId('watch-run-history')).toContainText('2 new');
+  await expect(searchWatchItem.getByTestId('watch-run-history')).toContainText('0 new');
 
 });
 
-test('a Watch captures the current grid directly without creating a Saved View', async ({ page }) => {
+test('a Watch captures the current grid in a persistent Saved View', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-watch-composer'));
   const sheetId = await importCsv(
     page.request,
@@ -164,8 +178,8 @@ test('a Watch captures the current grid directly without creating a Saved View',
   const request = (await createResponse).request().postDataJSON() as Record<string, unknown>;
   expect(request).toMatchObject({
     name: 'Daily open rows',
-    query: { kind: 'filter', sheet_id: Number(sheetId), filter: {} },
-    scope: { kind: 'sheet', sheet_id: Number(sheetId) },
+    view_id: expect.any(Number),
+    schedule: '@hourly',
   });
   expect(request).not.toHaveProperty('source_view');
   expect(request).not.toHaveProperty('source_view_id');
@@ -174,8 +188,8 @@ test('a Watch captures the current grid directly without creating a Saved View',
   );
   await panel.getByLabel('Dismiss notification setup guidance').click();
   await expect(panel.getByTestId('watch-notification-setup-notice')).toHaveCount(0);
-  const savedViews = await (await page.request.get(`/api/projects/${pid}/views`)).json() as Array<{ name: string }>;
-  expect(savedViews.some((view) => view.name === 'Daily open rows')).toBe(false);
+  const savedViews = await (await page.request.get(`/api/projects/${pid}/views`)).json() as Array<{ id: number }>;
+  expect(savedViews.some((view) => view.id === request.view_id)).toBe(true);
 });
 
 test('editable Watch controls preserve failed state and describe delete consequences', async ({ page }) => {
@@ -186,9 +200,7 @@ test('editable Watch controls preserve failed state and describe delete conseque
     'watch-lifecycle.csv',
     'title,status\nBudget hearing,open\nBridge repair,closed\n',
   );
-  const created = await page.request.post(`/api/projects/${pid}/watches`, {
-    data: { name: 'Lifecycle watch', query: { kind: 'fts', q: 'budget', mode: 'keyword', rerank: 'off' } },
-  });
+  const created = await createSearchWatch(page.request, pid, sheetId, 'Lifecycle watch');
   expect(created.ok()).toBeTruthy();
   const watch = await created.json() as { id: number };
   const patches: Record<string, unknown>[] = [];
@@ -286,9 +298,7 @@ test('Watch lifecycle controls remain usable at Discover\'s constrained width', 
   await page.setViewportSize({ width: 640, height: 760 });
   const pid = await createProject(page.request, uniqueName('e2e-watches-narrow'));
   const sheetId = await importCsv(page.request, pid, 'watch-narrow.csv', 'title\nBudget hearing\n');
-  const created = await page.request.post(`/api/projects/${pid}/watches`, {
-    data: { name: 'Narrow lifecycle watch', query: { kind: 'fts', q: 'budget', mode: 'keyword', rerank: 'off' } },
-  });
+  const created = await createSearchWatch(page.request, pid, sheetId, 'Narrow lifecycle watch');
   expect(created.ok()).toBeTruthy();
   await page.addInitScript(
     ([projectId]) => localStorage.setItem(`frisket:discover-width:${projectId}`, '220'),
@@ -312,7 +322,7 @@ test('Watch lifecycle controls remain usable at Discover\'s constrained width', 
   await panel.getByTestId('new-watch-from-current-grid').click();
   const composer = panel.getByTestId('watch-create-composer');
   await expect(composer).toBeVisible();
-  await expect(composer.getByText('Keep an eye on new matches.', { exact: true })).toBeVisible();
+  await expect(composer.getByText('Choose what to watch for.', { exact: true })).toBeVisible();
   await expect(composer.getByText('You do not have Slack or email notifications set up. Visit settings to set them up.')).toBeVisible();
   expect(await composer.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
 
@@ -326,25 +336,20 @@ test('Watch lifecycle controls remain usable at Discover\'s constrained width', 
   expect(createdFromGrid.ok()).toBeTruthy();
   expect(createdFromGrid.request().postDataJSON()).toMatchObject({
     name: 'Narrow current watch',
-    query: {
-      kind: 'filter',
-      sheet_id: Number(sheetId),
-      filter: {},
-    },
-    scope: { kind: 'sheet', sheet_id: Number(sheetId) },
+    view_id: expect.any(Number),
+    schedule: '@hourly',
   });
+  expect(await createdFromGrid.json()).toMatchObject({ detection_policy: { kind: 'conditions', entered: true } });
   await expect(panel.getByTestId('watch-item').filter({ hasText: 'Narrow current watch' })).toBeVisible();
-  const savedViews = await (await page.request.get(`/api/projects/${pid}/views`)).json() as Array<{ name: string }>;
-  expect(savedViews.some((view) => view.name === 'Narrow current watch')).toBe(false);
+  const savedViews = await (await page.request.get(`/api/projects/${pid}/views`)).json() as Array<{ id: number }>;
+  expect(savedViews.some((view) => view.id === createdFromGrid.request().postDataJSON().view_id)).toBe(true);
 });
 
 test('an old Watch-list response cannot restore renamed, paused, or deleted Watches', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-watch-stale-list'));
   const sheetId = await importCsv(page.request, pid, 'watch-stale-list.csv', 'title\nBudget hearing\n');
   const create = async (name: string) => {
-    const response = await page.request.post(`/api/projects/${pid}/watches`, {
-      data: { name, query: { kind: 'fts', q: 'budget', mode: 'keyword', rerank: 'off' } },
-    });
+    const response = await createSearchWatch(page.request, pid, sheetId, name);
     expect(response.ok()).toBeTruthy();
     return await response.json() as { id: number };
   };
@@ -404,9 +409,7 @@ test('an old Watch-list response cannot restore renamed, paused, or deleted Watc
 test('viewers can inspect Watches but have no run, refresh, create, or lifecycle mutation controls', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-viewer-watches'));
   const sheetId = await importCsv(page.request, pid, 'viewer-watch.csv', 'title\nBudget hearing\n');
-  const created = await page.request.post(`/api/projects/${pid}/watches`, {
-    data: { name: 'Read-only watch', query: { kind: 'fts', q: 'budget', mode: 'keyword', rerank: 'off' } },
-  });
+  const created = await createSearchWatch(page.request, pid, sheetId, 'Read-only watch');
   expect(created.ok()).toBeTruthy();
   const projects = await (await page.request.get('/api/projects')).json() as Array<Record<string, unknown>>;
   await page.route('**/api/projects', async (route) => {

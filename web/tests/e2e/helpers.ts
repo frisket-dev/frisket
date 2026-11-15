@@ -1122,7 +1122,7 @@ export async function commitTableImport(page: Page, pid: string): Promise<number
     && new URL(response.url()).pathname.startsWith(`/api/projects/${pid}/import/table-imports/`)
     && new URL(response.url()).pathname.endsWith('/commit'));
   await page.locator('.table-import-flow').getByRole('region', { name: 'Import', exact: true })
-    .getByRole('button', { name: /^Import(?: |$)/ }).click();
+    .getByRole('button', { name: /^(?:Import|Update)(?: |$)/ }).and(page.locator('.btn-primary')).click();
   const response = await committed;
   expect(response.ok()).toBeTruthy();
   const result = await response.json();

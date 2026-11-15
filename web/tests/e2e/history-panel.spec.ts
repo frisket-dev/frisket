@@ -118,6 +118,14 @@ test('op history is a bottom-dock list/detail panel with selective Revert/Restor
   expect(operationActions[0]).toMatchObject({
     action_id: 'operation.revert', scope: { kind: 'project' }, params: { op_id: templateOpId },
   });
+  await expect(page.getByTestId('grid')).toBeVisible();
+  const resize = await page.getByRole('button', { name: 'Resize bottom dock', exact: true }).boundingBox();
+  if (!resize) throw new Error('History dock resize handle is missing');
+  await page.mouse.move(resize.x + resize.width / 2, resize.y + resize.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(resize.x + resize.width / 2, resize.y - 180, { steps: 5 });
+  await page.mouse.up();
+  await page.screenshot({ path: 'test-results/domain-history-restore.png', fullPage: true });
   // Selective Revert is out of band: it does not create a normal Redo step.
   await expect(page.getByTestId('redo-button')).toBeDisabled();
   await panel.getByTestId(`history-restore-op-${templateOpId}`).focus();

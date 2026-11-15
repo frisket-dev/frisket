@@ -14281,6 +14281,12 @@ export type HttpSheet = ({
 
 type HttpSheetData_JsonValue = JsonValue;
 
+type HttpSheetData_RetainedResultRef = ({
+  "column_id": (number);
+  "row_id": (number);
+  "run_id": (number);
+});
+
 type HttpSheetData_SheetDataBoundedValue = ({
   "manual_edit_byte_limit": (65536) & (number);
   "manual_editable": (false) & (boolean);
@@ -14355,6 +14361,7 @@ type HttpSheetData_SheetDataValueRef = ({
   "outcome"?: ((("completed" | "pending" | "failed" | "not_completed") & (string)) | ((null)));
   "prepared_ref_id"?: (((number)) | ((null)));
   "producer_id"?: (((number)) | ((null)));
+  "retained_result"?: (((HttpSheetData_RetainedResultRef)) | ((null)));
   "row_id": (number);
   "run_id": (((number)) | ((null)));
 });

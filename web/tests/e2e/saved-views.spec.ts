@@ -119,6 +119,7 @@ test('Saved Views is a sheet-scoped Discover contribution with list, create, and
   await expect(savedItem.getByText('Active')).toBeVisible();
   await expect(page.getByTestId('active-saved-view-chip')).toContainText('Open only');
   await expect(page.getByText('Applied Open only', { exact: true })).toBeAttached();
+  await page.screenshot({ path: 'test-results/domain-saved-view.png', fullPage: true });
 
   // A rename is metadata-only: changing the live grid must not overwrite the
   // stored filter spec, and PATCH carries precisely the new name.
@@ -287,6 +288,7 @@ test('Saved Views overflow offers new, apply, and open-panel shortcuts', async (
   await applyResponse;
   await expect(page.getByTestId('active-grid-filter')).toContainText(/status.*open/i);
   await expect(page.getByText('Applied Open only', { exact: true })).toBeAttached();
+  await page.screenshot({ path: 'test-results/domain-saved-view.png', fullPage: true });
 
   // The menu closes after application, so reopen it to verify the same
   // active marker appears at this second apply entry point too.
@@ -512,7 +514,7 @@ test('Saved Views editor actions remain usable at Discover’s constrained width
 
   const item = page.getByTestId('saved-view-item').filter({ hasText: 'Narrow view' });
   const rename = item.getByRole('button', { name: 'Rename Narrow view' });
-  const updateDefinition = item.getByRole('button', { name: 'Save current display to Narrow view' });
+  const updateDefinition = item.getByRole('button', { name: 'Save changes to Narrow view' });
   await expect(rename).toBeVisible();
   await expect(updateDefinition).toBeVisible();
   await rename.click();
