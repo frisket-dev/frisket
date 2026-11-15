@@ -1,8 +1,8 @@
 """Transactional maintenance of the rebuildable visible-cell projection.
 
-The authoritative layers remain ``cells``, generation-managed result heads,
-and operation-owned ``edits``.  This module contains their one precedence
-query so incremental refresh and full repair cannot drift apart.
+Ordered project schemas use cell_projection's shared canonical resolver.
+The historical layer projector below is retained only for sequential migrations
+whose intermediate schemas predate the ordered Change cutover.
 """
 
 from __future__ import annotations
@@ -19,6 +19,11 @@ from frisket.engine.store.value_codec import decode_stored_value
 _SQLITE_BIND_LIMIT = 900
 _MAX_SEARCH_ROW_RANGES = 128
 INLINE_TEXT_BYTE_LIMIT = 512
+
+
+def register_current_cell_functions(db: sqlite3.Connection) -> None:
+    """Register descriptor validation on every project-reading connection."""
+    db.create_function("frisket_cell_validity", 3, cell_validity, deterministic=True)
 
 
 def stamp_retrieval_revision(
@@ -623,6 +628,19 @@ def refresh_current_cells_from_key_table(db: sqlite3.Connection, key_table: str)
 
     _require_transaction(db)
     table = _temp_key_table(key_table)
+    from .cell_projection import uses_ordered_changes, refresh_ordered_cells
+
+    if uses_ordered_changes(db):
+        total = 0
+        for column in db.execute(f"SELECT DISTINCT column_id FROM {table}").fetchall():
+            column_id = int(column[0])
+            # A complete column invalidation is compact even for a million
+            # sparse historical keys; canonical reads preserve untouched cells.
+            revision = _enqueue_region(db, column_ids=[column_id], row_ids=None)
+            total += refresh_ordered_cells(
+                db, [column_id], None, retrieval_revision=revision
+            )
+        return total
     columns = db.execute(
         f"SELECT DISTINCT target.column_id,column_meta.sheet_id FROM {table} target "
         "JOIN columns column_meta ON column_meta.id=target.column_id"
@@ -707,6 +725,12 @@ def refresh_current_cells(
         return 0
 
     retrieval_revision = _enqueue_region(db, column_ids=columns, row_ids=rows)
+    from .cell_projection import uses_ordered_changes, refresh_ordered_cells
+
+    if uses_ordered_changes(db):
+        return refresh_ordered_cells(
+            db, columns, rows, retrieval_revision=retrieval_revision
+        )
 
     return _replace_region(
         db,
@@ -754,6 +778,12 @@ def rebuild_current_cells(
     """
 
     _require_transaction(db)
+    from .cell_projection import uses_ordered_changes
+
+    if uses_ordered_changes(db):
+        return refresh_current_cells(
+            db, column_ids=[int(row[0]) for row in db.execute("SELECT id FROM columns")]
+        )
     retrieval_revision = None
     if invalidate_search:
         retrieval_revision = enqueue_dirty_scope(db)

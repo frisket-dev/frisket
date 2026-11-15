@@ -331,7 +331,7 @@ def _sheet_row_scope_plan(
             )
             join = "JOIN" if required else "LEFT JOIN"
             numeric = column_id in required_numeric_columns
-            relation = "current_cells" if numeric else "current_cell_values"
+            relation = "effective_current_cells" if numeric else "current_cell_values"
             numeric_scope = (
                 f" AND {alias}.validity='valid' "
                 f"AND {alias}.inline_value_kind IN ('integer','real')"

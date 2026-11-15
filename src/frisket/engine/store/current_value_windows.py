@@ -80,6 +80,7 @@ class CurrentCellRead:
     value_ref: dict[str, Any]
     validity: str
     bounded_value: BoundedValuePreview | None = None
+    outcome: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,12 +115,12 @@ _AUTHORITY_CTE = """
 heads AS MATERIALIZED (
   SELECT r.id AS row_id,head.retrieval_revision,head.origin_kind,
          head.origin_op_id,head.origin_run_id,head.base_producer_id,
-         COALESCE(head.validity,'missing') AS validity
+         COALESCE(head.validity,'missing') AS validity,head.outcome
   FROM rows AS r
   JOIN sheets AS sheet ON sheet.id=r.sheet_id AND sheet.hidden=0
   JOIN columns AS col ON col.sheet_id=r.sheet_id
     AND col.id=:column_id AND (:include_hidden=1 OR col.hidden=0)
-  LEFT JOIN current_cells AS head
+  LEFT JOIN effective_current_cells AS head
     ON head.row_id=r.id AND head.column_id=:column_id
   WHERE r.sheet_id=:sheet_id AND r.hidden=0 AND r.id IN ({row_ids})
 ),
@@ -136,7 +137,7 @@ authority AS NOT MATERIALIZED (
           WHEN 'publish_null' THEN 'null' END
         FROM results AS result
         WHERE result.run_id=head.origin_run_id AND result.row_id=head.row_id
-          AND result.column_id=:column_id)
+          AND result.column_id=:column_id AND result.published=1)
       WHEN 'manual_edit' THEN (
         SELECT edit.value_kind FROM edits AS edit
         WHERE edit.op_id=head.origin_op_id AND edit.row_id=head.row_id
@@ -151,7 +152,7 @@ authority AS NOT MATERIALIZED (
         SELECT CASE WHEN result.publication_effect='publish_value'
           THEN result.value END FROM results AS result
         WHERE result.run_id=head.origin_run_id AND result.row_id=head.row_id
-          AND result.column_id=:column_id)
+          AND result.column_id=:column_id AND result.published=1)
       WHEN 'manual_edit' THEN (
         SELECT edit.value FROM edits AS edit
         WHERE edit.op_id=head.origin_op_id AND edit.row_id=head.row_id
@@ -539,7 +540,7 @@ def read_current_column(
             "WITH "
             + _authority_cte(chunk)
             + " SELECT row_id,retrieval_revision,origin_kind,origin_op_id,"
-            "origin_run_id,validity,stored_kind,"
+            "origin_run_id,base_producer_id,validity,stored_kind,outcome,"
             "CASE WHEN stored_kind IN ('text','json','bigint','legacy_invalid') "
             "AND length(CAST(stored_value AS BLOB))>:byte_limit "
             "THEN NULL ELSE stored_value END AS bounded_value,"
@@ -577,9 +578,15 @@ def read_current_column(
                 "row_id": row_id,
                 "column_id": column_id,
                 "run_id": row["origin_run_id"],
+                "outcome": row["outcome"],
+                **(
+                    {"producer_id": int(row["base_producer_id"])}
+                    if row["base_producer_id"] is not None
+                    else {}
+                ),
             }
             preview: BoundedValuePreview | None = None
-            value_present = True
+            value_present = row["outcome"] in (None, "completed")
             if stored_kind == "prepared_content_ref" and stored_value is not None:
                 ref_id = int(stored_value)
                 ref["prepared_ref_id"] = ref_id
@@ -647,6 +654,7 @@ def read_current_column(
                 value_ref=ref,
                 validity=str(row["validity"]),
                 bounded_value=preview,
+                outcome=row["outcome"],
             )
     return output
 

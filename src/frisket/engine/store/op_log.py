@@ -20,7 +20,10 @@ from frisket.engine.store.import_sessions import (
     set_import_session_rows_hidden,
     set_import_session_replaced_rows_hidden,
 )
-from frisket.engine.store.current_cells import refresh_current_cell_pairs
+from frisket.engine.store.current_cells import (
+    refresh_current_cell_pairs,
+    refresh_current_cells,
+)
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 
@@ -54,10 +57,10 @@ def append_op(
     undo_info: Mapping[str, Any] | None = None,
     commit: bool = True,
 ) -> int:
-    """Append an op, discarding the undone redo branch."""
-    # appending while ops are undone discards that redo branch forever
-    # (otherwise a later undo could resurrect it out of order)
-    project.db.execute("UPDATE ops SET status='discarded' WHERE status='undone'")
+    """Append an op and clear ordinary Redo navigation, retaining history."""
+    # A new edit leaves the exploration branch, but never destroys retained
+    # contributions or their later selective Restore eligibility.
+    project.db.execute("UPDATE ops SET redo_eligible=0 WHERE status='undone'")
     cur = project.db.execute(
         "INSERT INTO ops (kind, label, spec, undo_info, barrier) VALUES (?, ?, ?, ?, ?)",
         (
@@ -187,7 +190,7 @@ def step_operation(
         ).fetchone()
     else:
         target = project.db.execute(
-            "SELECT * FROM ops WHERE id > ? AND status='undone' ORDER BY id LIMIT 1",
+            "SELECT * FROM ops WHERE id > ? AND status='undone' AND redo_eligible=1 ORDER BY id LIMIT 1",
             (cursor_before,),
         ).fetchone()
     if target is None:
@@ -217,9 +220,6 @@ def step_operation(
         raise CorruptOperation(target_op_id, validation_error)
     column_ids = operation_touched_column_ids(project, target_op_id, undo_info)
     claims = OutputColumnClaimStore(project)
-    claim = claims.active_for_columns(column_ids)
-    if claim is not None:
-        raise ClaimedOperation(target_op_id, dict(claim))
     if direction == "redo":
         # A queued job can reserve a released name before creating its column
         # or appending an operation (and thus before discarding this redo).
@@ -242,6 +242,9 @@ def step_operation(
                 if (row := project.get_column(column_id)) is not None
             }
             set_undo_info(project, target_op_id, undo_info, commit=False)
+        from .changes import ChangeStore
+
+        ChangeStore(project).revert(target_op_id)
         try:
             project._unapply(target)
         except ImportSessionConflict as exc:
@@ -260,46 +263,46 @@ def step_operation(
         except ImportSessionConflict as exc:
             raise CorruptOperation(target_op_id, str(exc)) from exc
         status_after = "applied"
-        project.db.execute(
-            "UPDATE ops SET status='applied' WHERE id=?", (target_op_id,)
-        )
+        from .changes import ChangeStore
+
+        ChangeStore(project).restore(target_op_id)
         cursor_after = target_op_id
     projection_column_ids = operation_projection_column_ids(
         project, target_op_id, undo_info
     )
-    descriptor_replacement = any(
-        undo_info.get(field_name)
-        for field_name in (
-            "column_formats",
-            "column_formats_after",
-            "column_types",
-            "column_types_after",
-            "column_semantic_types",
-            "column_semantic_types_after",
+    # Applicability is authoritative. Never scan/rewrite every result head in
+    # the foreground: large scopes become dirty atomically and readers resolve
+    # exact winners until bounded projection maintenance catches up.
+    source_columns = {
+        int(row[0])
+        for row in project.db.execute(
+            "SELECT DISTINCT cell.column_id FROM cells cell "
+            "JOIN base_cell_producers producer ON producer.id=cell.producer_id "
+            "WHERE producer.op_id=?",
+            (target_op_id,),
         )
+    }
+    refresh_current_cells(
+        project.db, column_ids=set(projection_column_ids) | source_columns
     )
-    generations = ResultGenerationStore(project)
-    with generations.affected_key_table(
-        target_op_id, projection_column_ids
-    ) as affected_key_table:
-        if descriptor_replacement or generations.key_table_covers_columns(
-            affected_key_table, projection_column_ids
-        ):
-            # Complete coverage keeps the proven bulk projector. Descriptor
-            # changes require it because validity and edit-boundary precedence
-            # can change at coordinates absent from the run.
-            generations.rebuild_heads(projection_column_ids, commit=False)
-        else:
-            generations.rebuild_heads_from_key_table(affected_key_table, commit=False)
-    refresh_current_cell_pairs(
-        project.db,
-        [
-            (int(row["row_id"]), int(row["column_id"]))
-            for row in project.db.execute(
-                "SELECT row_id,column_id FROM edits WHERE op_id=?", (target_op_id,)
-            )
-        ],
-    )
+    edits = project.db.execute(
+        "SELECT row_id,column_id FROM edits WHERE op_id=? LIMIT 513", (target_op_id,)
+    ).fetchall()
+    if len(edits) <= 512:
+        refresh_current_cell_pairs(
+            project.db, [(int(row[0]), int(row[1])) for row in edits]
+        )
+    else:
+        refresh_current_cells(
+            project.db,
+            column_ids=[
+                int(row[0])
+                for row in project.db.execute(
+                    "SELECT DISTINCT column_id FROM edits WHERE op_id=?",
+                    (target_op_id,),
+                )
+            ],
+        )
     project.db.execute(
         "UPDATE meta SET value=? WHERE key='op_cursor'", (str(cursor_after),)
     )

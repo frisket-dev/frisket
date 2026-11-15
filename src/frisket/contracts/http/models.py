@@ -305,6 +305,8 @@ class SheetDataValueRef(WireModel):
     row_id: int
     column_id: int
     run_id: int | None
+    producer_id: int | None = Field(default=None, gt=0)
+    outcome: Literal["completed", "pending", "failed", "not_completed"] | None = None
     prepared_ref_id: int | None = Field(default=None, gt=0)
 
 

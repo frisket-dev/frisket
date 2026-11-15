@@ -186,7 +186,7 @@ def resolve_cell_blob_source(
     selected_column = _positive_id(column_id, "column_id")
     current = project.db.execute(
         "SELECT current.retrieval_revision,c.type AS column_type "
-        "FROM current_cells current "
+        "FROM effective_current_cells current "
         "JOIN columns c ON c.id=current.column_id "
         "JOIN sheets s ON s.id=c.sheet_id "
         "WHERE current.column_id=? AND current.row_id=? "
@@ -519,7 +519,7 @@ def resolve_cell_text_sources(
     rows = project.db.execute(
         "SELECT current.row_id,current.retrieval_revision,logical.prepared_ref_id,"
         f"{_OCR_METADATA_PREDICATE} AS noncontent_metadata "
-        "FROM current_cells current "
+        "FROM effective_current_cells current "
         "JOIN current_cell_values logical ON logical.column_id=current.column_id "
         "AND logical.row_id=current.row_id "
         f"WHERE current.column_id=? AND current.row_id IN ({placeholders})",

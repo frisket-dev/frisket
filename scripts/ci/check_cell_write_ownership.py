@@ -35,10 +35,14 @@ PROTECTED_TABLES = frozenset(
 TABLE_OWNERS: Mapping[str, tuple[str, ...]] = {
     "cells": ("src/frisket/engine/store/cell_writes.py",),
     "edits": ("src/frisket/engine/store/cell_writes.py",),
-    "current_cells": ("src/frisket/engine/store/current_cells.py",),
+    "current_cells": (
+        "src/frisket/engine/store/current_cells.py",
+        "src/frisket/engine/store/cell_projection.py",
+    ),
     "base_cell_producers": ("src/frisket/engine/store/cell_writes.py",),
     "results": (
         "src/frisket/engine/store/runs.py",
+        "src/frisket/engine/store/result_generations.py",  # Atomic publication fact.
         "src/frisket/engine/store/bundle_io.py",  # Discarded-run garbage collection.
     ),
     "cell_result_heads": ("src/frisket/engine/store/result_generations.py",),

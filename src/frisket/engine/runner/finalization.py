@@ -30,7 +30,6 @@ def _finalize_run_in_transaction(
     run_id: int,
     status: str,
     out_cols: dict[str, int],
-    carry_forward_atomic_family: bool = False,
     keep_zero_success_output_columns: bool = False,
     halted_code: str | None = None,
     halted_reason: str | None = None,
@@ -48,8 +47,8 @@ def _finalize_run_in_transaction(
     (no effect authority exists yet) or a dispatched close (the current-writer
     fence has already succeeded in this same transaction).
 
-    The transaction includes an atomic family's untargeted result carry-forward,
-    ``finish_run``'s status write, generation sealing, and the zero-success
+    The transaction includes ``finish_run``'s status write, generation sealing,
+    and the zero-success
     column rollback atomically. Either the whole finalize lands or none of it
     does, and the run stays ``running`` for the next attempt.
 
@@ -73,16 +72,6 @@ def _finalize_run_in_transaction(
             (run_id,),
         ).fetchall()
     }
-    if carry_forward_atomic_family:
-        run_store.carry_forward_results_outside_scope(
-            run_id,
-            [
-                column_id
-                for column_id in out_cols.values()
-                if int(column_id) not in managed_column_ids
-            ],
-            commit=False,
-        )
     if auto_verify:
         run_store.mark_run_results_verified(run_id, commit=False)
     run_store.set_run_halt(

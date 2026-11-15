@@ -1264,7 +1264,6 @@ def _terminalize_unclaimed_prepared_run(
             status="failed",
             out_cols=dict(prepared_run.out_cols),
             generation_claim_token=claim_token,
-            carry_forward_atomic_family=bool(prepared_run.recipe.atomic_output_columns),
             keep_zero_success_output_columns=bool(
                 prepared_run.recipe.keep_zero_success_output_columns
             ),

@@ -214,7 +214,7 @@ def test_output_family_and_evidence_publish_atomically(tmp_path, fail_evidence):
                 run_id,
                 output,
                 output_role=role,
-                compatibility_key="sha256:two-text-outputs",
+                compatibility_key="sha256:regex-text-v1",
                 write_mode="replace_scope" if output == column else "create",
                 claim_token=authority.claim_token,
             )

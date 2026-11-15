@@ -370,6 +370,10 @@ class ResultGenerationStore:
             binding.column_id: binding for binding in self.bindings_for_run(int(run_id))
         }
         operation = self._run_operation(int(run_id))
+        from .changes import ChangeStore
+
+        if operation is not None:
+            ChangeStore(self.project).require_publication(int(operation["id"]))
         for column_id in column_ids:
             binding = bindings.get(column_id)
             if binding is None:
@@ -439,7 +443,7 @@ class ResultGenerationStore:
                     f"fresh output column {binding.column_id} moved to run {current}"
                 )
             return
-        if current != binding.expected_base_run_id:
+        if current not in (binding.expected_base_run_id, binding.run_id):
             raise GenerationClaimError(
                 f"replacement output column {binding.column_id} moved from expected "
                 f"base {binding.expected_base_run_id} to {current}"
@@ -507,6 +511,11 @@ class ResultGenerationStore:
             )
             descriptor_change = current_descriptor != declared_descriptor
             operation = self._run_operation(run_id)
+            from .changes import ChangeStore
+
+            if operation is None:
+                raise GenerationStateError(f"run {run_id} has no owning Change")
+            ChangeStore(self.project).start(int(operation["id"]))
             operation_info = self._operation_info(operation)
             pending_changes = self._pending_descriptor_changes(operation_info)
             pending_change = pending_changes.get(str(column_id))
@@ -727,6 +736,9 @@ class ResultGenerationStore:
                     "UPDATE ops SET undo_info=? WHERE id=?",
                     (json.dumps(operation_info), int(operation["id"])),
                 )
+            from .cell_projection import invalidate_run_scope
+
+            invalidate_run_scope(self.db, run_id, column_id)
             return created
 
     def _upsert_heads_uncommitted(
@@ -818,12 +830,27 @@ class ResultGenerationStore:
                 raise GenerationStateError(
                     f"run {run_id} output column {column_id} is undeclared"
                 )
-            if binding.state == "active":
+            if binding.state in {"active", "staged"}:
                 active_keys.append((row_id, column_id))
-            elif binding.state != "staged":
+            else:
                 raise GenerationSealedError(
                     f"run {run_id} output column {column_id} is sealed"
                 )
+        # A row's output family is one publication, including explicit errors
+        # and nulls. A partial checkpoint stays pending until all siblings exist.
+        complete_keys: list[tuple[int, int]] = []
+        for row_id in sorted({row_id for row_id, _ in active_keys}):
+            present = {
+                int(row[0])
+                for row in self.db.execute(
+                    "SELECT column_id FROM results WHERE run_id=? AND row_id=? "
+                    "AND publication_effect IS NOT NULL",
+                    (int(run_id), row_id),
+                )
+            }
+            if set(bindings) <= present:
+                complete_keys.extend((row_id, column_id) for column_id in bindings)
+        active_keys = complete_keys
         if not active_keys:
             return 0
         if claim_token is None:
@@ -834,6 +861,10 @@ class ResultGenerationStore:
         # RunResultStore already fenced every batch column under this claim;
         # this method is inside that same savepoint and only projects the exact
         # rows whose effect was just written.
+        self.db.executemany(
+            "UPDATE results SET published=1 WHERE run_id=? AND row_id=? AND column_id=?",
+            [(int(run_id), row_id, column_id) for row_id, column_id in active_keys],
+        )
         projected = self._upsert_heads_uncommitted(run_id=int(run_id), keys=active_keys)
         refresh_current_cell_pairs(self.db, active_keys)
         return projected
@@ -1175,6 +1206,11 @@ class ResultGenerationStore:
                     self.db,
                     run_id=int(run_id),
                     key_table=publication_key_table,
+                )
+                self.db.execute(
+                    "UPDATE results SET published=1 WHERE run_id=? AND (row_id,column_id) "
+                    f"IN (SELECT row_id,column_id FROM {publication_key_table})",
+                    (int(run_id),),
                 )
                 projected = self._upsert_heads_from_key_table_uncommitted(
                     run_id=int(run_id), key_table=publication_key_table

@@ -1,8 +1,8 @@
 """SQLite schema for a frisket project.
 
-Run-based versioning: the provenance envelope lives once per run; results
-hold per-cell deltas; a column's live state is a pointer to its latest run
-plus a sparse manual-edit overlay. Undo/redo moves pointers, copies nothing.
+Ordered Changes own source versions, results, edits and fixed pending scopes.
+The latest applied contribution wins per cell; cached current heads can be
+rebuilt without changing historical payloads or publication permission.
 
 This module is AUTHORITATIVE. Known prior schemas upgrade atomically in
 ``bundle_open.py``; unrecognized bundles are refused by
@@ -16,6 +16,7 @@ import re
 import sqlite3
 from pathlib import Path
 
+from .change_schema import CHANGE_SCHEMA_SQL
 from .citation_text import CITATION_TEXT_SCHEMA_SQL
 from .extraction_layouts import EXTRACTION_LAYOUTS_SCHEMA_SQL
 from .evaluation import EVALUATION_SCHEMA_SQL
@@ -102,7 +103,7 @@ CREATE TABLE IF NOT EXISTS meta (
 );
 
 CREATE TABLE IF NOT EXISTS sheets (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL UNIQUE,
   position INTEGER NOT NULL DEFAULT 0,
   parent_sheet_id INTEGER REFERENCES sheets(id),
@@ -136,7 +137,7 @@ CREATE TABLE IF NOT EXISTS sheets (
 );
 
 CREATE TABLE IF NOT EXISTS columns (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   sheet_id INTEGER NOT NULL REFERENCES sheets(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   type TEXT NOT NULL DEFAULT 'text',
@@ -164,7 +165,7 @@ CREATE INDEX IF NOT EXISTS idx_columns_current_run
 -- RUN_REVIEW_CURRENT_COLUMN_INDEX_END
 
 CREATE TABLE IF NOT EXISTS rows (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   sheet_id INTEGER NOT NULL REFERENCES sheets(id) ON DELETE CASCADE,
   position INTEGER NOT NULL DEFAULT 0,
   parent_row_id INTEGER REFERENCES rows(id),
@@ -180,7 +181,7 @@ CREATE INDEX IF NOT EXISTS idx_rows_parent ON rows(parent_row_id);
 -- The operation remains the provenance envelope -- this row is only linkage.
 -- BASE_CELL_PRODUCERS_BEGIN
 CREATE TABLE IF NOT EXISTS base_cell_producers (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   stage_id TEXT NOT NULL UNIQUE CHECK (length(trim(stage_id)) > 0),
   op_id INTEGER REFERENCES ops(id) ON DELETE RESTRICT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -202,7 +203,7 @@ CREATE TABLE IF NOT EXISTS cells (
   -- CELL_PRODUCER_ID_BEGIN
   producer_id INTEGER REFERENCES base_cell_producers(id) ON DELETE RESTRICT,
   -- CELL_PRODUCER_ID_END
-  UNIQUE (row_id, column_id),
+  UNIQUE (row_id, column_id, producer_id),
   CHECK (
     (value_kind='null' AND value IS NULL)
     OR (value_kind='text' AND typeof(value)='text')
@@ -223,12 +224,15 @@ CREATE INDEX IF NOT EXISTS idx_cells_column ON cells(column_id, row_id);
 -- Append-only operation log. spec is declarative JSON. undo_info captures
 -- the pointer state needed to step back (e.g. prior current_run_id per column).
 CREATE TABLE IF NOT EXISTS ops (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   kind TEXT NOT NULL,
   label TEXT,
   spec TEXT NOT NULL DEFAULT '{}',
   undo_info TEXT,
-  status TEXT NOT NULL DEFAULT 'applied',  -- applied | undone | barrier
+  status TEXT NOT NULL DEFAULT 'applied',
+  change_order INTEGER,
+  publication_closed INTEGER NOT NULL DEFAULT 1 CHECK(publication_closed IN (0,1)),
+  redo_eligible INTEGER NOT NULL DEFAULT 1 CHECK(redo_eligible IN (0,1)),
   barrier INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -396,6 +400,7 @@ CREATE TABLE IF NOT EXISTS results (
   -- the legacy/unmanaged contract; managed writers must choose one terminal
   -- effect after every payload transform has completed.
   publication_effect TEXT,
+  published INTEGER NOT NULL DEFAULT 0 CHECK(published IN (0,1)),
   PRIMARY KEY (run_id, row_id, column_id),
   CHECK (
     (value_kind IS NULL AND value IS NULL)
@@ -1075,7 +1080,7 @@ WHEN NOT EXISTS (
     AND result.row_id = NEW.row_id
     AND result.column_id = NEW.column_id
     AND result.publication_effect IS NOT NULL
-    AND generation.state IN ('active', 'sealed')
+    AND generation.state IN ('active', 'staged', 'sealed')
     AND op.status = 'applied'
 )
 BEGIN
@@ -1096,7 +1101,7 @@ WHEN NOT EXISTS (
     AND result.row_id = NEW.row_id
     AND result.column_id = NEW.column_id
     AND result.publication_effect IS NOT NULL
-    AND generation.state IN ('active', 'sealed')
+    AND generation.state IN ('active', 'staged', 'sealed')
     AND op.status = 'applied'
 )
 BEGIN
@@ -1108,7 +1113,7 @@ END;
 -- artifact deletion removes the native locator but deliberately retains text
 -- already referenced by ordinary result/edit history.
 CREATE TABLE IF NOT EXISTS prepared_page_versions (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   source_artifact_id INTEGER REFERENCES source_artifacts(id) ON DELETE SET NULL,
   page_number INTEGER NOT NULL CHECK (page_number>0),
   prepared_text TEXT NOT NULL,
@@ -1122,7 +1127,7 @@ CREATE INDEX IF NOT EXISTS idx_prepared_page_versions_artifact_page
   ON prepared_page_versions(source_artifact_id,page_number,id);
 
 CREATE TABLE IF NOT EXISTS prepared_content_sets (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   source_artifact_id INTEGER REFERENCES source_artifacts(id) ON DELETE SET NULL,
   producing_op_id INTEGER NOT NULL REFERENCES ops(id) ON DELETE RESTRICT
 );
@@ -1137,7 +1142,7 @@ CREATE INDEX IF NOT EXISTS idx_prepared_content_set_pages_version
   ON prepared_content_set_pages(version_id,set_id,page_number);
 
 CREATE TABLE IF NOT EXISTS prepared_content_refs (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   set_id INTEGER NOT NULL REFERENCES prepared_content_sets(id) ON DELETE CASCADE,
   page_number INTEGER CHECK (page_number IS NULL OR page_number>0)
 );
@@ -1216,6 +1221,7 @@ CREATE TABLE IF NOT EXISTS current_cells (
     'null','text','integer','real','boolean','bigint'
   )),
   inline_value,
+  outcome TEXT NOT NULL DEFAULT 'completed' CHECK(outcome IN ('completed','pending','failed','not_completed')),
   CHECK (
     (inline_value_kind IS NULL AND inline_value IS NULL)
     OR (inline_value_kind='null' AND inline_value IS NULL)
@@ -1286,7 +1292,7 @@ SELECT head.column_id,head.row_id,
            FROM results AS result
            WHERE result.run_id=head.origin_run_id
              AND result.row_id=head.row_id
-             AND result.column_id=head.column_id
+             AND result.column_id=head.column_id AND result.published=1
          )
          WHEN 'manual_edit' THEN (
            SELECT CASE edit.value_kind
@@ -1317,7 +1323,7 @@ SELECT head.column_id,head.row_id,
            FROM results AS result
            WHERE result.run_id=head.origin_run_id
              AND result.row_id=head.row_id
-             AND result.column_id=head.column_id
+             AND result.column_id=head.column_id AND result.published=1
          )
          WHEN 'manual_edit' THEN (
            SELECT CASE edit.value_kind WHEN 'prepared_content_ref' THEN (
@@ -1330,7 +1336,7 @@ SELECT head.column_id,head.row_id,
          )
        END END AS value,
        head.origin_kind,head.origin_op_id,head.origin_run_id,
-       head.base_producer_id,head.validity,
+       head.base_producer_id,head.validity,head.outcome,
        CASE WHEN head.inline_value_kind IS NULL THEN CASE head.origin_kind
          WHEN 'source_cell' THEN (
            SELECT CASE source.value_kind WHEN 'prepared_content_ref'
@@ -1345,7 +1351,7 @@ SELECT head.column_id,head.row_id,
            FROM results AS result
            WHERE result.run_id=head.origin_run_id
              AND result.row_id=head.row_id
-             AND result.column_id=head.column_id
+             AND result.column_id=head.column_id AND result.published=1
          )
          WHEN 'manual_edit' THEN (
            SELECT CASE edit.value_kind WHEN 'prepared_content_ref'
@@ -1355,7 +1361,7 @@ SELECT head.column_id,head.row_id,
              AND edit.column_id=head.column_id
          )
        END END AS prepared_ref_id
-FROM current_cells AS head INDEXED BY idx_current_cells_column_row;
+FROM effective_current_cells AS head;
 CREATE TABLE IF NOT EXISTS search_dirty_scopes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   sheet_id INTEGER,
@@ -2498,6 +2504,7 @@ SCHEMA += "\n" + ACTION_SUBMISSIONS_SCHEMA_SQL + "\n"
 SCHEMA += "\n" + DOCUMENT_TEXT_SCHEMA_SQL + "\n"
 SCHEMA += "\n" + DOCUMENT_TEXT_SELECTION_VIEW_SQL + "\n"
 SCHEMA += "\n" + PDF_SPLIT_SCHEMA_SQL + "\n"
+SCHEMA += "\n" + CHANGE_SCHEMA_SQL + "\n"
 # This durable bootstrap row gives the data-only OCR role repair an exact
 # schema endpoint. Fresh bundles start repaired; the known prior revision is
 # upgraded once during open and never needs a Review read-time compatibility
@@ -2515,6 +2522,16 @@ ON current_cells(column_id,inline_value,row_id)
 WHERE validity='valid' AND inline_value_kind IN ('integer','real');
 """
 SCHEMA += NUMERIC_CURRENT_INDEX_SQL
+
+# Migration installs precisely the current public read relation after its
+# baseline capture, without extracting a historical intermediate definition.
+CURRENT_CELL_VALUES_SQL = (
+    "CREATE VIEW IF NOT EXISTS current_cell_values AS"
+    + SCHEMA.split("CREATE VIEW IF NOT EXISTS current_cell_values AS", 1)[1].split(
+        ";", 1
+    )[0]
+    + ";"
+)
 
 # The run queue (jobs + worker_heartbeats) lives in its OWN database, never a
 # project bundle: `<workspace>/.queue.db` locally, the hosted run-queue Postgres

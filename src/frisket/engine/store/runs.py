@@ -1425,10 +1425,9 @@ class RunResultStore:
                 run_id,
             ),
         )
-        # Generation-managed fresh outputs remain progressive: the exact
-        # result, accounting facts, counters, and head move share this batch's
-        # savepoint. Staged replacement generations intentionally do nothing
-        # here and publish only in ResultGenerationStore.seal().
+        # Every output family publishes progressively in this same savepoint:
+        # returned facts, evidence, publication permission, and cache refresh
+        # cannot be observed halfway through a row.
         if project_heads:
             ResultGenerationStore(self.project)._project_written_results_uncommitted(
                 run_id,
@@ -1629,62 +1628,6 @@ class RunResultStore:
         if commit:
             self.db.commit()
         return cost_delta
-
-    def carry_forward_results_outside_scope(
-        self,
-        run_id: int,
-        column_ids: list[int],
-        *,
-        commit: bool = True,
-    ) -> int:
-        """Preserve an exactly reused output family's untargeted cells.
-
-        A column pointer selects one run for the whole column. A targeted rerun
-        of an atomic output family therefore has to materialize the prior
-        pointer's cells outside the new run's immutable ``run_rows`` scope
-        before moving that pointer. These are display-state carry-forwards, not
-        work performed by the new run: usage/model-call facts and run counters
-        stay with the original run.
-
-        Existing rows in ``run_id`` always win, even if a malformed caller put
-        one outside the declared scope. Manual edits need no copying because
-        their overlay is independent of run pointers.
-        """
-
-        ordered_column_ids = sorted({int(column_id) for column_id in column_ids})
-        if not ordered_column_ids:
-            return 0
-        if not self.has_run_row_scope(run_id):
-            return 0
-
-        placeholders = ",".join("?" for _ in ordered_column_ids)
-        columns = self.db.execute(
-            "SELECT id,current_run_id FROM columns "
-            f"WHERE id IN ({placeholders}) ORDER BY id",
-            ordered_column_ids,
-        ).fetchall()
-        carried = 0
-        for column in columns:
-            source_run_id = column["current_run_id"]
-            column_id = int(column["id"])
-            if source_run_id is None or int(source_run_id) == int(run_id):
-                continue
-            inserted = self.db.execute(
-                "INSERT OR IGNORE INTO results "
-                "(run_id,row_id,column_id,value_kind,value,tokens_in,tokens_out,confidence,"
-                "justification,error,error_code,review_state,outcome) "
-                "SELECT ?,prior.row_id,prior.column_id,prior.value_kind,prior.value,NULL,NULL,"
-                "prior.confidence,prior.justification,prior.error,prior.error_code,"
-                "prior.review_state,prior.outcome FROM results prior "
-                "WHERE prior.run_id=? AND prior.column_id=? "
-                "AND NOT EXISTS (SELECT 1 FROM run_rows scope "
-                "WHERE scope.run_id=? AND scope.row_id=prior.row_id)",
-                (run_id, int(source_run_id), column_id, run_id),
-            )
-            carried += int(inserted.rowcount)
-        if commit:
-            self.db.commit()
-        return carried
 
     def result_row_failure_states(
         self, run_id: int, row_ids: set[int]
@@ -3142,6 +3085,18 @@ class RunResultStore:
             "UPDATE runs SET status=?, finished_at=datetime('now') WHERE id=?",
             (status, run_id),
         )
+        from .changes import ChangeStore
+        from .cell_projection import invalidate_run_scope
+
+        operation = self.db.execute(
+            "SELECT op_id FROM runs WHERE id=?", (run_id,)
+        ).fetchone()
+        if operation is not None:
+            ChangeStore(self.project).close(int(operation[0]))
+            for column in self.db.execute(
+                "SELECT column_id FROM run_output_generations WHERE run_id=?", (run_id,)
+            ).fetchall():
+                invalidate_run_scope(self.db, run_id, int(column[0]))
         from .review_stats import mark_run_review_stats_dirty, rebuild_run_review_stats
 
         mark_run_review_stats_dirty(self.db, run_id)

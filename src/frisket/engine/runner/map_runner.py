@@ -944,7 +944,6 @@ class MapRunner:
                     out_cols if finalization_out_cols is None else finalization_out_cols
                 ),
                 generation_claim_token=claim_token,
-                carry_forward_atomic_family=recipe.atomic_output_columns,
                 keep_zero_success_output_columns=(
                     recipe.keep_zero_success_output_columns
                 ),
@@ -975,7 +974,6 @@ class MapRunner:
                 status="cancelled",
                 out_cols=out_cols,
                 generation_claim_token=claim_token,
-                carry_forward_atomic_family=recipe.atomic_output_columns,
                 keep_zero_success_output_columns=(
                     recipe.keep_zero_success_output_columns
                 ),
@@ -1062,11 +1060,12 @@ class MapRunner:
         admitted_work_scope = None
         if attempt is not None and attempt.routed is not None:
             snapshot = attempt.routed.work_scope_snapshot
-            # Membership is checked for every dispatched row; normalize once.
-            admitted_work_scope = {
-                **snapshot,
-                "row_ids": frozenset(snapshot.get("row_ids", ())),
-            }
+            if snapshot is not None:
+                # Membership is checked for every dispatched row; normalize once.
+                admitted_work_scope = {
+                    **snapshot,
+                    "row_ids": frozenset(snapshot.get("row_ids", ())),
+                }
 
         batch_local_results = bool(
             recipe.batch_local_results
@@ -1247,7 +1246,6 @@ class MapRunner:
                             else "completed"
                         ),
                         out_cols=out_cols,
-                        carry_forward_atomic_family=recipe.atomic_output_columns,
                         keep_zero_success_output_columns=(
                             recipe.keep_zero_success_output_columns
                         ),
@@ -1277,7 +1275,6 @@ class MapRunner:
                         ),
                         out_cols=out_cols,
                         generation_claim_token=claim_token,
-                        carry_forward_atomic_family=recipe.atomic_output_columns,
                         keep_zero_success_output_columns=(
                             recipe.keep_zero_success_output_columns
                         ),
@@ -1308,7 +1305,6 @@ class MapRunner:
                         run_id=run_id,
                         status="cancelled",
                         out_cols=out_cols,
-                        carry_forward_atomic_family=recipe.atomic_output_columns,
                         keep_zero_success_output_columns=(
                             recipe.keep_zero_success_output_columns
                         ),
@@ -1326,7 +1322,6 @@ class MapRunner:
                         status="cancelled",
                         out_cols=out_cols,
                         generation_claim_token=claim_token,
-                        carry_forward_atomic_family=recipe.atomic_output_columns,
                         keep_zero_success_output_columns=(
                             recipe.keep_zero_success_output_columns
                         ),
@@ -1358,7 +1353,6 @@ class MapRunner:
                         run_id=run_id,
                         status="cancelled",
                         out_cols=out_cols,
-                        carry_forward_atomic_family=recipe.atomic_output_columns,
                         keep_zero_success_output_columns=(
                             recipe.keep_zero_success_output_columns
                         ),
@@ -1381,7 +1375,6 @@ class MapRunner:
                         status="cancelled",
                         out_cols=out_cols,
                         generation_claim_token=claim_token,
-                        carry_forward_atomic_family=recipe.atomic_output_columns,
                         keep_zero_success_output_columns=(
                             recipe.keep_zero_success_output_columns
                         ),
@@ -1421,7 +1414,6 @@ class MapRunner:
                         run_id=run_id,
                         status="cancelled",
                         out_cols=out_cols,
-                        carry_forward_atomic_family=recipe.atomic_output_columns,
                         keep_zero_success_output_columns=(
                             recipe.keep_zero_success_output_columns
                         ),
@@ -1441,7 +1433,6 @@ class MapRunner:
                         status="cancelled",
                         out_cols=out_cols,
                         generation_claim_token=claim_token,
-                        carry_forward_atomic_family=recipe.atomic_output_columns,
                         keep_zero_success_output_columns=(
                             recipe.keep_zero_success_output_columns
                         ),
@@ -2183,7 +2174,6 @@ class MapRunner:
                 run_id=run_id,
                 status="cancelled" if truly_cancelled else "completed",
                 out_cols=out_cols,
-                carry_forward_atomic_family=recipe.atomic_output_columns,
                 keep_zero_success_output_columns=(
                     recipe.keep_zero_success_output_columns
                 ),
@@ -2216,7 +2206,6 @@ class MapRunner:
                 status="cancelled" if truly_cancelled else "completed",
                 out_cols=out_cols,
                 generation_claim_token=claim_token,
-                carry_forward_atomic_family=recipe.atomic_output_columns,
                 keep_zero_success_output_columns=(
                     recipe.keep_zero_success_output_columns
                 ),

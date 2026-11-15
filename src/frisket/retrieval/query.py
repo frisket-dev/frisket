@@ -139,6 +139,9 @@ class PinnedRetrievalReader(AbstractContextManager["PinnedRetrievalReader"]):
             check_same_thread=False,
         )
         db.row_factory = sqlite3.Row
+        from frisket.engine.store.current_cells import register_current_cell_functions
+
+        register_current_cell_functions(db)
         try:
             db.execute("PRAGMA foreign_keys=ON")
             db.execute("PRAGMA busy_timeout=10000")
@@ -628,6 +631,9 @@ class RetrievalQueryService:
           LEFT JOIN main.current_cells AS current_head
             ON current_head.column_id=dependency.column_id
            AND current_head.row_id=dependency.row_id
+           AND NOT EXISTS (SELECT 1 FROM main.current_cell_repair dirty
+             WHERE dirty.column_id=dependency.column_id
+             AND dependency.row_id BETWEEN dirty.row_id_start AND dirty.row_id_end)
           LEFT JOIN main.columns AS dependency_column
             ON dependency_column.id=dependency.column_id
            AND dependency_column.sheet_id=retrieval_binding.sheet_id
@@ -1909,7 +1915,10 @@ def _binding_is_current(binding: str) -> str:
         "OR dependency.retrieval_revision != COALESCE(("
         "SELECT current_head.retrieval_revision FROM main.current_cells AS current_head "
         "WHERE current_head.column_id=dependency.column_id "
-        "AND current_head.row_id=dependency.row_id),0)))"
+        "AND current_head.row_id=dependency.row_id),0) "
+        "OR EXISTS (SELECT 1 FROM main.current_cell_repair dirty "
+        "WHERE dirty.column_id=dependency.column_id "
+        "AND dependency.row_id BETWEEN dirty.row_id_start AND dirty.row_id_end)))"
     )
 
 

@@ -8,11 +8,10 @@ Layout:
       project.cache.db    (sidecar: response cache, rebuildable)
       blobs/ab/abcd1234...
 
-Value resolution for a cell, highest precedence first:
-    1. latest applied manual edit (edits joined to applied ops)
-    2. the column's exact generated-result head
-    3. source cells
-Undo/redo move op-log pointers and column run-pointers; nothing is copied.
+Current cells resolve the latest applied Change at each coordinate. Source
+versions, results and edits keep immutable producer references; pending run
+scopes mask earlier values. Cached heads are disposable and dirty scopes read
+canonical winners until bounded repair completes.
 """
 
 from __future__ import annotations
@@ -115,6 +114,9 @@ class ProjectReadSnapshot:
         )
         try:
             connection.row_factory = sqlite3.Row
+            from .current_cells import register_current_cell_functions
+
+            register_current_cell_functions(connection)
             connection.execute("PRAGMA foreign_keys=ON")
             connection.execute("PRAGMA busy_timeout=10000")
             connection.execute("PRAGMA query_only=ON")
@@ -255,6 +257,9 @@ class Project:
         if thread_connection is None:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
             conn.row_factory = sqlite3.Row
+            from .current_cells import register_current_cell_functions
+
+            register_current_cell_functions(conn)
             conn.executescript(
                 "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; "
                 "PRAGMA busy_timeout=10000;"

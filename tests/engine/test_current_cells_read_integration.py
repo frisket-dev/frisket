@@ -131,9 +131,11 @@ def test_failed_and_withheld_heads_refresh_to_explicit_null_current_values(
             sheet_id, column_id, row_ids[:2]
         )
         assert staged_values == {row_ids[0]: None, row_ids[1]: None}
+        # Fixed output scope has an owner immediately, even before a
+        # checkpoint is published. Its pending values remain unavailable.
         assert [staged_refs[row_id]["kind"] for row_id in row_ids[:2]] == [
-            "missing",
-            "missing",
+            "run_result",
+            "run_result",
         ]
         results.fail_result_value(run.run_id, row_ids[0], column_id, "model failed")
         results.withhold_result_value(run.run_id, row_ids[1], column_id, "no citation")
@@ -190,6 +192,8 @@ def test_current_cell_grid_payload_handles_a_page_larger_than_sqlite_bind_chunk(
             "row_id": row_ids[-1],
             "column_id": column_id,
             "run_id": None,
+            "producer_id": 1,
+            "outcome": "completed",
         }
     finally:
         project.close()

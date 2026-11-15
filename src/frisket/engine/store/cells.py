@@ -566,7 +566,7 @@ def _current_cell_rows(
     )
     fields = "r.id, c.value_kind, c.value, COALESCE(c.validity, 'missing') AS validity"
     if with_refs:
-        fields += ", c.origin_kind, c.origin_op_id, c.origin_run_id, c.prepared_ref_id"
+        fields += ", c.origin_kind, c.origin_op_id, c.origin_run_id, c.prepared_ref_id, c.base_producer_id, c.outcome"
     for chunk in chunks:
         params: list[Any] = [column_id, sheet_id]
         row_filter = ""
@@ -634,6 +634,12 @@ def get_values_with_refs(
                 "row_id": row_id,
                 "column_id": column_id,
                 "run_id": row["origin_run_id"],
+                "outcome": row["outcome"],
+                **(
+                    {"producer_id": int(row["base_producer_id"])}
+                    if row["base_producer_id"] is not None
+                    else {}
+                ),
                 **(
                     {"prepared_ref_id": int(row["prepared_ref_id"])}
                     if row["prepared_ref_id"] is not None
@@ -1061,7 +1067,7 @@ def _replay_candidate_query(
         "FROM results res "
         + head_join
         + "JOIN rows rr ON rr.id = res.row_id AND rr.sheet_id = ? AND rr.hidden = 0 "
-        "JOIN current_cells current ON current.row_id=res.row_id "
+        "JOIN effective_current_cells current ON current.row_id=res.row_id "
         "AND current.column_id=res.column_id AND current.origin_kind='manual_edit' "
         "JOIN edits e ON e.op_id=current.origin_op_id "
         "AND e.row_id=current.row_id AND e.column_id=current.column_id "
