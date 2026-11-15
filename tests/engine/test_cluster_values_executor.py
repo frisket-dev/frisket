@@ -1048,7 +1048,9 @@ def test_semantic_cluster_terminal_receipt_and_context_transfer_are_atomic(
                 raise sqlite3.OperationalError("injected receipt update failure")
             return result
 
-        monkeypatch.setattr(ReceiptStore, "update_if_status_in", fail_first_receipt_update)
+        monkeypatch.setattr(
+            ReceiptStore, "update_if_status_in", fail_first_receipt_update
+        )
 
         with pytest.raises(
             sqlite3.OperationalError, match="injected receipt update failure"

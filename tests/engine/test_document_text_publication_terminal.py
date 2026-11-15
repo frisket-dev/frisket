@@ -89,7 +89,6 @@ def test_source_changed_publication_refusal_closes_exact_worker(
             assert worker.run_once()
         pytest.fail("target document job did not run")
 
-    prior_head = None
     if publication == "replacement_seal":
         execute_target(first.payload["job_id"])
         assert workspace.queue.get(first.payload["job_id"]).status == "done", (
@@ -98,7 +97,6 @@ def test_source_changed_publication_refusal_closes_exact_worker(
         assert (
             workspace.queue.get(first.payload["job_id"]).result["status"] == "completed"
         )
-        prior_head = first.payload["run_id"]
         request = {
             **request,
             "idempotency_key": "replacement-document-text",
@@ -221,29 +219,34 @@ def test_source_changed_publication_refusal_closes_exact_worker(
         bindings = ResultGenerationStore(project).bindings_for_run(run_id)
         assert len(bindings) == 1 and bindings[0].state == "sealed"
         assert bindings[0].terminal_disposition == "failed"
+        retained_row = published_rows[0]
         head = project.db.execute(
             "SELECT run_id FROM cell_result_heads WHERE row_id=? AND column_id=?",
-            (row_id, text_id),
+            (retained_row, text_id),
         ).fetchone()
-        assert (None if head is None else head[0]) == prior_head
+        # Same-descriptor publication is progressive: keep the committed row
+        # when a later row or the final source check refuses further work.
+        assert head is not None and head[0] == run_id
         if publication == "first_flush":
             assert (
                 project.db.execute(
                     "SELECT COUNT(*) FROM cell_result_heads WHERE column_id=?",
                     (text_id,),
                 ).fetchone()[0]
-                == 0
+                == 1
             )
         op = project.db.execute(
             "SELECT undo_info FROM ops WHERE id=?", (run["op_id"],)
         ).fetchone()
-        assert text_id in json.loads(op[0])["unpublished_generation_columns"]
+        assert text_id not in json.loads(op[0]).get(
+            "unpublished_generation_columns", []
+        )
         ResultGenerationStore(project).rebuild_heads([text_id])
         rebuilt = project.db.execute(
             "SELECT run_id FROM cell_result_heads WHERE row_id=? AND column_id=?",
-            (row_id, text_id),
+            (retained_row, text_id),
         ).fetchone()
-        assert (None if rebuilt is None else rebuilt[0]) == prior_head
+        assert rebuilt is not None and rebuilt[0] == run_id
     finally:
         workspace.queue.close()
         project.close()

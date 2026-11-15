@@ -229,7 +229,23 @@ def _included_scope(sheet: int, body: int) -> RetrievalScope:
     )
 
 
-def test_large_correlated_cell_scope_is_bounded_and_private(tmp_path):
+def test_large_correlated_cell_scope_is_bounded_and_private(tmp_path, monkeypatch):
+    from frisket.retrieval.query import PinnedRetrievalReader
+
+    steps = 0
+    enter = PinnedRetrievalReader.__enter__
+
+    def count_steps():
+        nonlocal steps
+        steps += 1000
+        return 0
+
+    def measured_enter(reader):
+        result = enter(reader)
+        reader.db.set_progress_handler(count_steps, 1000)
+        return result
+
+    monkeypatch.setattr(PinnedRetrievalReader, "__enter__", measured_enter)
     project = Project.create(tmp_path / "large-scope.frisket", name="large-scope")
     try:
         sheet = project.add_sheet("Documents")
@@ -287,17 +303,16 @@ def test_large_correlated_cell_scope_is_bounded_and_private(tmp_path):
             ranking=RankingPolicy(rerank="off"),
         )
 
-        started = perf_counter()
         response = search(project, request)
-        elapsed = perf_counter() - started
 
         assert {
             (group.primary.binding.row_id, group.primary.binding.column_id)
             for group in response.results
         } == set(selected_columns.items())
-        # The former inlined scope took 1.5s locally and over 10s in the
-        # sandboxed probe. Materializing once leaves ample platform headroom.
-        assert elapsed < 1.0
+        # Bound query work rather than time spent waiting for CPU while eight
+        # test workers compete. Materialized scope uses ~1.54M steps; restoring
+        # the old inlined scope takes ~24.55M on this fixture.
+        assert steps < row_count * 5000
     finally:
         project.close()
 

@@ -853,15 +853,17 @@ def test_formula_whole_scope_retype_refuses_row_appended_before_publish(
         assert replacement.errors[0].code == "stale_input"
         assert project.get_column(column)["type"] == "number"
         assert project.get_values(sheet, column, row_ids=rows + appended) == {
-            rows[0]: None,
+            rows[0]: 3,
             appended[0]: 4,
         }
+        # The different-type generation never activated. A refused staged
+        # replacement preserves the prior values and descriptor together.
         assert (
             project.db.execute(
                 "SELECT outcome FROM canonical_cell_heads WHERE column_id=? AND row_id=?",
                 (column, rows[0]),
             ).fetchone()[0]
-            == "not_completed"
+            == "completed"
         )
         assert (
             project.db.execute(
