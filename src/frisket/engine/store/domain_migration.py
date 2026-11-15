@@ -155,6 +155,7 @@ def _execute_ddl(db: sqlite3.Connection, sql: str) -> None:
 
 
 def _version_source_cells(db: sqlite3.Connection) -> None:
+    producer = None
     if db.execute("SELECT 1 FROM cells WHERE producer_id IS NULL LIMIT 1").fetchone():
         producer = db.execute(
             "INSERT INTO base_cell_producers(stage_id,op_id) "
@@ -162,14 +163,11 @@ def _version_source_cells(db: sqlite3.Connection) -> None:
         ).lastrowid
         # A version identity, not invented authorship of an old value.
         db.execute(
-            "UPDATE cells SET producer_id=? WHERE producer_id IS NULL", (producer,)
-        )
-        db.execute(
             "UPDATE current_cells SET base_producer_id=? "
             "WHERE origin_kind='source_cell' AND base_producer_id IS NULL",
             (producer,),
         )
-    _rebuild_table(db, "cells")
+    _rebuild_table(db, "cells", fallback_producer_id=producer)
 
 
 def _retain_output_descriptors(db: sqlite3.Connection) -> None:
@@ -218,7 +216,9 @@ def _retain_output_descriptors(db: sqlite3.Connection) -> None:
     db.execute("DROP TABLE domain_output_declarations")
 
 
-def _rebuild_table(db: sqlite3.Connection, table: str) -> None:
+def _rebuild_table(
+    db: sqlite3.Connection, table: str, *, fallback_producer_id: int | None = None
+) -> None:
     """Rebuild one known cutover table, retaining IDs, indexes and triggers."""
     from .schema import SCHEMA
 
@@ -249,7 +249,19 @@ def _rebuild_table(db: sqlite3.Connection, table: str) -> None:
         if row[1] in original_columns
     ]
     names = ",".join('"' + column + '"' for column in columns)
-    db.execute(f"INSERT INTO {replacement}({names}) SELECT {names} FROM {table}")
+    if fallback_producer_id is not None:
+        if table != "cells":
+            raise ValueError("Only source cells can receive a fallback producer")
+        selection = ",".join(
+            "COALESCE(producer_id,?)" if column == "producer_id" else '"' + column + '"'
+            for column in columns
+        )
+        db.execute(
+            f"INSERT INTO {replacement}({names}) SELECT {selection} FROM {table}",
+            (fallback_producer_id,),
+        )
+    else:
+        db.execute(f"INSERT INTO {replacement}({names}) SELECT {names} FROM {table}")
     db.execute(f"DROP TABLE {table}")
     db.execute(f"ALTER TABLE {replacement} RENAME TO {table}")
     for statement in objects:
@@ -316,7 +328,6 @@ def migrate_domain(db: sqlite3.Connection) -> None:
         adopt_legacy_document_text(db)
         _version_source_cells(db)
         capture_current_baseline(db)
-        _rebuild_table(db, "sheets")
         db.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_visible_sheet_name ON sheets(name) WHERE hidden=0"
         )

@@ -216,7 +216,18 @@ def migrate_identity_high_water(db: sqlite3.Connection) -> dict[str, int]:
         if original is None:
             raise RuntimeError(f"identity migration missing {table}")
         sql = str(original[0])
-        if not re.search(
+        if table == "sheets":
+            # This helper is the domain cutover: install its final sheet shape
+            # while assigning durable IDs, avoiding a second whole-table copy.
+            from .schema import SCHEMA
+
+            final = re.search(
+                r"CREATE TABLE IF NOT EXISTS sheets \(.*?\n\);", SCHEMA, re.S
+            )
+            if final is None:
+                raise RuntimeError("Missing final sheets schema")
+            sql = final.group()
+        if table == "sheets" or not re.search(
             r"\bid\s+INTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT\b", sql, re.IGNORECASE
         ):
             replacement = f"{table}_identity_new"
@@ -232,7 +243,7 @@ def migrate_identity_high_water(db: sqlite3.Connection) -> dict[str, int]:
                 flags=re.IGNORECASE,
             )
             create, identity_count = re.subn(
-                r"\bid\s+INTEGER\s+PRIMARY\s+KEY\b",
+                r"\bid\s+INTEGER\s+PRIMARY\s+KEY(?:\s+AUTOINCREMENT)?\b",
                 "id INTEGER PRIMARY KEY AUTOINCREMENT",
                 create,
                 count=1,
