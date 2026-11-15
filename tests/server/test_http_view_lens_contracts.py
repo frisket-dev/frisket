@@ -33,7 +33,7 @@ def test_http_crud_resolves_shared_selection_and_presentation(view_api):
         json={
             "name": "  High  ",
             "selection": selection,
-            "presentation": {"columns": ["amount"]},
+            "presentation": {"columns": [col]},
         },
     )
     assert response.status_code == 200, response.text

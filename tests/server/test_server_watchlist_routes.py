@@ -39,7 +39,7 @@ def _api_routes(app: FastAPI) -> list[tuple[list[str], str, str]]:
     ]
 
 
-def test_watch_route_order_after_lenses_before_notifications(tmp_path: Path) -> None:
+def test_watch_route_order_after_views_before_notifications(tmp_path: Path) -> None:
     app = create_app(tmp_path / "ws")
     routes = _api_routes(app)
 
@@ -79,6 +79,7 @@ def test_watch_routes_bind_schema_queries_and_map_service_errors() -> None:
         7,
         None,
         False,
+        "@hourly",
     )
 
     bad_create = client.post(
@@ -200,6 +201,7 @@ def _watch_payload(watch_id: int, *, name: str = "Budget") -> dict[str, Any]:
         "sheet_id": None,
         "detection_policy": {"kind": "new_matches"},
         "enabled": True,
+        "schedule": "@hourly",
         "last_evaluated_op": 0,
         "last_run_id": None,
         "last_status": None,
@@ -225,6 +227,7 @@ class _FakeWatchService:
         view_id: int,
         detection_policy: dict[str, Any] | None,
         enabled: bool,
+        schedule: str | None,
     ) -> dict:
         self.calls.append(
             (
@@ -234,6 +237,7 @@ class _FakeWatchService:
                 view_id,
                 detection_policy,
                 enabled,
+                schedule,
             )
         )
         if name == "bad":

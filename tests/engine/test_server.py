@@ -814,14 +814,13 @@ class TestSavedViews:
 
     def test_replace_view_definition_can_clear_spec_keys(self, client):
         pid, sheet_id = make_project_with_data(client)
+        selection = self.selection(client, pid, sheet_id, word="open", sorted_=True)
         vid = client.post(
             f"/api/projects/{pid}/views",
             json={
                 "name": "v",
-                "selection": self.selection(
-                    client, pid, sheet_id, word="open", sorted_=True
-                ),
-                "presentation": {"columns": ["snippet"]},
+                "selection": selection,
+                "presentation": {"columns": [selection["order"][0]["column_id"]]},
             },
         ).json()["id"]
 
