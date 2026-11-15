@@ -434,7 +434,7 @@ def resolve_document_text_selection(
     """Resolve the fresh selected Text value for one File cell.
 
     ``None`` means the File column has no configured role.  A configured role
-    that is hidden, stale, empty, or lacks prepared provenance raises
+    that is hidden, stale, unavailable, or lacks prepared provenance raises
     :class:`DocumentTextUnavailable` so callers cannot silently choose another
     text candidate.
     """
