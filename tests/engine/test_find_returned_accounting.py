@@ -70,8 +70,15 @@ def test_find_persists_first_plan_before_second_plan_is_interrupted(tmp_path):
                 return await super().complete(request, client)
 
         adapter = Interrupted("unused", matches=[])
-        with pytest.raises(asyncio.CancelledError):
-            _run_queued_find(project, envelope, adapter)
+        result = _run_queued_find(project, envelope, adapter)
+        assert result.status == "cancelled"
+        assert (
+            project.db.execute(
+                "SELECT status FROM receipts WHERE id=?", (envelope.receipt_id,)
+            ).fetchone()[0]
+            == "cancelled"
+        )
+        assert project.db.execute("SELECT count(*) FROM model_calls").fetchone()[0] == 1
         assert project.db.execute(
             "SELECT sum(provider_cost_usd) FROM model_calls"
         ).fetchone()[0] == pytest.approx(0.0004)

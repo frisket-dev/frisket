@@ -672,7 +672,7 @@ def test_ambiguous_reserved_effect_refuses_resume_instead_of_recalling(
         project.close()
 
 
-def test_normal_cancel_keeps_returned_result_and_fresh_run_buys_new_work(
+def test_cancel_retains_unpublished_return_and_fresh_run_buys_new_work(
     tmp_path, monkeypatch
 ) -> None:
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
@@ -709,19 +709,33 @@ def test_normal_cancel_keeps_returned_result_and_fresh_run_buys_new_work(
         assert cancelled.cancelled is True
         assert provider.calls == 1
         checkpoint = project.db.execute(
-            "SELECT state, accounting_persisted FROM effect_checkpoints "
+            "SELECT state, accounting_persisted, payload FROM effect_checkpoints "
             "WHERE family='row_effect' AND group_key=CAST(? AS TEXT)",
             (run_id,),
         ).fetchone()
-        assert checkpoint is None, "completed return was published and retired"
+        assert checkpoint is not None
+        assert (checkpoint["state"], checkpoint["accounting_persisted"]) == (
+            "returned",
+            1,
+        )
+        retained = json.loads(checkpoint["payload"])
+        assert retained["relevance"]["value"] == 7
+        # Stop closes publication before the returned response reaches the
+        # result writer; its value survives in the paid-effect checkpoint.
         assert (
             project.db.execute(
                 "SELECT COUNT(*) FROM results WHERE run_id=?",
                 (run_id,),
             ).fetchone()[0]
-            == 1
+            == 0
         )
-        assert first.run_store.get_run(run_id)["status"] == "completed"
+        assert first.run_store.get_run(run_id)["status"] == "cancelled"
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM cell_result_heads WHERE run_id=?", (run_id,)
+            ).fetchone()[0]
+            == 0
+        )
 
         assert provider.calls == 1
         run = project.db.execute(
@@ -739,7 +753,7 @@ def test_normal_cancel_keeps_returned_result_and_fresh_run_buys_new_work(
                 "WHERE family='row_effect' AND group_key=CAST(? AS TEXT)",
                 (run_id,),
             ).fetchone()[0]
-            == 0
+            == 1
         )
 
         row_id = int(
@@ -756,6 +770,19 @@ def test_normal_cancel_keeps_returned_result_and_fresh_run_buys_new_work(
         assert recovery.run_id != run_id
         assert recovery.completed == 1
         assert provider.calls == 2
+        assert project.db.execute(
+            "SELECT COUNT(*),SUM(provider_cost_usd) FROM model_calls"
+        ).fetchone()[:] == pytest.approx((2, 0.0002))
+        assert (
+            json.loads(
+                project.db.execute(
+                    "SELECT payload FROM effect_checkpoints WHERE family='row_effect' "
+                    "AND group_key=CAST(? AS TEXT)",
+                    (run_id,),
+                ).fetchone()[0]
+            )
+            == retained
+        )
     finally:
         project.close()
 
