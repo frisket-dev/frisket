@@ -148,7 +148,7 @@ def _notifications(client, pid):
 # --------------------------------------------------------------------------
 
 
-def test_fresh_watch_emits_enter_events_and_a_notification(tmp_path):
+def test_first_embedding_watch_observation_is_silent(tmp_path):
     client = _client(tmp_path)
     pid, project, sheet, col = _seed(client)
     index_id = _create_index(project, pid, sheet)
@@ -157,17 +157,13 @@ def test_fresh_watch_emits_enter_events_and_a_notification(tmp_path):
     watch = _make_watch(client, pid, sheet, index_id, cat).json()
 
     first = _run(client, pid, watch["id"])
-    assert first["run"]["status"] == "ok"
-    # the anchor is excluded; the other two rows are the similar set, all new
+    assert first["run"]["status"] == "ok", first["run"].get("error")
+    # The anchor is excluded; the first successful membership is a silent baseline.
     assert first["run"]["matched_rows"] == 2
-    assert first["run"]["new_rows"] == 2
+    assert first["run"]["new_rows"] == 0
     events = _events(client, pid, watch["id"], first["run"]["id"])
-    assert events["total"] == 2
-    assert {e["event_kind"] for e in events["events"]} == {"row_entered"}
-    # reuses the notification substrate (source_kind=watch), not a new inbox
-    notifs = _notifications(client, pid)
-    assert notifs["total"] == 1
-    assert notifs["notifications"][0]["source_kind"] == "watch"
+    assert events["total"] == 0
+    assert _notifications(client, pid)["total"] == 0
 
 
 def test_no_duplicate_events_across_reruns(tmp_path):
@@ -179,13 +175,13 @@ def test_no_duplicate_events_across_reruns(tmp_path):
     watch = _make_watch(client, pid, sheet, index_id, cat).json()
 
     first = _run(client, pid, watch["id"])
-    assert first["run"]["new_rows"] == 2
+    assert first["run"]["new_rows"] == 0
     # rerun with an unchanged index: no new rows, no new events, no new notification
     second = _run(client, pid, watch["id"])
     assert second["run"]["status"] == "ok"
     assert second["run"]["new_rows"] == 0
     assert _events(client, pid, watch["id"], second["run"]["id"])["total"] == 0
-    assert _notifications(client, pid)["total"] == 1
+    assert _notifications(client, pid)["total"] == 0
 
 
 def test_stale_index_blocks_watch_with_typed_result(tmp_path):
@@ -205,7 +201,7 @@ def test_stale_index_blocks_watch_with_typed_result(tmp_path):
     assert blocked["run"]["error_code"] == "embedding_index_stale"
     assert blocked["run"]["new_rows"] == 0
     # no spurious notification for a blocked run
-    assert _notifications(client, pid)["total"] == 1
+    assert _notifications(client, pid)["total"] == 0
 
 
 def test_hidden_published_member_does_not_block_watch(tmp_path):
@@ -263,7 +259,7 @@ def test_appended_unembedded_row_blocks_watch_then_refresh_emits_enter(tmp_path)
     assert blocked["run"]["status"] == "error"
     assert blocked["run"]["error_code"] == "embedding_index_incomplete"
     assert blocked["run"]["new_rows"] == 0
-    assert _notifications(client, pid)["total"] == 1  # no spurious notification
+    assert _notifications(client, pid)["total"] == 0  # no spurious notification
 
     # refresh embeds the new row; the watch then evaluates ok and the new row enters
     _refresh(project, pid, index_id, key="r@2")

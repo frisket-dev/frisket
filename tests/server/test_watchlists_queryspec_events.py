@@ -151,6 +151,9 @@ def test_watch_runs_record_row_entered_events_and_keep_mvp_tables(
     assert stored_watch["query_hash"].startswith("sha256:")
     assert json.loads(stored_watch["detection_policy"]) == {"kind": "new_matches"}
 
+    from watch_helpers import seed_empty_watch_baseline
+
+    seed_empty_watch_baseline(project, watch["id"])
     first = _run_watch(client, pid, watch["id"])
     assert first["run"]["matched_rows"] == 2
     assert first["run"]["new_rows"] == 2

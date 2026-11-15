@@ -108,6 +108,9 @@ def test_watch_event_routes_through_worker_to_recorded_slack_transport(
     )
     assert route_response.status_code == 200, route_response.text
 
+    from watch_helpers import seed_empty_watch_baseline
+
+    seed_empty_watch_baseline(client.app.state.workspace.get(pid), watch["id"])
     run_response = client.post(f"/api/projects/{pid}/watches/{watch['id']}/run")
     assert run_response.status_code == 200, run_response.text
     assert run_response.json()["run"]["new_rows"] == 2

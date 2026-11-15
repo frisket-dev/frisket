@@ -38,6 +38,9 @@ def _seed_watch_events(client: TestClient) -> tuple[str, dict[str, Any], list[di
     )
     assert watch_response.status_code == 200, watch_response.text
     watch = watch_response.json()
+    from watch_helpers import seed_empty_watch_baseline
+
+    seed_empty_watch_baseline(client.app.state.workspace.get(pid), watch["id"])
     run_response = client.post(f"/api/projects/{pid}/watches/{watch['id']}/run")
     assert run_response.status_code == 200, run_response.text
     run = run_response.json()["run"]

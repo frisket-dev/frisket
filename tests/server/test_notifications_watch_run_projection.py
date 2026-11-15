@@ -66,6 +66,9 @@ def _seed_watch(client: TestClient) -> tuple[str, dict, dict, list[dict]]:
     )
     assert watch_response.status_code == 200, watch_response.text
     watch = watch_response.json()
+    from watch_helpers import seed_empty_watch_baseline
+
+    seed_empty_watch_baseline(client.app.state.workspace.get(pid), watch["id"])
     run_response = client.post(f"/api/projects/{pid}/watches/{watch['id']}/run")
     assert run_response.status_code == 200, run_response.text
     run = run_response.json()["run"]
@@ -97,9 +100,7 @@ def test_watch_run_events_project_to_generic_notifications_without_mutating_fact
         "SELECT dedupe_key FROM notification_items WHERE id=?",
         (item["id"],),
     ).fetchone()
-    assert stored["dedupe_key"].startswith(
-        f"watch:{watch['id']}:run:{run['id']}:events:sha256:"
-    )
+    assert stored["dedupe_key"] == f"watch:{watch['id']}:run:{run['id']}"
     assert "," not in stored["dedupe_key"]
     assert len(stored["dedupe_key"]) < 140
     assert item["event_kinds"] == ["row_entered"]

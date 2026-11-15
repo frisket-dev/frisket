@@ -70,9 +70,9 @@ def test_fts_watch_manual_runs_track_matched_and_new_rows(tmp_path: Path) -> Non
 
     first = _run_watch(client, pid, watch["id"])
     assert first["run"]["matched_rows"] == 2
-    assert first["run"]["new_rows"] == 2
+    assert first["run"]["new_rows"] == 0
     assert {hit["run_id"] for hit in first["hits"]} == {first["run"]["id"]}
-    assert [hit["is_new"] for hit in first["hits"]] == [True, True]
+    assert [hit["is_new"] for hit in first["hits"]] == [False, False]
     assert {hit["sheet_id"] for hit in first["hits"]} == {sheet_id}
     assert all(hit["snippet"] for hit in first["hits"])
 
@@ -166,7 +166,7 @@ def test_filter_watch_owns_captured_membership_and_uses_shared_tables(
 
     run = _run_watch(client, pid, watch["id"])
     assert run["run"]["matched_rows"] == 2
-    assert run["run"]["new_rows"] == 2
+    assert run["run"]["new_rows"] == 0
     assert [hit["snippet"] for hit in run["hits"]] == [
         "Matched filter",
         "Matched filter",
@@ -216,7 +216,7 @@ def test_fts_watch_preserves_501_requested_matches_through_normalization(
     observed_limits: list[int] = []
 
     def fake_search_project(project_arg, query, limit=50, rerank="auto"):
-        assert project_arg is project
+        assert project_arg.db_path == project.db_path
         assert query == "needle"
         assert rerank == "off"
         observed_limits.append(limit)
@@ -256,8 +256,14 @@ def test_fts_watch_preserves_501_requested_matches_through_normalization(
     assert watch["query"]["limit"] == 501
     assert observed_limits == [501]
     assert result["run"]["matched_rows"] == 501
-    assert result["run"]["new_rows"] == 501
-    assert persisted["count"] == 501
+    assert result["run"]["new_rows"] == 0
+    assert persisted["count"] == 500
+    assert (
+        project.db.execute(
+            "SELECT count(*) FROM watch_seen_rows WHERE watch_id=?", (watch["id"],)
+        ).fetchone()[0]
+        == 501
+    )
     assert len(result["hits"]) <= 500
 
 
@@ -359,6 +365,11 @@ def test_watch_delete_cascades_only_its_state_and_single_watch_notifications(
             "query": {"kind": "fts", "q": "bridge", "limit": 10},
         },
     ).json()
+    from watch_helpers import seed_empty_watch_baseline
+
+    project = client.app.state.workspace.get(pid)
+    seed_empty_watch_baseline(project, deleted_watch["id"])
+    seed_empty_watch_baseline(project, retained_watch["id"])
     deleted_run = _run_watch(client, pid, deleted_watch["id"])["run"]
     retained_run = _run_watch(client, pid, retained_watch["id"])["run"]
     project = client.app.state.workspace.get(pid)

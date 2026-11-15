@@ -217,14 +217,13 @@ def test_completed_source_poll_evaluates_affected_enabled_watches(
             item["source_run_id"] == materialized["source_run_id"] for item in triggered
         )
         assert all(item["run"]["matched_rows"] == 2 for item in triggered)
-        assert all(item["run"]["new_rows"] == 2 for item in triggered)
+        assert all(item["run"]["new_rows"] == 0 for item in triggered)
 
         for watch_id in (project_watch, sheet_watch):
             latest = project.watch_latest_run(watch_id)
             assert latest is not None
             events = project.watch_run_events(int(latest["id"]), limit=10)
-            assert len(events) == 2
-            assert {event["event_kind"] for event in events} == {"row_entered"}
+            assert events == []
 
         assert project.watch_latest_run(disabled_watch) is None
         assert project.watch_latest_run(other_sheet_watch) is None
@@ -382,9 +381,9 @@ def test_v1_source_poll_action_triggers_watch_run(
     run = project.watch_latest_run(watch_id)
     assert run is not None
     assert run["matched_rows"] == 1
-    assert run["new_rows"] == 1
+    assert run["new_rows"] == 0
     events = project.watch_run_events(int(run["id"]), limit=10)
-    assert [event["event_kind"] for event in events] == ["row_entered"]
+    assert events == []
 
 
 def test_noop_and_failed_source_polls_do_not_trigger_watch_runs(tmp_path: Path) -> None:
