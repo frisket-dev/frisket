@@ -117,15 +117,19 @@ def project_judgments(project: Any, op_id: int) -> None:
                 (state, decision, note, owner, row_id, column_id),
             )
     if targets:
-        from .current_cells import refresh_current_cell_pairs
+        from .search_index_work import reserve_revision
 
-        # This is a guard for readers that consume judgments. Value-only
-        # fingerprints still compare the same immutable cell contributions.
-        refresh_current_cell_pairs(
-            db,
+        # Judgment-sensitive source selections must recheck their fingerprints;
+        # the current value heads and searchable content did not change.
+        revision = reserve_revision(db)
+        db.executemany(
+            "INSERT INTO cell_authority_revisions(column_id,revision) VALUES (?,?) "
+            "ON CONFLICT(column_id) DO UPDATE SET revision=excluded.revision",
             [
-                (parse_result_key(target)[2], parse_result_key(target)[3])
-                for (target,) in targets
+                (column_id, revision)
+                for column_id in sorted(
+                    {parse_result_key(target)[3] for (target,) in targets}
+                )
             ],
         )
 

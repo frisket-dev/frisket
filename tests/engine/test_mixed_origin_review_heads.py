@@ -12,7 +12,7 @@ from frisket.engine.runner.review import (
     review_bundles,
     review_queue,
 )
-from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.review_stats import rebuild_run_review_stats
 from test_mixed_origin_readers import (  # noqa: F401
     _MixedReaderFixture,
     mixed_reader,
@@ -43,9 +43,11 @@ def _review_state(fixture: _MixedReaderFixture, *, run_id: int, row_id: int) -> 
 
 
 def _finish_fixture_runs(fixture: _MixedReaderFixture) -> None:
-    store = RunResultStore(fixture.project)
-    store.finish_run(fixture.first_run_id, "completed")
-    store.finish_run(fixture.second_run_id, "completed")
+    # The shared mixed-head fixture already seals/finishes these runs.
+    # Only its deliberately raw seeded review inventory needs rebuilding.
+    with fixture.project.db:
+        rebuild_run_review_stats(fixture.project.db, fixture.first_run_id)
+        rebuild_run_review_stats(fixture.project.db, fixture.second_run_id)
 
 
 def test_review_queue_bundles_counts_and_summary_follow_exact_mixed_heads(

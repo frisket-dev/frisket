@@ -133,6 +133,7 @@ def test_sheet_data_exposes_typed_current_value_refs(tmp_path: Path) -> None:
     assert rows[row_ids[0]]["cells"][topic_col] == "manual-alpha"
     assert manual_ref == {
         "kind": "manual_edit",
+        "outcome": "completed",
         "op_id": edit_op_id,
         "row_id": row_ids[0],
         "column_id": columns["topic"],
@@ -148,6 +149,7 @@ def test_sheet_data_exposes_typed_current_value_refs(tmp_path: Path) -> None:
     assert rows[row_ids[1]]["cells"][topic_col] == "ai-beta"
     assert generated_ref == {
         "kind": "run_result",
+        "outcome": "completed",
         "op_id": generated_op_id,
         "row_id": row_ids[1],
         "column_id": columns["topic"],
@@ -163,6 +165,7 @@ def test_sheet_data_exposes_typed_current_value_refs(tmp_path: Path) -> None:
     assert rows[row_ids[2]]["meta"][topic_col]["state"] == "incomplete"
     assert missing_ref == {
         "kind": "missing",
+        "outcome": None,
         "op_id": None,
         "row_id": row_ids[2],
         "column_id": columns["topic"],
@@ -176,6 +179,7 @@ def test_sheet_data_exposes_typed_current_value_refs(tmp_path: Path) -> None:
     assert rows[row_ids[3]]["meta"][topic_col]["outcome"] == "model_error"
     assert error_ref == {
         "kind": "run_result",
+        "outcome": "failed",
         "op_id": generated_op_id,
         "row_id": row_ids[3],
         "column_id": columns["topic"],
@@ -189,6 +193,7 @@ def test_sheet_data_exposes_typed_current_value_refs(tmp_path: Path) -> None:
     assert terminal_meta["outcome"] == "empty_output"
     assert terminal_meta["current_value_ref"] == {
         "kind": "run_result",
+        "outcome": "failed",
         "op_id": generated_op_id,
         "row_id": row_ids[4],
         "column_id": columns["topic"],
@@ -196,8 +201,18 @@ def test_sheet_data_exposes_typed_current_value_refs(tmp_path: Path) -> None:
     }
 
     source_ref = rows[row_ids[0]]["meta"][story_col]["current_value_ref"]
+    source_producer = (
+        client.app.state.workspace.get(project_id)
+        .db.execute(
+            "SELECT producer_id FROM cells WHERE row_id=? AND column_id=?",
+            (row_ids[0], columns["story"]),
+        )
+        .fetchone()[0]
+    )
     assert source_ref == {
         "kind": "source_cell",
+        "outcome": "completed",
+        "producer_id": source_producer,
         "op_id": None,
         "row_id": row_ids[0],
         "column_id": columns["story"],
@@ -216,6 +231,7 @@ def test_sheet_data_exposes_typed_current_value_refs(tmp_path: Path) -> None:
     assert after_undo["cells"][topic_col] == "ai-alpha"
     assert after_undo["meta"][topic_col]["current_value_ref"] == {
         "kind": "run_result",
+        "outcome": "completed",
         "op_id": generated_op_id,
         "row_id": row_ids[0],
         "column_id": columns["topic"],

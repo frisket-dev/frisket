@@ -264,7 +264,9 @@ def test_replay_dismiss_is_durable_and_value_identity_keyed(fx):
         assert reopened.pending_replay_values(fx.sheet, fx.col) == {}, (
             "the same generated value stays suppressed across future runs"
         )
-        # a genuinely-newer generated value (new hash) re-surfaces the cell.
+        # Ordinary replacement supersedes the old edit. A later manual change
+        # is compared against the new result, and its distinct hash is not
+        # suppressed by the dismissal of the previous generated value.
         op_id = reopened.append_op("run", {"kind": "map"}, label="re-run")
         new_run = store.start_run(
             op_id,
@@ -282,6 +284,9 @@ def test_replay_dismiss_is_durable_and_value_identity_keyed(fx):
             "UPDATE columns SET current_run_id=? WHERE id=?", (new_run, fx.col)
         )
         reopened.db.commit()
+        assert reopened.get_values(fx.sheet, fx.col)[r[0]] == "lion"
+        assert reopened.pending_replay_values(fx.sheet, fx.col) == {}
+        reopened.apply_edits([{"row_id": r[0], "column_id": fx.col, "value": "feline"}])
         assert set(reopened.pending_replay_values(fx.sheet, fx.col)) == {r[0]}, (
             "a newer, different fresh value re-surfaces past a value-identity "
             "dismissal (dispositions #3)"
@@ -314,7 +319,7 @@ def test_replay_dismiss_requires_a_pending_human_edit(fx):
     assert set(fx.project.pending_replay_values(fx.sheet, fx.col)) == {row_id}
 
 
-def test_managed_replay_requires_the_target_exact_head(fx):
+def test_managed_replay_uses_canonical_head_despite_missing_legacy_cache(fx):
     row_id, sibling_id = fx.row_ids[:2]
     run_id = fx.run_with_results({row_id: "cat", sibling_id: "dog"})
     fx.edit(row_id, "feline")
@@ -335,20 +340,15 @@ def test_managed_replay_requires_the_target_exact_head(fx):
         ).fetchone()["run_id"]
         == run_id
     )
+    assert set(fx.project.pending_replay_values(fx.sheet, fx.col)) == {row_id}
+    accepted = fx.run_action(accept)
+    assert accepted.status == "completed", accepted.errors
+    assert fx.project.get_values(fx.sheet, fx.col)[row_id] == "cat"
+    # A later edit may be dismissed against that same canonical generated value.
+    fx.edit(row_id, "feline")
+    dismissed = fx.run_action(dismiss)
+    assert dismissed.status == "completed", dismissed.errors
     assert fx.project.pending_replay_values(fx.sheet, fx.col) == {}
-    assert [error.code for error in fx.run_action(accept).errors] == [
-        "invalid_replay_target"
-    ]
-    assert [error.code for error in fx.run_action(dismiss).errors] == [
-        "invalid_replay_target"
-    ]
-    assert (
-        fx.project.db.execute(
-            "SELECT COUNT(*) FROM replay_edit_dismissals WHERE row_id=? AND column_id=?",
-            (row_id, fx.col),
-        ).fetchone()[0]
-        == 0
-    )
 
 
 def test_replay_accept_checks_claim_identity_and_supports_undo_redo(fx):

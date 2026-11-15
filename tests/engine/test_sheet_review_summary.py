@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+from helpers import write_claimed_test_results
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 
@@ -16,13 +17,8 @@ def test_deleting_reviewed_sheet_refreshes_project_pending_summary(tmp_path):
         op = project.append_op("map.extract")
         store = RunResultStore(project)
         run = store.start_run(op, sheet, "map.extract", total_rows=1, row_ids=[row])
-        project.db.execute(
-            "INSERT INTO results(run_id,row_id,column_id,value_kind,value) "
-            "VALUES (?,?,?,'text','answer')",
-            (run, row, column),
-        )
-        project.db.execute(
-            "UPDATE columns SET current_run_id=? WHERE id=?", (run, column)
+        write_claimed_test_results(
+            project, run, [{"row_id": row, "column_id": column, "value": "answer"}]
         )
         store.finish_run(run)
         assert project.refresh_pending_review_summary() == 1
@@ -35,7 +31,10 @@ def test_deleting_reviewed_sheet_refreshes_project_pending_summary(tmp_path):
         )
         assert (
             project.db.execute("SELECT COUNT(*) FROM run_review_fields").fetchone()[0]
-            == 0
+            == 1
         )
+        # Deletion hides the sheet; its saved review inventory survives Undo.
+        assert project.undo() is not None
+        assert project.refresh_pending_review_summary() == 1
     finally:
         project.close()
