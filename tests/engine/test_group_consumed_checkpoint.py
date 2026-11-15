@@ -5,6 +5,7 @@ import json
 from frisket.engine.executor import group_summary_runtime as reduces
 from frisket.engine.store.staleness import sheet_freshness
 from frisket.execution.attempt import abandon_stale_dispatching_attempts
+from frisket.team.security.secrets import encrypt_secret, key_hint
 from test_reduce_effect_checkpoint import (
     project,  # noqa: F401 - shared real project fixture
     _action,
@@ -15,9 +16,16 @@ from test_reduce_effect_checkpoint import (
 
 
 def test_group_replay_keeps_original_consumed_capture_after_equal_text_edit(
-    project, monkeypatch  # noqa: F811 - imported pytest fixture
+    project,
+    monkeypatch,  # noqa: F811 - imported pytest fixture
 ):
     provider = _CountingSummaryAdapter()
+    project.set_provider_key(
+        provider="anthropic",
+        encrypted=encrypt_secret("sk-ant-test"),
+        hint=key_hint("sk-ant-test"),
+        spend_cap_micro=50_000,
+    )
     router = _project_key_router(provider)
     action = _action(project._sheet_id, key="group-capture-recovery")
     write = reduces._write_reduce_group_summary_result
@@ -35,7 +43,7 @@ def test_group_replay_keeps_original_consumed_capture_after_equal_text_edit(
     )
     crashed = _run(project, action, router)
     assert crashed.status == "failed"
-    assert len(provider.requests) == 2
+    assert len(provider.requests) == 2, crashed.errors
     checkpoint = project.db.execute(
         "SELECT payload FROM effect_checkpoints WHERE state='returned' LIMIT 1"
     ).fetchone()

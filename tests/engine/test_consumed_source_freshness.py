@@ -264,6 +264,9 @@ def test_pending_and_successful_null_share_result_address_but_not_consumed_state
                 }
             ],
         )
+        from test_result_generation_store import _seal
+
+        _seal(ResultGenerationStore(project), run, column)
         assert verify_bundle(project, bundle) == "stale"
     finally:
         project.close()
