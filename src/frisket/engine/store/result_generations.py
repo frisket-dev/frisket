@@ -1240,6 +1240,11 @@ class ResultGenerationStore:
             # or retroactively mark a published one as unpublished.
             if not open_bindings:
                 return 0
+            unpublished_staged_columns = [
+                binding.column_id
+                for binding in open_bindings
+                if binding.state == "staged"
+            ]
 
             operation_info = self._operation_info(operation)
             pending_descriptor_changes = self._pending_descriptor_changes(
@@ -1314,7 +1319,7 @@ class ResultGenerationStore:
             )
             if not publish_generation:
                 self._record_unpublished_generations(
-                    run_id=int(run_id), column_ids=declared_column_ids
+                    run_id=int(run_id), column_ids=unpublished_staged_columns
                 )
                 return 0
             for column_id in changed_descriptors:

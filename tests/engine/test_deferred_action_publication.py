@@ -94,6 +94,14 @@ def test_direct_preparation_derives_defer_and_visibility_from_program(
         )
         assert result.status == "failed"
         assert len(observed) == 1, result.errors
+        if admitted and replacing:
+            output_id = int(
+                project.db.execute(
+                    "SELECT id FROM columns WHERE sheet_id=? AND name='upper'",
+                    (sheet,),
+                ).fetchone()["id"]
+            )
+            assert project.get_values(sheet, output_id)[rows[0]] == "VALUE"
     finally:
         project.close()
 

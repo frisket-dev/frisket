@@ -124,10 +124,13 @@ def test_pre_dispatch_cleanup_preserves_live_dispatching_authority(
             state="dispatching",
         )
 
-        _terminalize_unclaimed_prepared_run(
-            project,
-            SimpleNamespace(run_id=run_id),
-        )
+        with pytest.raises(StaleAttemptWriter):
+            _terminalize_unclaimed_prepared_run(
+                project,
+                SimpleNamespace(run_id=run_id),
+                receipt_id="receipt_pre_dispatch_live_writer",
+                error=ActionError(code="setup_failed", message="setup failed"),
+            )
 
         run = project.db.execute(
             "SELECT status, current_attempt_id FROM runs WHERE id=?",
@@ -148,6 +151,52 @@ def test_pre_dispatch_cleanup_preserves_live_dispatching_authority(
             ).fetchone()[0]
             == "active"
         )
+    finally:
+        project.close()
+
+
+@pytest.mark.parametrize(
+    "state", ["dispatching", "abandoned", "halted", "effected", "two_pending"]
+)
+def test_unbound_preparation_refusal_preserves_reservation(tmp_path, state):
+    from frisket.engine.executor.action_lifecycle import (
+        _terminalize_unclaimed_prepared_run,
+    )
+
+    project = Project.create(tmp_path / "unbound.frisket")
+    try:
+        sheet = project.add_sheet("source")
+        op = project.append_op("map", {"recipe": "python"})
+        run_id = RunResultStore(project).start_run(op, sheet, "map.python", row_ids=[])
+        ReceiptStore(project).insert(
+            Receipt(
+                receipt_id="receipt_unbound",
+                project_id="project",
+                action_id="action_unbound",
+                action_kind="map.python",
+                status="running",
+            )
+        )
+        for seq, attempt_state in enumerate(
+            ["created", "admitted"] if state == "two_pending" else [state]
+        ):
+            _insert_attempt(
+                project,
+                attempt_id=f"attempt_{seq}",
+                run_id=run_id,
+                seq=seq,
+                state=attempt_state,
+            )
+        before = tuple(project.db.iterdump())
+        with pytest.raises(StaleAttemptWriter, match="dispatch history"):
+            _terminalize_unclaimed_prepared_run(
+                project,
+                SimpleNamespace(run_id=run_id),
+                receipt_id="receipt_unbound",
+                error=ActionError(code="setup_failed", message="setup failed"),
+            )
+        assert not project.db.in_transaction
+        assert tuple(project.db.iterdump()) == before
     finally:
         project.close()
 

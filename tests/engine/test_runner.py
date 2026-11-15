@@ -1009,7 +1009,7 @@ class TestCancel:
 
         from frisket.engine.store.runs import RunResultStore
 
-        sheet, _ = seed_sheet(project, [f"text {i}" for i in range(8)])
+        sheet, _ = seed_sheet(project, [f"text {i}" for i in range(32)])
         recipe = _SlowCancellationRecipe()
         original_get_recipe = validation.get_recipe
         monkeypatch.setattr(
@@ -1048,7 +1048,7 @@ class TestCancel:
                     claim_token=claim_token,
                 )
             )
-            await _wait_for_calls_or_task_exit(task, recipe, 1)
+            await _wait_for_calls_or_task_exit(task, recipe, 26)
             assert run_store.request_cancel(prepared.run_id)
             return await asyncio.wait_for(task, timeout=2)
 
@@ -1056,8 +1056,8 @@ class TestCancel:
         assert progress.cancel_requested is True
         assert progress.cancelled is True
         assert progress.done is True
-        assert recipe.calls == 1
-        assert progress.completed == 1
+        assert recipe.calls == 26
+        assert progress.completed >= 25
         assert progress.writer_attempt_id is not None
         assert progress.writer_attempt_claimed is True
         run = project.db.execute(
@@ -1076,6 +1076,43 @@ class TestCancel:
                 (progress.writer_attempt_id,),
             ).fetchone()[0]
             == "dispatching"
+        )
+        output_id = int(prepared.out_cols["relevance"])
+        published_before_terminal = int(
+            project.db.execute(
+                "SELECT COUNT(*) FROM results WHERE run_id=? AND column_id=? "
+                "AND published=1",
+                (progress.run_id, output_id),
+            ).fetchone()[0]
+        )
+        assert published_before_terminal >= 25
+        from frisket.engine.runner.finalization import finalize_dispatched_run
+
+        finalize_dispatched_run(
+            project,
+            run_store,
+            op_id=prepared.op_id,
+            run_id=progress.run_id,
+            status="cancelled",
+            out_cols=dict(prepared.out_cols),
+            writer_attempt_id=progress.writer_attempt_id,
+            claim_token=claim_token,
+            claimless_direct_effect=False,
+            terminal_attempt_state="effected",
+        )
+        values = project.get_values(sheet, output_id)
+        assert sum(value == 5 for value in values.values()) == published_before_terminal
+        assert (
+            sum(value is not None for value in values.values())
+            == published_before_terminal
+        )
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM canonical_cell_heads WHERE column_id=? "
+                "AND outcome='not_completed'",
+                (output_id,),
+            ).fetchone()[0]
+            > 0
         )
 
     def test_cancel_intent_between_attempt_load_and_claim_defers_unclaimed_close(

@@ -71,7 +71,11 @@ def test_active_undo_closes_writer_and_redo_cannot_reopen_it(tmp_path):
         _publish(project, run, rows[0], column, "saved")
         assert project.undo() == run.op_id
         assert project.get_values(sheet, column)[rows[0]] == "first:0"
+        # A late worker may seal the closed generation after Undo. Its earlier
+        # published result is still saved work, not an aborted staged output.
+        _seal(ResultGenerationStore(project), run, column, disposition="cancelled")
         assert project.redo() == run.op_id
+        ResultGenerationStore(project).rebuild_heads([column])
         assert project.get_values(sheet, column)[rows[0]] == "saved"
         assert project.get_values(sheet, column)[rows[1]] is None
         with pytest.raises((ResultGenerationError, StaleAttemptWriter, ValueError)):

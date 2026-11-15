@@ -102,6 +102,14 @@ def test_queued_provider_error_does_not_overwrite_run_terminal_state(
                 project.db.execute("SELECT count(*) FROM model_calls").fetchone()[0]
                 == 1
             )
+        elif mode == "stop":
+            # The caller requested Stop before the provider returned its
+            # rate-limit error. No result/usage came back from that request,
+            # and the closed Change admits no new result publication.
+            assert error_codes == []
+            assert project.db.execute(
+                "SELECT COUNT(*) FROM model_calls"
+            ).fetchone()[0] == 0
         else:
             assert error_codes and all(
                 r[0] == "provider_rate_limited" for r in error_codes

@@ -927,9 +927,10 @@ def terminalize_project_run(
                 # this generation, while name drift must not strand its
                 # receipt. No result head is published on this path.
                 allow_stale_output_name=stale_name_terminal_close,
-                # Only a dispatched writer or the host's coupled finalizer
-                # may expose heads. A prepared/no-dispatch failure records its
-                # terminal generation but leaves prior visible values alone.
+                # The durable deferred-publication declaration keeps staged
+                # output families unpublished until their coupled finalizer.
+                # Ordinary active generations retain their per-row outcomes,
+                # including already-published rows when Stop closes the Change.
                 publish=(
                     publication_refusal is None
                     and not stale_claimed_output_name

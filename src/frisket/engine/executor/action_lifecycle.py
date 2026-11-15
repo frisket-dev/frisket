@@ -1229,8 +1229,9 @@ def _terminalize_unclaimed_prepared_run(
     project: Any,
     prepared_run: Any | None,
     *,
-    claim_token: str | None = None,
-) -> None:
+    receipt_id: str,
+    error: ActionError,
+) -> ActionResult | None:
     """Close a prepared run when its runner failed before taking dispatch.
 
     Canonical direct actions publish the run/output family before invoking
@@ -1246,8 +1247,55 @@ def _terminalize_unclaimed_prepared_run(
     """
 
     if prepared_run is None:
-        return
+        return None
     run_id = int(prepared_run.run_id)
+    from frisket.engine.executor.project_run_terminalization import (
+        NeverDispatchedRunTerminalAuthority,
+        terminalize_project_run,
+    )
+    from frisket.engine.store.receipts import ReceiptStore
+
+    receipts = ReceiptStore(project)
+    stored_receipt = receipts.find_by_id(receipt_id)
+    if stored_receipt is None:
+        raise StaleAttemptWriter("prepared run lost its reservation receipt")
+    try:
+        parsed_receipt = stored_receipt.parsed()
+    except Exception as exc:
+        raise RuntimeError(
+            f"prepared run receipt {receipt_id} is not readable"
+        ) from exc
+    if stored_receipt.run_id == run_id and parsed_receipt.run_id == run_id:
+        terminalization = terminalize_project_run(
+            project,
+            run_id=run_id,
+            receipt_id=receipt_id,
+            status="failed",
+            run_status="failed",
+            authority=NeverDispatchedRunTerminalAuthority(),
+            errors=[error],
+        )
+        if terminalization.disposition not in {
+            "terminalized",
+            "already_terminal",
+        }:
+            raise StaleAttemptWriter(
+                "prepared run terminalization refused: "
+                f"{terminalization.reason or terminalization.disposition}"
+            )
+        final_receipt = receipts.find_by_id(receipt_id)
+        if final_receipt is None:
+            raise RuntimeError(
+                f"prepared run receipt {receipt_id} disappeared after close"
+            )
+        project.refresh_pending_review_summary()
+        return _result_from_receipt(final_receipt.parsed())
+    if stored_receipt.run_id is not None or parsed_receipt.run_id is not None:
+        raise StaleAttemptWriter("prepared run reservation belongs to another run")
+
+    # A failed preparation transaction may leave a run row while its receipt
+    # and output claim remain unbound. That distinct shape has no declared
+    # generation or run-bound claim to publish; it uses this narrow cleanup.
     from frisket.engine.runner.finalization import _finalize_run_in_transaction
     from frisket.engine.store.result_generations import ResultGenerationStore
     from frisket.engine.store.runs import RunResultStore
@@ -1259,37 +1307,50 @@ def _terminalize_unclaimed_prepared_run(
         # revoked as "pre-dispatch."
         project.db.execute("BEGIN IMMEDIATE")
         run = project.db.execute(
-            "SELECT status FROM runs WHERE id=?",
+            "SELECT status,current_attempt_id FROM runs WHERE id=?",
             (run_id,),
         ).fetchone()
         if run is None or str(run["status"]) != "running":
             project.db.rollback()
-            return
-        open_attempts = project.db.execute(
-            "SELECT id, state FROM execution_attempts "
-            "WHERE run_id=? AND state IN ('created','admitted','dispatching') "
-            "ORDER BY seq",
+            return None
+        reservation_row = project.db.execute(
+            "SELECT run_id FROM receipts WHERE id=?", (receipt_id,)
+        ).fetchone()
+        if reservation_row is None or reservation_row["run_id"] is not None:
+            raise StaleAttemptWriter("unbound prepared cleanup lost receipt ownership")
+        if ResultGenerationStore(project).bindings_for_run(run_id):
+            raise StaleAttemptWriter(
+                "unbound prepared cleanup cannot close declared result generations"
+            )
+        if project.db.execute(
+            "SELECT 1 FROM output_column_claims WHERE status='active' "
+            "AND run_id=? LIMIT 1",
+            (run_id,),
+        ).fetchone():
+            raise StaleAttemptWriter(
+                "unbound prepared cleanup cannot close run-bound output claims"
+            )
+        attempts = project.db.execute(
+            "SELECT id, state FROM execution_attempts WHERE run_id=? ORDER BY seq",
             (run_id,),
         ).fetchall()
-        if any(str(row["state"]) == "dispatching" for row in open_attempts):
-            project.db.rollback()
-            return
-        if len(open_attempts) > 1:
-            # Ambiguous ownership is not evidence that either attempt is safe
-            # to revoke. Leave the durable state for explicit recovery.
-            project.db.rollback()
-            return
-        terminal_attempt_id = (
-            str(open_attempts[0]["id"]) if len(open_attempts) == 1 else None
-        )
-        run_bound_claim = project.db.execute(
-            "SELECT 1 FROM output_column_claims WHERE run_id=? AND claim_token=? "
-            "AND status='active' LIMIT 1",
-            (run_id, claim_token),
-        ).fetchone()
-        unbound_managed_outputs = not ResultGenerationStore(project).bindings_for_run(
-            run_id
-        )
+        if (
+            run["current_attempt_id"] is not None
+            or len(attempts) > 1
+            or any(str(row["state"]) not in {"created", "admitted"} for row in attempts)
+        ):
+            # None permits the caller to remove its reservation. A refusal
+            # must preserve that reservation as well as the run and attempts.
+            raise StaleAttemptWriter("unbound preparation has dispatch history")
+        if project.db.execute(
+            "SELECT 1 FROM effect_checkpoints effect "
+            "JOIN execution_attempts attempt ON attempt.id=effect.authorized_attempt_id "
+            "WHERE attempt.run_id=? UNION ALL "
+            "SELECT 1 FROM model_calls WHERE run_id=? LIMIT 1",
+            (run_id, run_id),
+        ).fetchone():
+            raise StaleAttemptWriter("unbound preparation has provider effects")
+        terminal_attempt_id = str(attempts[0]["id"]) if attempts else None
         _finalize_run_in_transaction(
             project,
             RunResultStore(project),
@@ -1302,9 +1363,7 @@ def _terminalize_unclaimed_prepared_run(
             # grant this run terminal write authority; finish the exact
             # unclaimed prepared run, then let the caller release its receipt
             # reservation.
-            generation_claim_token=(
-                claim_token if run_bound_claim is not None else None
-            ),
+            generation_claim_token=None,
             keep_zero_success_output_columns=bool(
                 prepared_run.recipe.keep_zero_success_output_columns
             ),
@@ -1312,12 +1371,8 @@ def _terminalize_unclaimed_prepared_run(
             terminal_attempt_state=(
                 "halted" if terminal_attempt_id is not None else None
             ),
-            never_point_column_ids=(
-                frozenset(
-                    int(column_id) for column_id in prepared_run.out_cols.values()
-                )
-                if unbound_managed_outputs
-                else frozenset()
+            never_point_column_ids=frozenset(
+                int(column_id) for column_id in prepared_run.out_cols.values()
             ),
         )
         project.db.commit()
@@ -1325,6 +1380,7 @@ def _terminalize_unclaimed_prepared_run(
         project.db.rollback()
         raise
     project.refresh_pending_review_summary()
+    return None
 
 
 def _has_live_managed_writer(project: Any, prepared_run: Any | None) -> bool:
@@ -1577,11 +1633,14 @@ def _run_reserved_maprunner_action(
     admitted_attempt = None
 
     def fail_unclaimed(error: ActionError) -> ActionResult:
-        _terminalize_unclaimed_prepared_run(
+        terminal_result = _terminalize_unclaimed_prepared_run(
             project,
             prepared_run,
-            claim_token=claim_token,
+            receipt_id=reservation["receipt_id"],
+            error=error,
         )
+        if terminal_result is not None:
+            return terminal_result
         OutputColumnClaimStore(project).release(
             claim_token=claim_token, status="failed"
         )
