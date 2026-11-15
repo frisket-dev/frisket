@@ -60,6 +60,7 @@ def _op_context(project: Any, http: httpx.AsyncClient) -> OpContext:
     return OpContext(
         project=project,
         http=http,
+        extras={"preview": True, "cancelled": lambda: False},
         credential_use_context=CredentialUseContext.open(),
     )
 
@@ -294,6 +295,50 @@ async def test_deepl_quota_is_retryable_only_on_429() -> None:
 
 
 # --- Google client (hand-authored fixtures) --------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "counts,expected",
+    [
+        ([7, 11], 18),
+        ([0, 0], 0),
+        ([7, None], None),
+        ([7, True], None),
+        ([7, -1], None),
+        ([7, "11"], None),
+    ],
+)
+async def test_deepl_malformed_result_keeps_only_complete_reported_usage(
+    counts, expected
+):
+    body = {
+        "translations": [
+            {"text": "translated", "billed_characters": count} for count in counts
+        ]
+    }
+    async with _mock(lambda request: httpx.Response(200, json=body)) as http:
+        with pytest.raises(TranslateEngineError) as caught:
+            await deepl_translate(http, "fixture", ["one input"], "ES")
+    accounting = caught.value.accounting
+    units = accounting["model_calls"][0]["units"]
+    assert units.get("characters") == expected
+    if expected is None:
+        assert accounting["cost"] is None
+    else:
+        from frisket.ops.integrations.translate_common import hosted_translate_cost
+
+        assert accounting["cost"] == hosted_translate_cost("deepl", expected)
+
+
+@pytest.mark.asyncio
+async def test_deepl_malformed_item_is_a_provider_error():
+    async with _mock(
+        lambda request: httpx.Response(200, json={"translations": [None]})
+    ) as http:
+        with pytest.raises(TranslateEngineError) as caught:
+            await deepl_translate(http, "fixture", ["one input"], "ES")
+    assert caught.value.accounting["cost"] is None
 
 
 @pytest.mark.asyncio

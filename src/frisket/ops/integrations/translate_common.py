@@ -50,8 +50,9 @@ def hosted_translate_response_accounting(
     credential_source: str,
     status_code: int,
     request_id: str | None = None,
+    billed_characters: int | None = None,
 ) -> dict[str, Any]:
-    """One unknown-cost fact for a concrete but unusable provider response.
+    """Preserve reported usage even when the returned translation is unusable.
 
     Receiving an HTTP response proves egress and provider ownership, but an
     error status or unusable body does not prove that the provider applied its
@@ -60,6 +61,15 @@ def hosted_translate_response_accounting(
     """
     from frisket.ai.models.metadata import ModelCallMeta
 
+    cost = (
+        hosted_translate_cost(engine, billed_characters)
+        if billed_characters is not None
+        else None
+    )
+    units = {"requests": 1}
+    if billed_characters is not None:
+        units["characters"] = billed_characters
+    cost_source = "estimated" if cost is not None else "unknown"
     fact = ModelCallMeta.provider_call(
         capability="translate",
         engine=engine,
@@ -67,16 +77,16 @@ def hosted_translate_response_accounting(
         provider_kind="platform_api",
         credential_source=credential_source,
         provider_reported_cost_usd=None,
-        provider_cost_usd=None,
-        cost_source="unknown",
-        units={"requests": 1},
+        provider_cost_usd=cost,
+        cost_source=cost_source,
+        units=units,
         request_id=request_id,
-        warnings=[f"{provider} returned HTTP {status_code}; request cost is unknown"],
+        warnings=[f"{provider} returned HTTP {status_code}; translation was unusable"],
         duration_ms=None,
     ).as_dict()
     return {
-        "cost": None,
-        "cost_source": "unknown",
+        "cost": cost,
+        "cost_source": cost_source,
         "model_calls": [fact],
     }
 

@@ -23,3 +23,23 @@ stopping, and cleanup-failed states. Cleanup failure retains the child handle
 and blocks replacement. Its explicit `restart()` retries cleanup before
 scheduling a replacement. Shutdown never treats an exited guardian alone as
 proof that its process tree was cleaned up.
+
+## Engine execution ownership
+
+Every engine invocation enters `frisket.execution.purchases` through
+`execute_purchase` or its synchronous wrapper. Both use the same lifecycle:
+check cancellation, admit the actual request, invoke the engine, then record
+returned usage before interpreting the result. Each provider retry enters
+again; repairing accounting must not repeat a completed provider call.
+
+Composition supplies the policy: local, user-key, included, or metered work.
+Local inference follows the same boundary without creating billing records.
+Cache hits do not invoke engines. Polling a submitted provider job stays
+inside that purchase; it does not buy the job again.
+
+Integrations expose a guarded facade and keep raw transports private. New
+engines should implement the invocation and observation at that facade, not
+add admission or settlement hooks to actions. The import-boundary check in
+`scripts/ci/check_import_boundaries.py` restricts raw adapters and policy
+construction to their owners. This catches accidental bypasses; it is not a
+sandbox for arbitrary Python plugins.
