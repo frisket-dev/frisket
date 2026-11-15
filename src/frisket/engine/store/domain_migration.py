@@ -296,6 +296,15 @@ def _rebuild_table(
         )
 
 
+def install_attempt_handler_lineage(db: sqlite3.Connection) -> None:
+    """Old attempts have no proven handler identity; preserve that uncertainty."""
+    _require_transaction(db)
+    columns = {row[1] for row in db.execute("PRAGMA table_info(execution_attempts)")}
+    for name, type_ in (("job_id", "INTEGER"), ("handler_authority_id", "TEXT")):
+        if name not in columns:
+            db.execute(f"ALTER TABLE execution_attempts ADD COLUMN {name} {type_}")
+
+
 def migrate_domain(db: sqlite3.Connection) -> None:
     """Atomically upgrade the last pre-Change schema; never reset user data."""
     from .blob_retention_migration import migrate_blob_derivation_ownership
@@ -355,6 +364,7 @@ def migrate_domain(db: sqlite3.Connection) -> None:
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_visible_sheet_name ON sheets(name) WHERE hidden=0"
         )
         retire_unfinished_work(db)
+        install_attempt_handler_lineage(db)
         db.execute("ALTER TABLE ops ADD COLUMN change_order INTEGER")
         db.execute(
             "ALTER TABLE ops ADD COLUMN publication_closed INTEGER NOT NULL DEFAULT 1 CHECK(publication_closed IN (0,1))"

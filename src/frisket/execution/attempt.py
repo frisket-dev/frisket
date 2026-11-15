@@ -87,8 +87,8 @@ TERMINAL_ATTEMPT_STATES = ("effected", "halted", "superseded", "abandoned")
 #: crash cannot leave one live forever and block the run permanently.
 #:
 #: Output-producing work renews its existing claim lease. Claimless work has
-#: no such liveness clock: recovery needs a terminal linked queue job with no
-#: durable handler authority, never elapsed time alone.
+#: no such liveness clock: recovery needs proof that its original handler has
+#: exited (or, without lineage, that its entire linked job stopped), never age.
 STALE_DISPATCHING_AGE = timedelta(hours=6)
 
 
@@ -573,8 +573,9 @@ def abandon_stale_dispatching_attempts(
 
     A claimed output run is stale only after its attempt is old enough *and*
     every active claim row bound to the run has an expired (or malformed
-    missing) lease. Claimless work instead requires a terminal linked queue
-    job whose durable handlers have all exited. Unknown/unlinked work needs
+    missing) lease. Claimless work instead requires its original durable
+    handler to have exited; without lineage, the entire linked job must stop.
+    Unknown/unlinked work needs
     explicit stopped-writer recovery; its age alone cannot revoke authority.
     The caller may join an existing project transaction with ``commit=False``;
     initial-attempt mint does exactly that.
@@ -811,13 +812,22 @@ def claim(
                     "the prepared dispatch's output claim group does not "
                     f"cover columns {sorted(missing)}",
                 )
+        from frisket.execution.handler_lineage import current_handler_lineage
+
+        handler = current_handler_lineage()
         try:
             updated = db.execute(
-                "UPDATE execution_attempts SET state='dispatching' "
+                "UPDATE execution_attempts SET state='dispatching', "
+                "job_id=?, handler_authority_id=? "
                 "WHERE id=? AND state='admitted' AND NOT EXISTS ("
                 "SELECT 1 FROM execution_attempts live "
                 f"WHERE live.{owner_column}=? AND live.state='dispatching')",
-                (commitment.attempt_id, owner_id),
+                (
+                    handler.job_id if handler is not None else None,
+                    handler.authority_id if handler is not None else None,
+                    commitment.attempt_id,
+                    owner_id,
+                ),
             )
         except sqlite3.IntegrityError as exc:
             # uq_execution_attempts_one_dispatching. The CAS above should have

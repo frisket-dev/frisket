@@ -521,6 +521,14 @@ class JobQueue(ABC):
         """
 
     @abstractmethod
+    def handler_execution_stopped(self, job_id: int, authority_id: str) -> bool:
+        """The original handler exited; a successor on the same job is distinct.
+
+        Requires the job still to exist. A missing job/queue is unknown, never
+        proof that an original handler died.
+        """
+
+    @abstractmethod
     def job_execution_stopped(self, job_id: int) -> bool:
         """A terminal job has no remaining durable handler authority.
 
@@ -1350,6 +1358,22 @@ class SqlAlchemyJobQueue(JobQueue):
             job_handler_authorities_table.delete().where(*filters)
         )
         return result.rowcount > 0
+
+    def handler_execution_stopped(self, job_id, authority_id):
+        if not authority_id:
+            return False
+        job = jobs_table.c
+        authority = job_handler_authorities_table.c
+        with self.engine.connect() as cx:
+            return (
+                cx.execute(
+                    sa.select(job.id).where(
+                        job.id == job_id,
+                        ~sa.exists().where(authority.authority_id == authority_id),
+                    )
+                ).first()
+                is not None
+            )
 
     def job_execution_stopped(self, job_id):
         job = jobs_table.c

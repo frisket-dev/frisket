@@ -871,7 +871,14 @@ class OutputColumnClaimStore:
     @contextmanager
     def _run_queue(self):
         """Borrow the attached queue, or the same explicit/local queue fallback."""
-        queue = self.queue or getattr(self.project, "_frisket_run_queue", None)
+        from frisket.execution.handler_lineage import current_handler_lineage
+
+        handler = current_handler_lineage()
+        queue = (
+            self.queue
+            or getattr(self.project, "_frisket_run_queue", None)
+            or (handler.queue if handler is not None else None)
+        )
         should_close = False
         try:
             if queue is None:
@@ -900,7 +907,44 @@ class OutputColumnClaimStore:
             return None
 
     def _run_job_execution_stopped(self, run_id: int) -> bool:
-        """Claimless recovery needs stopped execution, not an old start time."""
+        original = self.db.execute(
+            "SELECT id FROM execution_attempts WHERE run_id=? AND state='dispatching'",
+            (run_id,),
+        ).fetchone()
+        return original is not None and self.attempt_handler_execution_stopped(
+            original[0]
+        )
+
+    def attempt_handler_execution_stopped(self, attempt_id: str) -> bool:
+        """Prove original handler exit, independently of attempt/job state.
+
+        Recovery callers may inspect an already-abandoned attempt too; that
+        state is not itself evidence that the original executable code stopped.
+        """
+        original = self.db.execute(
+            "SELECT run_id,job_id,handler_authority_id FROM execution_attempts WHERE id=?",
+            (attempt_id,),
+        ).fetchone()
+        if original is None:
+            return False
+        if (
+            original["job_id"] is not None
+            or original["handler_authority_id"] is not None
+        ):
+            if original["job_id"] is None or not original["handler_authority_id"]:
+                return False
+            try:
+                with self._run_queue() as queue:
+                    return queue is not None and queue.handler_execution_stopped(
+                        int(original["job_id"]), str(original["handler_authority_id"])
+                    )
+            except Exception:
+                return False
+        # Older/non-worker attempts have no exact handler identity. Their
+        # existing receipt association requires the stronger whole-job proof.
+        run_id = original["run_id"]
+        if run_id is None:
+            return False
         job_ids = {
             int(row[0])
             for row in self.db.execute(

@@ -670,3 +670,23 @@ def test_upgrade_reopen_keeps_file_bytes_and_corrections_as_new_undo_floor(tmp_p
         assert project.get_values(sheet, title_column)[row] == "Corrected"
         assert project.read_blob(blob) == content
         assert project.db.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+def test_attempt_handler_lineage_upgrade_preserves_unknown_historical_owner(old_db):
+    from frisket.engine.store.domain_migration import install_attempt_handler_lineage
+
+    old_db.execute(
+        "INSERT INTO execution_attempts (id,seq,state,action_identity_hash,scope_json,created_at) "
+        "VALUES ('old-attempt',0,'effected','old-identity','[]','2026-01-01')"
+    )
+    install_attempt_handler_lineage(old_db)
+    install_attempt_handler_lineage(old_db)
+    row = old_db.execute(
+        "SELECT state,action_identity_hash,job_id,handler_authority_id "
+        "FROM execution_attempts WHERE id='old-attempt'"
+    ).fetchone()
+    assert tuple(row) == ("effected", "old-identity", None, None)
+    old_db.rollback()
+    assert "job_id" not in {
+        row[1] for row in old_db.execute("PRAGMA table_info(execution_attempts)")
+    }

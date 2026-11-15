@@ -1036,7 +1036,14 @@ class Worker:
                     )
                     handler_payload["project_id"] = storage_key.project_slug
                     handler_payload["storage_org_id"] = storage_key.storage_org_id
-                result = handler(handler_payload, handler_context)
+                from frisket.execution.handler_lineage import record_handler_lineage
+
+                with record_handler_lineage(
+                    job_id=handler_context.job_id,
+                    authority_id=handler_context.handler_authority_id,
+                    queue=self.queue,
+                ):
+                    result = handler(handler_payload, handler_context)
             except NonRetryableJobError as exc:
                 # A handler's explicit "this will never succeed on retry"
                 # signal: terminal-fail immediately, bypassing the attempts budget.

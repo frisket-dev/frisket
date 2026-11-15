@@ -2317,6 +2317,10 @@ CREATE TABLE IF NOT EXISTS execution_attempts (
   -- Accounted previews own no run/output columns. Their running receipt is
   -- the alternative owner; both NULL means the original owner was reclaimed.
   receipt_id TEXT REFERENCES receipts(id) ON DELETE SET NULL,
+  -- Exact original handler, frozen when this attempt starts dispatching.
+  -- Cross-database queue IDs; NULL for direct/nonqueued executions.
+  job_id INTEGER,
+  handler_authority_id TEXT,
   state TEXT NOT NULL CHECK (state IN
     ('created','admitted','dispatching','effected','halted','superseded','abandoned')),
   action_identity_hash TEXT NOT NULL,
