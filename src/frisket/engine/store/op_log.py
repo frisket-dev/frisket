@@ -225,7 +225,8 @@ def _require_restoration_targets(project, op_id, info, *, reverting):
         # their destinations must still exist. Keep large scopes in SQLite.
         invalid = db.execute(
             "WITH destinations AS (SELECT row_id,column_id FROM edits WHERE op_id=? UNION "
-            "SELECT result.row_id,result.column_id FROM results result JOIN runs run ON run.id=result.run_id WHERE run.op_id=?) "
+            "SELECT result.row_id,result.column_id FROM results result JOIN runs run ON run.id=result.run_id WHERE run.op_id=? UNION "
+            "SELECT row_id,column_id FROM copied_result_outcomes WHERE op_id=?) "
             "SELECT 1 FROM destinations target LEFT JOIN rows row ON row.id=target.row_id "
             "LEFT JOIN columns col ON col.id=target.column_id LEFT JOIN sheets sheet ON sheet.id=col.sheet_id "
             "WHERE (row.id IS NULL OR col.id IS NULL OR sheet.id IS NULL "
@@ -237,6 +238,7 @@ def _require_restoration_targets(project, op_id, info, *, reverting):
             "(purged.kind='column' AND purged.object_id=target.column_id) OR "
             "(purged.kind='sheet' AND purged.object_id=sheet.id)) LIMIT 1",
             (
+                op_id,
                 op_id,
                 op_id,
                 json.dumps(restoring_rows),
