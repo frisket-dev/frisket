@@ -173,7 +173,7 @@ def test_real_model_preview_accounts_success_failure_and_cancel(tmp_path, mode):
 
 
 @pytest.mark.parametrize("drift", ["scope", "source"])
-def test_paid_preview_gate_does_not_accept_confirmation_or_attempt_for_other_work(
+def test_paid_preview_binds_scope_but_reads_current_source(
     tmp_path,
     drift,
 ):
@@ -197,9 +197,21 @@ def test_paid_preview_gate_does_not_accept_confirmation_or_attempt_for_other_wor
             replace_test_source_cell(
                 project, row_id=rows[0], column_id=column, value="omega"
             )
-        with pytest.raises((validation.CostGate, StaleAttemptWriter)):
-            asyncio.run(runner.preview(altered, program=plan.program, attempt=attempt))
-        assert adapter.calls == []
+        if drift == "scope":
+            with pytest.raises((validation.CostGate, StaleAttemptWriter)):
+                asyncio.run(
+                    runner.preview(altered, program=plan.program, attempt=attempt)
+                )
+            assert adapter.calls == []
+        else:
+            result = asyncio.run(
+                runner.preview(altered, program=plan.program, attempt=attempt)
+            )
+            assert len(adapter.calls) == len(rows)
+            assert "omega" in str(adapter.calls[0].messages)
+            assert "alpha" not in str(adapter.calls[0].messages)
+            assert set(result.values) == set(rows)
+            assert len(runner.run_store.model_calls()) == len(rows)
 
 
 @pytest.mark.parametrize("terminal", ["success", "failure", "cancel", "fatal"])

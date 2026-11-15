@@ -1288,37 +1288,6 @@ def _bound_decimal(value: Any) -> Decimal | None:
     return parsed if parsed.is_finite() else None
 
 
-def uncovered_user_claims(
-    promise_set: PromiseSet,
-    *,
-    standing_consents: Sequence[Any],
-    principal: str,
-) -> list[Promise]:
-    """The ``user_claim`` rows NOT covered by standing consents (§5.1/F2).
-
-    The ``cost_under_gate_v1`` standing consent covers cost ``le`` claims
-    whose bound <= the threshold RECORDED on the persisted head standing
-    consent for this installation ``principal`` (F2: coverage — validation
-    AND worker — reads persisted policy parameters, never the env knob; F5:
-    a foreign install's standing rows never cover). ``unbounded`` cost and
-    every categorical claim (egress beyond ``none``) are covered only by an
-    explicit per-action consent, so their presence gates.
-    """
-    from frisket.engine.store.execution_routes import standing_cost_threshold
-
-    threshold = standing_cost_threshold(list(standing_consents), principal=principal)
-    uncovered: list[Promise] = []
-    for promise in promise_set.promises:
-        if promise.audience != "user_claim":
-            continue
-        if promise.field == "cost" and promise.op == "le" and threshold is not None:
-            bound = _bound_decimal(promise.value)
-            if bound is not None and bound <= threshold:
-                continue
-        uncovered.append(promise)
-    return uncovered
-
-
 def exact_match_consent_covers(
     project: Any,
     spec: Mapping[str, Any],

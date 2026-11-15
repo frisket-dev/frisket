@@ -1109,7 +1109,25 @@ class TestRunAction:
         root = tmp_path / "ws"
         root.mkdir()
         project = Project.create(root / "demo.frisket", name="demo")
-        op_id = project.append_op("fixture", label="fixture operation")
+        from frisket.engine.executor import run_action_spec
+
+        sheet_id = project.add_sheet("Undoable sheet")
+        added = run_action_spec(
+            project,
+            {
+                "action_id": "column.add",
+                "scope": {"kind": "project"},
+                "params": {
+                    "sheet_id": sheet_id,
+                    "name": "Undoable column",
+                    "type": "text",
+                },
+                "idempotency_key": "mcp-undo-fixture-column",
+            },
+            project_id="demo",
+        )
+        assert added.status == "completed", added.errors
+        [op_id] = added.op_ids
         project.close()
 
         result = asyncio.run(
@@ -1526,7 +1544,7 @@ class TestRunAction:
         assert status["status"] == "completed"
         assert adapter.calls and status["cost"] == pytest.approx(0.0001)
 
-    def test_queued_run_refuses_quote_drift_below_preapproval(
+    def test_queued_run_keeps_approval_when_price_estimate_changes(
         self, tmp_path, monkeypatch
     ):
         from frisket.ai.llm import pricing as llm_pricing
@@ -1569,8 +1587,9 @@ class TestRunAction:
         Worker(backend.ws.queue, backend.ws.registry).run_forever(drain=True)
 
         status = backend.get_run_status("demo", run_id)
-        assert status["status"] == "failed"
-        assert adapter.calls == []
+        assert status["status"] == "completed"
+        assert len(adapter.calls) == 1
+        assert status["cost"] == pytest.approx(0.0001)
         assert len(RouteStore.for_run(stored, run_id).consents()) == consent_count
 
     def test_cost_gate_is_structured_not_an_exception(self, tmp_path):

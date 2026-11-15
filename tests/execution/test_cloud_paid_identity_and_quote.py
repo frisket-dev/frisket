@@ -117,7 +117,7 @@ def test_action_llm_quote_uses_the_cloud_wire_payload_formula():
         target=SimpleNamespace(id="frisket-cloud:41"),
         facts=SimpleNamespace(engine=_payer().engine, cloud_payer=_payer()),
     )
-    basis, _total = _llm_cost_basis(
+    basis, total = _llm_cost_basis(
         SimpleNamespace(provider=Provider()),
         resolution,
         {1: call},
@@ -135,7 +135,9 @@ def test_action_llm_quote_uses_the_cloud_wire_payload_formula():
         price,
     )
 
-    assert authority.maximum_charge_micro == expected
+    assert total == expected
+    assert float(basis.estimated_quantity) == expected / 1_000_000
+    assert authority.maximum_charge_micro is None
 
 
 def test_structured_and_agent_llm_calls_use_explicit_unknown_quantity():

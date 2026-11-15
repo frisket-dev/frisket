@@ -1,8 +1,7 @@
-"""The consent quote keeps provider cost neutral and binds only rated fields.
+"""Rated estimates drive preapproval and display, not a hard spend ceiling.
 
-Dispatch recomputes neutral facts while reading the rated projection from the
-consent record; tests cover both tampering directions so verification cannot
-degrade into comparing the record against itself.
+Authored work identity still binds consent; returned provider facts determine
+actual accounting independently of persisted estimate display fields.
 """
 
 from __future__ import annotations
@@ -533,13 +532,11 @@ def test_a_live_estimate_that_cannot_project_still_refuses_by_name(
     assert ConsentQuoteRefused(BILLED_COST_KEY, "is negative").key == BILLED_COST_KEY
 
 
-def test_a_tampered_billed_figure_refuses_the_dispatch(tmp_path, monkeypatch) -> None:
-    """The rated half is READ at dispatch, so it had better be bound.
-
-    Raising the persisted billed figure changes the hash the reconstruction
-    produces, so it no longer equals the digest the user's approval recorded.
-    Without this, a deployment could persist $0.11, dispatch under a rewritten
-    $0.21, and the fence would agree.
+def test_recorded_estimate_is_not_dispatch_or_accounting_authority(
+    tmp_path, monkeypatch
+) -> None:
+    """Approval keeps its identity when an estimate changes; actual returned
+    usage, not a modified recorded estimate, determines provider accounting.
     """
     adapter, client, project_id, project, sheet_id = _gated_project(
         tmp_path, monkeypatch, name="Tampered bill"
@@ -560,28 +557,16 @@ def test_a_tampered_billed_figure_refuses_the_dispatch(tmp_path, monkeypatch) ->
     receipt = client.get(
         f"/api/projects/{project_id}/actions/v1/receipts/{receipt_id}"
     ).json()
-    assert receipt["status"] == "failed"
-    assert receipt["errors"][0]["code"] == "consent_missing"
-    assert len(adapter.calls) == 0
+    assert receipt["status"] == "completed"
+    assert len(adapter.calls) == 1
+    calls = project.db.execute("SELECT provider_cost_usd FROM model_calls").fetchall()
+    assert sum(call["provider_cost_usd"] for call in calls) == pytest.approx(0.0001)
 
 
 def test_a_tampered_neutral_fact_in_the_record_is_ignored(
     tmp_path, monkeypatch
 ) -> None:
-    """The split is SURGICAL, from the other side.
-
-    Dispatch reads ``billed_cost`` and ``policy_id`` off the consent and
-    RECOMPUTES everything else. So rewriting a neutral field (``cost``) in the
-    persisted record changes nothing: the reconstruction never consults it,
-    the live facts still match what was approved, and the run dispatches.
-
-    That is the property that keeps the verification from being circular. If
-    dispatch read the whole persisted quote instead, it would be comparing the
-    record against itself and every drift check would evaporate — the sibling
-    regression in ``tests/server/test_horizontal_consent_identity_regressions``
-    (edit the source cell, get ``consent_missing``) is the same claim from the
-    live-facts side, and both must hold at once.
-    """
+    """Stored quote display fields do not replace authored scope or usage facts."""
     adapter, client, project_id, project, sheet_id = _gated_project(
         tmp_path, monkeypatch, name="Tampered neutral"
     )
