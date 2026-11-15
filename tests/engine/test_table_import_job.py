@@ -999,3 +999,124 @@ def test_stop_keeps_committed_table_rows_and_finishes_intake(tmp_path: Path) -> 
         assert listed.state == "kept"
         assert (listed.committed_rows, listed.processed_rows) == (1, 1)
         assert listed.can_rerun_workbook is True
+
+
+def test_keyed_table_worker_validates_whole_source_and_resumes_atomic_pages(
+    tmp_path, monkeypatch
+):
+    from frisket.engine.store.keyed_updates import observation
+    from frisket.engine.store.table_import_intake import TableImportUpdate
+
+    project_path = tmp_path / f"{PROJECT_ID}.frisket"
+    data = b"id,note\na,poison-first\nb,updated-b\nc,updated-c\na,poison-last\n"
+    with closing(Project.create(project_path)) as project:
+        sheet = project.add_sheet("People")
+        key_col = project.add_column(sheet, "id", "text")
+        value_col = project.add_column(sheet, "note", "text")
+        row_ids = project.add_rows(
+            sheet,
+            [{"id": key, "note": "original"} for key in ("a", "b", "c")],
+            {"id": key_col, "note": value_col},
+        )
+        directory = import_intake_dir(project.path, IMPORT_REF)
+        directory.mkdir(parents=True)
+        (directory / "source").write_bytes(data)
+        settings = TableReadSettings(kind="delimited", delimiter=",", encoding="utf-8")
+        initialize_table_intake(
+            directory,
+            ImportIntakeHeader(PROJECT_ID, project.storage_identity, {}),
+            source=TableImportSource(
+                filename="rows.csv",
+                size=len(data),
+                sha256=hashlib.sha256(data).hexdigest(),
+                kind="delimited",
+            ),
+            settings=settings,
+        )
+        frozen = freeze_table_plan(
+            directory,
+            TableImportPlan(
+                settings_revision=0,
+                settings=settings,
+                sheet_name="People",
+                destination_sheet_id=sheet,
+                columns=(
+                    TableImportColumn(0, "id", "id", "text"),
+                    TableImportColumn(1, "note", "note", "text"),
+                ),
+                update=TableImportUpdate(
+                    (0,), policy="incoming_wins", relationship_id="test:table"
+                ),
+            ),
+        )
+        settings_hash = read_table_settings(directory)[1]
+        write_table_scan(
+            directory,
+            TableImportScan(0, settings_hash, 4, 4, 2, True),
+            expected_settings_revision=0,
+        )
+        service = ImportSessionService(
+            SimpleNamespace(get=lambda _project_id: project),
+            enqueue_table=lambda *_: None,
+        )
+        asyncio.run(service.commit_table(PROJECT_ID, frozen))
+    monkeypatch.setattr(table_job, "_PAGE_ROWS", 2)
+    original_publish = table_job.publish_keyed_page
+    published = []
+
+    def interrupted(*args, **kwargs):
+        if published:
+            raise RuntimeError("simulated worker restart")
+        result = original_publish(*args, **kwargs)
+        published.append(kwargs["next_cursor"])
+        return result
+
+    monkeypatch.setattr(table_job, "publish_keyed_page", interrupted)
+    with closing(SqliteJobQueue(tmp_path / "queue.db")) as queue:
+        registry = HandlerRegistry()
+        register_import_table_handler(registry, workspace_root=tmp_path, queue=queue)
+        payload = {
+            "project_id": PROJECT_ID,
+            "import_ref": IMPORT_REF,
+            "plan_hash": frozen.plan_hash,
+        }
+        queue.enqueue(IMPORT_TABLE_STREAM_KIND, payload)
+        assert Worker(queue, registry, worker_id="first").run_once()
+        with closing(Project(project_path)) as project:
+            session = ImportSessionStore(project).get(IMPORT_REF)
+            assert session.cursor == 2
+            assert project.get_values(sheet, value_col, row_ids) == {
+                row_ids[0]: "original",
+                row_ids[1]: "updated-b",
+                row_ids[2]: "original",
+            }
+            assert observation(project.db, "test:table", row_ids[0]) is None
+            assert (
+                observation(project.db, "test:table", row_ids[1])[str(value_col)]
+                == "updated-b"
+            )
+        monkeypatch.setattr(table_job, "publish_keyed_page", original_publish)
+        queue.enqueue(IMPORT_TABLE_STREAM_KIND, payload)
+        assert Worker(queue, registry, worker_id="second").run_once()
+        with closing(Project(project_path)) as project:
+            session = ImportSessionStore(project).get(IMPORT_REF)
+            assert session.state == "completed"
+            assert session.cursor == 4
+            assert session.committed_rows == 2
+            assert project.get_values(sheet, value_col, row_ids) == {
+                row_ids[0]: "original",
+                row_ids[1]: "updated-b",
+                row_ids[2]: "updated-c",
+            }
+            assert (
+                project.db.execute(
+                    "SELECT COUNT(*) FROM keyed_observations"
+                ).fetchone()[0]
+                == 2
+            )
+            assert (
+                project.db.execute(
+                    "SELECT publication_closed FROM ops WHERE id=?", (session.op_id,)
+                ).fetchone()[0]
+                == 1
+            )

@@ -404,6 +404,7 @@ def add_rows(
     """
     if not records:
         return []
+    owned_op = producer_id is None
     db = project.db
     nested = db.in_transaction
     savepoint = "add_rows"
@@ -443,6 +444,11 @@ def add_rows(
                 db, stage_id=f"op:{op_id}", op_id=op_id
             )
         initialize_base_cells(db, producer_id=producer_id, cells=cell_writes)
+        if owned_op:
+            from .changes import ChangeStore
+
+            ChangeStore(project).start(op_id)
+            ChangeStore(project).close(op_id)
         if nested:
             db.execute(f"RELEASE SAVEPOINT {savepoint}")
         if commit and not nested:

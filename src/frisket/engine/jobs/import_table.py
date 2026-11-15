@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,12 @@ from frisket.engine.store.import_intake import (
     set_import_resolution,
 )
 from frisket.engine.store.import_sessions import ImportSessionStore
+from frisket.engine.store.keyed_import import (
+    index_targets,
+    publish_keyed_page,
+    record_key,
+)
+from frisket.engine.store.keyed_updates import ValidatedKeyedInput
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.streaming_import import StreamingSheetWriter
 from frisket.engine.store.table_import_intake import (
@@ -200,6 +207,8 @@ def _validate_reserved_action(bound: Any, frozen: FrozenTableImport) -> None:
         if frozen.plan.destination_sheet_id is None
         else "import.append_rows"
     )
+    if frozen.plan.update is not None:
+        expected_action = "import.update_rows"
     if bound.action.action_id != expected_action:
         raise ValueError("table intake action does not match its destination")
     if getattr(bound.params, "rows", None) != []:
@@ -289,7 +298,7 @@ def register_import_table_handler(
         directory = import_intake_dir(project.path, import_ref)
         sessions = ImportSessionStore(project)
         try:
-            with import_worker_lock(directory, timeout=5):
+            with import_worker_lock(directory, timeout=5), ExitStack() as resources:
                 header = read_import_header(directory)
                 if (
                     header.intake_kind != "table"
@@ -367,6 +376,20 @@ def register_import_table_handler(
                         expected_cursor=state.source_cursor,
                         source_cursor=session.cursor,
                     )
+                keyed = None
+                if frozen.plan.update is not None:
+                    keyed = resources.enter_context(
+                        ValidatedKeyedInput(retain_records=False)
+                    )
+                    # A later conflicting duplicate must invalidate its first
+                    # occurrence before any visible field can be published.
+                    keyed.stage(
+                        (record_key(frozen.plan, item.values), item.values)
+                        for item in _prepared_rows(frozen, start_cursor=0)
+                        if item.values is not None
+                    )
+                    keyed.seal()
+                    index_targets(project, frozen.plan, keyed)
                 iterator = _prepared_rows(
                     frozen, start_cursor=max(session.cursor, state.source_cursor)
                 )
@@ -451,7 +474,29 @@ def register_import_table_handler(
                     record_table_issues(directory, issues)
                     records = [item.values for item in page if item.values is not None]
                     next_cursor = page[-1].source_cursor
-                    if records:
+                    if keyed is not None:
+                        writer = StreamingSheetWriter._from_session(project, session)
+                        publish_keyed_page(
+                            writer,
+                            frozen.plan,
+                            keyed,
+                            [
+                                (item.source_cursor, item.values)
+                                for item in page
+                                if item.values is not None
+                            ],
+                            expected_cursor=session.cursor,
+                            next_cursor=next_cursor,
+                            committed_bytes=page_bytes,
+                        )
+                        advance_table_progress(
+                            directory,
+                            expected_cursor=table_import_status(
+                                directory
+                            ).source_cursor,
+                            source_cursor=next_cursor,
+                        )
+                    elif records:
                         if (
                             header.max_rows is not None
                             and session.committed_rows + len(records) > header.max_rows

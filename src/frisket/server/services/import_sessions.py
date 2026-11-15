@@ -244,6 +244,17 @@ class ImportSessionService:
             "params": {"columns": columns, "rows": [], "source": source_ref},
             "idempotency_key": frozen.import_ref,
         }
+        if frozen.plan.update is not None:
+            action["action_id"] = "import.update_rows"
+            action["params"].update(
+                key_columns=[
+                    column.target_name
+                    for column in frozen.plan.columns
+                    if column.source_index in frozen.plan.update.key_source_indices
+                ],
+                update_policy=frozen.plan.update.policy,
+                relationship_id=frozen.plan.update.relationship_id,
+            )
         if destination_sheet_id is None:
             action["sheet_name"] = frozen.plan.sheet_name
         bound = typed_action_for_request(action)

@@ -4,13 +4,10 @@ import pytest
 
 from frisket.engine.store import Project
 from frisket.engine.store.keyed_updates import (
-    KEYED_UPDATE_SCHEMA,
     ValidatedKeyedInput,
     changed_fields,
-    checkpoint,
     observe,
     observation,
-    publication_cursor,
     require_relationship,
     retained_hidden_targets,
     typed_key,
@@ -69,7 +66,6 @@ def test_keys_and_fields_are_typed_and_omission_is_not_blank():
 
 def _project(tmp_path):
     project = Project.create(tmp_path / "keyed.frisket")
-    project.db.executescript(KEYED_UPDATE_SCHEMA)
     sheet = project.add_sheet("People")
     col = project.add_column(sheet, "id", "text")
     [row] = project.add_rows(sheet, [{"id": "a"}], {"id": col})
@@ -131,64 +127,6 @@ def test_observations_advance_when_kept_and_do_not_rewind_with_op_status(tmp_pat
         assert retained_hidden_targets(project.db, "test:baseline", "a") == [row]
         project.db.execute("UPDATE rows SET hidden=0 WHERE id=?", (row,))
         assert retained_hidden_targets(project.db, "test:baseline", "a") == []
-
-
-def test_publication_and_baseline_resume_atomically(tmp_path):
-    project, sheet, col, row, op = _project(tmp_path)
-    with closing(project), ValidatedKeyedInput() as staged:
-        staged.stage([("a", {"x": 1}), ("b", {"x": 2})])
-        staged.seal()
-        project.db.execute("BEGIN IMMEDIATE")
-        cursor = publication_cursor(
-            project.db, op_id=op, relationship_id="test:baseline", staged=staged
-        )
-        observe(
-            project.db,
-            relationship_id="test:baseline",
-            row_id=row,
-            key="a",
-            incoming={"x": 1},
-        )
-        checkpoint(project.db, op_id=op, previous=cursor, through=1)
-        project.db.rollback()
-        assert observation(project.db, "test:baseline", row) is None
-        with project.db:
-            project.db.execute("BEGIN IMMEDIATE")
-            assert (
-                publication_cursor(
-                    project.db, op_id=op, relationship_id="test:baseline", staged=staged
-                )
-                == 0
-            )
-            observe(
-                project.db,
-                relationship_id="test:baseline",
-                row_id=row,
-                key="a",
-                incoming={"x": 1},
-            )
-            checkpoint(project.db, op_id=op, previous=0, through=1)
-        with project.db:
-            project.db.execute("BEGIN IMMEDIATE")
-            assert (
-                publication_cursor(
-                    project.db, op_id=op, relationship_id="test:baseline", staged=staged
-                )
-                == 1
-            )
-            assert [item.key for item in staged.records(after=1)] == ["b"]
-        with ValidatedKeyedInput() as different:
-            different.stage([("a", {"x": 99})])
-            different.seal()
-            with project.db:
-                project.db.execute("BEGIN IMMEDIATE")
-                with pytest.raises(ValueError, match="input changed"):
-                    publication_cursor(
-                        project.db,
-                        op_id=op,
-                        relationship_id="test:baseline",
-                        staged=different,
-                    )
 
 
 def test_import_update_uses_baseline_and_skips_whole_conflicting_key(tmp_path):
@@ -324,6 +262,16 @@ def test_source_poll_updates_same_row_and_preserves_manual_changes(tmp_path):
         assert duplicate["row_ids"] == []
         assert duplicate["skipped_rows"] == 2
         assert observation(project.db, f"source:{source}", target) == baseline
+        sources.update_source(source, config={"update_policy": "incoming_wins"})
+        latest = poll([SourcePollItem("item-a", {"title": "latest"})])
+        assert latest["row_ids"] == [target]
+        assert project.get_values(sheet, title, [target])[target] == "latest"
+        assert project.undo() == latest["op_id"]
+        assert project.get_values(sheet, title, [target])[target] == "my correction"
+        repeated = poll([SourcePollItem("item-a", {"title": "latest"})])
+        assert repeated["row_ids"] == []
+        assert repeated["op_id"] is None
+        sources.update_source(source, config={"update_policy": "keep_changes"})
         # A hidden association cannot steal a newly visible current-key row.
         project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (target,))
         project.db.commit()

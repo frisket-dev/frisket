@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping, Protocol, Sequence
 
@@ -14,6 +13,8 @@ from frisket.engine.store.keyed_updates import (
     observation,
     canonical,
     UpdatePolicy,
+    retained_hidden_targets,
+    typed_key,
 )
 from frisket.engine.runner.confirmation_context import (
     ParamsScope,
@@ -40,23 +41,6 @@ def _normalized_import_value(value: Any) -> Any:
     return value
 
 
-def _component(value: Any, type_name: str) -> str | None:
-    value = _normalized_import_value(value)
-    if value is None:
-        return None
-    canonical_type = canonical_column_type(type_name)
-    if canonical_type == "number":
-        value = float(value)
-    elif canonical_type == "integer":
-        if isinstance(value, bool) or not isinstance(value, int):
-            raise ValueError("invalid integer key")
-    return (
-        canonical_type
-        + ":"
-        + json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
-    )
-
-
 @dataclass(frozen=True)
 class ImportUpdatePlan:
     matched: int
@@ -70,6 +54,7 @@ class ImportUpdatePlan:
     confirmation: str
     observations: tuple[dict[str, Any], ...] = ()
     key_definition: tuple[tuple[int, str], ...] = ()
+    restored_rows: tuple[int, ...] = ()
 
 
 class ImportUpdateAmbiguous(ValueError):
@@ -115,6 +100,7 @@ def plan_import_update(
 
     targets: list[dict[str, Any]] = []
     observations: list[dict[str, Any]] = []
+    restored_rows: list[int] = []
     samples: list[dict[str, Any]] = []
     matched = unmatched = blank_keys = ambiguous = cleared = 0
     type_names = {name: str(destination[name]["type"]) for name in by_name}
@@ -137,14 +123,10 @@ def plan_import_update(
             keys_for_batch = []
             for row_id in row_ids:
                 parts = tuple(
-                    _component(current[name].get(row_id), type_names[name])
+                    (canonical_column_type(type_names[name]), current[name].get(row_id))
                     for name in keys
                 )
-                key = (
-                    canonical(parts)
-                    if all(part is not None for part in parts)
-                    else None
-                )
+                key = typed_key(parts)
                 keys_for_batch.append((key, row_id))
                 destination_hash.update(
                     canonical(
@@ -166,14 +148,10 @@ def plan_import_update(
                     project, column_types_by_name=type_names, rows=[normalized]
                 )[0]
                 parts = tuple(
-                    _component(record.get(name), str(by_name[name].type))
+                    (canonical_column_type(str(by_name[name].type)), record.get(name))
                     for name in keys
                 )
-                key = (
-                    canonical(parts)
-                    if all(part is not None for part in parts)
-                    else None
-                )
+                key = typed_key(parts)
                 yield key, record
 
         staged.stage(prepared())
@@ -190,6 +168,12 @@ def plan_import_update(
                 status = "blank_key"
             else:
                 candidates = staged.targets(item.key)
+                hidden_target = False
+                if not candidates and relationship_id is not None:
+                    candidates = retained_hidden_targets(
+                        project.db, relationship_id, item.key
+                    )
+                    hidden_target = bool(candidates)
                 if item.conflicting or len(candidates) > 1:
                     ambiguous += item.copies
                     status = "ambiguous"
@@ -207,7 +191,10 @@ def plan_import_update(
                             int(destination[name]["id"]),
                             row_ids=[target_row_id],
                         )
-                        if target_row_id in values:
+                        if (
+                            value_refs.get(target_row_id, {}).get("kind") != "missing"
+                            and target_row_id in values
+                        ):
                             live[str(destination[name]["id"])] = values[target_row_id]
                         refs[name] = value_refs.get(target_row_id)
                     incoming = {
@@ -217,6 +204,16 @@ def plan_import_update(
                     }
                     baseline = observation(project.db, relationship_id, target_row_id)
                     changes = changed_fields(live, incoming, baseline, update_policy)
+                    if hidden_target:
+                        source_changed = baseline is None or any(
+                            name not in baseline
+                            or canonical(value) != canonical(baseline[name])
+                            for name, value in incoming.items()
+                        )
+                        if update_policy == "keep_changes" or not source_changed:
+                            changes = {}
+                        else:
+                            restored_rows.append(target_row_id)
                     destination_hash.update(
                         canonical([target_row_id, baseline]).encode() + b"\n"
                     )
@@ -292,4 +289,5 @@ def plan_import_update(
             (int(destination[name]["id"]), str(destination[name]["type"]))
             for name in keys
         ),
+        tuple(restored_rows),
     )

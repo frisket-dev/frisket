@@ -77,6 +77,7 @@ def test_xlsx_update_preview_is_bounded_and_does_not_mutate(tmp_path: Path) -> N
         column_mapping=mapping,
         key_columns=json.dumps(["sku"]),
         keep_existing_on_blank=False,
+        update_policy="incoming_wins",
     )
 
     assert preview["matched"] == 1
@@ -103,6 +104,7 @@ def test_xlsx_update_apply_uses_exact_mapping_and_preview_confirmation(
         column_mapping=mapping,
         key_columns=keys,
         keep_existing_on_blank=False,
+        update_policy="incoming_wins",
     )
 
     applied = service.upload_xlsx(
@@ -114,6 +116,7 @@ def test_xlsx_update_apply_uses_exact_mapping_and_preview_confirmation(
         column_mapping=mapping,
         update_key_columns=keys,
         keep_existing_on_blank=False,
+        update_policy="incoming_wins",
         confirmation=preview["confirmation"],
     )
 
@@ -162,6 +165,7 @@ def test_xlsx_empty_and_trailing_cells_follow_blank_policy(
         column_mapping=json.dumps({"code": "sku", "amount": "qty"}),
         key_columns=json.dumps(["sku"]),
         keep_existing_on_blank=keep,
+        update_policy="incoming_wins",
     )
 
     assert (preview["matched"], preview["changed_cells"], preview["cleared_cells"]) == (
@@ -205,6 +209,7 @@ def test_xlsx_update_ignores_formula_in_unmapped_column(tmp_path: Path) -> None:
         ),
         key_columns=json.dumps(["sku"]),
         keep_existing_on_blank=False,
+        update_policy="incoming_wins",
     )
 
     assert preview["matched"] == 1

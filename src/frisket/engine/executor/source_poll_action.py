@@ -567,7 +567,10 @@ def _materialize_registered_source_poll_in_txn(
         project.db,
         relationship_id=relation,
         sheet_id=sheet_id,
-        key_definition=[column_ids["source_id"], column_ids["source_item_id"]],
+        key_definition=[
+            (column_ids["source_id"], "integer"),
+            (column_ids["source_item_id"], "text"),
+        ],
     )
     policy = _source_config_dict(source_before.get("config")).get(
         "update_policy", "keep_changes"
@@ -579,6 +582,8 @@ def _materialize_registered_source_poll_in_txn(
     row_ids = []
     enclosure_row_ids = []
     new_rows = changed = skipped = duplicates_collapsed = 0
+    created_ids = []
+    restored_ids = []
     with ValidatedKeyedInput() as staged:
         staged.stage(
             (
@@ -642,8 +647,13 @@ def _materialize_registered_source_poll_in_txn(
             if target is not None:
                 current = {}
                 for name, column in column_ids.items():
-                    values = project.get_values(sheet_id, column, [target])
-                    if target in values:
+                    values, refs = project.get_values_with_refs(
+                        sheet_id, column, [target], preserve_invalid=True
+                    )
+                    if (
+                        refs.get(target, {}).get("kind") != "missing"
+                        and target in values
+                    ):
                         current[str(column)] = values[target]
                 changes = changed_fields(current, incoming, baseline, policy)
                 hidden = bool(
@@ -661,9 +671,11 @@ def _materialize_registered_source_poll_in_txn(
                     else:
                         cur.execute("UPDATE rows SET hidden=0 WHERE id=?", (target,))
                         restored = True
+                        restored_ids.append(target)
                 if changes or restored:
                     if op_id is None:
                         op_id = _append_source_poll_op_in_txn(
+                            project,
                             cur,
                             {"source_id": source_id, "source_run_id": source_run_id},
                             label=f"source poll {source_before['name']}",
@@ -690,6 +702,7 @@ def _materialize_registered_source_poll_in_txn(
             else:
                 if op_id is None:
                     op_id = _append_source_poll_op_in_txn(
+                        project,
                         cur,
                         {"source_id": source_id, "source_run_id": source_run_id},
                         label=f"source poll {source_before['name']}",
@@ -706,6 +719,7 @@ def _materialize_registered_source_poll_in_txn(
                 )
                 row_ids.append(target)
                 published = True
+                created_ids.append(target)
                 new_rows += 1
             observe(
                 project.db,
@@ -728,6 +742,15 @@ def _materialize_registered_source_poll_in_txn(
                 item.row.get("enclosure_url") or item.row.get("enclosures")
             ):
                 enclosure_row_ids.append(target)
+    if op_id is not None:
+        from frisket.engine.store.op_log import set_undo_info
+
+        set_undo_info(
+            project,
+            op_id,
+            {"created_rows": created_ids, "restored_rows": restored_ids},
+            commit=False,
+        )
     return {
         "sheet_id": sheet_id,
         "op_id": op_id,
@@ -899,16 +922,14 @@ def _source_poll_column_default_hidden(source_kind: str, name: str) -> bool:
     } and name not in (_MEDIA_VISIBLE_SOURCE_COLUMNS)
 
 
-def _append_source_poll_op_in_txn(cur: Any, spec: dict[str, Any], *, label: str) -> int:
-    """Inline `project.append_op("source.poll", ...)` on the open cursor."""
-    cur.execute("UPDATE ops SET status='discarded' WHERE status='undone'")
-    cur.execute(
-        "INSERT INTO ops (kind, label, spec, barrier) VALUES (?, ?, ?, 0)",
-        ("source.poll", label, json.dumps(spec or {})),
+def _append_source_poll_op_in_txn(
+    project: Project, cur: Any, spec: dict[str, Any], *, label: str
+) -> int:
+    from frisket.engine.store.op_log import append_op
+
+    return append_op(
+        project, "source.poll", spec, label=label, undo_info={}, commit=False
     )
-    op_id = int(cur.lastrowid)
-    cur.execute("UPDATE meta SET value=? WHERE key='op_cursor'", (str(op_id),))
-    return op_id
 
 
 def _add_source_poll_rows_in_txn(

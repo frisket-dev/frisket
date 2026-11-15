@@ -38,6 +38,7 @@ def _params(rows, *, keep=False) -> UpdateRowsParams:
             {"name": "note", "type": "text"},
         ],
         key_columns=["id"],
+        update_policy="incoming_wins",
         keep_existing_on_blank=keep,
         rows=rows,
         source={"kind": "inline", "label": "paste", "fingerprint": "sha256:test"},
@@ -74,6 +75,7 @@ def test_exact_update_preserves_rows_and_undoes_as_one_edit_op(tmp_path: Path) -
         rows=params.rows,
         keep_existing_on_blank=False,
         preflight_rows=preflight_typed_rows_for_persistence,
+        update_policy="incoming_wins",
     )
     assert (
         preview.matched,
@@ -127,6 +129,7 @@ def test_stale_preview_and_late_duplicate_write_nothing(tmp_path: Path) -> None:
         rows=params.rows,
         keep_existing_on_blank=False,
         preflight_rows=preflight_typed_rows_for_persistence,
+        update_policy="incoming_wins",
     )
     project.apply_edits(
         [{"row_id": row_ids[0], "column_id": columns["note"], "value": "concurrent"}]
@@ -153,6 +156,7 @@ def test_stale_preview_and_late_duplicate_write_nothing(tmp_path: Path) -> None:
         rows=duplicate.rows,
         keep_existing_on_blank=False,
         preflight_rows=preflight_typed_rows_for_persistence,
+        update_policy="incoming_wins",
     )
     assert duplicate_preview.ambiguous == 2
     refused = run_action_spec(
@@ -162,8 +166,8 @@ def test_stale_preview_and_late_duplicate_write_nothing(tmp_path: Path) -> None:
         ),
         project_id="p",
     )
-    assert refused.status == "failed"
-    assert refused.errors[0].code == "ambiguous_import_keys"
+    assert refused.status == "completed"
+    assert refused.op_ids == []
     assert project.db.execute("SELECT COUNT(*) FROM edits").fetchone()[0] == before
 
 
@@ -179,6 +183,7 @@ def test_keep_existing_blank_is_bound_and_previewed_as_retained(tmp_path: Path) 
         rows=params.rows,
         keep_existing_on_blank=True,
         preflight_rows=preflight_typed_rows_for_persistence,
+        update_policy="incoming_wins",
     )
     assert preview.changed_cells == 0
     assert preview.samples[0]["after"] == {"name": "Alice", "note": "keep"}
@@ -224,6 +229,7 @@ def test_whitespace_only_imports_are_blank_without_trimming_nonblank_text(
         rows=params.rows,
         keep_existing_on_blank=keep,
         preflight_rows=preflight_typed_rows_for_persistence,
+        update_policy="incoming_wins",
     )
 
     assert (preview.matched, preview.unmatched, preview.blank_keys) == (2, 1, 1)
@@ -255,6 +261,7 @@ def test_number_keys_use_exact_numeric_semantics_without_text_coercion(
         rows=params.rows,
         keep_existing_on_blank=False,
         preflight_rows=preflight_typed_rows_for_persistence,
+        update_policy="incoming_wins",
     )
     assert preview.matched == 1
 

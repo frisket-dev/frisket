@@ -141,7 +141,7 @@ def bind_base_cell_producer(
     producer_id = int(producer_id)
     op_id = int(op_id)
     _require_applied_op(db, op_id)
-    start_change(db, op_id)
+    start_change(db, op_id, writing=True)
     row = db.execute(
         "SELECT op_id FROM base_cell_producers WHERE id=?", (producer_id,)
     ).fetchone()
@@ -333,7 +333,7 @@ def initialize_base_cells(
         [(*cell, producer_id) for cell in encoded],
     )
     if producing_op_id is not None:
-        start_change(db, producing_op_id)
+        start_change(db, producing_op_id, writing=True)
     _refresh_written_region(db, encoded)
     return len(encoded)
 
@@ -368,7 +368,7 @@ def remove_base_cells(
     if rows is not None:
         where += f" AND row_id IN ({','.join('?' for _ in rows)})"
         params.extend(rows)
-    start_change(db, producing_op_id)
+    start_change(db, producing_op_id, writing=True)
     version_producer_id = _replacement_producer(db, producing_op_id)
     cursor = db.execute(
         "INSERT INTO cells(row_id,column_id,value_kind,value,producer_id) "
@@ -462,7 +462,7 @@ def replace_base_cells(
     if rows is not None:
         where += f" AND row_id IN ({','.join('?' for _ in rows)})"
         params.extend(rows)
-    start_change(db, producing_op_id)
+    start_change(db, producing_op_id, writing=True)
     provided = {(row_id, column_id) for row_id, column_id, _, _ in encoded}
     # Sparse replacement clears omitted existing coordinates, but keeps the
     # old producer-qualified versions available to history and baseline.

@@ -84,6 +84,7 @@ from frisket.engine.store.cell_writes import (
     BaseCellWrite,
     create_base_cell_producer,
     initialize_base_cells,
+    replace_base_cells,
 )
 from frisket.engine.store.current_cells import (
     decoded_cell_validity,
@@ -787,30 +788,65 @@ class _RowsUpdater(_CallOnce):
                 action_kind=self._action.kind,
                 field="params.columns",
             )
-        op_id = _write_edit_overlay(
-            self._project,
-            self._cur,
-            label=f"update {plan.matched} imported rows",
-            spec={
-                "action_id": self._action.kind,
-                "scope": {
-                    "kind": "sheet_rows",
-                    "sheet_id": int(self._action.row_scope.sheet_id),
-                },
-                "params": {
-                    **{
-                        key: value
-                        for key, value in self._action.params.items()
-                        if key != "rows"
+        from frisket.engine.store.op_log import append_op
+        from frisket.engine.store.evidence import mark_evidence_stale_for_cell_refs
+        from itertools import groupby
+
+        op_id = None
+        if plan.targets or plan.restored_rows:
+            op_id = append_op(
+                self._project,
+                self._action.kind,
+                spec={
+                    "action_id": self._action.kind,
+                    "scope": {
+                        "kind": "sheet_rows",
+                        "sheet_id": int(self._action.row_scope.sheet_id),
                     },
-                    "row_count": plan.matched + plan.unmatched + plan.ambiguous,
-                    "params_hash": self._params_hash,
+                    "params": {
+                        **{
+                            key: value
+                            for key, value in self._action.params.items()
+                            if key != "rows"
+                        },
+                        "row_count": plan.matched + plan.unmatched + plan.ambiguous,
+                        "params_hash": self._params_hash,
+                    },
+                    "idempotency_key": self._action.idempotency_key,
                 },
-                "idempotency_key": self._action.idempotency_key,
-            },
-            targets=list(plan.targets),
-            stale_reason="imported_cell_update",
-        )
+                label=f"update {plan.matched} imported rows",
+                undo_info={"restored_rows": list(plan.restored_rows)},
+                commit=False,
+            )
+            self._cur.executemany(
+                "UPDATE rows SET hidden=0 WHERE id=?",
+                [(row,) for row in plan.restored_rows],
+            )
+            producer = create_base_cell_producer(
+                self._project.db, stage_id=f"op:{op_id}", op_id=op_id
+            )
+            for row_id, grouped in groupby(
+                plan.targets, key=lambda target: int(target["row_id"])
+            ):
+                cells = list(grouped)
+                replace_base_cells(
+                    self._project.db,
+                    producer_id=producer,
+                    column_ids=[int(target["column_id"]) for target in cells],
+                    row_ids=[row_id],
+                    cells=[
+                        BaseCellWrite(
+                            row_id, int(target["column_id"]), target["value_after"]
+                        )
+                        for target in cells
+                    ],
+                )
+            mark_evidence_stale_for_cell_refs(
+                self._project,
+                plan.targets,
+                reason="imported_cell_update",
+                preserve_map_extract_item_links=True,
+            )
         from uuid import uuid4
         from frisket.engine.store.keyed_updates import require_relationship, observe
 
@@ -1904,7 +1940,7 @@ def _result_and_receipt(
         project_id=project_id,
         action_id=action_id,
         action_kind=action.kind,
-        op_ids=[returned.op_id],
+        op_ids=[] if returned.op_id is None else [returned.op_id],
         idempotency_key=action.idempotency_key,
         params_hash=params_hash,
         status="completed",
@@ -1917,7 +1953,7 @@ def _result_and_receipt(
         action=ActionIdentity(kind=action.kind, action_id=action_id),
         status="completed",
         project_id=project_id,
-        op_ids=[returned.op_id],
+        op_ids=[] if returned.op_id is None else [returned.op_id],
         outputs=[output],
         receipt_id=receipt_id,
     )

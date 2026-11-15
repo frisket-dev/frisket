@@ -22,6 +22,7 @@ from frisket.engine.store.table_import_intake import (
     TableImportColumn as FrozenTableImportColumn,
     TableImportDedup as FrozenTableImportDedup,
     TableImportPlan,
+    TableImportUpdate,
     TableImportScan,
     TableImportSource as IntakeTableImportSource,
     freeze_table_plan,
@@ -818,6 +819,23 @@ class TableImportService:
                 columns=tuple(frozen_columns),
                 extra_values_target_name=extra_values_target_name,
                 dedup=dedup,
+                update=(
+                    TableImportUpdate(
+                        key_source_indices=tuple(
+                            destination_request["destination"]["update"][
+                                "key_source_indices"
+                            ]
+                        ),
+                        policy=destination_request["destination"]["update"].get(
+                            "policy", "keep_changes"
+                        ),
+                        relationship_id=destination_request["destination"][
+                            "update"
+                        ].get("relationship_id"),
+                    )
+                    if destination_request["destination"].get("update") is not None
+                    else None
+                ),
             ),
             dedup_target_column,
         )

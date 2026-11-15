@@ -663,7 +663,7 @@ class UpdatedImportedRows:
     sheet_id: int
     row_ids: tuple[int, ...]
     edit_count: int
-    op_id: int
+    op_id: int | None
     column_ids: Mapping[str, int]
     source: Mapping[str, Any]
 

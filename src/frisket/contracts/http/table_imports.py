@@ -194,9 +194,16 @@ class TableImportNewDestination(WireModel):
     sheet_name: str = Field(min_length=1, max_length=80)
 
 
+class TableImportKeyedUpdate(WireModel):
+    key_source_indices: list[int] = Field(min_length=1)
+    policy: Literal["keep_changes", "incoming_wins"] = "keep_changes"
+    relationship_id: str | None = Field(default=None, min_length=1, max_length=200)
+
+
 class TableImportExistingDestination(WireModel):
     kind: Literal["existing"]
     sheet_id: int = Field(gt=0)
+    update: TableImportKeyedUpdate | None = None
 
 
 TableImportDestinationConfig = Annotated[

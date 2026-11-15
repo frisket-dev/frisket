@@ -652,22 +652,20 @@ def test_source_poll_catalog_validation_registry_dedupe_replay_and_failures(
             assert second_run["new_rows"] == 1
             assert second_run["skipped_rows"] == 1
             assert second_run["changed_rows"] == 1
-            assert second_run["revisions"] == 1
+            assert second_run["revisions"] == 0
             assert [row["title"] for row in _rows(project, sheet_id)] == [
                 "Alpha",
-                "Beta",
                 "Beta revised",
                 "Gamma",
             ]
-            assert _rows(project, sheet_id)[2]["_revises"] == "b"
-            assert _rows(project, sheet_id)[2]["_revision"] == 1
+            assert len(_rows(project, sheet_id)) == 3
             assert _table_count(project, "source_items") == 3
             beta_item = project.db.execute(
                 "SELECT revision FROM source_items WHERE source_id=? AND dedupe_key='b'",
                 (source_id,),
             ).fetchone()
             assert beta_item is not None
-            assert beta_item["revision"] == 1
+            assert beta_item["revision"] == 0
 
             poller.items = [
                 SourcePollItem(
@@ -690,14 +688,17 @@ def test_source_poll_catalog_validation_registry_dedupe_replay_and_failures(
             )
             assert third.status == "completed"
             assert poller.calls == 3
-            assert _rows(project, sheet_id)[-1]["_revises"] == "b"
-            assert _rows(project, sheet_id)[-1]["_revision"] == 2
+            assert [row["title"] for row in _rows(project, sheet_id)] == [
+                "Alpha",
+                "Beta second revision",
+                "Gamma",
+            ]
             beta_item = project.db.execute(
                 "SELECT revision FROM source_items WHERE source_id=? AND dedupe_key='b'",
                 (source_id,),
             ).fetchone()
             assert beta_item is not None
-            assert beta_item["revision"] == 2
+            assert beta_item["revision"] == 0
 
             poller.fail = RuntimeError("provider down")
             failed = run_action_spec(

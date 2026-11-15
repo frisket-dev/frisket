@@ -15,6 +15,7 @@ from typing import Any, Iterable, Mapping, Self
 
 from frisket.contracts.action import Receipt, ReceiptIO, ReceiptEvidence
 from frisket.engine.store import op_log
+from frisket.engine.store.changes import ChangeStore
 from frisket.engine.store.cell_writes import (
     bind_base_cell_producer,
     create_base_cell_producer,
@@ -782,6 +783,7 @@ class StreamingSheetWriter:
                 receipt, require_status="running", commit=False
             ):
                 raise ImportSessionConflict("import receipt finalization lost its CAS")
+            ChangeStore(self.project).close(self._op_id)
             db.execute("UPDATE ops SET barrier=0 WHERE id=?", (self._op_id,))
             final_state = "kept" if keep_cancelled else "completed"
             updated = db.execute(
@@ -877,6 +879,7 @@ class StreamingSheetWriter:
                 receipt, require_status="running", commit=False
             ):
                 raise ImportSessionConflict("import receipt cancellation lost its CAS")
+            ChangeStore(self.project).close(self._op_id)
             db.execute("UPDATE ops SET barrier=0 WHERE id=?", (self._op_id,))
             updated = db.execute(
                 "UPDATE import_sessions SET state='removed',updated_at=datetime('now') "
@@ -1141,6 +1144,7 @@ class StreamingSheetWriter:
                     receipt_id=self._receipt_id,
                 )
                 receipt.evidence.extend(ReceiptEvidence(ref=ref) for ref in published)
+            ChangeStore(self.project).close(op_id)
             ReceiptStore(self.project).insert_completed(receipt, commit=False)
             updated = db.execute(
                 "UPDATE sheets SET name=?, hidden=0 WHERE id=? AND hidden=1",
