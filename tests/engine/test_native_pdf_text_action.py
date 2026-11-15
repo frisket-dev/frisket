@@ -334,7 +334,7 @@ def test_mixed_native_pdf_retains_blank_pages_and_warns_in_result_and_receipt(
         assert sum(warning in item for item in receipt["warnings"]) == 1
 
 
-def test_wholly_textless_document_reports_needs_ocr_without_prepared_value(
+def test_wholly_textless_document_completes_with_ocr_suggestion(
     tmp_path: Path, monkeypatch
 ) -> None:
     from frisket.engine import pdf_text
@@ -351,24 +351,16 @@ def test_wholly_textless_document_reports_needs_ocr_without_prepared_value(
             project_id=PROJECT_ID,
         )
 
-        assert result.status == "failed"
-        assert result.errors[0].code == "map_rows_failed"
-        assert result.errors[0].details == {
-            "total_rows": 1,
-            "completed_rows": 1,
-            "failed_rows": 1,
-        }
-        summary = RunResultStore(project).row_error_summary(result.run_id)
-        assert summary is not None and summary["total_failed_rows"] == 1
-        assert summary["groups"][0]["code"] == "needs_ocr"
-        assert summary["groups"][0]["message"] == "PDF has no native text"
-        assert summary["groups"][0]["row_ids"] == [row_id]
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM prepared_content_refs").fetchone()[
-                0
-            ]
-            == 0
-        )
+        assert result.status == "completed", result.errors
+        assert "No searchable text. Try OCR." in result.warnings
+        assert RunResultStore(project).row_error_summary(result.run_id) is None
+        ref_id = project.db.execute("SELECT id FROM prepared_content_refs").fetchone()[
+            0
+        ]
+        prepared = PreparedContentStore(project).resolve(ref_id)
+        assert prepared.text == "\n\n"
+        assert prepared.covered_pages == (1, 2)
+        assert prepared.complete is True
 
 
 def test_page_scoped_cell_keeps_original_page_identity(

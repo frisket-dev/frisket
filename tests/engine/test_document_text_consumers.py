@@ -419,9 +419,7 @@ def test_queued_find_publishes_designated_text_with_exact_page_citation(
 
 @pytest.mark.parametrize("manual", [False, True])
 @pytest.mark.parametrize("blank", ["", " \n\t\r "])
-def test_blank_designated_text_is_valid_but_not_preparation_ready(
-    tmp_path, manual, blank
-):
+def test_blank_designated_text_is_complete_preparation(tmp_path, manual, blank):
     with closing(Project.create(tmp_path / "blank-text.frisket")) as project:
         cell, text, _other, blob, _chosen, _alternative = _document(project)
         _text_output(project, cell, text, blob, [blank, blank])
@@ -436,8 +434,36 @@ def test_blank_designated_text_is_valid_but_not_preparation_ready(
         source = resolve_cell_blob_source(
             project, sheet_id=cell[0], row_id=cell[1], column_id=cell[2]
         )
-        assert not planning._has_current_result(project, source, "native_pdf")
-        # Readiness follows the selected pages, not a nonblank alternative.
+        assert planning._has_current_result(project, source, "native_pdf")
+        from frisket.retrieval.contracts import (
+            RankingPolicy,
+            RetrievalScope,
+            SearchRequest,
+            SheetScope,
+            TextQuery,
+        )
+        from frisket.retrieval.query import search
+        from frisket.search import drain_index
+
+        drain_index(project)
+        response = search(
+            project,
+            SearchRequest(
+                scope=RetrievalScope(
+                    sheets=(SheetScope(cell[0], column_ids=(cell[2],)),)
+                ),
+                query=TextQuery("not in this document"),
+                mode="lexical",
+                ranking=RankingPolicy(rerank="off"),
+            ),
+        )
+        coverage = next(
+            item
+            for item in response.coverage.channels
+            if item.channel == "search_preparation"
+        )
+        assert (coverage.eligible_count, coverage.prepared_count) == (1, 1)
+        # Completion follows the selected pages, not whether their text is blank.
         _text_output(project, cell, text, blob, ["", "readable second"])
         assert planning._has_current_result(project, source, "native_pdf")
 

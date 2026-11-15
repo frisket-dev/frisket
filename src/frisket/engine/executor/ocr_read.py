@@ -518,7 +518,8 @@ class _BoundOcrReader:
                 for index, page in enumerate(pages, 1):
                     physical_page = selected_page or index
                     positions = _page_coordinate_frame(
-                        page, required=bool(positioned_generic)
+                        page,
+                        required=bool(positioned_generic and not page.get("error")),
                     )
                     page_fact = copy.deepcopy(page)
                     page_fact["page_number"] = physical_page
@@ -533,7 +534,11 @@ class _BoundOcrReader:
                     if positions:
                         fact_block["positions"] = positions
                     fact_blocks.append(fact_block)
-                text = "\n\n".join(str(page.get("text") or "") for page in pages)
+                text = "\n\n".join(
+                    str(page.get("text") or "")
+                    for page in pages
+                    if not page.get("error")
+                )
                 fact = {
                     "kind": "ocr_read",
                     "call_id": uuid.uuid4().hex,

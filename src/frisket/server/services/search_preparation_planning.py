@@ -347,7 +347,7 @@ def _has_current_result(project: Any, source: Any, kind: str) -> bool:
         blob_hash=source.blob_hash,
         page_number=source.page_number,
     )
-    if prepared is not None and prepared["has_text"] and prepared["coverage_complete"]:
+    if prepared is not None and prepared["coverage_complete"]:
         return True
     if kind != "transcribe":
         return False

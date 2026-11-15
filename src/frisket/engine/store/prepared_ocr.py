@@ -42,6 +42,9 @@ def prepare_ocr_results(project, run_id: int, results: list[dict[str, Any]]) -> 
             source = call["source"]
             drafts = []
             for index, page in enumerate(pages, 1):
+                # A failed/not-attempted page is absent coverage, not blank text.
+                if page.get("error"):
+                    continue
                 number = page.get("page_number", source.get("page") or index)
                 image = call.get("page_images", {}).get(str(number), {})
                 drafts.append(
@@ -56,8 +59,11 @@ def prepare_ocr_results(project, run_id: int, results: list[dict[str, Any]]) -> 
                         },
                     )
                 )
+            if not drafts:
+                raise ValueError("OCR preparation requires a successfully read page")
             page_count = source.get("page_count") or max(
-                page.page_number for page in drafts
+                page.get("page_number", source.get("page") or index)
+                for index, page in enumerate(pages, 1)
             )
             artifact = project.db.execute(
                 "SELECT id FROM source_artifacts WHERE blob_hash=? "
@@ -98,6 +104,7 @@ def prepare_ocr_results(project, run_id: int, results: list[dict[str, Any]]) -> 
                 producing_op_id=int(op[0]),
                 pages=drafts,
                 page_number=source.get("page"),
+                allow_partial=len(drafts) != len(pages),
             ).ref_id
         refs[call_id] = ref_id
         call["prepared_ref_id"] = ref_id

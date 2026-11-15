@@ -128,3 +128,48 @@ def test_ocr_uses_the_ordinary_unicode_repair_boundary(tmp_path):
         hydrate_prepared_results(project, [result])
         project.db.commit()
         assert result["value"] == "Broken \ufffd text"
+
+
+@pytest.mark.parametrize("error_code", ["ocr_page_failed", "ocr_page_skipped"])
+def test_failed_pages_remain_missing_coverage_after_reopen(tmp_path, error_code):
+    path = tmp_path / "partial.frisket"
+    with closing(Project.create(path)) as project:
+        run, result = _setup(project)
+        call = result["row_file_calls"][0]
+        call["pages"] = [
+            {"page_number": 1, "text": "Read page", "blocks": []},
+            {"page_number": 2, "text": "", "error": {"code": error_code}},
+            {"page_number": 3, "text": "", "blocks": []},
+        ]
+        result["value"] = call["text"] = "Read page\n\n"
+        project.db.execute("BEGIN IMMEDIATE")
+        prepare_ocr_results(project, run, [result])
+        ref_id = result["prepared_ref_id"]
+        project.db.commit()
+    with closing(Project(path)) as project:
+        prepared = PreparedContentStore(project).resolve(ref_id)
+        assert prepared.text == "Read page\n\n"
+        assert prepared.covered_pages == (1, 3)
+        assert prepared.complete is False
+        assert len(prepared.pins) == 2
+        assert prepared.pins[1].start == prepared.pins[1].end
+
+
+def test_all_failed_pages_cannot_publish_successful_empty_text(tmp_path):
+    with closing(Project.create(tmp_path / "failed.frisket")) as project:
+        run, result = _setup(project)
+        call = result["row_file_calls"][0]
+        for page in call["pages"]:
+            page["text"] = ""
+            page["error"] = {"code": "ocr_page_failed"}
+        result["value"] = call["text"] = ""
+        project.db.execute("BEGIN IMMEDIATE")
+        with pytest.raises(ValueError, match="successfully read page"):
+            prepare_ocr_results(project, run, [result])
+        project.db.rollback()
+        assert (
+            project.db.execute("SELECT count(*) FROM prepared_content_refs").fetchone()[
+                0
+            ]
+            == 0
+        )

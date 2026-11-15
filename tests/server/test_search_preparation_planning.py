@@ -759,7 +759,7 @@ def test_sparse_prepared_text_keeps_search_gap_and_cached_blank_page(
         )
         assert source is not None
         assert planning._has_current_result(project, source, "native_pdf") is (
-            selected_page == 1
+            selected_page is not None
         )
         prepared = planning._current_prepared_result(
             project,
@@ -805,7 +805,10 @@ def test_sparse_prepared_text_keeps_search_gap_and_cached_blank_page(
         gap = next(
             c for c in response.coverage.channels if c.channel == "search_preparation"
         )
-        assert (gap.eligible_count, gap.prepared_count) == (1, int(selected_page == 1))
+        assert (gap.eligible_count, gap.prepared_count) == (
+            1,
+            int(selected_page is not None),
+        )
         if selected_page is None:
             matches = search(
                 project,
@@ -911,7 +914,9 @@ def test_legacy_ready_text_not_shadowed_by_newer_unready_result(
         ensure_document_text_role(
             project, source_column_id=document, text_column_id=newer_column, commit=True
         )
-        assert not planning._has_current_result(project, source, "native_pdf")
+        assert planning._has_current_result(project, source, "native_pdf") is (
+            len(newer_pages) == 2
+        )
         assert planning.sample_pdf(project, sheet, item, 1)[0] == newer_pages[0][1]
     finally:
         project.close()

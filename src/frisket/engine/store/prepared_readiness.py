@@ -26,7 +26,7 @@ def prepared_source_readiness_ctes(*, scope_relation: str, schema: str = "") -> 
       FROM {scope_relation} AS readiness_scope
       JOIN {prefix}columns AS output_column
         ON output_column.sheet_id=readiness_scope.sheet_id
-       AND output_column.hidden=0
+       AND output_column.active=1 AND output_column.hidden=0
       JOIN {prefix}current_cell_values AS live
         ON live.column_id=output_column.id
        AND live.row_id=readiness_scope.row_id
@@ -56,8 +56,7 @@ def prepared_source_readiness_ctes(*, scope_relation: str, schema: str = "") -> 
            OR role.source_column_id=artifact.source_column_id
       )
         AND live.value_kind='text'
-        AND (live.prepared_ref_id IS NOT NULL
-             OR length(trim(live.value,{_SQL_WHITESPACE}))>0)
+        AND live.validity='valid'
     ), legacy_prepared_sources AS MATERIALIZED (
       SELECT prepared_ref_id,page_number,artifact_id,blob_hash,page_count,
              is_manual,has_text,output_column_id,source_sheet_id,source_row_id,source_column_id
@@ -111,12 +110,6 @@ def prepared_source_readiness_ctes(*, scope_relation: str, schema: str = "") -> 
         ON selected.source_sheet_id=readiness_scope.sheet_id
        AND selected.row_id=readiness_scope.row_id
       WHERE selected.text_hidden=0
-        AND (selected.prepared_ref_id IS NOT NULL OR EXISTS (
-          SELECT 1 FROM {prefix}current_cell_values text
-          WHERE text.row_id=selected.row_id
-            AND text.column_id=selected.text_column_id
-            AND length(trim(text.value,{_SQL_WHITESPACE}))>0
-        ))
     ), current_prepared_sources AS MATERIALIZED (
       SELECT candidate.*,
              CASE WHEN candidate.is_manual THEN 1
