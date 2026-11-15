@@ -16,6 +16,7 @@ from frisket.contracts.http.document_extraction import (
     ExtractionTemplateSave,
 )
 from frisket.engine.store import Project
+from tests.engine.historical_schema import restore_pre_domain_schema
 from frisket.engine.store import extraction_layouts as layouts
 from frisket.engine.store import extraction_layouts_migration as migration
 from frisket.engine.store.extraction_layouts_migration import (
@@ -355,6 +356,7 @@ def test_hidden_legacy_source_keeps_upgrade_pending_until_next_open(tmp_path):
 
 
 def _restore_layout_predecessor(db):
+    restore_pre_domain_schema(db)
     _remove_extraction_layouts(db)
     db.execute("DROP VIEW current_cell_values")
     _remove_prepared_content(db)
@@ -432,7 +434,10 @@ def test_prior_bundle_upgrade_preserves_source_cells_and_op_history(tmp_path):
         path = project.path
         values = project.get_values(sheet, column)
         history = [
-            tuple(row) for row in project.db.execute("SELECT * FROM ops ORDER BY id")
+            tuple(row)
+            for row in project.db.execute(
+                "SELECT id,kind,label,spec,undo_info,status,created_at FROM ops ORDER BY id"
+            )
         ]
     with sqlite3.connect(path / "project.db") as db:
         _restore_layout_predecessor(db)
@@ -444,7 +449,10 @@ def test_prior_bundle_upgrade_preserves_source_cells_and_op_history(tmp_path):
         assert upgraded.get_meta(SCHEMA_DIGEST_META_KEY) == SCHEMA_DIGEST
         assert upgraded.get_values(sheet, column) == values
         assert [
-            tuple(row) for row in upgraded.db.execute("SELECT * FROM ops ORDER BY id")
+            tuple(row)
+            for row in upgraded.db.execute(
+                "SELECT id,kind,label,spec,undo_info,status,created_at FROM ops ORDER BY id"
+            )
         ] == history
         assert layouts.list_layouts(upgraded, sheet, column) == []
         assert save(upgraded, sheet, template)["name"] == "Layout 1"

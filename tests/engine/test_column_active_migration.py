@@ -13,10 +13,10 @@ from frisket.engine.store.bundle_open import (
 )
 from frisket.engine.store.schema import (
     BundleSchemaMismatch,
-    SCHEMA,
     SCHEMA_DIGEST,
     SCHEMA_DIGEST_META_KEY,
 )
+from tests.engine.historical_schema import PRE_DOMAIN_SCHEMA
 from tests.engine.test_bundle_schema_fence import _without_typed_values
 
 _PRIOR_DIGEST = "frisket.schema.v1:f078f2bc57411d372468936618f2f884"
@@ -24,7 +24,7 @@ _PRIOR_DIGEST = "frisket.schema.v1:f078f2bc57411d372468936618f2f884"
 
 def _prior_bundle(tmp_path):
     schema = (
-        _without_typed_values(SCHEMA)
+        _without_typed_values(PRE_DOMAIN_SCHEMA)
         .replace(
             "  active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1) AND (active=1 OR hidden=1)),\n",
             "",
@@ -99,9 +99,18 @@ def test_upgrade_frees_only_undone_names_and_preserves_history(tmp_path):
         (4, "hidden-live", 1, 1),
         (5, "visible", 0, 1),
     ]
-    assert project.db.execute(
+    retained = project.db.execute(
         "SELECT row_id,column_id,value_kind,value,producer_id FROM cells"
-    ).fetchone()[:] == (1, 1, "text", "old", None)
+    ).fetchone()
+    assert retained[:4] == (1, 1, "text", "old")
+    # Cutover assigns an immutable producer to old anonymous source cells.
+    assert retained[4] is not None
+    assert (
+        project.db.execute(
+            "SELECT id FROM base_cell_producers WHERE id=?", (retained[4],)
+        ).fetchone()
+        is not None
+    )
     assert project.db.execute(
         "SELECT op_id,row_id,column_id,value_kind,value FROM edits"
     ).fetchone()[:] == (1, 1, 1, "text", "edited")
@@ -112,8 +121,9 @@ def test_upgrade_frees_only_undone_names_and_preserves_history(tmp_path):
         "SELECT column_id,row_id,origin_kind,validity FROM current_cells"
     ).fetchone()[:] == (1, 1, "source_cell", "valid")
     assert project.db.execute(
-        "SELECT value_kind,value FROM current_cell_values"
+        "SELECT value_kind,value FROM current_cell_values WHERE column_id=1"
     ).fetchone()[:] == ("text", "old")
+    assert 1 not in {column["id"] for column in project.columns(1, include_hidden=True)}
     assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 3
     assert project.db.execute("PRAGMA foreign_key_check").fetchall() == []
     assert project.db.execute("PRAGMA foreign_keys").fetchone()[0] == 1

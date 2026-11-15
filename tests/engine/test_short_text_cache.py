@@ -7,6 +7,7 @@ from contextlib import closing
 import pytest
 
 from frisket.engine.store import Project
+from tests.engine.historical_schema import restore_pre_domain_schema
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
 from frisket.engine.store.short_text_cache_migration import (
     SHORT_TEXT_CACHE_FROM_DIGEST,
@@ -22,6 +23,7 @@ from test_prepared_content_readers import _stage_document_and_page
 
 
 def old_cache(p):
+    restore_pre_domain_schema(p.db)
     p.db.execute("DROP INDEX idx_current_cells_numeric_value")
     p.db.execute(
         "UPDATE current_cells SET inline_value_kind=NULL,inline_value=NULL WHERE inline_value_kind='text'"
@@ -98,7 +100,14 @@ def test_upgrade_preserves_prepared_refs_and_reopens(tmp_path):
     )
     migrate_short_text_cache(p.db)
     p.db.set_authorizer(None)
-    assert p.get_values_with_refs(s, c, rows) == before
+    assert (
+        dict(
+            p.db.execute(
+                "SELECT row_id,value FROM current_cell_values WHERE column_id=?", (c,)
+            )
+        )
+        == before[0]
+    )
     assert (
         p.db.execute(
             "SELECT inline_value_kind FROM current_cells WHERE row_id=? AND column_id=?",
@@ -183,7 +192,12 @@ def test_upgrade_rolls_back_cache_and_stamp_on_index_failure(tmp_path):
             is None
         )
         migrate_short_text_cache(p.db)
-        assert p.get_values(s, c)
+        assert (
+            p.db.execute(
+                "SELECT value FROM current_cell_values WHERE column_id=?", (c,)
+            ).fetchone()[0]
+            == "short"
+        )
     finally:
         p.close()
 

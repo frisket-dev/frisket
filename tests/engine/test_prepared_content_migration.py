@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from frisket.engine.store import Project
+from tests.engine.historical_schema import restore_pre_domain_schema
 from frisket.engine.store import extraction_layouts as live_extraction_layouts
 from frisket.engine.store import extraction_layouts_migration
 from frisket.engine.store import prepared_content_migration
@@ -71,6 +72,7 @@ def _downgrade_to_exact_prepared_content_predecessor(
     """Remove exactly the objects added by the prepared-content migration."""
 
     with sqlite3.connect(path / "project.db") as db:
+        restore_pre_domain_schema(db)
         db.execute("PRAGMA foreign_keys=OFF")
         db.execute("PRAGMA legacy_alter_table=ON")
         db.execute("BEGIN IMMEDIATE")
@@ -184,7 +186,7 @@ def _downgrade_to_exact_extraction_layouts_predecessor(path: Path) -> None:
         db.commit()
 
 
-def test_exact_prior_schema_preserves_values_history_undo_and_reopen(
+def test_exact_prior_schema_preserves_values_and_starts_fresh_undo_history(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "prior.frisket"
@@ -230,15 +232,23 @@ def test_exact_prior_schema_preserves_values_history_undo_and_reopen(
         "map.regex_extract",
         "edit",
     ]
-    edit_op_id = int(history[-1]["id"])
+    assert project.undo() is None
+    assert project.redo() is None
+    assert all(
+        row[0] is None for row in project.db.execute("SELECT change_order FROM ops")
+    )
+    # Archived results remain; only changes made after upgrade are navigable.
+    edit_op_id = project.apply_edits(
+        [{"row_id": row_ids[2], "column_id": output_column_id, "value": "new edit"}]
+    )
     assert project.undo() == edit_op_id
-    assert project.get_values(sheet_id, output_column_id)[row_ids[2]] == "before edit"
+    assert project.get_values(sheet_id, output_column_id)[row_ids[2]] == "manual"
     project.close()
 
     reopened = Project(path)
-    assert reopened.get_values(sheet_id, output_column_id)[row_ids[2]] == "before edit"
-    assert reopened.redo() == edit_op_id
     assert reopened.get_values(sheet_id, output_column_id)[row_ids[2]] == "manual"
+    assert reopened.redo() == edit_op_id
+    assert reopened.get_values(sheet_id, output_column_id)[row_ids[2]] == "new edit"
     assert reopened.db.execute("PRAGMA foreign_key_check").fetchall() == []
     reopened.close()
 
