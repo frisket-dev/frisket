@@ -860,3 +860,42 @@ def test_recovery_preserves_both_actual_read_versions_across_source_edit(
         assert sheet_freshness(project, sheet) == "stale"
     finally:
         project.close()
+
+
+def test_group_final_receipt_failure_recovers_saved_groups_without_rebuying(tmp_path):
+
+    project = Project.create(tmp_path / "receipt-resume.frisket")
+    try:
+        seeded = _seed(project, tmp_path)
+        router, adapter = _summary_router()
+        bound = _bound_request(_reduce_action(seeded["sheet_id"]))
+        project.db.execute(
+            "CREATE TRIGGER fail_final_receipt BEFORE UPDATE ON receipts "
+            "WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'receipt write interrupted'); END"
+        )
+        project.db.commit()
+        first = run_typed_group_summary_action(project, "p", bound, router)
+        assert first.status == "failed"
+        assert len(adapter.requests) == 2
+        original_run = project.db.execute("SELECT id FROM runs").fetchone()[0]
+        original_facts = [
+            dict(row) for row in project.db.execute("SELECT * FROM model_calls")
+        ]
+        project.db.execute("DROP TRIGGER fail_final_receipt")
+        project.db.commit()
+        resumed = run_typed_group_summary_action(project, "p", bound, router)
+        assert resumed.status == "completed", resumed.errors
+        assert resumed.run_id == original_run
+        assert len(adapter.requests) == 2
+        assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 1
+        assert [
+            dict(row) for row in project.db.execute("SELECT * FROM model_calls")
+        ] == original_facts
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM output_column_claims WHERE status='active'"
+            ).fetchone()[0]
+            == 0
+        )
+    finally:
+        project.close()

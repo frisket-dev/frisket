@@ -28,10 +28,7 @@ from frisket.engine.store import Project
 from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.value_codec import decode_stored_value
-from frisket.execution.attempt import (
-    StaleAttemptWriter,
-    abandon_stale_dispatching_attempts,
-)
+from frisket.execution.attempt import StaleAttemptWriter
 from frisket.team.security.secrets import encrypt_secret, key_hint
 
 PROJECT_ID = "project-reduce-effects"
@@ -227,21 +224,15 @@ def test_returned_reduce_checkpoint_accounts_spend_before_result_commit(
         ).fetchone()[0]
         == 2
     )
-    # The writer stays live through the result/checkpoint transaction. This
-    # assertion is the regression fence for the old pre-commit `effected`
-    # transition.
-    assert attempt["state"] == "dispatching"
-    project.db.execute(
-        "UPDATE execution_attempts SET created_at=datetime('now', '-7 hours') "
-        "WHERE id=?",
-        (attempt["id"],),
+    # Returning from the interrupted invocation releases its dispatch owner,
+    # while the run and paid facts remain recoverable immediately.
+    assert attempt["state"] == "halted"
+    assert (
+        project.db.execute(
+            "SELECT current_attempt_id FROM runs WHERE id=?", (run_id,)
+        ).fetchone()[0]
+        is None
     )
-    project.db.execute(
-        "UPDATE output_column_claims SET lease_expires_at=datetime('now','-7 hours') WHERE run_id=?",
-        (run_id,),
-    )
-    project.db.commit()
-    assert abandon_stale_dispatching_attempts(project, run_id) == 1
 
     # Retry the same logical action: the durable responses replay, the sheet
     # materializes, and the provider is NOT called again.
@@ -279,7 +270,7 @@ def test_returned_reduce_checkpoint_accounts_spend_before_result_commit(
     closed = project.db.execute(
         "SELECT state FROM execution_attempts WHERE id=?", (attempt["id"],)
     ).fetchone()
-    assert closed["state"] == "abandoned"
+    assert closed["state"] == "halted"
     replacement = project.db.execute(
         "SELECT id, state FROM execution_attempts WHERE run_id=? "
         "ORDER BY seq DESC LIMIT 1",
@@ -368,12 +359,12 @@ def test_reduce_terminalizer_joins_materialization_transaction(
     assert run is not None
     assert run["status"] == "running"
     assert run["finished_at"] is None
-    attempt_id = str(run["current_attempt_id"])
+    assert run["current_attempt_id"] is None
     attempt = project.db.execute(
-        "SELECT state FROM execution_attempts WHERE id=?",
-        (attempt_id,),
+        "SELECT state FROM execution_attempts WHERE run_id=?",
+        (run_id,),
     ).fetchone()
-    assert attempt is not None and attempt["state"] == "dispatching"
+    assert attempt is not None and attempt["state"] == "halted"
 
     checkpoints = project.db.execute(
         "SELECT state, authorized_attempt_id FROM effect_checkpoints ORDER BY id"

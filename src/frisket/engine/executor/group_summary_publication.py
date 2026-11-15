@@ -59,7 +59,18 @@ class GroupPublication:
         return str(claim[0]) if claim is not None else None
 
     def close(self):
-        self.stage.close()
+        # This invocation owns its attempt through final receipt publication,
+        # not just provider work. Terminal attempts are immutable; an unfinished
+        # one is halted so the same execution can recover its retained results.
+        try:
+            if self.envelope is not None and self.envelope.get("attempt_id"):
+                from frisket.execution.attempt import set_attempt_state
+
+                set_attempt_state(
+                    self.project, str(self.envelope["attempt_id"]), "halted"
+                )
+        finally:
+            self.stage.close()
 
     def stopped(self):
         return self.envelope is not None and RunResultStore(
@@ -70,9 +81,6 @@ class GroupPublication:
         try:
             self._start(resolved, envelope)
         except Exception as exc:
-            from frisket.execution.attempt import set_attempt_state
-
-            set_attempt_state(self.project, str(envelope["attempt_id"]), "halted")
             raise GroupPublicationError(str(exc)) from exc
 
     def _start(self, resolved, envelope):

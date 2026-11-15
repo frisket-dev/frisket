@@ -689,7 +689,7 @@ async def _complete_reduce_group_summaries_unfenced(
     router: ModelRouter,
     publication,
 ) -> list[dict[str, Any]] | ActionError:
-    from frisket.execution.attempt import AttemptClaimRefused, set_attempt_state
+    from frisket.execution.attempt import AttemptClaimRefused
     from frisket.execution.attempt_authority import mint_direct_effect_attempt
 
     # Free/local calls need no replay checkpoint, but they still disclose
@@ -754,62 +754,36 @@ async def _complete_reduce_group_summaries_unfenced(
     )
     recorder = _reduce_group_summary_trace_writer(project, params, run_id)
     computations: list[dict[str, Any]] = []
-    try:
-        for group in resolved["groups"]:
-            if publication.stopped():
-                break
-            saved = publication.saved(group)
-            if saved is not None:
-                computations.append(saved)
-                continue
-            messages = _reduce_group_summary_messages(params, group)
-            request = LLMRequest(
-                model=params.model,
-                messages=messages,
+    for group in resolved["groups"]:
+        if publication.stopped():
+            break
+        saved = publication.saved(group)
+        if saved is not None:
+            computations.append(saved)
+            continue
+        messages = _reduce_group_summary_messages(params, group)
+        request = LLMRequest(
+            model=params.model,
+            messages=messages,
+        )
+        trace_record: list[dict[str, Any] | None] = [None]
+        try:
+            from frisket.engine.store.source_dependencies import (
+                require_execution_sources,
             )
-            trace_record: list[dict[str, Any] | None] = [None]
-            try:
-                from frisket.engine.store.source_dependencies import (
-                    require_execution_sources,
-                )
 
-                require_execution_sources(project, op_id)
-                response = await _complete_reduce_group_summary_call(
-                    router,
-                    recorder,
-                    request,
-                    trace_record,
-                )
-            except Exception as exc:  # noqa: BLE001 - per-group failure is persisted
-                computations.append(
-                    {
-                        "group": group,
-                        **_reduce_group_summary_failure_computation(
-                            params, router, exc
-                        ),
-                        "direct_effect": envelope,
-                        "consumed_capture": resolved["consumed_capture"],
-                        "_trace_record": trace_record[0],
-                    }
-                )
-                if not publication.publish(computations[-1]):
-                    break
-                continue
-            summary = response.content
-            if summary is None:
-                summary = json.dumps(response.data or {}, sort_keys=True)
-            effective_cost = 0.0 if response.cached else response.cost
+            require_execution_sources(project, op_id)
+            response = await _complete_reduce_group_summary_call(
+                router,
+                recorder,
+                request,
+                trace_record,
+            )
+        except Exception as exc:  # noqa: BLE001 - per-group failure is persisted
             computations.append(
                 {
                     "group": group,
-                    "summary": summary,
-                    "error": None,
-                    "tokens_in": response.tokens_in,
-                    "tokens_out": response.tokens_out,
-                    "cost": effective_cost,
-                    "model_call": _reduce_group_summary_model_call(
-                        params.model, response
-                    ),
+                    **_reduce_group_summary_failure_computation(params, router, exc),
                     "direct_effect": envelope,
                     "consumed_capture": resolved["consumed_capture"],
                     "_trace_record": trace_record[0],
@@ -817,9 +791,27 @@ async def _complete_reduce_group_summaries_unfenced(
             )
             if not publication.publish(computations[-1]):
                 break
-    except BaseException:
-        set_attempt_state(project, commitment.attempt_id, "halted")
-        raise
+            continue
+        summary = response.content
+        if summary is None:
+            summary = json.dumps(response.data or {}, sort_keys=True)
+        effective_cost = 0.0 if response.cached else response.cost
+        computations.append(
+            {
+                "group": group,
+                "summary": summary,
+                "error": None,
+                "tokens_in": response.tokens_in,
+                "tokens_out": response.tokens_out,
+                "cost": effective_cost,
+                "model_call": _reduce_group_summary_model_call(params.model, response),
+                "direct_effect": envelope,
+                "consumed_capture": resolved["consumed_capture"],
+                "_trace_record": trace_record[0],
+            }
+        )
+        if not publication.publish(computations[-1]):
+            break
     return computations
 
 
@@ -832,7 +824,7 @@ async def _complete_reduce_group_summaries_checkpointed(
     publication,
 ) -> list[dict[str, Any]] | ActionError:
     from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
-    from frisket.execution.attempt import AttemptClaimRefused, set_attempt_state
+    from frisket.execution.attempt import AttemptClaimRefused
     from frisket.execution.attempt_authority import mint_direct_effect_attempt
 
     store = EffectCheckpointStore(project.db)
@@ -942,7 +934,6 @@ async def _complete_reduce_group_summaries_checkpointed(
         )
         envelope = {"op_id": op_id, "run_id": run_id, "attempt_id": None}
 
-    minted_attempt_id: str | None = None
     if plans:
         try:
             commitment = mint_direct_effect_attempt(
@@ -959,39 +950,28 @@ async def _complete_reduce_group_summaries_checkpointed(
                 action_kind=params.action_kind,
                 details={"retryable": True},
             )
-        minted_attempt_id = commitment.attempt_id
-        envelope["attempt_id"] = minted_attempt_id
+        envelope["attempt_id"] = commitment.attempt_id
 
     resolved["execution_effect"] = envelope
     publication.start(resolved, envelope)
     # The attempt covers both provider dispatch and the later project-result
     # transaction. It must remain dispatching until that transaction commits:
     # otherwise the effect-site fence would correctly reject its own writer.
-    try:
-        computations = await _reduce_group_summary_checkpointed_loop(
-            params,
-            plans,
-            existing,
-            envelope=envelope,
-            group_key=group_key,
-            publication=publication,
-            store=store,
-            run_store=run_store,
-            router=router,
-            recorder=_reduce_group_summary_trace_writer(
-                project, params, int(envelope["run_id"])
-            ),
-        )
-    except StaleAttemptWriter:
-        raise
-    except BaseException:
-        if minted_attempt_id is not None:
-            set_attempt_state(project, minted_attempt_id, "halted")
-        raise
-    if isinstance(computations, ActionError):
-        if minted_attempt_id is not None:
-            set_attempt_state(project, minted_attempt_id, "halted")
-        return computations
+    computations = await _reduce_group_summary_checkpointed_loop(
+        params,
+        plans,
+        existing,
+        envelope=envelope,
+        group_key=group_key,
+        publication=publication,
+        store=store,
+        run_store=run_store,
+        router=router,
+        recorder=_reduce_group_summary_trace_writer(
+            project, params, int(envelope["run_id"])
+        ),
+    )
+    return computations
     return computations
 
 
