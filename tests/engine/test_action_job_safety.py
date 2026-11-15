@@ -222,3 +222,11 @@ def test_reservation_does_not_own_a_transaction_when_begin_fails(tmp_path, monke
     finally:
         project.db.rollback()
         project.close()
+
+
+def test_action_executor_registration_requires_execution_owner():
+    registry = HandlerRegistry()
+    with pytest.raises(TypeError, match="execution"):
+        registry.register_action_executor(
+            "missing.owner", lambda project, envelope: None
+        )

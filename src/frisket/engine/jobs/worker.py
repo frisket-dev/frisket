@@ -15,6 +15,7 @@ embeddings, watches, notifications) that every edition composes;
 
 from __future__ import annotations
 
+import inspect
 import logging
 import os
 import socket
@@ -271,6 +272,8 @@ class HandlerRegistry:
     def register_action_executor(
         self, kind: str, fn: Callable[[Any, Any], Any]
     ) -> None:
+        # Refuse incomplete worker composition before a queued job can be claimed.
+        inspect.signature(fn).bind(None, None, execution=None)
         self._action_executors[kind] = fn
 
     def register_recovery_hook(self, fn: Callable[[JobQueue], None]) -> None:

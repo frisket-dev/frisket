@@ -124,7 +124,7 @@ def _row_id(env, text):
 def _registry(env, gateway):
     reg = HandlerRegistry()
     register_embedding_refresh_handler(
-        reg, workspace_root=env.workspace, gateway=gateway
+        reg, workspace_root=env.workspace, gateway=gateway, queue=env.queue
     )
     return reg
 
@@ -612,3 +612,28 @@ def test_source_poll_skips_embedding_watches_inline(env):
     # embedding watches are deferred to post-refresh; non-embedding stay inline
     assert emb_watch not in affected
     assert fts_watch in affected
+
+
+def test_queued_refresh_cancellation_after_run_mint_stops_purchase(env, monkeypatch):
+    from frisket.engine.executor.action_families import embeddings
+
+    _create_index(env)
+    [job_id] = _trigger(env, _all_rows(env))
+    gateway = FakeGateway()
+    mint = embeddings.mint_direct_effect_attempt
+
+    def cancel_after_mint(project, **kwargs):
+        result = mint(project, **kwargs)
+        assert env.queue.cancel(job_id)
+        return result
+
+    monkeypatch.setattr(embeddings, "mint_direct_effect_attempt", cancel_after_mint)
+    assert Worker(env.queue, _registry(env, gateway)).run_once()
+    assert not gateway.calls
+    [run] = env.project.db.execute("SELECT status FROM runs").fetchall()
+    assert run["status"] == "cancelled"
+    [attempt] = env.project.db.execute(
+        "SELECT state FROM execution_attempts"
+    ).fetchall()
+    assert attempt["state"] == "halted"
+    assert not env.project.db.in_transaction

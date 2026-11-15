@@ -315,3 +315,10 @@ def test_embedding_refresh_checks_run_cancellation_before_provider(
                 else None,
             )
         assert not calls
+        assert not project.db.in_transaction
+        [run] = project.db.execute("SELECT status FROM runs").fetchall()
+        assert run["status"] == "cancelled"
+        [attempt] = project.db.execute(
+            "SELECT state FROM execution_attempts"
+        ).fetchall()
+        assert attempt["state"] == "halted"
