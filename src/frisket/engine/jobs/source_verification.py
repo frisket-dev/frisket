@@ -9,8 +9,7 @@ from pathlib import Path
 
 from frisket.engine.store import Project
 from frisket.engine.store.consumed_sources import (
-    authority_revisions,
-    capture_columns,
+    capture_revisions,
     verify_bundle,
 )
 
@@ -29,9 +28,7 @@ def enqueue_source_verification(
     ).fetchone()
     if bundle is None:
         return None
-    revisions = authority_revisions(
-        project, capture_columns(json.loads(bundle["capture_json"]))
-    )
+    revisions = capture_revisions(project, json.loads(bundle["capture_json"]))
     revision_key = hashlib.sha256(
         json.dumps(revisions, sort_keys=True).encode()
     ).hexdigest()

@@ -3,6 +3,7 @@ from __future__ import annotations
 from frisket.engine.store.cell_reference import evidence_subject_ref
 
 import json
+import hashlib
 from dataclasses import dataclass
 from typing import Any
 
@@ -18,6 +19,7 @@ class ResolvedWordStream:
     stream: WordStream
     page_images: dict[str, Any]
     artifact_id: int
+    span_identity: str
     engine: str = ""
     token_granularity: str = "word"
 
@@ -91,13 +93,14 @@ def iter_ocr_word_streams(project: Any, blob_hash: str | None):
             if engine in {"rapidocr", "pp-ocrv6", "paddleocr", "datalab"}:
                 token_granularity = "line"
         artifact_id = int(row["id"])
-        tokens = _tokens_from_region_spans(project, artifact_id)
+        tokens, span_identity = _tokens_from_region_spans(project, artifact_id)
         if not tokens:
             continue
         yield ResolvedWordStream(
             stream=WordStream(tokens=tokens),
             page_images=page_images,
             artifact_id=artifact_id,
+            span_identity=span_identity,
             engine=engine,
             token_granularity=token_granularity,
         )
@@ -243,13 +246,16 @@ def resolve_current_ocr_evidence(
     return tuple(resolved)
 
 
-def _tokens_from_region_spans(project: Any, artifact_id: int) -> list[WordToken]:
+def _tokens_from_region_spans(
+    project: Any, artifact_id: int
+) -> tuple[list[WordToken], str]:
     span_rows = project.db.execute(
-        "SELECT page_start, bbox_json, quote, snippet FROM source_spans "
+        "SELECT id,page_start, bbox_json, quote, snippet FROM source_spans "
         "WHERE artifact_id=? AND span_kind='region' ORDER BY id",
         (artifact_id,),
-    ).fetchall()
+    )
     tokens: list[WordToken] = []
+    identity = hashlib.sha256()
     for span in span_rows:
         bbox_list = _loads(span["bbox_json"], [])
         if not isinstance(bbox_list, list) or not bbox_list:
@@ -279,4 +285,8 @@ def _tokens_from_region_spans(project: Any, artifact_id: int) -> list[WordToken]
                 source="ocr",
             )
         )
-    return tokens
+        identity.update(
+            json.dumps(["source_span", span["id"]], separators=(",", ":")).encode()
+            + b"\n"
+        )
+    return tokens, identity.hexdigest()

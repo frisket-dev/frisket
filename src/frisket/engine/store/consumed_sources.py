@@ -48,6 +48,53 @@ CREATE INDEX IF NOT EXISTS idx_consumed_sources_column
   ON consumed_source_columns(column_id,bundle_id);
 """
 
+# This token only invalidates positioned-source caches. Exact comparison below
+# still chooses the actual typed artifact/geometry version and decides staleness.
+_POSITIONED_GUARD_KEY = "positioned_source_revision"
+for _table in ("source_artifacts", "source_spans"):
+    for _event in ("INSERT", "UPDATE", "DELETE"):
+        _aliases = (
+            ("OLD", "NEW")
+            if _event == "UPDATE"
+            else (("OLD",) if _event == "DELETE" else ("NEW",))
+        )
+        if _table == "source_artifacts":
+            _condition = " OR ".join(
+                f"(json_type({alias}.metadata,'$.engine') IS NOT NULL AND json_type({alias}.metadata,'$.page_images')='object')"
+                for alias in _aliases
+            )
+        else:
+            _condition = " OR ".join(
+                f"EXISTS(SELECT 1 FROM source_artifacts artifact WHERE artifact.id={alias}.artifact_id "
+                "AND json_type(artifact.metadata,'$.engine') IS NOT NULL AND json_type(artifact.metadata,'$.page_images')='object')"
+                for alias in _aliases
+            )
+        CONSUMED_SOURCE_SCHEMA_SQL += f"""
+CREATE TRIGGER IF NOT EXISTS positioned_guard_{_table}_{_event.lower()}
+AFTER {_event} ON {_table} WHEN {_condition}
+BEGIN
+  INSERT INTO meta(key,value) VALUES ('{_POSITIONED_GUARD_KEY}','1')
+  ON CONFLICT(key) DO UPDATE SET value=CAST(meta.value AS INTEGER)+1;
+END;
+"""
+
+
+def positioned_source_revision(project: Any) -> int:
+    row = project.db.execute(
+        "SELECT value FROM meta WHERE key=?", (_POSITIONED_GUARD_KEY,)
+    ).fetchone()
+    return int(row[0]) if row is not None else 0
+
+
+def capture_revisions(project: Any, capture: Mapping[str, Any]) -> dict[str, int]:
+    revisions = authority_revisions(project, capture_columns(capture))
+    if capture.get("positioned_scopes") or any(
+        scope.get("positioned_guard") for scope in capture.get("scopes", ())
+    ):
+        revisions[_POSITIONED_GUARD_KEY] = positioned_source_revision(project)
+    return revisions
+
+
 CAPTURE_BATCH_SIZE = 1000
 INLINE_CHECK_ROWS = 1000
 
@@ -443,7 +490,7 @@ def merge_captures(captures: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         for column_id, revision in capture["revisions"].items():
             coherent = coherent and revisions.get(column_id, revision) == revision
             revisions[column_id] = revision
-    return {
+    merged = {
         "schema_version": 1,
         "kind": "aggregate",
         "scopes": scopes,
@@ -457,6 +504,12 @@ def merge_captures(captures: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         ],
         "incomplete": any(capture.get("incomplete") for capture in captures),
     }
+    positioned = [
+        scope for capture in captures for scope in capture.get("positioned_scopes", ())
+    ]
+    if positioned:
+        merged["positioned_scopes"] = positioned
+    return merged
 
 
 def _retained_records(
@@ -519,6 +572,10 @@ def capture_retained_results(
     inherited_count = 0
     for row in _retained_dependencies(project, scope):
         dependency = json.loads(row["capture_json"])
+        if dependency.get("positioned_scopes") or any(
+            source.get("positioned_guard") for source in dependency.get("scopes", ())
+        ):
+            scope["positioned_guard"] = True
         inherited_columns_set.update(capture_columns(dependency))
         inherited_count += (
             1
@@ -528,6 +585,10 @@ def capture_retained_results(
                 for source in dependency.get("scopes", ())
                 for part in source["partitions"]
             )
+        )
+        inherited_count += sum(
+            source["verification_units"]
+            for source in dependency.get("positioned_scopes", ())
         )
     inherited_columns = sorted(inherited_columns_set)
     scope["dependency_columns"] = inherited_columns
@@ -642,7 +703,7 @@ def store_capture(
             )
         return int(existing["id"])
     columns = capture_columns(capture)
-    current = authority_revisions(project, columns)
+    current = capture_revisions(project, capture)
     fresh = (
         bool(capture.get("coherent"))
         and not capture.get("incomplete")
@@ -698,6 +759,18 @@ def _verify_aggregate(
 ) -> bool | None:
     if capture.get("incomplete"):
         return None
+    for positioned in capture.get("positioned_scopes", ()):
+        if cancelled is not None and cancelled():
+            return None
+        from frisket.engine.executor.document_extraction_read import (
+            positioned_scope_fingerprint,
+        )
+
+        if (
+            positioned_scope_fingerprint(snapshot, positioned, cancelled=cancelled)
+            != positioned["fingerprint"]
+        ):
+            return False
     for check in capture.get("membership_checks", ()):
         _, current = source_membership(snapshot, check["sheet_id"], check["cohort"])
         if current != check:
@@ -815,12 +888,11 @@ def verify_bundle(
     capture = json.loads(bundle["capture_json"])
     if capture["kind"] == "purged" or capture.get("incomplete"):
         return "unknown"
-    columns = capture_columns(capture)
     context = (
         nullcontext(project) if project.db.in_transaction else project.read_snapshot()
     )
     with context as snapshot:
-        revisions = authority_revisions(snapshot, columns)
+        revisions = capture_revisions(snapshot, capture)
         equal = (
             _verify_row(snapshot, capture)
             if capture["kind"] == "row"
@@ -834,7 +906,7 @@ def verify_bundle(
     if started:
         project.db.execute("BEGIN IMMEDIATE")
     try:
-        if authority_revisions(project, columns) != revisions:
+        if capture_revisions(project, capture) != revisions:
             state = "unknown"
         project.db.execute(
             "UPDATE consumed_source_bundles SET state=?,checked_revisions_json=? "
@@ -886,7 +958,7 @@ def bundle_state(
                 else _verify_aggregate(snapshot, capture)
             )
         return "unknown" if equal is None else ("fresh" if equal else "stale")
-    revisions = authority_revisions(project, columns)
+    revisions = capture_revisions(project, capture)
     if bundle["state"] in {"fresh", "stale"} and revisions == json.loads(
         bundle["checked_revisions_json"]
     ):
@@ -897,6 +969,9 @@ def bundle_state(
         else sum(
             part["count"] for scope in capture["scopes"] for part in scope["partitions"]
         )
+    )
+    count += sum(
+        scope["verification_units"] for scope in capture.get("positioned_scopes", ())
     )
     if allow_inline and count <= INLINE_CHECK_ROWS:
         return verify_bundle(project, bundle_id)
