@@ -160,13 +160,18 @@ def test_changed_contract_retries_empty_failed_reservation_with_fresh_identity(
         assert project.undo() == recovered_op
         assert project.undo() == repeated_op
         assert project.undo() == failed_op
-        assert project.redo() == failed_op
+        from frisket.engine.store.op_log import RestorationUnavailable, step_operation
+
+        # Retired incompatible destinations cannot be silently recreated by
+        # restoring a saved failure. The newer valid output remains restorable.
+        with pytest.raises(RestorationUnavailable, match="destination is unavailable"):
+            project.redo()
         assert project.get_column(old_column)["active"] == 0
-        assert project.redo() == repeated_op
-        assert project.get_column(old_column)["active"] == 0
-        assert project.redo() == recovered_op
+        with project.transaction_scope():
+            step_operation(project, "restore", op_id=recovered_op)
         assert project.get_column(new_column)["active"] == 1
-        assert generations.read_cell_heads(old_column, [row_id]) == repeated_heads
+        assert generations.read_cell_heads(old_column, [row_id]) == {}
+        assert generations.get_binding(failed.run_id, old_column) == old_binding
     finally:
         project.close()
 
@@ -442,7 +447,7 @@ class _LegacyOverwriteRecipe(Recipe):
         return {"digits": "legacy overwrite"}
 
 
-def test_cancelled_existing_batch_leaves_unattempted_heads_unchanged(
+def test_cancelled_batch_cannot_publish_returned_values_after_stop(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -511,14 +516,21 @@ def test_cancelled_existing_batch_leaves_unattempted_heads_unchanged(
             "WHERE run_id=? AND column_id=? ORDER BY row_id",
             (second.run_id, output_id),
         ).fetchall()
-        assert [
-            (int(row["row_id"]), row["publication_effect"]) for row in second_rows
-        ] == [(row_ids[0], "publish_value")]
-        heads = generation_store.read_cell_heads(output_id, row_ids)
-        assert heads[row_ids[0]].run_id == second.run_id
-        assert heads[row_ids[0]].value == "replacement"
-        assert heads[row_ids[1]] == first_heads[row_ids[1]]
-        assert heads[row_ids[2]] == first_heads[row_ids[2]]
+        # The recipe observes Stop before the batch reaches publication.
+        assert second_rows == []
+        assert generation_store.read_cell_heads(output_id, row_ids) == {}
+        assert project.get_values(sheet_id, output_id) == dict.fromkeys(row_ids)
+        assert {
+            row[0]
+            for row in project.db.execute(
+                "SELECT outcome FROM effective_current_cells WHERE column_id=?",
+                (output_id,),
+            )
+        } == {"not_completed"}
+        assert project.db.execute(
+            "SELECT COUNT(*) FROM results WHERE run_id=? AND published=1",
+            (first.run_id,),
+        ).fetchone()[0] == len(row_ids)
     finally:
         project.close()
 
@@ -903,6 +915,10 @@ def test_undone_scalar_ai_column_does_not_block_fresh_managed_output(tmp_path):
         project.add_rows(sheet, [{"note": "record 123"}], {"note": source})
         old = project.add_column(sheet, "digits", ai_generated=True)
         op = append_op(project, "add_column", undo_info={"created_columns": [old]})
+        from frisket.engine.store.changes import start_change
+
+        with project.transaction_scope():
+            start_change(project.db, op, writing=False)
         assert project.undo() == op
         result = run_typed_map_request(
             project,
@@ -1199,8 +1215,14 @@ def test_unbound_managed_declaration_failure_never_moves_revival_pointer(
         ).fetchone()
         assert draft is not None
         assert project.get_column(draft["id"])["active"] == 0
-        assert project.undo() == refused_run["op_id"]
-        assert project.redo() == refused_run["op_id"]
+        # Refused declaration never started a data Change and must not
+        # become an ordinary Undo/Redo entry merely because a run exists.
+        assert (
+            project.db.execute(
+                "SELECT change_order FROM ops WHERE id=?", (refused_run["op_id"],)
+            ).fetchone()[0]
+            is None
+        )
         assert project.get_column(draft["id"])["active"] == 0
         assert project.get_column(draft["id"])["hidden"] == 1
 
@@ -1420,7 +1442,7 @@ def test_regex_writer_streams_fresh_then_seals_exact_replacement(
             {"note": note_column},
         )
         generation_store = ResultGenerationStore(project)
-        original_write_results = RunResultStore.write_results
+        original_publish_results = RunResultStore.publish_result_batch
         fresh_flushes: list[tuple[int, int]] = []
 
         def observe_fresh_flush(
@@ -1429,7 +1451,7 @@ def test_regex_writer_streams_fresh_then_seals_exact_replacement(
             batch: list[dict[str, Any]],
             **kwargs: Any,
         ) -> None:
-            original_write_results(store, run_id, batch, **kwargs)
+            original_publish_results(store, run_id, batch, **kwargs)
             run = store.get_run(run_id)
             assert run is not None
             assert run["status"] == "running"
@@ -1446,13 +1468,15 @@ def test_regex_writer_streams_fresh_then_seals_exact_replacement(
                 assert head.publication_effect == result["publication_effect"]
                 fresh_flushes.append((row_id, column_id))
 
-        monkeypatch.setattr(RunResultStore, "write_results", observe_fresh_flush)
+        monkeypatch.setattr(RunResultStore, "publish_result_batch", observe_fresh_flush)
         first = run_typed_map_request(
             project,
             _regex_action(sheet_id, key="p3b-writer-fresh@sha256:v1"),
             project_id="p3b-writer",
         )
-        monkeypatch.setattr(RunResultStore, "write_results", original_write_results)
+        monkeypatch.setattr(
+            RunResultStore, "publish_result_batch", original_publish_results
+        )
 
         assert first.status == "completed", first.errors
         output_row = project.db.execute(
@@ -1509,30 +1533,32 @@ def test_regex_writer_streams_fresh_then_seals_exact_replacement(
             return await original_execute(recipe, row_values, spec, ctx)
 
         monkeypatch.setattr(_TypedMapRowsProgram, "execute", omit_declared_output)
-        staged_flushes: list[tuple[int, int]] = []
+        replacement_flushes: list[tuple[int, int]] = []
 
-        def observe_staged_flush(
+        def observe_replacement_flush(
             store: RunResultStore,
             run_id: int,
             batch: list[dict[str, Any]],
             **kwargs: Any,
         ) -> None:
-            original_write_results(store, run_id, batch, **kwargs)
+            original_publish_results(store, run_id, batch, **kwargs)
             for result in batch:
                 row_id = int(result["row_id"])
                 column_id = int(result["column_id"])
                 binding = generation_store.get_binding(run_id, column_id)
                 assert binding is not None
                 assert binding.write_mode == "replace_scope"
-                assert binding.state == "staged"
-                # Durable staged results do not become live heads piecemeal.
-                assert (
-                    generation_store.read_cell_heads(column_id, [row_id])[row_id]
-                    == first_heads[row_id]
-                )
-                staged_flushes.append((row_id, column_id))
+                assert binding.state == "active"
+                # Same-descriptor replacements publish each complete family
+                # at the shared publication boundary, before terminal sealing.
+                head = generation_store.read_cell_heads(column_id, [row_id])[row_id]
+                assert head.run_id == run_id
+                assert head.value == result["value"]
+                replacement_flushes.append((row_id, column_id))
 
-        monkeypatch.setattr(RunResultStore, "write_results", observe_staged_flush)
+        monkeypatch.setattr(
+            RunResultStore, "publish_result_batch", observe_replacement_flush
+        )
         replacement_plan = _typed_regex_plan(
             project,
             sheet_id,
@@ -1556,7 +1582,9 @@ def test_regex_writer_streams_fresh_then_seals_exact_replacement(
 
         assert second.done
         assert second.failed == 1
-        assert {row_id for row_id, _column_id in staged_flushes} == set(row_ids[:3])
+        assert {row_id for row_id, _column_id in replacement_flushes} == set(
+            row_ids[:3]
+        )
         second_results = project.db.execute(
             "SELECT row_id,publication_effect FROM results "
             "WHERE run_id=? AND column_id=? ORDER BY row_id",

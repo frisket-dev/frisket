@@ -266,10 +266,12 @@ def test_descriptor_replacement_publishes_values_and_descriptor_at_seal_and_undo
             "format": None,
             "semantic_type": None,
         }
-        # An active replacement Change masks the prior value while its new
-        # descriptor and result family are still pending.
-        assert project.get_values(sheet_id, column_id)[row_ids[0]] is None
-        assert generations.read_cell_heads(column_id) == {}
+        # Descriptor-changing work is staged: neither values nor its pending
+        # scope can replace the old descriptor's usable data before sealing.
+        assert project.get_values(sheet_id, column_id)[row_ids[0]] == "manual"
+        assert {
+            head.run_id for head in generations.read_cell_heads(column_id).values()
+        } == {first.run_id}
         token = replacement.authority.claim_token
         assert token is not None
         fence = generations._require_active_claim(
@@ -421,12 +423,14 @@ def test_aborted_descriptor_replacement_stays_unpublished_across_rebuild_and_ret
         RunResultStore(project).finish_run(
             replacement.run_id, disposition, **replacement.authority.terminal_kwargs()
         )
-        assert generations.read_cell_heads(column_id) == {}
+        assert {
+            head.run_id for head in generations.read_cell_heads(column_id).values()
+        } == {first.run_id}
         assert _outcomes(project, column_id) == {
-            row_id: "not_completed" for row_id in row_ids
+            row_id: "completed" for row_id in row_ids
         }
-        # Neither the prior published results nor the failed attempt's saved
-        # checkpoints are discarded by its not-completed mask.
+        # The aborted staged generation retains its saved results without
+        # replacing the prior published values or descriptor.
         assert project.db.execute(
             "SELECT COUNT(*) FROM results WHERE run_id=? AND published=1",
             (first.run_id,),
@@ -440,9 +444,11 @@ def test_aborted_descriptor_replacement_stays_unpublished_across_rebuild_and_ret
         )
 
         generations.rebuild_heads([column_id])
-        assert generations.read_cell_heads(column_id) == {}
+        assert {
+            head.run_id for head in generations.read_cell_heads(column_id).values()
+        } == {first.run_id}
         assert _outcomes(project, column_id) == {
-            row_id: "not_completed" for row_id in row_ids
+            row_id: "completed" for row_id in row_ids
         }
         assert _seal(generations, replacement, column_id, disposition=disposition) == 0
         info = json.loads(
@@ -480,7 +486,7 @@ def test_aborted_descriptor_replacement_stays_unpublished_across_rebuild_and_ret
 
 
 @pytest.mark.parametrize("disposition", ["cancelled", "failed"])
-def test_coupled_abort_masks_previous_heads_and_cannot_publish_on_retry(
+def test_coupled_abort_preserves_previous_heads_and_cannot_publish_on_retry(
     tmp_path: Path, disposition: str
 ) -> None:
     project, sheet_id, column_id, row_ids = _seed_project(tmp_path)
@@ -528,9 +534,11 @@ def test_coupled_abort_masks_previous_heads_and_cannot_publish_on_retry(
         RunResultStore(project).finish_run(
             second.run_id, disposition, **second.authority.terminal_kwargs()
         )
-        assert generations.read_cell_heads(column_id) == {}
+        assert {
+            head.run_id for head in generations.read_cell_heads(column_id).values()
+        } == {first.run_id}
         assert _outcomes(project, column_id) == {
-            row_id: "not_completed" for row_id in row_ids
+            row_id: "completed" for row_id in row_ids
         }
         assert (
             project.db.execute(
@@ -1113,9 +1121,9 @@ def test_staged_idempotent_write_refuses_undone_op_without_partial_mutation(
             generations.read_cell_heads(output_column_id),
         )
         assert after[:2] == before[:2]
-        # Undo itself restores the old head; the refused writer changes no
-        # payload or counter, and cannot reapply its pending mask.
-        assert set(before[2]) == set(row_ids[1:])
+        # Deferred work never masked the old heads. Undo and the refused
+        # writer preserve them, the saved payload, and all counters.
+        assert set(before[2]) == set(row_ids)
         assert set(after[2]) == set(row_ids)
         assert {head.run_id for head in after[2].values()} == {first.run_id}
     finally:

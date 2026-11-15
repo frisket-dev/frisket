@@ -243,8 +243,35 @@ def test_pdf_pages_bind_distinct_document_handles_with_identical_bytes(tmp_path)
                 [(row_ids[1], "Renamed", pages[0]), (row_ids[0], "Renamed", pages[1])]
             )
             prepared = _prepare(project, plan)
+            # The real importer materializes source cells before binding their
+            # evidence. Empty placeholder rows alone have no value identity.
+            from frisket.engine.store.cell_writes import (
+                BaseCellWrite,
+                create_base_cell_producer,
+                initialize_base_cells,
+            )
+
             project.db.execute("BEGIN IMMEDIATE")
-            published = _publish(project, prepared, sheet, columns)
+            op_id = op_log.append_op(project, "import.pdf", spec={}, commit=False)
+            producer_id = create_base_cell_producer(
+                project.db, stage_id=f"op:{op_id}", op_id=op_id
+            )
+            initialize_base_cells(
+                project.db,
+                producer_id=producer_id,
+                cells=[
+                    BaseCellWrite(row_id, columns["Renamed"], stager.lower(page))
+                    for row_id, page in zip(reversed(row_ids), pages, strict=True)
+                ],
+            )
+            published = publish_import_blobs(
+                project,
+                prepared,
+                sheet_id=sheet,
+                column_ids=columns,
+                op_id=op_id,
+                receipt_id="receipt-import",
+            )
             project.db.commit()
             docs = [ref for ref in published if ref["kind"] == "imported_pdf_document"]
             images = [
