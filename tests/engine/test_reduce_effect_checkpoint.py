@@ -482,3 +482,134 @@ def test_free_local_reduce_effect_makes_no_checkpoints(project) -> None:
     assert attempt["run_id"] == run_id
     assert attempt["state"] == "effected"
     assert RunResultStore(project).model_calls(run_id)
+
+
+@pytest.mark.skipif(
+    __import__("os").name != "posix", reason="SIGKILL process-death contract"
+)
+def test_group_refresh_recovers_committed_state_after_sigkill(project, tmp_path):
+    import signal
+    import subprocess
+    import sys
+    from pathlib import Path
+    from contextlib import closing
+
+    project.set_provider_key(
+        provider="anthropic",
+        encrypted=encrypt_secret("sk-ant-test"),
+        hint=key_hint("sk-ant-test"),
+        spend_cap_micro=100_000,
+    )
+    router = _project_key_router(_CountingSummaryAdapter())
+    original = _run(project, _action(project._sheet_id, key="before-kill"), router)
+    assert original.status == "completed", original.errors
+    sheet_id = original.outputs[0].sheet_id
+    path = project.path
+    project.close()
+    child = tmp_path / "kill-group.py"
+    child.write_text("""
+import os,signal,sys
+from pathlib import Path
+sys.path[:0]=[sys.argv[3],str(Path(sys.argv[3]).parent)]
+from test_reduce_effect_checkpoint import _CountingSummaryAdapter,_project_key_router,_run
+from frisket.engine.store import Project
+from frisket.engine.executor.group_summary_publication import GroupPublication
+p=Project(Path(sys.argv[1]))
+original=GroupPublication.publish
+count=0
+def publish(self,value):
+ global count
+ count+=1
+ if count == 2:
+  os.kill(os.getpid(),signal.SIGKILL)
+ return original(self,value)
+GroupPublication.publish=publish
+_run(p,{'action_id':'sheet.refresh','scope':{'kind':'project'},'params':{'sheet_id':int(sys.argv[2])},'idempotency_key':'killed-refresh'},_project_key_router(_CountingSummaryAdapter()))
+raise RuntimeError('death hook was not reached')
+""")
+    child_run = subprocess.run(
+        [
+            sys.executable,
+            str(child),
+            str(path),
+            str(sheet_id),
+            str(Path(__file__).resolve().parent),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=45,
+    )
+    assert child_run.returncode == -signal.SIGKILL, child_run.stdout + child_run.stderr
+    with closing(Project(path)) as reopened:
+        receipt = reopened.db.execute(
+            "SELECT * FROM receipts WHERE idempotency_key='killed-refresh'"
+        ).fetchone()
+        run_id = receipt["run_id"]
+        assert receipt["status"] == "running"
+        assert (
+            reopened.db.execute(
+                "SELECT state FROM execution_attempts WHERE run_id=? ORDER BY seq DESC LIMIT 1",
+                (run_id,),
+            ).fetchone()[0]
+            == "dispatching"
+        )
+        assert (
+            reopened.db.execute(
+                "SELECT COUNT(*) FROM results WHERE run_id=?", (run_id,)
+            ).fetchone()[0]
+            == 1
+        )
+        assert (
+            reopened.db.execute(
+                "SELECT COUNT(*) FROM effect_checkpoints c JOIN execution_attempts a ON a.id=c.authorized_attempt_id WHERE a.run_id=? AND c.state='returned'",
+                (run_id,),
+            ).fetchone()[0]
+            == 1
+        )
+        reopened.db.execute(
+            "UPDATE execution_attempts SET created_at='2000-01-01' WHERE run_id=?",
+            (run_id,),
+        )
+        reopened.db.execute(
+            "UPDATE output_column_claims SET lease_expires_at='2000-01-01' WHERE run_id=?",
+            (run_id,),
+        )
+        reopened.db.execute(
+            "UPDATE sheets SET refresh_lease_expires_at='2000-01-01' WHERE id=?",
+            (sheet_id,),
+        )
+        reopened.db.commit()
+        # Read-only ownership inspection does not mutate or abandon an attempt.
+        assert (
+            reduces._recoverable_group_run(reopened, receipt, receipt["params_hash"])
+            is None
+        )
+        assert (
+            reopened.db.execute(
+                "SELECT state FROM execution_attempts WHERE run_id=? ORDER BY seq DESC LIMIT 1",
+                (run_id,),
+            ).fetchone()[0]
+            == "dispatching"
+        )
+        provider = _CountingSummaryAdapter()
+        recovered = _run(
+            reopened,
+            {
+                "action_id": "sheet.refresh",
+                "scope": {"kind": "project"},
+                "params": {"sheet_id": sheet_id},
+                "idempotency_key": "killed-refresh",
+            },
+            _project_key_router(provider),
+        )
+        assert recovered.status == "completed", recovered.errors
+        assert recovered.run_id == run_id
+        assert recovered.outputs[0].sheet_id == sheet_id
+        assert provider.requests == []
+        assert (
+            reopened.db.execute(
+                "SELECT COUNT(*) FROM results WHERE run_id=?", (run_id,)
+            ).fetchone()[0]
+            == 2
+        )
+        assert reopened.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 2

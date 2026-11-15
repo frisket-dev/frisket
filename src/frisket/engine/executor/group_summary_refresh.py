@@ -22,7 +22,12 @@ def validate_target(project, params):
     from datetime import datetime, timezone
     from frisket.engine.store.leases import lease_held
 
-    if lease_held(
+    existing = project.db.execute(
+        "SELECT id FROM receipts WHERE idempotency_key=?",
+        (params.request["idempotency_key"],),
+    ).fetchone()
+    own_token = existing["id"] if existing is not None else None
+    if sheet["refresh_claim_token"] != own_token and lease_held(
         sheet["refresh_claim_token"],
         sheet["refresh_lease_expires_at"],
         datetime.now(timezone.utc),

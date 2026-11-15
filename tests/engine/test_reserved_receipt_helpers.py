@@ -500,3 +500,73 @@ def test_reserved_receipt_cleanup_is_wired_across_action_builder_families(
             assert len(module._SEARCH_CALLS) == 2
         else:
             assert_pre_dispatch_failure_is_durable(env.project, before, env.counts())
+
+
+@pytest.mark.parametrize(
+    "claimless,live_lease", [(True, False), (False, False), (False, True)]
+)
+def test_stale_receipt_recovery_rechecks_dispatch_and_real_lease(
+    tmp_path, claimless, live_lease
+):
+    from contextlib import closing
+    from helpers import run_writer_authority_fixture
+    from frisket.engine.store.runs import RunResultStore
+    from frisket.engine.executor.action_reservations import (
+        _running_receipt_stale_result,
+    )
+
+    with closing(Project.create(tmp_path / "stale-dispatch.frisket")) as project:
+        sheet = project.add_sheet("source")
+        output = project.add_column(sheet, "answer")
+        [row] = project.add_rows(sheet, [{}], {})
+        op = project.append_op("test.stale")
+        run = RunResultStore(project).start_run(op, sheet, ACTION_KIND, row_ids=[row])
+        authority = run_writer_authority_fixture(
+            project,
+            run,
+            output_column_ids=set() if claimless else {output},
+            claimless_direct_effect=claimless,
+        )
+        _insert_receipt(
+            project, _receipt().model_copy(update={"run_id": run, "op_ids": [op]})
+        )
+        project.db.execute(
+            "UPDATE receipts SET run_id=?,created_at='2000-01-01' WHERE id=?",
+            (run, RECEIPT_ID),
+        )
+        project.db.execute(
+            "UPDATE execution_attempts SET created_at='2000-01-01' WHERE id=?",
+            (authority.writer_attempt_id,),
+        )
+        if not live_lease:
+            project.db.execute(
+                "UPDATE output_column_claims SET lease_expires_at='2000-01-01' WHERE run_id=?",
+                (run,),
+            )
+        project.db.commit()
+        result = _running_receipt_stale_result(
+            project,
+            _receipt_row(project),
+            params_hash=PARAMS_HASH,
+            project_id=PROJECT_ID,
+            action=_action(),
+        )
+        state = project.db.execute(
+            "SELECT state FROM execution_attempts WHERE id=?",
+            (authority.writer_attempt_id,),
+        ).fetchone()[0]
+        if live_lease:
+            assert result is None
+            assert state == "dispatching"
+            assert _receipt_row(project) is not None
+        else:
+            assert result.errors[0].code == "idempotency_stale_running"
+            assert state == "abandoned"
+            assert _receipt_row(project) is None
+            assert (
+                project.db.execute(
+                    "SELECT COUNT(*) FROM output_column_claims WHERE run_id=? AND status='active'",
+                    (run,),
+                ).fetchone()[0]
+                == 0
+            )

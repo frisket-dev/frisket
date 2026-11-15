@@ -1301,6 +1301,7 @@ def _write_reduce_group_summary_result(
                 raise StaleAttemptWriter(
                     terminal.reason or "cancelled summary could not close"
                 )
+            publication.release_target()
             project.db.commit()
             return ActionResult(
                 action=ActionIdentity(kind=action.kind, action_id=action_id),
@@ -1409,6 +1410,7 @@ def _write_reduce_group_summary_result(
                     f"{terminalization.receipt_disposition}"
                 )
             )
+        publication.release_target()
         project.db.commit()
         _write_reduce_group_summary_traces(
             project,

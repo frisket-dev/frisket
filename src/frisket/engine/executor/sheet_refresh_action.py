@@ -10,7 +10,7 @@ import json
 import logging
 from copy import deepcopy
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Literal, NoReturn
 
 from frisket.actions.core import CreateSheet, _ProjectAction
@@ -48,6 +48,12 @@ from frisket.engine.store.materialization import (
     MaterializedColumnSpec,
 )
 from frisket.engine.store.receipts import ReceiptStore
+
+from .sheet_refresh_ownership import (
+    acquire_refresh_claim,
+    require_refresh_writer,
+    release_refresh_claim,
+)
 
 logger = logging.getLogger("frisket.executor")
 
@@ -341,7 +347,9 @@ def run_typed_sheet_refresh_action(
                 field="idempotency_key",
             )
         from .group_summary_runtime import _recoverable_group_run
+        from .action_reservations import _recover_stale_receipt_attempt
 
+        _recover_stale_receipt_attempt(project, existing, request_hash)
         if _recoverable_group_run(project, existing, request_hash) is not None:
             return None
         return _result_from_receipt(
@@ -386,7 +394,13 @@ def run_typed_sheet_refresh_action(
         )
         action_id, receipt_id = started.action_id, started.receipt_id
         project.db.execute("BEGIN IMMEDIATE")
-        _require_refresh_writer(project, capability.prepared, started)
+        require_refresh_writer(
+            project,
+            sheet_id=capability.prepared.sheet_id,
+            parent_op_id=capability.prepared.parent_op_id,
+            op_id=started.op_ids[0],
+            token=started.receipt_id,
+        )
         sheet_ref = {
             "kind": "materialized_sheet",
             "sheet_id": facts.sheet_id,
@@ -448,7 +462,7 @@ def run_typed_sheet_refresh_action(
         from frisket.engine.store.changes import ChangeStore
 
         ChangeStore(project).close(facts.op_id)
-        _release_refresh_claim(project, facts.sheet_id, receipt_id)
+        release_refresh_claim(project, facts.sheet_id, receipt_id)
         if not ReceiptStore(project).update_body_status(
             receipt, require_status="running", commit=False
         ):
@@ -535,7 +549,11 @@ def _refresh_sheet(
     # another refresh of this sheet is in flight. Expiry compares PARSED
     # datetimes (`lease_held`) — a raw string compare breaks under writer
     # format skew (SQLite datetime('now') vs isoformat).
-    if lease_held(sheet["refresh_claim_token"], sheet["refresh_lease_expires_at"], now):
+    existing = _receipt_for_idempotency(project, bound.request.idempotency_key)
+    own_token = existing["id"] if existing is not None else None
+    if sheet["refresh_claim_token"] != own_token and lease_held(
+        sheet["refresh_claim_token"], sheet["refresh_lease_expires_at"], now
+    ):
         return _fail(
             project_id=project_id,
             code="sheet_refresh_busy",
@@ -827,25 +845,6 @@ def _refresh_join(
             raise
 
 
-def _require_refresh_target(project, sheet_id, parent_op_id):
-    target = project.db.execute(
-        "SELECT s.parent_op_id,s.refresh_claim_token,s.refresh_lease_expires_at FROM sheets s "
-        "JOIN sheets parent ON parent.id=s.parent_sheet_id AND parent.hidden=0 "
-        "WHERE s.id=? AND s.hidden=0",
-        (sheet_id,),
-    ).fetchone()
-    if target is None or target["parent_op_id"] != parent_op_id:
-        raise TableError(
-            "invalid_input_ref", "The refresh target or its source is unavailable"
-        )
-    if lease_held(
-        target["refresh_claim_token"],
-        target["refresh_lease_expires_at"],
-        datetime.now(timezone.utc),
-    ):
-        raise TableError("sheet_refresh_busy", "Another refresh is already in progress")
-
-
 def _reconstruct_derive_request(
     parent_op: Any, idempotency_key: str
 ) -> ActionRequest | None:
@@ -916,7 +915,6 @@ def _begin_staged_refresh(project, project_id, bound, prepared, request_hash):
         require_execution_sources,
     )
 
-    _require_refresh_target(project, prepared.sheet_id, prepared.parent_op_id)
     receipt_id = _new_id("receipt")
     op_id = project.append_op(
         "sheet.refresh",
@@ -950,51 +948,13 @@ def _begin_staged_refresh(project, project_id, bound, prepared, request_hash):
         ],
     )
     ReceiptStore(project).insert_running(receipt, commit=False)
-    project.db.execute(
-        "UPDATE sheets SET refresh_claim_token=?,refresh_lease_expires_at=? WHERE id=?",
-        (
-            receipt.receipt_id,
-            (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
-            prepared.sheet_id,
-        ),
+    acquire_refresh_claim(
+        project,
+        sheet_id=prepared.sheet_id,
+        parent_op_id=prepared.parent_op_id,
+        token=receipt.receipt_id,
     )
     return receipt
-
-
-def _require_refresh_writer(project, prepared, receipt):
-    from frisket.engine.store.changes import ChangeStore
-    from frisket.engine.store.source_dependencies import require_execution_sources
-    from frisket.engine.store.purge import require_publication_targets
-
-    target = project.db.execute(
-        "SELECT parent_op_id,refresh_claim_token,hidden FROM sheets WHERE id=?",
-        (prepared.sheet_id,),
-    ).fetchone()
-    if (
-        target is None
-        or target["hidden"]
-        or target["parent_op_id"] != prepared.parent_op_id
-        or target["refresh_claim_token"] != receipt.receipt_id
-    ):
-        raise TableError("stale_refresh", "The refresh no longer owns its target")
-    ChangeStore(project).start(receipt.op_ids[0])
-    ChangeStore(project).require_publication(receipt.op_ids[0])
-    require_execution_sources(project, receipt.op_ids[0])
-    require_publication_targets(project.db, sheet_id=prepared.sheet_id)
-    project.db.execute(
-        "UPDATE sheets SET refresh_lease_expires_at=? WHERE id=?",
-        (
-            (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
-            prepared.sheet_id,
-        ),
-    )
-
-
-def _release_refresh_claim(project, sheet_id, token):
-    project.db.execute(
-        "UPDATE sheets SET refresh_claim_token=NULL,refresh_lease_expires_at=NULL WHERE id=? AND refresh_claim_token=?",
-        (sheet_id, token),
-    )
 
 
 def _publish_staged_refresh(project, prepared, receipt, *, deps):
@@ -1029,7 +989,13 @@ def _publish_staged_refresh(project, prepared, receipt, *, deps):
                 "cancelled", "Refresh cancelled; completed changes were kept"
             )
         project.db.execute("BEGIN IMMEDIATE")
-        _require_refresh_writer(project, prepared, receipt)
+        require_refresh_writer(
+            project,
+            sheet_id=prepared.sheet_id,
+            parent_op_id=prepared.parent_op_id,
+            op_id=receipt.op_ids[0],
+            token=receipt.receipt_id,
+        )
 
     for batch in prepared.stage.batches():
         begin()
@@ -1094,7 +1060,7 @@ def _finish_refresh_failure(project, receipt, error):
     try:
         ChangeStore(project).close(receipt.op_ids[0])
         sheet_id = receipt.inputs[0].ref["sheet_id"]
-        _release_refresh_claim(project, sheet_id, receipt.receipt_id)
+        release_refresh_claim(project, sheet_id, receipt.receipt_id)
         terminal = receipt.model_copy(
             update={
                 "status": "cancelled" if error.code == "cancelled" else "failed",

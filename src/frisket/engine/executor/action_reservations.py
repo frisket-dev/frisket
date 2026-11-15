@@ -482,6 +482,21 @@ def _running_receipt_is_stale(created_at: Any) -> bool:
     return age.total_seconds() >= RUNNING_RECEIPT_STALE_AFTER_SECONDS
 
 
+def _recover_stale_receipt_attempt(project, receipt, params_hash):
+    """Retry admission may retire an expired dispatch; read-only peeks may not."""
+    if (
+        receipt is not None
+        and _row_value(receipt, "status") == "running"
+        and _row_value(receipt, "params_hash") == params_hash
+        and _row_value(receipt, "run_id") is not None
+    ):
+        abandon_stale_dispatching_attempts(
+            project,
+            int(_row_value(receipt, "run_id")),
+            commit=not project.db.in_transaction,
+        )
+
+
 def _running_receipt_has_live_owner(project: Any, receipt: Any) -> bool:
     """Keep stale-looking reservations while their durable owner can still act."""
     receipt_id = str(_row_value(receipt, "id"))
@@ -496,11 +511,18 @@ def _running_receipt_has_live_owner(project: Any, receipt: Any) -> bool:
         if run is None or str(run["status"]) != "running":
             return True
 
-    if project.db.execute(
-        "SELECT 1 FROM output_column_claims WHERE status='active' AND "
-        "(receipt_id=? OR run_id=?) LIMIT 1",
-        (receipt_id, run_id),
-    ).fetchone():
+    from frisket.engine.store.leases import lease_held
+
+    if any(
+        lease_held(
+            row["claim_token"], row["lease_expires_at"], datetime.now(timezone.utc)
+        )
+        for row in project.db.execute(
+            "SELECT claim_token,lease_expires_at FROM output_column_claims WHERE status='active' AND "
+            "(receipt_id=? OR run_id=?)",
+            (receipt_id, run_id),
+        )
+    ):
         return True
 
     if run_id is not None:
@@ -557,9 +579,17 @@ def _running_receipt_stale_result(
         ):
             project.db.rollback()
             return None
+        _recover_stale_receipt_attempt(project, current, params_hash)
         if _running_receipt_has_live_owner(project, current):
-            project.db.rollback()
+            project.db.commit()
             return None
+        # No live attempt or lease remains. Release the expired reservation's
+        # claims with its receipt so a new admission can actually acquire them.
+        project.db.execute(
+            "UPDATE output_column_claims SET status='released',released_at=datetime('now') "
+            "WHERE status='active' AND (receipt_id=? OR run_id=?)",
+            (receipt_id, current["run_id"]),
+        )
         receipts.delete_if_status(receipt_id, "running", commit=False)
         project.db.commit()
     except Exception as exc:

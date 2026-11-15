@@ -72,6 +72,17 @@ class GroupPublication:
         finally:
             self.stage.close()
 
+    def release_target(self):
+        """Release the sheet lease in the terminal receipt transaction."""
+        if not self.project.db.in_transaction:
+            raise RuntimeError("refresh release requires the terminal transaction")
+        if self.params.refresh_target is not None:
+            from .sheet_refresh_ownership import release_refresh_claim
+
+            release_refresh_claim(
+                self.project, self.params.refresh_target.sheet_id, self.receipt_id
+            )
+
     def stopped(self):
         return self.envelope is not None and RunResultStore(
             self.project
@@ -100,6 +111,7 @@ class GroupPublication:
         op_spec["params"].pop("confirmed", None)
         op_spec["params"].pop("consented_promise_set_hash", None)
         op_spec["params_hash"] = self.params_hash
+        op_spec["refresh_receipt_id"] = self.receipt_id
         op_spec["execution_sources"] = _group_source_binding(resolved)
         self.op_spec = op_spec
         physical = {
@@ -227,11 +239,12 @@ class GroupPublication:
                 )
                 write = self._saved_write(op_id, target.sheet_id)
             self.write = write
+            self._acquire_writer()
             db.commit()
             rows = []
             for batch in self.stage.batches():
                 db.execute("BEGIN IMMEDIATE")
-                ChangeStore(project).require_publication(op_id)
+                self._require_writer()
                 ids = reconcile_rows_into_open_change(
                     db,
                     op_id=op_id,
@@ -286,7 +299,7 @@ class GroupPublication:
                 ),
             )
             db.execute("BEGIN IMMEDIATE")
-            ChangeStore(project).require_publication(op_id)
+            self._require_writer()
             store = RunResultStore(project)
             store.repoint_run_for_result(
                 run_id,
@@ -299,25 +312,6 @@ class GroupPublication:
             )
             store.record_run_row_scope(run_id, rows)
             field = {"name": params.summary_column_name, "column_type": "text"}
-            claims, conflict = OutputColumnClaimStore(project).acquire(
-                sheet_id=write.sheet_id,
-                output_names=[params.summary_column_name],
-                action_kind=params.action_kind,
-                receipt_id=self.receipt_id,
-                run_id=run_id,
-                op_id=op_id,
-                claim_token=self.claim_token,
-                details={"output_fields": [field]},
-                commit=False,
-            )
-            if conflict is not None or len(claims) != 1:
-                raise ValueError("Grouped summary output is already claimed")
-            OutputColumnClaimStore(project).bind_to_run(
-                claim_token=self.claim_token,
-                run_id=run_id,
-                expected_output_names=[params.summary_column_name],
-                commit=False,
-            )
             ResultGenerationStore(project).declare(
                 run_id,
                 write.column_ids[params.summary_column_name],
@@ -341,6 +335,83 @@ class GroupPublication:
         except BaseException:
             db.rollback()
             raise
+
+    def _acquire_writer(self):
+        from .sheet_refresh_ownership import acquire_refresh_claim
+
+        if self.params.refresh_target is not None:
+            target = self.params.refresh_target
+            acquire_refresh_claim(
+                self.project,
+                sheet_id=target.sheet_id,
+                parent_op_id=target.parent_op_id,
+                token=self.receipt_id,
+            )
+        claims = OutputColumnClaimStore(self.project)
+        run_id = int(self.envelope["run_id"])
+        existing = self.project.db.execute(
+            "SELECT claim_token FROM output_column_claims WHERE run_id=? AND status='active'",
+            (run_id,),
+        ).fetchone()
+        if existing is not None:
+            self.claim_token = str(existing[0])
+            claims.renew(
+                claim_token=self.claim_token,
+                run_id=run_id,
+                lease_seconds=300,
+                commit=False,
+            )
+        else:
+            acquired, conflict = claims.acquire(
+                sheet_id=self.write.sheet_id,
+                output_names=[self.params.summary_column_name],
+                action_kind=self.params.action_kind,
+                receipt_id=self.receipt_id,
+                run_id=run_id,
+                op_id=self.write.op_id,
+                claim_token=self.claim_token,
+                lease_seconds=300,
+                details={
+                    "output_fields": [
+                        {"name": self.params.summary_column_name, "column_type": "text"}
+                    ]
+                },
+                commit=False,
+            )
+            if conflict is not None or len(acquired) != 1:
+                raise ValueError("Grouped summary output is already claimed")
+            claims.bind_to_run(
+                claim_token=self.claim_token,
+                run_id=run_id,
+                expected_output_names=[self.params.summary_column_name],
+                commit=False,
+            )
+
+    def _require_writer(self):
+        from .sheet_refresh_ownership import require_refresh_writer
+
+        ChangeStore(self.project).require_publication(self.write.op_id)
+        OutputColumnClaimStore.require_current_writer(
+            self.project.db,
+            run_id=int(self.envelope["run_id"]),
+            writer_attempt_id=str(self.envelope["attempt_id"]),
+            claim_token=self.claim_token,
+        )
+        if self.params.refresh_target is not None:
+            target = self.params.refresh_target
+            require_refresh_writer(
+                self.project,
+                sheet_id=target.sheet_id,
+                parent_op_id=target.parent_op_id,
+                op_id=self.write.op_id,
+                token=self.receipt_id,
+            )
+        OutputColumnClaimStore(self.project).renew(
+            claim_token=self.claim_token,
+            run_id=int(self.envelope["run_id"]),
+            lease_seconds=300,
+            commit=False,
+        )
 
     def _saved_write(
         self, op_id, sheet_id, *, row_ids=(), source_row_ids=(), memberships=()
@@ -404,40 +475,13 @@ class GroupPublication:
             memberships=memberships,
         )
         self.claim_token = binding.claim_token
-        claim = db.execute(
-            "SELECT claim_token FROM output_column_claims WHERE run_id=? AND status='active'",
-            (run_id,),
-        ).fetchone()
-        if claim is not None:
-            self.claim_token = str(claim[0])
-        else:
-            # Recovery replaces an expired claim, never the generation owner.
-            db.execute("BEGIN IMMEDIATE")
-            claims, conflict = OutputColumnClaimStore(project).acquire(
-                sheet_id=sheet_id,
-                output_names=[params.summary_column_name],
-                action_kind=params.action_kind,
-                receipt_id=self.receipt_id,
-                run_id=run_id,
-                op_id=op_id,
-                claim_token=self.claim_token,
-                details={
-                    "output_fields": [
-                        {"name": params.summary_column_name, "column_type": "text"}
-                    ]
-                },
-                commit=False,
-            )
-            if conflict is not None or len(claims) != 1:
-                db.rollback()
-                raise ValueError("Grouped recovery output is already claimed")
-            OutputColumnClaimStore(project).bind_to_run(
-                claim_token=self.claim_token,
-                run_id=run_id,
-                expected_output_names=[params.summary_column_name],
-                commit=False,
-            )
+        db.execute("BEGIN IMMEDIATE")
+        try:
+            self._acquire_writer()
             db.commit()
+        except BaseException:
+            db.rollback()
+            raise
         bundle = db.execute(
             "SELECT capture_json FROM consumed_source_bundles WHERE run_id=? ORDER BY id LIMIT 1",
             (run_id,),
@@ -535,6 +579,7 @@ class GroupPublication:
                     computation["model_call"] = None
                 db.commit()
                 return False
+            self._require_writer()
             error = computation.get("error")
             value = computation.get("summary")
             effect = (
@@ -671,6 +716,7 @@ class GroupPublication:
                 if self.stopped():
                     db.rollback()
                     return
+                self._require_writer()
                 complete_derived_membership(
                     db,
                     op_id=self.write.op_id,

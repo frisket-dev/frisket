@@ -170,6 +170,9 @@ def run_typed_group_summary_action(
     )
     identity = typed_request_hash(bound)
     existing = _receipt_for_idempotency(project, action.idempotency_key)
+    from .action_reservations import _recover_stale_receipt_attempt
+
+    _recover_stale_receipt_attempt(project, existing, identity)
     recovery_run = runtime._recoverable_group_run(project, existing, identity)
     if existing is not None and recovery_run is None:
         return runtime._reduce_group_summary_result_from_existing_receipt(
