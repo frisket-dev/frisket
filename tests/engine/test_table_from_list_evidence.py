@@ -421,11 +421,13 @@ def test_refresh_preserves_renamed_item_grounding_and_retires_previous_links(
             fresh_links = active_links()
             assert set(fresh_links).isdisjoint(previous_links)
             for link_id in previous_links:
-                stale = project.db.execute(
+                retained = project.db.execute(
                     "SELECT status, stale_reason FROM evidence_links WHERE stable_id=?",
                     (link_id,),
                 ).fetchone()
-                assert tuple(stale) == ("stale", "sheet_refreshed")
+                # Refresh hides superseded rows; it does not invalidate their
+                # retained evidence, which becomes current again on Undo.
+                assert tuple(retained) == ("active", None)
             assert [
                 tuple(row)
                 for row in project.db.execute(
@@ -437,8 +439,12 @@ def test_refresh_preserves_renamed_item_grounding_and_retires_previous_links(
             assert replay.status == "completed", replay.errors
             assert replay.receipt_id == refreshed.receipt_id
             assert active_links() == fresh_links
+            assert project.undo() == refreshed.op_ids[0]
+            assert active_links() == previous_links
+            assert project.redo() == refreshed.op_ids[0]
+            assert active_links() == fresh_links
 
-        # Evidence-copy failure rolls back both row replacement and the stale sweep.
+        # Evidence-copy failure rolls back membership and copied evidence together.
         table_keys = {
             "sheets": "id",
             "rows": "id",
