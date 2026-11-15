@@ -6,7 +6,8 @@ import json
 from typing import Any
 
 from frisket.engine.store.evidence import list_row_evidence
-from frisket.engine.store.staleness import sheet_is_stale
+from frisket.engine.store.staleness import sheet_freshness
+from frisket.engine.store.consumed_sources import row_input_state
 
 
 MAX_SOURCE_ANCESTRY_DEPTH = 16
@@ -21,11 +22,38 @@ class RowSourceNotFound(KeyError):
     """The requested row is not a visible row in this project."""
 
 
+def request_row_source_freshness(
+    project: Any, row_id: int, *, verify: bool = True
+) -> str:
+    requested = _visible_row(project, row_id)
+    if requested is None:
+        return "unknown"
+    states = [sheet_freshness(project, int(requested["sheet_id"]), verify=verify)]
+    runs = project.db.execute(
+        "SELECT DISTINCT head.origin_run_id FROM effective_current_cells head "
+        "JOIN columns col ON col.id=head.column_id "
+        "WHERE head.row_id=? AND head.origin_run_id IS NOT NULL AND col.ai_generated=1",
+        (row_id,),
+    ).fetchall()
+    states.extend(
+        "synced"
+        if (
+            result := row_input_state(project, int(run[0]), row_id, allow_inline=verify)
+        )
+        == "fresh"
+        else result
+        for run in runs
+    )
+    priority = {"synced": 0, "unknown": 1, "checking": 2, "stale": 3}
+    return max(states, key=priority.__getitem__)
+
+
 def resolve_row_source_documents(
     project: Any,
     *,
     row_id: int,
     project_id: str,
+    requested_freshness: str | None = None,
 ) -> dict[str, Any]:
     """Resolve existing evidence and readable document ancestors for ``row_id``.
 
@@ -40,7 +68,10 @@ def resolve_row_source_documents(
         raise RowSourceNotFound(row_id)
 
     requested_sheet_id = int(requested["sheet_id"])
-    lineage_stale = sheet_is_stale(project, requested_sheet_id)
+    lineage_freshness = request_row_source_freshness(project, row_id, verify=False)
+    if lineage_freshness == "unknown" and requested_freshness == "checking":
+        lineage_freshness = "checking"
+    lineage_stale = lineage_freshness == "stale"
 
     evidence_links: list[dict[str, Any]] = []
     seen_evidence: set[str] = set()
@@ -132,6 +163,7 @@ def resolve_row_source_documents(
         "row_id": row_id,
         "ancestry_found": ancestry_found,
         "lineage_stale": lineage_stale,
+        "lineage_freshness": lineage_freshness,
         "unavailable_source_count": len(unavailable_sources),
         "truncated": truncated,
         "evidence_links": evidence_links,

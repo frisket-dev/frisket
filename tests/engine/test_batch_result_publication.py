@@ -125,6 +125,30 @@ def test_batch_results_publish_through_recipe_evidence_callback(tmp_path: Path) 
         assert project.db.execute(
             "SELECT COUNT(*) FROM results WHERE run_id=?", (progress.run_id,)
         ).fetchone()[0] == len(row_ids)
+        from frisket.engine.store.consumed_sources import row_input_state
+
+        bundles = project.db.execute(
+            "SELECT kind FROM consumed_source_bundles WHERE run_id=?",
+            (progress.run_id,),
+        ).fetchall()
+        assert [bundle["kind"] for bundle in bundles] == ["aggregate"]
+        source_id = next(
+            column["id"]
+            for column in project.columns(sheet_id)
+            if column["name"] == "source"
+        )
+        project.apply_edits(
+            [
+                {
+                    "row_id": row_ids[-1],
+                    "column_id": source_id,
+                    "value": "changed neighbor",
+                }
+            ]
+        )
+        assert row_input_state(project, progress.run_id, row_ids[0]) == "stale"
+        project.undo()
+        assert row_input_state(project, progress.run_id, row_ids[0]) == "fresh"
     finally:
         project.close()
 
@@ -155,6 +179,12 @@ def test_batch_evidence_failure_rolls_back_result_batch(tmp_path: Path) -> None:
         ).fetchone()
         assert run is not None
         assert (run["completed_rows"], run["failed_rows"]) == (0, 0)
+        assert (
+            project.db.execute(
+                "SELECT count(*) FROM consumed_source_bundles"
+            ).fetchone()[0]
+            == 0
+        )
         assert (
             project.db.execute(
                 "SELECT COUNT(*) FROM results WHERE run_id=?", (run["id"],)

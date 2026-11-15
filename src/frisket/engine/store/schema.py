@@ -2504,6 +2504,7 @@ SCHEMA += CONSUMED_SOURCE_SCHEMA_SQL + PURGE_SCHEMA_SQL + "\n"
 SCHEMA += "\n" + CHANGE_SCHEMA_SQL + "\n"
 SCHEMA += "\n" + KEYED_UPDATE_SCHEMA + "\n"
 SCHEMA += "\n" + DESCRIPTOR_SCHEMA_SQL + STRUCTURAL_SCHEMA_SQL + "\n"
+SCHEMA += "\n" + JUDGMENT_SCHEMA_SQL + "\n"
 # This durable bootstrap row gives the data-only OCR role repair an exact
 # schema endpoint. Fresh bundles start repaired; the known prior revision is
 # upgraded once during open and never needs a Review read-time compatibility
@@ -2625,6 +2626,3 @@ def require_current_schema(
         f"(bundle schema {stamped or 'unstamped'}; this build expects "
         f"{SCHEMA_DIGEST})"
     )
-
-
-SCHEMA += "\n" + JUDGMENT_SCHEMA_SQL

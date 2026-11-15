@@ -569,7 +569,7 @@ export interface SheetMeta {
    * undefined). Read straight from the API's lazy resolver; never faked.
    * 'stale' means an ancestor changed since this sheet was materialized.
    */
-  syncState?: 'synced' | 'stale';
+  syncState?: 'synced' | 'stale' | 'unknown' | 'checking';
   staleReason?: string | null;
   /** The host can rebuild this materialized sheet in place from saved authoring. */
   refreshable?: boolean;
@@ -818,7 +818,7 @@ export interface LineageNode {
   sheet_id?: number | null;
   column_id?: number;
   derived?: boolean;
-  syncState?: 'synced' | 'stale' | null;
+  syncState?: 'synced' | 'stale' | 'unknown' | 'checking' | null;
   stale_reason?: string | null;
   op_kind?: string;
   op_label?: string | null;

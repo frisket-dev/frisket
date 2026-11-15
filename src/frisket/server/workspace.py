@@ -1055,6 +1055,32 @@ class Workspace:
 
         setattr(project, "_frisket_schedule_search_index", schedule_search)
 
+        def request_source_verification(bundle_id: int) -> int | None:
+            from frisket.engine.jobs.source_verification import (
+                enqueue_source_verification,
+            )
+
+            try:
+                return enqueue_source_verification(
+                    project,
+                    self.queue,
+                    {
+                        **self.queue_payload_extra,
+                        "project_id": project_id,
+                        "workspace_root": str(self.root),
+                    },
+                    bundle_id,
+                )
+            except Exception:
+                # No source mutation schedules a scan. A later explicit read
+                # can retry this enqueue without claiming an unknown result is fresh.
+                _log.warning("source_verification_enqueue_failed", exc_info=True)
+                return None
+
+        setattr(
+            project, "_frisket_request_source_verification", request_source_verification
+        )
+
         def retry_retrieval_encoder() -> int:
             from frisket.retrieval.preparation import DEFAULT_TEXT_SPACE
             from frisket.retrieval.store import RetrievalStore

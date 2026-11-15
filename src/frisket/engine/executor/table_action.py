@@ -1669,6 +1669,21 @@ def _perform_table_in_txn(
         "columns": write.column_ids,
         "reads": resolved["reads"],
     }
+    from frisket.engine.store.consumed_sources import merge_captures, store_capture
+
+    consumed_captures = [
+        capture
+        for reader in (list_reader, resolved.get("joined_tables_reader"), resolved.get("sheet_rows_reader"))
+        if reader is not None
+        for capture in getattr(reader, "consumed_captures", ())
+    ]
+    if consumed_captures:
+        store_capture(
+            project,
+            merge_captures(consumed_captures),
+            owner_op_id=write.op_id,
+            output_sheet_id=write.sheet_id,
+        )
     projection_evidence = [
         evidence
         for reader in projections

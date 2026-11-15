@@ -278,6 +278,21 @@ def test_sheet_rows_reader_records_an_early_consumed_source(stars):
     assert read.ref["row_ids"] == row_ids
     assert read.ref["read_row_ids"] == [row_ids[0]]
     assert read.ref["source_values_hash"].startswith("sha256:")
+    from frisket.engine.store.staleness import sheet_freshness
+
+    child = next(output.sheet_id for output in result.outputs if output.kind == "sheet")
+    assert sheet_freshness(project, child) == "synced"
+    rating = next(
+        column["id"]
+        for column in project.columns(sheet_id)
+        if column["name"] == "rating"
+    )
+    project.apply_edits([{"row_id": row_ids[-1], "column_id": rating, "value": 1.0}])
+    assert sheet_freshness(project, child) == "synced"
+    project.apply_edits([{"row_id": row_ids[0], "column_id": rating, "value": 1.0}])
+    assert sheet_freshness(project, child) == "stale"
+    project.undo()
+    assert sheet_freshness(project, child) == "synced"
 
 
 def test_sheet_rows_reader_closes_a_retained_partial_iterator(stars):
@@ -311,13 +326,13 @@ def test_sheet_rows_reader_fetches_values_in_bounded_column_pages(stars, monkeyp
         )
     )
     calls = []
-    original = ProjectReadSnapshot.get_values
+    original = ProjectReadSnapshot.get_values_with_refs
 
     def read_values(self, sheet_id, column_id, row_ids=None, **kwargs):
         calls.append(len(row_ids or ()))
         return original(self, sheet_id, column_id, row_ids=row_ids, **kwargs)
 
-    monkeypatch.setattr(ProjectReadSnapshot, "get_values", read_values)
+    monkeypatch.setattr(ProjectReadSnapshot, "get_values_with_refs", read_values)
     reader = AdmittedSheetRowsReader(
         project,
         scope=SheetRows(sheet_id=sheet_id),

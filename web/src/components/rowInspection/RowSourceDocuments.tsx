@@ -25,14 +25,21 @@ export function RowSourceDocuments({
 
   useEffect(() => {
     const controller = new AbortController();
-    projectApi.getRowSourceDocuments(rowId, { signal: controller.signal })
-      .then((payload) => {
-        if (!controller.signal.aborted) setState({ phase: 'ready', rowId, payload });
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) setState({ phase: 'error', rowId });
-      });
-    return () => controller.abort();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const read = () => {
+      projectApi.getRowSourceDocuments(rowId, { signal: controller.signal })
+        .then((payload) => {
+          if (!controller.signal.aborted) {
+            setState({ phase: 'ready', rowId, payload });
+            if (payload.lineage_freshness === 'checking') timer = setTimeout(read, 2000);
+          }
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) setState({ phase: 'error', rowId });
+        });
+    };
+    read();
+    return () => { controller.abort(); clearTimeout(timer); };
   }, [projectApi, rowId]);
 
   if (state.phase === 'loading' || state.rowId !== rowId) return null;
@@ -40,7 +47,8 @@ export function RowSourceDocuments({
     return <p className="row-source-note" data-testid="row-source-documents-error">Source documents unavailable</p>;
   }
   const { payload } = state;
-  if (!payload.ancestry_found && payload.evidence_links.length === 0 && !payload.lineage_stale) return null;
+  if (!payload.ancestry_found && payload.evidence_links.length === 0 && !payload.lineage_stale
+    && payload.lineage_freshness !== 'checking' && payload.lineage_freshness !== 'unknown') return null;
 
   const openDocument = (document: RowSourceDocumentsPayload['documents'][number]) => {
     setMenuOpen(false);
@@ -62,6 +70,11 @@ export function RowSourceDocuments({
       {payload.lineage_stale && (
         <p className="row-source-note" data-testid="row-source-documents-stale">
           This table is out of date; some source links may be missing. Refresh it to update them.
+        </p>
+      )}
+      {(payload.lineage_freshness === 'checking' || payload.lineage_freshness === 'unknown') && (
+        <p className="row-source-note" data-testid="row-source-documents-freshness">
+          {payload.lineage_freshness === 'checking' ? 'Checking source changes…' : 'Source changes have not been checked.'}
         </p>
       )}
       {payload.evidence_links.length > 0 && (

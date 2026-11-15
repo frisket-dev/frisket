@@ -183,8 +183,9 @@ function LineageNodeChip({
       <div className="lineage-node-name">
         {node.name}
         {node.kind === 'sheet' && node.syncState && (
-          <StatusChip tone={stale ? 'warning' : 'success'} size="sm">
-            {stale ? 'source changed' : 'up to date'}
+          <StatusChip tone={stale || node.syncState !== 'synced' ? 'warning' : 'success'} size="sm">
+            {stale ? 'source changed' : node.syncState === 'checking' ? 'checking source changes'
+              : node.syncState === 'unknown' ? 'source changes not checked' : 'up to date'}
           </StatusChip>
         )}
       </div>
@@ -224,21 +225,32 @@ export function LineagePanel({
   // re-run produces a new array, which re-syncs the DAG with the same read.
   useEffect(() => {
     let alive = true;
-    projectApi
-      .getLineage()
-      .then((next) => {
-        if (alive) {
-          setDag(next);
-          setError(null);
-        }
-      })
-      .catch((err) => {
-        if (alive) setError(err instanceof Error ? err.message : 'Lineage unavailable');
-      });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let checking = false;
+    const read = () => {
+      projectApi.getLineage()
+        .then((next) => {
+          if (alive) {
+            setDag(next);
+            setError(null);
+            if (next.nodes.some((node) => node.syncState === 'checking')) {
+              checking = true;
+              timer = setTimeout(read, 2000);
+            } else if (checking) {
+              void refreshSheets();
+            }
+          }
+        })
+        .catch((err) => {
+          if (alive) setError(err instanceof Error ? err.message : 'Lineage unavailable');
+        });
+    };
+    read();
     return () => {
       alive = false;
+      clearTimeout(timer);
     };
-  }, [sheets]);
+  }, [projectApi, sheets, refreshSheets]);
 
   const staleDeepestFirst = staleSheetsDeepestFirst(sheets);
 

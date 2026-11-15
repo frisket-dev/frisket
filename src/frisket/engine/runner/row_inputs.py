@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from collections.abc import Collection, Mapping
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from frisket.actions.types import RowError
@@ -107,10 +107,12 @@ class RowInputValues(dict[str, Any]):
         *,
         source_cells_empty: bool,
         source_cells: Mapping[str, Mapping[str, Any]] | None = None,
+        consumed_capture: Mapping[str, Any] | None = None,
     ):
         super().__init__(values)
         self.source_cells_empty = source_cells_empty
         self.source_cells = source_cells
+        self.consumed_capture = consumed_capture
 
 
 def row_source_values_empty(values: Mapping[str, Any]) -> bool:
@@ -131,6 +133,8 @@ class RowSourcePage:
     sheet_id: int
     row_ids: frozenset[int]
     columns: Mapping[int, tuple[dict[int, Any], dict[int, dict[str, Any]]]]
+    descriptors: Mapping[int, Any] = field(default_factory=dict)
+    revisions: Mapping[str, int] = field(default_factory=dict)
 
     def cell(
         self, sheet_id: int, column_id: int, row_id: int
@@ -151,7 +155,15 @@ def read_source_page(
 ) -> RowSourcePage:
     # Close the coherent read transaction before queueing or executing a row.
     preserved = frozenset(preserve_invalid_column_ids)
+    from frisket.engine.store.column_descriptors import descriptor_identity
+    from frisket.engine.store.consumed_sources import authority_revisions
+
     with project.read_snapshot() as snapshot:
+        descriptors = {
+            column_id: descriptor_identity(snapshot, column_id)
+            for column_id in column_ids
+        }
+        revisions = authority_revisions(snapshot, column_ids)
         columns = {
             column_id: snapshot.get_values_with_refs(
                 sheet_id,
@@ -161,7 +173,7 @@ def read_source_page(
             )
             for column_id in column_ids
         }
-    return RowSourcePage(sheet_id, frozenset(row_ids), columns)
+    return RowSourcePage(sheet_id, frozenset(row_ids), columns, descriptors, revisions)
 
 
 def row_values(
@@ -294,6 +306,19 @@ def row_values(
     source_cells_empty = bool(prompt_source_names) and all(
         is_empty_cell_value(value) for value in values.values()
     )
+    from frisket.engine.store.consumed_sources import row_capture
+
+    consumed_capture = (
+        row_capture(
+            sheet_id=spec["sheet_id"],
+            row_id=row_id,
+            source_cells=capture,
+            descriptors=source_page.descriptors,
+            revisions=source_page.revisions,
+        )
+        if capture and source_page is not None
+        else None
+    )
     template = str(spec.get("input_template") or "").strip()
     # Evaluations render source and answer separately; collapsing here would
     # conflate the template's synthetic "input" key with a real subject column.
@@ -319,6 +344,7 @@ def row_values(
             rendered,
             source_cells_empty=source_cells_empty,
             source_cells=capture,
+            consumed_capture=consumed_capture,
         )
     if for_model:
         inject_grounding_segments(project, spec, row_id, values)
@@ -326,4 +352,5 @@ def row_values(
         values,
         source_cells_empty=source_cells_empty,
         source_cells=capture,
+        consumed_capture=consumed_capture,
     )

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
-from collections.abc import Callable, Collection, Iterator
+from collections.abc import Callable, Collection, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from typing import Any
@@ -2550,6 +2550,7 @@ class RunResultStore:
         action_kind: str,
         identity: str,
         authorized_attempt_id: str | None,
+        consumed_capture: Mapping[str, Any] | None = None,
         writer_attempt_id: str | None = None,
         claim_token: str | None = None,
         claimless_direct_effect: bool = False,
@@ -2564,6 +2565,11 @@ class RunResultStore:
             action_kind=action_kind,
             identity=identity,
             authorized_attempt_id=authorized_attempt_id,
+            payload=(
+                {"__consumed_sources": dict(consumed_capture)}
+                if consumed_capture is not None
+                else None
+            ),
             run_id=run_id,
             writer_attempt_id=writer_attempt_id,
             claim_token=claim_token,

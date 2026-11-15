@@ -205,6 +205,9 @@ def _reduce_group_summary_replay_error(
 def _resolve_reduce_group_summary_inputs(
     project: Project,
     params: GroupSummaryPlan,
+    *,
+    capture_inputs: bool = False,
+    cohort: list[int] | None = None,
 ) -> dict[str, Any] | ActionError:
     sheet = project.db.execute(
         "SELECT * FROM sheets WHERE id=? AND hidden=0", (params.sheet_id,)
@@ -236,14 +239,20 @@ def _resolve_reduce_group_summary_inputs(
             details={"missing": missing},
         )
 
-    if params.row_ids is not None:
-        placeholders = ",".join("?" for _ in params.row_ids)
-        row_records = project.db.execute(
-            f"SELECT id FROM rows WHERE sheet_id=? AND hidden=0 AND id IN ({placeholders})",
-            [params.sheet_id, *params.row_ids],
-        ).fetchall()
-        found = {int(row["id"]) for row in row_records}
-        missing_rows = sorted(set(params.row_ids) - found)
+    requested_rows = cohort if cohort is not None else params.row_ids
+    if requested_rows is not None:
+        found = set()
+        for offset in range(0, len(requested_rows), 500):
+            part = requested_rows[offset : offset + 500]
+            placeholders = ",".join("?" for _ in part)
+            found.update(
+                int(row[0])
+                for row in project.db.execute(
+                    f"SELECT id FROM rows WHERE sheet_id=? AND hidden=0 AND id IN ({placeholders})",
+                    [params.sheet_id, *part],
+                )
+            )
+        missing_rows = sorted(set(requested_rows) - found)
         if missing_rows:
             return ActionError(
                 code="invalid_input_ref",
@@ -252,7 +261,7 @@ def _resolve_reduce_group_summary_inputs(
                 field="scope.row_ids",
                 details={"missing": missing_rows},
             )
-        row_ids = list(params.row_ids)
+        row_ids = list(requested_rows)
     else:
         row_ids = project.visible_row_ids(params.sheet_id)
     if not row_ids:
@@ -263,12 +272,28 @@ def _resolve_reduce_group_summary_inputs(
             field="scope.row_ids",
         )
 
-    values_by_column = {
-        name: project.get_values(
-            params.sheet_id, int(columns[name]["id"]), row_ids=row_ids
+    from frisket.engine.store.consumed_sources import read_consumed_source
+
+    consumed_capture = None
+    if capture_inputs:
+        _, source_values, consumed_capture = read_consumed_source(
+            project,
+            params.sheet_id,
+            [int(columns[name]["id"]) for name in needed],
+            row_ids=row_ids,
+            scope_intent="selected" if params.row_ids is not None else "whole",
         )
-        for name in needed
-    }
+        values_by_column = {
+            name: source_values[int(columns[name]["id"])] for name in needed
+        }
+    else:
+        # Preview/confirmation estimates do not capture a million identities.
+        values_by_column = {
+            name: project.get_values(
+                params.sheet_id, int(columns[name]["id"]), row_ids=row_ids
+            )
+            for name in needed
+        }
     groups = group_summary_rows(
         {
             row_id: {
@@ -311,6 +336,7 @@ def _resolve_reduce_group_summary_inputs(
         "source_columns": source_columns,
         "group_column": group_column,
         "groups": groups,
+        "consumed_capture": consumed_capture,
     }
 
 
@@ -430,6 +456,7 @@ def _reduce_group_summary_unit_plans(
                 "messages": messages,
                 "unit_key": unit_key,
                 "identity": identity,
+                "consumed_capture": resolved["consumed_capture"],
             }
         )
     return plans
@@ -506,6 +533,19 @@ async def _complete_reduce_group_summaries(
     in one transaction immediately after that group's response returns.
     Free/local/cached-strict-replay runs take the unfenced loop: zero durable
     checkpoint writes at $0 stakes."""
+
+    current = _resolve_reduce_group_summary_inputs(
+        project,
+        params,
+        capture_inputs=True,
+        cohort=resolved["source_row_ids"],
+    )
+    if isinstance(current, ActionError):
+        return current
+    # Admission already happened. Current inputs belong to the original cohort;
+    # provider request funding checks retain their ordinary authority.
+    resolved.clear()
+    resolved.update(current)
 
     if not _reduce_group_summary_effect_checkpoints_active(params, router):
         return await _complete_reduce_group_summaries_unfenced(
@@ -684,6 +724,7 @@ async def _complete_reduce_group_summaries_unfenced(
                             params, router, exc
                         ),
                         "direct_effect": envelope,
+                        "consumed_capture": resolved["consumed_capture"],
                         "_trace_record": trace_record[0],
                     }
                 )
@@ -704,6 +745,7 @@ async def _complete_reduce_group_summaries_unfenced(
                         params.model, response
                     ),
                     "direct_effect": envelope,
+                    "consumed_capture": resolved["consumed_capture"],
                     "_trace_record": trace_record[0],
                 }
             )
@@ -917,7 +959,7 @@ async def _reduce_group_summary_checkpointed_loop(
             action_kind=params.action_kind,
             identity=plan["identity"],
             authorized_attempt_id=str(envelope["attempt_id"]),
-            payload={"effect": envelope},
+            payload={"effect": envelope, "consumed_capture": plan["consumed_capture"]},
             run_id=int(envelope["run_id"]),
             writer_attempt_id=str(envelope["attempt_id"]),
             claimless_direct_effect=True,
@@ -946,6 +988,7 @@ async def _reduce_group_summary_checkpointed_loop(
             # resume.  It is retired with the result write, so a later fresh
             # action with the same params buys the group again normally.
             failure = _reduce_group_summary_failure_computation(params, router, exc)
+            failure["consumed_capture"] = plan["consumed_capture"]
             store.complete(
                 checkpoint_id,
                 family=_REDUCE_EFFECT_FAMILY,
@@ -986,6 +1029,7 @@ async def _reduce_group_summary_checkpointed_loop(
         # provider fact become durable HERE, in the checkpoint transaction,
         # so the later result transaction can never book them again.
         replay_computation = {
+            "consumed_capture": plan["consumed_capture"],
             "summary": summary,
             "error": None,
             "tokens_in": response.tokens_in,
@@ -1364,7 +1408,9 @@ def _write_reduce_group_summary_result(
         from frisket.engine.store.keyed_updates import observe
 
         derived_refresh = json.loads(
-            project.db.execute("SELECT spec FROM ops WHERE id=?", (op_id,)).fetchone()[0]
+            project.db.execute("SELECT spec FROM ops WHERE id=?", (op_id,)).fetchone()[
+                0
+            ]
             or "{}"
         ).get("derived_refresh")
         if not isinstance(derived_refresh, dict):
@@ -1376,6 +1422,25 @@ def _write_reduce_group_summary_result(
                 row_id=int(row_id),
                 key=str(computation["group"]["identity_key"]),
                 incoming={str(summary_column_id): computation.get("summary")},
+            )
+        from frisket.engine.store.consumed_sources import merge_captures, store_capture
+
+        captures = [
+            computation["consumed_capture"]
+            for computation in computations
+            if isinstance(computation.get("consumed_capture"), dict)
+        ]
+        if captures:
+            consumed = merge_captures(captures)
+            consumed["incomplete"] = consumed.get("incomplete", False) or len(
+                captures
+            ) != len(computations)
+            store_capture(
+                project,
+                consumed,
+                owner_op_id=op_id,
+                output_sheet_id=summary_sheet_id,
+                run_id=run_id,
             )
         run_status = "failed" if failed_groups == len(computations) else "completed"
         generations.seal(

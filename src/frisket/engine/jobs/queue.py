@@ -55,6 +55,7 @@ ACTION_RUN_KIND = "action.run"
 MODEL_PULL_KIND = "model.pull"
 BLOB_METADATA_KIND = "blob.metadata.backfill"
 SEARCH_INDEX_KIND = "search.index"
+SOURCE_VERIFY_KIND = "source.verify"
 IMPORT_FILES_PAGE_KIND = "import.files.page"
 IMPORT_TABLE_ANALYSIS_KIND = "import.table.analysis"
 IMPORT_TABLE_STREAM_KIND = "import.table.stream"
@@ -73,6 +74,7 @@ COOPERATIVELY_CANCELLABLE_RUNNING_KINDS = frozenset(
         MODEL_PULL_KIND,
         BLOB_METADATA_KIND,
         SEARCH_INDEX_KIND,
+        SOURCE_VERIFY_KIND,
         IMPORT_FILES_PAGE_KIND,
         IMPORT_TABLE_STREAM_KIND,
         PDF_SPLIT_APPLY_KIND,
@@ -1173,7 +1175,13 @@ class SqlAlchemyJobQueue(JobQueue):
             .order_by(
                 c.priority_class,
                 sa.case(
-                    (c.kind.in_((SEARCH_INDEX_KIND, "watch.evaluate")), 1), else_=0
+                    (
+                        c.kind.in_(
+                            (SEARCH_INDEX_KIND, SOURCE_VERIFY_KIND, "watch.evaluate")
+                        ),
+                        1,
+                    ),
+                    else_=0,
                 ),
                 c.id,
             )

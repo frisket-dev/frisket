@@ -149,17 +149,20 @@ def _projection(keys, picks, left, right, indicator):
     return descriptors
 
 
-def _read_side(project, sheet, columns, ids):
+def _read_side(project, sheet, columns, ids, *, scope_intent="whole"):
+    from frisket.engine.store.consumed_sources import read_consumed_source
+
     by_id = {column["id"]: column for column in columns.values()}
-    values = {
-        column_id: project.get_values(
-            sheet["sheet_id"], column_id, row_ids=sheet["row_ids"]
-        )
-        for column_id in ids
-    }
+    _, values, capture = read_consumed_source(
+        project,
+        sheet["sheet_id"],
+        ids,
+        row_ids=sheet["row_ids"],
+        scope_intent=scope_intent,
+    )
     facts = {**sheet, "columns": [by_id[column_id] for column_id in ids]}
     facts["snapshot_hash"] = _digest([facts, values])
-    return facts, values
+    return facts, values, capture
 
 
 def validate_joined_tables_source(project, fact, *, code="stale_replay"):
@@ -172,7 +175,7 @@ def validate_joined_tables_source(project, fact, *, code="stale_replay"):
                 fact[f"{side}_sheet_id"],
                 fact["left_requested_row_ids"] if side == "left" else None,
             )
-            current, _ = _read_side(
+            current, _, _ = _read_side(
                 project,
                 sheet,
                 columns,
@@ -227,6 +230,7 @@ class AdmittedJoinedTablesReader:
         self.sources = set()
         self.source_roles = {}
         self.facts = []
+        self.consumed_captures = []
         self._plans = []
 
     def read(
@@ -290,10 +294,14 @@ class AdmittedJoinedTablesReader:
                     }
                 )
             output = _projection(keys, picks, left_columns, right_columns, indicator)
-            left_fact, left_vals = _read_side(
-                project, left_sheet, left_columns, _side_read_ids(specs, output, "left")
+            left_fact, left_vals, left_capture = _read_side(
+                project,
+                left_sheet,
+                left_columns,
+                _side_read_ids(specs, output, "left"),
+                scope_intent="selected" if requested is not None else "whole",
             )
-            right_fact, right_vals = _read_side(
+            right_fact, right_vals, right_capture = _read_side(
                 project,
                 right_sheet,
                 right_columns,
@@ -330,6 +338,7 @@ class AdmittedJoinedTablesReader:
             "stats": stats,
         }
         self.facts.append(fact)
+        self.consumed_captures.extend((left_capture, right_capture))
         tokens = {
             side: {
                 row: RowSource(sheet_id=sheet["sheet_id"], row_id=row)

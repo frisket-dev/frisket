@@ -11,6 +11,7 @@ from __future__ import annotations
 import frisket.sdk.ops.transcribe_engines as transcribe_engines
 
 import asyncio
+import json
 import wave
 
 import pytest
@@ -206,6 +207,19 @@ def test_resume_replays_returned_row_without_buying_it_again(
         assert checkpoint["state"] == "returned"
         assert checkpoint["authorized_attempt_id"] == first_attempt_id
         assert checkpoint["response"]
+        saved_capture = next(iter(json.loads(checkpoint["response"]).values()))[
+            "__consumed_sources"
+        ]
+        [input_row] = project.visible_row_ids(sheet)
+        project.apply_edits(
+            [
+                {
+                    "row_id": input_row,
+                    "column_id": columns["text"],
+                    "value": "one billable row",
+                }
+            ]
+        )
 
         # Model the queue's bounded orphan recovery after both the attempt and
         # its last metered heartbeat have been silent past the cutoff.
@@ -224,6 +238,16 @@ def test_resume_replays_returned_row_without_buying_it_again(
         assert resumed.done is True
         assert resumed.completed == 1
         assert provider.calls == 1
+        from frisket.engine.store.consumed_sources import row_input_state
+
+        persisted = project.db.execute(
+            "SELECT capture_json FROM consumed_source_bundles WHERE run_id=? AND row_id=?",
+            (run_id, input_row),
+        ).fetchone()
+        assert json.loads(persisted[0]) == saved_capture
+        assert row_input_state(project, run_id, input_row) == "stale"
+        project.undo()
+        assert row_input_state(project, run_id, input_row) == "fresh"
         call = project.db.execute(
             "SELECT attempt_id, provider_cost_usd FROM model_calls WHERE run_id=?",
             (run_id,),

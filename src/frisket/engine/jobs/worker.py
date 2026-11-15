@@ -405,6 +405,7 @@ def register_production_handlers(
 
     from .blob_metadata import register_blob_metadata_handler
     from .search_index import register_search_index_handler
+    from .source_verification import register_source_verification_handler
     from .import_files import register_import_files_handler
     from .pdf_split import register_pdf_split_handler
     from .import_table import (
@@ -561,6 +562,13 @@ def register_production_handlers(
         project_opener=project_opener,
         prepare_enclosures_for_search=prepare_enclosures_for_search,
     )
+    source_verification_registration = register_source_verification_handler(
+        registry,
+        workspace_root=root,
+        queue=queue,
+        workspace_root_storage_org_id=workspace_root_storage_org_id,
+        project_opener=project_opener,
+    )
     register_embedding_refresh_handler(
         registry,
         workspace_root=root,
@@ -613,6 +621,7 @@ def register_production_handlers(
             "enclosure.download": enclosure_download_registration,
             "blob.metadata.backfill": blob_metadata_registration,
             "search.index": search_index_registration,
+            "source.verify": source_verification_registration,
             "import.files.page": import_files_registration,
             "import.table.analysis": import_table_analysis_registration,
             "import.table.stream": import_table_registration,

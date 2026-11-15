@@ -578,11 +578,19 @@ def _refresh_sheet(
             sources=sources,
             item_associations=reader.item_associations,
         )
+        from frisket.engine.store.consumed_sources import merge_captures, store_capture
+
+        if reader.consumed_captures:
+            store_capture(
+                project,
+                merge_captures(reader.consumed_captures),
+                owner_op_id=op_id,
+                output_sheet_id=sheet_id,
+            )
     refreshed_rows = len(child_row_ids)
     cur.execute(
-        "UPDATE sheets SET last_verified_op_cursor=?, "
-        "refresh_claim_token=NULL, refresh_lease_expires_at=NULL WHERE id=?",
-        (op_id, sheet_id),
+        "UPDATE sheets SET refresh_claim_token=NULL, refresh_lease_expires_at=NULL WHERE id=?",
+        (sheet_id,),
     )
 
     return _RefreshFacts(
@@ -648,10 +656,18 @@ def _refresh_join(
             params_hash=params_hash,
             policy=bound.request.params.get("update_policy", "keep_changes"),
         )
+        from frisket.engine.store.consumed_sources import merge_captures, store_capture
+
+        if reader.consumed_captures:
+            store_capture(
+                project,
+                merge_captures(reader.consumed_captures),
+                owner_op_id=op_id,
+                output_sheet_id=int(sheet["id"]),
+            )
     cur.execute(
-        "UPDATE sheets SET last_verified_op_cursor=?, "
-        "refresh_claim_token=NULL, refresh_lease_expires_at=NULL WHERE id=?",
-        (op_id, int(sheet["id"])),
+        "UPDATE sheets SET refresh_claim_token=NULL, refresh_lease_expires_at=NULL WHERE id=?",
+        (int(sheet["id"]),),
     )
     stats = reads[0]["stats"]
     return _RefreshFacts(

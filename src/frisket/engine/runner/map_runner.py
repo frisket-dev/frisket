@@ -856,21 +856,38 @@ class MapRunner:
             writer_attempt_id = attempt.attempt_id if attempt is not None else None
 
             evidence_writer = None
-            if callable(write_result_evidence):
+            consumed = {
+                int(item["row_id"]): item["__consumed_sources"]
+                for item in batch
+                if isinstance(item.get("__consumed_sources"), dict)
+            }
+            if callable(write_result_evidence) or consumed:
 
                 def evidence_writer() -> None:
                     try:
-                        write_result_evidence(
-                            self.project,
-                            spec,
-                            batch=batch,
-                            sheet_id=prepared.sheet_id,
-                            run_id=run_id,
-                            op_id=op_id,
-                            output_columns=out_cols,
-                            input_column_ids=col_map,
-                            claim_token=claim_token,
-                        )
+                        from frisket.engine.store.consumed_sources import store_capture
+
+                        for input_row_id, capture in consumed.items():
+                            store_capture(
+                                self.project,
+                                capture,
+                                owner_op_id=op_id,
+                                output_sheet_id=prepared.sheet_id,
+                                run_id=run_id,
+                                row_id=input_row_id,
+                            )
+                        if callable(write_result_evidence):
+                            write_result_evidence(
+                                self.project,
+                                spec,
+                                batch=batch,
+                                sheet_id=prepared.sheet_id,
+                                run_id=run_id,
+                                op_id=op_id,
+                                output_columns=out_cols,
+                                input_column_ids=col_map,
+                                claim_token=claim_token,
+                            )
                     except (StaleAttemptWriter, ClaimLeaseRenewalFailed):
                         raise
                     except Exception as exc:
@@ -1499,6 +1516,7 @@ class MapRunner:
                 admitted_work_scope=admitted_work_scope,
                 source_page=source_page,
             )
+            consumed_capture = getattr(values, "consumed_capture", None)
             checkpoint_id: str | None = None
             checkpoint_identity: str | None = None
             checkpoint_created = False
@@ -1543,6 +1561,7 @@ class MapRunner:
                         authorized_attempt_id=(
                             attempt.attempt_id if attempt is not None else None
                         ),
+                        consumed_capture=consumed_capture,
                         writer_attempt_id=(
                             attempt.attempt_id if attempt is not None else None
                         ),
@@ -1573,6 +1592,12 @@ class MapRunner:
                             "current row or call the provider again.",
                         )
                     if checkpoint.get("state") == "reserved":
+                        reserved = checkpoint.get("response")
+                        consumed_capture = (
+                            reserved.get("__consumed_sources")
+                            if isinstance(reserved, dict)
+                            else None
+                        )
                         if cloud_payer is None:
                             raise RecipeInvocationHalt(
                                 "external_effect_reconciliation_required",
@@ -1785,6 +1810,14 @@ class MapRunner:
                         row_id=row_id,
                         output_columns=out_cols,
                     )
+                if consumed_capture is not None:
+                    # This rides the returned-response checkpoint, so recovery
+                    # publishes the inputs that actually produced that response.
+                    # One input bundle is shared by every output in this row.
+                    for name, payload in results.items():
+                        if name in out_cols:
+                            payload["__consumed_sources"] = consumed_capture
+                            break
                 if checkpoint_should_complete:
                     assert checkpoint_id is not None
                     assert checkpoint_identity is not None
@@ -2407,6 +2440,31 @@ class MapRunner:
                 )
             return progress
         field_names = list(out_cols)
+        from frisket.engine.store.consumed_sources import read_consumed_source
+        from frisket.engine.runner.row_inputs import RowSourcePage
+
+        source_ids = [
+            col_map[name] for name in recipe.source_columns(spec) if name in col_map
+        ]
+        refs: dict[int, dict[int, dict[str, Any]]] = {}
+        _, captured_values, batch_capture = read_consumed_source(
+            self.project,
+            spec["sheet_id"],
+            source_ids,
+            row_ids=row_ids,
+            scope_intent="selected",
+            refs_out=refs,
+            preserve_invalid_column_ids=[
+                col_map[name]
+                for name in getattr(recipe, "preserve_invalid_source_columns", ())
+                if name in col_map
+            ],
+        )
+        source_page = RowSourcePage(
+            spec["sheet_id"],
+            frozenset(row_ids),
+            {cid: (captured_values[cid], refs[cid]) for cid in source_ids},
+        )
         values_by_row = {
             row_id: row_values(
                 self.project,
@@ -2417,6 +2475,7 @@ class MapRunner:
                 for_model=False,
                 column_types=column_types,
                 admitted_work_scope=admitted_work_scope,
+                source_page=source_page,
             )
             for row_id in row_ids
         }
@@ -2460,7 +2519,12 @@ class MapRunner:
                 managed_publication=True,
             )
             for name, cell in cells.items():
-                pending.append({"row_id": row_id, "column_id": out_cols[name], **cell})
+                payload = {"row_id": row_id, "column_id": out_cols[name], **cell}
+                # One shared fingerprint for all outputs of this batch. Rows
+                # depend on the whole batch, not just their own source cells.
+                if row_id == row_ids[0] and name == field_names[0]:
+                    payload["__consumed_sources"] = batch_capture
+                pending.append(payload)
             if failed:
                 progress.failed += 1
             progress.completed += 1

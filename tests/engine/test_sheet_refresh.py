@@ -157,12 +157,12 @@ def test_refresh_replaces_rows_in_place_preserving_identity(tmp_path: Path) -> N
         )
         assert still == child_id
         assert _child_vendors(project, child_id) == ["Acme", "RENAMED", "Initech"]
-        # Watermark advanced -> synced again.
+        # The newly consumed source capture proves the refreshed output current.
         assert compute_sync_states(project)[child_id]["sync_state"] == "synced"
         watermark = project.db.execute(
             "SELECT last_verified_op_cursor FROM sheets WHERE id=?", (child_id,)
         ).fetchone()[0]
-        assert watermark == project.op_cursor
+        assert watermark is None
     finally:
         project.close()
 

@@ -41,6 +41,7 @@ class AdmittedListTableReader:
         self.copied_columns: tuple[ListCopiedColumn, ...] = ()
         self.facts: list[dict[str, Any]] = []
         self.require_complete = False
+        self.consumed_captures: list[dict[str, Any]] = []
 
     def read(
         self,
@@ -79,7 +80,7 @@ class AdmittedListTableReader:
                 "SELECT id FROM sheets WHERE id=? AND hidden=0", (source.sheet_id,)
             ).fetchone()
             column = project.db.execute(
-                "SELECT * FROM columns WHERE id=? AND sheet_id=?",
+                "SELECT * FROM columns WHERE id=? AND sheet_id=? AND active=1",
                 (source.column_id, source.sheet_id),
             ).fetchone()
             if sheet is None or column is None or column["type"] != "json":
@@ -94,11 +95,21 @@ class AdmittedListTableReader:
                 row_ids, values, receipt_id, source_ref = self._named_values(
                     project, source, item_schema
                 )
+                from frisket.engine.store.consumed_sources import (
+                    capture_retained_results,
+                )
+
+                self.consumed_captures.append(
+                    capture_retained_results(
+                        project,
+                        source.sheet_id,
+                        source.column_id,
+                        source.run_id,
+                        row_ids,
+                    )
+                )
             else:
                 row_ids = project.visible_row_ids(source.sheet_id)
-                values, value_refs = project.get_values_with_refs(
-                    source.sheet_id, source.column_id, include_validity=True
-                )
 
             copied_columns = []
             copied_source_facts = []
@@ -106,7 +117,7 @@ class AdmittedListTableReader:
             for requested in parent_columns:
                 parent_column = project.db.execute(
                     "SELECT id, name, type, format, ai_generated FROM columns "
-                    "WHERE id=? AND sheet_id=? AND active=1 AND hidden=0",
+                    "WHERE id=? AND sheet_id=? AND active=1",
                     (requested.column_id, source.sheet_id),
                 ).fetchone()
                 if parent_column is None or requested.column_id == source.column_id:
@@ -133,11 +144,45 @@ class AdmittedListTableReader:
                         "ai_generated": bool(parent_column["ai_generated"]),
                     }
                 )
-                parent_values_by_name[requested.output_name] = project.get_values(
+                if isinstance(source, NamedListSource):
+                    from frisket.engine.store.consumed_sources import (
+                        read_consumed_source,
+                    )
+
+                    _, copied_values, copied_capture = read_consumed_source(
+                        project,
+                        source.sheet_id,
+                        [requested.column_id],
+                        row_ids=row_ids,
+                        scope_intent="selected",
+                    )
+                    parent_values_by_name[requested.output_name] = copied_values[
+                        requested.column_id
+                    ]
+                    self.consumed_captures.append(copied_capture)
+
+            if isinstance(source, ListColumnSource):
+                from frisket.engine.store.consumed_sources import read_consumed_source
+
+                captured_refs: dict[int, dict[int, dict[str, Any]]] = {}
+                _, captured_values, consumed = read_consumed_source(
+                    project,
                     source.sheet_id,
-                    requested.column_id,
+                    [
+                        source.column_id,
+                        *[requested.column_id for requested in parent_columns],
+                    ],
                     row_ids=row_ids,
+                    scope_intent="whole",
+                    refs_out=captured_refs,
                 )
+                values = captured_values[source.column_id]
+                value_refs = captured_refs[source.column_id]
+                parent_values_by_name = {
+                    requested.output_name: captured_values[requested.column_id]
+                    for requested in parent_columns
+                }
+                self.consumed_captures.append(consumed)
 
             entries = []
             associations = {}

@@ -359,7 +359,8 @@ def test_refreshed_ancestor_marks_downstream_partial_membership_stale(
             "project", row_id=join_row
         )
         assert payload["sheet_id"] == join_sheet
-        assert payload["lineage_stale"] is True
+        assert payload["lineage_stale"] is False
+        assert payload["lineage_freshness"] == "unknown"
         assert [document["sheet_name"] for document in payload["documents"]] == [
             "Right documents"
         ]
