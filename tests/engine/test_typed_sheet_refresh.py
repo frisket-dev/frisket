@@ -71,7 +71,17 @@ def _snapshot(project):
 def test_refresh_contract_is_semantic_and_conditionally_confirmable():
     registered = ACTION_REGISTRY.get("sheet.refresh")
     assert registered.definition.run.capabilities == (SheetRefresher,)
-    assert set(registered.definition.run.params_model.model_fields) == {"sheet_id"}
+    assert set(registered.definition.run.params_model.model_fields) == {
+        "sheet_id",
+        "update_policy",
+    }
+    assert RefreshParams(sheet_id=1).update_policy == "keep_changes"
+    assert (
+        RefreshParams(sheet_id=1, update_policy="incoming_wins").update_policy
+        == "incoming_wins"
+    )
+    with pytest.raises(ValidationError):
+        RefreshParams(sheet_id=1, update_policy="guess")
     assert registered.catalog_entry()["cost_policy"] == {
         "kind": "none",
         "requires_confirmation": True,
