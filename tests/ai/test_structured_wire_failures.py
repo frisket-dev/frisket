@@ -17,6 +17,7 @@ from frisket.ai.llm.router import ModelRouter
 from frisket.ai.llm.types import (
     LLMError,
     LLMRequest,
+    LLMResponse,
     OutputLimitReached,
     SchemaViolation,
 )
@@ -33,6 +34,132 @@ MODELS = {
     "anthropic": "anthropic/claude-sonnet-5-5",
 }
 SECRET = "fixture-credential-do-not-expose"
+
+
+def test_unknown_usage_survives_structured_aggregation_and_cache(tmp_path):
+    from frisket.ai.llm.structured import _sum_response
+    from frisket.ai.models.accounting import wire_accounting_meta
+
+    unknown = LLMResponse(
+        content="invalid",
+        data=None,
+        tokens_in=0,
+        tokens_out=0,
+        cost=None,
+        model=MODELS["openai"],
+        usage_available=False,
+    )
+    known = LLMResponse(
+        content='{"summary":"answer"}',
+        data={"summary": "answer"},
+        tokens_in=42,
+        tokens_out=17,
+        cost=0.01,
+        model=MODELS["openai"],
+    )
+    combined = _sum_response(known.model, [unknown, known], known.data)
+    assert combined.usage_available is False
+    assert combined.cost is None
+    assert combined.tokens_in == 42  # Available diagnostic counts remain useful.
+    facts = wire_accounting_meta(known.model, [unknown, known])["model_calls"]
+    assert facts[0]["units"] == {}
+    assert facts[1]["units"] == {"tokens_in": 42, "tokens_out": 17}
+    cache = ResponseCache(tmp_path / "cache.db")
+    try:
+        cache.put("unknown-usage", combined)
+        replay = cache.get("unknown-usage")
+        assert replay is not None and replay.cached
+        assert replay.usage_available is False
+        assert replay.cost is None
+        replay_total = _sum_response(known.model, [replay], replay.data)
+        assert replay_total.usage_available is False
+        assert replay_total.cost == 0  # Replaying content makes no paid request.
+    finally:
+        cache.close()
+
+
+@pytest.mark.parametrize(
+    "provider,kind", [("openai", "platform_api"), ("ollama", "local_http")]
+)
+def test_research_uses_shared_accounting_and_provider_kind(provider, kind):
+    from frisket.ai.models.accounting import wire_accounting_meta
+    from frisket.ai.research.row_answer import model_call_accounting
+
+    assert model_call_accounting is wire_accounting_meta
+    response = LLMResponse(
+        content="answer",
+        data=None,
+        tokens_in=0,
+        tokens_out=0,
+        cost=None,
+        model="ollama/@fixture/example"
+        if provider == "ollama"
+        else f"{provider}/example",
+        provider=provider,
+        usage_available=False,
+    )
+    [fact] = model_call_accounting(response.model, [response])["model_calls"]
+    assert fact["units"] == {}
+    assert fact["provider_kind"] == kind
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", [*MODELS, "openai_responses"])
+@pytest.mark.parametrize("known_usage", [False, True])
+async def test_malformed_payload_preserves_only_supplied_usage(name, known_usage):
+    provider_name = "openai" if name == "openai_responses" else name
+    native_usage = name in {"anthropic", "openai_responses"}
+    body = (
+        {"content": None}
+        if name == "anthropic"
+        else {"status": "completed", "output": None}
+        if name == "openai_responses"
+        else {"choices": [{"message": None}]}
+    )
+    if known_usage:
+        body["usage"] = (
+            {"input_tokens": 42, "output_tokens": 17}
+            if native_usage
+            else {"prompt_tokens": 42, "completion_tokens": 17}
+        )
+    calls = []
+
+    def respond(request):
+        calls.append(request.url.path)
+        return httpx.Response(200, json=body)
+
+    policy = UsagePolicy()
+    router = ModelRouter(
+        keys={provider_name: SECRET},
+        use_env_keys=False,
+        model_call_policy=policy,
+        max_retries=0,
+        cache_mode="off",
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        router._client = client
+        req = LLMRequest(
+            model=MODELS[provider_name],
+            messages=[],
+            tools=[
+                {
+                    "name": "read",
+                    "description": "Read",
+                    "parameters": {"type": "object"},
+                }
+            ]
+            if name == "openai_responses"
+            else None,
+        )
+        with pytest.raises(LLMError) as raised:
+            await router.for_execution(STANDALONE).complete(req)
+    assert len(calls) == 1
+    assert len(policy.responses) == int(known_usage)
+    if known_usage:
+        assert policy.responses[0]["tokens_in"] == 42
+        assert policy.responses[0]["tokens_out"] == 17
+        assert len(raised.value.wire_calls) == 1
+    assert SECRET not in str(raised.value)
 
 
 class UsagePolicy:

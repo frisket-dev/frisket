@@ -325,9 +325,9 @@ def run_engine_setup(
 def _install_speech_runtime(
     engine_id: str, *, engine, pull_id: int, should_cancel: Callable[[], bool]
 ) -> None:
-    from frisket.runtime.speech_install import install_speech, runtime_present
+    from frisket.runtime.speech_install import host_present, install_speech
 
-    if not runtime_present(engine_id):
+    if not host_present(engine_id):
         model_pull_store.update_progress(
             engine,
             pull_id,
@@ -576,11 +576,13 @@ def _run_language_setup(
 
     if spacy:
         from frisket.runtime.spacy_install import (
+            host_present,
             install_spacy as install,
             runtime_present,
         )
     else:
         from frisket.runtime.translation_install import (
+            host_present,
             install_translation as install,
             runtime_present,
         )
@@ -602,7 +604,7 @@ def _run_language_setup(
     try:
         if should_cancel():
             raise ModelInstallCancelled
-        if not runtime_present():
+        if not host_present():
             progress(f"Installing {label} components")
             install(should_cancel=should_cancel, progress=progress)
         if should_cancel():
@@ -614,8 +616,6 @@ def _run_language_setup(
             from frisket.ai.models.artifact_manifest import spacy_model_artifact
             from frisket.ai.models.spacy_model import (
                 ensure_loadable_model_path,
-                model_state,
-                wheel_path,
             )
             from frisket.engine.jobs.artifact_ref import normalize_artifact_ref
 
@@ -630,10 +630,6 @@ def _run_language_setup(
                 artifact_license=pinned.license,
                 artifact_manifest_version=pinned.manifest_version,
             )
-            # The worker-local downloader fast-paths by size. Remove a wheel
-            # that failed its checksum so an explicit retry can repair it.
-            if model_state(include_python_package=False).status == "hash_mismatch":
-                wheel_path().unlink(missing_ok=True)
             progress("Downloading spaCy model")
             with httpx.Client() as client:
                 provision_pinned(
@@ -642,6 +638,7 @@ def _run_language_setup(
                     cache_root=None,
                     client=client,
                     should_cancel=should_cancel,
+                    verify_existing=True,
                 )
             if should_cancel():
                 raise ModelInstallCancelled

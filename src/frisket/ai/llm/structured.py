@@ -1037,6 +1037,8 @@ def _sum_response(
             response.actual_accounting.cost
             if response.actual_accounting is not None
             else response.cost
+            if response.usage_available
+            else None
         )
         for response in live_calls
     ]
@@ -1088,6 +1090,7 @@ def _sum_response(
         data=data,
         tokens_in=sum(r.tokens_in for r in wire_calls),
         tokens_out=sum(r.tokens_out for r in wire_calls),
+        usage_available=all(r.usage_available for r in wire_calls),
         cost=total_cost,
         model=model_id,
         cached=all(response.cached for response in wire_calls),

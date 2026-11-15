@@ -35,7 +35,7 @@ export async function retryFailedRowsWithConfirmation(
   column: { id: string; name: string },
   outcome: string,
   afterRetry: (runId: string) => void,
-): Promise<void> {
+): Promise<boolean> {
   const groups = new Map<string, number[]>();
   for (let offset = 0; ; ) {
     const page = await api.getSheetData(sheetId, offset, 1000, {
@@ -54,9 +54,14 @@ export async function retryFailedRowsWithConfirmation(
     offset += page.rows.length;
     if (page.rows.length === 0 || offset >= page.total) break;
   }
+  let accepted = false;
   for (const [sourceRunId, rowIds] of groups) {
     const result = await retryWithConfirmation(api, requestConfirmation, sheetId, sourceRunId, rowIds);
-    if (result === null) return;
-    if (result.runId) afterRetry(result.runId);
+    if (result === null) return accepted;
+    if (result.runId) {
+      accepted = true;
+      afterRetry(result.runId);
+    }
   }
+  return accepted;
 }

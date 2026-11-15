@@ -534,7 +534,7 @@ def test_indra_ocr_engine_setup_is_allowlisted_for_solo(tmp_path) -> None:
     assert pull["operation_kind"] == "engine_setup"
 
 
-def test_embeddinggemma_engine_setup_is_allowlisted_without_widening_solo(
+def test_embeddinggemma_setup_preserves_the_finite_setup_allowlist(
     tmp_path,
 ) -> None:
     from frisket.engine.jobs.engine_setup import EMBEDDINGGEMMA_SETUP_REF
@@ -549,7 +549,7 @@ def test_embeddinggemma_engine_setup_is_allowlisted_without_widening_solo(
 
     unrelated = client.post(
         "/api/providers/models/setup",
-        json={"setup_ref": "engine-setup:gliclass.local@1"},
+        json={"setup_ref": "engine-setup:future.local@1"},
     )
     assert unrelated.status_code == 400
     assert unrelated.json()["detail"]["code"] == "unknown_engine_setup"
@@ -765,3 +765,42 @@ def test_uninstall_failure_keeps_record_retryable(tmp_path, monkeypatch):
     assert response.status_code == 200
     assert store.get(engine, row.id).status == store.STATUS_UNINSTALLED
     assert not installed.exists()
+
+
+@pytest.mark.parametrize("engine_id", ["gliclass", "jeff"])
+def test_advertised_local_classifier_setup_reaches_existing_setup_worker(
+    tmp_path, engine_id
+):
+    from frisket.contracts.classification import LOCAL_CLASSIFIERS
+
+    client = _client(tmp_path)
+    workspace = client.app.state.workspace
+    project = workspace.create("Classifiers", project_id="classifiers")
+    response = client.post(
+        f"/api/projects/{project['id']}/selector-choices",
+        json={
+            "schema_version": "frisket.selector_choices_query.v1",
+            "subject": {
+                "kind": "action",
+                "action_id": "map.classify",
+                "field": "engine",
+                "params": {},
+            },
+        },
+    )
+    assert response.status_code == 200, response.text
+    setup_ref = LOCAL_CLASSIFIERS[engine_id].setup_ref
+    choices = [
+        choice for group in response.json()["groups"] for choice in group["choices"]
+    ]
+    advertised = [
+        choice
+        for choice in choices
+        if (choice.get("setup") or {}).get("setup_ref") == setup_ref
+    ]
+    assert advertised, choices
+    assert advertised[0]["setup"]["can_start"]
+    started = client.post("/api/providers/models/setup", json={"setup_ref": setup_ref})
+    assert started.status_code == 202, started.text
+    assert started.json()["pull"]["model"] == setup_ref
+    assert started.json()["pull"]["operation_kind"] == "engine_setup"

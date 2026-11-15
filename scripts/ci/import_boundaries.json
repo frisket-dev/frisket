@@ -339,6 +339,39 @@
       "reject_unresolved_dynamic": false
     },
     {
+      "id": "search-provider-transports-have-finite-owners",
+      "comment": "Only search composition, the two purchase-owning callers and the research budget wrapper receive the raw SearchService. Research tools consume the admitted search callback; they cannot import a new unaccounted transport.",
+      "modules": ["frisket", "frisket.*"],
+      "exclude": [
+        "frisket.ai.research.search",
+        "frisket.server.provider_config",
+        "frisket.engine.executor.web_search_read",
+        "frisket.server.services.project_qa_runner",
+        "frisket.server.services.project_qa_research"
+      ],
+      "forbidden_members": ["frisket.ai.research.search.SearchService"],
+      "reject_unresolved_dynamic": false
+    },
+    {
+      "id": "hosted-service-transports-have-finite-owners",
+      "comment": "Raw hosted document/translation adapters belong to the finite purchase-owning transport leaves. New action or orchestration callers must use the admitted capabilities.",
+      "modules": ["frisket", "frisket.*"],
+      "exclude": [
+        "frisket.ops.integrations.translation_engine",
+        "frisket.engine.executor.document_convert",
+        "frisket.ops.ocr_engines_hosted",
+        "frisket.ops.opendocrouter"
+      ],
+      "forbidden_members": [
+        "frisket.ops.integrations.deepl.deepl_translate",
+        "frisket.ops.integrations.google_translate.google_translate",
+        "frisket.ops.integrations.datalab.datalab_ocr",
+        "frisket.ops.integrations.datalab.datalab_convert",
+        "frisket.ops.integrations.opendocrouter.parse_document"
+      ],
+      "reject_unresolved_dynamic": false
+    },
+    {
       "id": "sidecar-raw-transport-is-private",
       "comment": "Public sidecar_post owns purchase admission and recording. Its raw HTTP helper cannot be imported or borrowed by another caller. Status/capability probes and public sidecar types remain available.",
       "modules": [

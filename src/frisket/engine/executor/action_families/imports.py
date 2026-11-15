@@ -30,6 +30,8 @@ from frisket.engine.store.cell_writes import (
     initialize_base_cells,
 )
 from frisket.engine.store.artifact_timeline import TimelineError
+from frisket.engine.store.changes import ChangeStore
+from frisket.engine.store.op_log import set_undo_info
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.temporal_ingress import preflight_typed_rows_for_persistence
 
@@ -138,23 +140,22 @@ def _perform_import_rows_in_txn(
         resolved.get("op_kind", action.kind) if resolved is not None else action.kind
     )
     cur.execute(
+        "INSERT INTO ops (kind, label, spec, undo_info, barrier) VALUES (?, ?, ?, '{}', 0)",
+        (
+            op_kind,
+            f"{op_kind} {materialization.sheet_name}",
+            json.dumps(op_spec, sort_keys=True),
+        ),
+    )
+    op_id = int(cur.lastrowid)
+    changes = ChangeStore(project)
+    changes.start(op_id)
+    cur.execute(
         "INSERT INTO sheets (name, position, parent_sheet_id, parent_op_id) "
         "VALUES (?, (SELECT COALESCE(MAX(position),0)+1 FROM sheets), NULL, NULL)",
         (materialization.sheet_name,),
     )
     sheet_id = int(cur.lastrowid)
-    undo_info = {"created_sheets": [sheet_id]}
-    cur.execute(
-        "INSERT INTO ops (kind, label, spec, undo_info, barrier) VALUES (?, ?, ?, ?, 0)",
-        (
-            op_kind,
-            f"{op_kind} {materialization.sheet_name}",
-            json.dumps(op_spec, sort_keys=True),
-            json.dumps(undo_info, sort_keys=True),
-        ),
-    )
-    op_id = int(cur.lastrowid)
-    cur.execute("UPDATE meta SET value=? WHERE key='op_cursor'", (str(op_id),))
     producer_id = create_base_cell_producer(
         project.db, stage_id=f"op:{op_id}", op_id=op_id
     )
@@ -250,7 +251,18 @@ def _perform_import_rows_in_txn(
     if resolved is not None:
         receipt.warnings = list(resolved.get("warnings", ()))
         result.warnings = list(receipt.warnings)
+    set_undo_info(
+        project,
+        op_id,
+        {
+            "created_sheets": [sheet_id],
+            "created_columns": list(column_ids.values()),
+            "created_rows": row_ids,
+        },
+        commit=False,
+    )
     ReceiptStore(project).insert_completed(receipt, commit=False)
+    changes.close(op_id)
     return result
 
 

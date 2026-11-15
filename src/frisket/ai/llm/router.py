@@ -1009,6 +1009,14 @@ class ModelRouter:
                 None if provider_cost is None else math.ceil(provider_cost * 1_000_000),
             )
 
+        def observe_error(error):
+            responses = getattr(error, "wire_calls", ())
+            if not responses:
+                return None
+            (response,) = responses
+            metadata = response.raw.get("embedding_metadata")
+            return None if metadata is None else observe(([], metadata))
+
         vectors, meta = await execute_purchase(
             PurchaseRequest(
                 provider=provider,
@@ -1022,6 +1030,7 @@ class ModelRouter:
             dispatch=_execution,
             invoke=invoke,
             observe=observe,
+            observe_error=observe_error,
         )
         provider_cost_usd = 0.0 if provider == "ollama" else provider_cost
         cost_source = (
@@ -1093,8 +1102,14 @@ class ModelRouter:
             post_egress_ambiguous = bool(getattr(error, "post_egress_ambiguous", False))
         except BaseException:  # hostile legacy subclasses must fail closed
             post_egress_ambiguous = True
+        try:
+            purchase_dispatched = getattr(error, "purchase_dispatched", None)
+        except BaseException:
+            purchase_dispatched = None
         if transport_kind is None:
             transport_kind = ModelRouter._transport_kind(error.__cause__)
+        if transport_kind == "connect":
+            purchase_dispatched = False
         safe_error = LLMError(
             detail,
             status=error.status,
@@ -1106,6 +1121,7 @@ class ModelRouter:
             ),
             transport_kind=transport_kind,
             post_egress_ambiguous=post_egress_ambiguous,
+            purchase_dispatched=purchase_dispatched,
         )
         if getattr(error, "wire_calls", None):
             safe_error.wire_calls = ModelRouter._safe_wire_calls(error, secret_values)
@@ -1136,7 +1152,9 @@ class ModelRouter:
 
     @staticmethod
     def _transport_kind(error: BaseException | None) -> TransportKind | None:
-        if isinstance(error, httpx.ConnectError):
+        if isinstance(
+            error, (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
+        ):
             return "connect"
         if isinstance(error, httpx.TimeoutException):
             return "timeout"
@@ -1159,7 +1177,10 @@ class ModelRouter:
             ),
             retryable=True,
             transport_kind=ModelRouter._transport_kind(error),
-            post_egress_ambiguous=not isinstance(error, httpx.ConnectError),
+            post_egress_ambiguous=ModelRouter._transport_kind(error) != "connect",
+            purchase_dispatched=(
+                False if ModelRouter._transport_kind(error) == "connect" else None
+            ),
         )
 
     async def aclose(self) -> None:

@@ -156,6 +156,8 @@ def _write_purchase_tree(root: Path, files: dict[str, str]) -> None:
 
 PURCHASE_RULE_IDS = {
     "model-provider-transports-have-finite-owners",
+    "search-provider-transports-have-finite-owners",
+    "hosted-service-transports-have-finite-owners",
     "sidecar-raw-transport-is-private",
     "local-purchase-policy-belongs-to-composition",
     "model-router-construction-belongs-to-composition",
@@ -194,6 +196,34 @@ def _purchase_rules() -> tuple[ImportBoundaryRule, ...]:
 @pytest.mark.parametrize(
     "source, expected_rule",
     [
+        (
+            "from frisket.ai.research.search import SearchService as Search\n",
+            "search-provider-transports-have-finite-owners",
+        ),
+        (
+            "import frisket.ai.research.search as wire\nwire.SearchService(effective_keys={})\n",
+            "search-provider-transports-have-finite-owners",
+        ),
+        (
+            "from frisket.ops.integrations.deepl import deepl_translate as send\n",
+            "hosted-service-transports-have-finite-owners",
+        ),
+        (
+            "from frisket.ops.integrations import datalab as wire\nwire.datalab_ocr(client, key)\n",
+            "hosted-service-transports-have-finite-owners",
+        ),
+        (
+            "from frisket.ops.integrations.google_translate import google_translate\n",
+            "hosted-service-transports-have-finite-owners",
+        ),
+        (
+            "from frisket.ops.integrations.datalab import datalab_convert\n",
+            "hosted-service-transports-have-finite-owners",
+        ),
+        (
+            "import frisket.ops.integrations.opendocrouter as wire\nwire.parse_document(client, key)\n",
+            "hosted-service-transports-have-finite-owners",
+        ),
         (
             "from frisket.ai.llm.adapters import AnthropicAdapter as Provider\nProvider('key')\n",
             "model-provider-transports-have-finite-owners",
@@ -312,11 +342,16 @@ def test_purchase_fences_allow_real_transport_owners_public_clients_and_ordinary
                 "from frisket.ai.llm.adapters import AnthropicAdapter\n"
                 "from frisket.ai.llm.cloud import CloudLLMAdapter\n"
             ),
+            "frisket/engine/executor/web_search_read.py": "from frisket.ai.research.search import SearchService\n",
+            "frisket/server/services/project_qa_runner.py": "from frisket.ai.research.search import SearchService\n",
+            "frisket/ops/integrations/translation_engine.py": "from frisket.ops.integrations.deepl import deepl_translate\n",
+            "frisket/engine/executor/document_convert.py": "from frisket.ops.integrations.datalab import datalab_convert\n",
             "frisket/ops/_sidecar.py": "from frisket.ops._sidecar import _sidecar_post_transport\n",
             "frisket/execution/purchases.py": "from frisket.execution.purchases import LocalPurchasePolicy\n",
             "frisket/server/workspace.py": "from frisket.ai.llm import ModelRouter\nfrom frisket.execution.purchases import LOCAL_PURCHASE_POLICY\nrouter = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)\n",
             "frisket/engine/jobs/runs.py": "from frisket.ai.llm.router import ModelRouter as Router\nrouter = Router()\n",
             "frisket/actions/new_action.py": (
+                "from frisket.ai.research.search import SearchResponse\n"
                 "import httpx\n"
                 "from frisket.ai.llm import ModelRouter\ndef use_client(router: ModelRouter): pass\n"
                 "from frisket.ops._sidecar import sidecar_post, probe_sidecar_capabilities, SidecarHTTPError\n"

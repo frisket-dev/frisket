@@ -113,7 +113,7 @@ def test_cloud_llm_execution_request_defaults_to_llm_and_accepts_exact_ocr():
     assert ocr_request.capability == "ocr"
 
 
-def test_cloud_ocr_usage_accepts_exactly_one_page_or_token_shape():
+def test_cloud_ocr_usage_accepts_known_shape_or_explicitly_unknown_usage():
     page_usage = CloudOCRUsage(kind="ocr", pages=2)
     assert page_usage.pages == 2
     assert page_usage.model_dump(mode="json") == {"kind": "ocr", "pages": 2}
@@ -125,13 +125,16 @@ def test_cloud_ocr_usage_accepts_exactly_one_page_or_token_shape():
         "tokens_out": 24,
     }
 
+    unknown = CloudOCRUsage(kind="ocr")
+    assert unknown.model_dump(mode="json") == {"kind": "ocr"}
+    assert unknown.pages is unknown.tokens_in is unknown.tokens_out is None
+
     for usage in (
-        {"kind": "ocr"},
         {"kind": "ocr", "tokens_in": 120},
         {"kind": "ocr", "tokens_out": 24},
         {"kind": "ocr", "pages": 2, "tokens_in": 120, "tokens_out": 24},
     ):
-        with pytest.raises(ValueError, match="either pages or token counts"):
+        with pytest.raises(ValueError, match="cannot mix pages and token counts"):
             CloudOCRUsage.model_validate(usage)
 
 

@@ -52,6 +52,8 @@ class HostedEngineError(Exception):
     provider_job_accepted: bool = False
     # Sent without a conclusive response: resubmitting may charge twice.
     post_egress_ambiguous: bool = False
+    # Explicit transport evidence only; False ambiguity alone proves nothing.
+    purchase_dispatched: bool | None = None
 
     def __str__(self) -> str:  # pragma: no cover - trivial
         return self.message
@@ -90,6 +92,9 @@ async def call_hosted_json(
             message=f"Could not reach {provider_name}: {exc}",
             retryable=True,
             post_egress_ambiguous=transport_outcome_is_uncertain(exc),
+            purchase_dispatched=(
+                None if transport_outcome_is_uncertain(exc) else False
+            ),
         ) from exc
     try:
         body = response.json()

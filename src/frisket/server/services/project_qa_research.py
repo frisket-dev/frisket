@@ -339,7 +339,11 @@ class ResearchSession:
         )
 
     async def search(
-        self, service: SearchService, query: str, *, search=None
+        self,
+        service: SearchService,
+        query: str,
+        *,
+        search: Callable[..., Awaitable[SearchResponse]],
     ) -> SearchResponse:
         if not query.strip() or len(query) > 500:
             raise ValueError("Enter a search query up to 500 characters.")
@@ -360,7 +364,7 @@ class ResearchSession:
                 break
             except ResearchPaused as pause:
                 await self.pause(pause.approval)
-        result = await (search or service.search)(query, quote=quote)
+        result = await search(query, quote=quote)
         if result.usage.provider_cost_usd is None:
             await self.pause(
                 {

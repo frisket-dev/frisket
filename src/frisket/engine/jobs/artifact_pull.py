@@ -167,6 +167,7 @@ def provision_pinned(
     cache_root,
     client: httpx.Client,
     should_cancel: Callable[[], bool] | None = None,
+    verify_existing: bool = False,
 ) -> None:
     """Download + verify + atomically install a pinned artifact worker-locally,
     without a ``model_pulls`` row (lazy pull-on-first-use).
@@ -179,7 +180,11 @@ def provision_pinned(
 
     ``should_cancel`` is polled between chunks so the cooperative
     run-cancel aborts the download promptly; on cancel the staging is discarded
-    and :class:`ProvisionCancelled` is raised."""
+    and :class:`ProvisionCancelled` is raised.
+
+    Explicit setup uses ``verify_existing`` to repair corrupt same-size files.
+    Verification holds the artifact lock, and the prior install stays in place
+    until its verified replacement is ready for atomic promotion."""
     lock = _acquire_artifact_lock(
         art,
         cache_root=cache_root,
@@ -194,6 +199,7 @@ def provision_pinned(
             cache_root=cache_root,
             client=client,
             should_cancel=should_cancel,
+            verify_existing=verify_existing,
         )
     finally:
         lock.release()
@@ -206,6 +212,7 @@ def _provision_pinned_unlocked(
     cache_root: Path | None,
     client: httpx.Client,
     should_cancel: Callable[[], bool] | None = None,
+    verify_existing: bool = False,
 ) -> None:
     """Provision under :func:`provision_pinned`'s artifact-local lock."""
     import uuid
@@ -215,7 +222,12 @@ def _provision_pinned_unlocked(
         [(file.repo_relpath, file.size) for file in pinned.files],
         root=cache_root,
     ):
-        return
+        if (
+            not verify_existing
+            or _installed_composite_digest(art, list(pinned.files), cache_root)
+            == pinned.composite_digest
+        ):
+            return
 
     token = f"prov-{uuid.uuid4().hex}"
     model_cache.discard_tmp(token, root=cache_root)

@@ -6,7 +6,11 @@ from typing import Any
 
 from frisket.ai.llm import LLMResponse
 from frisket.ai.llm.types import wire_responses as expand_wire_responses
-from frisket.ai.models.metadata import ModelCallMeta, model_calls_cost_actual
+from frisket.ai.models.metadata import (
+    ModelCallMeta,
+    PROVIDER_KIND,
+    model_calls_cost_actual,
+)
 from frisket.local_model_ids import bare_model_name
 
 
@@ -20,7 +24,11 @@ def wire_accounting_meta(
     calls: list[dict[str, Any]] = []
     execution_receipts: list[dict[str, Any]] = []
     for wire in wire_responses:
-        units = {"tokens_in": wire.tokens_in, "tokens_out": wire.tokens_out}
+        units = (
+            {"tokens_in": wire.tokens_in, "tokens_out": wire.tokens_out}
+            if wire.usage_available
+            else {}
+        )
         if wire.output_limited:
             units["output_limited"] = True
         if wire.cached:
@@ -28,7 +36,7 @@ def wire_accounting_meta(
                 capability="llm.complete",
                 engine=model_name,
                 provider=wire.provider,
-                provider_kind="chat_api",
+                provider_kind=PROVIDER_KIND.get(wire.provider, "platform_api"),
                 model_ids=[model_id or model_name],
                 units=units,
                 warnings=[],
@@ -44,7 +52,7 @@ def wire_accounting_meta(
                 capability="llm.complete",
                 engine=model_name,
                 provider=wire.provider,
-                provider_kind="chat_api",
+                provider_kind=PROVIDER_KIND.get(wire.provider, "platform_api"),
                 model_ids=[model_id or model_name],
                 credential_source=wire.credential_source,
                 provider_reported_cost_usd=wire.cost,

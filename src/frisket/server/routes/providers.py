@@ -466,6 +466,7 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
     )
     def setup_model_engine(body: EngineSetupRequest) -> ModelPullStartResponse:
         """Start an allowlisted local engine setup operation."""
+        from frisket.contracts.classification import LOCAL_CLASSIFIERS
         from frisket.engine.jobs.engine_setup import (
             CHROMIUM_SETUP_REF,
             SPACY_SETUP_REF,
@@ -488,6 +489,7 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
             DOCLING_SETUP_REF,
             INDRA_OCR_SETUP_REF,
             EMBEDDINGGEMMA_SETUP_REF,
+            *(spec.setup_ref for spec in LOCAL_CLASSIFIERS.values()),
         }:
             raise RouteError(
                 400,

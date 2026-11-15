@@ -125,6 +125,13 @@ async def _request(
             and not isinstance(
                 error, (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
             ),
+            purchase_dispatched=(
+                False
+                if isinstance(
+                    error, (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
+                )
+                else None
+            ),
         ) from None
     if billable and (response.status_code >= 500 or response.is_redirect):
         # Only documented pre-execution refusals establish that no work ran.

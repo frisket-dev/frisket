@@ -227,6 +227,11 @@ class LLMResponse:
         default=(), repr=False, compare=False
     )
 
+    # Explicit numeric-count constructors represent observed usage by default.
+    # Wire adapters set False when a provider omitted its counters: the integer
+    # display defaults must never become evidence for a zero-cost purchase.
+    usage_available: bool = True
+
 
 def wire_responses(responses) -> list[LLMResponse]:
     """Expand bounded retry carriers into their original, unique leaf facts."""
@@ -265,6 +270,7 @@ class LLMError(Exception):
         provider_code: str | None = None,
         transport_kind: TransportKind | None = None,
         post_egress_ambiguous: bool = False,
+        purchase_dispatched: bool | None = None,
     ):
         super().__init__(message)
         self.status = status
@@ -286,6 +292,7 @@ class LLMError(Exception):
         # ``retryable``: the latter means a later operator-driven resume may
         # succeed, not that an immediate identical wire call is safe.
         self.post_egress_ambiguous = bool(post_egress_ambiguous)
+        self.purchase_dispatched = purchase_dispatched
 
 
 class SchemaViolation(LLMError):

@@ -486,3 +486,68 @@ def test_completed_cloud_output_survives_pending_accounting_without_free_receipt
             await router.aclose()
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("capability", ["llm.complete", "ocr"])
+def test_cloud_adapter_and_cache_preserve_unknown_usage(tmp_path, capability):
+    from frisket.ai.llm.cache import ResponseCache
+
+    async def scenario():
+        payload = _response(output_limited=False).model_dump(mode="json")
+        payload["receipt"] = None
+        payload["accounting"] = {
+            "status": "pending",
+            "usage": {"kind": capability},
+            "provider_cost_micro": None,
+        }
+        payload["result"].update(
+            usage_available=False,
+            tokens_in=0,
+            tokens_out=0,
+            cost=None,
+            cost_source="unknown",
+        )
+        payload["route"]["capability"] = capability
+        if capability == "ocr":
+            payload["route"]["options"] = CloudOCROptionSupport(
+                kind="ocr", language=True, geometry=True, searchable_pdf=False
+            ).model_dump(mode="json")
+        response = CloudExecutionResponse.model_validate(payload)
+        calls = []
+
+        class Transport:
+            async def execute_llm(self, attempt, request, *, capability=None):
+                calls.append(request)
+                return response
+
+        router = _router()
+        try:
+            with cloud_llm_execution_scope(
+                CloudLLMExecutionBinding(Transport(), _attempt(), capability=capability)
+            ):
+                result = await router.for_execution(STANDALONE).complete_transport(
+                    LLMRequest(model=MODEL, messages=[])
+                )
+            assert len(calls) == 1
+            assert result.content == response.result.content
+            assert result.usage_available is False
+            assert result.cost is None
+            assert result.actual_accounting.cost is None
+            assert result.actual_accounting.receipts == ()
+            [fact] = result.actual_accounting.model_calls
+            assert fact["provider_cost_usd"] is None
+            assert fact["units"].get("tokens_in") is None
+            assert fact["units"].get("tokens_out") is None
+            cache = ResponseCache(tmp_path / "responses.sqlite")
+            try:
+                cache.put("unknown-usage", result)
+                replay = cache.get("unknown-usage")
+                assert replay.usage_available is False
+                assert replay.cost is None
+                assert replay.actual_accounting is None
+            finally:
+                cache.db.close()
+        finally:
+            await router.aclose()
+
+    asyncio.run(scenario())

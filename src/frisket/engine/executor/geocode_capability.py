@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from frisket.execution.purchases import (
     PurchaseRequest,
+    PurchaseRecordingError,
     PurchaseObservation,
     execute_purchase,
     cost_micro,
@@ -35,7 +36,10 @@ from frisket.execution.credential_use import (
 from frisket.execution.runtime_binding import ROUTE_OBSERVATION_KEY, bind_fact_to_route
 from frisket.ops.base import OpContext, RecipeInvocationHalt
 from frisket.ops.cost_source import free_public_api_estimate
-from frisket.ops.integrations.hosted_error import HostedEngineError
+from frisket.ops.integrations.hosted_error import (
+    HostedEngineError,
+    transport_outcome_is_uncertain,
+)
 from frisket.redaction import redact_text
 
 OPENCAGE_URL = "https://api.opencagedata.com/geocode/v1/json"
@@ -408,16 +412,6 @@ class AdmittedGeocoder:
         attempts: list[tuple[int, str | None]] = []
         for attempt in range(4):
             self._check_active()
-            self.request_count += 1
-            attempts.append((0, None))
-            self.accounting_by_row[ctx.extras["row_id"]] = self._provider_accounting(
-                engine=engine,
-                pricing_key=pricing_key,
-                credential_source=credential_source,
-                attempts=attempts,
-                final_response_succeeded=False,
-                route=route,
-            )
             estimate = (
                 free_public_api_estimate(quantity=1)
                 if engine == "nominatim"
@@ -426,6 +420,23 @@ class AdmittedGeocoder:
 
             def observe(response):
                 success = response.status_code == 200
+                request_id = response.headers.get(
+                    "x-request-id"
+                ) or response.headers.get("request-id")
+                if request_id is not None:
+                    request_id = redact_text(request_id, secret_values=secret_values)
+                attempts[-1] = (response.status_code, request_id)
+                # Retain the same returned facts if recording fails before publication.
+                self.accounting_by_row[ctx.extras["row_id"]] = (
+                    self._provider_accounting(
+                        engine=engine,
+                        pricing_key=pricing_key,
+                        credential_source=credential_source,
+                        attempts=attempts,
+                        final_response_succeeded=success,
+                        route=route,
+                    )
+                )
                 rejected = response.status_code in {400, 401, 402, 403, 404, 422, 429}
                 cost = estimate["cost"] if success else 0 if rejected else None
                 return PurchaseObservation(
@@ -433,6 +444,33 @@ class AdmittedGeocoder:
                     usage={"requests": 1, "rows": 1} if success else {},
                     provider_cost_micro=cost_micro(cost),
                 )
+
+            async def invoke():
+                self.request_count += 1
+                attempts.append((0, None))
+                self.accounting_by_row[ctx.extras["row_id"]] = (
+                    self._provider_accounting(
+                        engine=engine,
+                        pricing_key=pricing_key,
+                        credential_source=credential_source,
+                        attempts=attempts,
+                        final_response_succeeded=False,
+                        route=route,
+                    )
+                )
+                try:
+                    return await ctx.http.get(url, params=params, headers=headers)
+                except httpx.HTTPError as exc:
+                    uncertain = transport_outcome_is_uncertain(exc)
+                    raise GeocodeEngineError(
+                        code="transport",
+                        message=f"geocoding request could not reach {urlsplit(url).hostname}: "
+                        + redact_text(str(exc), secret_values=secret_values)[:300],
+                        retryable=True,
+                        accounting=self.accounting_by_row[ctx.extras["row_id"]],
+                        post_egress_ambiguous=uncertain,
+                        purchase_dispatched=None if uncertain else False,
+                    ) from None
 
             try:
                 resp = await execute_purchase(
@@ -454,53 +492,17 @@ class AdmittedGeocoder:
                     ),
                     policy=policy_for_context(ctx),
                     dispatch=dispatch_for_context(ctx),
-                    invoke=lambda: ctx.http.get(url, params=params, headers=headers),
+                    invoke=invoke,
                     observe=observe,
                 )
-            except httpx.HTTPError as exc:
-                host = urlsplit(url).hostname
-                accounting = AdmittedGeocoder._provider_accounting(
-                    engine=engine,
-                    pricing_key=pricing_key,
-                    credential_source=credential_source,
-                    attempts=attempts,
-                    final_response_succeeded=False,
-                    route=route,
-                )
-                raise GeocodeEngineError(
-                    code="transport",
-                    message=f"geocoding request could not reach {host}: "
-                    + redact_text(str(exc), secret_values=secret_values)[:300],
-                    retryable=True,
-                    accounting=accounting,
-                ) from None
-            request_id = resp.headers.get("x-request-id") or resp.headers.get(
-                "request-id"
-            )
-            if request_id is not None:
-                request_id = redact_text(request_id, secret_values=secret_values)
-            attempts[-1] = (resp.status_code, request_id)
-            # Keep response-proven facts before the next retry await, so a
-            # cancelled invocation cannot lose an already returned response.
-            self.accounting_by_row[ctx.extras["row_id"]] = self._provider_accounting(
-                engine=engine,
-                pricing_key=pricing_key,
-                credential_source=credential_source,
-                attempts=attempts,
-                final_response_succeeded=False,
-                route=route,
-            )
+            except (PurchaseRecordingError, asyncio.CancelledError) as error:
+                if getattr(error, "observation", None) is not None:
+                    error.accounting = self.accounting_by_row[ctx.extras["row_id"]]
+                raise
             if resp.status_code != 429:
                 break
             await asyncio.sleep(1.5 * (attempt + 1))
-        accounting = AdmittedGeocoder._provider_accounting(
-            engine=engine,
-            pricing_key=pricing_key,
-            credential_source=credential_source,
-            attempts=attempts,
-            final_response_succeeded=resp.status_code == 200,
-            route=route,
-        )
+        accounting = self.accounting_by_row[ctx.extras["row_id"]]
         if resp.status_code != 200:
             host = urlsplit(url).hostname
             raise GeocodeEngineError(

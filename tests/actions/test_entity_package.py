@@ -190,6 +190,12 @@ def test_real_callable_import_preserves_schema_relationships_raw_and_undo(
         )
         receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
         assert receipt.op_ids == [dataset.op_id]
+        assert (
+            project.db.execute(
+                "SELECT publication_closed FROM ops WHERE id=?", (dataset.op_id,)
+            ).fetchone()[0]
+            == 1
+        )
         assert next(
             item.ref for item in receipt.inputs if item.ref["kind"] == "local_file_read"
         )["sha256"]

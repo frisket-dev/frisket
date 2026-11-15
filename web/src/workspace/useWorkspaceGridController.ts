@@ -8,7 +8,7 @@ import type {
 import { useActSurfaceHandle } from '../bind/useActSurfaceHandle';
 import { useDetailHandle } from '../bind/useDetailHandle';
 import { useGridViewHandle } from '../bind/useGridViewHandle';
-import { useProjectDataResource } from '../bind/useRouteHandle';
+import { useProjectDataResource, useRouteHandle } from '../bind/useRouteHandle';
 import { useSavedViewsHandle } from '../bind/useSavedViewsHandle';
 import { useSelectionHandle } from '../bind/useSelectionHandle';
 import { useSelector } from '../bind/useSelector';
@@ -42,6 +42,7 @@ export function useWorkspaceGridController({
 }) {
   const { projectApi } = useWorkspaceStores();
   const projectData = useProjectDataResource();
+  const route = useRouteHandle();
   const gridView = useGridViewHandle();
   const detail = useDetailHandle();
   const selection = useSelectionHandle();
@@ -255,13 +256,15 @@ export function useWorkspaceGridController({
   );
 
   const applyGridFailedFilter = useCallback(
-    (columnName: string, outcome: string) => {
-      if (!sheet || !columnName) return;
+    (sheetId: string, columnName: string, outcome: string) => {
+      const sourceSheet = projectData.store.get().sheets.find((candidate) => candidate.id === sheetId);
+      if (!sourceSheet?.columns.some((column) => column.name === columnName)) return;
+      route.navigate({ ...route.baseRoute(), sheetId, actionKind: null, review: false, panel: null }, 'push');
       applyGridBboxFilterTransition(
         { gridView, detail, selection, workView },
         { setOpenSplit, setDocumentView, setPromotedViews },
         { promotedViews, activePromotedKey },
-        sheet.id,
+        sheetId,
         {
           filter: { [columnName]: { failed: outcome } },
         },
@@ -277,7 +280,8 @@ export function useWorkspaceGridController({
       setDocumentView,
       setOpenSplit,
       setPromotedViews,
-      sheet,
+      projectData,
+      route,
     ],
   );
 

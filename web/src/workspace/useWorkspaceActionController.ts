@@ -136,19 +136,25 @@ export function useWorkspaceActionController({
   }, [afterBackfill, projectApi, requestCostConfirmation, showError]);
 
   const retryFailedRows = useCallback(
-    async (targetColumnName: string, outcome: string): Promise<void> => {
-      if (!sheet) return;
+    async (sheetId: string, targetColumnName: string, outcome: string): Promise<boolean> => {
+      const sourceSheet = projectData.store.get().sheets.find((candidate) => candidate.id === sheetId);
+      if (!sourceSheet) return false;
+      let accepted = false;
       try {
-        const column = sheet.columns.find((candidate) => candidate.name === targetColumnName);
-        if (!column) return;
-        await retryFailedRowsWithConfirmation(
-          projectApi, requestCostConfirmation, sheet.id, column, outcome, afterBackfill,
+        const column = sourceSheet.columns.find((candidate) => candidate.name === targetColumnName);
+        if (!column) return false;
+        return await retryFailedRowsWithConfirmation(
+          projectApi, requestCostConfirmation, sourceSheet.id, column, outcome, (runId) => {
+            accepted = true;
+            afterBackfill(runId);
+          },
         );
       } catch (e: unknown) {
         showError(e instanceof Error ? e.message : String(e));
+        return accepted;
       }
     },
-    [afterBackfill, projectApi, requestCostConfirmation, sheet, showError],
+    [afterBackfill, projectApi, projectData, requestCostConfirmation, showError],
   );
 
   return useMemo(() => ({

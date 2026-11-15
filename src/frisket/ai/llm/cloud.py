@@ -90,10 +90,16 @@ class CloudLLMAdapter:
                 "cloud_protocol_error", "Cloud LLM execution returned invalid usage"
             )
         if (
-            usage.tokens_in is None
-            or usage.tokens_out is None
-            or result.tokens_in != usage.tokens_in
-            or result.tokens_out != usage.tokens_out
+            result.usage_available
+            and (
+                usage.tokens_in is None
+                or usage.tokens_out is None
+                or result.tokens_in != usage.tokens_in
+                or result.tokens_out != usage.tokens_out
+            )
+        ) or (
+            not result.usage_available
+            and (usage.tokens_in is not None or usage.tokens_out is not None)
         ):
             raise CloudExecutionRefused(
                 "cloud_protocol_error",
@@ -105,6 +111,7 @@ class CloudLLMAdapter:
             data=result.data,
             tokens_in=result.tokens_in,
             tokens_out=result.tokens_out,
+            usage_available=result.usage_available,
             cost=result.cost,
             model=result.model,
             cost_source=result.cost_source,  # type: ignore[arg-type]

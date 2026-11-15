@@ -311,6 +311,9 @@ class OpenAITranscriptionAdapter:
                     ),
                     retryable=True,
                     post_egress_ambiguous=transport_outcome_is_uncertain(error),
+                    purchase_dispatched=(
+                        None if transport_outcome_is_uncertain(error) else False
+                    ),
                 ) from None
             if response.status_code != 200:
                 error = _RemoteTranscriptionResponseError(

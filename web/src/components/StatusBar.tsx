@@ -155,9 +155,9 @@ export interface StatusBarProps {
   onCancelRun(runId: string): void;
   /** Failure triage (run watcher popover): filter the grid to the target
    *  column's failing rows for an outcome bucket ('any' = all buckets). */
-  onShowFailedRows?(columnName: string, outcome: string): void;
+  onShowFailedRows?(sheetId: string, columnName: string, outcome: string): void;
   /** Failure triage: retry exactly one bucket's rows via run.backfill row_ids. */
-  onRetryFailedRows?(columnName: string, outcome: string): void;
+  onRetryFailedRows?(sheetId: string, columnName: string, outcome: string): Promise<boolean>;
 }
 
 export function StatusBar({
@@ -766,11 +766,12 @@ function RunWatcherBody({
       <RunFileProgress files={files} />
       {!isActiveRunStatus(run.status) && run.rowErrors && (
         <RunFailureTriage
+          key={run.runId}
           rowErrors={run.rowErrors}
           onShowRows={
             triageColumn && onShowFailedRows
               ? (outcome) => {
-                  onShowFailedRows(triageColumn, outcome);
+                  onShowFailedRows(run.sheetId, triageColumn, outcome);
                   // Close the popover so the freshly filtered grid is visible.
                   onClose?.();
                 }
@@ -778,7 +779,7 @@ function RunWatcherBody({
           }
           onRetryRows={
             triageColumn && onRetryFailedRows && run.retrySupported !== false
-              ? (outcome) => onRetryFailedRows(triageColumn, outcome)
+              ? (outcome) => onRetryFailedRows(run.sheetId, triageColumn, outcome)
               : undefined
           }
         />

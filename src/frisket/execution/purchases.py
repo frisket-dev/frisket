@@ -187,12 +187,15 @@ def llm_observation(response: Any) -> PurchaseObservation:
 
     result = asdict(response)
     result.pop("prior_wire_calls", None)
-    expense = cost_micro(getattr(response, "cost", None))
+    usage_available = response.usage_available
+    expense = cost_micro(getattr(response, "cost", None)) if usage_available else None
     if expense is None:
         result.update(cost=None, cost_source="unknown")
     return PurchaseObservation(
         result,
-        {"tokens_in": response.tokens_in, "tokens_out": response.tokens_out},
+        {"tokens_in": response.tokens_in, "tokens_out": response.tokens_out}
+        if usage_available
+        else {},
         expense,
     )
 

@@ -7,7 +7,7 @@
 // with no actions.
 
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, screen, within, waitFor } from '@testing-library/react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../src/api/open', async (importOriginal) => {
@@ -88,7 +88,7 @@ const finishedRun = (over: Partial<RunProgress> = {}): RunProgress => ({
 
 function renderBar(run: RunProgress, over: Partial<React.ComponentProps<typeof StatusBar>> = {}) {
   const onShowFailedRows = vi.fn();
-  const onRetryFailedRows = vi.fn();
+  const onRetryFailedRows = vi.fn().mockResolvedValue(true);
   render(
     <StatusBar
       run={run}
@@ -114,12 +114,12 @@ describe('StatusBar failure triage', () => {
     expect(screen.getByTestId('run-failure-triage')).toHaveTextContent('12 failed rows');
 
     fireEvent.click(screen.getByTestId('run-failure-retry-all'));
-    expect(onRetryFailedRows).toHaveBeenCalledWith('relevance', 'any');
+    expect(onRetryFailedRows).toHaveBeenCalledWith('sheet-1', 'relevance', 'any');
     // Retry keeps the popover open so "Retry requested" stays visible.
     expect(screen.getByTestId('run-failure-triage')).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('run-failure-show-all'));
-    expect(onShowFailedRows).toHaveBeenCalledWith('relevance', 'any');
+    expect(onShowFailedRows).toHaveBeenCalledWith('sheet-1', 'relevance', 'any');
     // Show closes the popover so the freshly filtered grid is visible.
     expect(screen.queryByTestId('run-failure-triage')).not.toBeInTheDocument();
   });
@@ -337,4 +337,22 @@ it('keeps unavailable transform rows inspectable without offering row retry', ()
   expect(screen.getByTestId('run-failure-triage')).toBeInTheDocument();
   expect(screen.queryByTestId('run-failure-retry-all')).not.toBeInTheDocument();
   expect(screen.getByTestId('run-failure-show-all')).toBeInTheDocument();
+});
+
+
+it('gives each terminal run a fresh retry state', async () => {
+  const props = {
+    history: null, reviewCount: 0, projectionStatus: null,
+    onUndo: vi.fn(), onRedo: vi.fn(), onOpenReview: vi.fn(), onCancelRun: vi.fn(),
+    onRetryFailedRows: vi.fn().mockResolvedValue(true),
+  };
+  const view = render(<StatusBar {...props} run={finishedRun()} />);
+  fireEvent.click(screen.getByTestId('run-watcher-toggle'));
+  fireEvent.click(screen.getByTestId('run-failure-retry-all'));
+  await waitFor(() => expect(screen.getByTestId('run-failure-retry-all')).toHaveTextContent('Retry requested'));
+  view.rerender(<StatusBar {...props} run={finishedRun({ runId: 'run-10', sheetId: 'sheet-2' })} />);
+  fireEvent.click(screen.getByTestId('run-watcher-toggle'));
+  expect(screen.getByTestId('run-failure-retry-all')).toBeEnabled();
+  fireEvent.click(screen.getByTestId('run-failure-retry-all'));
+  await waitFor(() => expect(props.onRetryFailedRows).toHaveBeenLastCalledWith('sheet-2', 'relevance', 'any'));
 });

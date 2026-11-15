@@ -13,12 +13,14 @@ from frisket.contracts.plugin_write_plan import (
     WritePlan,
 )
 from frisket.engine.store.artifact_timeline import TimelineError
+from frisket.engine.store.changes import ChangeStore
 from frisket.engine.store.cell_writes import (
     BaseCellWrite,
     create_base_cell_producer,
     initialize_base_cells,
 )
 from frisket.engine.store.temporal_ingress import validate_project_contextual_value
+from frisket.engine.store.op_log import set_undo_info
 
 
 class WritePlanError(Exception):
@@ -189,7 +191,8 @@ def apply_additive_tables(
             (operation_kind, label),
         )
         op_id = int(cur.lastrowid)
-        cur.execute("UPDATE meta SET value=? WHERE key='op_cursor'", (str(op_id),))
+        changes = ChangeStore(project)
+        changes.start(op_id)
         producer_id = create_base_cell_producer(db, stage_id=f"op:{op_id}", op_id=op_id)
 
         sheet_ids: dict[str, int] = {}
@@ -258,13 +261,14 @@ def apply_additive_tables(
             "created_rows": created_rows,
         }
         cur.execute(
-            "UPDATE ops SET spec=?, undo_info=? WHERE id=?",
-            (
-                json.dumps(op_spec, sort_keys=True),
-                json.dumps(undo_info, sort_keys=True),
-                op_id,
-            ),
+            "UPDATE ops SET spec=? WHERE id=?",
+            (json.dumps(op_spec, sort_keys=True), op_id),
         )
+        set_undo_info(project, op_id, undo_info, commit=False)
+        # This helper owns the complete materialization, even inside a caller's
+        # receipt transaction. Empty tables are Changes too; source-cell writes
+        # must not be what incidentally makes them navigable.
+        changes.close(op_id)
 
         if nested:
             cur.execute(f"RELEASE SAVEPOINT {savepoint}")

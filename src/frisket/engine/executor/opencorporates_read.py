@@ -202,6 +202,9 @@ class AdmittedOpenCorporates:
                         message="OpenCorporates request transport failed.",
                         retryable=True,
                         post_egress_ambiguous=transport_outcome_is_uncertain(error),
+                        purchase_dispatched=(
+                            None if transport_outcome_is_uncertain(error) else False
+                        ),
                     ) from None
 
             response = await execute_purchase(

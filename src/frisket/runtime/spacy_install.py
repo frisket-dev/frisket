@@ -23,9 +23,13 @@ def is_installed() -> bool:
     return model_install._is_installed(runtime_dir())
 
 
+def host_present() -> bool:
+    return importlib.util.find_spec("spacy") is not None
+
+
 def runtime_present() -> bool:
     """Passively report host or completed private-runtime readiness."""
-    return importlib.util.find_spec("spacy") is not None or is_installed()
+    return host_present() or is_installed()
 
 
 def runtime_for_worker() -> "PythonRuntime":

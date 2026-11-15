@@ -3,7 +3,7 @@
 // Failure reasons remain readable; actions apply to all failed rows.
 
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, screen, render } from '@testing-library/react';
+import { act, cleanup, fireEvent, screen, render, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { RunFailureTriage } from '../../src/components/RunFailureTriage';
@@ -62,9 +62,9 @@ describe('RunFailureTriage', () => {
     expect(modelErrors).toHaveTextContent('model errors');
   });
 
-  it('offers only Show all failed and Retry, both applying to every failure outcome', () => {
+  it('offers only Show all failed and Retry, both applying to every failure outcome', async () => {
     const onShowRows = vi.fn();
-    const onRetryRows = vi.fn();
+    const onRetryRows = vi.fn().mockResolvedValue(true);
     render(<RunFailureTriage rowErrors={THREE_BUCKETS} onShowRows={onShowRows} onRetryRows={onRetryRows} />);
     expect(screen.getAllByRole('button').map((button) => button.textContent)).toEqual(['Show all failed', 'Retry']);
     fireEvent.click(screen.getByRole('button', { name: 'Show all failed' }));
@@ -73,7 +73,7 @@ describe('RunFailureTriage', () => {
     fireEvent.click(retry);
     expect(onRetryRows).toHaveBeenCalledWith('any');
     expect(retry).toBeDisabled();
-    expect(retry).toHaveTextContent('Retry requested');
+    await waitFor(() => expect(retry).toHaveTextContent('Retry requested'));
     fireEvent.click(retry);
     expect(onRetryRows).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId('run-failure-terminal-note')).toHaveTextContent(
@@ -103,4 +103,29 @@ describe('RunFailureTriage', () => {
     expect(screen.getByRole('button', { name: 'Show all failed' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
   });
+});
+
+
+it.each(['cancelled', 'failed'] as const)('allows another retry after %s admission', async (outcome) => {
+  let settle!: (accepted: boolean) => void;
+  let reject!: (error: Error) => void;
+  const onRetryRows = vi.fn().mockImplementationOnce(() => new Promise<boolean>((resolve, fail) => {
+    settle = resolve; reject = fail;
+  })).mockResolvedValue(true);
+  render(<RunFailureTriage rowErrors={THREE_BUCKETS} onRetryRows={onRetryRows} />);
+  const button = screen.getByRole('button', { name: 'Retry' });
+  fireEvent.click(button);
+  expect(button).toBeDisabled();
+  expect(button).toHaveTextContent('Checking retry…');
+  fireEvent.click(button);
+  expect(onRetryRows).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    if (outcome === 'cancelled') settle(false);
+    else reject(new Error('Admission unavailable'));
+  });
+  expect(button).toBeEnabled();
+  expect(button).toHaveTextContent('Retry');
+  fireEvent.click(button);
+  await waitFor(() => expect(button).toHaveTextContent('Retry requested'));
+  expect(onRetryRows).toHaveBeenCalledTimes(2);
 });

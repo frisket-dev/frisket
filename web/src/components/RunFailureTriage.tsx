@@ -1,5 +1,5 @@
 import { Button } from './Button';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { RunRowErrorSummary } from '../api/open';
 import { bucketRowErrors } from '../runFailureTaxonomy';
 import { MediaProxyRemediationCard } from './MediaProxyRemediationCard';
@@ -24,19 +24,27 @@ export function RunFailureTriage({
    *  unknown — the buckets still render, the actions do not. */
   onShowRows?: (outcome: string) => void;
   /** Retry failed rows; 'any' includes every failure outcome. */
-  onRetryRows?: (outcome: string) => void;
+  onRetryRows?: (outcome: string) => Promise<boolean>;
 }) {
   const buckets = bucketRowErrors(rowErrors.groups);
   const blockedGroup = rowErrors.groups.find(
     (group) => group.code === YOUTUBE_PROVIDER_BLOCKED_CODE,
   );
-  const [retried, setRetried] = useState(false);
+  const [retryState, setRetryState] = useState<'idle' | 'pending' | 'accepted'>('idle');
+  const retryInFlight = useRef(false);
   if (buckets.length === 0) return null;
 
-  const retry = () => {
-    if (!onRetryRows || retried) return;
-    setRetried(true);
-    onRetryRows('any');
+  const retry = async () => {
+    if (!onRetryRows || retryInFlight.current || retryState === 'accepted') return;
+    retryInFlight.current = true;
+    setRetryState('pending');
+    try {
+      setRetryState(await onRetryRows('any') ? 'accepted' : 'idle');
+    } catch {
+      setRetryState('idle');
+    } finally {
+      retryInFlight.current = false;
+    }
   };
 
   return (
@@ -60,8 +68,8 @@ export function RunFailureTriage({
             </Button>
           )}
           {onRetryRows && (
-            <Button type="button" data-testid="run-failure-retry-all" disabled={retried} onClick={retry}>
-              {retried ? 'Retry requested' : 'Retry'}
+            <Button type="button" data-testid="run-failure-retry-all" disabled={retryState !== 'idle'} onClick={() => void retry()}>
+              {retryState === 'accepted' ? 'Retry requested' : retryState === 'pending' ? 'Checking retry…' : 'Retry'}
             </Button>
           )}
         </div>
