@@ -338,3 +338,189 @@ def test_cutover_normalizes_swapped_output_roles_atomically(old_db):
             "SELECT output_descriptor_json FROM run_output_generations"
         )
     } == {"{}"}
+
+
+def _legacy_reapplied_result(db, copied_value, target_column_id=1):
+    for run_id, value in ((5, copied_value), (6, "latest answer")):
+        db.execute("INSERT INTO ops(id,kind) VALUES (?,'map.ask')", (run_id,))
+        db.execute(
+            "INSERT INTO runs(id,op_id,sheet_id,action_kind,status) VALUES (?,?,1,'map.ask','completed')",
+            (run_id, run_id),
+        )
+        db.execute(
+            "INSERT INTO run_output_generations(run_id,column_id,output_role,compatibility_key,write_mode,state,claim_token) VALUES (?,1,'Text','text-v1','create','active',?)",
+            (run_id, f"old:{run_id}"),
+        )
+        db.execute(
+            "INSERT INTO results(run_id,row_id,column_id,value_kind,value,outcome,publication_effect,review_state,review_decision,review_note) "
+            "VALUES (?,1,1,?,?, 'ok',?,'reviewed','accept','checked old answer')",
+            (
+                run_id,
+                "null" if value is None else "text",
+                value,
+                "publish_null" if value is None else "publish_value",
+            ),
+        )
+    db.execute("INSERT INTO cell_result_heads(column_id,row_id,run_id) VALUES (1,1,6)")
+    db.execute(
+        "INSERT INTO ops(id,kind,spec) VALUES (7,'edit',?)",
+        (
+            json.dumps(
+                {
+                    "action_kind": "run.reapply",
+                    "source_run_id": 5,
+                    "result_refs": [
+                        {
+                            "run_id": 5,
+                            "row_id": 1,
+                            "column_id": 1,
+                            "target_column_id": target_column_id,
+                        }
+                    ],
+                }
+            ),
+        ),
+    )
+    if target_column_id != 1:
+        db.execute(
+            "INSERT INTO columns(id,sheet_id,name) VALUES (?,1,'Copy')",
+            (target_column_id,),
+        )
+    db.execute("DELETE FROM edits")
+    db.execute(
+        "INSERT INTO edits(op_id,row_id,column_id,value_kind,value) VALUES (7,1,?,?,?)",
+        (target_column_id, "null" if copied_value is None else "text", copied_value),
+    )
+    db.execute(
+        "UPDATE current_cells SET column_id=?,origin_op_id=7,validity=?",
+        (target_column_id, "missing" if copied_value is None else "valid"),
+    )
+
+
+@pytest.mark.parametrize("copied_value", ["earlier answer", None])
+@pytest.mark.parametrize("target_column_id", [1, 2])
+def test_cutover_preserves_reapplied_older_result_identity(
+    old_db, copied_value, target_column_id
+):
+    from frisket.engine.store.domain_migration import migrate_domain
+
+    db = old_db
+    _legacy_reapplied_result(db, copied_value, target_column_id)
+    _stamp_old(db)
+    migrate_domain(db)
+    for view in (
+        "current_cell_values",
+        "unmodified_cell_values",
+        "canonical_cell_heads",
+    ):
+        row = db.execute(
+            f"SELECT origin_kind,origin_op_id,origin_run_id FROM {view} WHERE row_id=1 AND column_id=?",
+            (target_column_id,),
+        ).fetchone()
+        assert tuple(row) == ("copied_result", 7, 5)
+    assert (
+        db.execute("SELECT value FROM current_cell_values").fetchone()[0]
+        == copied_value
+    )
+    assert (
+        db.execute("SELECT value FROM unmodified_cell_values").fetchone()[0]
+        == copied_value
+    )
+    copy = db.execute(
+        "SELECT source_run_id,source_row_id,source_column_id,review_state,review_decision,review_note FROM copied_result_outcomes"
+    ).fetchone()
+    assert tuple(copy) == (5, 1, 1, "reviewed", "accept", "checked old answer")
+    assert (
+        db.execute("SELECT value FROM results WHERE run_id=6").fetchone()[0]
+        == "latest answer"
+    )
+    from types import SimpleNamespace
+    from frisket.engine.store.cells import get_values_with_refs
+
+    for apply_edits in (True, False):
+        values, refs = get_values_with_refs(
+            SimpleNamespace(db=db), 1, target_column_id, [1], apply_edits=apply_edits
+        )
+        assert values == {1: copied_value}
+        assert refs[1]["retained_result"] == {"run_id": 5, "row_id": 1, "column_id": 1}
+    assert not db.execute("PRAGMA foreign_key_check").fetchall()
+
+
+@pytest.mark.parametrize(
+    "problem",
+    [
+        "missing_source",
+        "wrong_target",
+        "different_value",
+        "duplicate",
+        "malformed_entry",
+        "malformed_spec",
+    ],
+)
+def test_cutover_does_not_guess_an_old_reapply_reference(old_db, problem):
+    from frisket.engine.store.domain_migration import migrate_domain
+
+    db = old_db
+    _legacy_reapplied_result(db, "earlier answer")
+    spec = json.loads(db.execute("SELECT spec FROM ops WHERE id=7").fetchone()[0])
+    if problem == "missing_source":
+        spec["result_refs"][0]["run_id"] = 999
+    elif problem == "wrong_target":
+        spec["result_refs"][0]["target_column_id"] = 999
+    elif problem == "different_value":
+        db.execute("UPDATE edits SET value='manual adjustment' WHERE op_id=7")
+    elif problem == "duplicate":
+        spec["result_refs"] *= 2
+    elif problem == "malformed_entry":
+        spec["result_refs"] = [None, "invalid"]
+    db.execute(
+        "UPDATE ops SET spec=? WHERE id=7",
+        ("{" if problem == "malformed_spec" else json.dumps(spec),),
+    )
+    _stamp_old(db)
+    migrate_domain(db)
+    assert db.execute("SELECT COUNT(*) FROM copied_result_outcomes").fetchone()[0] == 0
+    assert tuple(
+        db.execute("SELECT origin_kind,value FROM current_cell_values").fetchone()
+    ) == (
+        "manual_edit",
+        "manual adjustment" if problem == "different_value" else "earlier answer",
+    )
+
+
+def test_cutover_reapply_preserves_a_prepared_text_reference(old_db):
+    from frisket.engine.store.domain_migration import migrate_domain
+
+    db = old_db
+    _legacy_reapplied_result(db, "earlier answer")
+    db.execute(
+        "INSERT INTO prepared_page_versions(id,page_number,prepared_text,content_hash,producing_op_id) VALUES (1,1,'earlier answer',?,5)",
+        ("sha256:" + "0" * 64,),
+    )
+    db.execute("INSERT INTO prepared_content_sets(id,producing_op_id) VALUES (1,5)")
+    db.execute(
+        "INSERT INTO prepared_content_set_pages(set_id,page_number,version_id) VALUES (1,1,1)"
+    )
+    db.execute(
+        "INSERT INTO prepared_content_refs(id,set_id,page_number) VALUES (1,1,1)"
+    )
+    db.execute(
+        "UPDATE results SET value_kind='prepared_content_ref',value=1 WHERE run_id=5"
+    )
+    _stamp_old(db)
+    migrate_domain(db)
+    assert tuple(
+        db.execute(
+            "SELECT origin_kind,value,prepared_ref_id FROM current_cell_values"
+        ).fetchone()
+    ) == (
+        "copied_result",
+        "earlier answer",
+        1,
+    )
+    assert tuple(
+        db.execute(
+            "SELECT source_run_id,source_column_id FROM copied_result_outcomes"
+        ).fetchone()
+    ) == (5, 1)
+    assert not db.execute("PRAGMA foreign_key_check").fetchall()
