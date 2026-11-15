@@ -17,9 +17,7 @@ hosted_app_module = pytest.importorskip(
     reason="requires the hosted edition composition",
 )
 from frisket.server.workspace import Workspace
-from frisket.team.identity_service import IdentityAuthService
-from frisket.team.schema import audit_log, orgs, project_roles, projects, users
-from frisket.team.uow import TeamUnitOfWork
+from frisket.team.schema import audit_log, project_roles, projects, users
 from frisket_cloud.services.litestream_projection import (
     LitestreamProjectLifetime,
     canonical_database_path,
@@ -27,10 +25,20 @@ from frisket_cloud.services.litestream_projection import (
     projection_root,
 )
 from hosted_app_test_helpers import HostedConfig, create_hosted_app
+from hosted_control_plane_read_helpers import (
+    complete_magic_link_sign_in,
+    issue_test_magic_link,
+)
+from hosted_control_plane_setup_helpers import (
+    create_selected_shared_funding_account,
+    ensure_user_for_login,
+)
 from httpx_asgi_test_client import HttpxAsgiTestClient
 
 
-pytestmark = pytest.mark.gap
+# The hosted composition validates its allowlist against the shipped plugins;
+# Core's default empty plugin fixture is not a valid hosted installation.
+pytestmark = [pytest.mark.gap, pytest.mark.real_bundled_plugins]
 
 _EMAIL = "owner@example.com"
 _MEMBER_EMAIL = "member@example.com"
@@ -55,21 +63,20 @@ def _sign_in(
     engine: sa.Engine,
     *,
     email: str = _EMAIL,
+    shared: bool = False,
 ) -> tuple[int, int]:
-    with engine.connect() as connection:
-        org_id = int(connection.execute(sa.select(orgs.c.id)).scalar_one())
-    auth = IdentityAuthService(lambda: TeamUnitOfWork(engine, org_id=org_id))
-    token = auth.create_magic_link(email)
-    callback = client.get(
-        f"/auth/callback?token={token}",
-        follow_redirects=False,
-    )
+    ensure_user_for_login(engine, email)
+    token = issue_test_magic_link(engine, email)
+    callback = complete_magic_link_sign_in(client, token)
     assert callback.status_code == 302, callback.text
     with engine.connect() as connection:
         user = connection.execute(
             sa.select(users.c.id, users.c.default_org_id).where(users.c.email == email)
         ).one()
     assert user.default_org_id is not None
+    if shared:
+        account = create_selected_shared_funding_account(engine, int(user.id), "Desk")
+        return int(user.id), int(account["id"])
     return int(user.id), int(user.default_org_id)
 
 
@@ -288,14 +295,15 @@ def test_operation_replay_completes_one_lifetime_and_new_operation_allocates_nex
 
         replay_projects, replay_roles = _control_state(engine, org_id=org_id)
         bundle_root = config.data_dir / "projects" / str(org_id)
-        replay_bundles = sorted(bundle_root.glob("*.frisket"))
+        # A bundle has a nonempty slug; .frisket is workspace metadata.
+        replay_bundles = sorted(bundle_root.glob("?*.frisket"))
         replay_projections = sorted(
             projection_root(config.data_dir).rglob("project.db")
         )
 
         distinct = _post_project(client, operation_key=_DISTINCT_KEY)
         final_projects, final_roles = _control_state(engine, org_id=org_id)
-        final_bundles = sorted(bundle_root.glob("*.frisket"))
+        final_bundles = sorted(bundle_root.glob("?*.frisket"))
         final_projections = sorted(projection_root(config.data_dir).rglob("project.db"))
 
         failures: list[str] = []
@@ -419,7 +427,7 @@ def test_operation_key_is_scoped_to_the_authenticated_actor(
     app, _config, client = _hosted_app(tmp_path, monkeypatch)
     engine = app.state.control_engine
     try:
-        owner_id, org_id = _sign_in(client, engine)
+        owner_id, org_id = _sign_in(client, engine, shared=True)
         invited = client.post("/api/org/invite", json={"email": _MEMBER_EMAIL})
         assert invited.status_code == 200, invited.text
 
@@ -521,7 +529,7 @@ def test_operation_replay_survives_failure_immediately_after_bundle_create(
             monkeypatch.setattr(Workspace, "create", original_create)
 
         bundle_root = config.data_dir / "projects" / str(org_id)
-        bundles_after_failure = sorted(bundle_root.glob("*.frisket"))
+        bundles_after_failure = sorted(bundle_root.glob("?*.frisket"))
         projects_after_failure, roles_after_failure = _control_state(
             engine,
             org_id=org_id,
@@ -532,7 +540,7 @@ def test_operation_replay_survives_failure_immediately_after_bundle_create(
 
         retried = _post_project(client, operation_key=_REPLAY_KEY)
         project_rows, role_rows = _control_state(engine, org_id=org_id)
-        final_bundles = sorted(bundle_root.glob("*.frisket"))
+        final_bundles = sorted(bundle_root.glob("?*.frisket"))
         final_projections = sorted(projection_root(config.data_dir).rglob("project.db"))
         expected_projection = (
             _expected_projection(
@@ -678,7 +686,7 @@ def test_completed_operation_refuses_a_different_lifetime_at_the_same_slug(
     project_name = "Replaced Mapping"
     project_id = "replaced-mapping"
     try:
-        owner_id, org_id = _sign_in(client, engine)
+        owner_id, org_id = _sign_in(client, engine, shared=True)
         invited = client.post("/api/org/invite", json={"email": _MEMBER_EMAIL})
         assert invited.status_code == 200, invited.text
         original = _post_project(
@@ -837,7 +845,7 @@ def test_completed_operation_replay_preserves_newer_project_role(
     project_name = "Role Replay"
     project_id = "role-replay"
     try:
-        owner_id, org_id = _sign_in(client, engine)
+        owner_id, org_id = _sign_in(client, engine, shared=True)
         invited = client.post("/api/org/invite", json={"email": _MEMBER_EMAIL})
         assert invited.status_code == 200, invited.text
 
@@ -954,7 +962,7 @@ def test_operation_key_rejects_a_different_creation_payload(
             org_id=org_id,
             project_id=project_id,
         )
-        bundles_before = sorted(path.name for path in bundle.parent.glob("*.frisket"))
+        bundles_before = sorted(path.name for path in bundle.parent.glob("?*.frisket"))
         assert [row["slug"] for row in projects_before] == [project_id]
         assert metadata_before == {"name": project_name, "sensitive": True}
         assert roles_before == [
@@ -979,7 +987,7 @@ def test_operation_key_rejects_a_different_creation_payload(
             org_id=org_id,
             project_id=project_id,
         )
-        bundles_after = sorted(path.name for path in bundle.parent.glob("*.frisket"))
+        bundles_after = sorted(path.name for path in bundle.parent.glob("?*.frisket"))
 
         failures: list[str] = []
         if conflicting.status_code != 409:
@@ -1074,7 +1082,7 @@ def test_operation_replay_refuses_a_conflicting_cloud_completion_receipt(
             org_id=org_id,
             project_id=project_id,
         )
-        bundles_before = sorted(path.name for path in bundle.parent.glob("*.frisket"))
+        bundles_before = sorted(path.name for path in bundle.parent.glob("?*.frisket"))
         assert [row["slug"] for row in projects_before] == [project_id]
         assert roles_before == [
             {
@@ -1098,7 +1106,7 @@ def test_operation_replay_refuses_a_conflicting_cloud_completion_receipt(
             org_id=org_id,
             project_id=project_id,
         )
-        bundles_after = sorted(path.name for path in bundle.parent.glob("*.frisket"))
+        bundles_after = sorted(path.name for path in bundle.parent.glob("?*.frisket"))
 
         failures: list[str] = []
         if replayed.status_code != 409:
