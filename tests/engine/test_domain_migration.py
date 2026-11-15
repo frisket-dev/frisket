@@ -309,3 +309,32 @@ def test_cutover_preserves_saved_answer_beneath_manual_correction(old_db):
     with db, pytest.raises(ChangePublicationClosed, match="Pre-upgrade history"):
         db.execute("BEGIN IMMEDIATE")
         start_change(db, 1, writing=True)
+
+
+def test_cutover_normalizes_swapped_output_roles_atomically(old_db):
+    from frisket.engine.store.domain_migration import migrate_domain
+
+    db = old_db
+    db.execute("INSERT INTO columns(id,sheet_id,name) VALUES (2,1,'Other')")
+    db.execute(
+        "INSERT INTO runs(id,op_id,sheet_id,action_kind,status,params) VALUES (1,1,1,'map.extract','completed',?)",
+        (json.dumps({"output_names": {"Text": "Other", "Other": "Text"}}),),
+    )
+    for column, physical in [(1, "Text"), (2, "Other")]:
+        db.execute(
+            "INSERT INTO run_output_generations(run_id,column_id,output_role,compatibility_key,write_mode,state,claim_token) VALUES (1,?,?,'text-v1','create','active','old-claim')",
+            (column, physical),
+        )
+    _stamp_old(db)
+    migrate_domain(db)
+    assert dict(
+        db.execute("SELECT column_id,output_role FROM run_output_generations")
+    ) == {1: "Other", 2: "Text"}
+    # Missing frozen descriptors are explicitly unavailable, not guessed from
+    # the surviving mutable column definitions.
+    assert {
+        row[0]
+        for row in db.execute(
+            "SELECT output_descriptor_json FROM run_output_generations"
+        )
+    } == {"{}"}

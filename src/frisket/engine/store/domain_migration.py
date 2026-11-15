@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+from uuid import uuid4
 
 from .schema import BundleSchemaMismatch
 
@@ -178,12 +179,20 @@ def _retain_output_descriptors(db: sqlite3.Connection) -> None:
         "ALTER TABLE run_output_generations ADD COLUMN output_descriptor_json TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(output_descriptor_json))"
     )
     # Claims carry the descriptor used for execution, including renamed fields.
-    cursor = db.execute(
+    db.execute(
+        "CREATE TEMP TABLE domain_output_declarations AS "
         "SELECT generation.run_id,generation.column_id,generation.output_role,claim.details,run.params "
         "FROM run_output_generations generation JOIN runs run ON run.id=generation.run_id "
         "LEFT JOIN output_column_claims claim ON claim.claim_token=generation.claim_token "
         "AND claim.column_id=generation.column_id"
     )
+    # A user can swap two physical output names. Rename through a temporary
+    # namespace so the unique logical-role constraint holds throughout cutover.
+    prefix = f"domain-cutover-{uuid4().hex}:"
+    db.execute(
+        "UPDATE run_output_generations SET output_role=? || column_id", (prefix,)
+    )
+    cursor = db.execute("SELECT * FROM domain_output_declarations")
     for run_id, column_id, role, raw_details, raw_params in cursor:
         details = json.loads(raw_details or "{}")
         params = json.loads(raw_params or "{}")
@@ -206,6 +215,7 @@ def _retain_output_descriptors(db: sqlite3.Connection) -> None:
             "UPDATE run_output_generations SET output_role=?,output_descriptor_json=? WHERE run_id=? AND column_id=?",
             (logical, json.dumps(descriptor), run_id, column_id),
         )
+    db.execute("DROP TABLE domain_output_declarations")
 
 
 def _rebuild_table(db: sqlite3.Connection, table: str) -> None:
