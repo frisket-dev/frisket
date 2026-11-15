@@ -16,8 +16,8 @@ from test_reduce_effect_checkpoint import (
 
 
 def test_group_replay_keeps_original_consumed_capture_after_equal_text_edit(
-    project,
-    monkeypatch,  # noqa: F811 - imported pytest fixture
+    project,  # noqa: F811 - imported pytest fixture
+    monkeypatch,
 ):
     provider = _CountingSummaryAdapter()
     project.set_provider_key(
