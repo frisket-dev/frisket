@@ -202,7 +202,10 @@ class _SheetRefresher:
         project_id: str,
         bound: BoundTypedActionRequest,
         request_hash: str,
+        *,
+        edition=None,
     ) -> None:
+        self.edition = edition
         self.project = project
         self.project_id = project_id
         self.bound = bound
@@ -241,7 +244,12 @@ class _SheetRefresher:
             from frisket.engine.executor.group_summary_refresh import prepare_refresh
 
             self.prepared_group = prepare_refresh(
-                self.project, sheet, parent, plan.request, self.bound
+                self.project,
+                sheet,
+                parent,
+                plan.request,
+                self.bound,
+                edition=self.edition,
             )
             return RefreshedSheet(
                 sheet_id=sheet_id,
@@ -255,13 +263,15 @@ class _SheetRefresher:
         )
 
 
-def prepare_sheet_refresh_action(project, project_id, bound):
+def prepare_sheet_refresh_action(project, project_id, bound, *, edition=None):
     """Resolve author-selected work once, without publication or provider calls."""
     terminal = bound.action.definition.run
     if not supports_typed_sheet_refresh_action(terminal):
         raise TypeError("typed refresh requires a sheet refresher action")
     request_hash = typed_request_hash(bound)
-    capability = _SheetRefresher(project, project_id, bound, request_hash)
+    capability = _SheetRefresher(
+        project, project_id, bound, request_hash, edition=edition
+    )
     returned = terminal.handler(bound.params, capability)
     if (
         capability.calls != 1
@@ -281,7 +291,10 @@ def run_typed_sheet_refresh_action(
     router=None,
     *,
     deps=None,
+    edition=None,
 ) -> ActionResult:
+    from .group_summary_action import GroupSummaryRefused
+
     terminal = bound.action.definition.run
     if not supports_typed_sheet_refresh_action(terminal):
         raise TypeError("typed refresh requires a sheet refresher action")
@@ -307,7 +320,9 @@ def run_typed_sheet_refresh_action(
         existing = replay()
         if existing is not None:
             return existing
-        capability = prepare_sheet_refresh_action(project, project_id, bound)
+        capability = prepare_sheet_refresh_action(
+            project, project_id, bound, edition=edition
+        )
         if capability.prepared_group is not None:
             # Author validation finishes before the model owner may reserve or
             # call a provider. Its ordinary admission owns consent and billing.
@@ -391,7 +406,7 @@ def run_typed_sheet_refresh_action(
         ReceiptStore(project).insert_completed(receipt, commit=False)
         project.db.commit()
         return result
-    except (_RefreshRefused, TableReadRefused) as exc:
+    except (_RefreshRefused, TableReadRefused, GroupSummaryRefused) as exc:
         project.db.rollback()
         error = exc.error.model_copy(update={"action_kind": kind})
     except TableError as exc:

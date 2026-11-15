@@ -203,7 +203,10 @@ class ActionPreviewService:
 
                     try:
                         refresh = prepare_sheet_refresh_action(
-                            get_project(), project_id, typed
+                            get_project(),
+                            project_id,
+                            typed,
+                            edition=self._workspace.edition,
                         )
                     except (
                         _RefreshRefused,

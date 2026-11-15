@@ -77,7 +77,7 @@ def validate_target(project, params):
     return None
 
 
-def prepare_refresh(project, sheet, parent_op, request, outer_bound):
+def prepare_refresh(project, sheet, parent_op, request, outer_bound, *, edition=None):
     from frisket.actions.registry import ACTION_REGISTRY
     from frisket.actions.system import BoundTypedActionRequest
     from frisket.engine.executor.group_summary_action import (
@@ -103,6 +103,12 @@ def prepare_refresh(project, sheet, parent_op, request, outer_bound):
     saved = BoundTypedActionRequest.bind(
         ACTION_REGISTRY.get(request.action_id), request
     )
+    from frisket.execution.action_admission import action_admission_error
+    from frisket.engine.executor.group_summary_action import GroupSummaryRefused
+
+    refusal = action_admission_error(project, saved.action, edition=edition)
+    if refusal is not None:
+        raise GroupSummaryRefused(refusal)
     prepared = prepare_group_summary_action(project, saved, refresh_target=target)
     operation = prepared.operation.model_copy(
         update={

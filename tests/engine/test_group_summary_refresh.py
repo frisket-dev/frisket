@@ -284,3 +284,45 @@ def test_group_refresh_failure_is_saved_without_erasing_manual_value(tmp_path):
         assert project.get_values(target, summary)[row] == "Manual"
     finally:
         project.close()
+
+
+def test_group_refresh_rechecks_original_action_in_current_edition(
+    tmp_path, monkeypatch
+):
+    from frisket.execution import action_admission
+
+    project = Project.create(tmp_path / "edition.frisket", name="edition")
+    try:
+        seeded = _seed(project, tmp_path)
+        router, adapter = _summary_router()
+        original = run_typed_group_summary_action(
+            project, "p", _bound_request(_reduce_action(seeded["sheet_id"])), router
+        )
+        assert original.status == "completed", original.errors
+        target = original.outputs[0].sheet_id
+        observed = []
+
+        def available(kind, edition):
+            observed.append((kind, edition))
+            return kind != "reduce.group_summary"
+
+        monkeypatch.setattr(action_admission, "action_available_in_edition", available)
+        bound = typed_action_for_request(
+            {
+                "action_id": "sheet.refresh",
+                "scope": {"kind": "project"},
+                "params": {"sheet_id": target},
+                "idempotency_key": "edition-refresh",
+            }
+        )
+        before = tuple(project.db.iterdump())
+        result = run_typed_sheet_refresh_action(
+            project, "p", bound, router, edition="cloud"
+        )
+        assert result.status == "failed"
+        assert result.errors[0].code == "action_unavailable_in_edition"
+        assert observed == [("reduce.group_summary", "cloud")]
+        assert tuple(project.db.iterdump()) == before
+        assert len(adapter.requests) == 2
+    finally:
+        project.close()

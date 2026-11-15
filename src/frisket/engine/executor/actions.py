@@ -770,7 +770,12 @@ def run_action_spec(
             )
         if owners[0] == "sheet_refresh":
             return run_typed_sheet_refresh_action(
-                project, project_id, typed, router=router, deps=deps
+                project,
+                project_id,
+                typed,
+                router=router,
+                deps=deps,
+                edition=product_edition_from_snapshot(edition_run_context),
             )
         if owners[0] == "backfill":
             executor_deps = _executor_deps_with_defaults(
