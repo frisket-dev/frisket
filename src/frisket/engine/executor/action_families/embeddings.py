@@ -64,6 +64,7 @@ from frisket.ai.embeddings import (
     resolve_embedding_capability,
 )
 from frisket.ai.embeddings.capabilities import embedding_model_size_budget_gb
+from frisket.ai.models.metadata import provider_network_blocked
 from frisket.ai.embeddings.gateway import provider_normalization
 from frisket.ai.embeddings.scope import IndexScopeError, resolve_scope_rows
 from frisket.ai.embeddings.source_payload import build_source_payloads
@@ -1412,9 +1413,9 @@ def _create_index(
                 },
             )
         if checkpoint_state is None:
-            if (
-                cap["provider_kind"] in REMOTE_PROVIDER_KINDS
-                and project.effective_network_policy() == "off"
+            if provider_network_blocked(
+                cap["provider_kind"],
+                network_off=project.effective_network_policy() == "off",
             ):
                 return _error(
                     action,
@@ -1789,7 +1790,9 @@ def _refresh_index(
     # here, at the same pre-claim/pre-provider choke point as the
     # allow_remote policy — which stays the primary consent gate; this one
     # only enforces the project-wide ``network=off`` safety default.
-    if remote and project.effective_network_policy() == "off":
+    if provider_network_blocked(
+        provider_kind, network_off=project.effective_network_policy() == "off"
+    ):
         return _error(
             action,
             project_id,
