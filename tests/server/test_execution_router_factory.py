@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import frisket.server.services.action_runs as action_runs_module
+from frisket.execution.purchases import PurchaseAdmission
 from frisket.ai.llm import ChaosConfig, ModelRouter, ResponseCache
 from frisket.engine.store import Project
 from frisket.execution.provider import (
@@ -30,11 +31,14 @@ class _BoundPolicy:
         del credential_source
         return request
 
-    def before_live(self, request: Any, credential_source: str) -> None:
-        del request, credential_source
+    def admit_purchase(self, request):
+        return PurchaseAdmission("local")
 
-    def after_live(self, request: Any, response: Any, credential_source: str) -> None:
-        del request, response, credential_source
+    def record_purchase(self, request, admission, observation):
+        pass
+
+    def fail_purchase(self, request, admission, error):
+        pass
 
 
 class _RefuseUnboundPolicy(_BoundPolicy):
@@ -42,12 +46,13 @@ class _RefuseUnboundPolicy(_BoundPolicy):
         del request, credential_source
         raise AssertionError("an unbound execution policy became executable")
 
-    def before_live(self, request: Any, credential_source: str) -> None:
-        del request, credential_source
+    def admit_purchase(self, request):
         raise AssertionError("an unbound execution policy became executable")
 
-    def after_live(self, request: Any, response: Any, credential_source: str) -> None:
-        del request, response, credential_source
+    def record_purchase(self, request, admission, observation):
+        raise AssertionError("an unbound execution policy became executable")
+
+    def fail_purchase(self, request, admission, error):
         raise AssertionError("an unbound execution policy became executable")
 
 

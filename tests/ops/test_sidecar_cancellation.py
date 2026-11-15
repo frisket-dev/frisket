@@ -26,6 +26,7 @@ def test_cancel_after_response_retains_success_and_prevents_retry(status):
         return await sidecar_post(
             SimpleNamespace(http=SimpleNamespace(post=post)),
             "/to-markdown",
+            data={"engine": "docling"},
             dispatch=TransientDispatch(lambda: cancelled),
             connection=ConnectionConfig(base_url="http://127.0.0.1:1234", token="test"),
         )
@@ -46,6 +47,7 @@ def test_cancel_before_request_does_not_submit():
         await sidecar_post(
             SimpleNamespace(http=SimpleNamespace(post=post)),
             "/to-markdown",
+            data={"engine": "docling"},
             dispatch=TransientDispatch(lambda: True),
             connection=ConnectionConfig(base_url="http://127.0.0.1:1234", token="test"),
         )
@@ -76,6 +78,7 @@ def test_preview_task_cancel_stops_waiting_without_waiting_for_server(during_bac
                 sidecar_post(
                     SimpleNamespace(http=SimpleNamespace(post=post)),
                     "/to-markdown",
+                    data={"engine": "docling"},
                     dispatch=TransientDispatch(cancelled.is_set),
                     connection=ConnectionConfig(
                         base_url="http://127.0.0.1:1234", token="test"

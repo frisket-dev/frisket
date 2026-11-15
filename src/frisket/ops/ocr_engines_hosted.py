@@ -2,6 +2,14 @@
 
 from __future__ import annotations
 
+from frisket.execution.purchases import (
+    PurchaseRequest,
+    PurchaseObservation,
+    execute_purchase,
+    cost_micro,
+    policy_for_context,
+)
+
 import base64
 from pathlib import Path
 from typing import Any
@@ -255,15 +263,30 @@ async def ocr_datalab(pages: list[Path], ctx: OpContext, usage: dict) -> list[di
             persist_hosted_accepted_accounting(ctx, accounting)
             usage.setdefault("model_calls", []).extend(accounting["model_calls"])
 
-        policy = getattr(
-            ctx.extras.get("router"), "model_call_policy", None
-        ) or ctx.extras.get("service_operation_policy")
-        operation_id = None
-        if policy is not None:
-            from hashlib import sha256
+        from hashlib import sha256
 
-            rate = datalab_ocr_page_rate()
-            operation_id = policy.admit_external_service(
+        async def invoke():
+            try:
+                return await datalab_ocr(
+                    ctx.http,
+                    api_key,
+                    page_bytes,
+                    p.name,
+                    mime,
+                    page_size=page_size,
+                    should_cancel=None,
+                    credential_source=credential_source,
+                    on_accepted=persist_accepted,
+                )
+            except BaseException as error:
+                if accepted_accounting is not None:
+                    error.accounting = accepted_accounting
+                    error.provider_job_accepted = True
+                raise
+
+        rate = datalab_ocr_page_rate()
+        page_results, cost_usd = await execute_purchase(
+            PurchaseRequest(
                 provider="datalab",
                 capability="ocr",
                 engine=DATALAB_ENGINE,
@@ -275,37 +298,16 @@ async def ocr_datalab(pages: list[Path], ctx: OpContext, usage: dict) -> list[di
                 credential_source=credential_source,
                 estimated_cost_usd=float(rate) if rate is not None else None,
                 context=ctx,
-            )
-        try:
-            page_results, cost_usd = await datalab_ocr(
-                ctx.http,
-                api_key,
-                page_bytes,
-                p.name,
-                mime,
-                page_size=page_size,
-                # Finish accepted accounting; stop before the next purchase.
-                should_cancel=None,
-                credential_source=credential_source,
-                on_accepted=persist_accepted,
-            )
-        except BaseException as error:
-            if accepted_accounting is not None:
-                # The provider may have priced its response before local decoding failed.
-                error.accounting = accepted_accounting
-                error.provider_job_accepted = True
-            if operation_id is not None:
-                policy.fail_service(operation_id, error)
-            raise
-        if operation_id is not None:
-            policy.finish_service(
-                operation_id,
-                result=page_results,
+            ),
+            policy=policy_for_context(ctx),
+            dispatch=dispatch,
+            invoke=invoke,
+            observe=lambda result: PurchaseObservation(
+                result=result[0],
                 usage={"pages": 1},
-                provider_cost_micro=None
-                if cost_usd is None
-                else round(cost_usd * 1_000_000),
-            )
+                provider_cost_micro=cost_micro(result[1]),
+            ),
+        )
         if accepted_accounting is None:
             raise RuntimeError("Datalab returned without its accepted-job accounting")
         out.extend(page_results)

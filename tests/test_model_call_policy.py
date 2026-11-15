@@ -8,6 +8,7 @@ from dataclasses import replace
 import pytest
 
 from frisket.execution.dispatch_control import STANDALONE
+from frisket.execution.purchases import PurchaseAdmission
 from frisket.ai.llm import LLMError, LLMRequest, LLMResponse, ModelRouter, ResponseCache
 from frisket.ai.llm.cache import request_key
 from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
@@ -38,31 +39,30 @@ class _RecordingPolicy:
             request, params={**request.params, "marker": self.prepare_marker}
         )
 
-    def before_live(self, request: LLMRequest, credential_source: str) -> None:
+    def admit_purchase(self, purchase):
+        request, credential_source = purchase.llm_request, purchase.credential_source
         self.events.append(
             ("before_live", credential_source, request.params.get("marker"))
         )
         if self.refuse_before_live:
             raise RuntimeError("policy refused live call")
+        return PurchaseAdmission("metered", "test-purchase")
 
-    def failed_live(self, request, error, credential_source):
-        self.events.append(("failed_live", credential_source, error.status))
+    def fail_purchase(self, request, admission, error):
+        self.events.append(("failed_live", request.credential_source, error.status))
 
-    def after_live(
-        self,
-        request: LLMRequest,
-        response: LLMResponse,
-        credential_source: str,
-    ) -> None:
+    def record_purchase(self, request, admission, observation):
+        credential_source = request.credential_source
+        response = observation.result
         self.events.append(
             (
                 "after_live",
                 credential_source,
-                response.provider,
-                response.credential_source,
-                response.tokens_in,
-                response.tokens_out,
-                response.cost,
+                response["provider"],
+                response["credential_source"],
+                response["tokens_in"],
+                response["tokens_out"],
+                response["cost"],
             )
         )
         if self.fail_after_live:
@@ -121,7 +121,7 @@ def _router(
         cache_mode=cache_mode,  # type: ignore[arg-type]
         max_retries=max_retries,
         use_env_keys=False,
-        model_call_policy=policy,
+        **({"model_call_policy": policy} if policy is not None else {}),
     )
 
 
@@ -321,7 +321,7 @@ def test_queued_local_endpoint_overlay_retains_the_identical_policy(tmp_path) ->
         cache_mode="off",
         use_env_keys=False,
         local_endpoints=(original_endpoint,),
-        model_call_policy=policy,
+        **({"model_call_policy": policy} if policy is not None else {}),
     )
     try:
         rebuilt = _router_for(
@@ -338,11 +338,11 @@ def test_queued_local_endpoint_overlay_retains_the_identical_policy(tmp_path) ->
 
 
 @pytest.mark.asyncio
-async def test_router_without_a_policy_keeps_existing_transport_behavior() -> None:
+async def test_router_default_local_policy_keeps_local_transport_behavior() -> None:
     events: list[tuple] = []
     router = ModelRouter(
         keys={"openai": "test-key"},
-        key_sources={"openai": "platform_key"},
+        key_sources={"openai": "local"},
         cache=None,
         cache_mode="off",
         use_env_keys=False,
@@ -355,5 +355,5 @@ async def test_router_without_a_policy_keeps_existing_transport_behavior() -> No
         await router.aclose()
 
     assert response.content == "ok"
-    assert response.credential_source == "platform_key"
+    assert response.credential_source == "local"
     assert events == [("adapter", 1, None)]

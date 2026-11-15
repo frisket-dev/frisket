@@ -6,6 +6,7 @@ import time
 import httpx
 import pytest
 
+from frisket.execution.purchases import PurchaseAdmission
 from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.llm.router import ModelRouter
 from frisket.ai.llm.types import LLMError, LLMRequest, SchemaViolation
@@ -111,14 +112,15 @@ def test_retry_is_a_new_purchase_and_preserves_unknown_prior_outcome():
         def prepare(self, request, credential_source):
             return request
 
-        def before_live(self, request, credential_source):
+        def admit_purchase(self, request):
             events.append(("admit", None))
+            return PurchaseAdmission("metered", f"attempt-{len(events)}")
 
-        def failed_live(self, request, error, credential_source):
+        def fail_purchase(self, request, admission, error):
             events.append(("failed", error))
 
-        def after_live(self, request, response, credential_source):
-            events.append(("returned", response))
+        def record_purchase(self, request, admission, observation):
+            events.append(("returned", observation.result))
 
     router = _router_with(adapter, max_retries=1)
     router.model_call_policy = Policy()
@@ -135,7 +137,7 @@ def test_retry_is_a_new_purchase_and_preserves_unknown_prior_outcome():
     assert adapter.calls == 2
     assert [event for event, _ in events] == ["admit", "failed", "admit", "returned"]
     assert events[1][1].post_egress_ambiguous is True
-    assert events[3][1].tokens_in == 1
+    assert events[3][1]["tokens_in"] == 1
 
 
 def test_schema_violation_is_never_retried_by_transport_regardless_of_max_retries():

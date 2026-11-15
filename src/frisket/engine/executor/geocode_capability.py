@@ -2,6 +2,15 @@
 
 from __future__ import annotations
 
+from frisket.execution.purchases import (
+    PurchaseRequest,
+    PurchaseObservation,
+    execute_purchase,
+    cost_micro,
+    policy_for_context,
+)
+from frisket.execution.dispatch_control import dispatch_for_context
+
 import asyncio
 import time
 from collections.abc import Awaitable, Callable
@@ -409,8 +418,45 @@ class AdmittedGeocoder:
                 final_response_succeeded=False,
                 route=route,
             )
+            estimate = (
+                free_public_api_estimate(quantity=1)
+                if engine == "nominatim"
+                else estimate_external_cost(pricing_key, 1)
+            )
+
+            def observe(response):
+                success = response.status_code == 200
+                rejected = response.status_code in {400, 401, 402, 403, 404, 422, 429}
+                cost = estimate["cost"] if success else 0 if rejected else None
+                return PurchaseObservation(
+                    result={"http_status": response.status_code},
+                    usage={"requests": 1, "rows": 1} if success else {},
+                    provider_cost_micro=cost_micro(cost),
+                )
+
             try:
-                resp = await ctx.http.get(url, params=params, headers=headers)
+                resp = await execute_purchase(
+                    PurchaseRequest(
+                        provider=engine,
+                        capability="geocode",
+                        engine=engine,
+                        credential_source=credential_source,
+                        prepared={
+                            "url": url,
+                            "params": {
+                                key: value
+                                for key, value in params.items()
+                                if key != "key"
+                            },
+                        },
+                        estimated_cost_usd=estimate["cost"],
+                        context=ctx,
+                    ),
+                    policy=policy_for_context(ctx),
+                    dispatch=dispatch_for_context(ctx),
+                    invoke=lambda: ctx.http.get(url, params=params, headers=headers),
+                    observe=observe,
+                )
             except httpx.HTTPError as exc:
                 host = urlsplit(url).hostname
                 accounting = AdmittedGeocoder._provider_accounting(

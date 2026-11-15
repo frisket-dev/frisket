@@ -2,6 +2,15 @@
 
 from __future__ import annotations
 
+from frisket.execution.purchases import (
+    PurchaseRequest,
+    PurchaseObservation,
+    execute_purchase,
+    cost_micro,
+    policy_for_context,
+)
+from frisket.execution.dispatch_control import dispatch_for_context
+
 from typing import Any
 
 from frisket.actions.translate_types import translation_text
@@ -231,25 +240,8 @@ class TranslationEngine:
             source_code = None
             if source and source.lower() != "auto":
                 source_code = normalize_language(engine, source, "source")
-            policy = getattr(
-                ctx.extras.get("router"), "model_call_policy", None
-            ) or ctx.extras.get("service_operation_policy")
-            operation_id = None
-            if policy is not None:
-                operation_id = policy.admit_external_service(
-                    provider="deepl" if engine == "deepl" else "google",
-                    capability="translate",
-                    engine=engine,
-                    prepared={
-                        "text": text,
-                        "source_language": source_code,
-                        "target_language": target,
-                    },
-                    credential_source=credential.source,
-                    estimated_cost_usd=hosted_translate_cost(engine, len(text)),
-                    context=ctx,
-                )
-            try:
+
+            async def invoke():
                 if engine == "deepl":
                     from frisket.ops.integrations.deepl import deepl_translate
 
@@ -281,20 +273,36 @@ class TranslationEngine:
                     # Google's v2 response has no billed field; it bills source
                     # characters, so the source length is the count.
                     char_count = len(text)
-            except BaseException as error:
-                if operation_id is not None:
-                    policy.fail_service(operation_id, error)
-                raise
-            if operation_id is not None:
+                return results, char_count
+
+            def observe(result):
+                results, char_count = result
                 actual_cost = hosted_translate_cost(engine, char_count)
-                policy.finish_service(
-                    operation_id,
+                return PurchaseObservation(
                     result=results,
                     usage={"characters": char_count},
-                    provider_cost_micro=None
-                    if actual_cost is None
-                    else round(actual_cost * 1_000_000),
+                    provider_cost_micro=cost_micro(actual_cost),
                 )
+
+            results, char_count = await execute_purchase(
+                PurchaseRequest(
+                    provider="deepl" if engine == "deepl" else "google",
+                    capability="translate",
+                    engine=engine,
+                    prepared={
+                        "text": text,
+                        "source_language": source_code,
+                        "target_language": target,
+                    },
+                    credential_source=credential.source,
+                    estimated_cost_usd=hosted_translate_cost(engine, len(text)),
+                    context=ctx,
+                ),
+                policy=policy_for_context(ctx),
+                dispatch=dispatch_for_context(ctx),
+                invoke=invoke,
+                observe=observe,
+            )
             first = results[0] if results else {}
             # Detected language: when an explicit source was given and the
             # provider omits detection (Google's explicit-source responses do),

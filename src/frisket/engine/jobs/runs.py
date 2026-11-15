@@ -584,8 +584,10 @@ def _router_for(
                 if local_endpoints is None and router is not None
                 else local_endpoints or ()
             ),
-            model_call_policy=(
-                router.model_call_policy if router is not None else None
+            **(
+                {"model_call_policy": router.model_call_policy}
+                if router is not None
+                else {}
             ),
         )
     cache = (

@@ -878,7 +878,7 @@ def configured_search_service(
     root: str | Path,
     *,
     effective_keys: Mapping[str, str],
-    credential_source: str = "user_key",
+    credential_source: str = "local",
 ):
     """Build search from caller-authorized keys and persisted preference."""
 

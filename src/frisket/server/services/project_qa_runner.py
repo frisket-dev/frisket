@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import asyncio
+import logging
 import re
 from contextlib import AbstractContextManager, nullcontext
 from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -56,6 +57,14 @@ from frisket.server.services.project_qa_skill_authoring import (
     skill_runtime_instructions,
 )
 from frisket.ai.research.search import SearchService, SearchProviderError
+from frisket.engine.executor.web_search_read import search_observation
+from frisket.execution.dispatch_control import DispatchControl
+from frisket.execution.purchases import (
+    PurchasePolicy,
+    PurchaseRecordingError,
+    PurchaseRequest,
+    execute_purchase,
+)
 from frisket.cloud_execution import (
     CloudLLMExecutionBinding,
     cloud_llm_execution_scope,
@@ -98,27 +107,48 @@ async def _complete_before_cancellation(awaitable: Awaitable[Any]) -> Any:
 
 
 async def _search_with_purchase(
-    service, query, *, policy=None, call_scope=None, quote=None, **kwargs
+    service,
+    query,
+    *,
+    policy: PurchasePolicy,
+    dispatch: DispatchControl,
+    call_scope=None,
+    quote=None,
+    **kwargs,
 ):
     """Own the paid search scope in the task that actually sends the request."""
     quote = quote or service.quote(max_results=kwargs.get("max_results", 6))
     with call_scope() if call_scope is not None else nullcontext():
-        operation_id = None
-        if policy is not None and quote.provider != "ddgs":
-            operation_id = policy.admit_search(
-                prepared={"query": query, "max_results": kwargs.get("max_results", 6)},
-                quote=quote,
-                credential_source=service.credential_source,
-            )
         try:
-            response = await service.search(query, quote=quote, **kwargs)
-        except BaseException as error:
-            if operation_id is not None:
-                policy.finish_search(operation_id, None, error)
-            raise
-        if operation_id is not None:
-            policy.finish_search(operation_id, response, None)
-        return response
+            return await execute_purchase(
+                PurchaseRequest(
+                    provider=quote.provider,
+                    capability="web.search",
+                    engine=quote.provider,
+                    credential_source=service.credential_source,
+                    prepared={
+                        "query": query,
+                        "max_results": kwargs.get("max_results", 6),
+                    },
+                    estimated_cost_usd=quote.estimated_cost_usd,
+                    quote=quote,
+                ),
+                policy=policy,
+                dispatch=dispatch,
+                invoke=lambda: service.search(query, quote=quote, **kwargs),
+                observe=search_observation,
+            )
+        except PurchaseRecordingError as error:
+            from frisket.ai.research.search import SearchResponse
+
+            if not isinstance(error.provider_result, SearchResponse):
+                raise
+            # The provider already did the work. Retain the returned result for
+            # chat usage/evidence rather than letting accounting trigger a retry.
+            logging.getLogger(__name__).warning(
+                "Search returned but its purchase accounting could not be recorded"
+            )
+            return error.provider_result
 
 
 async def run_turn(
@@ -233,9 +263,10 @@ async def run_turn(
 
     from frisket.execution.dispatch_control import TransientDispatch
 
-    router = router.for_execution(
-        TransientDispatch(lambda: store.get_turn(turn["id"])["status"] != "running")
+    turn_dispatch = TransientDispatch(
+        lambda: store.get_turn(turn["id"])["status"] != "running"
     )
+    router = router.for_execution(turn_dispatch)
     model = FrisketRouterModel(
         router,
         model_id,
@@ -450,7 +481,8 @@ async def run_turn(
                     return await _search_with_purchase(
                         service,
                         query,
-                        policy=getattr(router, "model_call_policy", None),
+                        policy=router.model_call_policy,
+                        dispatch=turn_dispatch,
                         call_scope=call_scope,
                         **kwargs,
                     )

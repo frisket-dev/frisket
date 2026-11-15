@@ -797,22 +797,25 @@ def test_sidecar_conversion_policy_brackets_actual_returned_usage(
     events = []
     cancelled = [False]
 
+    from frisket.execution.purchases import PurchaseAdmission
+    from frisket.ops import _sidecar
+
     class Policy:
-        def admit_document_conversion(self, *, engine, prepared, page_count, context):
+        def admit_purchase(self, request):
             events.append("admit")
-            assert engine == "lightonocr-3-0.8b"
-            assert page_count == 1
-            return "conversion-operation"
+            assert request.engine == "lightonocr-3-0.8b"
+            assert request.quantity["pages"] == 1
+            return PurchaseAdmission("metered", "conversion-operation")
 
-        def finish_service(self, operation_id, *, result, usage):
+        def record_purchase(self, request, admission, observation):
             events.append("finish")
-            assert operation_id == "conversion-operation"
-            assert result["documents"][0]["markdown"] == "# Returned"
-            assert usage == {"pages": 3}
+            assert admission.operation_id == "conversion-operation"
+            assert observation.result["documents"][0]["markdown"] == "# Returned"
+            assert observation.usage == {"pages": 3}
 
-        def fail_service(self, operation_id, error):
+        def fail_purchase(self, request, admission, error):
             events.append("fail")
-            assert operation_id == "conversion-operation"
+            assert admission.operation_id == "conversion-operation"
             assert isinstance(error, httpx.HTTPStatusError)
 
     async def post(ctx, route, **kwargs):
@@ -831,7 +834,7 @@ def test_sidecar_conversion_policy_brackets_actual_returned_usage(
             "documents": [{"markdown": "# Returned", "ocr_used": [True, False, True]}]
         }
 
-    monkeypatch.setattr(module, "sidecar_post", post)
+    monkeypatch.setattr(_sidecar, "_sidecar_post_transport", post)
     ctx = OpContext(
         project=None,
         http=object(),

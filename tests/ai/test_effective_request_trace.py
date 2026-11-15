@@ -8,6 +8,7 @@ from dataclasses import replace
 
 import pytest
 
+from frisket.execution.purchases import PurchaseAdmission
 from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.llm import LLMError, LLMRequest, LLMResponse, ModelRouter, ResponseCache
 from frisket.ai.llm.cache import request_key
@@ -56,15 +57,13 @@ class _Policy:
             ],
         )
 
-    def before_live(self, request: LLMRequest, credential_source: str) -> None:
+    def admit_purchase(self, request):
+        return PurchaseAdmission("metered", "effective-request")
+
+    def fail_purchase(self, request, admission, error):
         pass
 
-    def failed_live(self, request, error, credential_source):
-        pass
-
-    def after_live(
-        self, request: LLMRequest, response: LLMResponse, credential_source: str
-    ) -> None:
+    def record_purchase(self, request, admission, observation):
         pass
 
 

@@ -78,11 +78,16 @@ def test_every_protected_member_resolves_to_a_live_owner_api() -> None:
     payload = json.loads(BOUNDARY_CONFIG.read_text(encoding="utf-8"))
     missing: list[str] = []
     for rule in payload["rules"]:
-        for reference in rule.get("forbidden_members", ()):
+        for reference in (
+            *rule.get("forbidden_members", ()),
+            *rule.get("forbidden_calls", ()),
+        ):
+            if not reference.startswith("frisket."):
+                continue  # Optional provider SDKs need not be installed here.
             parts = reference.split(".")
             owner = None
             members: list[str] = []
-            for count in range(len(parts) - 1, 0, -1):
+            for count in range(len(parts), 0, -1):
                 module_name = ".".join(parts[:count])
                 try:
                     spec = importlib.util.find_spec(module_name)

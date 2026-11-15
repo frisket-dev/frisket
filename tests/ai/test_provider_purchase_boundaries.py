@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
+from frisket.execution.purchases import PurchaseAdmission, PurchaseRecordingError
 from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.llm import LLMError, LLMRequest, LLMResponse, ModelRouter
 
@@ -22,31 +23,18 @@ class Policy:
     def prepare(self, request, source):
         return request
 
-    def before_live(self, request, source):
-        if self.admission_error:
-            raise self.admission_error
-        self.admitted.append((request, source))
-
-    def after_live(self, request, response, source):
-        self.responses.append(response)
-        if self.accounting_error:
-            raise self.accounting_error
-
-    def failed_live(self, request, error, source):
-        self.failed.append(error)
-
-    def admit_external_service(self, **request):
+    def admit_purchase(self, request):
         if self.admission_error:
             raise self.admission_error
         self.admitted.append(request)
-        return "embedding-purchase"
+        return PurchaseAdmission("metered", f"purchase-{len(self.admitted)}")
 
-    def finish_service(self, operation_id, **facts):
-        self.responses.append(facts)
+    def record_purchase(self, request, admission, observation):
+        self.responses.append(observation)
         if self.accounting_error:
             raise self.accounting_error
 
-    def fail_service(self, operation_id, error):
+    def fail_purchase(self, request, admission, error):
         self.failed.append(error)
 
 
@@ -112,14 +100,19 @@ async def test_policy_failure_does_not_repurchase(stage, error):
             )
 
         model_router._adapters["openai"] = SimpleNamespace(complete=complete)
-        with pytest.raises(type(error)):
+        expected = PurchaseRecordingError if stage == "accounting" else type(error)
+        with pytest.raises(expected) as raised:
             await model_router.for_execution(STANDALONE).complete(
                 LLMRequest(model="openai/gpt-5-mini", messages=[])
             )
     assert len(calls) == (stage == "accounting")
     assert policy.failed == []
     if stage == "accounting":
-        assert policy.responses[0].content == "known result"
+        assert raised.value.__cause__ is error
+        assert raised.value.provider_result.content == "known result"
+        assert raised.value.observation is policy.responses[0]
+        assert raised.value.wire_calls == [raised.value.provider_result]
+        assert policy.responses[0].result["content"] == "known result"
 
 
 @pytest.mark.asyncio
@@ -146,11 +139,11 @@ async def test_embedding_batch_is_one_purchase_with_usage_and_known_vectors(
         response = await method(["one", "two"])
     assert calls == [["one", "two"]]
     assert len(policy.admitted) == len(policy.responses) == 1
-    assert policy.admitted[0]["prepared"]["input"] == ["one", "two"]
-    assert policy.admitted[0]["credential_source"] == "platform_key"
-    assert policy.responses[0]["result"]["vectors"] == [[1.0, 0.0], [0.0, 1.0]]
-    assert policy.responses[0]["usage"] == {"prompt_tokens": 100}
-    assert policy.responses[0]["provider_cost_micro"] == 2
+    assert policy.admitted[0].prepared["input"] == ["one", "two"]
+    assert policy.admitted[0].credential_source == "platform_key"
+    assert policy.responses[0].result["vectors"] == [[1.0, 0.0], [0.0, 1.0]]
+    assert policy.responses[0].usage == {"prompt_tokens": 100}
+    assert policy.responses[0].provider_cost_micro == 2
     assert (response if vector_only else response["vectors"]) == [
         [1.0, 0.0],
         [0.0, 1.0],

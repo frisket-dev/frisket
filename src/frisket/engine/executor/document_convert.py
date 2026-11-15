@@ -8,6 +8,14 @@ records quote-free source links for nonblank text outputs in the same savepoint.
 
 from __future__ import annotations
 
+from frisket.execution.purchases import (
+    PurchaseRequest,
+    PurchaseObservation,
+    execute_purchase,
+    cost_micro,
+    policy_for_context,
+)
+
 import asyncio
 import json
 import mimetypes
@@ -598,55 +606,32 @@ class _BoundDocumentConverter:
 
         payload = path.read_bytes()
         files = [("files", (path.name, payload, "application/octet-stream"))]
-        policy = getattr(
-            self._ctx.extras.get("router"), "model_call_policy", None
-        ) or self._ctx.extras.get("service_operation_policy")
-        operation_id = None
-        if policy is not None:
-            digest = sha256(payload).hexdigest()
-            pages = (
-                probe_for_ingest(path, digest=digest).get("pages")
-                if payload.startswith(b"%PDF-")
-                else _office_page_estimate(payload, path.suffix.lower())
-                if path.suffix.lower() in {".doc", ".docx", ".ppt", ".pptx"}
-                else 1
-            )
-            operation_id = policy.admit_document_conversion(
-                engine=engine,
-                prepared={"engine": engine, "document_digest": digest},
-                page_count=pages,
-                context=self._ctx,
-            )
-        try:
-            body = await sidecar_post(
-                self._ctx,
-                "/to-markdown",
-                files=files,
-                data={"engine": engine},
-                op="convert",
-                light_engine=LIGHT_ENGINE,
-                connection=self._route_connection(),
-                dispatch=dispatch_for_context(self._ctx),
-            )
-            docs = body.get("documents") or body.get("results")
-            doc = docs[0] if docs else body
-            markdown, ocr_used = doc.get("markdown", ""), doc.get("ocr_used") or []
-            if not isinstance(markdown, str) or not isinstance(ocr_used, list):
-                raise ValueError("document sidecar returned an invalid document")
-            if operation_id is not None and not ocr_used:
-                raise ValueError("document sidecar returned no page usage")
-            if not all(isinstance(page, bool) for page in ocr_used):
-                raise ValueError("document sidecar returned invalid per-page OCR usage")
-        except BaseException as error:
-            if operation_id is not None:
-                policy.fail_service(operation_id, error)
-            raise
-        # A response may arrive after Stop. Record its measured work before
-        # publication checks, just like OCR/transcription; never bill estimates.
-        if operation_id is not None:
-            policy.finish_service(
-                operation_id, result=body, usage={"pages": len(ocr_used)}
-            )
+        digest = sha256(payload).hexdigest()
+        pages = (
+            probe_for_ingest(path, digest=digest).get("pages")
+            if payload.startswith(b"%PDF-")
+            else _office_page_estimate(payload, path.suffix.lower())
+            if path.suffix.lower() in {".doc", ".docx", ".ppt", ".pptx"}
+            else 1
+        )
+        body = await sidecar_post(
+            self._ctx,
+            "/to-markdown",
+            files=files,
+            data={"engine": engine},
+            op="convert",
+            light_engine=LIGHT_ENGINE,
+            connection=self._route_connection(),
+            dispatch=dispatch_for_context(self._ctx),
+            quantity={"pages": pages},
+        )
+        docs = body.get("documents") or body.get("results")
+        doc = docs[0] if docs else body
+        markdown, ocr_used = doc.get("markdown", ""), doc.get("ocr_used") or []
+        if not isinstance(markdown, str) or not isinstance(ocr_used, list):
+            raise ValueError("document sidecar returned an invalid document")
+        if not all(isinstance(page, bool) for page in ocr_used):
+            raise ValueError("document sidecar returned invalid per-page OCR usage")
         self._store_hosted_accounting(
             {
                 "model_calls": [
@@ -732,62 +717,58 @@ class _BoundDocumentConverter:
             persist_hosted_accepted_accounting(ctx, accounting)
 
         payload = path.read_bytes()
-        policy = getattr(
-            ctx.extras.get("router"), "model_call_policy", None
-        ) or ctx.extras.get("service_operation_policy")
-        operation_id = None
-        if policy is not None:
-            from hashlib import sha256
-            from frisket.ops.media_probe import probe_for_ingest
+        from hashlib import sha256
+        from frisket.ops.media_probe import probe_for_ingest
 
-            digest = sha256(payload).hexdigest()
-            pages = (
-                probe_for_ingest(path, digest=digest).get("pages")
-                if mime == "application/pdf"
-                else 1
-                if mime.startswith("image/")
-                else _office_page_estimate(payload, suffix)
-            )
-            rate = external_unit_price_usd(DATALAB_CONVERT_PAGE)
-            operation_id = policy.admit_external_service(
+        digest = sha256(payload).hexdigest()
+        pages = (
+            probe_for_ingest(path, digest=digest).get("pages")
+            if mime == "application/pdf"
+            else 1
+            if mime.startswith("image/")
+            else _office_page_estimate(payload, suffix)
+        )
+        rate = external_unit_price_usd(DATALAB_CONVERT_PAGE)
+
+        async def invoke():
+            try:
+                return await datalab_convert(
+                    ctx.http,
+                    credential.value,
+                    payload,
+                    path.name,
+                    mime,
+                    should_cancel=should_cancel,
+                    credential_source=credential.source,
+                    on_accepted=persist_accepted,
+                )
+            except BaseException as error:
+                if accepted_accounting is not None:
+                    error.accounting = accepted_accounting
+                    error.provider_job_accepted = True
+                raise
+
+        body, cost_usd = await execute_purchase(
+            PurchaseRequest(
                 provider="datalab",
                 capability=CAPABILITY_TO_MARKDOWN,
                 engine=DATALAB_ENGINE,
-                prepared={"document_digest": digest, "mime": mime, "pages": pages},
                 credential_source=credential.source,
+                prepared={"document_digest": digest, "mime": mime, "pages": pages},
                 estimated_cost_usd=rate * pages
                 if rate is not None and pages is not None
                 else None,
                 context=ctx,
-            )
-        try:
-            body, cost_usd = await datalab_convert(
-                ctx.http,
-                credential.value,
-                payload,
-                path.name,
-                mime,
-                should_cancel=should_cancel,
-                credential_source=credential.source,
-                on_accepted=persist_accepted,
-            )
-        except BaseException as error:
-            if accepted_accounting is not None:
-                # The provider may have priced its response before local decoding failed.
-                error.accounting = accepted_accounting
-                error.provider_job_accepted = True
-            if operation_id is not None:
-                policy.fail_service(operation_id, error)
-            raise
-        if operation_id is not None:
-            policy.finish_service(
-                operation_id,
-                result=body,
-                usage={"pages": body.get("page_count")},
-                provider_cost_micro=None
-                if cost_usd is None
-                else round(cost_usd * 1_000_000),
-            )
+            ),
+            policy=policy_for_context(ctx),
+            dispatch=dispatch_for_context(ctx),
+            invoke=invoke,
+            observe=lambda result: PurchaseObservation(
+                result=result[0],
+                usage={"pages": result[0].get("page_count")},
+                provider_cost_micro=cost_micro(result[1]),
+            ),
+        )
         if accepted_accounting is None:
             raise RuntimeError("Datalab returned without its accepted-job accounting")
         meta = accepted_accounting

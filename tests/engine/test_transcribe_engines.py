@@ -1704,3 +1704,72 @@ def test_whisper_offline_worker_consumes_prepared_pinned_cache(monkeypatch, tmp_
     result = json.loads(output.getvalue())["results"][0]
     assert result["revision"] == snap.revision
     assert result["warnings"] == []
+
+
+@pytest.mark.parametrize("malformation", ["segments", "json"])
+def test_remote_transcription_records_returned_usage_before_output_validation(
+    tmp_path, malformation
+):
+    from frisket.execution.purchases import PurchaseAdmission
+
+    events = []
+    observations = []
+
+    def admit(request):
+        events.append("admit")
+        assert request.capability == "transcribe"
+        assert request.engine == "openai/whisper-1"
+        return PurchaseAdmission("metered", "transcription-test")
+
+    def record(request, admission, observation):
+        events.append("record")
+        observations.append(observation)
+
+    policy = SimpleNamespace(
+        admit_purchase=admit,
+        record_purchase=record,
+        fail_purchase=lambda *args: pytest.fail(
+            "returned response lost its accounting"
+        ),
+    )
+
+    def handler(request):
+        events.append("send")
+        if malformation == "json":
+            return httpx.Response(200, text="not json")
+        return httpx.Response(
+            200, json={"text": "transcript", "duration": 2.0, "segments": "bad"}
+        )
+
+    router = ModelRouter(keys={"openai": "fake-test-key"}, use_env_keys=False)
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    ctx = OpContext(
+        http=client,
+        extras={
+            "router": router,
+            "service_operation_policy": policy,
+            "standalone_dispatch": STANDALONE,
+        },
+    )
+
+    async def run():
+        try:
+            await transcribe_engines.OpenAITranscriptionAdapter().transcribe(
+                "openai/whisper-1", str(_wav(tmp_path / "audio.wav")), {}, ctx, None
+            )
+        finally:
+            await client.aclose()
+            await router.aclose()
+
+    with pytest.raises(RuntimeError, match="malformed remote transcription") as raised:
+        asyncio.run(run())
+    assert events == ["admit", "send", "record"]
+    assert len(observations) == 1
+    if malformation == "segments":
+        cost = 2.0 * audio_price("openai/whisper-1")["per_second"]
+        assert observations[0].usage["audio_seconds"] == 2.0
+        assert observations[0].provider_cost_micro == round(cost * 1_000_000)
+        assert raised.value.accounting["cost"] == pytest.approx(cost)
+    else:
+        assert observations[0].usage == {}
+        assert observations[0].provider_cost_micro is None

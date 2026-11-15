@@ -2,10 +2,19 @@
 
 from __future__ import annotations
 
+from frisket.execution.purchases import (
+    PurchaseRequest,
+    PurchaseObservation,
+    execute_purchase,
+    cost_micro,
+    policy_for_context,
+)
+
 import asyncio
 import uuid
 
 from frisket.actions.research_types import SearchResult
+from frisket.execution.dispatch_control import dispatch_for_context
 from frisket.actions.types import RowError
 from frisket.ai.research.search import (
     SearchProviderError,
@@ -16,6 +25,24 @@ from frisket.ai.research.search import (
 from frisket.ops.base import RecipeInvocationHalt
 
 MAX_ATTEMPTS = 4
+
+
+def search_observation(response: SearchResponse) -> PurchaseObservation:
+    """Retain returned search usage before the action projects its results."""
+    from dataclasses import asdict
+
+    result = asdict(response)
+    for key in ("provider_cost_usd", "provider_reported_cost_usd"):
+        if cost_micro(result["usage"].get(key)) is None:
+            result["usage"][key] = None
+    return PurchaseObservation(
+        result=result,
+        usage={
+            "requests": response.usage.request_count,
+            **{unit.name: unit.quantity for unit in response.usage.units},
+        },
+        provider_cost_micro=cost_micro(response.usage.provider_cost_usd),
+    )
 
 
 class _SearchUnavailable(Exception):
@@ -53,8 +80,6 @@ class AdmittedWebSearcher:
             raise RecipeInvocationHalt(
                 "network_disabled", "Web search requires network access"
             )
-        from frisket.execution.dispatch_control import dispatch_for_context
-
         dispatch_for_context(self._ctx).check()
 
     async def aclose(self):
@@ -74,20 +99,26 @@ class AdmittedWebSearcher:
         from frisket.engine.executor.visual_cuts_read import _settle
 
         quote = self._service.quote(max_results=max_results)
-        policy = getattr(self._ctx.extras.get("router"), "model_call_policy", None)
-        if policy is None:
-            policy = self._ctx.extras.get("service_operation_policy")
-        operation_id = None
-        if quote.provider != "ddgs" and policy is not None:
-            operation_id = policy.admit_search(
-                prepared={"query": query, "max_results": max_results},
-                quote=quote,
-                credential_source=self._service.credential_source,
-                context=self._ctx,
-            )
+        # The owned task finishes its accounting even if the outer caller stops
+        # waiting. Closing the invocation drains it before releasing ownership.
         task = asyncio.create_task(
-            self._service.search(
-                query, max_results=max_results, timeout=timeout, quote=quote
+            execute_purchase(
+                PurchaseRequest(
+                    provider=quote.provider,
+                    capability="web.search",
+                    engine=quote.provider,
+                    credential_source=self._service.credential_source,
+                    prepared={"query": query, "max_results": max_results},
+                    estimated_cost_usd=quote.estimated_cost_usd,
+                    quote=quote,
+                    context=self._ctx,
+                ),
+                policy=policy_for_context(self._ctx),
+                dispatch=dispatch_for_context(self._ctx),
+                invoke=lambda: self._service.search(
+                    query, max_results=max_results, timeout=timeout, quote=quote
+                ),
+                observe=search_observation,
             )
         )
         self._owner._calls.add(task)
@@ -106,13 +137,13 @@ class AdmittedWebSearcher:
                     response = task.result()
                 except SearchProviderError as exc:
                     error = exc
-                except Exception:  # receipt records failure; original propagates
-                    pass
-            try:
-                self._record(attempt, response=response, error=error, quote=quote)
-            finally:
-                if operation_id is not None:
-                    policy.finish_search(operation_id, response, error)
+                except Exception as exc:
+                    # Accounting can fail after the provider returned. Keep that
+                    # returned response available to the project receipt as well.
+                    returned = getattr(exc, "provider_result", None)
+                    if isinstance(returned, SearchResponse):
+                        response = returned
+            self._record(attempt, response=response, error=error, quote=quote)
 
     def _record(
         self,

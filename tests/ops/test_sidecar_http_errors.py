@@ -24,7 +24,7 @@ async def test_sidecar_http_error_preserves_status_but_not_response_body(status)
                 SimpleNamespace(http=client),
                 "/classify",
                 op="classify",
-                json={"text": "input"},
+                json={"engine": "clef-flash", "text": "input"},
                 connection=ConnectionConfig(
                     base_url="http://models.test", token="test"
                 ),

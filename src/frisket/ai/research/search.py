@@ -168,7 +168,7 @@ class SearchService:
         *,
         preference: SearchPreference | str = "auto",
         effective_keys: Mapping[str, str],
-        credential_source: str = "user_key",
+        credential_source: str = "local",
         http: httpx.AsyncClient | None = None,
         ddgs_factory: Callable[..., Any] | None = None,
     ) -> None:

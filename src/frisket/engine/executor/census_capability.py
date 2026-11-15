@@ -26,7 +26,15 @@ from frisket.execution.credential_use import (
     CredentialUseRefusal,
     require_consented_credential,
 )
+from frisket.execution.dispatch_control import dispatch_for_context
+from frisket.execution.purchases import (
+    PurchaseObservation,
+    PurchaseRequest,
+    execute_purchase,
+    policy_for_context,
+)
 from frisket.execution.runtime_binding import ROUTE_OBSERVATION_KEY, bind_fact_to_route
+from frisket.execution.targets import US_CENSUS_TARGET_ID
 from frisket.ops.base import OpContext, RecipeInvocationHalt
 from frisket.ops.cost_source import free_public_api_estimate
 
@@ -402,11 +410,39 @@ class AdmittedCensusDemographics:
             csv_text = self._points_csv(
                 [(row_id, lat, lon) for row_id, lat, lon, _key in chunk]
             )
-            self._record_request(ctx, "none")
-            resp = await ctx.http.post(
-                CENSUS_GEOLOOKUP_BATCH_URL,
-                data={"benchmark": benchmark, "vintage": vintage},
-                files={"coordinatesFile": ("points.csv", csv_text, "text/csv")},
+
+            async def invoke():
+                self._record_request(ctx, "none")
+                return await ctx.http.post(
+                    CENSUS_GEOLOOKUP_BATCH_URL,
+                    data={"benchmark": benchmark, "vintage": vintage},
+                    files={"coordinatesFile": ("points.csv", csv_text, "text/csv")},
+                )
+
+            resp = await execute_purchase(
+                PurchaseRequest(
+                    provider=US_CENSUS_TARGET_ID,
+                    capability="census_demographics",
+                    engine="us_census_acs",
+                    credential_source="none",
+                    prepared={
+                        "url": CENSUS_GEOLOOKUP_BATCH_URL,
+                        "benchmark": benchmark,
+                        "vintage": vintage,
+                        "coordinates": csv_text,
+                    },
+                    context=ctx,
+                    estimated_cost_usd=0.0,
+                    quantity={"requests": 1},
+                ),
+                policy=policy_for_context(ctx),
+                dispatch=dispatch_for_context(ctx),
+                invoke=invoke,
+                observe=lambda response: PurchaseObservation(
+                    result={"http_status": response.status_code},
+                    usage={"requests": 1},
+                    provider_cost_micro=0,
+                ),
             )
             if resp.status_code >= 300:
                 raise RuntimeError(
@@ -553,9 +589,40 @@ class AdmittedCensusDemographics:
         if api_key:
             params["key"] = api_key
         url = CENSUS_ACS_URL_TEMPLATE.format(vintage=vintage)
-        self._record_request(ctx, credential.source if credential else "none")
+        credential_source = credential.source if credential else "none"
+
+        async def invoke():
+            self._record_request(ctx, credential_source)
+            return await ctx.http.get(url, params=params)
+
         try:
-            resp = await ctx.http.get(url, params=params)
+            resp = await execute_purchase(
+                PurchaseRequest(
+                    provider=US_CENSUS_TARGET_ID,
+                    capability="census_demographics",
+                    engine="us_census_acs",
+                    credential_source=credential_source,
+                    prepared={
+                        "url": url,
+                        "params": {
+                            name: value
+                            for name, value in params.items()
+                            if name != "key"
+                        },
+                    },
+                    context=ctx,
+                    estimated_cost_usd=0.0,
+                    quantity={"requests": 1},
+                ),
+                policy=policy_for_context(ctx),
+                dispatch=dispatch_for_context(ctx),
+                invoke=invoke,
+                observe=lambda response: PurchaseObservation(
+                    result={"http_status": response.status_code},
+                    usage={"requests": 1},
+                    provider_cost_micro=0,
+                ),
+            )
         except httpx.HTTPError:
             # HTTP client errors may include the ACS URL and its credential.
             raise RuntimeError("Census ACS request failed before a response") from None

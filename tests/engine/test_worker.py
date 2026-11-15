@@ -12,6 +12,7 @@ import pytest
 
 import frisket.engine.jobs.runs as run_jobs
 import frisket.engine.jobs.worker as worker_module
+from frisket.execution.purchases import PurchaseAdmission
 from frisket.engine.jobs import queue as queue_module
 import frisket.engine.runner.map_runner as map_runner_module
 from frisket.engine.jobs import (
@@ -352,11 +353,14 @@ class TestExecution:
                 del credential_source
                 return request
 
-            def before_live(self, request, credential_source):
-                del request, credential_source
+            def admit_purchase(self, request):
+                return PurchaseAdmission("local")
 
-            def after_live(self, request, response, credential_source):
-                del request, response, credential_source
+            def record_purchase(self, request, admission, observation):
+                pass
+
+            def fail_purchase(self, request, admission, error):
+                pass
 
         bases = []
 

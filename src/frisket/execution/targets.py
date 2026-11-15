@@ -35,6 +35,7 @@ from frisket.contracts.transcription_sidecar import TranscriptionOptionSupport
 # serves, so "which target can run this" is a declaration lookup rather than
 # an assumption that every engine id in the tree is a transcription engine.
 CAPABILITY_TRANSCRIBE = "transcribe"
+CAPABILITY_NER = "ner"
 CAPABILITY_OCR = "ocr"
 #: Each names the work, not the venue or the unit: the token is
 #: what a receipt says the user's data was sent off to have done to it, so
@@ -65,6 +66,7 @@ CAPABILITY_LLM = "llm.complete"
 EXECUTION_CAPABILITIES: frozenset[str] = frozenset(
     {
         CAPABILITY_TRANSCRIBE,
+        CAPABILITY_NER,
         CAPABILITY_OCR,
         CAPABILITY_TRANSLATE,
         CAPABILITY_CLASSIFY,

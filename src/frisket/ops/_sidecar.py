@@ -208,6 +208,125 @@ async def sidecar_post(
     structured_errors: bool = False,
     connection: Any | None = None,
     dispatch: DispatchControl,
+    quantity: dict[str, float | None] | None = None,
+) -> dict:
+    """Determine accounting and own one logical model-server operation."""
+    from hashlib import sha256
+    from frisket.execution.purchases import (
+        PurchaseObservation,
+        PurchaseRequest,
+        execute_purchase,
+        policy_for_context,
+    )
+
+    capabilities = {
+        "/ocr": "ocr",
+        "/to-markdown": "document.convert",
+        "/v1/transcribe": "transcribe",
+        "/ner": "ner",
+        "/classify": "classify",
+    }
+    if route not in capabilities:
+        raise ValueError(f"No purchase contract for model-server route {route!r}")
+    engine = (data or {}).get("engine") or (json or {}).get("engine")
+    if not engine:
+        raise ValueError("Model-server purchase requires an engine")
+    measured = dict(quantity or {})
+    if route == "/ocr":
+        measured["pages"] = len(files or ())
+    request = PurchaseRequest(
+        provider="frisket-models",
+        capability=capabilities[route],
+        engine=engine,
+        credential_source="none",
+        context=ctx,
+        quantity=measured,
+        prepared={
+            "route": route,
+            "data": data,
+            "json": json,
+            "files": [sha256(part[1][1]).hexdigest() for part in (files or ())],
+        },
+    )
+
+    def observe(body):
+        usage: dict[str, Any] = {}
+        if isinstance(body, dict):
+            if route == "/ocr" and isinstance(body.get("pages"), list):
+                usage["pages"] = len(body["pages"])
+            elif route == "/to-markdown":
+                documents = body.get("documents", body.get("results"))
+                documents = documents if isinstance(documents, list) else [body]
+                pages = [
+                    doc.get("ocr_used") for doc in documents if isinstance(doc, dict)
+                ]
+                if (
+                    len(pages) == len(documents)
+                    and pages
+                    and all(isinstance(value, list) for value in pages)
+                ):
+                    usage["pages"] = sum(len(value) for value in pages)
+            elif (
+                route == "/v1/transcribe"
+                and isinstance(body.get("results"), list)
+                and body["results"]
+            ):
+                durations = [
+                    item.get("duration")
+                    for item in body["results"]
+                    if isinstance(item, dict)
+                ]
+                if len(durations) == len(body["results"]) and all(
+                    isinstance(value, (int, float))
+                    and not isinstance(value, bool)
+                    and math.isfinite(value)
+                    and value >= 0
+                    for value in durations
+                ):
+                    usage["audio_seconds"] = sum(durations)
+                elif measured.get("audio_seconds") is not None:
+                    usage["audio_seconds"] = measured["audio_seconds"]
+            elif route in {"/ner", "/classify"}:
+                usage["requests"] = 1
+        return PurchaseObservation(body, usage)
+
+    async def invoke():
+        return await _sidecar_post_transport(
+            ctx,
+            route,
+            files=files,
+            data=data,
+            json=json,
+            op=op,
+            light_engine=light_engine,
+            timeout=timeout,
+            structured_errors=structured_errors,
+            connection=connection,
+            dispatch=dispatch,
+        )
+
+    return await execute_purchase(
+        request,
+        policy=policy_for_context(ctx),
+        dispatch=dispatch,
+        invoke=invoke,
+        observe=observe,
+    )
+
+
+async def _sidecar_post_transport(
+    ctx: Any,
+    route: str,
+    *,
+    files: list[tuple] | None = None,
+    data: dict[str, str] | None = None,
+    json: Any = None,
+    op: str = "request",
+    light_engine: str | None = None,
+    timeout: Any | None = None,
+    structured_errors: bool = False,
+    connection: Any | None = None,
+    dispatch: DispatchControl,
 ) -> dict:
     """POST a route on the frisket-models sidecar and return the JSON body.
 

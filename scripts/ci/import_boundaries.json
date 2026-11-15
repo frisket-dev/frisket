@@ -295,6 +295,173 @@
         "frisket.engine.store.project_qa.ProjectQAStore._finish_research"
       ],
       "reject_unresolved_dynamic": false
+    },
+    {
+      "id": "model-provider-transports-have-finite-owners",
+      "comment": "Provider wire adapters belong to the finite model transport owners. Actions, SDK operations and executor orchestration consume admitted model clients; ordinary HTTP actions remain unrestricted by this provider-specific rule.",
+      "modules": [
+        "frisket",
+        "frisket.*"
+      ],
+      "exclude": [
+        "frisket.ai.llm.router",
+        "frisket.ai.llm.adapters",
+        "frisket.ai.llm.cloud"
+      ],
+      "forbidden_imports": [
+        "frisket.ai.llm.adapters",
+        "frisket.ai.llm.cloud",
+        "openai",
+        "anthropic",
+        "google.genai",
+        "ollama",
+        "pydantic_ai.models.openai",
+        "pydantic_ai.models.anthropic",
+        "pydantic_ai.models.google",
+        "pydantic_ai.providers.openai",
+        "pydantic_ai.providers.anthropic",
+        "pydantic_ai.providers.google"
+      ],
+      "forbidden_members": [
+        "frisket.ai.llm.adapters",
+        "frisket.ai.llm.cloud",
+        "openai",
+        "anthropic",
+        "google.genai",
+        "ollama",
+        "pydantic_ai.models.openai",
+        "pydantic_ai.models.anthropic",
+        "pydantic_ai.models.google",
+        "pydantic_ai.providers.openai",
+        "pydantic_ai.providers.anthropic",
+        "pydantic_ai.providers.google"
+      ],
+      "reject_unresolved_dynamic": false
+    },
+    {
+      "id": "sidecar-raw-transport-is-private",
+      "comment": "Public sidecar_post owns purchase admission and recording. Its raw HTTP helper cannot be imported or borrowed by another caller. Status/capability probes and public sidecar types remain available.",
+      "modules": [
+        "frisket",
+        "frisket.*"
+      ],
+      "exclude": [
+        "frisket.ops._sidecar"
+      ],
+      "forbidden_members": [
+        "frisket.ops._sidecar._sidecar_post_transport"
+      ],
+      "reject_unresolved_dynamic": false
+    },
+    {
+      "id": "local-purchase-policy-belongs-to-composition",
+      "comment": "Only deployment composition and the standalone model-router owner select the local/operator policy. An action may not opt itself out of the hosted purchase owner.",
+      "modules": [
+        "frisket",
+        "frisket.*"
+      ],
+      "exclude": [
+        "frisket.execution.purchases",
+        "frisket.ai.llm.router"
+      ],
+      "forbidden_members": [
+        "frisket.execution.purchases.LocalPurchasePolicy",
+        "frisket.execution.purchases.LOCAL_PURCHASE_POLICY"
+      ],
+      "reject_unresolved_dynamic": false
+    },
+    {
+      "id": "model-router-construction-belongs-to-composition",
+      "comment": "An action receives an execution-bound client. Constructing an env-key router with the standalone default policy belongs only to the existing finite composition/diagnostic owners. Imports used for annotations remain allowed.",
+      "modules": [
+        "frisket",
+        "frisket.*"
+      ],
+      "exclude": [
+        "frisket.ai.llm.router",
+        "frisket.server.workspace",
+        "frisket.engine.jobs.runs",
+        "frisket.operability.diagnostics",
+        "frisket.cli.doctor"
+      ],
+      "forbidden_calls": [
+        "frisket.ai.llm.ModelRouter",
+        "frisket.ai.llm.router.ModelRouter"
+      ],
+      "reject_unresolved_dynamic": false
+    },
+    {
+      "id": "operator-credential-values-belong-to-transport-leaves",
+      "comment": "Authoring/orchestration cannot newly resolve operator credentials. These exact transport leaves own their complete outbound purchase through execute_purchase. Project-only secrets, credential types and presence checks remain available. This lexical API fence does not inspect arbitrary environment access.",
+      "modules": [
+        "frisket.actions",
+        "frisket.actions.*",
+        "frisket.sdk",
+        "frisket.sdk.*",
+        "frisket.engine.executor",
+        "frisket.engine.executor.*",
+        "frisket.ops",
+        "frisket.ops.*"
+      ],
+      "exclude": [
+        "frisket.engine.executor.document_convert",
+        "frisket.engine.executor.decision_read",
+        "frisket.engine.executor.geocode_capability",
+        "frisket.engine.executor.census_capability",
+        "frisket.sdk.ops.transcription.hosted",
+        "frisket.ops.ocr_engines_hosted",
+        "frisket.ops.opendocrouter",
+        "frisket.ops.integrations.translation_engine"
+      ],
+      "forbidden_members": [
+        "frisket.credentials.resolve_credential",
+        "frisket.credentials.resolve_credential_with_source",
+        "frisket.credentials.resolve_credential_for_use"
+      ],
+      "reject_unresolved_dynamic": false
+    },
+    {
+      "id": "sidecar-credential-values-belong-to-transport-leaves",
+      "comment": "Only the sidecar purchase owner and its transcription transport resolve a token-bearing gateway connection. Capability probes and non-secret base-url metadata remain available.",
+      "modules": [
+        "frisket.actions",
+        "frisket.actions.*",
+        "frisket.sdk",
+        "frisket.sdk.*",
+        "frisket.engine.executor",
+        "frisket.engine.executor.*",
+        "frisket.ops",
+        "frisket.ops.*"
+      ],
+      "exclude": [
+        "frisket.ops._sidecar",
+        "frisket.sdk.ops.transcription.sidecar"
+      ],
+      "forbidden_members": [
+        "frisket.ops._sidecar.sidecar_token",
+        "frisket.ops._sidecar.sidecar_headers",
+        "frisket.ops._sidecar.ephemeral_gateway_connection"
+      ],
+      "reject_unresolved_dynamic": false
+    },
+    {
+      "id": "pydantic-agent-construction-belongs-to-router-bridges",
+      "comment": "PydanticAI can infer a raw provider from a model string. Only the four existing router bridges construct Agent; other callers receive admitted model/capability clients. Annotation imports remain allowed.",
+      "modules": [
+        "frisket",
+        "frisket.*"
+      ],
+      "exclude": [
+        "frisket.ai.llm.structured",
+        "frisket.ai.research.row_answer",
+        "frisket.ops.mcp_extract",
+        "frisket.server.services.project_qa_runner"
+      ],
+      "forbidden_calls": [
+        "pydantic_ai.Agent",
+        "pydantic_ai.agent.Agent"
+      ],
+      "reject_unresolved_dynamic": false
     }
   ]
 }

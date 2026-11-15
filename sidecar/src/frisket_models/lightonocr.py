@@ -26,7 +26,7 @@ class ModelProfile:
 PROFILES = {
     "lightonocr-3-0.8b": ModelProfile(
         model_id="lightonai/LightOnOCR-3-0.8B",
-        revision="4a953edfc77f0e435532c503dd69dd74663d44c3",
+        revision="36d8636925327c671bd8e479c517a004f7566bd9",
     ),
     "lightonocr-3-4b": ModelProfile(
         model_id="lightonai/LightOnOCR-3-4B",

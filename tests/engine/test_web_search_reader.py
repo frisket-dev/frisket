@@ -236,15 +236,21 @@ def test_search_service_dependency_reaches_map_runner_context() -> None:
 def test_paid_search_keeps_returned_receipt_when_accounting_write_fails(monkeypatch):
     events = []
 
-    class Policy:
-        def admit_search(self, **kwargs):
-            events.append("admitted")
-            return "search-operation"
+    from frisket.execution.purchases import PurchaseAdmission
 
-        def finish_search(self, operation_id, response, error):
-            assert response is not None
+    class Policy:
+        def admit_purchase(self, request):
+            events.append("admitted")
+            assert request.provider == "tavily"
+            return PurchaseAdmission("metered", "search-operation")
+
+        def record_purchase(self, request, admission, observation):
+            assert observation.result["provider"] == "tavily"
             events.append("accounting")
             raise RuntimeError("accounting write unavailable")
+
+        def fail_purchase(self, request, admission, error):
+            pytest.fail("Returned search must not be treated as a failed purchase")
 
     def transport(request):
         events.append("provider")
@@ -269,4 +275,4 @@ def test_paid_search_keeps_returned_receipt_when_accounting_write_fails(monkeypa
             await reader.aclose()
 
     asyncio.run(run())
-    assert events == ["admitted", "provider", "receipt", "accounting"]
+    assert events == ["admitted", "provider", "accounting", "receipt"]

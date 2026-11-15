@@ -10,6 +10,7 @@ from dataclasses import asdict
 import httpx
 import pytest
 
+from frisket.execution.purchases import PurchaseAdmission
 from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.llm.cache import ResponseCache, request_key
 from frisket.ai.llm.router import ModelRouter
@@ -41,14 +42,14 @@ class UsagePolicy:
     def prepare(self, request, credential_source):
         return request
 
-    def before_live(self, request, credential_source):
+    def admit_purchase(self, request):
+        return PurchaseAdmission("metered", f"wire-{len(self.responses)}")
+
+    def fail_purchase(self, request, admission, error):
         pass
 
-    def failed_live(self, request, error, credential_source):
-        pass
-
-    def after_live(self, request, response, credential_source):
-        self.responses.append(response)
+    def record_purchase(self, request, admission, observation):
+        self.responses.append(observation.result)
 
 
 @asynccontextmanager
@@ -132,11 +133,15 @@ async def test_malformed_then_repaired_keeps_both_calls_and_does_not_cache_failu
         assert result.data == {"summary": "Recovered"}
         assert len(bodies) == len(policy.responses) == 2
         assert (result.tokens_in, result.tokens_out) == (84, 34)
-        assert result.cost == pytest.approx(sum(r.cost for r in policy.responses))
-        assert [r.raw["id"] for r in policy.responses] == ["response-1", "response-2"]
-        assert policy.responses[0].content == "]]]}}]]"
+        assert result.cost == pytest.approx(sum(r["cost"] for r in policy.responses))
+        assert [r["raw"]["id"] for r in policy.responses] == [
+            "response-1",
+            "response-2",
+        ]
+        assert policy.responses[0]["content"] == "]]]}}]]"
         assert all(
-            r.provider == name and r.duration_ms is not None for r in policy.responses
+            r["provider"] == name and r["duration_ms"] is not None
+            for r in policy.responses
         )
         assert cache.get(request_key(request(name))) is None
     finally:

@@ -12,13 +12,21 @@ import logging
 import os
 import time
 from collections.abc import Callable, Mapping
-from dataclasses import replace
-from typing import TYPE_CHECKING, Any, Literal, Protocol
+from dataclasses import asdict, replace
+from typing import TYPE_CHECKING, Literal
 
 import httpx
 
 from frisket.redaction import canonical_error_code, redact_text, redact_value
 from frisket.execution.dispatch_control import DispatchControl
+from frisket.execution.purchases import (
+    LOCAL_PURCHASE_POLICY,
+    PurchasePolicy,
+    PurchaseRequest,
+    PurchaseObservation,
+    execute_purchase,
+    llm_observation,
+)
 
 from .adapters import AnthropicAdapter, OpenAICompatAdapter
 from .cache import CacheMiss, ResponseCache, request_key
@@ -47,81 +55,6 @@ CacheMode = Literal["replay", "fresh", "replay_strict", "off"]
 # The full CacheMode vocabulary, for callers (HostedConfig, CLI) that read a
 # mode from an env var and must validate it before constructing a router.
 CACHE_MODES: tuple[CacheMode, ...] = ("replay", "fresh", "replay_strict", "off")
-
-
-class ModelCallPolicy(Protocol):
-    """Admission and accounting around each real provider purchase."""
-
-    def prepare(self, request: LLMRequest, credential_source: str) -> LLMRequest: ...
-
-    def before_live(self, request: LLMRequest, credential_source: str) -> None: ...
-
-    def after_live(
-        self,
-        request: LLMRequest,
-        response: LLMResponse,
-        credential_source: str,
-    ) -> None: ...
-
-    def failed_live(
-        self, request: LLMRequest, error: BaseException, credential_source: str
-    ) -> None: ...
-
-    def admit_external_service(
-        self,
-        *,
-        provider: str,
-        capability: str,
-        engine: str,
-        prepared: dict,
-        credential_source: str,
-        estimated_cost_usd: float | None,
-        context: Any,
-    ) -> str: ...
-
-    def admit_search(
-        self,
-        *,
-        prepared: dict,
-        quote: Any,
-        credential_source: str,
-        context: Any = None,
-    ) -> str: ...
-
-    def finish_search(self, operation_id: str, response: Any, error: Any) -> None: ...
-
-    def admit_ocr(
-        self,
-        *,
-        engine: str,
-        prepared: dict,
-        page_count: int,
-        context: Any,
-    ) -> str: ...
-
-    def admit_document_conversion(
-        self, *, engine: str, prepared: dict, page_count: int | None, context: Any
-    ) -> str | None: ...
-
-    def admit_transcription(
-        self,
-        *,
-        engine: str,
-        prepared: dict,
-        audio_seconds: float,
-        context: Any,
-    ) -> str: ...
-
-    def finish_service(
-        self,
-        operation_id: str,
-        *,
-        result: Any,
-        usage: dict,
-        provider_cost_micro: int | None = None,
-    ) -> None: ...
-
-    def fail_service(self, operation_id: str, error: BaseException | None) -> None: ...
 
 
 def live_calls_possible(cache_mode: CacheMode) -> bool:
@@ -293,7 +226,7 @@ class ModelRouter:
         max_retries: int = 3,
         use_env_keys: bool = True,
         local_endpoints: tuple[LocalModelEndpointConfig, ...] = (),
-        model_call_policy: ModelCallPolicy | None = None,
+        model_call_policy: PurchasePolicy = LOCAL_PURCHASE_POLICY,
     ):
         env = os.environ if use_env_keys else {}
         keys = keys or {}
@@ -371,6 +304,8 @@ class ModelRouter:
         self.cache_mode: CacheMode = cache_mode
         self.chaos = ChaosMiddleware(chaos) if chaos else None
         self.max_retries = max_retries
+        if model_call_policy is None:
+            raise ValueError("ModelRouter requires an explicit purchase policy")
         self.model_call_policy = model_call_policy
         self._client: httpx.AsyncClient | None = None
         self._client_loop: object | None = None
@@ -673,8 +608,7 @@ class ModelRouter:
         # credential_source) rather than trusting whatever the cassette held.
         provider = provider_from_model_id(req.model)
         credential_source = self.credential_source_for(provider)
-        if self.model_call_policy is not None:
-            req = self.model_call_policy.prepare(req, credential_source)
+        req = self.model_call_policy.prepare(req, credential_source)
         provider = provider_from_model_id(req.model)
         credential_source = self.credential_source_for(provider)
         if req.reasoning_policy is not None and provider != "openrouter":
@@ -751,8 +685,6 @@ class ModelRouter:
             resp.cost_source = (
                 model_cost_source(req.model) if resp.cost is not None else "unknown"
             )
-        if self.model_call_policy is not None:
-            self.model_call_policy.after_live(req, resp, credential_source)
 
     async def _call_with_retry(
         self,
@@ -830,18 +762,64 @@ class ModelRouter:
                             fabricated.prior_wire_calls = tuple(returned_calls)
                             return fabricated
                     _execution.check()
-                    if self.model_call_policy is not None:
-                        self.model_call_policy.before_live(req, credential_source)
-                    admitted = True
-                    if provider == "ollama" and cloud_adapter is None:
-                        assert isinstance(adapter, OpenAICompatAdapter)
-                        resp = await adapter.complete(
-                            wire_req,
-                            self.client,
-                            cost_model=req.model,
-                        )
-                    else:
-                        resp = await adapter.complete(wire_req, self.client)
+
+                    async def invoke():
+                        nonlocal admitted
+                        admitted = True
+                        try:
+                            if provider == "ollama" and cloud_adapter is None:
+                                assert isinstance(adapter, OpenAICompatAdapter)
+                                return await adapter.complete(
+                                    wire_req,
+                                    self.client,
+                                    cost_model=req.model,
+                                )
+                            return await adapter.complete(wire_req, self.client)
+                        except LLMError as error:
+                            safe = self._safe_llm_error(error, secret_values)
+                            rejected = (
+                                safe.transport_kind == "connect" or safe.status == 429
+                            )
+                            safe.post_egress_ambiguous = bool(
+                                safe.post_egress_ambiguous
+                                or (
+                                    safe.retryable
+                                    and not rejected
+                                    and not getattr(safe, "wire_calls", ())
+                                )
+                            )
+                            raise safe from None
+                        except httpx.HTTPError as error:
+                            raise self._safe_transport_error(
+                                error, secret_values
+                            ) from None
+
+                    def observe(response):
+                        self._finish_live_response(req, response, credential_source)
+                        response.model = req.model
+                        response.duration_ms = int((time.perf_counter() - t0) * 1000)
+                        return llm_observation(response)
+
+                    resp = await execute_purchase(
+                        PurchaseRequest(
+                            provider="frisket-cloud"
+                            if cloud_adapter is not None
+                            else provider,
+                            capability="llm.complete",
+                            engine=req.model,
+                            credential_source=credential_source,
+                            prepared=asdict(req),
+                            llm_request=req,
+                        ),
+                        policy=self.model_call_policy,
+                        dispatch=_execution,
+                        invoke=invoke,
+                        observe=observe,
+                        observe_error=lambda error: (
+                            observe(response)
+                            for response in getattr(error, "wire_calls", ())
+                        ),
+                    )
                 except LLMError as e:
                     safe_error = self._safe_llm_error(e, secret_values)
                     last = safe_error
@@ -880,10 +858,6 @@ class ModelRouter:
                     for response in getattr(safe_error, "wire_calls", []):
                         returned_calls.append(response)
                         self._finish_live_response(req, response, credential_source)
-                    if admitted and self.model_call_policy is not None:
-                        self.model_call_policy.failed_live(
-                            req, safe_error, credential_source
-                        )
                     # Bounded inference retry is a distinct purchase, not settlement
                     # recovery. Ambiguous expense remains explicitly unknown.
                     if not safe_error.retryable or attempt == self.max_retries:
@@ -903,17 +877,9 @@ class ModelRouter:
                         error=detail,
                         retryable=True,
                     )
-                    if admitted and self.model_call_policy is not None:
-                        self.model_call_policy.failed_live(req, last, credential_source)
                     if attempt == self.max_retries:
                         raise last from None
                     await asyncio.sleep(min(2**attempt * 0.5, 8.0))
-                except BaseException as error:
-                    if admitted and self.model_call_policy is not None:
-                        self.model_call_policy.failed_live(
-                            req, error, credential_source
-                        )
-                    raise
                 else:
                     if provider == "ollama" and cloud_adapter is None:
                         resp.model = req.model
@@ -927,6 +893,9 @@ class ModelRouter:
                     return resp
             raise LLMError(redact_text(f"exhausted retries: {last}")) from None
         except BaseException as error:
+            recorded_result = getattr(error, "provider_result", None)
+            if isinstance(recorded_result, LLMResponse):
+                returned_calls.append(recorded_result)
             # Cancellation, admission refusal and later transport failures must
             # not erase responses already returned by earlier purchases.
             if returned_calls:
@@ -1004,59 +973,59 @@ class ModelRouter:
             if input_rate is None
             else sum(estimate_tokens(text) for text in texts) * input_rate / 1_000_000
         )
-        operation_id = None
-        _execution.check()
-        policy = self.model_call_policy
-        if policy is not None and credential_source not in {"none", "local", "cache"}:
-            operation_id = policy.admit_external_service(
+        provider_cost = None
+        cost_source = None
+
+        async def invoke():
+            # Fresh per-call clients support the sync asyncio.run embedding seam.
+            async with httpx.AsyncClient() as client:
+                try:
+                    return await adapter.embed_with_meta(texts, requested, client)
+                except LLMError as error:
+                    raise self._safe_llm_error(
+                        error, self._adapter_secret_values(adapter)
+                    ) from None
+                except httpx.HTTPError as error:
+                    raise self._safe_transport_error(
+                        error, self._adapter_secret_values(adapter)
+                    ) from None
+
+        def observe(result):
+            nonlocal provider_cost, cost_source
+            import math
+
+            vectors, meta = result
+            usage = dict(meta.get("usage") or {})
+            input_tokens = usage.get("prompt_tokens", usage.get("total_tokens"))
+            provider_cost = meta.get("provider_cost_usd")
+            cost_source = meta.get("cost_source")
+            if (
+                provider_cost is None
+                and input_rate is not None
+                and input_tokens is not None
+            ):
+                provider_cost = input_tokens * input_rate / 1_000_000
+                cost_source = "pricing_data"
+            return PurchaseObservation(
+                {"vectors": vectors, "metadata": meta},
+                usage,
+                None if provider_cost is None else math.ceil(provider_cost * 1_000_000),
+            )
+
+        vectors, meta = await execute_purchase(
+            PurchaseRequest(
                 provider=provider,
                 capability="embedding",
                 engine=model,
                 prepared={"model": requested, "input": texts},
                 credential_source=credential_source,
                 estimated_cost_usd=estimated_cost,
-                context=None,
-            )
-        # Fresh per-call clients support the sync asyncio.run embedding seam.
-        async with httpx.AsyncClient() as client:
-            try:
-                _execution.check()
-                vectors, meta = await adapter.embed_with_meta(texts, requested, client)
-            except BaseException as error:
-                if isinstance(error, LLMError):
-                    error = self._safe_llm_error(
-                        error, self._adapter_secret_values(adapter)
-                    )
-                elif isinstance(error, httpx.HTTPError):
-                    error = self._safe_transport_error(
-                        error, self._adapter_secret_values(adapter)
-                    )
-                if operation_id is not None:
-                    policy.fail_service(operation_id, error)
-                raise error from None
-        usage = dict(meta.get("usage") or {})
-        input_tokens = usage.get("prompt_tokens", usage.get("total_tokens"))
-        provider_cost = meta.get("provider_cost_usd")
-        cost_source = meta.get("cost_source")
-        if (
-            provider_cost is None
-            and input_rate is not None
-            and input_tokens is not None
-        ):
-            provider_cost = input_tokens * input_rate / 1_000_000
-            cost_source = "pricing_data"
-        if operation_id is not None:
-            import math
-
-            # Save the actual vectors and usage before derived space validation.
-            policy.finish_service(
-                operation_id,
-                result={"vectors": vectors, "metadata": meta},
-                usage=usage,
-                provider_cost_micro=None
-                if provider_cost is None
-                else math.ceil(provider_cost * 1_000_000),
-            )
+            ),
+            policy=self.model_call_policy,
+            dispatch=_execution,
+            invoke=invoke,
+            observe=observe,
+        )
         provider_cost_usd = 0.0 if provider == "ollama" else provider_cost
         cost_source = (
             "free_local"

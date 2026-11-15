@@ -284,10 +284,25 @@ async def test_decisions_records_usage_before_result_validation(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_ask_search_owns_authority_in_actual_search_task():
+    from frisket.ai.research.search import SearchResponse, SearchService, SearchUsage
+    from frisket.execution.dispatch_control import STANDALONE
+    from frisket.execution.purchases import PurchaseAdmission
     from frisket.server.services.project_qa_runner import _search_with_purchase
 
     events = []
     owner = None
+    response = SearchResponse(
+        provider="exa",
+        results=(),
+        usage=SearchUsage(
+            provider="exa",
+            service="search",
+            request_count=1,
+            provider_reported_cost_usd=0.005,
+            provider_cost_usd=0.005,
+            cost_source="provider_reported",
+        ),
+    )
 
     @contextmanager
     def scope():
@@ -298,36 +313,42 @@ async def test_ask_search_owns_authority_in_actual_search_task():
         owner = None
 
     class Policy:
-        def admit_search(self, **kwargs):
+        def admit_purchase(self, request):
             assert owner is asyncio.current_task()
-            assert kwargs["credential_source"] == "org_byok"
+            assert request.credential_source == "org_byok"
             events.append("admit")
-            return "search-operation"
+            return PurchaseAdmission("byok", "search-operation")
 
-        def finish_search(self, operation, response, error):
+        def record_purchase(self, request, admission, observation):
             assert owner is asyncio.current_task()
-            assert response == "saved search result" and error is None
+            assert observation.provider_cost_micro == 5000
             events.append("finish")
 
     class Search:
         credential_source = "org_byok"
 
         def quote(self, **kwargs):
-            return SimpleNamespace(provider="exa")
+            return SearchService(
+                preference="exa", effective_keys={"exa": "fixture"}
+            ).quote(**kwargs)
 
         async def search(self, query, **kwargs):
             assert events[-1] == "admit"
             events.append("http")
-            return "saved search result"
+            return response
 
     assert (
         await asyncio.wait_for(
             _search_with_purchase(
-                Search(), "actual query", policy=Policy(), call_scope=scope
+                Search(),
+                "actual query",
+                policy=Policy(),
+                dispatch=STANDALONE,
+                call_scope=scope,
             ),
             2,
         )
-        == "saved search result"
+        is response
     )
     assert events == ["scope", "admit", "http", "finish"]
 

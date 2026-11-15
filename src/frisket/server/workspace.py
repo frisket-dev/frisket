@@ -595,8 +595,10 @@ class Workspace:
                     if base_router is not None
                     else self._local_endpoints()
                 ),
-                model_call_policy=(
-                    base_router.model_call_policy if base_router is not None else None
+                **(
+                    {"model_call_policy": base_router.model_call_policy}
+                    if base_router is not None
+                    else {}
                 ),
             )
         # Pure local tier: workspace file keys underneath any per-project keys,

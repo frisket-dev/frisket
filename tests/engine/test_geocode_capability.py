@@ -84,7 +84,10 @@ def _routed_ctx(handler, route) -> OpContext:
             egress_class=route.egress_class,
         ),
     )
+    from frisket.execution.dispatch_control import STANDALONE
+
     extras = {
+        "standalone_dispatch": STANDALONE,
         "row_id": 1,
         ATTEMPT_EXTRA: AttemptCommitment(
             attempt_id="attempt_TESTATTEMPT000000000000",

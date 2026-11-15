@@ -944,7 +944,11 @@ async def test_datalab_convert_falls_back_to_external_pricing_estimate_scaled_by
     doc_path = tmp_path / "doc.pdf"
     doc_path.write_bytes(b"%PDF-1.4 fake")
     async with _mock(handler) as http:
-        ctx = OpContext(project=_StubProject(), http=http, extras={})
+        ctx = OpContext(
+            project=_StubProject(),
+            http=http,
+            extras={"preview": True, "cancelled": lambda: False},
+        )
         markdown, meta = await bound_document_converter(
             ctx, engine="datalab"
         )._convert_datalab(doc_path)

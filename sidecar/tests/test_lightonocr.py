@@ -123,7 +123,7 @@ def _fake_torch(*, cuda: bool = False, mps: bool = False, bf16: bool = False):
         (
             "lightonocr-3-0.8b",
             "lightonai/LightOnOCR-3-0.8B",
-            "4a953edfc77f0e435532c503dd69dd74663d44c3",
+            "36d8636925327c671bd8e479c517a004f7566bd9",
         ),
         (
             "lightonocr-3-4b",

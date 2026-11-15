@@ -8,6 +8,12 @@ from typing import Any
 import httpx
 
 from frisket.execution.dispatch_control import dispatch_for_context
+from frisket.execution.purchases import (
+    PurchaseObservation,
+    PurchaseRequest,
+    execute_purchase,
+    policy_for_context,
+)
 
 from frisket.actions.types import Outcome, RowError
 from frisket.ai.external_pricing import (
@@ -194,147 +200,149 @@ class _BoundDecisionClassifier:
         # A failed HTTP wait may still have reached the paid provider. Never
         # turn missing usage into a successful zero-dollar provider call.
         record()
-        policy = getattr(
-            ctx.extras.get("router"), "model_call_policy", None
-        ) or ctx.extras.get("service_operation_policy")
-        operation_id = None
-        operation_finished = False
-        if policy is not None and owner.engine != "clef-flash":
-            from frisket.contracts.decisions import estimate_decisions_tokens
-            from frisket.contracts.clef import estimate_clef_input_tokens
 
-            tokens = (
-                estimate_decisions_tokens if openai else estimate_clef_input_tokens
-            )(text, questions)
-            rate = external_unit_price_usd(
-                OPENAI_DECISIONS_INPUT_TOKEN if openai else CLOUDFLARE_CLEF_INPUT_TOKEN
+        async def invoke_remote():
+            response = await ctx.http.post(
+                DECISIONS_URL if openai else connection.base_url,
+                headers={"Authorization": f"Bearer {connection.token}"},
+                json={"model": DECISIONS_MODEL, "input": text, "questions": questions}
+                if openai
+                else {"model": "clef", "state": text, "questions": questions},
+                timeout=httpx.Timeout(120, connect=10),
+                follow_redirects=False,
             )
-            operation_id = policy.admit_external_service(
-                provider="openai" if openai else "cloudflare",
-                capability="classify",
-                engine=owner.engine,
-                prepared={"engine": owner.engine, "text": text, "questions": questions},
-                credential_source=source,
-                estimated_cost_usd=tokens * rate if rate is not None else None,
-                context=ctx,
-            )
-        try:
+            if response.status_code != 200:
+                if (
+                    openai
+                    and 400 <= response.status_code < 500
+                    and response.status_code != 408
+                ):
+                    record(rejected_status=response.status_code)
+                error = RowError(
+                    "classify_request_failed",
+                    f"{owner.engine} returned HTTP {response.status_code}",
+                )
+                error.status_code = response.status_code
+                error.accounting = owner.accounting_by_row[self.row_id]
+                raise error
             try:
-                if owner.engine == "clef-flash":
-                    body = await sidecar_post(
-                        ctx,
-                        "/classify",
-                        dispatch=dispatch_for_context(ctx),
-                        connection=connection,
-                        op="classify",
-                        json={
-                            "engine": owner.engine,
-                            "text": text,
-                            "questions": questions,
-                        },
-                    )
-                else:
-                    dispatch_for_context(ctx).check()
-                    response = await ctx.http.post(
-                        DECISIONS_URL if openai else connection.base_url,
-                        headers={"Authorization": f"Bearer {connection.token}"},
-                        json={
-                            "model": DECISIONS_MODEL,
-                            "input": text,
-                            "questions": questions,
-                        }
-                        if openai
-                        else {
-                            "model": "clef",
-                            "state": text,
-                            "questions": questions,
-                        },
-                        timeout=httpx.Timeout(120, connect=10),
-                        follow_redirects=False,
-                    )
-                    if response.status_code != 200:
-                        # Categorical request rejection did not buy an inference.
-                        # 408/5xx and transport failures can be ambiguous: keep unknown.
-                        if (
-                            openai
-                            and 400 <= response.status_code < 500
-                            and response.status_code != 408
-                        ):
-                            record(rejected_status=response.status_code)
-                            if operation_id is not None:
-                                policy.finish_service(
-                                    operation_id,
-                                    result={"http_status": response.status_code},
-                                    usage={"requests": 1},
-                                    provider_cost_micro=0,
-                                )
-                                operation_finished = True
-                        raise RowError(
-                            "classify_request_failed",
-                            f"{owner.engine} returned HTTP {response.status_code}",
-                        )
-                    envelope = response.json()
-                    if openai:
-                        body = envelope
-                    else:
-                        if (
-                            not isinstance(envelope, dict)
-                            or envelope.get("success") is not True
-                        ):
-                            raise ValueError("invalid Cloudflare response")
-                        body = envelope.get("result")
-                # Received usage survives late cancellation and output validation.
+                return response.json()
+            except ValueError:
+                # The purchase returned, but there is no usable response body.
+                # Its unknown usage is still recorded before output validation.
+                return None
+
+        def observe_remote(envelope):
+            body = (
+                envelope
+                if openai
+                else envelope.get("result")
+                if isinstance(envelope, dict)
+                else None
+            )
+            usage = body.get("usage") if isinstance(body, dict) else None
+            tokens = usage.get("input_tokens") if isinstance(usage, dict) else None
+            if type(tokens) is int and tokens >= 0:
+                record(tokens, usage=usage)
+            accounting = owner.accounting_by_row[self.row_id]
+            return PurchaseObservation(
+                result=envelope,
+                usage=accounting["model_calls"][0]["units"],
+                provider_cost_micro=None
+                if accounting["cost"] is None
+                else round(accounting["cost"] * 1_000_000),
+            )
+
+        try:
+            if owner.engine == "clef-flash":
+                # The shared sidecar transport owns this purchase; do not create
+                # a second outer operation for the same provider request.
+                body = await sidecar_post(
+                    ctx,
+                    "/classify",
+                    dispatch=dispatch_for_context(ctx),
+                    connection=connection,
+                    op="classify",
+                    json={"engine": owner.engine, "text": text, "questions": questions},
+                )
                 usage = body.get("usage") if isinstance(body, dict) else None
                 tokens = usage.get("input_tokens") if isinstance(usage, dict) else None
                 if type(tokens) is int and tokens >= 0:
                     record(tokens, usage=usage)
-                if operation_id is not None:
-                    accounting = owner.accounting_by_row[self.row_id]
-                    policy.finish_service(
-                        operation_id,
-                        result=body,
-                        usage=accounting["model_calls"][0]["units"],
-                        provider_cost_micro=None
-                        if accounting["cost"] is None
-                        else round(accounting["cost"] * 1_000_000),
-                    )
-                    operation_finished = True
-                owner._check_active()
-                if not isinstance(body, dict) or body.get("model") != (
-                    DECISIONS_MODEL if openai else owner.engine
-                ):
-                    raise ValueError("unexpected decision model")
-                values = (decisions_values if openai else clef_values)(
-                    body.get("answers"), field_specs
+            else:
+                from frisket.contracts.decisions import estimate_decisions_tokens
+                from frisket.contracts.clef import estimate_clef_input_tokens
+
+                tokens = (
+                    estimate_decisions_tokens if openai else estimate_clef_input_tokens
+                )(text, questions)
+                rate = external_unit_price_usd(
+                    OPENAI_DECISIONS_INPUT_TOKEN
+                    if openai
+                    else CLOUDFLARE_CLEF_INPUT_TOKEN
                 )
-            except RowError:
-                raise
-            except SidecarHTTPError as error:
-                if error.status_code == 422:
-                    raise RowError(
-                        "classify_input_invalid",
-                        "Clef Flash rejected the input or question schema, which may "
-                        "exceed its combined model context limit. Shorten the input, "
-                        "context, or instructions, or reduce the fields and labels.",
-                    ) from None
-                raise RowError(
-                    "classify_request_failed",
-                    "Could not complete the Clef Flash request; check the model server configuration",
-                ) from None
-            except (ValueError, TypeError, KeyError):
-                raise RowError(
-                    "classify_output_invalid",
-                    f"{owner.engine} returned an invalid decision response",
-                ) from None
-            except (httpx.HTTPError, RuntimeError):
-                raise RowError(
-                    "classify_request_failed",
-                    f"Could not complete the {owner.engine} request; check its provider or model server configuration",
-                ) from None
-        except BaseException as error:
-            if operation_id is not None and not operation_finished:
-                policy.fail_service(operation_id, error)
+                envelope = await execute_purchase(
+                    PurchaseRequest(
+                        provider="openai" if openai else "cloudflare",
+                        capability="classify",
+                        engine=owner.engine,
+                        prepared={
+                            "engine": owner.engine,
+                            "text": text,
+                            "questions": questions,
+                        },
+                        credential_source=source,
+                        estimated_cost_usd=tokens * rate if rate is not None else None,
+                        context=ctx,
+                    ),
+                    policy=policy_for_context(ctx),
+                    dispatch=dispatch_for_context(ctx),
+                    invoke=invoke_remote,
+                    observe=observe_remote,
+                )
+                if openai:
+                    body = envelope
+                else:
+                    if (
+                        not isinstance(envelope, dict)
+                        or envelope.get("success") is not True
+                    ):
+                        raise ValueError("invalid Cloudflare response")
+                    body = envelope.get("result")
+            # Usage has already been recorded, even if cancellation or domain
+            # validation prevents publishing these classification answers.
+            owner._check_active()
+            if not isinstance(body, dict) or body.get("model") != (
+                DECISIONS_MODEL if openai else owner.engine
+            ):
+                raise ValueError("unexpected decision model")
+            values = (decisions_values if openai else clef_values)(
+                body.get("answers"), field_specs
+            )
+        except RowError:
             raise
+        except SidecarHTTPError as error:
+            if error.status_code == 422:
+                raise RowError(
+                    "classify_input_invalid",
+                    "Clef Flash rejected the input or question schema, which may "
+                    "exceed its combined model context limit. Shorten the input, "
+                    "context, or instructions, or reduce the fields and labels.",
+                ) from None
+            raise RowError(
+                "classify_request_failed",
+                "Could not complete the Clef Flash request; check the model server configuration",
+            ) from None
+        except (ValueError, TypeError, KeyError):
+            raise RowError(
+                "classify_output_invalid",
+                f"{owner.engine} returned an invalid decision response",
+            ) from None
+        except (httpx.HTTPError, RuntimeError):
+            raise RowError(
+                "classify_request_failed",
+                f"Could not complete the {owner.engine} request; check its provider or model server configuration",
+            ) from None
         return {
             name: Outcome.failed(
                 "classify_refused", "The model declined to answer this field."
