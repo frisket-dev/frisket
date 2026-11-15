@@ -907,54 +907,6 @@ def run_typed_semantic_join_action(
     )
 
     envelope, queued, _ = typed_semantic_join_queue_spec(bound)
-    # A rolled-back child transaction retains its completed row checkpoints
-    # and exact writer. Retry only publication, never the paid scorer.
-    existing = _receipt_for_idempotency(project, bound.request.idempotency_key)
-    if existing is not None and existing["status"] == "running":
-        from frisket.contracts.action import Receipt
-        from frisket.engine.executor.action_specs import ResolvedAction
-
-        receipt = Receipt.model_validate(json.loads(existing["body"]))
-        if (
-            receipt.params_hash == typed_request_hash(bound)
-            and receipt.run_id is not None
-        ):
-            run = project.db.execute(
-                "SELECT runs.*,ops.spec AS runner_spec FROM runs JOIN ops ON ops.id=runs.op_id WHERE runs.id=?",
-                (receipt.run_id,),
-            ).fetchone()
-            if (
-                run is not None
-                and run["status"] in {"completed", "failed", "cancelled"}
-                and run["current_attempt_id"] is not None
-                and any(
-                    binding.state != "sealed"
-                    for binding in ResultGenerationStore(project).bindings_for_run(
-                        receipt.run_id
-                    )
-                )
-            ):
-                return finalize_semantic_join(
-                    project,
-                    envelope,
-                    bound.params,
-                    bound=bound,
-                    run_id=receipt.run_id,
-                    action_id=receipt.action_id,
-                    receipt_id=receipt.receipt_id,
-                    params_hash=receipt.params_hash,
-                    project_id=project_id,
-                    writer_attempt_id=run["current_attempt_id"],
-                    claim_token=_output_claim_token(receipt.receipt_id),
-                    resolved=ResolvedAction.from_resolve_dict(
-                        {
-                            "semantic_join": json.loads(run["runner_spec"])[
-                                "semantic_join"
-                            ]
-                        }
-                    ),
-                )
-
     def factory(project, router):
         runner = map_runner_factory(project, router)
         runner.allow_action_lifecycle_only_recipes = True
@@ -990,4 +942,66 @@ def run_typed_semantic_join_action(
             deps=ExecutorDeps(router=router, map_runner_factory=factory),
         ),
         map_runner_factory=factory,
+    )
+
+
+def recover_typed_semantic_join_publication(project, project_id, bound):
+    """Publish an all-row returned run before generic idempotency replay.
+
+    The durable receipt still says ``running`` while the deferred semantic
+    publisher owns its final transaction. Generic replay would return
+    ``idempotency_in_progress`` before that owner can seal the saved outputs.
+    This path uses the receipt's immutable runner spec and current writer tuple;
+    it never re-resolves inputs or invokes the scorer.
+    """
+    from frisket.contracts.action import Receipt
+    from frisket.engine.executor.action_specs import ResolvedAction
+
+    existing = _receipt_for_idempotency(project, bound.request.idempotency_key)
+    if existing is None or existing["status"] != "running":
+        return None
+    receipt = Receipt.model_validate(json.loads(existing["body"]))
+    if (
+        receipt.params_hash != typed_request_hash(bound)
+        or receipt.run_id is None
+    ):
+        return None
+    run = project.db.execute(
+        "SELECT runs.*,ops.spec AS runner_spec FROM runs JOIN ops ON ops.id=runs.op_id WHERE runs.id=?",
+        (receipt.run_id,),
+    ).fetchone()
+    if (
+        run is None
+        or run["status"] != "running"
+        or run["total_rows"] is None
+        or int(run["completed_rows"] or 0) < int(run["total_rows"] or 0)
+        or run["current_attempt_id"] is None
+    ):
+        return None
+    if not any(
+        binding.state != "sealed"
+        for binding in ResultGenerationStore(project).bindings_for_run(receipt.run_id)
+    ):
+        return None
+    envelope = _TypedExecutionEnvelope(
+        kind=bound.action.action_id,
+        idempotency_key=bound.request.idempotency_key,
+        params=MappingProxyType(dict(bound.request.params)),
+    )
+    return finalize_semantic_join(
+        project,
+        envelope,
+        bound.params,
+        bound=bound,
+        run_id=receipt.run_id,
+        action_id=receipt.action_id,
+        receipt_id=receipt.receipt_id,
+        params_hash=receipt.params_hash,
+        project_id=project_id,
+        writer_attempt_id=run["current_attempt_id"],
+        claim_token=_output_claim_token(receipt.receipt_id),
+        terminal_status="completed",
+        resolved=ResolvedAction.from_resolve_dict(
+            {"semantic_join": json.loads(run["runner_spec"])["semantic_join"]}
+        ),
     )

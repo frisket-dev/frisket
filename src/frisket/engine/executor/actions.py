@@ -536,6 +536,17 @@ def run_action_spec(
         from frisket.actions.cluster_types import ValueClusterer
         from frisket.engine.executor.map_rows_action import typed_map_rows_replay_result
 
+        if isinstance(typed.action.definition.run, SemanticJoin):
+            from frisket.engine.executor.semantic_join_action import (
+                recover_typed_semantic_join_publication,
+            )
+
+            recovered = recover_typed_semantic_join_publication(
+                project, project_id, typed
+            )
+            if recovered is not None:
+                return recovered
+
         if isinstance(
             typed.action.definition.run, (MapRows, MapBatch, ModelRows, SemanticJoin)
         ) or (
