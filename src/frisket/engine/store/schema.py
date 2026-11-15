@@ -1842,14 +1842,14 @@ CREATE TABLE IF NOT EXISTS views (
 CREATE INDEX IF NOT EXISTS idx_views_sheet ON views(sheet_id);
 
 -- Watchlists promote saved queries into recurring checks. A watch is a
--- saved query with its own cursor and manual run history. Notification
--- channels/scheduler hooks are intentionally not part of this MVP schema.
+-- saved View with shared conditions, cadence, and check history.
 CREATE TABLE IF NOT EXISTS watches (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
   view_id INTEGER NOT NULL REFERENCES views(id) ON DELETE CASCADE,
   detection_policy TEXT NOT NULL DEFAULT '{"kind":"new_matches"}',
   enabled INTEGER NOT NULL DEFAULT 1,
+  schedule TEXT DEFAULT '@hourly',
   last_evaluated_op INTEGER NOT NULL DEFAULT 0,
   last_run_id INTEGER,
   baseline_run_id INTEGER,

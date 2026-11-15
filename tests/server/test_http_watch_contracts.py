@@ -37,6 +37,7 @@ _WATCH_FIELDS = frozenset(
         "sheet_id",
         "detection_policy",
         "enabled",
+        "schedule",
         "last_evaluated_op",
         "last_run_id",
         "last_status",
@@ -47,6 +48,7 @@ _WATCH_FIELDS = frozenset(
 )
 _WATCH_NULLABLE_FIELDS = frozenset(
     {
+        "schedule",
         "sheet_id",
         "last_run_id",
         "last_status",
@@ -134,13 +136,14 @@ _EVENTS_PAGE_FIELDS = frozenset(
 )
 _CREATE_REQUEST_FIELDS = frozenset(
     {
+        "schedule",
         "name",
         "view_id",
         "detection_policy",
         "enabled",
     }
 )
-_PATCH_REQUEST_FIELDS = frozenset({"name", "enabled", "detection_policy"})
+_PATCH_REQUEST_FIELDS = frozenset({"name", "enabled", "detection_policy", "schedule"})
 
 _GET_NO_QUERY_ERRORS = frozenset({401, 403, 404, 409, 500})
 _GET_PAGED_ERRORS = frozenset({401, 403, 404, 409, 422, 500})
@@ -382,6 +385,7 @@ def _watch_payload(
         "sheet_id": None,
         "detection_policy": {"kind": "new_matches"},
         "enabled": True,
+        "schedule": "@hourly",
         "last_evaluated_op": 3,
         "last_run_id": 4,
         "last_status": "ok",
@@ -516,6 +520,7 @@ def test_watch_create_request_is_closed_strict_and_query_authoritative() -> None
         "view_id": int,
         "detection_policy": dict[str, JsonValue] | None,
         "enabled": bool,
+        "schedule": str | None,
     }
 
     direct = request.model_validate({"name": " W ", "view_id": 7})
@@ -544,6 +549,7 @@ def test_watch_patch_request_is_closed_nonempty_and_validated() -> None:
     } == {
         "name": str | None,
         "enabled": bool | None,
+        "schedule": str | None,
         "detection_policy": dict[str, JsonValue] | None,
     }
 
@@ -603,6 +609,7 @@ def test_watch_and_run_and_hit_rows_freeze_the_wire_graph() -> None:
         "sheet_id": int | None,
         "detection_policy": dict[str, JsonValue],
         "enabled": bool,
+        "schedule": str | None,
         "last_evaluated_op": int,
         "last_run_id": int | None,
         "last_status": str | None,
@@ -1076,3 +1083,24 @@ def test_watch_error_oracles_preserve_existing_http_behavior(tmp_path: Path) -> 
             missing = client.get(f"/api/projects/missing/watches{suffix}")
             assert missing.status_code == 404
             assert missing.json() == {"detail": "no project 'missing'"}
+
+
+def test_watch_schedule_default_manual_patch_and_invalid_schedule(tmp_path):
+    app = create_app(tmp_path / "watch-schedule")
+    workspace = app.state.workspace
+    project_id = str(workspace.create("schedule")["id"])
+    with TestClient(app) as client:
+        path = f"/api/projects/{project_id}/watches"
+        created = post_watch(
+            client, path, json={"name": "W", "query": {"kind": "fts", "q": "x"}}
+        )
+        assert created.status_code == 200, created.text
+        assert created.json()["schedule"] == "@hourly"
+        target = f"{path}/{created.json()['id']}"
+        assert client.patch(target, json={"schedule": None}).json()["schedule"] is None
+        assert client.patch(target, json={"name": "Renamed"}).json()["schedule"] is None
+        assert (
+            client.patch(target, json={"schedule": "@daily"}).json()["schedule"]
+            == "@daily"
+        )
+        assert client.patch(target, json={"schedule": "invalid"}).status_code == 400

@@ -13,6 +13,7 @@ evaluator itself never calls a provider (row anchors only).
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -22,8 +23,14 @@ from frisket.engine.jobs.notifications_delivery import (
 )
 from frisket.features.watchlists.service import WatchBindingError, run_watch_evaluation
 
-from .queue import JobQueue, claimed_project_location
-from .project_opener import ProjectOpener, claimed_opener_key
+from .queue import JobQueue, TERMINAL, claimed_project_location
+from .project_opener import (
+    ProjectOpener,
+    claimed_opener_key,
+    require_opener_storage_org_id,
+)
+from .schedule import _parse_time, _schedule_interval
+from frisket.project_identity import ProjectStorageKey
 from .ports import JobHandlerContext
 from .worker import HandlerRegistration, HandlerRegistry
 
@@ -46,7 +53,7 @@ def find_embedding_similarity_watches(project: Project, index_id: str) -> list[A
     """Enabled embedding_similarity watches bound to ``index_id``."""
     out: list[Any] = []
     for watch in project.watches():
-        if not bool(watch["enabled"]):
+        if not bool(watch["enabled"]) or watch["schedule"] is None:
             continue
         query = _watch_query(watch).get("similarity") or {}
         if str(query.get("embedding_index_id") or "") == index_id:
@@ -88,6 +95,113 @@ def _eval_already_pending(
         )
         is not None
     )
+
+
+def enqueue_due_watch_evaluations(
+    *,
+    workspace_root: str | Path,
+    queue: JobQueue,
+    storage_org_id: int | None = None,
+    now: datetime | None = None,
+    project_opener: ProjectOpener | None = None,
+) -> list[dict[str, int | str]]:
+    """Schedule observations of current data, independently of source writes.
+
+    Reuse the watch worker and queue cadence; never prepare model inputs here.
+    Failed checks are attempts too, while their last successful baseline stays
+    untouched. A pending trigger/index continuation suppresses another check.
+    """
+    root = Path(workspace_root)
+    now = (now or datetime.now(UTC)).astimezone(UTC)
+    enqueued = []
+    for bundle in sorted(root.glob("*.frisket")):
+        if not (bundle / "manifest.json").exists():
+            continue
+        project_id = bundle.stem
+        project = (
+            Project(bundle)
+            if project_opener is None
+            else project_opener(
+                ProjectStorageKey(
+                    storage_org_id=require_opener_storage_org_id(storage_org_id),
+                    project_slug=project_id,
+                ),
+                bundle,
+            )
+        )
+        try:
+            for watch in project.watches():
+                if not watch["enabled"]:
+                    continue
+                interval = _schedule_interval(watch["schedule"])
+                if interval is None:
+                    continue
+                watch_id = int(watch["id"])
+                prefix = f"watch:{watch_id}:eval:"
+                if (
+                    queue.find_job_by_refs(
+                        WATCH_EVALUATE_KIND,
+                        project_id=project_id,
+                        storage_org_id=storage_org_id,
+                        dedupe_key_prefix=prefix,
+                    )
+                    is not None
+                ):
+                    continue
+                prior_job = queue.find_job_by_refs(
+                    WATCH_EVALUATE_KIND,
+                    statuses=TERMINAL,
+                    project_id=project_id,
+                    storage_org_id=storage_org_id,
+                    dedupe_key_prefix=prefix,
+                )
+                prior_run = project.watch_latest_run(watch_id)
+                attempts = [
+                    value
+                    for value in (
+                        _parse_time(prior_run["finished_at"] or prior_run["started_at"])
+                        if prior_run is not None
+                        else None,
+                        (
+                            prior_job.finished_at
+                            or prior_job.started_at
+                            or prior_job.created_at
+                        )
+                        if prior_job is not None
+                        else None,
+                    )
+                    if value is not None
+                ]
+                if attempts and max(attempts) + interval > now:
+                    continue
+                trigger = {
+                    "trigger_kind": "schedule",
+                    "schedule": watch["schedule"],
+                    "schedule_tick": int(now.timestamp() // interval.total_seconds()),
+                }
+                key = _watch_eval_dedupe_key(watch_id, trigger)
+                job_id = queue.enqueue(
+                    WATCH_EVALUATE_KIND,
+                    {
+                        "project_id": project_id,
+                        "watch_id": watch_id,
+                        "workspace_root": str(root),
+                        "trigger_ref": trigger,
+                        "dedupe_key": key,
+                        **(
+                            {"storage_org_id": storage_org_id}
+                            if storage_org_id is not None
+                            else {}
+                        ),
+                    },
+                    max_attempts=3,
+                )
+                enqueued.append(
+                    {"project_id": project_id, "watch_id": watch_id, "job_id": job_id}
+                )
+        finally:
+            project.close()
+    return enqueued
 
 
 def enqueue_index_watch_evaluations(
@@ -250,6 +364,15 @@ def register_watch_evaluate_handler(
                     "watch_id": watch_id,
                     "skipped": True,
                     "reason": "disabled",
+                }
+            if row["schedule"] is None and (payload.get("trigger_ref") or {}).get(
+                "trigger_kind"
+            ):
+                return {
+                    "project_id": project_id,
+                    "watch_id": watch_id,
+                    "skipped": True,
+                    "reason": "manual_only",
                 }
             if _watch_query(row).get("search"):
                 from .search_index import index_work_marker, process_index_batches

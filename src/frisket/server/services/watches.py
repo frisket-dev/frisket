@@ -52,6 +52,7 @@ class WatchService:
         view_id: int,
         detection_policy: dict[str, Any] | None,
         enabled: bool,
+        schedule: str | None = "@hourly",
     ) -> dict[str, Any]:
         project = self._workspace.get(project_id)
         watch_name = name.strip()
@@ -72,6 +73,7 @@ class WatchService:
                 view_id=view_id,
                 detection_policy=normalized_policy,
                 enabled=enabled,
+                schedule=schedule,
             )
         except ValueError as exc:
             raise WatchRequestError(str(exc)) from exc
@@ -120,7 +122,7 @@ class WatchService:
     ) -> dict[str, Any]:
         if not fields:
             raise WatchRequestError("at least one watch field is required")
-        unsupported = set(fields) - {"name", "enabled", "detection_policy"}
+        unsupported = set(fields) - {"name", "enabled", "detection_policy", "schedule"}
         if unsupported:
             raise WatchRequestError("unsupported watch field")
         name = fields.get("name")
@@ -146,12 +148,16 @@ class WatchService:
             if "detection_policy" in fields
             else None
         )
-        row = project.update_watch(
-            watch_id,
-            name=name if "name" in fields else None,
-            enabled=enabled if "enabled" in fields else None,
-            detection_policy=policy,
-        )
+        try:
+            row = project.update_watch(
+                watch_id,
+                name=name if "name" in fields else None,
+                enabled=enabled if "enabled" in fields else None,
+                detection_policy=policy,
+                **({"schedule": fields["schedule"]} if "schedule" in fields else {}),
+            )
+        except ValueError as exc:
+            raise WatchRequestError(str(exc)) from exc
         if row is None:
             raise WatchNotFound("watch not found")
         return _watch_dict(project, row)

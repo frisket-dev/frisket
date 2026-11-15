@@ -184,6 +184,11 @@ def test_source_poll_watch_notification_enqueues_external_delivery_only_for_even
         scope="project",
         query={"kind": "fts", "q": "budget", "limit": 20},
     )
+    # The initial observation is silent; later source changes produce alerts.
+    from frisket.features.watchlists.service import run_watch_evaluation
+
+    drain_index(p)
+    run_watch_evaluation(p, p.get_watch(watch_id))
     channel = p.create_notification_channel(
         kind="email",
         name="Watch email",

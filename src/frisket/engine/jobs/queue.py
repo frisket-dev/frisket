@@ -744,6 +744,7 @@ class JobQueue(ABC):
         row_id: int | None = None,
         workspace_root: str | None = None,
         dedupe_key: str | None = None,
+        dedupe_key_prefix: str | None = None,
     ) -> Job | None: ...
 
     @abstractmethod
@@ -1809,7 +1810,10 @@ class SqlAlchemyJobQueue(JobQueue):
         row_id: int | None = None,
         workspace_root: str | None = None,
         dedupe_key: str | None = None,
+        dedupe_key_prefix: str | None = None,
     ) -> Job | None:
+        if dedupe_key_prefix is not None and project_id is None:
+            raise ValueError("find_job_by_refs requires project_id for scoped refs")
         _validate_ref_lookup(
             kind,
             statuses=statuses,
@@ -1839,6 +1843,8 @@ class SqlAlchemyJobQueue(JobQueue):
             q = q.where(c.workspace_root == workspace_root)
         if dedupe_key is not None:
             q = q.where(c.dedupe_key == dedupe_key)
+        if dedupe_key_prefix is not None:
+            q = q.where(c.dedupe_key.startswith(dedupe_key_prefix, autoescape=True))
         with self.engine.connect() as cx:
             row = cx.execute(q).first()
         return self._job(row) if row else None

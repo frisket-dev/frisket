@@ -337,6 +337,29 @@ def _enqueue_due_notification_digests(
     return total
 
 
+def _enqueue_due_watches(
+    queue, roots: list[SchedulerRoot], *, project_opener: ProjectOpener | None = None
+) -> int:
+    from frisket.engine.jobs.watches import enqueue_due_watch_evaluations
+
+    total = 0
+    for root, storage_org_id in roots:
+        try:
+            total += len(
+                enqueue_due_watch_evaluations(
+                    workspace_root=root,
+                    queue=queue,
+                    storage_org_id=storage_org_id,
+                    project_opener=project_opener,
+                )
+            )
+        except Exception:
+            logging.getLogger("frisket.worker").warning(
+                "watch_scheduler_skipped", exc_info=True
+            )
+    return total
+
+
 def _start_notification_digest_scheduler(
     queue,
     roots: list[SchedulerRoot],
@@ -352,6 +375,7 @@ def _start_notification_digest_scheduler(
 
     def loop() -> None:
         while not stop.is_set():
+            _enqueue_due_watches(queue, roots, project_opener=project_opener)
             _enqueue_due_notification_digests(
                 queue, roots, project_opener=project_opener
             )
@@ -572,8 +596,8 @@ def _run_worker(argv: list[str], *, hosted: bool) -> int:
             os.environ.get("FRISKET_NOTIFICATION_DIGEST_SCHEDULER_INTERVAL", "60")
         ),
         help=(
-            "seconds between due notification-digest scans; "
-            "0 disables notification digest scheduling"
+            "seconds between due alert-check and notification-digest scans; "
+            "0 disables alert and notification digest scheduling"
         ),
     )
     args = ap.parse_args(argv)
@@ -727,6 +751,7 @@ def _run_worker(argv: list[str], *, hosted: bool) -> int:
     notification_digest_scheduler = None
     if args.schedule_notification_digests_interval > 0 and source_roots:
         if args.drain:
+            _enqueue_due_watches(queue, source_roots, project_opener=project_opener)
             _enqueue_due_notification_digests(
                 queue, source_roots, project_opener=project_opener
             )

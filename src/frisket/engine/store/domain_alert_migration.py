@@ -13,6 +13,8 @@ def migrate_alert_baselines(db: sqlite3.Connection) -> None:
     at the next successful check. Reopening an already migrated project is inert.
     """
     columns = {row[1] for row in db.execute("PRAGMA table_info(watches)")}
+    if "schedule" not in columns:
+        db.execute("ALTER TABLE watches ADD COLUMN schedule TEXT DEFAULT '@hourly'")
     if "baseline_run_id" in columns:
         db.execute(
             "CREATE INDEX IF NOT EXISTS idx_watch_runs_notification_pending ON watch_runs(id) WHERE notification_pending=1"

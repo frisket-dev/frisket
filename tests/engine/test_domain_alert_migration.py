@@ -24,7 +24,9 @@ def test_cutover_keeps_definitions_and_history_and_silently_rebaselines():
     ).fetchone() == ("historic hash", None, 0)
     assert db.execute("SELECT count(*) FROM watch_seen_rows").fetchone()[0] == 0
     assert db.execute("SELECT count(*) FROM watch_row_field_state").fetchone()[0] == 0
-    db.execute("UPDATE watches SET baseline_run_id=10")
+    assert db.execute("SELECT schedule FROM watches").fetchone()[0] == "@hourly"
+    db.execute("UPDATE watches SET baseline_run_id=10, schedule=NULL")
     migrate_alert_baselines(db)
     assert db.execute("SELECT baseline_run_id FROM watches").fetchone()[0] == 10
+    assert db.execute("SELECT schedule FROM watches").fetchone()[0] is None
     db.close()

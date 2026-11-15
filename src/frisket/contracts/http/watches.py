@@ -32,6 +32,7 @@ class WatchCreateRequest(_ClosedRequest):
     view_id: int
     detection_policy: dict[str, JsonValue] | None = None
     enabled: bool = True
+    schedule: str | None = "@hourly"
 
     @field_validator("name")
     @classmethod
@@ -45,6 +46,7 @@ class WatchCreateRequest(_ClosedRequest):
 class WatchPatchRequest(_ClosedRequest):
     name: str | None = None
     enabled: bool | None = None
+    schedule: str | None = None
     detection_policy: dict[str, JsonValue] | None = None
 
     @model_validator(mode="after")
@@ -104,6 +106,7 @@ class Watch(WireModel):
     sheet_id: int | None
     detection_policy: dict[str, JsonValue]
     enabled: bool
+    schedule: str | None
     last_evaluated_op: int
     last_run_id: int | None
     last_status: str | None

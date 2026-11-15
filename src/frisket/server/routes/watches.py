@@ -53,6 +53,7 @@ def register_watch_routes(
             view_id=body.view_id,
             detection_policy=body.detection_policy,
             enabled=body.enabled,
+            schedule=body.schedule,
         )
 
     @app.patch(
@@ -64,7 +65,7 @@ def register_watch_routes(
         fields = {
             field: getattr(body, field)
             for field in body.model_fields_set
-            if field in {"name", "enabled", "detection_policy"}
+            if field in {"name", "enabled", "detection_policy", "schedule"}
         }
         return service.patch_watch(pid, watch_id, fields=fields)
 

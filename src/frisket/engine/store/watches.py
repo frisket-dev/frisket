@@ -27,6 +27,9 @@ from frisket.contracts.query_spec import (
 )
 
 
+UNCHANGED_SCHEDULE = object()
+
+
 class WatchCheckConflict(ValueError):
     """A check lost its definition/baseline race and should be retried."""
 
@@ -80,6 +83,17 @@ def get_watch(project: Any, watch_id: int) -> sqlite3.Row | None:
     ).fetchone()
 
 
+def _validate_schedule(schedule: str | None) -> None:
+    from frisket.engine.jobs.schedule import _schedule_interval
+
+    if schedule is not None and (
+        not isinstance(schedule, str) or _schedule_interval(schedule) is None
+    ):
+        raise ValueError(
+            "schedule must be a supported cadence or null for manual checks"
+        )
+
+
 def add_watch(
     project: Any,
     name: str,
@@ -87,6 +101,7 @@ def add_watch(
     view_id: int,
     detection_policy: dict[str, Any] | None = None,
     enabled: bool = True,
+    schedule: str | None = "@hourly",
     commit: bool = True,
 ) -> int:
     from .saved_views import get_view
@@ -100,10 +115,11 @@ def add_watch(
         "SELECT 1 FROM watches WHERE view_id=?", (view_id,)
     ).fetchone():
         raise ValueError("This view already has alert settings.")
+    _validate_schedule(schedule)
     policy = detection_conditions(normalize_detection_policy(detection_policy))
     cur = project.db.execute(
-        "INSERT INTO watches (name,view_id,detection_policy,enabled,last_status) VALUES (?,?,?,?, 'never')",
-        (name, view_id, canonical_json(policy), int(enabled)),
+        "INSERT INTO watches (name,view_id,detection_policy,enabled,schedule,last_status) VALUES (?,?,?,?,?, 'never')",
+        (name, view_id, canonical_json(policy), int(enabled), schedule),
     )
     if commit:
         project.db.commit()
@@ -117,6 +133,7 @@ def update_watch(
     name: str | None = None,
     enabled: bool | None = None,
     detection_policy: dict[str, Any] | None = None,
+    schedule: str | None | object = UNCHANGED_SCHEDULE,
 ) -> sqlite3.Row | None:
     """Apply the small lifecycle surface without touching execution state."""
     sets: list[str] = []
@@ -134,6 +151,10 @@ def update_watch(
                 detection_conditions(normalize_detection_policy(detection_policy))
             )
         )
+    if schedule is not UNCHANGED_SCHEDULE:
+        _validate_schedule(schedule)
+        sets.append("schedule=?")
+        values.append(schedule)
     if not sets:
         return get_watch(project, watch_id)
     sets.append("updated_at=datetime('now')")
@@ -340,6 +361,7 @@ def record_watch_run(
                     source,
                     hits if status == "ok" else (),
                     policy["fields"] if status == "ok" else [],
+                    watch_id=watch_id,
                 )
             )
         except WatchObservationIncomplete as exc:
@@ -460,7 +482,10 @@ def record_watch_run(
                         )
                 if policy["exited"]:
                     for hit in db.execute(
-                        "SELECT old.* FROM watch_seen_rows old WHERE old.watch_id=? AND NOT EXISTS "
+                        "SELECT old.*,COALESCE(unavailable.reason,'membership_changed') AS exit_reason "
+                        "FROM watch_seen_rows old LEFT JOIN watch_observation.unavailable_rows unavailable "
+                        "ON unavailable.sheet_id=old.sheet_id AND unavailable.row_id=old.row_id "
+                        "WHERE old.watch_id=? AND NOT EXISTS "
                         "(SELECT 1 FROM watch_observation.members now WHERE old.sheet_id=now.sheet_id "
                         "AND old.row_id=now.row_id) ORDER BY old.sheet_id,old.row_id",
                         (watch_id,),
@@ -472,6 +497,7 @@ def record_watch_run(
                                 sheet_id=hit["sheet_id"],
                                 row_id=hit["row_id"],
                                 rank=0,
+                                reason=hit["exit_reason"],
                             )
                         )
                 if (

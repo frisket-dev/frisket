@@ -22,6 +22,8 @@ def stage_watch_observation(
     project: Any,
     hits: Iterable[dict[str, Any]],
     fields: list[dict[str, Any]],
+    *,
+    watch_id: int | None = None,
 ) -> Iterator[Path]:
     """Consume membership and tracked cells from the caller's read snapshot.
 
@@ -43,6 +45,10 @@ def stage_watch_observation(
                 CREATE TABLE members (
                     sheet_id INTEGER NOT NULL,row_id INTEGER NOT NULL,
                     column_id INTEGER,rank INTEGER NOT NULL,snippet TEXT,
+                    PRIMARY KEY(sheet_id,row_id)
+                ) WITHOUT ROWID;
+                CREATE TABLE unavailable_rows (
+                    sheet_id INTEGER NOT NULL,row_id INTEGER NOT NULL,reason TEXT NOT NULL,
                     PRIMARY KEY(sheet_id,row_id)
                 ) WITHOUT ROWID;
                 CREATE TABLE fields (
@@ -108,6 +114,24 @@ def stage_watch_observation(
                         ],
                     )
                 stage.commit()
+            if watch_id is not None:
+                # Snapshot facts only; a later edit/delete must not rewrite why
+                # this completed check observed a departure. Keep no content.
+                unavailable = iter(
+                    project.db.execute(
+                        "SELECT old.sheet_id,old.row_id,CASE WHEN sheets.id IS NULL OR sheets.hidden=1 "
+                        "THEN 'sheet_deleted' ELSE 'row_deleted' END "
+                        "FROM watch_seen_rows old LEFT JOIN sheets ON sheets.id=old.sheet_id "
+                        "LEFT JOIN rows ON rows.id=old.row_id AND rows.sheet_id=old.sheet_id "
+                        "WHERE old.watch_id=? AND (sheets.id IS NULL OR sheets.hidden=1 OR rows.id IS NULL OR rows.hidden=1)",
+                        (watch_id,),
+                    )
+                )
+                while batch := list(islice(unavailable, 500)):
+                    stage.executemany(
+                        "INSERT INTO unavailable_rows VALUES (?,?,?)", batch
+                    )
+                    stage.commit()
             yield path
         finally:
             stage.close()

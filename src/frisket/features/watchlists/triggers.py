@@ -173,7 +173,7 @@ def affected_enabled_watches(
     sheet_id = int(materialization["sheet_id"])
     out: list[Any] = []
     for watch in project.watches():
-        if not bool(watch["enabled"]):
+        if not bool(watch["enabled"]) or watch["schedule"] is None:
             continue
         # embedding_similarity watches are evaluated AFTER their index refresh job
         # completes (jobs/watches.py), not inline on the source poll — evaluating

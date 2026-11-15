@@ -246,6 +246,9 @@ class ProjectReadSnapshot:
         self.close()
 
 
+_UNCHANGED_WATCH_SCHEDULE = watches.UNCHANGED_SCHEDULE
+
+
 class Project:
     """Synchronous core store. The server wraps this with a write queue;
     SQLite WAL + per-project serialization is the concurrency model."""
@@ -995,6 +998,7 @@ class Project:
         view_id: int,
         detection_policy: dict[str, Any] | None = None,
         enabled: bool = True,
+        schedule: str | None = "@hourly",
         commit: bool = True,
     ) -> int:
         return watches.add_watch(
@@ -1003,6 +1007,7 @@ class Project:
             view_id=view_id,
             detection_policy=detection_policy,
             enabled=enabled,
+            schedule=schedule,
             commit=commit,
         )
 
@@ -1013,6 +1018,7 @@ class Project:
         name: str | None = None,
         enabled: bool | None = None,
         detection_policy: dict[str, Any] | None = None,
+        schedule: str | None | object = _UNCHANGED_WATCH_SCHEDULE,
     ) -> sqlite3.Row | None:
         return watches.update_watch(
             self,
@@ -1020,6 +1026,7 @@ class Project:
             name=name,
             enabled=enabled,
             detection_policy=detection_policy,
+            schedule=schedule,
         )
 
     def delete_watch(self, watch_id: int) -> bool:
