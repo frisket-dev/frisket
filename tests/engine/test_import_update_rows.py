@@ -457,3 +457,23 @@ def test_custom_updater_failure_after_publication_keeps_work_and_records_failure
     )
     assert project.undo() == result.op_ids[0]
     assert project.get_values(sheet, columns["name"])[rows[0]] == "Alice"
+
+
+def test_large_single_record_exceeds_batch_target_without_new_api_size_limit(
+    tmp_path, monkeypatch
+):
+    import frisket.engine.jobs.import_table as table_job
+
+    monkeypatch.setattr(table_job, "_PAGE_BYTES", 64)
+    project = Project.create(tmp_path / "large-record.frisket")
+    sheet, columns, rows = _seed(project)
+    value = "Long report " * 100
+    params = _params([{"id": "a", "name": value}, {"id": "b", "name": "second"}])
+    result = run_action_spec(
+        project, _request(sheet, params, "reviewed", "large-record"), project_id="p"
+    )
+    assert result.status == "completed", result.errors
+    assert project.get_values(sheet, columns["name"]) == {
+        rows[0]: value,
+        rows[1]: "second",
+    }

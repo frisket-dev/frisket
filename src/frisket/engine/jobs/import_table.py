@@ -476,10 +476,8 @@ def run_table_import(
                         break
                     page.append(item)
                     page_bytes += item.source_bytes
-                    if item.source_bytes > _PAGE_BYTES:
-                        raise ValueError(
-                            "one table source row exceeds the import page byte limit"
-                        )
+                    # A page budget is not a cell-size restriction: one large
+                    # indivisible record occupies its own page.
                 if not page and exhausted:
                     writer = StreamingSheetWriter._from_session(project, session)
                     if publication_owner is not None:
