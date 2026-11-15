@@ -205,24 +205,71 @@ def run_duration_ms(project: Project, run_id: int) -> int | None:
     return int(round((finish - start) * 86400 * 1000))
 
 
+def _model_call_token_totals(
+    project: Project,
+    *,
+    by_row: bool,
+    run_id: int | None = None,
+    row_ids: list[int] | None = None,
+) -> dict[int, dict[str, int | None]]:
+    """Aggregate physical facts in SQL, once per visible page or debug listing."""
+    group_column = "row_id" if by_row else "run_id"
+    where = [f"{group_column} IS NOT NULL"]
+    params: list[Any] = []
+    if run_id is not None:
+        where.append("run_id=?")
+        params.append(run_id)
+    if row_ids is not None:
+        if not row_ids:
+            return {}
+        where.append(f"row_id IN ({','.join('?' for _ in row_ids)})")
+        params.extend(row_ids)
+    projections, totals = [], []
+    for column, meter in (
+        ("tokens_in", "input_tokens"),
+        ("tokens_out", "output_tokens"),
+    ):
+        present = f"json_type(units, '$.{column}') IS NOT NULL"
+        alias_present = f"json_type(units, '$.{meter}') IS NOT NULL"
+        projections.extend(
+            [
+                f"CASE WHEN {present} THEN json_extract(units, '$.{column}') "
+                f"ELSE json_extract(units, '$.{meter}') END AS {column}",
+                f"(capability='llm.complete' OR {present} OR {alias_present}) AS {column}_applies",
+            ]
+        )
+        totals.append(
+            f"CASE WHEN COUNT({column})=SUM({column}_applies) "
+            f"THEN SUM({column}) ELSE NULL END AS {column}"
+        )
+    rows = project.db.execute(
+        f"SELECT id, {', '.join(totals)} FROM ("
+        f"SELECT {group_column} AS id, {', '.join(projections)} "
+        f"FROM model_calls WHERE {' AND '.join(where)}) GROUP BY id",
+        params,
+    ).fetchall()
+    return {
+        row["id"]: {
+            name: int(row[name]) if row[name] is not None else None
+            for name in _RUN_TOKEN_COLUMNS
+        }
+        for row in rows
+    }
+
+
+def run_token_totals(project: Project) -> dict[int, dict[str, int | None]]:
+    """Known token totals for all runs having physical call facts."""
+    return _model_call_token_totals(project, by_row=False)
+
+
 def run_tokens(project: Project, run_id: int, column: str) -> int | None:
     if column not in _RUN_TOKEN_COLUMNS:
         raise ValueError(f"unsupported token column: {column}")
-    # Cell counters are attributed to one output per row; NULL on sibling
-    # outputs means "already counted", whereas missing provider usage means
-    # "unknown". Physical call facts distinguish those cases and include retries.
-    meter = "input_tokens" if column == "tokens_in" else "output_tokens"
-    path, meter_path = f"$.{column}", f"$.{meter}"
-    facts = project.db.execute(
-        "SELECT COUNT(*) AS calls, COUNT(value) AS known, SUM(value) AS total "
-        "FROM (SELECT CASE WHEN json_type(units, ?) IS NOT NULL "
-        "THEN json_extract(units, ?) ELSE json_extract(units, ?) END AS value "
-        "FROM model_calls WHERE run_id=? AND (capability='llm.complete' "
-        "OR json_type(units, ?) IS NOT NULL OR json_type(units, ?) IS NOT NULL))",
-        (path, path, meter_path, run_id, path, meter_path),
-    ).fetchone()
-    if facts["calls"]:
-        return int(facts["total"]) if facts["known"] == facts["calls"] else None
+    facts = _model_call_token_totals(project, by_row=False, run_id=run_id)
+    if run_id in facts:
+        return facts[run_id][column]
+    # Without physical call facts, retain the historical one-output attribution:
+    # NULL on a secondary result cell does not mean a second unknown call.
     value = project.db.execute(
         f"SELECT SUM({column}) AS total FROM results WHERE run_id=?",  # noqa: S608
         (run_id,),
@@ -340,20 +387,28 @@ def action_run_rows_payload(
                 }
             )
 
+    token_totals = _model_call_token_totals(
+        project, by_row=True, run_id=run_id, row_ids=page_ids
+    )
     out_rows = []
     for row in rows:
         row_id = row["id"]
         cells = by_row.get(row_id, [])
         retries = retries_by_row.get(row_id, [])
         errors = [cell["error"] for cell in cells if cell.get("error")]
+        row_tokens = token_totals.get(row_id)
+        if row_tokens is None:
+            row_tokens = {}
+            for name in _RUN_TOKEN_COLUMNS:
+                known = [cell[name] for cell in cells if cell[name] is not None]
+                row_tokens[name] = sum(known) if known else None
         out_rows.append(
             {
                 "row_id": row_id,
                 "row_index": row["position"],
                 "status": _run_row_status(cells, run),
                 "error": errors[0] if errors else None,
-                "tokens_in": sum(cell["tokens_in"] or 0 for cell in cells) or None,
-                "tokens_out": sum(cell["tokens_out"] or 0 for cell in cells) or None,
+                **row_tokens,
                 "cost": None,
                 "retry_count": len(retries),
                 "retries": retries,

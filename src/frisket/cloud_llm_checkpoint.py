@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from copy import deepcopy
 from typing import Any
 
 from frisket.cloud_execution import (
@@ -362,6 +363,16 @@ class CloudLLMCheckpointCoordinator:
     def _response(row: dict[str, Any]) -> CloudExecutionResponse:
         payload = row.get("payload")
         response = payload.get("response") if isinstance(payload, dict) else None
+        if isinstance(response, dict):
+            response = deepcopy(response)
+            # Saved checkpoints predate the explicit OCR meter. This coordinator
+            # only handles LLM transport, so its OCR usage is token-metered.
+            # Upgrade stored data here; the live wire contract stays strict.
+            for key in ("receipt", "accounting"):
+                block = response.get(key)
+                usage = block.get("usage") if isinstance(block, dict) else None
+                if isinstance(usage, dict) and usage.get("kind") == "ocr":
+                    usage.setdefault("meter", "tokens")
         try:
             return CloudExecutionResponse.model_validate(response)
         except (TypeError, ValueError) as exc:

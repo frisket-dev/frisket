@@ -178,28 +178,29 @@ export function useReplayReviewController({
     async (columnId: string) => {
       if (!sheet || route.store.get().sheetId !== sheet.id) return;
       const sheetId = sheet.id;
-      const token = ++generation.current;
+      closeReplayReview();
+      const token = generation.current;
       setReplayBusy(true);
       try {
         await projectApi.acceptReplayValuesInColumn(sheetId, columnId);
         projectData.invalidate();
         void refreshHistory();
         void refreshSheets();
-        if (isCurrent(sheetId, token)) setReplayReview(null);
       } catch (e: unknown) {
         if (isCurrent(sheetId, token)) showError(e instanceof Error ? e.message : String(e));
       } finally {
         if (isCurrent(sheetId, token)) setReplayBusy(false);
       }
     },
-    [isCurrent, projectApi, route, sheet, projectData, refreshHistory, refreshSheets, showError],
+    [closeReplayReview, isCurrent, projectApi, route, sheet, projectData, refreshHistory, refreshSheets, showError],
   );
 
   const dismissColumnReplay = useCallback(
     async (columnId: string) => {
       if (!sheet || route.store.get().sheetId !== sheet.id) return;
       const sheetId = sheet.id;
-      const token = ++generation.current;
+      closeReplayReview();
+      const token = generation.current;
       try {
         const entries = await loadReplayPending(sheetId, columnId);
         await Promise.all(
@@ -216,12 +217,11 @@ export function useReplayReviewController({
         projectData.invalidate();
         void refreshHistory();
         void refreshSheets();
-        if (isCurrent(sheetId, token)) setReplayReview(null);
       } catch (e: unknown) {
         if (isCurrent(sheetId, token)) showError(e instanceof Error ? e.message : String(e));
       }
     },
-    [isCurrent, projectApi, route, sheet, loadReplayPending, projectData, refreshHistory, refreshSheets, showError],
+    [closeReplayReview, isCurrent, projectApi, route, sheet, loadReplayPending, projectData, refreshHistory, refreshSheets, showError],
   );
 
   const replayColumnAnnotations = useMemo<ColumnAnnotation[]>(() => {

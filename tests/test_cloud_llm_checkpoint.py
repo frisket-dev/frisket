@@ -129,7 +129,8 @@ class _Transport:
         self.responses = list(responses)
         self.calls = []
 
-    async def execute_llm(self, attempt, request):
+    async def execute_llm(self, attempt, request, *, capability="llm.complete"):
+        assert capability in {"llm.complete", "ocr"}
         self.calls.append((attempt, request))
         response = self.responses.pop(0)
         if isinstance(response, BaseException):
@@ -497,6 +498,73 @@ def test_pending_pdf_without_page_metadata_refuses_budget_continuation_clearly(
             assert len(transport.calls) == 1
             assert len(coordinator.returned_checkpoints) == 1
             assert coordinator.returned_accounting[0]["cloud_receipt"] is None
+        finally:
+            project.close()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("pending", [False, True])
+def test_pre_meter_ocr_checkpoint_replays_and_allows_next_call(tmp_path, pending):
+    import json
+
+    def response(execution_id):
+        data = _response(execution_id=execution_id).model_dump(mode="json")
+        data["route"].update(
+            capability="ocr",
+            options={
+                "kind": "ocr",
+                "language": False,
+                "geometry": False,
+                "searchable_pdf": False,
+            },
+        )
+        usage = {"kind": "ocr", "meter": "tokens", "tokens_in": 2, "tokens_out": 1}
+        data["receipt"]["usage"] = usage
+        if pending:
+            data["receipt"] = None
+            data["accounting"] = {
+                "status": "pending",
+                "usage": {"kind": "ocr", "meter": "tokens"},
+                "provider_cost_micro": None,
+            }
+            data["result"].update(
+                usage_available=False, tokens_in=0, tokens_out=0, cost=None
+            )
+        return CloudExecutionResponse.model_validate(data)
+
+    def coordinator(project, transport):
+        owner = _coordinator(project, transport)
+        owner.capability = "ocr"
+        return owner
+
+    async def scenario():
+        project = Project.create(tmp_path / "checkpoint.frisket")
+        try:
+            original = response("old-ocr")
+            first = coordinator(project, _Transport([original]))
+            original_attempt, _ = await first.execute(_request())
+            row = project.db.execute(
+                "SELECT id,payload FROM effect_checkpoints"
+            ).fetchone()
+            payload = json.loads(row["payload"])
+            for key in ("receipt", "accounting"):
+                if payload["response"].get(key):
+                    payload["response"][key]["usage"].pop("meter")
+            project.db.execute(
+                "UPDATE effect_checkpoints SET payload=? WHERE id=?",
+                (json.dumps(payload), row["id"]),
+            )
+            project.db.commit()
+
+            transport = _Transport([response("next-ocr")])
+            resumed = coordinator(project, transport)
+            replay_attempt, recovered = await resumed.execute(_request())
+            assert recovered == original
+            assert replay_attempt.request_id == original_attempt.request_id
+            assert transport.calls == []
+            await resumed.execute(_request(message="next page"))
+            assert len(transport.calls) == 1
         finally:
             project.close()
 

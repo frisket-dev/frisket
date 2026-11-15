@@ -16,8 +16,9 @@ const sheets: SheetMeta[] = [1, 2].map((id) => ({ id: String(id), name: `Sheet $
   columns: [columnDef({ id: String(id * 11), name: 'Answer', type: 'text', latestRunId: String(id * 100), replayPendingCount: 1 })],
 }));
 let latest: ReturnType<typeof useReplayReviewController>;
+const showError = vi.fn();
 function Probe({ sheet }: { sheet: SheetMeta }) {
-  const controller = useReplayReviewController({ sheet, refreshHistory: vi.fn(), refreshSheets: vi.fn(), showError: vi.fn() });
+  const controller = useReplayReviewController({ sheet, refreshHistory: vi.fn(), refreshSheets: vi.fn(), showError });
   useEffect(() => { latest = controller; });
   return <>{controller.replayColumnAnnotations.map((annotation) => <div key={annotation.key}>{annotation.message}</div>)}{controller.replayReviewPopover}</>;
 }
@@ -34,7 +35,7 @@ function savedAction(name: 'onAccept' | 'onKeep') {
   return (latest.replayReviewPopover as ReactElement<Record<typeof name, () => void>>).props[name];
 }
 beforeAll(installPopoverPolyfill);
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); showError.mockClear(); });
 
 it('discards a deferred review load after navigating to another sheet', async () => {
   let finish!: (value: ReturnType<typeof page>) => void;
@@ -95,4 +96,55 @@ it('starts a fresh interactive review on the same sheet while an earlier action 
   await act(async () => { finish(); });
   expect(screen.getByTestId('replay-accept-button')).toBeEnabled();
   expect(screen.getByTestId('replay-newer-generated')).toHaveTextContent('Generated 1');
+});
+
+
+function columnCommand(command: 'accept-all' | 'dismiss') {
+  if (command === 'accept-all') fireEvent.click(screen.getByTestId('replay-accept-all-button'));
+  else act(() => latest.replayColumnAnnotations[0].onDismiss?.());
+}
+
+it.each(['accept-all', 'dismiss'] as const)('closes the superseded row review before a failed %s command and permits a fresh review', async (command) => {
+  vi.spyOn(api, 'getSheetData').mockResolvedValue(page(sheets[0]));
+  let finishRow!: () => void;
+  vi.spyOn(api, 'acceptReplayValue').mockImplementation(() => new Promise<void>((resolve) => { finishRow = resolve; }));
+  const failed = vi.spyOn(api, command === 'accept-all' ? 'acceptReplayValuesInColumn' : 'dismissReplayPending')
+    .mockRejectedValue(new Error('Column command failed'));
+  mount();
+  fireEvent.click(screen.getByTestId('replay-review-button'));
+  await screen.findByTestId('replay-accept-popover');
+  act(savedAction('onAccept'));
+  expect(screen.getByTestId('replay-accept-button')).toBeDisabled();
+  columnCommand(command);
+  expect(screen.queryByTestId('replay-accept-popover')).toBeNull();
+  await waitFor(() => expect(showError).toHaveBeenCalledWith('Column command failed'));
+  expect(failed).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByTestId('replay-review-button'));
+  await waitFor(() => expect(screen.getByTestId('replay-accept-button')).toBeEnabled());
+  await act(async () => { finishRow(); });
+  expect(screen.getByTestId('replay-accept-button')).toBeEnabled();
+});
+
+it.each(['accept-all', 'dismiss'] as const)('keeps a newer review and its busy state when a deferred %s command finishes', async (command) => {
+  vi.spyOn(api, 'getSheetData').mockResolvedValue(page(sheets[0]));
+  let finishColumn!: () => void;
+  const columnApi = vi.spyOn(api, command === 'accept-all' ? 'acceptReplayValuesInColumn' : 'dismissReplayPending')
+    .mockImplementation(() => new Promise<void>((resolve) => { finishColumn = resolve; }));
+  let finishRow!: () => void;
+  vi.spyOn(api, 'acceptReplayValue').mockImplementation(() => new Promise<void>((resolve) => { finishRow = resolve; }));
+  mount();
+  fireEvent.click(screen.getByTestId('replay-review-button'));
+  await screen.findByTestId('replay-accept-popover');
+  columnCommand(command);
+  expect(screen.queryByTestId('replay-accept-popover')).toBeNull();
+  await waitFor(() => expect(columnApi).toHaveBeenCalledOnce());
+  fireEvent.click(screen.getByTestId('replay-review-button'));
+  await screen.findByTestId('replay-accept-popover');
+  act(savedAction('onAccept'));
+  expect(screen.getByTestId('replay-accept-button')).toBeDisabled();
+  await act(async () => { finishColumn(); });
+  expect(screen.getByTestId('replay-accept-popover')).toBeInTheDocument();
+  expect(screen.getByTestId('replay-accept-button')).toBeDisabled();
+  await act(async () => { finishRow(); });
+  expect(screen.getByTestId('replay-accept-button')).toBeEnabled();
 });

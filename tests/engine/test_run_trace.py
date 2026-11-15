@@ -135,6 +135,9 @@ def test_missing_provider_usage_remains_unknown_in_cells_run_and_trace(tmp_path,
         assert sum(row["tokens_in"] == 50 for row in run_rows) == int(mixed)
         assert run_tokens(project, run_id, "tokens_in") is None
         assert run_tokens(project, run_id, "tokens_out") is None
+        debug = client.get(f"/api/projects/{pid}/debug").json()
+        totals = next(item for item in debug["results"] if item["run_id"] == run_id)
+        assert totals["tokens_in"] is None and totals["tokens_out"] is None
         for row in run_rows:
             if mixed and row["tokens_in"] == 50:
                 continue
