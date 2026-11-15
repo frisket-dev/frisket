@@ -233,7 +233,8 @@ def terminalize_project_run(
     try:
         run = db.execute(
             "SELECT runs.status, runs.finished_at, runs.current_attempt_id, "
-            "runs.cancel_requested_at, ops.spec AS runner_spec "
+            "runs.cancel_requested_at, ops.spec AS runner_spec, "
+            "ops.status AS change_status, ops.publication_closed "
             "FROM runs JOIN ops ON ops.id=runs.op_id WHERE runs.id=?",
             (run_id,),
         ).fetchone()
@@ -870,6 +871,7 @@ def terminalize_project_run(
                     f"expected {len(pending_attempt_ids)}, closed "
                     f"{pending_update.rowcount}"
                 )
+        run_status_written = False
         if not isinstance(authority, ReceiptOnlyOrphanAuthority) and (
             current_status == "running" or current_writer_reclassification
         ):
@@ -895,6 +897,7 @@ def terminalize_project_run(
                     "project-run terminal status write refused: "
                     f"run {run_id} did not leave {current_status}"
                 )
+            run_status_written = True
 
         from frisket.engine.store.result_generations import ResultGenerationStore
 
@@ -908,6 +911,15 @@ def terminalize_project_run(
         declared_bindings = generation_store.bindings_for_run(run_id)
         if any(binding.state != "sealed" for binding in declared_bindings):
             claim_tokens = {str(row["claim_token"]) for row in active_claims}
+            if not claim_tokens and (
+                str(run["change_status"]) != "applied"
+                or bool(run["publication_closed"])
+            ):
+                claim_tokens = {
+                    binding.claim_token
+                    for binding in declared_bindings
+                    if binding.state != "sealed"
+                }
             if len(claim_tokens) != 1:
                 raise RuntimeError(
                     "open result generation terminalization requires one exact claim"
@@ -948,6 +960,13 @@ def terminalize_project_run(
                     generation_store.rebuild_heads_from_key_table(
                         key_table, commit=False
                     )
+
+        if run_status_written:
+            # The ordinary finisher and every recovery/admin terminal path
+            # share one transactional Change close plus scope invalidation.
+            from frisket.engine.store.run_lifecycle import close_run_change
+
+            close_run_change(project, run_id)
 
         receipt_disposition: ReceiptDisposition
         if receipt_source_statuses is None:

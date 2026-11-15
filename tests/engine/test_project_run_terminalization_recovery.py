@@ -22,6 +22,7 @@ from frisket.engine.store import Project
 from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.attempt import (
     abandon_stale_dispatching_attempts,
@@ -383,6 +384,51 @@ def _never_dispatched_consent_error() -> ActionError:
         message="the confirmed source changed before dispatch",
         action_kind=ACTION_KIND,
     )
+
+
+def test_terminalizer_closes_change_and_resolves_unpublished_scope(project) -> None:
+    from frisket.engine.store.changes import ChangePublicationClosed, ChangeStore
+
+    run = _seed_never_dispatched_run(project, attempt_count=0)
+    row = project.db.execute(
+        "SELECT op_id,sheet_id FROM runs WHERE id=?", (run.run_id,)
+    ).fetchone()
+    column = project.db.execute(
+        "SELECT id FROM columns WHERE sheet_id=? AND name='extracted'",
+        (row["sheet_id"],),
+    ).fetchone()
+    assert run.claim_token is not None
+    ResultGenerationStore(project).declare(
+        run.run_id,
+        int(column["id"]),
+        output_role="extracted",
+        compatibility_key="sha256:terminalizer-output-v1",
+        write_mode="create",
+        claim_token=run.claim_token,
+    )
+
+    result = terminalize_project_run(
+        project,
+        run_id=run.run_id,
+        receipt_id=run.receipt_id,
+        status="failed",
+        authority=NeverDispatchedRunTerminalAuthority(),
+    )
+
+    assert result.disposition == "terminalized"
+    operation = project.db.execute(
+        "SELECT status,publication_closed FROM ops WHERE id=?", (row["op_id"],)
+    ).fetchone()
+    assert tuple(operation) == ("applied", 1)
+    with pytest.raises(ChangePublicationClosed):
+        ChangeStore(project).require_publication(int(row["op_id"]))
+    outcome = project.db.execute(
+        "SELECT outcome FROM effective_current_cells WHERE row_id IN "
+        "(SELECT row_id FROM run_rows WHERE run_id=?) AND column_id=?",
+        (run.run_id, int(column["id"])),
+    ).fetchone()
+    assert outcome is not None
+    assert outcome["outcome"] == "not_completed"
 
 
 def test_never_dispatched_created_attempt_converges_failed_tuple(project) -> None:

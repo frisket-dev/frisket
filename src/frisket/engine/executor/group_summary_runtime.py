@@ -57,6 +57,7 @@ from frisket.engine.store.materialization import (
     materialized_row_sources_ref_matches,
     write_aggregate_sheet,
 )
+from frisket.engine.store.derived_updates import MaterializedIdentity
 from frisket.ai.llm import LLMRequest, ModelRouter
 from frisket.ops.group_summary import (
     estimate_group_summary,
@@ -277,6 +278,11 @@ def _resolve_reduce_group_summary_inputs(
         },
         source=params.input_columns,
         group_by=params.group_by,
+        group_type=(
+            str(columns[params.group_by]["type"])
+            if params.group_by is not None
+            else None
+        ),
     )
 
     source_columns = {
@@ -1212,6 +1218,23 @@ def _write_reduce_group_summary_result(
                     if authority_effect is not None
                     else None
                 ),
+                refresh_identity=MaterializedIdentity(
+                    "group",
+                    [
+                        str(computation["group"]["identity_key"])
+                        for computation in computations
+                    ],
+                    (
+                        [
+                            (
+                                int(resolved["group_column"]["column_id"]),
+                                str(resolved["group_column"]["type"]),
+                            )
+                        ]
+                        if resolved["group_column"] is not None
+                        else []
+                    ),
+                ),
             ),
         )
         op_id = write.op_id
@@ -1244,6 +1267,11 @@ def _write_reduce_group_summary_result(
                 cost_estimate=estimate["cost"],
                 commit=False,
             )
+        # Group-summary result rows are materialized after the source groups
+        # have been reduced. Freeze this exact output cohort before declaring
+        # the result generation, so canonical reads and completion checks can
+        # resolve the run through its real summary rows.
+        run_store.record_run_row_scope(run_id, summary_row_ids)
         summary_column_id = column_ids[params.summary_column_name]
         claim_token = f"output-claim:{receipt_id}"
         output_field = {
@@ -1275,7 +1303,7 @@ def _write_reduce_group_summary_result(
         generations.declare(
             run_id,
             summary_column_id,
-            output_role=params.summary_column_name,
+            output_role="summary",
             compatibility_key=_compatibility_key(field=output_field),
             write_mode="create",
             claim_token=claim_token,
@@ -1333,6 +1361,22 @@ def _write_reduce_group_summary_result(
             claimless_direct_effect=False,
             commit=False,
         )
+        from frisket.engine.store.keyed_updates import observe
+
+        derived_refresh = json.loads(
+            project.db.execute("SELECT spec FROM ops WHERE id=?", (op_id,)).fetchone()[0]
+            or "{}"
+        ).get("derived_refresh")
+        if not isinstance(derived_refresh, dict):
+            raise ValueError("group summary output identity was not established")
+        for row_id, computation in zip(summary_row_ids, computations, strict=True):
+            observe(
+                project.db,
+                relationship_id=str(derived_refresh["relationship_id"]),
+                row_id=int(row_id),
+                key=str(computation["group"]["identity_key"]),
+                incoming={str(summary_column_id): computation.get("summary")},
+            )
         run_status = "failed" if failed_groups == len(computations) else "completed"
         generations.seal(
             run_id,

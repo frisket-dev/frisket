@@ -251,7 +251,9 @@ def test_descriptor_replacement_publishes_values_and_descriptor_at_seal_and_undo
             "format": None,
             "semantic_type": None,
         }
-        assert project.get_values(sheet_id, column_id)[row_ids[0]] == "manual"
+        # An active replacement Change masks the prior value while its new
+        # descriptor and result family are still pending.
+        assert project.get_values(sheet_id, column_id)[row_ids[0]] is None
 
         assert _seal(generations, replacement, column_id) == len(row_ids)
         assert _descriptor(project, column_id) == target
@@ -1026,7 +1028,7 @@ def test_staged_idempotent_write_refuses_undone_op_without_partial_mutation(
         project.db.execute("UPDATE ops SET status='undone' WHERE id=?", (second.op_id,))
         project.db.commit()
 
-        with pytest.raises(GenerationStateError, match="op is 'undone'"):
+        with pytest.raises(GenerationStateError, match="owning Change is 'undone'"):
             _write(project, second, batch)
 
         after = (
@@ -1313,6 +1315,219 @@ def test_progressive_publication_batches_generation_and_head_queries(
         row_id: f"bulk:{position}" for position, row_id in enumerate(row_ids)
     }
     _release(project, claimed)
+    project.close()
+
+
+def test_generation_declaration_requires_a_frozen_run_scope(tmp_path: Path) -> None:
+    project, sheet_id, output_column_id, row_ids = _seed_project(tmp_path)
+    op_id = project.append_op("map.regex_extract", {"output": "generated"})
+    run_id = RunResultStore(project).start_run(
+        op_id, sheet_id, "map.regex_extract", total_rows=len(row_ids)
+    )
+    authority = run_writer_authority_fixture(
+        project, run_id, output_column_ids={output_column_id}
+    )
+    with pytest.raises(GenerationStateError, match="frozen row scope"):
+        ResultGenerationStore(project).declare(
+            run_id,
+            output_column_id,
+            output_role="generated",
+            compatibility_key="sha256:test-output-v1",
+            write_mode="create",
+            claim_token=authority.claim_token or "",
+        )
+    assert not ResultGenerationStore(project).bindings_for_run(run_id)
+    project.close()
+
+
+def test_seal_after_undo_cannot_publish_a_staged_generation(tmp_path: Path) -> None:
+    project, sheet_id, output_column_id, row_ids = _seed_project(tmp_path)
+    generations = ResultGenerationStore(project)
+    claimed = _start_claimed_run(
+        project,
+        sheet_id=sheet_id,
+        output_column_id=output_column_id,
+        row_ids=row_ids,
+        label="undo before seal",
+    )
+    _declare(
+        generations,
+        claimed,
+        output_column_id,
+        write_mode="create",
+        defer_publication=True,
+    )
+    _write(
+        project,
+        claimed,
+        [
+            {
+                "row_id": row_ids[0],
+                "column_id": output_column_id,
+                "value": "late",
+                "publication_effect": "publish_value",
+            }
+        ],
+    )
+    assert project.undo() == claimed.op_id
+    assert (
+        generations.seal(
+            claimed.run_id,
+            [output_column_id],
+            claim_token=claimed.authority.claim_token or "",
+            terminal_disposition="cancelled",
+            publish=True,
+        )
+        == 0
+    )
+    assert project.db.execute(
+        "SELECT published FROM results WHERE run_id=? AND row_id=? AND column_id=?",
+        (claimed.run_id, row_ids[0], output_column_id),
+    ).fetchone()[0] == 0
+    assert project.db.execute(
+        "SELECT COUNT(*) FROM cell_result_heads WHERE run_id=?",
+        (claimed.run_id,),
+    ).fetchone()[0] == 0
+    op = project.db.execute(
+        "SELECT status,publication_closed FROM ops WHERE id=?", (claimed.op_id,)
+    ).fetchone()
+    assert tuple(op) == ("undone", 1)
+    project.close()
+
+
+def test_seal_publishes_only_complete_output_families(tmp_path: Path) -> None:
+    project, sheet_id, first_column_id, row_ids = _seed_project(tmp_path)
+    second_column_id = project.add_column(
+        sheet_id, "second", type="text", ai_generated=True
+    )
+    op_id = project.append_op("map.regex_extract", {"outputs": ["first", "second"]})
+    store = RunResultStore(project)
+    run_id = store.start_run(
+        op_id,
+        sheet_id,
+        "map.regex_extract",
+        row_ids=row_ids,
+        total_rows=len(row_ids),
+    )
+    authority = run_writer_authority_fixture(
+        project,
+        run_id,
+        output_column_ids={first_column_id, second_column_id},
+    )
+    claimed = _ClaimedRun(op_id=op_id, run_id=run_id, authority=authority)
+    token = authority.claim_token
+    assert token is not None
+    generations = ResultGenerationStore(project)
+    for column_id, role in (
+        (first_column_id, "first"),
+        (second_column_id, "second"),
+    ):
+        generations.declare(
+            run_id,
+            column_id,
+            output_role=role,
+            compatibility_key=f"sha256:{role}-v1",
+            write_mode="create",
+            claim_token=token,
+            defer_publication=True,
+        )
+    store.write_results(
+        run_id,
+        [
+            {
+                "row_id": row_ids[0],
+                "column_id": first_column_id,
+                "value": "first only",
+                "publication_effect": "publish_value",
+            },
+            {
+                "row_id": row_ids[1],
+                "column_id": second_column_id,
+                "value": "second only",
+                "publication_effect": "publish_value",
+            },
+        ],
+        **authority.kwargs(),
+    )
+    generations.seal(
+        run_id,
+        [first_column_id, second_column_id],
+        claim_token=token,
+        terminal_disposition="cancelled",
+    )
+    assert project.db.execute(
+        "SELECT COUNT(*) FROM results WHERE run_id=? AND published=1", (run_id,)
+    ).fetchone()[0] == 0
+    assert project.db.execute(
+        "SELECT COUNT(*) FROM cell_result_heads WHERE run_id=?", (run_id,)
+    ).fetchone()[0] == 0
+    project.close()
+
+
+def test_undo_cancels_live_run_and_preserves_returned_usage(tmp_path: Path) -> None:
+    from frisket.execution.attempt import StaleAttemptWriter
+    from frisket.engine.store.changes import ChangePublicationClosed
+
+    project, sheet_id, output_column_id, row_ids = _seed_project(tmp_path, row_count=1)
+    claimed = _start_claimed_run(
+        project,
+        sheet_id=sheet_id,
+        output_column_id=output_column_id,
+        row_ids=row_ids,
+        label="paid run undone in flight",
+    )
+    _declare(
+        ResultGenerationStore(project),
+        claimed,
+        output_column_id,
+        write_mode="create",
+    )
+    assert project.undo() == claimed.op_id
+    run = project.db.execute(
+        "SELECT cancel_requested_at FROM runs WHERE id=?", (claimed.run_id,)
+    ).fetchone()
+    assert run["cancel_requested_at"] is not None
+    assert not RunResultStore(project).begin_run_resume(claimed.run_id).admitted
+    batch = [
+        {
+            "row_id": row_ids[0],
+            "column_id": output_column_id,
+            "value": "must not publish",
+            "publication_effect": "publish_value",
+            "model_calls": [
+                {
+                    "id": "paid-before-undo-publication-refusal",
+                    "fact_version": "frisket.model-call-fact.v1",
+                    "capability": "classify",
+                    "engine": "fixture",
+                    "provider": "fixture",
+                    "provider_kind": "test",
+                    "model_ids": ["fixture-model"],
+                    "credential_source": "platform_key",
+                    "provider_cost_usd": 0.025,
+                }
+            ],
+        }
+    ]
+    with pytest.raises(
+        (ChangePublicationClosed, StaleAttemptWriter, GenerationStateError)
+    ):
+        RunResultStore(project).write_results(
+            claimed.run_id,
+            batch,
+            **claimed.authority.kwargs(),
+        )
+    assert RunResultStore(project).model_calls(claimed.run_id)[0]["provider_cost_usd"] == 0.025
+    assert project.db.execute(
+        "SELECT cost_actual FROM runs WHERE id=?", (claimed.run_id,)
+    ).fetchone()[0] == pytest.approx(0.025)
+    assert project.db.execute(
+        "SELECT COUNT(*) FROM results WHERE run_id=?", (claimed.run_id,)
+    ).fetchone()[0] == 0
+    RunResultStore(project).finish_run(claimed.run_id, "cancelled")
+    assert project.db.execute(
+        "SELECT status FROM runs WHERE id=?", (claimed.run_id,)
+    ).fetchone()[0] == "cancelled"
     project.close()
 
 

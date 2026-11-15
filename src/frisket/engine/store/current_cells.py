@@ -196,21 +196,38 @@ def _enqueue_region(
 
 
 def refresh_current_cells_from_key_table(db: sqlite3.Connection, key_table: str) -> int:
-    """Refresh exact keys from a caller-owned temporary SQL relation."""
+    """Refresh exact keys from a caller-owned temporary SQL relation.
+
+    Dirty scopes retain the key table's row ranges, and one shared eager budget
+    bounds projection work for the entire output family.
+    """
 
     _require_transaction(db)
     table = _temp_key_table(key_table)
-    from .cell_projection import refresh_ordered_cells
+    from .cell_projection import SMALL_WRITE_LIMIT, refresh_ordered_cells
 
     total = 0
+    remaining = SMALL_WRITE_LIMIT
     for column in db.execute(f"SELECT DISTINCT column_id FROM {table}").fetchall():
         column_id = int(column[0])
-        # A complete column invalidation is compact even for a million
-        # sparse historical keys; canonical reads preserve untouched cells.
-        revision = _enqueue_region(db, column_ids=[column_id], row_ids=None)
+        rows = [
+            int(row[0])
+            for row in db.execute(
+                f"SELECT row_id FROM {table} WHERE column_id=? ORDER BY row_id",
+                (column_id,),
+            )
+        ]
+        if not rows:
+            continue
+        revision = _enqueue_region(db, column_ids=[column_id], row_ids=rows)
         total += refresh_ordered_cells(
-            db, [column_id], None, retrieval_revision=revision
+            db,
+            [column_id],
+            rows,
+            retrieval_revision=revision,
+            eager_limit=remaining,
         )
+        remaining = max(0, remaining - len(rows))
     return total
 
 

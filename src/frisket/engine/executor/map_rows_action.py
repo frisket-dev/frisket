@@ -3510,8 +3510,11 @@ def typed_queued_map_spec(
             )
             if recovering_queued and type(existing["run_id"]) is int:
                 run_id = int(existing["run_id"])
+                role_to_name = {
+                    str(role): str(name) for role, name in plan.output_names.items()
+                }
                 prepared_targets = {
-                    binding.output_role: binding.column_id
+                    role_to_name.get(binding.output_role, binding.output_role): binding.column_id
                     for binding in ResultGenerationStore(project).bindings_for_run(
                         run_id
                     )
@@ -3688,9 +3691,12 @@ def typed_queued_map_spec(
             )
         }
         run_id = payload.get("run_id")
+        role_to_name = {
+            str(role): str(name) for role, name in current_plan.output_names.items()
+        }
         prepared_targets = (
             {
-                binding.output_role: binding.column_id
+                role_to_name.get(binding.output_role, binding.output_role): binding.column_id
                 for binding in ResultGenerationStore(project).bindings_for_run(run_id)
             }
             if type(run_id) is int

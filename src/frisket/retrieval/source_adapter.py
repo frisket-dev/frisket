@@ -40,7 +40,7 @@ _OCR_METADATA_PREDICATE = (
     "WHERE generation.run_id=logical.origin_run_id "
     "AND generation.column_id=logical.column_id "
     "AND run.action_kind='media.ocr' "
-    "AND generation.output_role=json_extract(run.params,'$.output_names.blocks'))"
+    "AND generation.output_role='blocks')"
 )
 
 

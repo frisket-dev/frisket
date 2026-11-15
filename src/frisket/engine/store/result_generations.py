@@ -59,6 +59,7 @@ class RunOutputGeneration:
     run_id: int
     column_id: int
     output_role: str
+    output_descriptor: dict[str, Any]
     compatibility_key: str
     write_mode: str
     state: str
@@ -171,6 +172,7 @@ class ResultGenerationStore:
             run_id=int(row["run_id"]),
             column_id=int(row["column_id"]),
             output_role=str(row["output_role"]),
+            output_descriptor=json.loads(str(row["output_descriptor_json"])),
             compatibility_key=str(row["compatibility_key"]),
             write_mode=str(row["write_mode"]),
             state=str(row["state"]),
@@ -292,7 +294,8 @@ class ResultGenerationStore:
 
     def _run_operation(self, run_id: int) -> sqlite3.Row | None:
         return self.db.execute(
-            "SELECT op.id,op.spec,op.undo_info,op.status FROM runs run "
+            "SELECT op.id,op.spec,op.undo_info,op.status,op.publication_closed "
+            "FROM runs run "
             "JOIN ops op ON op.id=run.op_id WHERE run.id=?",
             (int(run_id),),
         ).fetchone()
@@ -370,10 +373,19 @@ class ResultGenerationStore:
             binding.column_id: binding for binding in self.bindings_for_run(int(run_id))
         }
         operation = self._run_operation(int(run_id))
-        from .changes import ChangeStore
+        from .changes import ChangePublicationClosed, ChangeStore
 
         if operation is not None:
-            ChangeStore(self.project).require_publication(int(operation["id"]))
+            if str(operation["status"]) != "applied":
+                raise GenerationStateError(
+                    f"run {run_id} owning Change is {operation['status']!r}"
+                )
+            try:
+                ChangeStore(self.project).require_publication(int(operation["id"]))
+            except ChangePublicationClosed as exc:
+                raise GenerationStateError(
+                    f"run {run_id} owning Change publication is closed"
+                ) from exc
         for column_id in column_ids:
             binding = bindings.get(column_id)
             if binding is None:
@@ -482,6 +494,12 @@ class ResultGenerationStore:
             raise ValueError(f"unsupported generation write_mode {write_mode!r}")
 
         with self._write_scope(commit=commit):
+            if self.db.execute(
+                "SELECT 1 FROM run_scopes WHERE run_id=?", (run_id,)
+            ).fetchone() is None:
+                raise GenerationStateError(
+                    f"run {run_id} cannot declare outputs without a frozen row scope"
+                )
             existing = self.get_binding(run_id, column_id)
             claim = self._require_active_claim(
                 run_id=run_id,
@@ -509,6 +527,20 @@ class ResultGenerationStore:
                     "semantic_type": target_descriptor.get("semantic_type"),
                 }
             )
+            schema_snapshot = (
+                {} if target_descriptor is None else target_descriptor.get("schema") or {}
+            )
+            output_descriptor_json = json.dumps(
+                {
+                    "column_type": declared_descriptor["type"],
+                    "schema": schema_snapshot,
+                    "format": declared_descriptor["format"],
+                    "semantic_type": declared_descriptor["semantic_type"],
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
             descriptor_change = current_descriptor != declared_descriptor
             operation = self._run_operation(run_id)
             from .changes import ChangeStore
@@ -527,6 +559,8 @@ class ResultGenerationStore:
                 )
                 if (
                     existing.output_role != output_role
+                    or existing.output_descriptor
+                    != json.loads(output_descriptor_json)
                     or existing.compatibility_key != compatibility_key
                     or existing.write_mode != write_mode
                     or (
@@ -690,14 +724,15 @@ class ResultGenerationStore:
                 self.db.execute(
                     "INSERT INTO run_output_generations "
                     "(run_id,column_id,output_role,compatibility_key,write_mode,"
-                    "state,claim_token,expected_base_run_id,document_text_authority) "
-                    "VALUES (?,?,?,?,?,?,?,?,?)",
+                    "output_descriptor_json,state,claim_token,expected_base_run_id,document_text_authority) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?)",
                     (
                         run_id,
                         column_id,
                         output_role,
                         compatibility_key,
                         write_mode,
+                        output_descriptor_json,
                         state,
                         claim_token,
                         expected_base_run_id,
@@ -771,6 +806,7 @@ class ResultGenerationStore:
                 "CROSS JOIN run_output_generations generation "
                 "ON generation.run_id=result.run_id "
                 "AND generation.column_id=result.column_id "
+                "AND generation.state='active' "
                 "WHERE result.run_id=? AND result.publication_effect IS NOT NULL AND "
                 + document_text_result_eligibility_sql()
                 + " "
@@ -793,6 +829,7 @@ class ResultGenerationStore:
             "JOIN run_output_generations generation "
             "ON generation.run_id=result.run_id "
             "AND generation.column_id=result.column_id "
+            "AND generation.state='sealed' "
             "WHERE result.run_id=? AND result.publication_effect IS NOT NULL AND "
             + document_text_result_eligibility_sql()
             + " "
@@ -830,8 +867,14 @@ class ResultGenerationStore:
                 raise GenerationStateError(
                     f"run {run_id} output column {column_id} is undeclared"
                 )
-            if binding.state in {"active", "staged"}:
+            if binding.state == "active":
                 active_keys.append((row_id, column_id))
+            elif binding.state == "staged":
+                # A staged member belongs to a seal-time output-family
+                # publication. Persist the result, but do not expose it as an
+                # independently current head while a sibling or descriptor
+                # replacement is still pending.
+                continue
             else:
                 raise GenerationSealedError(
                     f"run {run_id} output column {column_id} is sealed"
@@ -849,7 +892,11 @@ class ResultGenerationStore:
                 )
             }
             if set(bindings) <= present:
-                complete_keys.extend((row_id, column_id) for column_id in bindings)
+                complete_keys.extend(
+                    (row_id, column_id)
+                    for column_id, binding in bindings.items()
+                    if binding.state == "active"
+                )
         active_keys = complete_keys
         if not active_keys:
             return 0
@@ -1109,6 +1156,13 @@ class ResultGenerationStore:
                 )
             if not ordered_column_ids:
                 return 0
+            operation = self._run_operation(int(run_id))
+            if operation is None:
+                raise GenerationStateError(f"run {run_id} has no owning Change")
+            change_open = (
+                str(operation["status"]) == "applied"
+                and not bool(operation["publication_closed"])
+            )
             open_bindings: list[RunOutputGeneration] = []
             for column_id in ordered_column_ids:
                 binding = self.get_binding(int(run_id), column_id)
@@ -1123,15 +1177,23 @@ class ResultGenerationStore:
                             f"{binding.terminal_disposition!r}"
                         )
                     continue
-                claim = self._require_active_claim(
-                    run_id=int(run_id),
-                    column_id=column_id,
-                    claim_token=claim_token,
-                    require_current_name=not allow_stale_output_name,
-                )
-                self._require_pointer_fence(
-                    binding, current_head_run_id=claim["current_head_run_id"]
-                )
+                if change_open:
+                    claim = self._require_active_claim(
+                        run_id=int(run_id),
+                        column_id=column_id,
+                        claim_token=claim_token,
+                        require_current_name=not allow_stale_output_name,
+                    )
+                    self._require_pointer_fence(
+                        binding, current_head_run_id=claim["current_head_run_id"]
+                    )
+                elif binding.claim_token != claim_token:
+                    # Undo releases the output claim immediately. The original
+                    # declaration token still authorizes only sealing this
+                    # already-closed generation as unpublished.
+                    raise GenerationClaimError(
+                        f"closed run {run_id} seal requires its original claim token"
+                    )
                 open_bindings.append(binding)
 
             # Sealing is idempotent but its original publish decision is not
@@ -1140,12 +1202,19 @@ class ResultGenerationStore:
             if not open_bindings:
                 return 0
 
-            operation = self._run_operation(int(run_id))
             operation_info = self._operation_info(operation)
             pending_descriptor_changes = self._pending_descriptor_changes(
                 operation_info
             )
-            publish_generation = bool(publish)
+            # A terminal worker may arrive after Undo. Seal the generation so
+            # it cannot resume, but never let that late response reopen the
+            # Change's already closed publication authority.
+            publish_generation = bool(
+                publish
+                and operation is not None
+                and str(operation["status"]) == "applied"
+                and not bool(operation["publication_closed"])
+            )
             if pending_descriptor_changes and publish_generation:
                 publish_generation = terminal_disposition in {
                     "completed",
@@ -1202,6 +1271,20 @@ class ResultGenerationStore:
             with self.run_effect_key_table(
                 int(run_id), open_column_ids
             ) as publication_key_table:
+                # Paired outputs form one row family. A terminal cancel can
+                # leave a result in one column after its sibling was withheld;
+                # publish only rows with an explicit result for every frozen
+                # output in this generation set.
+                self.db.execute(
+                    f"DELETE FROM {publication_key_table} AS candidate "
+                    "WHERE EXISTS (SELECT 1 FROM run_output_generations sibling "
+                    "WHERE sibling.run_id=? AND NOT EXISTS ("
+                    "SELECT 1 FROM results result WHERE result.run_id=sibling.run_id "
+                    "AND result.row_id=candidate.row_id "
+                    "AND result.column_id=sibling.column_id "
+                    "AND result.publication_effect IS NOT NULL))",
+                    (int(run_id),),
+                )
                 require_document_text_publication_key_table(
                     self.db,
                     run_id=int(run_id),

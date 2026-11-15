@@ -286,7 +286,7 @@ def _resolve_backfill_target(
             )
         bindings = generation_store.bindings_for_run(run_id)
         bindings_by_role = {binding.output_role: binding for binding in bindings}
-        stored_roles = {str(name) for name in output_names.values()}
+        stored_roles = {str(name) for name in output_names}
         if set(bindings_by_role) != stored_roles:
             return ActionError(
                 code="invalid_run_params",
@@ -326,14 +326,14 @@ def _resolve_backfill_target(
         stored_output_names = dict(output_names)
         output_names = {
             str(logical): str(
-                columns_by_id[bindings_by_role[str(role)].column_id]["name"]
+                columns_by_id[bindings_by_role[str(logical)].column_id]["name"]
             )
-            for logical, role in stored_output_names.items()
+            for logical in stored_output_names
         }
         runner_spec["output_names"] = output_names
         runner_spec["output_target_preconditions"] = {
-            output_names[str(logical)]: bindings_by_role[str(role)].column_id
-            for logical, role in stored_output_names.items()
+            output_names[str(logical)]: bindings_by_role[str(logical)].column_id
+            for logical in stored_output_names
         }
         runner_spec["replace_existing"] = True
     runner_spec.pop("execution_root_run_id", None)

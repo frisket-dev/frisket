@@ -775,6 +775,7 @@ CREATE TABLE IF NOT EXISTS run_output_generations (
   run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE RESTRICT,
   column_id INTEGER NOT NULL REFERENCES columns(id) ON DELETE RESTRICT,
   output_role TEXT NOT NULL CHECK (length(trim(output_role)) > 0),
+  output_descriptor_json TEXT NOT NULL CHECK (json_valid(output_descriptor_json)),
   compatibility_key TEXT NOT NULL CHECK (length(trim(compatibility_key)) > 0),
   write_mode TEXT NOT NULL CHECK (write_mode IN ('create', 'replace_scope')),
   state TEXT NOT NULL CHECK (state IN ('active', 'staged', 'sealed')),
@@ -1012,6 +1013,7 @@ BEFORE UPDATE ON run_output_generations
 WHEN NEW.run_id IS NOT OLD.run_id
   OR NEW.column_id IS NOT OLD.column_id
   OR NEW.output_role IS NOT OLD.output_role
+  OR NEW.output_descriptor_json IS NOT OLD.output_descriptor_json
   OR NEW.compatibility_key IS NOT OLD.compatibility_key
   OR NEW.write_mode IS NOT OLD.write_mode
   OR NEW.claim_token IS NOT OLD.claim_token

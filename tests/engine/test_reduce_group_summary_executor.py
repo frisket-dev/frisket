@@ -336,6 +336,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
         ).fetchall()
     ]
     assert len(summary_rows) == 2
+    assert RunResultStore(project).run_row_scope(result.run_id) == summary_rows
     assert project.get_values(summary_sheet_id, int(columns["group"]["id"])) == {
         summary_rows[0]: "accountability",
         summary_rows[1]: "infrastructure",

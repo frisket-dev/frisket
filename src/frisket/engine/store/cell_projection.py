@@ -108,19 +108,23 @@ def invalidate_run_scopes(
     ).fetchone()
     if not scope[2]:
         return
-    revision = _enqueue_region(db, column_ids=columns, row_ids=None)
+    rows = [
+        int(row[0])
+        for row in db.execute(
+            "SELECT row_id FROM run_rows WHERE run_id=? ORDER BY row_id",
+            (run_id,),
+        )
+    ]
+    revision = _enqueue_region(db, column_ids=columns, row_ids=rows)
     db.executemany(
         "INSERT INTO cell_authority_revisions(column_id,revision) VALUES (?,?) "
         "ON CONFLICT(column_id) DO UPDATE SET revision=excluded.revision",
         [(column, revision) for column in columns],
     )
     if scope[2] * len(columns) <= SMALL_WRITE_LIMIT:
-        rows = db.execute(
-            "SELECT row_id FROM run_rows WHERE run_id=?", (run_id,)
-        ).fetchall()
         for column in columns:
-            for row in rows:
-                project_region(db, column, int(row[0]), int(row[0]))
+            for row_id in rows:
+                project_region(db, column, row_id, row_id)
     else:
         for column in columns:
             invalidate_region(db, column, int(scope[0]), int(scope[1]))

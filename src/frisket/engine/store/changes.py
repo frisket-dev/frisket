@@ -100,6 +100,16 @@ class ChangeStore:
 
     def revert(self, op_id: int) -> None:
         self._transition(op_id, "revert")
+        # A running producer may already be outside SQLite in a provider
+        # request. Undo closes its publication fence above and asks the worker
+        # to stop at its next cooperative checkpoint. Any call which has
+        # already returned is still accounted independently by RunResultStore.
+        self.db.execute(
+            "UPDATE runs SET cancel_requested_at="
+            "COALESCE(cancel_requested_at,datetime('now')) "
+            "WHERE op_id=? AND status='running'",
+            (int(op_id),),
+        )
 
     def restore(self, op_id: int) -> None:
         self._transition(op_id, "restore")

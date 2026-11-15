@@ -939,6 +939,19 @@ class RunResultStore:
         """
         if not batch:
             return
+        if any(item.get("model_calls") for item in batch):
+            # Returned provider usage is owned by its admitted attempt, not by
+            # the output claim. Record it before entering the result savepoint
+            # so Undo or a released name can refuse only the cell publication.
+            self.write_returned_call_accounting(
+                run_id,
+                batch,
+                writer_attempt_id=writer_attempt_id,
+                claim_token=claim_token,
+                claimless_direct_effect=claimless_direct_effect,
+                authorized_attempt_id=authorized_attempt_id or writer_attempt_id,
+                commit=not self.db.in_transaction,
+            )
         started_transaction = not self.db.in_transaction
         if started_transaction:
             # Releasing an outermost SQLite savepoint commits it.  Start an
@@ -957,11 +970,28 @@ class RunResultStore:
                 authorized_attempt_id=authorized_attempt_id,
                 project_heads=project_heads,
             )
-        except BaseException:
+        except BaseException as exc:
             self.db.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
             self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
             if commit and started_transaction:
                 self.db.rollback()
+            from frisket.engine.store.changes import ChangePublicationClosed
+
+            if isinstance(exc, ChangePublicationClosed):
+                # Provider usage is historical fact even when Undo closed the
+                # Change while its request was in flight. Reinsert it after
+                # rolling back the result savepoint so only cells/heads are
+                # refused. Call IDs make this safe when a caller already
+                # persisted the returned usage before attempting publication.
+                self.write_returned_call_accounting(
+                    run_id,
+                    batch,
+                    writer_attempt_id=writer_attempt_id,
+                    claim_token=claim_token,
+                    claimless_direct_effect=claimless_direct_effect,
+                    authorized_attempt_id=authorized_attempt_id or writer_attempt_id,
+                    commit=bool(commit and started_transaction),
+                )
             raise
         self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
         if commit:
@@ -991,6 +1021,16 @@ class RunResultStore:
         """
         if checkpoint is not None and not checkpoint_action_kind:
             raise ValueError("checkpoint publication requires its action kind")
+        if any(item.get("model_calls") for item in batch):
+            self.write_returned_call_accounting(
+                run_id,
+                batch,
+                writer_attempt_id=writer_attempt_id,
+                claim_token=claim_token,
+                claimless_direct_effect=claimless_direct_effect,
+                authorized_attempt_id=authorized_attempt_id or writer_attempt_id,
+                commit=not self.db.in_transaction,
+            )
 
         def write(commit: bool) -> None:
             project_heads = not defer_generation_seal and evidence_writer is None
@@ -1049,10 +1089,13 @@ class RunResultStore:
             self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
             if started_transaction:
                 self.db.rollback()
-            if isinstance(exc, DocumentTextPublicationRefused):
+            from frisket.engine.store.changes import ChangePublicationClosed
+
+            if isinstance(exc, (DocumentTextPublicationRefused, ChangePublicationClosed)):
                 # Publication can refuse a known source mismatch after the
-                # provider returned. Its facts and spend remain historical
-                # truth even though no result/evidence/head may land.
+                # provider returned, or Undo can close the Change during the
+                # request. Facts and spend remain historical truth even though
+                # no result/evidence/head may land.
                 fact_owner = authorized_attempt_id or writer_attempt_id
                 if checkpoint is not None:
                     checkpoint_id, checkpoint_row_id, checkpoint_identity = checkpoint
@@ -1301,20 +1344,15 @@ class RunResultStore:
             claimless_direct_effect=claimless_direct_effect,
             renew_claim=True,
         )
-        from frisket.engine.store.result_generations import ResultGenerationStore
-
-        ResultGenerationStore(self.project).require_effect_batch_publishable(
-            run_id, batch
-        )
         fact_owner_attempt_id = authorized_attempt_id or writer_attempt_id
         fact_attempt_id, terminal_outcomes = self._attempt_row_outcomes_for_batch(
             run_id,
             batch,
             authorized_attempt_id=fact_owner_attempt_id,
         )
-        rows_in_batch, before_states = self._insert_result_values_uncommitted(
-            run_id, batch
-        )
+        # Keep the returned provider facts adjacent to the publication attempt:
+        # if the Change was undone while the network call was outstanding, the
+        # following publication check rejects only values and heads.
         self.write_model_calls(
             run_id,
             batch,
@@ -1323,6 +1361,14 @@ class RunResultStore:
             claimless_direct_effect=claimless_direct_effect,
             authorized_attempt_id=fact_owner_attempt_id,
             _renew_claim=False,
+        )
+        from frisket.engine.store.result_generations import ResultGenerationStore
+
+        ResultGenerationStore(self.project).require_effect_batch_publishable(
+            run_id, batch
+        )
+        rows_in_batch, before_states = self._insert_result_values_uncommitted(
+            run_id, batch
         )
         self._write_attempt_row_outcomes(fact_attempt_id, terminal_outcomes)
         self._finalize_result_values_uncommitted(
@@ -1624,6 +1670,7 @@ class RunResultStore:
             claimless_direct_effect=claimless_direct_effect,
             authorized_attempt_id=authorized_attempt_id or writer_attempt_id,
             receipt_id=receipt_id,
+            _require_current_writer=False,
         )
         if commit:
             self.db.commit()
@@ -1864,6 +1911,7 @@ class RunResultStore:
         authorized_attempt_id: str | None = None,
         _renew_claim: bool = True,
         receipt_id: str | None = None,
+        _require_current_writer: bool = True,
     ) -> float:
         """Persist one batch of provider facts, its spend, and the run cost.
 
@@ -1895,6 +1943,7 @@ class RunResultStore:
                 authorized_attempt_id=authorized_attempt_id,
                 renew_claim=_renew_claim,
                 receipt_id=receipt_id,
+                require_current_writer=_require_current_writer,
             )
 
     @contextmanager
@@ -1938,6 +1987,7 @@ class RunResultStore:
         authorized_attempt_id: str | None = None,
         renew_claim: bool = True,
         receipt_id: str | None = None,
+        require_current_writer: bool = True,
     ) -> float:
         receipt_attempt = None
         if receipt_id is not None:
@@ -1950,7 +2000,7 @@ class RunResultStore:
             receipt_attempt = self._fence_receipt_accounting(
                 receipt_id, writer_attempt_id, batch
             )
-        else:
+        elif require_current_writer:
             self._fence_effect_write(
                 run_id,
                 batch,
@@ -1959,6 +2009,32 @@ class RunResultStore:
                 claimless_direct_effect=claimless_direct_effect,
                 renew_claim=renew_claim,
             )
+        else:
+            if run_id is None or writer_attempt_id is None:
+                raise RuntimeError(
+                    "publication-independent run accounting requires its admitted attempt"
+                )
+            owner_attempt_id = authorized_attempt_id or writer_attempt_id
+            if owner_attempt_id != writer_attempt_id:
+                raise RuntimeError(
+                    "publication-independent accounting must use the actual writer attempt"
+                )
+            self._attempt_for_fact_write(run_id, owner_attempt_id)
+            attempt_state = self.db.execute(
+                "SELECT state FROM execution_attempts WHERE id=? AND run_id=?",
+                (owner_attempt_id, int(run_id)),
+            ).fetchone()
+            if attempt_state is None or str(attempt_state["state"]) not in {
+                "dispatching",
+                "effected",
+                "halted",
+                "abandoned",
+            }:
+                from frisket.execution.attempt import StaleAttemptWriter
+
+                raise StaleAttemptWriter(
+                    "returned usage does not belong to a dispatched provider attempt"
+                )
         rows: list[tuple[Any, ...]] = []
         candidate_calls: list[dict[str, Any]] = []
         fact_attempt_id = self._attempt_for_fact_write(
@@ -3085,18 +3161,9 @@ class RunResultStore:
             "UPDATE runs SET status=?, finished_at=datetime('now') WHERE id=?",
             (status, run_id),
         )
-        from .changes import ChangeStore
-        from .cell_projection import invalidate_run_scope
+        from .run_lifecycle import close_run_change
 
-        operation = self.db.execute(
-            "SELECT op_id FROM runs WHERE id=?", (run_id,)
-        ).fetchone()
-        if operation is not None:
-            ChangeStore(self.project).close(int(operation[0]))
-            for column in self.db.execute(
-                "SELECT column_id FROM run_output_generations WHERE run_id=?", (run_id,)
-            ).fetchall():
-                invalidate_run_scope(self.db, run_id, int(column[0]))
+        close_run_change(self.project, run_id)
         from .review_stats import mark_run_review_stats_dirty, rebuild_run_review_stats
 
         mark_run_review_stats_dirty(self.db, run_id)
@@ -3172,8 +3239,11 @@ class RunResultStore:
             if commit:
                 self.db.execute("BEGIN IMMEDIATE")
             row = self.db.execute(
-                "SELECT status, finished_at, params, cancel_requested_at, "
-                "halted_code, halted_reason FROM runs WHERE id=?",
+                "SELECT run.status,run.finished_at,run.params,run.cancel_requested_at, "
+                "run.halted_code,run.halted_reason,op.status AS change_status, "
+                "op.change_order,op.publication_closed "
+                "FROM runs run JOIN ops op ON op.id=run.op_id "
+                "WHERE run.id=?",
                 (run_id,),
             ).fetchone()
             if row is None:
@@ -3209,6 +3279,16 @@ class RunResultStore:
                 prior_halted_code=row["halted_code"],
                 prior_halted_reason=row["halted_reason"],
             )
+            # Recovery resumes the same still-open Change. Once Undo or any
+            # terminal path closes publication, continuing this run would
+            # reuse an owner that can never publish; callers must create an
+            # explicit Retry as a new Change instead.
+            if row["change_status"] != "applied" or (
+                row["change_order"] is not None and bool(row["publication_closed"])
+            ):
+                if commit:
+                    self.db.commit()
+                return prior
             from frisket.engine.store.result_generations import ResultGenerationStore
 
             if any(
