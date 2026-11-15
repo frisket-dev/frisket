@@ -111,7 +111,14 @@ def test_explicit_invalid_scoped_identity_is_not_silently_skipped(tmp_path, proj
         )
 
 
-@pytest.mark.parametrize(("module_name", "function_name"), SCANNERS[:-1])
+@pytest.mark.parametrize(
+    ("module_name", "function_name"),
+    [
+        scanner
+        for scanner in SCANNERS
+        if scanner[0] not in {"watches", "notifications_delivery"}
+    ],
+)
 def test_discovery_does_not_swallow_valid_project_processing_failure(
     tmp_path, module_name, function_name
 ):

@@ -422,3 +422,148 @@ def test_released_runs_migrate_as_singleton_execution_identities(old_db):
         == "historical data"
     )
     assert db.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+def _check_constraints(sql):
+    """Normalize CHECK expressions without confusing quoted strings/comments."""
+    import re
+
+    tokens = re.findall(
+        r"'(?:''|[^'])*'|\"(?:\"\"|[^\"])*\"|--[^\n]*|/\*.*?\*/|[A-Za-z_]\w*|[^\s]",
+        sql,
+        re.S,
+    )
+    tokens = [
+        token if token.startswith(("'", '"')) else token.lower()
+        for token in tokens
+        if not token.startswith(("--", "/*"))
+    ]
+    checks = []
+    for index, token in enumerate(tokens):
+        if token != "check" or tokens[index + 1] != "(":
+            continue
+        depth = 0
+        for end in range(index + 1, len(tokens)):
+            depth += (tokens[end] == "(") - (tokens[end] == ")")
+            if depth == 0:
+                checks.append("".join(tokens[index + 2 : end]))
+                break
+        else:
+            raise AssertionError("Unterminated CHECK")
+    return sorted(checks)
+
+
+def test_migrated_schema_matches_fresh_columns_and_constraints(old_db):
+    from frisket.engine.store.domain_migration import migrate_domain
+    from frisket.engine.store.schema import SCHEMA
+
+    _stamp_old(old_db)
+    migrate_domain(old_db)
+    fresh = sqlite3.connect(":memory:")
+    try:
+        fresh.executescript(SCHEMA)
+        tables = dict(
+            fresh.execute(
+                "SELECT name,sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+            )
+        )
+        migrated = dict(
+            old_db.execute(
+                "SELECT name,sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+            )
+        )
+        assert migrated.keys() == tables.keys()
+        for table, sql in tables.items():
+            assert _check_constraints(migrated[table]) == _check_constraints(sql), table
+            before = {
+                row[1]: tuple(row[2:])
+                for row in old_db.execute(f'PRAGMA table_info("{table}")')
+            }
+            after = {
+                row[1]: tuple(row[2:])
+                for row in fresh.execute(f'PRAGMA table_info("{table}")')
+            }
+            # ADD COLUMN retains these historical representation differences.
+            # Neither changes existing rows or the typed writer's required data.
+            if table == "watches":
+                name = "view_id"
+                assert before[name][1] == 0 and after[name][1] == 1
+                before[name] = (before[name][0], 1, *before[name][2:])
+            assert before == after, table
+            assert sorted(
+                tuple(row[2:])
+                for row in old_db.execute(f'PRAGMA foreign_key_list("{table}")')
+            ) == sorted(
+                tuple(row[2:])
+                for row in fresh.execute(f'PRAGMA foreign_key_list("{table}")')
+            ), table
+    finally:
+        fresh.close()
+
+
+def test_results_rebuild_retains_data_indexes_triggers_and_accepts_retained_outcomes(
+    old_db,
+):
+    from frisket.engine.store.domain_migration import migrate_domain
+
+    db = old_db
+    db.execute(
+        "INSERT INTO runs(id,op_id,sheet_id,action_kind,status) VALUES (1,1,1,'map.ask','completed')"
+    )
+    db.execute(
+        "INSERT INTO results(run_id,row_id,column_id,value_kind,value,publication_effect) VALUES (1,1,1,'text','saved',NULL)"
+    )
+    db.execute("CREATE INDEX result_probe_index ON results(review_note)")
+    db.execute(
+        "CREATE TRIGGER result_probe_trigger AFTER UPDATE OF review_note ON results BEGIN UPDATE meta SET value=NEW.review_note WHERE key='probe'; END"
+    )
+    db.execute("INSERT INTO meta(key,value) VALUES('probe','old')")
+    objects = dict(
+        db.execute(
+            "SELECT name,sql FROM sqlite_master WHERE tbl_name='results' AND type IN ('index','trigger') AND sql IS NOT NULL"
+        )
+    )
+    _stamp_old(db)
+    migrate_domain(db)
+    assert db.execute("SELECT value FROM results").fetchone()[0] == "saved"
+    for name, sql in objects.items():
+        statement = db.execute(
+            "SELECT sql FROM sqlite_master WHERE name=?", (name,)
+        ).fetchone()[0]
+        if name == "trg_results_published_no_delete":
+            assert "frisket_purge_result_delete_authorized" in statement
+        else:
+            assert statement == sql
+    db.execute("UPDATE results SET review_note='still works' WHERE run_id=1")
+    assert (
+        db.execute("SELECT value FROM meta WHERE key='probe'").fetchone()[0]
+        == "still works"
+    )
+    db.execute("INSERT INTO ops(id,kind) VALUES(3,'map.ask')")
+    db.execute(
+        "INSERT INTO runs(id,op_id,sheet_id,action_kind) VALUES(2,3,1,'map.ask')"
+    )
+    db.execute(
+        "INSERT INTO run_output_generations(run_id,column_id,output_role,output_descriptor_json,compatibility_key,write_mode,state,claim_token) VALUES(2,1,'answer','{}','v1','replace_scope','active','test')"
+    )
+    db.execute(
+        "INSERT INTO results(run_id,row_id,column_id,value_kind,value,publication_effect) VALUES(2,1,1,'text','retained','retain')"
+    )
+    for kind, value, error in [
+        ("text", "retained answer", None),
+        ("null", None, None),
+        (None, None, "retained failure"),
+    ]:
+        db.execute(
+            "UPDATE results SET value_kind=?,value=?,error=?,publication_effect='retain' WHERE run_id=2",
+            (kind, value, error),
+        )
+        assert tuple(
+            db.execute(
+                "SELECT value_kind,value,error,publication_effect FROM results WHERE run_id=2"
+            ).fetchone()
+        ) == (kind, value, error, "retain")
+    with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+        db.execute(
+            "UPDATE results SET value_kind='text',value='illegal',error='failure' WHERE run_id=2"
+        )

@@ -1,5 +1,7 @@
 """Grouped refresh uses one paid execution and stable derived row identities."""
 
+import pytest
+
 from frisket.actions.system import typed_action_for_request
 from frisket.engine.executor.group_summary_action import run_typed_group_summary_action
 from frisket.engine.executor.sheet_refresh_action import (
@@ -47,10 +49,19 @@ def test_group_refresh_reuses_sheet_rows_and_model_owner(tmp_path, caplog):
         project.close()
 
 
-def test_group_refresh_preserves_manual_and_retains_result_for_reapply(tmp_path):
+@pytest.mark.parametrize("upgraded", [False, True])
+def test_group_refresh_preserves_manual_and_retains_result_for_reapply(
+    tmp_path, upgraded
+):
     from frisket.engine.executor.actions import run_action_spec
 
     project = Project.create(tmp_path / "manual.frisket", name="manual")
+    if upgraded:
+        from tests.engine.historical_schema import restore_pre_domain_schema
+
+        restore_pre_domain_schema(project.db)
+        project.close()
+        project = Project(tmp_path / "manual.frisket")
     try:
         seeded = _seed(project, tmp_path)
         router, adapter = _summary_router()

@@ -336,3 +336,62 @@ def test_deleted_view_and_watch_ids_never_retarget_old_work(scene):
     assert worker.run_once()
     assert queue.get(admitted[0]["job_id"]).result["reason"] == "not_found"
     assert p.watch_latest_run(replacement) is None
+
+
+@pytest.mark.parametrize("scoped", [False, True])
+@pytest.mark.parametrize("failure", ["open", "scan"])
+def test_one_broken_project_does_not_stop_other_scheduled_alerts(
+    scene, monkeypatch, caplog, scoped, failure
+):
+    import sqlite3
+    from frisket.engine.jobs import watches
+    from frisket.project_identity import ProjectStorageKey
+
+    p, _, _, _, watch, queue, _ = scene
+    broken_path = p.path.parent / "a-broken.frisket"
+    Project.create(broken_path).close()
+    closed = []
+    opened = []
+
+    def open_project(path):
+        opened.append(path.stem)
+        if path == broken_path and failure == "open":
+            raise sqlite3.OperationalError("database is locked")
+        project = Project(path)
+        if path == broken_path:
+
+            def fail_scan():
+                raise ValueError("unreadable watch metadata")
+
+            project.watches = fail_scan
+            close = project.close
+
+            def tracked_close():
+                closed.append(path.stem)
+                close()
+
+            project.close = tracked_close
+        return project
+
+    def scoped_opener(key, path):
+        assert key == ProjectStorageKey(23, path.stem)
+        return open_project(path)
+
+    monkeypatch.setattr(watches, "Project", open_project)
+    result = enqueue_due_watch_evaluations(
+        workspace_root=p.path.parent,
+        queue=queue,
+        storage_org_id=23 if scoped else None,
+        project_opener=scoped_opener if scoped else None,
+    )
+    assert opened == ["a-broken", "alerts"]
+    assert len(result) == 1 and result[0]["watch_id"] == watch
+    assert queue.get(result[0]["job_id"]).status == "queued"
+    errors = [
+        record
+        for record in caplog.records
+        if record.message == "watch_project_schedule_failed"
+    ]
+    assert len(errors) == 1 and errors[0].project_id == "a-broken"
+    assert errors[0].exc_info is not None
+    assert closed == (["a-broken"] if failure == "scan" else [])

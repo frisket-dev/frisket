@@ -13,6 +13,7 @@ evaluator itself never calls a provider (row anchors only).
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -37,6 +38,8 @@ from .worker import HandlerRegistration, HandlerRegistry
 
 if TYPE_CHECKING:
     from frisket.retrieval.preparation import PreparationEncoder
+
+LOG = logging.getLogger(__name__)
 
 WATCH_EVALUATE_KIND = "watch.evaluate"
 
@@ -114,21 +117,24 @@ def enqueue_due_watch_evaluations(
     """
     root = Path(workspace_root)
     now = (now or datetime.now(UTC)).astimezone(UTC)
+    org_id = (
+        require_opener_storage_org_id(storage_org_id)
+        if project_opener is not None
+        else None
+    )
     enqueued = []
     for bundle in project_bundle_paths(root, require_slug=project_opener is not None):
         project_id = bundle.stem
-        project = (
-            Project(bundle)
-            if project_opener is None
-            else project_opener(
-                ProjectStorageKey(
-                    storage_org_id=require_opener_storage_org_id(storage_org_id),
-                    project_slug=project_id,
-                ),
-                bundle,
-            )
-        )
+        project = None
         try:
+            project = (
+                Project(bundle)
+                if project_opener is None
+                else project_opener(
+                    ProjectStorageKey(storage_org_id=org_id, project_slug=project_id),
+                    bundle,
+                )
+            )
             for watch in project.watches():
                 if not watch["enabled"]:
                     continue
@@ -198,8 +204,15 @@ def enqueue_due_watch_evaluations(
                 enqueued.append(
                     {"project_id": project_id, "watch_id": watch_id, "job_id": job_id}
                 )
+        except Exception:
+            LOG.warning(
+                "watch_project_schedule_failed",
+                extra={"project_id": project_id},
+                exc_info=True,
+            )
         finally:
-            project.close()
+            if project is not None:
+                project.close()
     return enqueued
 
 

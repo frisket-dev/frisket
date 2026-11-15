@@ -237,10 +237,18 @@ def _rebuild_table(
     """Rebuild one known cutover table, retaining IDs, indexes and triggers."""
     from .schema import SCHEMA
 
-    if table not in {"cells", "sheets", "current_cells"}:
+    if table not in {
+        "cells",
+        "sheets",
+        "current_cells",
+        "results",
+        "run_output_generations",
+    }:
         raise ValueError("Unknown domain table rebuild")
     match = re.search(
-        r"CREATE TABLE IF NOT EXISTS " + table + r" \(.*?\n\);", SCHEMA, re.S
+        r"CREATE TABLE IF NOT EXISTS " + table + r" \(.*?\n\)(?: WITHOUT ROWID)?;",
+        SCHEMA,
+        re.S,
     )
     if match is None:
         raise RuntimeError(f"Missing current table definition: {table}")
@@ -354,9 +362,9 @@ def migrate_domain(db: sqlite3.Connection) -> None:
         db.execute(
             "ALTER TABLE ops ADD COLUMN redo_eligible INTEGER NOT NULL DEFAULT 1 CHECK(redo_eligible IN (0,1))"
         )
-        db.execute(
-            "ALTER TABLE results ADD COLUMN published INTEGER NOT NULL DEFAULT 0 CHECK(published IN (0,1))"
-        )
+        # CHECK constraints cannot be changed by ADD COLUMN. Rebuild also adds
+        # published while retaining the old saved values, indexes and triggers.
+        _rebuild_table(db, "results")
         # The released schema had no combined execution groups. Keep those
         # histories as singletons; never infer identity from purgeable params.
         db.execute(
@@ -366,6 +374,8 @@ def migrate_domain(db: sqlite3.Connection) -> None:
 
         _execute_ddl(db, EXECUTION_GROUP_SCHEMA_SQL)
         _retain_output_descriptors(db)
+        # Replacement generations now publish progressively while active.
+        _rebuild_table(db, "run_output_generations")
         _rebuild_table(db, "current_cells")
         _execute_ddl(db, COPIED_RESULTS_SCHEMA_SQL)
         _execute_ddl(db, CHANGE_SCHEMA_SQL)
