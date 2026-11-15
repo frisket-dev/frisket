@@ -312,22 +312,19 @@ def deliver_notification_request(
             raise ValueError("notification delivery request not found")
         channel = project.notification_channel(int(request["channel_id"]))
         if channel is None:
-            project.terminalize_notification_delivery_request(
-                request_id,
-                status="failed",
-                last_error="notification channel not found",
-            )
-            _emit_delivery_health_notification(
+            return _apply_terminal_result(
                 project,
                 project_id=project_id,
                 request=request,
-                status="failed",
-                error="notification channel not found",
+                channel=None,
+                result=DeliveryProviderResult(
+                    status="failed", error="notification channel not found"
+                ),
             )
-            return {"request_id": request_id, "status": "failed"}
         if not bool(channel["enabled"]):
             return _skip_request(
                 project,
+                project_id=project_id,
                 request=request,
                 channel=channel,
                 error="channel disabled",
@@ -337,6 +334,7 @@ def deliver_notification_request(
             secret_label = "URL secret" if channel_kind == "webhook" else "secret"
             return _skip_request(
                 project,
+                project_id=project_id,
                 request=request,
                 channel=channel,
                 error=f"{channel_kind} channel missing {secret_label} reference",
@@ -359,6 +357,7 @@ def deliver_notification_request(
             if secret_value is None:
                 return _skip_request(
                     project,
+                    project_id=project_id,
                     request=request,
                     channel=channel,
                     error=f"{channel_kind} channel secret unavailable",
@@ -370,6 +369,7 @@ def deliver_notification_request(
             if not signing_ref:
                 return _skip_request(
                     project,
+                    project_id=project_id,
                     request=request,
                     channel=channel,
                     error="webhook channel missing signing secret reference",
@@ -390,6 +390,7 @@ def deliver_notification_request(
             if signing_secret_value is None:
                 return _skip_request(
                     project,
+                    project_id=project_id,
                     request=request,
                     channel=channel,
                     error="webhook channel signing secret unavailable",
@@ -412,6 +413,7 @@ def deliver_notification_request(
                 return {"request_id": request_id, "status": "skipped"}
             return _skip_request(
                 project,
+                project_id=project_id,
                 request=request,
                 channel=channel,
                 error="notification content is no longer available",
@@ -492,16 +494,13 @@ def deliver_notification_request(
                     request=request,
                     channel=channel,
                 )
-            _record_attempt(project, request=request, channel=channel, result=result)
-            project.record_notification_delivery_request_error(
-                request_id,
-                last_error="notification provider outcome unknown; retry is "
-                "protected by provider idempotency",
-            )
-            raise NotificationDeliveryTransientError(
-                "notification provider outcome unknown; retry is protected by "
-                "provider idempotency"
-            )
+            error = "notification provider outcome unknown; retry is protected by provider idempotency"
+            if _record_retry_result(
+                project, request=request, channel=channel, result=result, error=error
+            ):
+                raise NotificationDeliveryTransientError(error)
+            current = project.public_notification_delivery_request(request_id)
+            return {"request_id": request_id, "status": current["status"]}
         if decision.status == "send":
             try:
                 effect_guard.finish(effect, result)
@@ -513,25 +512,29 @@ def deliver_notification_request(
                     channel=channel,
                 )
         if result.transient:
-            _record_attempt(project, request=request, channel=channel, result=result)
-            project.record_notification_delivery_request_error(
-                request_id,
-                last_error=result.error or "transient notification delivery error",
-            )
             if final_attempt:
-                project.terminalize_notification_delivery_request(
-                    request_id,
-                    status="failed",
-                    last_error=result.error
-                    or "notification delivery retries exhausted",
-                )
-                _emit_delivery_health_notification(
+                terminal = _apply_terminal_result(
                     project,
                     project_id=project_id,
                     request=request,
-                    status="failed",
-                    error=result.error or "notification delivery retries exhausted",
+                    channel=channel,
+                    result=replace(
+                        result,
+                        status="failed",
+                        error=result.error or "notification delivery retries exhausted",
+                    ),
                 )
+                if terminal["status"] != "failed":
+                    return terminal
+            elif not _record_retry_result(
+                project,
+                request=request,
+                channel=channel,
+                result=result,
+                error=result.error or "transient notification delivery error",
+            ):
+                current = project.public_notification_delivery_request(request_id)
+                return {"request_id": request_id, "status": current["status"]}
             raise NotificationDeliveryTransientError(
                 result.error or "transient notification delivery error"
             )
@@ -707,28 +710,17 @@ def _require_reconciliation(
     request: Any,
     channel: Any,
 ) -> dict[str, Any]:
-    result = DeliveryProviderResult(
-        status="reconciliation_required",
-        error=_RECONCILIATION_ERROR,
-        outcome_unknown=True,
-    )
-    _record_attempt(project, request=request, channel=channel, result=result)
-    project.terminalize_notification_delivery_request(
-        int(request["id"]),
-        status="reconciliation_required",
-        last_error=_RECONCILIATION_ERROR,
-    )
-    _emit_delivery_health_notification(
+    return _apply_terminal_result(
         project,
         project_id=project_id,
         request=request,
-        status="failed",
-        error=_RECONCILIATION_ERROR,
+        channel=channel,
+        result=DeliveryProviderResult(
+            status="reconciliation_required",
+            error=_RECONCILIATION_ERROR,
+            outcome_unknown=True,
+        ),
     )
-    return {
-        "request_id": int(request["id"]),
-        "status": "reconciliation_required",
-    }
 
 
 def _fail_request_credential_free(
@@ -739,21 +731,13 @@ def _fail_request_credential_free(
     channel: Any,
     error: str,
 ) -> dict[str, Any]:
-    result = DeliveryProviderResult(status="failed", error=error)
-    _record_attempt(project, request=request, channel=channel, result=result)
-    project.terminalize_notification_delivery_request(
-        int(request["id"]),
-        status="failed",
-        last_error=error,
-    )
-    _emit_delivery_health_notification(
+    return _apply_terminal_result(
         project,
         project_id=project_id,
         request=request,
-        status="failed",
-        error=error,
+        channel=channel,
+        result=DeliveryProviderResult(status="failed", error=error),
     )
-    return {"request_id": int(request["id"]), "status": "failed"}
 
 
 def _apply_terminal_result(
@@ -763,42 +747,58 @@ def _apply_terminal_result(
     request: Any,
     channel: Any,
     result: DeliveryProviderResult,
-) -> None:
-    _record_attempt(project, request=request, channel=channel, result=result)
-    request_id = int(request["id"])
-    if result.status == "sent":
-        project.terminalize_notification_delivery_request(
-            request_id,
-            status="sent",
-            provider_ref=result.provider_ref,
+) -> dict[str, Any]:
+    if result.status not in TERMINAL_REQUEST_STATUSES:
+        result = replace(
+            result, status="failed", error="unsupported notification provider result"
         )
-        return
-    if result.status == "skipped":
-        project.terminalize_notification_delivery_request(
+    request_id = int(request["id"])
+    with project.db:
+        project.db.execute("BEGIN IMMEDIATE")
+        changed = project.terminalize_notification_delivery_request(
             request_id,
-            status="skipped",
+            status=result.status,
             last_error=result.error,
             provider_ref=result.provider_ref,
+            commit=False,
         )
-        return
-    error = (
-        result.error
-        if result.status == "failed"
-        else "unsupported notification provider result"
-    ) or "notification delivery failed"
-    project.terminalize_notification_delivery_request(
-        request_id,
-        status="failed",
-        last_error=error,
-        provider_ref=result.provider_ref,
-    )
-    _emit_delivery_health_notification(
-        project,
-        project_id=project_id,
-        request=request,
-        status="failed",
-        error=error,
-    )
+        if changed and channel is not None:
+            _record_attempt(project, request=request, channel=channel, result=result)
+    # Request outcome and delivery attempt commit together. Health notices are
+    # best-effort after that transaction and only belong to its winning writer.
+    if changed:
+        if result.status not in {"sent", "skipped"}:
+            _emit_delivery_health_notification(
+                project,
+                project_id=project_id,
+                request=request,
+                status="failed"
+                if result.status == "reconciliation_required"
+                else result.status,
+                error=result.error,
+            )
+    current = project.public_notification_delivery_request(request_id)
+    return {"request_id": request_id, "status": current["status"]}
+
+
+def _record_retry_result(
+    project: Project,
+    *,
+    request: Any,
+    channel: Any,
+    result: DeliveryProviderResult,
+    error: str,
+) -> bool:
+    with project.db:
+        project.db.execute("BEGIN IMMEDIATE")
+        changed = project.record_notification_delivery_request_error(
+            int(request["id"]),
+            last_error=error,
+            commit=False,
+        )
+        if changed:
+            _record_attempt(project, request=request, channel=channel, result=result)
+    return changed
 
 
 def _recovery_targets(
@@ -971,35 +971,30 @@ def _terminalize_recovered_request(
     ).fetchone()
     status = "reconciliation_required" if ambiguous is not None else default_status
     public_error = _RECONCILIATION_ERROR if ambiguous is not None else error
-    project.terminalize_notification_delivery_request(
-        int(request["id"]),
-        status=status,
-        last_error=public_error,
-    )
-    _emit_delivery_health_notification(
+    _apply_terminal_result(
         project,
         project_id=project_id,
         request=request,
-        status="failed" if status == "reconciliation_required" else status,
-        error=public_error,
+        channel=None,
+        result=DeliveryProviderResult(status=status, error=public_error),
     )
 
 
 def _skip_request(
     project: Project,
     *,
+    project_id: str,
     request: Any,
     channel: Any,
     error: str,
 ) -> dict[str, Any]:
-    result = DeliveryProviderResult(status="skipped", error=error)
-    _record_attempt(project, request=request, channel=channel, result=result)
-    project.terminalize_notification_delivery_request(
-        int(request["id"]),
-        status="skipped",
-        last_error=error,
+    return _apply_terminal_result(
+        project,
+        project_id=project_id,
+        request=request,
+        channel=channel,
+        result=DeliveryProviderResult(status="skipped", error=error),
     )
-    return {"request_id": int(request["id"]), "status": "skipped"}
 
 
 def _record_attempt(
@@ -1018,6 +1013,7 @@ def _record_attempt(
         provider_ref=result.provider_ref,
         error=result.error,
         response_meta=result.response_meta,
+        commit=False,
     )
 
 

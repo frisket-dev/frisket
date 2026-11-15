@@ -282,9 +282,12 @@ def test_partial_vector_cache_loss_recovers_paid_full_batch(
         router=router, options={"method": "semantic"}, confirmation=confirmation
     )
     assert cleared.errors[0].code == "idempotency_in_progress", cleared.model_dump()
-    assert project.db.execute(
-        "SELECT status FROM receipts WHERE status='running'"
-    ).fetchone()[0] == "running"
+    assert (
+        project.db.execute(
+            "SELECT status FROM receipts WHERE status='running'"
+        ).fetchone()[0]
+        == "running"
+    )
     live = execute(
         router=router, options={"method": "semantic"}, confirmation=confirmation
     )

@@ -1636,9 +1636,10 @@ class Project:
         request_id: int,
         *,
         last_error: str | None,
-    ) -> dict[str, Any]:
+        commit: bool = True,
+    ) -> bool:
         return notifications.record_notification_delivery_request_error(
-            self, request_id, last_error=last_error
+            self, request_id, last_error=last_error, commit=commit
         )
 
     def terminalize_notification_delivery_request(
@@ -1648,13 +1649,15 @@ class Project:
         status: str,
         last_error: str | None = None,
         provider_ref: str | None = None,
-    ) -> dict[str, Any]:
+        commit: bool = True,
+    ) -> bool:
         return notifications.terminalize_notification_delivery_request(
             self,
             request_id,
             status=status,
             last_error=last_error,
             provider_ref=provider_ref,
+            commit=commit,
         )
 
     def processing_notification_delivery_requests(self) -> list[sqlite3.Row]:
@@ -1670,6 +1673,7 @@ class Project:
         provider_ref: str | None = None,
         error: str | None = None,
         response_meta: dict[str, Any] | None = None,
+        commit: bool = True,
     ) -> dict[str, Any]:
         return notifications.record_notification_delivery_attempt(
             self,
@@ -1680,6 +1684,7 @@ class Project:
             provider_ref=provider_ref,
             error=error,
             response_meta=response_meta,
+            commit=commit,
         )
 
     def notification_delivery_attempt(self, attempt_id: int) -> dict[str, Any]:

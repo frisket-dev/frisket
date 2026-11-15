@@ -1726,9 +1726,7 @@ def test_run_store_refuses_current_writer_without_authority(
     start_change(project.db, op_id, writing=True)
     RunResultStore(project).request_cancel(orphan.run_id, commit=False)
     project.db.commit()
-    assert (
-        RunResultStore(project).get_run(orphan.run_id)["status"] == "running"
-    )
+    assert RunResultStore(project).get_run(orphan.run_id)["status"] == "running"
     with pytest.raises(StaleAttemptWriter, match="current writer"):
         RunResultStore(project).finish_run(
             orphan.run_id,

@@ -194,7 +194,9 @@ class QueuedV1PayloadEnvelope:
                 total_rows = int(run["total_rows"] or 0)
                 if failed_rows:
                     receipt_status = (
-                        "failed" if total_rows and failed_rows >= total_rows else "partial"
+                        "failed"
+                        if total_rows and failed_rows >= total_rows
+                        else "partial"
                     )
         return self.entry.finalize_action(
             project,

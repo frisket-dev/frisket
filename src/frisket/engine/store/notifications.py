@@ -837,10 +837,12 @@ def set_notification_digest_run_result(
     item_count: int,
     delivery_request_id: int | None = None,
 ) -> dict[str, Any]:
+    if status not in {"empty", "composed"}:
+        raise ValueError(f"Not a finished notification digest status: {status!r}")
     project.db.execute(
         "UPDATE notification_digest_runs SET status=?, item_count=?, "
         "delivery_request_id=COALESCE(?, delivery_request_id), "
-        "updated_at=datetime('now') WHERE id=?",
+        "updated_at=datetime('now') WHERE id=? AND status='composing'",
         (status, int(item_count), delivery_request_id, int(digest_run_id)),
     )
     project.db.commit()
@@ -1005,7 +1007,7 @@ def set_notification_delivery_request_job_id(
 ) -> dict[str, Any]:
     project.db.execute(
         "UPDATE notification_delivery_requests SET job_id=?, "
-        "updated_at=datetime('now') WHERE id=?",
+        "updated_at=datetime('now') WHERE id=? AND status IN ('queued','processing')",
         (int(job_id), int(request_id)),
     )
     project.db.commit()
@@ -1051,14 +1053,16 @@ def record_notification_delivery_request_error(
     request_id: int,
     *,
     last_error: str | None,
-) -> dict[str, Any]:
-    project.db.execute(
+    commit: bool = True,
+) -> bool:
+    changed = project.db.execute(
         "UPDATE notification_delivery_requests SET last_error=?, "
         "updated_at=datetime('now') WHERE id=? AND status IN ('queued','processing')",
         (last_error, int(request_id)),
     )
-    project.db.commit()
-    return project.public_notification_delivery_request(request_id)
+    if commit:
+        project.db.commit()
+    return changed.rowcount == 1
 
 
 def terminalize_notification_delivery_request(
@@ -1068,18 +1072,20 @@ def terminalize_notification_delivery_request(
     status: str,
     last_error: str | None = None,
     provider_ref: str | None = None,
-) -> dict[str, Any]:
+    commit: bool = True,
+) -> bool:
     if status not in TERMINAL_REQUEST_STATUSES:
         raise ValueError(f"Not a terminal notification delivery status: {status!r}")
-    project.db.execute(
+    changed = project.db.execute(
         "UPDATE notification_delivery_requests SET status=?, last_error=?, "
         "provider_ref=COALESCE(?, provider_ref), "
         "sent_at=CASE WHEN ?='sent' THEN datetime('now') ELSE sent_at END, "
         "updated_at=datetime('now') WHERE id=? AND status IN ('queued','processing')",
         (status, last_error, provider_ref, status, int(request_id)),
     )
-    project.db.commit()
-    return project.public_notification_delivery_request(request_id)
+    if commit:
+        project.db.commit()
+    return changed.rowcount == 1
 
 
 def processing_notification_delivery_requests(project: Any) -> list[sqlite3.Row]:
@@ -1099,6 +1105,7 @@ def record_notification_delivery_attempt(
     provider_ref: str | None = None,
     error: str | None = None,
     response_meta: dict[str, Any] | None = None,
+    commit: bool = True,
 ) -> dict[str, Any]:
     notification_param = int(notification_id) if notification_id is not None else None
     row = project.db.execute(
@@ -1126,7 +1133,8 @@ def record_notification_delivery_attempt(
             status,
         ),
     )
-    project.db.commit()
+    if commit:
+        project.db.commit()
     return project.notification_delivery_attempt(int(cur.lastrowid))
 
 
