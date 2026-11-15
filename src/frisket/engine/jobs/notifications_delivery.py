@@ -31,6 +31,7 @@ from frisket.server.notifications.producers import (
 from frisket.server.notifications.service import NotificationEmitResult
 from frisket.project_identity import ProjectStorageKey
 from frisket.engine.store import Project
+from frisket.engine.store.notifications import TERMINAL_REQUEST_STATUSES
 from frisket.engine.store.effect_checkpoints import (
     AmbiguousReserved,
     EffectCheckpointStore,
@@ -46,13 +47,7 @@ from .project_opener import (
 LOG = logging.getLogger(__name__)
 
 NOTIFICATION_DELIVER_KIND = "notification.deliver"
-TERMINAL_REQUEST_STATUSES = {
-    "sent",
-    "failed",
-    "skipped",
-    "cancelled",
-    "reconciliation_required",
-}
+
 _EFFECT_FAMILY = "notification_delivery"
 _RECONCILIATION_ERROR = (
     "notification provider outcome is unknown; reconciliation required"

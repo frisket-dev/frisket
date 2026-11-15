@@ -10,6 +10,10 @@ import json
 import sqlite3
 from typing import Any, Collection
 
+TERMINAL_REQUEST_STATUSES = frozenset(
+    {"sent", "failed", "skipped", "cancelled", "reconciliation_required"}
+)
+
 
 def _safe_json_key(key: str) -> bool:
     return bool(key) and all(c.isalnum() or c == "_" for c in key)
@@ -1050,7 +1054,7 @@ def record_notification_delivery_request_error(
 ) -> dict[str, Any]:
     project.db.execute(
         "UPDATE notification_delivery_requests SET last_error=?, "
-        "updated_at=datetime('now') WHERE id=?",
+        "updated_at=datetime('now') WHERE id=? AND status IN ('queued','processing')",
         (last_error, int(request_id)),
     )
     project.db.commit()
@@ -1065,11 +1069,13 @@ def terminalize_notification_delivery_request(
     last_error: str | None = None,
     provider_ref: str | None = None,
 ) -> dict[str, Any]:
+    if status not in TERMINAL_REQUEST_STATUSES:
+        raise ValueError(f"Not a terminal notification delivery status: {status!r}")
     project.db.execute(
         "UPDATE notification_delivery_requests SET status=?, last_error=?, "
         "provider_ref=COALESCE(?, provider_ref), "
         "sent_at=CASE WHEN ?='sent' THEN datetime('now') ELSE sent_at END, "
-        "updated_at=datetime('now') WHERE id=?",
+        "updated_at=datetime('now') WHERE id=? AND status IN ('queued','processing')",
         (status, last_error, provider_ref, status, int(request_id)),
     )
     project.db.commit()
