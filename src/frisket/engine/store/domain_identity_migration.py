@@ -16,6 +16,8 @@ IDENTITY_TABLES = (
     "sheets",
     "columns",
     "rows",
+    "ops",
+    "base_cell_producers",
     "prepared_page_versions",
     "prepared_content_sets",
     "prepared_content_refs",
@@ -23,6 +25,8 @@ IDENTITY_TABLES = (
 
 # Historical coordinates intentionally survive without live-object foreign keys.
 _REFERENCE_NAMES = {
+    "ops": {"op_id", "origin_op_id", "parent_op_id", "source_op_id", "producing_op_id"},
+    "base_cell_producers": {"producer_id", "base_producer_id"},
     "sheets": {
         "sheet_id",
         "source_sheet_id",

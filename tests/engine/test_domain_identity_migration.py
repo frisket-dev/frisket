@@ -3,37 +3,30 @@
 from __future__ import annotations
 
 import json
-import re
+import gzip
+from pathlib import Path
 import sqlite3
 
 import pytest
 
 from frisket.engine.store.domain_identity_migration import (
-    IDENTITY_TABLES,
     migrate_identity_high_water,
 )
-from frisket.engine.store.schema import SCHEMA
 
 
 def _prior(path=":memory:"):
     db = sqlite3.connect(path)
     db.row_factory = sqlite3.Row
-    # Stay a predecessor fixture when the new fresh schema uses AUTOINCREMENT.
-    schema = SCHEMA
-    for table in IDENTITY_TABLES:
-        schema = re.sub(
-            rf"(CREATE TABLE IF NOT EXISTS {table} \(\s*id INTEGER PRIMARY KEY) AUTOINCREMENT",
-            r"\1",
-            schema,
-        )
-    db.executescript(schema)
+    # Real predecessor DDL stays fixed when the production schema changes.
+    fixture = Path(__file__).parents[1] / "fixtures/domain-v0-schema.sql.gz"
+    db.executescript(gzip.decompress(fixture.read_bytes()).decode())
     db.execute("PRAGMA foreign_keys=ON")
     db.execute("INSERT INTO sheets(id,name,hidden) VALUES(4,'Existing',0)")
     db.executemany(
         "INSERT INTO columns(id,sheet_id,name,active,hidden,default_hidden) VALUES(?,4,?,?,?,?)",
         [
             (10, "visible", 1, 0, 0),
-            (11, "user hidden", 1, 1, 0),
+            (11, "user hidden", 1, 0, 1),
             (12, "inactive", 0, 1, 0),
             (13, "internal", 1, 1, 1),
         ],
@@ -189,3 +182,28 @@ def test_requires_enclosing_migration_exclusion_and_transaction():
     with pytest.raises(RuntimeError, match="foreign keys disabled"):
         migrate_identity_high_water(db)
     db.rollback()
+
+
+def test_consumed_operation_and_producer_identities_are_never_reused():
+    db = _prior()
+    db.execute(
+        "UPDATE ops SET spec=? WHERE id=1",
+        (json.dumps({"source": {"source_op_id": 900, "base_producer_id": 700}}),),
+    )
+    db.commit()
+    _begin(db)
+    migrate_identity_high_water(db)
+    _commit(db)
+    op = db.execute("INSERT INTO ops(kind) VALUES('edit')").lastrowid
+    producer = db.execute(
+        "INSERT INTO base_cell_producers(stage_id) VALUES('new')"
+    ).lastrowid
+    assert op == 901
+    assert producer == 701
+    db.execute("DELETE FROM ops WHERE id=?", (op,))
+    db.execute("DELETE FROM base_cell_producers WHERE id=?", (producer,))
+    assert db.execute("INSERT INTO ops(kind) VALUES('edit')").lastrowid == 902
+    assert (
+        db.execute("INSERT INTO base_cell_producers(stage_id) VALUES('next')").lastrowid
+        == 702
+    )
