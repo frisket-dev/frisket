@@ -101,7 +101,10 @@ def close_change(db: sqlite3.Connection, op_id: int) -> None:
 class ChangeStore:
     def __init__(self, project: Any):
         self.project = project
-        self.db = project.db
+
+    @property
+    def db(self) -> sqlite3.Connection:
+        return self.project.db
 
     def start(self, op_id: int, *, writing: bool = True) -> int:
         return start_change(self.db, op_id, writing=writing)

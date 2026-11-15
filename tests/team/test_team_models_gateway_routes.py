@@ -338,6 +338,7 @@ def test_standalone_worker_supplies_team_gateway_port_only_for_explicit_team_con
     from frisket.team.config import team_config_from_env
     from frisket.team.secret_box import TeamSecretBox
 
+    monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("FRISKET_TEAM_DATABASE_URL", raising=False)
     monkeypatch.delenv("FRISKET_MODELS_URL", raising=False)
     monkeypatch.delenv("FRISKET_MODELS_TOKEN", raising=False)

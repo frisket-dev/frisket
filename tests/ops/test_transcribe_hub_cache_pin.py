@@ -96,11 +96,18 @@ def test_an_explicit_cache_setting_is_still_honored(monkeypatch, tmp_path) -> No
     assert _child_resolves(policy, extra_env) == chosen
 
 
-def test_the_child_home_really_is_scratch(default_install) -> None:
+def test_the_child_home_really_is_scratch(
+    default_install, monkeypatch, tmp_path
+) -> None:
     """Positive control: the isolation invariant this works around is present.
 
     Without it the equality assertions above would hold trivially.
     """
+    # The parent can itself run under a sandbox HOME=/tmp; its distinct home,
+    # not the shared temporary-directory ancestor, is the isolation boundary.
+    parent_home = tmp_path / "parent-home"
+    parent_home.mkdir()
+    monkeypatch.setenv("HOME", str(parent_home))
     policy, _ = _transcribe_policy_and_env()
     child_home = _child_resolves(
         policy, {"HF_HUB_CACHE": ""}
