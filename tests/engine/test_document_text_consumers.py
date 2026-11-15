@@ -722,3 +722,44 @@ def test_page_selection_requires_applied_owner_of_primary_support(tmp_path):
             resolve_document_text_selection(project, cell)
         assert project.redo() == op
         assert resolve_document_text_selection(project, cell) is not None
+
+
+@pytest.mark.parametrize("hidden", ["file", "text", "both"])
+def test_explicit_document_consumers_allow_hidden_active_roles(tmp_path, hidden):
+    from frisket.engine.store.document_text import (
+        resolve_document_text_selection,
+        DocumentTextUnavailable,
+    )
+    from frisket.retrieval.anchors import resolve_cell_anchor
+    from frisket.retrieval.contracts import CellAnchor
+    from frisket.retrieval.encoding import TextEncodingInput
+    from frisket.retrieval.source_adapter import resolve_cell_text_sources
+
+    with closing(Project.create(tmp_path / "hidden-role.frisket")) as project:
+        cell, text, _other, _blob, _chosen, _alternative = _document(project)
+        for column in (
+            [cell[2], text]
+            if hidden == "both"
+            else [cell[2] if hidden == "file" else text]
+        ):
+            project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (column,))
+        project.db.commit()
+        selected = resolve_document_text_selection(project, cell, allow_hidden=True)
+        assert selected.text_cell == (cell[0], cell[1], text)
+        target, _source, prepared = read_source_with_prepared(project, cell)
+        assert target == selected.text_cell and prepared is not None
+        assert resolve_cell_anchor(
+            project, CellAnchor(*selected.text_cell)
+        ).input == TextEncodingInput("chosen first\n\nchosen second")
+        with pytest.raises(DocumentTextUnavailable):
+            resolve_document_text_selection(project, cell)
+        assert (
+            resolve_cell_text_sources(
+                project, sheet_id=cell[0], column_id=text, row_ids=[cell[1]]
+            )
+            == {}
+        )
+        project.db.execute("UPDATE columns SET active=0,hidden=1 WHERE id=?", (cell[2],))
+        project.db.commit()
+        with pytest.raises(DocumentTextUnavailable):
+            resolve_document_text_selection(project, cell, allow_hidden=True)

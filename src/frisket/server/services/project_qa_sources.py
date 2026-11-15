@@ -37,7 +37,7 @@ _FROM = (
     " FROM current_cell_values c JOIN rows r ON r.id=c.row_id "
     "JOIN columns col ON col.id=c.column_id JOIN sheets s ON s.id=r.sheet_id "
     "WHERE r.sheet_id=? AND r.id=? AND c.column_id=? "
-    "AND col.sheet_id=r.sheet_id AND r.hidden=0 AND col.hidden=0 AND s.hidden=0"
+    "AND col.sheet_id=r.sheet_id AND r.hidden=0 AND col.active=1 AND s.hidden=0"
 )
 
 
@@ -81,7 +81,7 @@ def _metadata(
         "JOIN rows r ON r.id=c.row_id JOIN columns col ON col.id=c.column_id "
         "JOIN sheets s ON s.id=r.sheet_id "
         "WHERE r.sheet_id=? AND r.id=? AND c.column_id=? "
-        "AND col.sheet_id=r.sheet_id AND r.hidden=0 AND col.hidden=0 AND s.hidden=0",
+        "AND col.sheet_id=r.sheet_id AND r.hidden=0 AND col.active=1 AND s.hidden=0",
         cell,
     ).fetchone()
     if row is None:
@@ -286,7 +286,7 @@ def resolve_prepared_source(
         if source_meta["version"] != expected_version:
             raise ValueError("source_changed: reopen this source before reading it")
         try:
-            selected = resolve_document_text_selection(db, cell)
+            selected = resolve_document_text_selection(db, cell, allow_hidden=True)
         except DocumentTextUnavailable as error:
             raise SourceUnavailableError(str(error)) from error
         if selected is not None:

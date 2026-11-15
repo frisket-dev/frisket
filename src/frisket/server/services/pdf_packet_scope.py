@@ -203,7 +203,9 @@ class PdfPacketScopeService:
                 prepared_pages: tuple[int, ...] = ()
                 try:
                     selection = resolve_document_text_selection(
-                        snapshot, (body.sheet_id, row_id, body.file_column_id)
+                        snapshot,
+                        (body.sheet_id, row_id, body.file_column_id),
+                        allow_hidden=True,
                     )
                     if selection is not None and selection.prepared_ref_id is not None:
                         prepared_ref = selection.prepared_ref_id

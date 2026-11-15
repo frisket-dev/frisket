@@ -132,7 +132,9 @@ def publish_pdf_ocr_sample(
         role = document_text_role(project, source_column_id=column)
         try:
             selection = (
-                resolve_document_text_selection(project, (sheet, row, column))
+                resolve_document_text_selection(
+                    project, (sheet, row, column), allow_hidden=True
+                )
                 if role
                 else None
             )

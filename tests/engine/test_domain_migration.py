@@ -177,6 +177,21 @@ def test_full_cutover_preserves_values_and_starts_new_history(old_db):
     migrate_domain(db)
     assert db.execute("PRAGMA foreign_keys").fetchone()[0] == 1
     assert db.execute("PRAGMA legacy_alter_table").fetchone()[0] == 0
+    # The cutover must install the same authority relation as a fresh project,
+    # including presentation visibility facts rather than hiding source columns.
+    from frisket.engine.store.document_text import DOCUMENT_TEXT_SELECTION_VIEW_SQL
+
+    with sqlite3.connect(":memory:") as fresh:
+        fresh.execute(DOCUMENT_TEXT_SELECTION_VIEW_SQL)
+        expected = fresh.execute(
+            "SELECT sql FROM sqlite_schema WHERE name='current_document_text_selections'"
+        ).fetchone()[0]
+    assert (
+        db.execute(
+            "SELECT sql FROM sqlite_schema WHERE name='current_document_text_selections'"
+        ).fetchone()[0]
+        == expected
+    )
     assert (
         db.execute("SELECT value FROM meta WHERE key='schema_digest'").fetchone()[0]
         == SCHEMA_DIGEST

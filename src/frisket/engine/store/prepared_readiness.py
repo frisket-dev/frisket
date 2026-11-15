@@ -109,7 +109,7 @@ def prepared_source_readiness_ctes(*, scope_relation: str, schema: str = "") -> 
       JOIN {prefix}current_document_text_selections selected
         ON selected.source_sheet_id=readiness_scope.sheet_id
        AND selected.row_id=readiness_scope.row_id
-      WHERE selected.text_hidden=0
+      WHERE selected.source_hidden=0 AND selected.text_hidden=0
     ), current_prepared_sources AS MATERIALIZED (
       SELECT candidate.*,
              CASE WHEN candidate.is_manual THEN 1

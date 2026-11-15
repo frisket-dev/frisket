@@ -67,6 +67,7 @@ SELECT source_column.sheet_id AS source_sheet_id,
        content.source_artifact_id AS source_artifact_id,
        ref.page_number AS ref_page_number,
        artifact.page_count AS page_count,
+       source_column.hidden AS source_hidden,
        text_column.hidden AS text_hidden
 FROM document_text_column_roles role
 JOIN columns source_column ON source_column.id=role.source_column_id
@@ -94,7 +95,6 @@ WHERE source_column.sheet_id=text_column.sheet_id
   AND source_column.type IN ('file','image')
   AND text_column.type='text'
   AND source_column.active=1
-  AND source_column.hidden=0
   AND text_column.active=1
   AND source_live.validity='valid'
   AND source_live.value_kind='json'
@@ -463,7 +463,11 @@ def resolve_document_text_selection(
             source_cell=source_cell,
             text_column_id=role.text_column_id,
         )
-    if not role.source_active or role.source_hidden or not role.text_active:
+    if (
+        not role.source_active
+        or not role.text_active
+        or (role.source_hidden and not allow_hidden)
+    ):
         raise DocumentTextUnavailable(
             "role_unavailable",
             source_cell=source_cell,

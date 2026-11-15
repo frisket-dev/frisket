@@ -252,3 +252,51 @@ def test_audio_anchor_returns_effective_decoded_interval(
             borrowed[0].borrow_path()
     finally:
         project.close()
+
+
+@pytest.mark.parametrize("kind", ["text", "image"])
+def test_explicit_anchor_can_use_hidden_active_column_but_not_withdrawn_column(
+    tmp_path, kind
+):
+    from frisket.retrieval.source_adapter import resolve_cell_blob_source
+
+    project = Project.create(tmp_path / "hidden-anchor.frisket")
+    try:
+        if kind == "image":
+            image = b"\x89PNG\r\n\x1a\nfixture"
+            sheet, row, column = _blob_cell(
+                project, column_type="image", mime="image/png", data=image
+            )
+            expected = ImageEncodingInput(image)
+        else:
+            sheet = project.add_sheet("Sources")
+            column = project.add_column(sheet, "source")
+            row = project.add_rows(
+                sheet, [{"source": "explicit hidden text"}], {"source": column}
+            )[0]
+            expected = TextEncodingInput("explicit hidden text")
+        project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (column,))
+        project.db.commit()
+        anchor = CellAnchor(sheet, row, column)
+        assert resolve_cell_anchor(project, anchor).input == expected
+        with project.read_snapshot() as snapshot:
+            # Ordinary visible discovery does not inherit the anchor's intent.
+            assert (
+                resolve_cell_text_sources(
+                    snapshot, sheet_id=sheet, column_id=column, row_ids=[row]
+                )
+                == {}
+            )
+            assert (
+                resolve_cell_blob_source(
+                    snapshot, sheet_id=sheet, column_id=column, row_id=row
+                )
+                is None
+            )
+        project.db.execute("UPDATE columns SET active=0 WHERE id=?", (column,))
+        project.db.commit()
+        with pytest.raises(RetrievalQueryError) as caught:
+            resolve_cell_anchor(project, anchor)
+        assert caught.value.code == "source_anchor_unavailable"
+    finally:
+        project.close()

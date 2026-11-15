@@ -112,6 +112,7 @@ def refresh_packet_source(
         selection = resolve_document_text_selection(
             project,
             (source.source_sheet_id, source.source_row_id, source.source_column_id),
+            allow_hidden=True,
         )
     except DocumentTextUnavailable:
         selection = None
@@ -139,6 +140,7 @@ def _manual_text(project: Any, source: AdmittedPacketSource) -> str | None:
         selection = resolve_document_text_selection(
             project,
             (source.source_sheet_id, source.source_row_id, source.source_column_id),
+            allow_hidden=True,
         )
     except DocumentTextUnavailable:
         return None
