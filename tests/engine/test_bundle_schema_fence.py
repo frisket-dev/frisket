@@ -18,6 +18,7 @@ from frisket.engine.store.schema import (
 from frisket.server.route_errors import RouteError
 from frisket.server.workspace import Workspace
 from frisket.engine.store.value_codec import decode_stored_value
+from tests.engine.historical_schema import PRE_DOMAIN_SCHEMA, restore_pre_domain_schema
 
 
 # Independently pinned from v0.1.1a64 (6602458d), before consent_principal.
@@ -387,15 +388,7 @@ def _remove_execution_metadata(db: sqlite3.Connection) -> None:
 def _restore_legacy_authorities(db: sqlite3.Connection) -> None:
     """Downgrade fresh typed fixtures before exercising historical upgrades."""
 
-    _remove_document_text_authority(db)
-    _remove_execution_metadata(db)
-    _remove_extraction_layouts(db)
-    db.execute("DROP TABLE run_review_fields")
-    db.execute("DROP INDEX idx_cell_result_heads_run")
-    db.execute("DROP INDEX idx_columns_current_run")
-    db.execute("ALTER TABLE runs DROP COLUMN review_resolved_bundle_count")
-    db.execute("ALTER TABLE runs DROP COLUMN review_bundle_count")
-    db.execute("ALTER TABLE runs DROP COLUMN review_stats_ready")
+    restore_pre_domain_schema(db)
 
     current_rows = [
         (
@@ -409,6 +402,17 @@ def _restore_legacy_authorities(db: sqlite3.Connection) -> None:
             "origin_run_id,base_producer_id,validity FROM current_cell_values"
         )
     ]
+    db.execute("DROP VIEW current_cell_values")
+    _remove_document_text_authority(db)
+    _remove_execution_metadata(db)
+    _remove_extraction_layouts(db)
+    db.execute("DROP TABLE run_review_fields")
+    db.execute("DROP INDEX idx_cell_result_heads_run")
+    db.execute("DROP INDEX idx_columns_current_run")
+    db.execute("ALTER TABLE runs DROP COLUMN review_resolved_bundle_count")
+    db.execute("ALTER TABLE runs DROP COLUMN review_bundle_count")
+    db.execute("ALTER TABLE runs DROP COLUMN review_stats_ready")
+
     authority_rows: dict[str, tuple[list[str], list[tuple[object, ...]]]] = {}
     for table in ("cells", "results", "edits"):
         columns = [str(row[1]) for row in db.execute(f"PRAGMA table_info({table})")]
@@ -423,13 +427,12 @@ def _restore_legacy_authorities(db: sqlite3.Connection) -> None:
             rows,
         )
 
-    db.execute("DROP VIEW current_cell_values")
     _remove_prepared_content(db)
     db.execute("DROP TABLE citation_texts")
     db.execute("DROP TABLE current_cells")
     for table in ("cells", "results", "edits"):
         db.execute(f"DROP TABLE {table}")
-    db.executescript(_without_typed_values(SCHEMA))
+    db.executescript(_without_typed_values(PRE_DOMAIN_SCHEMA))
     for table, (columns, rows) in authority_rows.items():
         if rows:
             db.executemany(
@@ -611,7 +614,7 @@ def _a62_bundle(tmp_path):
     prior_ddl = (
         _without_project_qa(
             _without_current_cells_foundation(
-                _without_rowid_cell_layout(_without_import_sessions(SCHEMA))
+                _without_rowid_cell_layout(_without_import_sessions(PRE_DOMAIN_SCHEMA))
             )
         )
         .replace(

@@ -17,6 +17,7 @@ from frisket.engine.store.review_stats import (
     mark_run_review_stats_dirty,
     rebuild_run_review_stats,
 )
+from tests.engine.historical_schema import restore_pre_domain_schema
 from frisket.engine.store.review_stats_migration import REVIEW_STATS_FROM_DIGEST
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.schema import (
@@ -142,6 +143,7 @@ def test_ocr_review_uses_authored_roles_and_migrates_frozen_runs(
     # Recreate the exact preceding revision: its DDL was identical, but it had
     # no role marker and froze review fields using column-name conventions.
     with sqlite3.connect(path / "project.db") as db:
+        restore_pre_domain_schema(db)
         db.execute("DELETE FROM meta WHERE key=?", (REVIEW_OUTPUT_ROLES_META_KEY,))
         db.execute(
             "UPDATE meta SET value=? WHERE key=?",
@@ -571,6 +573,7 @@ def test_primary_membership_and_totals_survive_rename_and_partial_replacement(
 
 def _downgrade_review_stats_schema(path: Path) -> None:
     db = sqlite3.connect(path / "project.db")
+    restore_pre_domain_schema(db)
     db.execute("PRAGMA foreign_keys=OFF")
     _remove_extraction_layouts(db)
     db.execute("DROP TABLE run_review_fields")
