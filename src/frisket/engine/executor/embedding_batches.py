@@ -22,6 +22,12 @@ def refuse_missing_paid_vectors(
 ) -> None:
     from frisket.ai.embeddings.backends import embedder_is_remote
 
+    cancelled = ctx.extras.get("cancelled")
+    if callable(cancelled) and cancelled():
+        import asyncio
+
+        raise asyncio.CancelledError
+
     if not embedder_is_remote(model_id):
         return
     run_id = ctx.extras.get("run_id")

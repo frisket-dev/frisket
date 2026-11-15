@@ -407,7 +407,7 @@ def finalize_semantic_join(
             "semantic join finalization needs its exact writer claim"
         )
 
-    def abort(code, message):
+    def abort(code, message, *, status="failed"):
         from frisket.engine.executor.project_run_terminalization import (
             CurrentWriterTerminalAuthority,
             terminalize_project_run,
@@ -418,11 +418,13 @@ def finalize_semantic_join(
             project,
             run_id=run_id,
             receipt_id=receipt_id,
-            status="failed",
+            status=status,
             authority=CurrentWriterTerminalAuthority(
                 writer_attempt_id=writer, claim_token=claim
             ),
-            errors=[ActionError(code=code, message=message, action_kind=action.kind)],
+            errors=[ActionError(code=code, message=message, action_kind=action.kind)]
+            if code
+            else [],
         )
         if outcome.disposition not in {"terminalized", "already_terminal"}:
             raise StaleAttemptWriter(
@@ -433,6 +435,8 @@ def finalize_semantic_join(
     from frisket.ops.base import persisted_recipe_invocation_halt
 
     run = project.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+    if run["cancel_requested_at"] is not None:
+        return abort(None, None, status="cancelled")
     if halt := persisted_recipe_invocation_halt(run["params"]):
         return abort(*halt)
     plan = replace(

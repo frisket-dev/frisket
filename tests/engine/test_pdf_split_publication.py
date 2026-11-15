@@ -579,7 +579,9 @@ def test_split_refuses_ordinary_import_finalize_and_removal(tmp_path: Path):
         project.close()
 
 
-def test_active_new_sheet_split_survives_source_sheet_deletion(tmp_path: Path):
+def test_completed_split_pages_survive_source_deletion_while_remaining_work_stops(
+    tmp_path: Path,
+):
     project = Project.create(tmp_path / "deleted-source.frisket", name="deleted-source")
     try:
         sheet, column, rows, values = _seed(project)
@@ -587,10 +589,10 @@ def test_active_new_sheet_split_survives_source_sheet_deletion(tmp_path: Path):
         destination = writer.sheet_id
         children = writer.publish_source(_children(2), expected_cursor=0)
         project.delete_sheet(sheet)
-        with pytest.raises(ImportSessionConflict, match="source"):
+        with pytest.raises(ImportSessionConflict, match="stale"):
             writer.publish_source(_children(3), expected_cursor=1)
-        writer.fail_source(expected_cursor=1, error="The source sheet was deleted.")
-        publication = writer.finalize(expected_cursor=2)
+        assert ImportSessionStore(project).get("split:one").state == "cancelled"
+        publication = writer.finalize(expected_cursor=1, stopped=True)
         assert publication.receipt.status == "partial"
         assert publication.row_count == 2
         assert project.visible_row_ids(destination) == children
@@ -599,7 +601,7 @@ def test_active_new_sheet_split_survives_source_sheet_deletion(tmp_path: Path):
         ).fetchall()
         assert [tuple(row) for row in facts] == [
             (sheet, rows[0], column, "published"),
-            (sheet, rows[1], column, "failed"),
+            (sheet, rows[1], column, "pending"),
         ]
         # Selective reversion changes application authority, not saved payloads.
         from frisket.engine.store.op_log import step_operation

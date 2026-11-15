@@ -727,6 +727,21 @@ def claim(
         run_id = row["run_id"]
         receipt_id = row["receipt_id"]
         owner_column, owner_id = _attempt_owner(run_id, receipt_id)
+        if run_id is not None:
+            from frisket.engine.store.source_dependencies import (
+                ExecutionSourceUnavailable,
+                require_execution_sources,
+            )
+
+            owner = db.execute(
+                "SELECT op_id FROM runs WHERE id=?", (run_id,)
+            ).fetchone()
+            try:
+                if owner is None:
+                    raise ExecutionSourceUnavailable("The execution no longer exists")
+                require_execution_sources(project, int(owner[0]))
+            except ExecutionSourceUnavailable as exc:
+                raise AttemptClaimRefused("input_source_unavailable", str(exc)) from exc
         from frisket.engine.store.output_claims import OutputColumnClaimStore
 
         output_claims = OutputColumnClaimStore(project)

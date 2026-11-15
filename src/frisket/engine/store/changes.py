@@ -43,6 +43,18 @@ def start_change(db: sqlite3.Connection, op_id: int, *, writing: bool = False) -
     ).fetchone()
     if row is None or row[0] != "applied":
         raise ChangePublicationClosed(f"Change {op_id} is not applied")
+    # Prepared operations have publication_closed=1 before they have an order:
+    # that default is not proof that a live producer was closed. Cancellation
+    # is the existing durable authority preventing their first write, including
+    # after a deleted source is restored.
+    if (
+        writing
+        and db.execute(
+            "SELECT 1 FROM runs WHERE op_id=? AND cancel_requested_at IS NOT NULL LIMIT 1",
+            (op_id,),
+        ).fetchone()
+    ):
+        raise ChangePublicationClosed(f"Change {op_id} execution was cancelled")
     if row[1] is not None:
         if writing and row[2]:
             raise ChangePublicationClosed(f"Change {op_id} publication is closed")

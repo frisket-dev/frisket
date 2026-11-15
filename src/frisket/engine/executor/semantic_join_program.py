@@ -92,6 +92,17 @@ class _SemanticJoinProgram(_TypedMapRowsProgram):
     max_concurrency = 1
     defer_generation_seal = True
 
+    def execution_source_binding(self, spec):
+        from frisket.engine.store.source_dependencies import execution_source_binding
+
+        sides = [spec["semantic_join"][role] for role in ("source", "target")]
+        return execution_source_binding(
+            sheet_ids=[side["sheet_id"] for side in sides],
+            column_ids=[
+                column for side in sides for column in side["columns"].values()
+            ],
+        )
+
     def estimate(self, project, spec, rows, *, resolution=None):
         from frisket.ai.llm import estimate_tokens, model_pricing
         from frisket.ai.embeddings.backends import embedder_is_remote

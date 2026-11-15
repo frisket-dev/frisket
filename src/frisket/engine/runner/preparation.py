@@ -716,9 +716,24 @@ def prepare_validated(
                 run_store.increment_total_rows(run_id, len(row_ids))
     else:
         persisted_spec = persistable_spec(spec)
+        from frisket.engine.store.source_dependencies import (
+            SOURCE_BINDING,
+            execution_source_binding,
+        )
+
+        bind_sources = getattr(recipe, "execution_source_binding", None)
+        operation_spec = dict(persisted_spec)
+        operation_spec[SOURCE_BINDING] = (
+            bind_sources(spec)
+            if callable(bind_sources)
+            else execution_source_binding(
+                sheet_ids=[sheet_id],
+                column_ids=[col_map[name] for name in recipe.source_columns(spec)],
+            )
+        )
         op_id = project.append_op(
             "map",
-            persisted_spec,
+            operation_spec,
             label=f"{recipe.name}: {', '.join(out_cols)}",
             commit=not defer_commits,
         )

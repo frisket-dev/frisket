@@ -119,6 +119,18 @@ def delete_sheet(project: Any, sheet_id: int) -> dict[str, Any]:
         )
         start_change(project.db, op_id)
         project.db.execute("UPDATE sheets SET hidden=1 WHERE id=?", (sheet_id,))
+        from .source_dependencies import stop_direct_consumers
+
+        stop_direct_consumers(
+            project,
+            sheet_ids=[sheet_id],
+            column_ids=[
+                int(row[0])
+                for row in project.db.execute(
+                    "SELECT id FROM columns WHERE sheet_id=?", (sheet_id,)
+                )
+            ],
+        )
         note_row_membership_change(project.db, [sheet_id])
     project.refresh_pending_review_summary()
     return {

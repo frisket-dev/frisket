@@ -448,6 +448,27 @@ def step_operation(
     from .structural_changes import project_structural_changes
 
     project_structural_changes(project.db, target_op_id)
+    from .source_dependencies import stop_direct_consumers
+
+    unavailable_sheets = [
+        int(row[0])
+        for row in project.db.execute(
+            "SELECT s.id FROM structural_changes effect JOIN sheets s ON s.id=effect.object_id "
+            "WHERE effect.op_id=? AND effect.kind='sheet' AND s.hidden=1",
+            (target_op_id,),
+        )
+    ]
+    unavailable_columns = [
+        int(row[0])
+        for row in project.db.execute(
+            "SELECT c.id FROM structural_changes effect JOIN columns c ON c.id=effect.object_id "
+            "WHERE effect.op_id=? AND effect.kind='column' AND c.active=0",
+            (target_op_id,),
+        )
+    ]
+    stop_direct_consumers(
+        project, sheet_ids=unavailable_sheets, column_ids=unavailable_columns
+    )
     from .review_judgments import project_judgments
 
     project_judgments(project, target_op_id)

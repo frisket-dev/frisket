@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import hashlib
 import json
 import logging
@@ -646,6 +648,17 @@ async def _complete_reduce_group_summary_call(
     return response
 
 
+def _group_source_binding(resolved: Mapping[str, Any]) -> dict[str, list[int]]:
+    from frisket.engine.store.source_dependencies import execution_source_binding
+
+    columns = [item["column_id"] for item in resolved["source_columns"].values()]
+    if resolved.get("group_column") is not None:
+        columns.append(resolved["group_column"]["column_id"])
+    return execution_source_binding(
+        sheet_ids=[resolved["sheet_id"]], column_ids=columns
+    )
+
+
 async def _complete_reduce_group_summaries_unfenced(
     project: Project,
     params: GroupSummaryPlan,
@@ -666,6 +679,7 @@ async def _complete_reduce_group_summaries_unfenced(
         {
             "kind": params.action_kind,
             "request": params.request,
+            "execution_sources": _group_source_binding(resolved),
         },
         label=f"reduce.group_summary {params.target_sheet_name}",
     )
@@ -710,6 +724,11 @@ async def _complete_reduce_group_summaries_unfenced(
             )
             trace_record: list[dict[str, Any] | None] = [None]
             try:
+                from frisket.engine.store.source_dependencies import (
+                    require_execution_sources,
+                )
+
+                require_execution_sources(project, op_id)
                 response = await _complete_reduce_group_summary_call(
                     router,
                     recorder,
@@ -850,7 +869,7 @@ async def _complete_reduce_group_summaries_checkpointed(
         estimate = _estimate_reduce_group_summary_cost(params, resolved)
         op_id = project.append_op(
             params.action_kind,
-            dict(params.request),
+            {**params.request, "execution_sources": _group_source_binding(resolved)},
             label=f"reduce.group_summary {params.target_sheet_name}",
         )
         run_id = run_store.start_run(
@@ -976,6 +995,11 @@ async def _reduce_group_summary_checkpointed_loop(
         )
         trace_record: list[dict[str, Any] | None] = [None]
         try:
+            from frisket.engine.store.source_dependencies import (
+                require_execution_sources,
+            )
+
+            require_execution_sources(run_store.project, int(envelope["op_id"]))
             response = await _complete_reduce_group_summary_call(
                 router,
                 recorder,
@@ -1204,6 +1228,62 @@ def _write_reduce_group_summary_result(
                     field="idempotency_key",
                 ),
             )
+        run_store = RunResultStore(project)
+        if authority_effect is not None and run_store.cancellation_requested(
+            int(authority_effect["run_id"])
+        ):
+            cancelled_run = int(authority_effect["run_id"])
+            writer_attempt = str(authority_effect["attempt_id"])
+            # Paid responses already live in their checkpoints. Retain the
+            # same diagnostic facts for free/direct responses before closing.
+            returned = [
+                {"row_id": None, "column_id": None, "model_calls": [item["model_call"]]}
+                for item in computations
+                if isinstance(item.get("model_call"), dict)
+            ]
+            if returned:
+                run_store.write_returned_call_accounting(
+                    cancelled_run,
+                    returned,
+                    writer_attempt_id=writer_attempt,
+                    claimless_direct_effect=True,
+                    authorized_attempt_id=writer_attempt,
+                    commit=False,
+                )
+            from frisket.engine.store.receipts import ReceiptStore
+
+            cancelled_receipt = (
+                ReceiptStore(project)
+                .parsed_by_id(receipt_id)
+                .model_copy(update={"run_id": cancelled_run, "status": "cancelled"})
+            )
+            terminal = terminalize_project_run(
+                project,
+                run_id=cancelled_run,
+                receipt_id=receipt_id,
+                status="cancelled",
+                terminal_receipt=cancelled_receipt,
+                authority=CurrentWriterTerminalAuthority(
+                    writer_attempt_id=writer_attempt,
+                    claim_token=None,
+                    claimless_direct_effect=True,
+                ),
+                commit=False,
+            )
+            if terminal.disposition != "terminalized":
+                raise StaleAttemptWriter(
+                    terminal.reason or "cancelled summary could not close"
+                )
+            project.db.commit()
+            return ActionResult(
+                action=ActionIdentity(kind=action.kind, action_id=action_id),
+                status="cancelled",
+                project_id=project_id,
+                run_id=cancelled_run,
+                op_ids=[int(authority_effect["op_id"])],
+                receipt_id=receipt_id,
+            )
+
         duplicate = _precheck_reduce_group_summary_target(project, params)
         if duplicate is not None:
             project.db.rollback()

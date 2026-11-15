@@ -3250,11 +3250,10 @@ class RunResultStore:
     ) -> RunResumeAdmission:
         """Atomically reopen a genuine resume and clear prior halt metadata.
 
-        A direct ``run.backfill`` may intentionally resume any terminal run. A
-        queue worker may resume only the already-running attempt or a cancelled
-        invocation carrying an allowlisted internal-halt marker. The status,
-        marker, and update are evaluated under one write transaction so a
-        terminal transition racing admission cannot be erased accidentally.
+        Recovery continues only an eligible, still-open Change. Explicit Retry
+        owns a new Change; it never clears cancellation on this old owner. The
+        status, marker, and update are evaluated under one write transaction so
+        a terminal transition racing admission cannot be erased accidentally.
 
         Returns the admission decision TOGETHER with the exact pre-resume run
         state observed under that transaction, so a caller whose pre-dispatch
@@ -3313,8 +3312,10 @@ class RunResultStore:
             # terminal path closes publication, continuing this run would
             # reuse an owner that can never publish; callers must create an
             # explicit Retry as a new Change instead.
-            if row["change_status"] != "applied" or (
-                row["change_order"] is not None and bool(row["publication_closed"])
+            if (
+                row["change_status"] != "applied"
+                or row["cancel_requested_at"] is not None
+                or (row["change_order"] is not None and bool(row["publication_closed"]))
             ):
                 if commit:
                     self.db.commit()

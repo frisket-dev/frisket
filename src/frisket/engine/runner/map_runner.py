@@ -821,7 +821,9 @@ class MapRunner:
         def cancelled() -> bool:
             if progress.cancelled:
                 return True
-            if self.should_cancel is not None and self.should_cancel(run_id):
+            if self.run_store.cancellation_requested(run_id) or (
+                self.should_cancel is not None and self.should_cancel(run_id)
+            ):
                 progress.cancel_requested = True
                 progress.cancel()
             return progress.cancelled
@@ -848,11 +850,14 @@ class MapRunner:
             if name in col_map
         )
 
+        publication_cancelled = False
+
         def persist_result_batch(
             batch: list[dict[str, Any]],
             *,
             checkpoint: tuple[str, int, str] | None = None,
         ) -> None:
+            nonlocal publication_cancelled
             writer_attempt_id = attempt.attempt_id if attempt is not None else None
 
             evidence_writer = None
@@ -895,18 +900,36 @@ class MapRunner:
                             run_id, writer_attempt_id
                         ) from exc
 
-            self.run_store.publish_result_batch(
-                run_id,
-                batch,
-                writer_attempt_id=writer_attempt_id,
-                claim_token=claim_token,
-                authorized_attempt_id=writer_attempt_id,
-                claimless_direct_effect=self.claimless_direct_effect,
-                checkpoint=checkpoint,
-                checkpoint_action_kind=(spec["action_kind"] if checkpoint else None),
-                defer_generation_seal=defer_generation_seal,
-                evidence_writer=evidence_writer,
-            )
+            from frisket.engine.store.changes import ChangePublicationClosed
+            from frisket.engine.store.result_generations import GenerationStateError
+
+            try:
+                self.run_store.publish_result_batch(
+                    run_id,
+                    batch,
+                    writer_attempt_id=writer_attempt_id,
+                    claim_token=claim_token,
+                    authorized_attempt_id=writer_attempt_id,
+                    claimless_direct_effect=self.claimless_direct_effect,
+                    checkpoint=checkpoint,
+                    checkpoint_action_kind=(
+                        spec["action_kind"] if checkpoint else None
+                    ),
+                    defer_generation_seal=defer_generation_seal,
+                    evidence_writer=evidence_writer,
+                )
+            except (ChangePublicationClosed, GenerationStateError) as exc:
+                # Source deletion closes publication while requests already in
+                # flight still return. Accounting/checkpoints were committed
+                # before this publication attempt; drain siblings normally.
+                closed = isinstance(exc, ChangePublicationClosed) or isinstance(
+                    exc.__cause__, ChangePublicationClosed
+                )
+                if not closed or not self.run_store.cancellation_requested(run_id):
+                    raise
+                publication_cancelled = True
+                progress.cancel_requested = True
+                progress.cancel()
 
         # Route-binding extras are
         # merged HERE, on the one execution path every routed run shares
@@ -2196,8 +2219,10 @@ class MapRunner:
         # progress.completed counts every finished row (failures included —
         # failed is a subset), so it alone says whether work remained
         cancelled()
-        truly_cancelled = progress.halted_code is not None or (
-            progress.cancelled and progress.completed < prepared.row_count
+        truly_cancelled = (
+            publication_cancelled
+            or progress.halted_code is not None
+            or (progress.cancelled and progress.completed < prepared.row_count)
         )
         cooperative_cancel = bool(
             self.defer_cancel_terminal_close
