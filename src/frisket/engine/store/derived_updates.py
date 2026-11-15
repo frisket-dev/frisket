@@ -95,6 +95,37 @@ def publish_refresh(
     Only declared output columns and observed generated members are owned here.
     Other columns and user-added rows remain independent working data.
     """
+    from types import SimpleNamespace
+
+    from .changes import ChangeStore
+    from .op_log import append_op
+
+    if not db.in_transaction:
+        raise RuntimeError("derived refresh requires a caller transaction")
+    project = SimpleNamespace(db=db)
+    op_id = append_op(
+        project,
+        "sheet.refresh",
+        label=f"Refresh sheet {sheet_id}",
+        spec={"sheet_id": sheet_id, "policy": policy, **(spec or {})},
+        commit=False,
+    )
+    ChangeStore(project).start(op_id)
+    output_ids = reconcile_into_open_change(
+        db, op_id=op_id, sheet_id=sheet_id, config=config,
+        columns=columns, rows=rows, policy=policy,
+    )
+    ChangeStore(project).close(op_id)
+    return op_id, output_ids
+
+
+def reconcile_into_open_change(
+    db, *, op_id, sheet_id, config, columns, rows, policy="keep_changes"
+):
+    """Reconcile a complete enumeration into the caller's open Change.
+
+    The owning execution seals results and closes publication after this call.
+    """
     from collections import defaultdict
     from types import SimpleNamespace
 
@@ -107,7 +138,7 @@ def publish_refresh(
     from .changes import ChangeStore
     from .current_value_windows import read_current_column
     from .materialization import _insert_materialized_row_source
-    from .op_log import append_op, set_undo_info
+    from .op_log import set_undo_info
     from .structural_changes import note_row_membership_change
 
     if not db.in_transaction:
@@ -204,14 +235,7 @@ def publish_refresh(
         ).items():
             current[row_id][str(column_id)] = cell.value
     project = SimpleNamespace(db=db)
-    op_id = append_op(
-        project,
-        "sheet.refresh",
-        label=f"Refresh sheet {sheet_id}",
-        spec={"sheet_id": sheet_id, "policy": policy, **(spec or {})},
-        commit=False,
-    )
-    ChangeStore(project).start(op_id)
+    ChangeStore(project).require_publication(op_id)
     from .column_descriptors import set_descriptor
     from frisket.contracts.action import canonical_column_type
 
@@ -322,5 +346,4 @@ def publish_refresh(
     set_undo_info(project, op_id, {**descriptor_info, **info}, commit=False)
     if any(info.values()):
         note_row_membership_change(db, [sheet_id])
-    ChangeStore(project).close(op_id)
-    return op_id, output_ids
+    return output_ids
