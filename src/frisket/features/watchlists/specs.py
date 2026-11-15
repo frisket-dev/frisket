@@ -19,6 +19,7 @@ DETECTION_POLICY_MEMBERSHIP_CHANGED = "membership_changed"
 DETECTION_POLICY_COUNT_CHANGED = "count_changed"
 DETECTION_POLICY_THRESHOLD_CROSSED = "threshold_crossed"
 DETECTION_POLICY_ROW_CHANGED = "row_changed"
+DETECTION_POLICY_CONDITIONS = "conditions"
 EMBEDDING_SIMILARITY_KIND = "embedding_similarity"
 EMBEDDING_HYBRID_KIND = "embedding_hybrid"
 # Anchors a watch can re-evaluate deterministically WITHOUT a provider call. Only a
@@ -41,6 +42,7 @@ DETECTION_POLICY_KINDS = {
     DETECTION_POLICY_COUNT_CHANGED,
     DETECTION_POLICY_THRESHOLD_CROSSED,
     DETECTION_POLICY_ROW_CHANGED,
+    DETECTION_POLICY_CONDITIONS,
 }
 
 
@@ -127,8 +129,46 @@ def normalize_detection_policy(policy: dict[str, Any] | None) -> dict[str, Any]:
         return _normalize_threshold_policy(policy)
     if kind == DETECTION_POLICY_ROW_CHANGED:
         return _normalize_row_changed_policy(policy)
+    if kind == DETECTION_POLICY_CONDITIONS:
+        normalized: dict[str, Any] = {"kind": kind}
+        for name, default in (
+            ("entered", True),
+            ("exited", False),
+            ("count_changed", False),
+        ):
+            value = policy.get(name, default)
+            if not isinstance(value, bool):
+                raise ValueError(f"{name} must be a boolean")
+            normalized[name] = value
+        fields = policy.get("fields", [])
+        if not isinstance(fields, list):
+            raise ValueError("fields must be an array")
+        normalized["fields"] = [_normalize_row_changed_field(field) for field in fields]
+        if policy.get("threshold") is not None:
+            threshold = policy["threshold"]
+            if not isinstance(threshold, dict):
+                raise ValueError("threshold must be an object")
+            normalized["threshold"] = _normalize_threshold_policy(threshold)
+        return normalized
     allowed = ", ".join(sorted(DETECTION_POLICY_KINDS))
     raise ValueError(f"detection policy kind must be one of: {allowed}")
+
+
+def detection_conditions(policy: dict[str, Any]) -> dict[str, Any]:
+    """One independent-condition representation for stored and newly authored alerts."""
+    policy = normalize_detection_policy(policy)
+    kind = policy["kind"]
+    if kind == DETECTION_POLICY_CONDITIONS:
+        return policy
+    return {
+        "kind": DETECTION_POLICY_CONDITIONS,
+        "entered": kind
+        in {DETECTION_POLICY_NEW_MATCHES, DETECTION_POLICY_MEMBERSHIP_CHANGED},
+        "exited": kind == DETECTION_POLICY_MEMBERSHIP_CHANGED,
+        "count_changed": kind == DETECTION_POLICY_COUNT_CHANGED,
+        "fields": policy.get("fields", []),
+        **({"threshold": policy} if kind == DETECTION_POLICY_THRESHOLD_CROSSED else {}),
+    }
 
 
 def normalize_watch_spec(

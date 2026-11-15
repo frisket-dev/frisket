@@ -8,7 +8,6 @@ providers run only from delivery requests.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import sqlite3
 import uuid
@@ -23,7 +22,6 @@ from frisket.server.notifications.producers import (
 )
 from frisket.redaction import DEFAULT_LOG_STRING_MAX_CHARS, redact_text, redact_value
 from frisket.engine.store import Project
-from frisket.features.watchlists.specs import canonical_json
 
 LOCAL_ACTOR_ID = "local:project"
 NOTIFICATION_PAGE_SCHEMA_VERSION = "frisket.notifications_page.v1"
@@ -511,10 +509,8 @@ def _dedupe_key(
 
 
 def watch_events_dedupe_key(*, watch_id: int, run_id: int, event_ids: list[int]) -> str:
-    digest = hashlib.sha256(
-        canonical_json(sorted({int(value) for value in event_ids})).encode("utf-8")
-    ).hexdigest()
-    return f"watch:{int(watch_id)}:run:{int(run_id)}:events:sha256:{digest}"
+    # The check owns one summary, irrespective of how many detail previews fit.
+    return f"watch:{int(watch_id)}:run:{int(run_id)}"
 
 
 def _channel_secret_ref(kind: str, data: dict[str, Any]) -> str | None:

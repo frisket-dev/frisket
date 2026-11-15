@@ -1051,6 +1051,8 @@ class Project:
         resolved_query: dict[str, Any] | None = None,
         error_code: str | None = None,
         advance_cursor: bool = True,
+        observation_project: Any | None = None,
+        expected_watch: Any | None = None,
     ) -> int:
         return watches.record_watch_run(
             self,
@@ -1064,6 +1066,8 @@ class Project:
             resolved_query=resolved_query,
             error_code=error_code,
             advance_cursor=advance_cursor,
+            observation_project=observation_project,
+            expected_watch=expected_watch,
         )
 
     # ---------- notifications ----------

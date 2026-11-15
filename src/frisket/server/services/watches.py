@@ -469,7 +469,7 @@ def _normalize_watch_detection_policy(
         normalized = normalize_detection_policy(policy)
     except ValueError as exc:
         raise WatchRequestError(str(exc)) from exc
-    if normalized["kind"] != "row_changed":
+    if normalized["kind"] not in {"row_changed", "conditions"}:
         return normalized
 
     fields: list[dict[str, Any]] = []
@@ -478,7 +478,7 @@ def _normalize_watch_detection_policy(
         column = None
         if field.get("column_id") is not None:
             column = project.db.execute(
-                "SELECT id, sheet_id, name FROM columns WHERE id=? AND hidden=0",
+                "SELECT id, sheet_id, name FROM columns WHERE id=? AND active=1",
                 (int(field["column_id"]),),
             ).fetchone()
             if column is None:
@@ -497,12 +497,7 @@ def _normalize_watch_detection_policy(
                 )
             columns = project.columns(int(field_sheet_id))
             column = next(
-                (
-                    col
-                    for col in columns
-                    if str(col["name"]) == str(field.get("name"))
-                    and not bool(col["hidden"])
-                ),
+                (col for col in columns if str(col["name"]) == str(field.get("name"))),
                 None,
             )
             if column is None:
@@ -514,4 +509,4 @@ def _normalize_watch_detection_policy(
                 "name": str(field.get("name") or column["name"]),
             }
         )
-    return {"kind": "row_changed", "fields": fields}
+    return {**normalized, "fields": fields}

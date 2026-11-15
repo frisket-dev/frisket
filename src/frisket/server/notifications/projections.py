@@ -34,7 +34,7 @@ def watch_run_notification_candidate(
         return None
     event_ids = sorted(int(event["id"]) for event in events)
     event_kinds = sorted({str(event["event_kind"]) for event in events})
-    event_count = len(events)
+    event_count = project.watch_run_events_total(int(run_id))
     watch_name = str(watch["name"])
     severity = _highest_severity(
         str(event.get("severity") or "info") for event in events
@@ -74,6 +74,7 @@ def watch_run_notification_candidate(
             "matched_rows": matched_rows,
             "new_rows": new_rows,
             "event_kinds": event_kinds,
+            "event_count": event_count,
         },
     }
 

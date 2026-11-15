@@ -74,39 +74,39 @@ def evaluate_resolved_watch(
 def run_watch_evaluation(project: Project, row: Any) -> dict[str, Any]:
     watch_id = int(row["id"])
     op_cursor_before = int(row["last_evaluated_op"] or 0)
-    try:
-        resolution = resolve_watch_run(project, row)
-        hits = evaluate_resolved_watch(project, resolution["watch"])
-        status = "ok"
-        error = None
-        error_code = None
-        op_cursor_after = project.op_cursor
-        advance_cursor = True
-    except WatchBindingError as exc:
-        if exc.code == "search_index_not_ready":
-            raise
-        resolution = {
-            "resolved_query": {},
-            "resolved_query_hash": None,
-        }
-        hits = []
-        status = "error"
-        error = exc.message
-        error_code = exc.code
-        op_cursor_after = op_cursor_before
-        advance_cursor = False
-    run_id = project.record_watch_run(
-        watch_id,
-        hits=hits,
-        status=status,
-        error=error,
-        op_cursor_before=op_cursor_before,
-        op_cursor_after=op_cursor_after,
-        resolved_query_hash=resolution["resolved_query_hash"],
-        resolved_query=resolution["resolved_query"],
-        error_code=error_code,
-        advance_cursor=advance_cursor,
-    )
+    with project.read_snapshot() as snapshot:
+        try:
+            resolution = resolve_watch_run(snapshot, row)
+            hits = evaluate_resolved_watch(snapshot, resolution["watch"])
+            status = "ok"
+            error = None
+            error_code = None
+            op_cursor_after = snapshot.op_cursor
+            advance_cursor = True
+        except WatchBindingError as exc:
+            if exc.code == "search_index_not_ready":
+                raise
+            resolution = {"resolved_query": {}, "resolved_query_hash": None}
+            hits = []
+            status = "error"
+            error = exc.message
+            error_code = exc.code
+            op_cursor_after = op_cursor_before
+            advance_cursor = False
+        run_id = project.record_watch_run(
+            watch_id,
+            hits=hits,
+            status=status,
+            error=error,
+            op_cursor_before=op_cursor_before,
+            op_cursor_after=op_cursor_after,
+            resolved_query_hash=resolution["resolved_query_hash"],
+            resolved_query=resolution["resolved_query"],
+            error_code=error_code,
+            advance_cursor=advance_cursor,
+            observation_project=snapshot,
+            expected_watch=row,
+        )
     run = project.get_watch_run(run_id)
     if run is None:
         raise RuntimeError("watch run was not recorded")
