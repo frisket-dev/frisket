@@ -123,6 +123,7 @@ class _ReviewService:
         offset: int,
         limit: int,
         run_id: int | None,
+        copied_op_id: int | None = None,
         include_reviewed: bool,
         field_id: int | None,
         order: str,
@@ -194,6 +195,7 @@ class _ReviewService:
         *,
         sheet_id: int | None,
         run_id: int | None,
+        copied_op_id: int | None = None,
         offset: int,
         limit: int,
     ) -> dict[str, Any]:

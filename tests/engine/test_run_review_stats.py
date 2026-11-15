@@ -87,6 +87,10 @@ def _managed_run(
         "ON CONFLICT(column_id,row_id) DO UPDATE SET run_id=excluded.run_id",
         [(column_id, row_id, run_id) for row_id in row_ids for column_id in columns],
     )
+    from frisket.engine.store.changes import start_change
+
+    start_change(project.db, op_id)
+    project.db.execute("UPDATE results SET published=1 WHERE run_id=?", (run_id,))
     store.finish_run(run_id)
     return run_id
 

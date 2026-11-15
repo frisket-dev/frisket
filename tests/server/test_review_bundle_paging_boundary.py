@@ -339,7 +339,9 @@ def test_review_runs_report_decisions_and_persist_workflow_status(
         run_id, row_ids[0], columns["risk"], "accept", None
     )
     store.set_result_review_state(run_id, row_ids[0], columns["tone"], "verified")
-    store.set_result_review_metadata(run_id, row_ids[0], columns["tone"], "edit", None)
+    store.set_result_review_metadata(
+        run_id, row_ids[0], columns["tone"], "reject", None
+    )
     # Old reviewed rows have no durable accept-vs-edit fact. They stay in the
     # eligible total, but not in known decisions or pending work.
     store.set_result_review_state(run_id, row_ids[1], columns["risk"], "verified")
@@ -389,7 +391,9 @@ def test_review_runs_report_decisions_and_persist_workflow_status(
     assert reopened.json()["review_completed_at"] is None
 
 
-def test_review_run_picker_excludes_current_running_runs(tmp_path: Path) -> None:
+def test_review_run_picker_includes_completed_results_of_running_runs(
+    tmp_path: Path,
+) -> None:
     client, project_id, row_ids = _seed_review_history(tmp_path)
     project = client.app.state.workspace.get(project_id)
     sheet_id = int(project.db.execute("SELECT id FROM sheets").fetchone()[0])
@@ -414,10 +418,8 @@ def test_review_run_picker_excludes_current_running_runs(tmp_path: Path) -> None
 
     while_running = client.get(f"/api/projects/{project_id}/review/runs")
     assert while_running.status_code == 200, while_running.text
-    assert running_id not in {
-        int(item["run_id"]) for item in while_running.json()["runs"]
-    }
-    assert queue_count(project) == len(row_ids) * 2
+    assert running_id in {int(item["run_id"]) for item in while_running.json()["runs"]}
+    assert queue_count(project) == len(row_ids) * 2 + 1
 
     RunResultStore(project).finish_run(running_id, "completed")
     finished = client.get(f"/api/projects/{project_id}/review/runs")

@@ -129,6 +129,19 @@ def _point_heads(
         [(column_id, row_id, run_id) for row_id in row_ids],
     )
 
+    from frisket.engine.store.changes import start_change
+
+    start_change(
+        project.db,
+        project.db.execute("SELECT op_id FROM runs WHERE id=?", (run_id,)).fetchone()[
+            0
+        ],
+    )
+    project.db.executemany(
+        "UPDATE results SET published=1 WHERE column_id=? AND row_id=? AND run_id=?",
+        [(column_id, row_id, run_id) for row_id in row_ids],
+    )
+
 
 def test_scalar_only_ai_results_are_not_a_live_reader_lane(tmp_path: Path) -> None:
     """A stray scalar pointer cannot make headless AI results current again."""
