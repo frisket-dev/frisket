@@ -15,6 +15,7 @@ from typing import Any
 from frisket.authoring.column_types import range_facet_value_kind
 from frisket.calendar_dates import normalize_utc_calendar_date
 from frisket.engine.store import Project
+from frisket.engine.store.transactions import read_transaction
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import (
     FAILURE_OUTCOMES,
@@ -838,35 +839,36 @@ def resolve_sheet_filter_rows(
     reference_date: date | None = None,
     row_ids: Sequence[int] | None = None,
 ) -> SheetFilterRowSet:
-    plan = sheet_row_scope_plan(
-        project,
-        sheet_id,
-        parent_row_id=parent_row_id,
-        filter_=filter_,
-        sort=sort,
-        reference_date=reference_date,
-        row_ids=row_ids,
-    )
-    try:
-        bounded_limit = max(0, int(limit))
-        bounded_offset = max(0, int(offset))
-    except (TypeError, ValueError):
-        raise SheetRowSetError("limit and offset must be integers") from None
-    rows, total = execute_sheet_row_page(
-        project,
-        plan,
-        limit=bounded_limit,
-        offset=bounded_offset,
-    )
-    return SheetFilterRowSet(
-        sheet_id=sheet_id,
-        row_ids=[int(row["id"]) for row in rows],
-        total=total,
-        limit=bounded_limit,
-        offset=bounded_offset,
-        filter=filter_,
-        sort=sort,
-    )
+    with read_transaction(project.db):
+        plan = sheet_row_scope_plan(
+            project,
+            sheet_id,
+            parent_row_id=parent_row_id,
+            filter_=filter_,
+            sort=sort,
+            reference_date=reference_date,
+            row_ids=row_ids,
+        )
+        try:
+            bounded_limit = max(0, int(limit))
+            bounded_offset = max(0, int(offset))
+        except (TypeError, ValueError):
+            raise SheetRowSetError("limit and offset must be integers") from None
+        rows, total = execute_sheet_row_page(
+            project,
+            plan,
+            limit=bounded_limit,
+            offset=bounded_offset,
+        )
+        return SheetFilterRowSet(
+            sheet_id=sheet_id,
+            row_ids=[int(row["id"]) for row in rows],
+            total=total,
+            limit=bounded_limit,
+            offset=bounded_offset,
+            filter=filter_,
+            sort=sort,
+        )
 
 
 def count_sheet_filter_values(
@@ -881,59 +883,60 @@ def count_sheet_filter_values(
     reference_date: date | None = None,
 ) -> tuple[list[tuple[str, Any, int]], bool]:
     """Exact filter-scoped value groups, capped only at the response edge."""
-    from frisket.engine.store.current_read_sql import current_values_sql
+    with read_transaction(project.db):
+        from frisket.engine.store.current_read_sql import current_values_sql
 
-    column = next(
-        (c for c in project.columns(sheet_id) if int(c["id"]) == column_id), None
-    )
-    if column is None:
-        raise SheetRowSetError("count_by column is not in sheet")
-    plan = sheet_row_scope_plan(
-        project,
-        sheet_id,
-        filter_=filter_,
-        sort=sort,
-        row_ids=row_ids,
-        reference_date=reference_date,
-    )
-    rows = project.db.execute(
-        "WITH count_values AS (SELECT "
-        "live.value, live.value_kind, live.validity "
-        f"FROM {plan.filter_from_sql} LEFT JOIN {current_values_sql(project.db, [column_id], row_ids)} live "
-        "ON live.column_id=? AND live.row_id=r.id "
-        f"WHERE {plan.where_sql}), "
-        "count_groups AS (SELECT CASE "
-        "WHEN validity='invalid' THEN 'invalid' "
-        "WHEN validity='valid' AND value_kind<>'null' AND value IS NOT NULL THEN 'valid' "
-        "ELSE 'missing' END AS kind, "
-        "CASE WHEN validity='valid' AND value_kind<>'null' AND value IS NOT NULL "
-        "THEN value_kind END AS value_kind, "
-        "CASE WHEN validity='valid' AND value_kind<>'null' AND value IS NOT NULL "
-        "THEN value END AS value FROM count_values) "
-        "SELECT kind, CASE WHEN kind='valid' THEN CASE "
-        "WHEN value_kind IN ('integer','real') THEN 'number' "
-        "ELSE value_kind END END AS value_type, "
-        "CASE WHEN kind='valid' THEN value END AS value, "
-        "COUNT(*) AS count "
-        "FROM count_groups GROUP BY kind, value_type, value "
-        "ORDER BY count DESC, CASE kind "
-        "WHEN 'valid' THEN 0 WHEN 'missing' THEN 1 ELSE 2 END, value LIMIT ?",
-        [
-            *plan.filter_join_params,
-            column["id"],
-            *plan.where_params,
-            limit + 1,
-        ],
-    ).fetchall()
-    values = [
-        (
-            str(row["kind"]),
-            _decode_grouped_json_value(row["value_type"], row["value"]),
-            int(row["count"]),
+        column = next(
+            (c for c in project.columns(sheet_id) if int(c["id"]) == column_id), None
         )
-        for row in rows[:limit]
-    ]
-    return values, len(rows) <= limit
+        if column is None:
+            raise SheetRowSetError("count_by column is not in sheet")
+        plan = sheet_row_scope_plan(
+            project,
+            sheet_id,
+            filter_=filter_,
+            sort=sort,
+            row_ids=row_ids,
+            reference_date=reference_date,
+        )
+        rows = project.db.execute(
+            "WITH count_values AS (SELECT "
+            "live.value, live.value_kind, live.validity "
+            f"FROM {plan.filter_from_sql} LEFT JOIN {current_values_sql(project.db, [column_id], row_ids)} live "
+            "ON live.column_id=? AND live.row_id=r.id "
+            f"WHERE {plan.where_sql}), "
+            "count_groups AS (SELECT CASE "
+            "WHEN validity='invalid' THEN 'invalid' "
+            "WHEN validity='valid' AND value_kind<>'null' AND value IS NOT NULL THEN 'valid' "
+            "ELSE 'missing' END AS kind, "
+            "CASE WHEN validity='valid' AND value_kind<>'null' AND value IS NOT NULL "
+            "THEN value_kind END AS value_kind, "
+            "CASE WHEN validity='valid' AND value_kind<>'null' AND value IS NOT NULL "
+            "THEN value END AS value FROM count_values) "
+            "SELECT kind, CASE WHEN kind='valid' THEN CASE "
+            "WHEN value_kind IN ('integer','real') THEN 'number' "
+            "ELSE value_kind END END AS value_type, "
+            "CASE WHEN kind='valid' THEN value END AS value, "
+            "COUNT(*) AS count "
+            "FROM count_groups GROUP BY kind, value_type, value "
+            "ORDER BY count DESC, CASE kind "
+            "WHEN 'valid' THEN 0 WHEN 'missing' THEN 1 ELSE 2 END, value LIMIT ?",
+            [
+                *plan.filter_join_params,
+                column["id"],
+                *plan.where_params,
+                limit + 1,
+            ],
+        ).fetchall()
+        values = [
+            (
+                str(row["kind"]),
+                _decode_grouped_json_value(row["value_type"], row["value"]),
+                int(row["count"]),
+            )
+            for row in rows[:limit]
+        ]
+        return values, len(rows) <= limit
 
 
 def _decode_grouped_json_value(value_type: str | None, value: Any) -> Any:
