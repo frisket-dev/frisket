@@ -174,12 +174,12 @@ def _immediate_source_ids(
     visited_placeholders = ",".join("?" for _ in visited_ids)
     source_rows = project.db.execute(
         "SELECT DISTINCT source_row_id FROM ("
-        "SELECT m.source_row_id FROM materialized_row_sources m "
+        "SELECT m.source_row_id FROM current_materialized_row_sources m "
         f"WHERE m.materialized_row_id IN ({row_placeholders}) "
         "UNION ALL "
         "SELECT r.parent_row_id AS source_row_id FROM rows r "
         f"WHERE r.id IN ({row_placeholders}) AND r.parent_row_id IS NOT NULL "
-        "AND NOT EXISTS (SELECT 1 FROM materialized_row_sources m "
+        "AND NOT EXISTS (SELECT 1 FROM current_materialized_row_sources m "
         "WHERE m.materialized_row_id=r.id)"
         f") WHERE source_row_id NOT IN ({visited_placeholders}) "
         "ORDER BY source_row_id LIMIT ?",
@@ -194,7 +194,7 @@ def _row_has_immediate_source(project: Any, row_id: int) -> bool:
         project.db.execute(
             "SELECT 1 FROM rows r WHERE r.id=? AND ("
             "r.parent_row_id IS NOT NULL OR EXISTS ("
-            "SELECT 1 FROM materialized_row_sources m "
+            "SELECT 1 FROM current_materialized_row_sources m "
             "WHERE m.materialized_row_id=r.id)) LIMIT 1",
             (row_id,),
         ).fetchone()

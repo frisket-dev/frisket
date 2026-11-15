@@ -938,7 +938,7 @@ def _active_materialized_row_sources_query(
     where_sql = " WHERE " + " AND ".join(where) if where else ""
     rows = cur.execute(
         "SELECT m.materialized_row_id, m.source_row_id, m.source_sheet_id, "
-        "m.op_id, m.role FROM materialized_row_sources AS m "
+        f"m.op_id, m.role FROM {'materialized_row_sources' if include_historical else 'current_materialized_row_sources'} AS m "
         f"{joins}{where_sql} "
         "ORDER BY m.materialized_row_id, m.role, m.source_row_id",
         params,

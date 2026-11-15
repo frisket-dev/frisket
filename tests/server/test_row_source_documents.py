@@ -444,7 +444,7 @@ def test_real_right_side_refresh_marks_join_lineage_incomplete(tmp_path: Path) -
                 "WHERE materialized_row_id=? AND role='join_right'",
                 (join_row,),
             ).fetchone()[0]
-            == 0
+            == 1
         )
 
         payload = ProjectEvidenceService(_Workspace(project)).row_source_documents(  # type: ignore[arg-type]
@@ -547,7 +547,7 @@ def test_source_membership_read_stops_at_the_row_budget_sentinel(
         assert payload["ancestry_found"] is True
         assert payload["truncated"] is True
         assert any(
-            "FROM MATERIALIZED_ROW_SOURCES" in statement.upper()
+            "FROM CURRENT_MATERIALIZED_ROW_SOURCES" in statement.upper()
             and "UNION ALL" in statement.upper()
             and "LIMIT 256" in statement.upper()
             for statement in statements

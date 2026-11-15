@@ -49,7 +49,7 @@ def sheet_materialized_kind(
         return None
     placeholders = ",".join("?" for _ in roles)
     row = project.db.execute(
-        "SELECT 1 FROM materialized_row_sources AS m "
+        "SELECT 1 FROM current_materialized_row_sources AS m "
         "JOIN rows AS r ON r.id = m.materialized_row_id "
         f"WHERE r.sheet_id=? AND r.hidden=0 AND m.role IN ({placeholders}) LIMIT 1",
         (sheet_id, *roles),

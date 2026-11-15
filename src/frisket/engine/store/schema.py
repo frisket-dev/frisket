@@ -16,6 +16,7 @@ import re
 import sqlite3
 from pathlib import Path
 
+from .materialized_lineage import MATERIALIZED_LINEAGE_SCHEMA_SQL
 from .change_schema import CHANGE_SCHEMA_SQL
 from .copied_results import COPIED_RESULTS_SCHEMA_SQL
 from .consumed_sources import CONSUMED_SOURCE_SCHEMA_SQL
@@ -245,26 +246,7 @@ CREATE TABLE IF NOT EXISTS ops (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- MATERIALIZED_ROW_SOURCES_BEGIN
-CREATE TABLE IF NOT EXISTS materialized_row_sources (
-  materialized_row_id INTEGER NOT NULL REFERENCES rows(id) ON DELETE CASCADE,
-  source_row_id INTEGER NOT NULL REFERENCES rows(id) ON DELETE CASCADE,
-  source_sheet_id INTEGER NOT NULL REFERENCES sheets(id) ON DELETE CASCADE,
-  op_id INTEGER NOT NULL REFERENCES ops(id) ON DELETE CASCADE,
-  role TEXT NOT NULL CHECK (
-    role IN (
-      'edge_source', 'edge_target', 'aggregate_source', 'join_left', 'join_right'
-    )
-  ),
-  PRIMARY KEY (materialized_row_id, source_row_id, role)
-);
-CREATE INDEX IF NOT EXISTS idx_materialized_row_sources_source
-  ON materialized_row_sources(source_sheet_id, source_row_id, role);
-CREATE INDEX IF NOT EXISTS idx_materialized_row_sources_materialized
-  ON materialized_row_sources(materialized_row_id, role);
-CREATE INDEX IF NOT EXISTS idx_materialized_row_sources_op
-  ON materialized_row_sources(op_id);
--- MATERIALIZED_ROW_SOURCES_END
+
 
 -- Run = one execution of an op over a sheet. The provenance envelope,
 -- stored once. cost figures in USD.
@@ -2528,6 +2510,7 @@ CREATE INDEX IF NOT EXISTS idx_project_qa_research_operations_unsettled
 
 # Citation fallback DDL is owned beside its resolver/triggers, but remains part
 # of the one authoritative fresh-bundle schema and therefore of its digest.
+SCHEMA += "\n" + MATERIALIZED_LINEAGE_SCHEMA_SQL
 SCHEMA += "\n" + CITATION_TEXT_SCHEMA_SQL + "\n"
 SCHEMA += "\n" + EXTRACTION_LAYOUTS_SCHEMA_SQL + "\n"
 SCHEMA += "\n" + EVALUATION_SCHEMA_SQL + "\n"

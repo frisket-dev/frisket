@@ -148,7 +148,7 @@ def build_lineage_dag(
     seen_edges = {(e["from"], e["to"]) for e in edges}
     for row in project.db.execute(
         "SELECT DISTINCT r.sheet_id AS child_sheet_id, mrs.source_sheet_id "
-        "FROM materialized_row_sources mrs "
+        "FROM current_materialized_row_sources mrs "
         "JOIN rows r ON mrs.materialized_row_id = r.id"
     ).fetchall():
         child = int(row["child_sheet_id"])

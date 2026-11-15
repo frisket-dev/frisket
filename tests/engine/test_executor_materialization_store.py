@@ -64,3 +64,146 @@ def test_materialization_store_writes_and_reads_active_membership(
         include_historical=True,
     )
     assert historical == write.membership_rows
+
+
+def test_refresh_versions_group_contributors_and_undo_restores_prior_set(tmp_path):
+    from frisket.engine.store.derived_updates import (
+        MaterializedIdentity,
+        DerivedRefreshRow,
+        publish_refresh,
+        refresh_config,
+    )
+    from frisket.engine.store.materialization import (
+        ContributorTablePlan,
+        MaterializedColumnSpec,
+        ContributorMaterializedRow,
+        write_contributor_table,
+    )
+
+    project = Project.create(tmp_path / "group-membership.frisket")
+    try:
+        source = project.add_sheet("Source")
+        col = project.add_column(source, "name", type="text")
+        source_rows = project.add_rows(
+            source, [{"name": name} for name in ["a", "b", "c"]], {"name": col}
+        )
+        project.db.execute("BEGIN IMMEDIATE")
+        columns = [MaterializedColumnSpec("group", "text")]
+        write = write_contributor_table(
+            project.db.cursor(),
+            ContributorTablePlan(
+                action_kind="test.group",
+                label="group",
+                target_sheet_name="Groups",
+                parent_sheet_id=source,
+                op_spec={},
+                columns=columns,
+                rows=[
+                    ContributorMaterializedRow(
+                        values={"group": "one"},
+                        sources=[(row, "aggregate_source") for row in source_rows[:2]],
+                    )
+                ],
+                refresh_identity=MaterializedIdentity("group", ["one"]),
+            ),
+        )
+        project.db.commit()
+        project.db.execute("BEGIN IMMEDIATE")
+        config = refresh_config(
+            project.db.execute(
+                "SELECT * FROM ops WHERE id=?", (write.op_id,)
+            ).fetchone()
+        )
+        _, new_ids = publish_refresh(
+            project.db,
+            sheet_id=write.sheet_id,
+            config=config,
+            columns=columns,
+            rows=[
+                DerivedRefreshRow(
+                    values={"group": "one"},
+                    key="one",
+                    sources=[(row, "aggregate_source") for row in source_rows[1:]],
+                )
+            ],
+        )
+        project.db.commit()
+        assert new_ids == write.row_ids
+        current = active_materialized_row_sources(
+            project.db.cursor(), materialized_row_ids=new_ids
+        )
+        assert [row["source_row_id"] for row in current] == source_rows[1:]
+        project.undo()
+        restored = active_materialized_row_sources(
+            project.db.cursor(), materialized_row_ids=new_ids
+        )
+        assert [row["source_row_id"] for row in restored] == source_rows[:2]
+        assert (
+            len(
+                active_materialized_row_sources(
+                    project.db.cursor(),
+                    materialized_row_ids=new_ids,
+                    include_historical=True,
+                )
+            )
+            == 4
+        )
+    finally:
+        project.close()
+
+
+def test_materialized_lineage_upgrade_preserves_edges_and_foreign_keys():
+    import sqlite3
+    from frisket.engine.store.materialized_lineage import (
+        MATERIALIZED_LINEAGE_SCHEMA_SQL,
+        migrate_materialized_lineage,
+    )
+
+    db = sqlite3.connect(":memory:")
+    db.execute("PRAGMA foreign_keys=ON")
+    db.executescript("""
+        CREATE TABLE sheets(id INTEGER PRIMARY KEY);
+        CREATE TABLE rows(id INTEGER PRIMARY KEY);
+        CREATE TABLE ops(id INTEGER PRIMARY KEY,status TEXT,change_order INTEGER);
+        INSERT INTO sheets VALUES(1);
+        INSERT INTO rows VALUES(1),(2);
+        INSERT INTO ops VALUES(1,'applied',1);
+    """)
+    old_schema = MATERIALIZED_LINEAGE_SCHEMA_SQL.split("CREATE VIEW")[0].replace(
+        "PRIMARY KEY (materialized_row_id, source_row_id, role, op_id)",
+        "PRIMARY KEY (materialized_row_id, source_row_id, role)",
+    )
+    db.executescript(old_schema)
+    db.execute(
+        "INSERT INTO materialized_row_sources VALUES(2,1,1,1,'aggregate_source')"
+    )
+    db.commit()
+    db.execute("BEGIN IMMEDIATE")
+    migrate_materialized_lineage(db)
+    assert db.in_transaction
+    assert db.execute("SELECT * FROM current_materialized_row_sources").fetchall() == [
+        (2, 1, 1, 1, "aggregate_source")
+    ]
+    assert db.execute("PRAGMA foreign_key_check").fetchall() == []
+    assert (
+        len(
+            [
+                row
+                for row in db.execute("PRAGMA table_info(materialized_row_sources)")
+                if row[5]
+            ]
+        )
+        == 4
+    )
+    db.rollback()
+    assert (
+        len(
+            [
+                row
+                for row in db.execute("PRAGMA table_info(materialized_row_sources)")
+                if row[5]
+            ]
+        )
+        == 3
+    )
+    db.close()

@@ -70,7 +70,7 @@ def dependent_sheets(project: Any, sheet_id: int) -> list[dict[str, Any]]:
         WHERE child.hidden=0 AND child.parent_sheet_id=?
         UNION
         SELECT DISTINCT child.id, child.name
-        FROM materialized_row_sources source
+        FROM current_materialized_row_sources source
         JOIN rows materialized ON materialized.id=source.materialized_row_id
         JOIN sheets child ON child.id=materialized.sheet_id
         WHERE child.hidden=0 AND child.id<>? AND source.source_sheet_id=?

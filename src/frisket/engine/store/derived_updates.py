@@ -11,7 +11,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Literal, Mapping, Sequence
 
-from .keyed_updates import canonical, changed_fields, observe, require_relationship
+from .keyed_updates import canonical, observe, reconcile_fields, require_relationship
 
 
 @dataclass(frozen=True)
@@ -234,40 +234,34 @@ def publish_refresh(
                 BaseCellWrite(row_id, int(column), value)
                 for column, value in incoming_values.items()
             )
-            for source_id, role in row.sources:
-                _insert_materialized_row_source(
-                    db.cursor(),
-                    materialized_row_id=row_id,
-                    source_row_id=source_id,
-                    op_id=op_id,
-                    role=role,
-                )
             baseline_key = key if config["keyed"] else f"occurrence:{row_id}"
         else:
             row_id = int(previous["row_id"])
             baseline_key = key
             baseline = json.loads(previous["record"])
-            changes = changed_fields(current[row_id], incoming_values, baseline, policy)
-            source_changed = (
-                canonical(baseline) != canonical(incoming_values)
-                or not previous["observed_present"]
+            reappeared = not previous["observed_present"]
+            changes, restore = reconcile_fields(
+                current[row_id],
+                incoming_values,
+                baseline,
+                policy,
+                deleted=bool(previous["hidden"]) and not reappeared,
             )
-            if previous["hidden"]:
-                # Local deletion wins by default. An incoming-wins update only
-                # restores when source values or membership actually changed.
-                if (
-                    policy == "incoming_wins"
-                    and source_changed
-                    or not previous["observed_present"]
-                ):
-                    db.execute("UPDATE rows SET hidden=0 WHERE id=?", (row_id,))
-                    info["restored_rows"].append(row_id)
-                else:
-                    changes = {}
+            if previous["hidden"] and (restore or reappeared):
+                db.execute("UPDATE rows SET hidden=0 WHERE id=?", (row_id,))
+                info["restored_rows"].append(row_id)
             if changes:
                 writes[tuple(sorted(int(column) for column in changes))].append(
                     (row_id, changes)
                 )
+        for source_id, role in row.sources:
+            _insert_materialized_row_source(
+                db.cursor(),
+                materialized_row_id=row_id,
+                source_row_id=source_id,
+                op_id=op_id,
+                role=role,
+            )
         observe(
             db,
             relationship_id=relationship_id,
