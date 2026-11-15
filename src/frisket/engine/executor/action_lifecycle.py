@@ -644,8 +644,25 @@ def _run_in_txn_idempotent_perform(
     every existing plain/owned-write op stays byte-equal."""
     cur = project.db.cursor()
     owns_transaction = not project.db.in_transaction
+    if not owns_transaction and post_commit_fn is not None:
+        raise RuntimeError("an action with post-commit work must own its transaction")
+    savepoint = "plain_action_write"
+
+    def rollback_write():
+        if owns_transaction:
+            project.db.rollback()
+        else:
+            cur.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+            cur.execute(f"RELEASE SAVEPOINT {savepoint}")
+
+    def commit_write():
+        if owns_transaction:
+            project.db.commit()
+        else:
+            cur.execute(f"RELEASE SAVEPOINT {savepoint}")
+
     try:
-        cur.execute("BEGIN IMMEDIATE")
+        cur.execute("BEGIN IMMEDIATE" if owns_transaction else f"SAVEPOINT {savepoint}")
         existing = _receipt_for_idempotency(project, action.idempotency_key)
         if existing is not None:
             replay = (
@@ -659,7 +676,7 @@ def _run_in_txn_idempotent_perform(
                 if result_from_existing_fn is not None
                 else None
             )
-            project.db.rollback()
+            rollback_write()
             if cleanup_resolved_fn is not None:
                 cleanup_resolved_fn(resolved)
             if replay is not None:
@@ -684,7 +701,7 @@ def _run_in_txn_idempotent_perform(
         if pre_perform_fn is not None:
             early = pre_perform_fn(cur)
             if early is not None:
-                project.db.rollback()
+                rollback_write()
                 return early
         action_id = _new_id("act")
         receipt_id = _new_id("receipt")
@@ -693,15 +710,14 @@ def _run_in_txn_idempotent_perform(
             persist_failure and result.status == "failed"
         )
         if committed:
-            project.db.commit()
+            commit_write()
         else:
-            project.db.rollback()
+            rollback_write()
             if cleanup_resolved_fn is not None:
                 cleanup_resolved_fn(resolved)
     except BaseException as exc:
         try:
-            if owns_transaction:
-                project.db.rollback()
+            rollback_write()
             if cleanup_resolved_fn is not None:
                 cleanup_resolved_fn(resolved)
         finally:

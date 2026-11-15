@@ -629,30 +629,46 @@ class Project:
         cells.set_column_default_hidden(self, column_id, hidden, commit=commit)
 
     def set_column_type(
-        self, column_id: int, type: str, *, commit: bool = True
+        self,
+        column_id: int,
+        type: str,
+        *,
+        op_id: int | None = None,
+        initialize: bool = False,
+        commit: bool = True,
     ) -> None:
-        cells.set_column_type(self, column_id, type, commit=commit)
+        cells.set_column_type(
+            self, column_id, type, op_id=op_id, initialize=initialize, commit=commit
+        )
 
     def set_column_format(
         self,
         column_id: int,
         format: str | None,
         *,
+        op_id: int | None = None,
+        initialize: bool = False,
         commit: bool = True,
     ) -> None:
-        cells.set_column_format(self, column_id, format, commit=commit)
+        cells.set_column_format(
+            self, column_id, format, op_id=op_id, initialize=initialize, commit=commit
+        )
 
     def set_column_semantic_type(
         self,
         column_id: int,
         semantic_type: str | None,
         *,
+        op_id: int | None = None,
+        initialize: bool = False,
         commit: bool = True,
     ) -> None:
         cells.set_column_semantic_type(
             self,
             column_id,
             semantic_type,
+            op_id=op_id,
+            initialize=initialize,
             commit=commit,
         )
 

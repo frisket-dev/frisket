@@ -1177,3 +1177,28 @@ def test_new_expected_row_rolls_back_a_key_that_cannot_round_trip(env):
     assert error.value.status_code == 409
     assert e.project.row_count(expected_sheet) == 1
     assert e.project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == before_ops
+
+
+def test_expected_answer_structure_and_value_are_one_undoable_change(env):
+    e = env
+    before = len(e.project.history())
+    link = e.service.expected_answer(
+        "p",
+        {
+            "basis": e.basis,
+            "link_id": None,
+            "row_id": e.rows[0],
+            "logical_key": "answer",
+            "value": "yes",
+            "rule": "exact",
+        },
+    )
+    assert len(e.project.history()) == before + 1
+    owner = e.project.op_cursor
+    e.project.undo()
+    assert link["expected_sheet_id"] not in [s["id"] for s in e.project.sheets()]
+    assert e.project.redo() == owner
+    column = link["fields"][0]["expected_column_id"]
+    assert list(e.project.get_values(link["expected_sheet_id"], column).values()) == [
+        "yes"
+    ]

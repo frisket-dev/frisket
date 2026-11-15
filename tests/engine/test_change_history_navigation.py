@@ -189,3 +189,50 @@ def test_creation_restore_conflict_does_not_partially_restore_other_columns(tmp_
             _step(project, "restore", op)
         assert project.get_column(a)["active"] == 0
         assert project.get_column(b)["active"] == 0
+
+
+def test_direct_descriptor_setters_share_change_identity_and_undo(tmp_path):
+    with closing(Project.create(tmp_path / "setter.frisket")) as project:
+        sheet = project.add_sheet("data")
+        column = project.add_column(sheet, "value")
+        original = descriptor_identity(project, column)
+        project.set_column_type(column, "number")
+        changed = descriptor_identity(project, column)
+        assert changed["owners"]["type"] == project.op_cursor
+        project.undo()
+        assert descriptor_identity(project, column) == original
+        project.redo()
+        assert descriptor_identity(project, column) == changed
+        with pytest.raises(ValueError, match="requires a Change owner"):
+            project.set_column_type(column, "text", initialize=True)
+
+
+def test_nested_typed_edit_and_receipt_roll_back_with_outer_transaction(tmp_path):
+    from frisket.engine.executor.actions import run_action_spec
+
+    with closing(Project.create(tmp_path / "nested.frisket")) as project:
+        sheet = project.add_sheet("data")
+        column = project.add_column(sheet, "value")
+        row = project.add_rows(sheet, [{"value": "original"}], {"value": column})[0]
+        before = len(project.history())
+        project.db.execute("BEGIN IMMEDIATE")
+        result = run_action_spec(
+            project,
+            {
+                "action_id": "cell.edit",
+                "scope": {"kind": "project"},
+                "params": {
+                    "edits": [{"row_id": row, "column_id": column, "value": "changed"}]
+                },
+                "idempotency_key": "nested-edit",
+            },
+            project_id="test",
+        )
+        assert result.status == "completed", result.errors
+        assert project.db.in_transaction
+        project.db.rollback()
+        assert project.get_values(sheet, column)[row] == "original"
+        assert len(project.history()) == before
+        assert not project.db.execute(
+            "SELECT 1 FROM receipts WHERE idempotency_key=?", ("nested-edit",)
+        ).fetchone()

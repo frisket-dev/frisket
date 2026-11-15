@@ -43,7 +43,7 @@ class HistoryOperation(WireModel):
     index: int = Field(ge=0)
     kind: str
     label: str | None
-    status: str
+    status: Literal["applied", "undone", "discarded"]
     executable: bool
     barrier: bool
     at_cursor: bool

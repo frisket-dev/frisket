@@ -201,6 +201,7 @@ class _ColumnPatcher(_CallOnce):
                 "column_formats_after": {str(column_id): format},
             },
         )
+        refresh_current_cells(self._project.db, column_ids=[column_id])
         result = PatchedColumn(
             sheet_id=int(row["sheet_id"]),
             sheet_name=str(row["sheet_name"]),

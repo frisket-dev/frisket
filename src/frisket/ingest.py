@@ -226,7 +226,12 @@ def _ensure_columns(
     col_ids = {c["name"]: c["id"] for c in project.columns(sheet_id)}
     for name, ctype in specs:
         if name not in col_ids:
-            col_ids[name] = project.add_column(sheet_id, name, type=ctype)
+            col_ids[name] = project.add_column(
+                sheet_id,
+                name,
+                type=ctype,
+                format="filesize" if name == "enclosure_size" else None,
+            )
     return col_ids
 
 
@@ -244,7 +249,6 @@ def _ensure_enclosure_columns(
         }
         media_type = next(iter(kinds)) if len(kinds) == 1 else "file"
         col_ids["media"] = project.add_column(sheet_id, "media", type=media_type)
-    project.set_column_format(col_ids["enclosure_size"], "filesize")
     return col_ids
 
 

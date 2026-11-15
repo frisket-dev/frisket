@@ -160,6 +160,10 @@ def add_sheet(
         "VALUES (?, (SELECT COALESCE(MAX(position),0)+1 FROM sheets), ?, ?)",
         (name, parent_sheet_id, parent_op_id),
     )
+    if parent_op_id is not None:
+        from .changes import start_change
+
+        start_change(project.db, parent_op_id)
     if commit:
         project.db.commit()
     return cur.lastrowid
@@ -334,56 +338,56 @@ def set_column_default_hidden(
 
 
 def set_column_type(
-    project: Any, column_id: int, type: str, *, commit: bool = True
-) -> None:
-    """Retype a column onto any REGISTERED type (core or plugin)."""
+    project, column_id, type, *, op_id=None, initialize=False, commit=True
+):
+    """Retype a column through a Change, retaining the previous descriptor."""
     if not column_types.is_registered(type):
         raise ValueError(f"unknown column type: {type}")
-    cur = project.db.execute("UPDATE columns SET type=? WHERE id=?", (type, column_id))
-    if cur.rowcount == 0:
-        raise KeyError(f"no column {column_id}")
-    refresh_current_cells(project.db, column_ids=[column_id])
-    if commit:
-        project.db.commit()
+    from .column_descriptors import set_descriptor
+
+    set_descriptor(
+        project,
+        column_id,
+        "type",
+        type,
+        op_id=op_id,
+        initialize=initialize,
+        commit=commit,
+    )
 
 
 def set_column_format(
-    project: Any,
-    column_id: int,
-    format: str | None,
-    *,
-    commit: bool = True,
-) -> None:
-    """Set (or clear, with None) a column's display-format hint."""
+    project, column_id, format, *, op_id=None, initialize=False, commit=True
+):
     if format is not None and format not in COLUMN_FORMATS:
         raise ValueError(f"unknown column format: {format}")
-    cur = project.db.execute(
-        "UPDATE columns SET format=? WHERE id=?", (format, column_id)
+    from .column_descriptors import set_descriptor
+
+    set_descriptor(
+        project,
+        column_id,
+        "format",
+        format,
+        op_id=op_id,
+        initialize=initialize,
+        commit=commit,
     )
-    if cur.rowcount == 0:
-        raise KeyError(f"no column {column_id}")
-    if commit:
-        project.db.commit()
 
 
 def set_column_semantic_type(
-    project: Any,
-    column_id: int,
-    semantic_type: str | None,
-    *,
-    commit: bool = True,
-) -> None:
-    """Set (or clear, with None) a column's explicit semantic-contract marker.
+    project, column_id, semantic_type, *, op_id=None, initialize=False, commit=True
+):
+    from .column_descriptors import set_descriptor
 
-    Never inferred — callers (recipe output-field declarations, currently)
-    are the only writers."""
-    cur = project.db.execute(
-        "UPDATE columns SET semantic_type=? WHERE id=?", (semantic_type, column_id)
+    set_descriptor(
+        project,
+        column_id,
+        "semantic_type",
+        semantic_type,
+        op_id=op_id,
+        initialize=initialize,
+        commit=commit,
     )
-    if cur.rowcount == 0:
-        raise KeyError(f"no column {column_id}")
-    if commit:
-        project.db.commit()
 
 
 def add_rows(
