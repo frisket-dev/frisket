@@ -24,7 +24,9 @@ from frisket.engine.store.document_text import (
     require_document_text_publication_sources,
 )
 
-PUBLICATION_EFFECTS = frozenset({"publish_value", "publish_null", "publish_error"})
+PUBLICATION_EFFECTS = frozenset(
+    {"publish_value", "publish_null", "publish_error", "retain"}
+)
 WRITE_MODES = frozenset({"create", "replace_scope"})
 TERMINAL_DISPOSITIONS = frozenset({"completed", "partial", "failed", "cancelled"})
 
@@ -101,6 +103,12 @@ def decode_published_result_value(
 
     if publication_effect not in PUBLICATION_EFFECTS:
         raise ValueError(f"unknown publication effect {publication_effect!r}")
+    if publication_effect == "retain":
+        return (
+            None
+            if value_kind is None
+            else decode_logical_value(db, value_kind, stored_value)
+        )
     if publication_effect != "publish_value":
         return None
     if value_kind is None:
@@ -822,7 +830,7 @@ class ResultGenerationStore:
                 "ON generation.run_id=result.run_id "
                 "AND generation.column_id=result.column_id "
                 "AND generation.state='active' "
-                "WHERE result.run_id=? AND result.publication_effect IS NOT NULL AND "
+                "WHERE result.run_id=? AND result.publication_effect IN ('publish_value','publish_null','publish_error') AND "
                 + document_text_result_eligibility_sql()
                 + " "
                 "ON CONFLICT(column_id,row_id) DO UPDATE SET run_id=excluded.run_id "
@@ -845,7 +853,7 @@ class ResultGenerationStore:
             "ON generation.run_id=result.run_id "
             "AND generation.column_id=result.column_id "
             "AND generation.state='sealed' "
-            "WHERE result.run_id=? AND result.publication_effect IS NOT NULL AND "
+            "WHERE result.run_id=? AND result.publication_effect IN ('publish_value','publish_null','publish_error') AND "
             + document_text_result_eligibility_sql()
             + " "
             "ON CONFLICT(column_id,row_id) DO UPDATE SET run_id=excluded.run_id "
@@ -863,10 +871,18 @@ class ResultGenerationStore:
     ) -> int:
         """Managed write sink hook; caller already owns the result transaction."""
 
+        retained = [
+            (int(item["row_id"]), int(item["column_id"]))
+            for item in batch
+            if item.get("publication_effect") == "retain"
+        ]
+        if retained:
+            refresh_current_cell_pairs(self.db, retained)
         keys = {
             (int(item["row_id"]), int(item["column_id"]))
             for item in batch
-            if item.get("publication_effect") is not None
+            if item.get("publication_effect")
+            in {"publish_value", "publish_null", "publish_error"}
         }
         if not keys:
             return 0
@@ -915,7 +931,15 @@ class ResultGenerationStore:
             for column_id, binding in bindings.items()
             if binding.state == "active"
         ]
-        active_keys = complete_keys
+        retained_keys = {
+            (int(row[0]), int(row[1]))
+            for row in self.db.execute(
+                "SELECT row_id,column_id FROM results WHERE run_id=? "
+                "AND publication_effect='retain' AND row_id IN (SELECT value FROM json_each(?))",
+                (int(run_id), json.dumps(sorted({row for row, _ in complete_keys}))),
+            )
+        }
+        active_keys = [key for key in complete_keys if key not in retained_keys]
         if not active_keys:
             return 0
         if claim_token is None:
@@ -1492,7 +1516,7 @@ class ResultGenerationStore:
                         f"INSERT OR IGNORE INTO {table} (row_id,column_id) "
                         "SELECT row_id,column_id FROM results WHERE run_id=? "
                         f"AND column_id IN ({placeholders}) "
-                        "AND publication_effect IS NOT NULL",
+                        "AND publication_effect IN ('publish_value','publish_null','publish_error')",
                         (int(run_id), *column_batch),
                     )
             yield table
@@ -1600,7 +1624,7 @@ class ResultGenerationStore:
                 "AND generation.column_id=result.column_id "
                 "JOIN runs run ON run.id=generation.run_id "
                 "JOIN ops op ON op.id=run.op_id "
-                "WHERE result.publication_effect IS NOT NULL AND "
+                "WHERE result.publication_effect IN ('publish_value','publish_null','publish_error') AND "
                 + document_text_result_eligibility_sql()
                 + " AND "
                 + _generation_publication_predicate(
@@ -1684,7 +1708,7 @@ class ResultGenerationStore:
                 "AND generation.column_id=result.column_id "
                 "JOIN runs run ON run.id=generation.run_id "
                 "JOIN ops op ON op.id=run.op_id "
-                "WHERE result.publication_effect IS NOT NULL AND "
+                "WHERE result.publication_effect IN ('publish_value','publish_null','publish_error') AND "
                 + document_text_result_eligibility_sql()
                 + " "
                 "AND "

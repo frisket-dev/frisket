@@ -146,9 +146,7 @@ authority AS NOT MATERIALIZED (
         WHERE result.run_id=head.origin_run_id AND result.row_id=head.row_id
           AND result.column_id=:column_id AND result.published=1)
       WHEN 'copied_result' THEN (
-        SELECT CASE copy.publication_effect
-          WHEN 'publish_value' THEN copy.value_kind
-          WHEN 'publish_null' THEN 'null' END
+        SELECT CASE WHEN copy.outcome='completed' THEN copy.value_kind END
         FROM copied_result_values copy
         WHERE copy.op_id=head.origin_op_id AND copy.row_id=head.row_id
           AND copy.column_id=:column_id)
@@ -168,7 +166,7 @@ authority AS NOT MATERIALIZED (
         WHERE result.run_id=head.origin_run_id AND result.row_id=head.row_id
           AND result.column_id=:column_id AND result.published=1)
       WHEN 'copied_result' THEN (
-        SELECT CASE WHEN copy.publication_effect='publish_value' THEN copy.value END
+        SELECT CASE WHEN copy.outcome='completed' THEN copy.value END
         FROM copied_result_values copy
         WHERE copy.op_id=head.origin_op_id AND copy.row_id=head.row_id
           AND copy.column_id=:column_id)

@@ -413,6 +413,11 @@ CREATE TABLE IF NOT EXISTS results (
   CHECK (
     publication_effect IS NULL
     OR (
+      publication_effect = 'retain'
+      AND ((error IS NULL AND value_kind IS NOT NULL)
+        OR (error IS NOT NULL AND value_kind IS NULL AND value IS NULL))
+    )
+    OR (
       publication_effect = 'publish_value'
       AND value_kind IS NOT NULL
       AND value_kind <> 'null'
@@ -1079,7 +1084,7 @@ WHEN NOT EXISTS (
   WHERE result.run_id = NEW.run_id
     AND result.row_id = NEW.row_id
     AND result.column_id = NEW.column_id
-    AND result.publication_effect IS NOT NULL
+    AND result.publication_effect IN ('publish_value','publish_null','publish_error')
     AND generation.state IN ('active', 'staged', 'sealed')
     AND op.status = 'applied'
 )
@@ -1100,7 +1105,7 @@ WHEN NOT EXISTS (
   WHERE result.run_id = NEW.run_id
     AND result.row_id = NEW.row_id
     AND result.column_id = NEW.column_id
-    AND result.publication_effect IS NOT NULL
+    AND result.publication_effect IN ('publish_value','publish_null','publish_error')
     AND generation.state IN ('active', 'staged', 'sealed')
     AND op.status = 'applied'
 )

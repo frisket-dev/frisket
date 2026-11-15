@@ -1,8 +1,7 @@
-"""Host-owned atomic refresh of existing list and join sheets.
+"""Prepare derived work before publication; reuse the model owner for summaries.
 
-Supported refreshes are deterministic and do not execute a model. Join fanout
-requires current scope confirmation. Live lease checks, replay,
-row replacement, grounding, watermark and receipt share one transaction.
+Join fanout and grouped model costs use their normal admission gates. Authored
+handlers finish before mutations or provider calls; receipts name the real Change.
 """
 
 from __future__ import annotations
@@ -12,7 +11,7 @@ import logging
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Literal, NoReturn
+from typing import Any, Callable, Literal, NoReturn
 
 from frisket.actions.core import CreateSheet, _ProjectAction
 from frisket.actions.join_types import JoinedTablesReader
@@ -70,8 +69,15 @@ class _RefreshFacts:
 
 
 @dataclass(frozen=True)
+class _PreparedRefresh:
+    sheet_id: int
+    row_count: int
+    publish: Callable[[], _RefreshFacts]
+
+
+@dataclass(frozen=True)
 class _SheetRefreshPlan:
-    kind: Literal["list", "join"]
+    kind: Literal["list", "join", "group"]
     request: ActionRequest
 
 
@@ -113,6 +119,13 @@ def _sheet_refresh_plan(
         and JoinedTablesReader in saved_action.definition.run.capabilities
     ):
         return _SheetRefreshPlan("join", derive_request)
+
+    from frisket.actions.group_summary_types import GroupSummarizer
+
+    if saved_action is not None and getattr(
+        saved_action.definition.run, "capabilities", ()
+    ) == (GroupSummarizer,):
+        return _SheetRefreshPlan("group", derive_request)
 
     has_multiple_parents = (
         project.db.execute(
@@ -195,7 +208,8 @@ class _SheetRefresher:
         self.bound = bound
         self.request_hash = request_hash
         self.calls = 0
-        self.facts: _RefreshFacts | None = None
+        self.prepared: _PreparedRefresh | None = None
+        self.prepared_group = None
 
     def refresh(self, sheet_id: int) -> RefreshedSheet:
         self.calls += 1
@@ -203,16 +217,70 @@ class _SheetRefresher:
             raise ValueError("a refresh action must refresh exactly one sheet")
         if type(sheet_id) is not int or sheet_id <= 0:
             raise ValueError("refresh sheet_id must be a positive integer")
-        self.facts = _refresh_sheet(
+        sheet = self.project.db.execute(
+            "SELECT * FROM sheets WHERE id=? AND hidden=0", (sheet_id,)
+        ).fetchone()
+        parent = (
+            self.project.db.execute(
+                "SELECT * FROM ops WHERE id=?", (sheet["parent_op_id"],)
+            ).fetchone()
+            if sheet is not None and sheet["parent_op_id"] is not None
+            else None
+        )
+        plan = (
+            _sheet_refresh_plan(
+                self.project,
+                sheet,
+                parent,
+                idempotency_key=self.bound.request.idempotency_key,
+            )
+            if sheet is not None
+            else None
+        )
+        if plan is not None and plan.kind == "group":
+            from frisket.engine.executor.group_summary_refresh import prepare_refresh
+
+            self.prepared_group = prepare_refresh(
+                self.project, sheet, parent, plan.request, self.bound
+            )
+            return RefreshedSheet(
+                sheet_id=sheet_id,
+                refreshed_row_count=len(self.prepared_group.resolved["groups"]),
+            )
+        self.prepared = _refresh_sheet(
             self.project, sheet_id, self.bound, self.request_hash, self.project_id
         )
         return RefreshedSheet(
-            sheet_id=self.facts.sheet_id, refreshed_row_count=self.facts.row_count
+            sheet_id=self.prepared.sheet_id, refreshed_row_count=self.prepared.row_count
         )
 
 
+def prepare_sheet_refresh_action(project, project_id, bound):
+    """Resolve author-selected work once, without publication or provider calls."""
+    terminal = bound.action.definition.run
+    if not supports_typed_sheet_refresh_action(terminal):
+        raise TypeError("typed refresh requires a sheet refresher action")
+    request_hash = typed_request_hash(bound)
+    capability = _SheetRefresher(project, project_id, bound, request_hash)
+    returned = terminal.handler(bound.params, capability)
+    if (
+        capability.calls != 1
+        or (capability.prepared is None and capability.prepared_group is None)
+        or not isinstance(returned, RefreshedSheet)
+    ):
+        raise ValueError(
+            "refresh action must refresh one sheet and return a domain result"
+        )
+    return capability
+
+
 def run_typed_sheet_refresh_action(
-    project: Project, project_id: str, bound: BoundTypedActionRequest
+    project: Project,
+    project_id: str,
+    bound: BoundTypedActionRequest,
+    router=None,
+    *,
+    deps=None,
 ) -> ActionResult:
     terminal = bound.action.definition.run
     if not supports_typed_sheet_refresh_action(terminal):
@@ -239,22 +307,28 @@ def run_typed_sheet_refresh_action(
         existing = replay()
         if existing is not None:
             return existing
+        capability = prepare_sheet_refresh_action(project, project_id, bound)
+        if capability.prepared_group is not None:
+            # Author validation finishes before the model owner may reserve or
+            # call a provider. Its ordinary admission owns consent and billing.
+            from frisket.engine.executor.group_summary_action import (
+                run_typed_group_summary_action,
+            )
+
+            return run_typed_group_summary_action(
+                project,
+                project_id,
+                bound,
+                router=router,
+                deps=deps,
+                prepared=capability.prepared_group,
+            )
         project.db.execute("BEGIN IMMEDIATE")
         existing = replay()
         if existing is not None:
             project.db.rollback()
             return existing
-        capability = _SheetRefresher(project, project_id, bound, request_hash)
-        returned = terminal.handler(bound.params, capability)
-        if (
-            capability.calls != 1
-            or capability.facts is None
-            or not isinstance(returned, RefreshedSheet)
-        ):
-            raise ValueError(
-                "refresh action must refresh one sheet and return a domain result"
-            )
-        facts = capability.facts
+        facts = capability.prepared.publish()
         action_id, receipt_id = _new_id("act"), _new_id("receipt")
         sheet_ref = {
             "kind": "materialized_sheet",
@@ -357,7 +431,7 @@ def _refresh_sheet(
     bound: BoundTypedActionRequest,
     params_hash: str,
     project_id: str,
-) -> _RefreshFacts:
+) -> _PreparedRefresh:
     now = datetime.now(timezone.utc)
     cur = project.db.cursor()
     sheet = cur.execute(
@@ -562,45 +636,53 @@ def _refresh_sheet(
                 for source, values in zip(sources, checked_rows, strict=True)
             ],
         }
-        op_id, child_row_ids = _rewrite_child_sheet_in_place(
-            cur,
-            sheet_id=sheet_id,
-            parent_sheet_id=int(sheet["parent_sheet_id"]),
-            resolved=resolved,
-            params_hash=params_hash,
-            policy=update_policy,
-        )
-        propagate_list_item_evidence(
-            project,
-            sheet_id=sheet_id,
-            op_id=op_id,
-            child_row_ids=child_row_ids,
-            sources=sources,
-            item_associations=reader.item_associations,
-        )
-        from frisket.engine.store.consumed_sources import merge_captures, store_capture
 
-        if reader.consumed_captures:
-            store_capture(
-                project,
-                merge_captures(reader.consumed_captures),
-                owner_op_id=op_id,
-                output_sheet_id=sheet_id,
+        def publish():
+            _require_refresh_target(project, sheet_id, int(sheet["parent_op_id"]))
+            op_id, child_row_ids = _rewrite_child_sheet_in_place(
+                cur,
+                sheet_id=sheet_id,
+                parent_sheet_id=int(sheet["parent_sheet_id"]),
+                resolved=resolved,
+                params_hash=params_hash,
+                policy=update_policy,
             )
-    refreshed_rows = len(child_row_ids)
-    cur.execute(
-        "UPDATE sheets SET refresh_claim_token=NULL, refresh_lease_expires_at=NULL WHERE id=?",
-        (sheet_id,),
-    )
+            propagate_list_item_evidence(
+                project,
+                sheet_id=sheet_id,
+                op_id=op_id,
+                child_row_ids=child_row_ids,
+                sources=sources,
+                item_associations=reader.item_associations,
+            )
+            from frisket.engine.store.consumed_sources import (
+                merge_captures,
+                store_capture,
+            )
 
-    return _RefreshFacts(
-        sheet_id=sheet_id,
-        parent_sheet_id=int(sheet["parent_sheet_id"]),
-        name=sheet["name"],
-        op_id=op_id,
-        row_count=refreshed_rows,
-        reads=tuple(deepcopy(reader.facts)),
-    )
+            if reader.consumed_captures:
+                store_capture(
+                    project,
+                    merge_captures(reader.consumed_captures),
+                    owner_op_id=op_id,
+                    output_sheet_id=sheet_id,
+                )
+            refreshed_rows = len(child_row_ids)
+            cur.execute(
+                "UPDATE sheets SET refresh_claim_token=NULL, refresh_lease_expires_at=NULL WHERE id=?",
+                (sheet_id,),
+            )
+
+            return _RefreshFacts(
+                sheet_id=sheet_id,
+                parent_sheet_id=int(sheet["parent_sheet_id"]),
+                name=sheet["name"],
+                op_id=op_id,
+                row_count=refreshed_rows,
+                reads=tuple(deepcopy(reader.facts)),
+            )
+
+        return _PreparedRefresh(sheet_id, len(checked_rows), publish)
 
 
 def _refresh_join(
@@ -612,7 +694,7 @@ def _refresh_join(
     bound: BoundTypedActionRequest,
     params_hash: str,
     project_id: str,
-) -> _RefreshFacts:
+) -> _PreparedRefresh:
     from frisket.engine.executor.joined_tables_read import JoinRefreshAdmission
     from frisket.engine.executor.table_action import prepare_table_producer
 
@@ -646,43 +728,70 @@ def _refresh_join(
             reader.validate_lineage(lineage.sources, lineage.parent)
             rows.append((values, lineage))
         reads = tuple(deepcopy(reader.facts))
-        op_id, row_count = _rewrite_join_sheet_in_place(
-            cur,
-            sheet_id=int(sheet["id"]),
-            columns=prepared.table.columns,
-            rows=rows,
-            source_roles=reader.source_roles,
-            reads=reads,
-            params_hash=params_hash,
-            policy=bound.request.params.get("update_policy", "keep_changes"),
-        )
-        from frisket.engine.store.consumed_sources import merge_captures, store_capture
 
-        if reader.consumed_captures:
-            store_capture(
-                project,
-                merge_captures(reader.consumed_captures),
-                owner_op_id=op_id,
-                output_sheet_id=int(sheet["id"]),
+        def publish():
+            _require_refresh_target(project, int(sheet["id"]), int(parent_op["id"]))
+            op_id, row_count = _rewrite_join_sheet_in_place(
+                cur,
+                sheet_id=int(sheet["id"]),
+                columns=prepared.table.columns,
+                rows=rows,
+                source_roles=reader.source_roles,
+                reads=reads,
+                params_hash=params_hash,
+                policy=bound.request.params.get("update_policy", "keep_changes"),
             )
-    cur.execute(
-        "UPDATE sheets SET refresh_claim_token=NULL, refresh_lease_expires_at=NULL WHERE id=?",
-        (int(sheet["id"]),),
-    )
-    stats = reads[0]["stats"]
-    return _RefreshFacts(
-        sheet_id=int(sheet["id"]),
-        parent_sheet_id=int(sheet["parent_sheet_id"]),
-        name=sheet["name"],
-        op_id=op_id,
-        row_count=row_count,
-        match_stats={
-            "kind": "derive_join_match_stats",
-            "how": reads[0]["how"],
-            **stats,
-        },
-        reads=reads,
-    )
+            from frisket.engine.store.consumed_sources import (
+                merge_captures,
+                store_capture,
+            )
+
+            if reader.consumed_captures:
+                store_capture(
+                    project,
+                    merge_captures(reader.consumed_captures),
+                    owner_op_id=op_id,
+                    output_sheet_id=int(sheet["id"]),
+                )
+            cur.execute(
+                "UPDATE sheets SET refresh_claim_token=NULL, refresh_lease_expires_at=NULL WHERE id=?",
+                (int(sheet["id"]),),
+            )
+            stats = reads[0]["stats"]
+            return _RefreshFacts(
+                sheet_id=int(sheet["id"]),
+                parent_sheet_id=int(sheet["parent_sheet_id"]),
+                name=sheet["name"],
+                op_id=op_id,
+                row_count=row_count,
+                match_stats={
+                    "kind": "derive_join_match_stats",
+                    "how": reads[0]["how"],
+                    **stats,
+                },
+                reads=reads,
+            )
+
+        return _PreparedRefresh(int(sheet["id"]), len(rows), publish)
+
+
+def _require_refresh_target(project, sheet_id, parent_op_id):
+    target = project.db.execute(
+        "SELECT s.parent_op_id,s.refresh_claim_token,s.refresh_lease_expires_at FROM sheets s "
+        "JOIN sheets parent ON parent.id=s.parent_sheet_id AND parent.hidden=0 "
+        "WHERE s.id=? AND s.hidden=0",
+        (sheet_id,),
+    ).fetchone()
+    if target is None or target["parent_op_id"] != parent_op_id:
+        raise TableError(
+            "invalid_input_ref", "The refresh target or its source is unavailable"
+        )
+    if lease_held(
+        target["refresh_claim_token"],
+        target["refresh_lease_expires_at"],
+        datetime.now(timezone.utc),
+    ):
+        raise TableError("sheet_refresh_busy", "Another refresh is already in progress")
 
 
 def _reconstruct_derive_request(

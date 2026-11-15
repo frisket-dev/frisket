@@ -42,6 +42,9 @@ SELECT scope.row_id,generation.column_id,'run_result',run.op_id,run.id,NULL,
 FROM run_output_generations generation JOIN runs run ON run.id=generation.run_id
 JOIN ops op ON op.id=run.op_id JOIN run_rows scope ON scope.run_id=run.id
 WHERE op.status='applied' AND op.change_order IS NOT NULL
+AND NOT EXISTS (SELECT 1 FROM results retained WHERE retained.run_id=run.id
+ AND retained.row_id=scope.row_id AND retained.column_id=generation.column_id
+ AND retained.publication_effect='retain')
 UNION ALL
 SELECT edit.row_id,edit.column_id,'manual_edit',edit.op_id,NULL,NULL,
        op.change_order,1
@@ -80,13 +83,13 @@ FROM (
   SELECT ranked.*,
        CASE ranked.origin_kind
          WHEN 'source_cell' THEN cell.value_kind
-         WHEN 'copied_result' THEN CASE copy.publication_effect WHEN 'publish_value' THEN copy.value_kind WHEN 'publish_null' THEN 'null' END
+         WHEN 'copied_result' THEN CASE WHEN copy.outcome='completed' THEN copy.value_kind END
          WHEN 'manual_edit' THEN edit.value_kind
          WHEN 'run_result' THEN CASE result.publication_effect
            WHEN 'publish_value' THEN result.value_kind WHEN 'publish_null' THEN 'null' END END AS value_kind,
        CASE ranked.origin_kind
          WHEN 'source_cell' THEN cell.value WHEN 'manual_edit' THEN edit.value
-         WHEN 'copied_result' THEN CASE WHEN copy.publication_effect='publish_value' THEN copy.value END
+         WHEN 'copied_result' THEN CASE WHEN copy.outcome='completed' THEN copy.value END
          WHEN 'run_result' THEN CASE WHEN result.publication_effect='publish_value' THEN result.value END END AS value,
        CASE WHEN ranked.origin_kind='copied_result' THEN copy.outcome
             WHEN ranked.origin_kind!='run_result' THEN 'completed'
@@ -178,7 +181,7 @@ SELECT column_id,row_id,run_id FROM (
          ) AS winner
   FROM results result JOIN runs run ON run.id=result.run_id
   JOIN ops op ON op.id=run.op_id
-  WHERE result.published=1 AND result.publication_effect IS NOT NULL
+  WHERE result.published=1 AND result.publication_effect IN ('publish_value','publish_null','publish_error')
     AND op.status='applied'
 ) WHERE winner=1;
 """

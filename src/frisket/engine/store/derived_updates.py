@@ -112,8 +112,13 @@ def publish_refresh(
     )
     ChangeStore(project).start(op_id)
     output_ids = reconcile_into_open_change(
-        db, op_id=op_id, sheet_id=sheet_id, config=config,
-        columns=columns, rows=rows, policy=policy,
+        db,
+        op_id=op_id,
+        sheet_id=sheet_id,
+        config=config,
+        columns=columns,
+        rows=rows,
+        policy=policy,
     )
     ChangeStore(project).close(op_id)
     return op_id, output_ids

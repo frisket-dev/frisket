@@ -24,10 +24,9 @@ REFRESH = action(
     name="refresh",
     title="Refresh derived sheet",
     description=(
-        "Rebuild a supported list or join sheet against current parent data, "
+        "Rebuild a supported list, join, or grouped-summary sheet against current parent data, "
         "preserving sheet and column identities. Join rows retain edits by default; lists replace generated rows without guessing item identity. "
-        "Join fan-out and historical model estimates may require confirmation; "
-        "supported refreshes do not call a model."
+        "Join fan-out and grouped-summary model estimates may require confirmation."
     ),
     category=ActionCategory.CONVERT,
     run=refresh,

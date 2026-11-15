@@ -47,8 +47,9 @@ class PreparedGroupSummaryPlan:
 
 
 class AdmittedGroupSummarizer:
-    def __init__(self, project, bound):
+    def __init__(self, project, bound, *, refresh_target=None):
         self.project, self.bound = project, bound
+        self.refresh_target = refresh_target
         self.plans: dict[PreparedGroupSummary, PreparedGroupSummaryPlan] = {}
 
     def prepare(self, source, *, options):
@@ -82,6 +83,7 @@ class AdmittedGroupSummarizer:
         payload = request.model_dump(mode="json", exclude={"confirmation"})
         operation = GroupSummaryPlan(
             action_kind=self.bound.action.action_id,
+            refresh_target=self.refresh_target,
             request=payload,
             sheet_id=request.scope.sheet_id,
             row_ids=request.scope.row_ids,
@@ -130,8 +132,8 @@ class AdmittedGroupSummarizer:
         return handle
 
 
-def prepare_group_summary_action(project, bound):
-    summarizer = AdmittedGroupSummarizer(project, bound)
+def prepare_group_summary_action(project, bound, *, refresh_target=None):
+    summarizer = AdmittedGroupSummarizer(project, bound, refresh_target=refresh_target)
     handle = bound.action.definition.run.handler(bound.params, summarizer)
     if not isinstance(handle, PreparedGroupSummary) or handle not in summarizer.plans:
         raise ValueError("group summary must return its own invocation's preparation")
@@ -139,7 +141,7 @@ def prepare_group_summary_action(project, bound):
 
 
 def run_typed_group_summary_action(
-    project, project_id, bound, router=None, *, deps=None
+    project, project_id, bound, router=None, *, deps=None, prepared=None
 ):
     from frisket.execution.consent_coverage import effective_consent_coverage
 
@@ -177,7 +179,8 @@ def run_typed_group_summary_action(
             action=action,
         )
     try:
-        prepared = prepare_group_summary_action(project, bound)
+        if prepared is None:
+            prepared = prepare_group_summary_action(project, bound)
     except (TypeError, ValueError) as exc:
         return _failed_result(
             project_id=project_id,

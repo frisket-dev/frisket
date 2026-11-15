@@ -192,6 +192,48 @@ class ActionPreviewService:
                 )
 
                 capabilities = getattr(typed.action.definition.run, "capabilities", ())
+                from frisket.actions.types import SheetRefresher
+
+                if capabilities == (SheetRefresher,):
+                    from frisket.engine.executor.sheet_refresh_action import (
+                        prepare_sheet_refresh_action,
+                        _RefreshRefused,
+                    )
+                    from frisket.engine.executor.embedding_read import TableReadRefused
+
+                    try:
+                        refresh = prepare_sheet_refresh_action(
+                            get_project(), project_id, typed
+                        )
+                    except (
+                        _RefreshRefused,
+                        TableReadRefused,
+                        GroupSummaryRefused,
+                    ) as exc:
+                        raise ActionPreviewRouteError(
+                            400, exc.error.model_dump(mode="json"), bare_json=True
+                        ) from exc
+                    estimate = (
+                        _prepared_model_estimate(
+                            typed, refresh.prepared_group, consent_coverage=coverage
+                        )
+                        if refresh.prepared_group is not None
+                        else {
+                            "rows": refresh.prepared.row_count,
+                            "cost": 0.0,
+                            "cost_source": "free_local",
+                            "billed_cost": 0.0,
+                            "policy_id": default_pricing_policy().policy_id,
+                            "requires_confirmation": False,
+                        }
+                    )
+                    return {
+                        "schema_version": ACTION_ESTIMATE_RESULT_SCHEMA_VERSION,
+                        "action": {"kind": typed.action.action_id},
+                        "project_id": project_id,
+                        "estimate": estimate,
+                    }
+
                 if capabilities in ((FindScanner,), (GroupSummarizer,)):
                     prepare = (
                         prepare_find_action

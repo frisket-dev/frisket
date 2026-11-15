@@ -266,7 +266,7 @@ def _resolve_reduce_group_summary_inputs(
         row_ids = list(requested_rows)
     else:
         row_ids = project.visible_row_ids(params.sheet_id)
-    if not row_ids:
+    if not row_ids and params.refresh_target is None:
         return ActionError(
             code="invalid_input_ref",
             message="reduce.group_summary requires at least one visible source row",
@@ -346,6 +346,10 @@ def _precheck_reduce_group_summary_target(
     project: Project,
     params: GroupSummaryPlan,
 ) -> ActionError | None:
+    if params.refresh_target is not None:
+        from frisket.engine.executor.group_summary_refresh import validate_target
+
+        return validate_target(project, params)
     existing = project.db.execute(
         "SELECT id FROM sheets WHERE name=?",
         (params.target_sheet_name,),
@@ -549,7 +553,9 @@ async def _complete_reduce_group_summaries(
     resolved.clear()
     resolved.update(current)
 
-    if not _reduce_group_summary_effect_checkpoints_active(params, router):
+    if not resolved["groups"] or not _reduce_group_summary_effect_checkpoints_active(
+        params, router
+    ):
         return await _complete_reduce_group_summaries_unfenced(
             project, params, resolved, router=router
         )
@@ -716,6 +722,7 @@ async def _complete_reduce_group_summaries_unfenced(
     from frisket.execution.dispatch_control import RunDispatch
 
     router = router.for_execution(RunDispatch(project, run_id, commitment.attempt_id))
+    resolved["execution_effect"] = envelope
     recorder = _reduce_group_summary_trace_writer(project, params, run_id)
     computations: list[dict[str, Any]] = []
     try:
@@ -1194,7 +1201,7 @@ def _write_reduce_group_summary_result(
                 ),
             )
         direct_effect = direct_effects[0]
-    authority_effect = effect or direct_effect
+    authority_effect = effect or direct_effect or resolved.get("execution_effect")
     trace_run_id = (
         int(authority_effect["run_id"])
         if authority_effect is not None and authority_effect.get("run_id") is not None
@@ -1307,7 +1314,7 @@ def _write_reduce_group_summary_result(
         op_spec["params"] = dict(op_spec["params"])
         op_spec["params"].pop("confirmed", None)
         op_spec["params"].pop("consented_promise_set_hash", None)
-        op_spec["params"]["params_hash"] = params_hash
+        op_spec["params_hash"] = params_hash
         from frisket.actions.group_summary_types import GROUP_SUMMARY_COLUMNS
 
         physical_names = {
@@ -1319,58 +1326,79 @@ def _write_reduce_group_summary_result(
             (physical_names[column.key], column.type, column.key == "summary")
             for column in GROUP_SUMMARY_COLUMNS
         ]
-        write = write_aggregate_sheet(
-            cur,
-            AggregateSheetPlan(
-                action_kind=params.action_kind,
-                label=f"reduce.group_summary {params.target_sheet_name}",
-                target_sheet_name=params.target_sheet_name,
-                parent_sheet_id=int(resolved["sheet_id"]),
+        publication = None
+        if params.refresh_target is not None:
+            from frisket.engine.executor.group_summary_refresh import (
+                publish_group_refresh,
+            )
+
+            if authority_effect is None:
+                raise ValueError("group refresh requires its model execution owner")
+            write, publication = publish_group_refresh(
+                project,
+                params,
+                op_id=int(authority_effect["op_id"]),
                 op_spec=op_spec,
+                resolved=resolved,
+                computations=computations,
                 columns=[
-                    AggregateColumnSpec(
-                        name=name,
-                        type=type_name,
-                        ai_generated=ai_generated,
-                    )
-                    for name, type_name, ai_generated in column_specs
+                    AggregateColumnSpec(name=name, type=typ, ai_generated=ai)
+                    for name, typ, ai in column_specs
                 ],
-                rows=[
-                    AggregateMaterializedRow(
-                        values={
-                            params.group_column_name: computation["group"]["name"],
-                            params.row_count_column_name: len(
-                                computation["group"]["source_row_ids"]
-                            ),
-                        },
-                        source_row_ids=computation["group"]["source_row_ids"],
-                    )
-                    for computation in computations
-                ],
-                reuse_op_id=(
-                    int(authority_effect["op_id"])
-                    if authority_effect is not None
-                    else None
-                ),
-                refresh_identity=MaterializedIdentity(
-                    "group",
-                    [
-                        str(computation["group"]["identity_key"])
+            )
+        else:
+            write = write_aggregate_sheet(
+                cur,
+                AggregateSheetPlan(
+                    action_kind=params.action_kind,
+                    label=f"reduce.group_summary {params.target_sheet_name}",
+                    target_sheet_name=params.target_sheet_name,
+                    parent_sheet_id=int(resolved["sheet_id"]),
+                    op_spec=op_spec,
+                    columns=[
+                        AggregateColumnSpec(
+                            name=name,
+                            type=type_name,
+                            ai_generated=ai_generated,
+                        )
+                        for name, type_name, ai_generated in column_specs
+                    ],
+                    rows=[
+                        AggregateMaterializedRow(
+                            values={
+                                params.group_column_name: computation["group"]["name"],
+                                params.row_count_column_name: len(
+                                    computation["group"]["source_row_ids"]
+                                ),
+                            },
+                            source_row_ids=computation["group"]["source_row_ids"],
+                        )
                         for computation in computations
                     ],
-                    (
+                    reuse_op_id=(
+                        int(authority_effect["op_id"])
+                        if authority_effect is not None
+                        else None
+                    ),
+                    refresh_identity=MaterializedIdentity(
+                        "group",
                         [
-                            (
-                                int(resolved["group_column"]["column_id"]),
-                                str(resolved["group_column"]["type"]),
-                            )
-                        ]
-                        if resolved["group_column"] is not None
-                        else []
+                            str(computation["group"]["identity_key"])
+                            for computation in computations
+                        ],
+                        (
+                            [
+                                (
+                                    int(resolved["group_column"]["column_id"]),
+                                    str(resolved["group_column"]["type"]),
+                                )
+                            ]
+                            if resolved["group_column"] is not None
+                            else []
+                        ),
                     ),
                 ),
-            ),
-        )
+            )
         op_id = write.op_id
         summary_sheet_id = write.sheet_id
         column_ids = write.column_ids
@@ -1439,7 +1467,9 @@ def _write_reduce_group_summary_result(
             summary_column_id,
             output_role="summary",
             compatibility_key=_compatibility_key(field=output_field),
-            write_mode="create",
+            write_mode="replace_scope"
+            if params.refresh_target is not None
+            else "create",
             claim_token=claim_token,
             commit=False,
         )
@@ -1470,6 +1500,8 @@ def _write_reduce_group_summary_result(
                     )
                 ),
             }
+            if publication is not None and not publication[row_id]:
+                result["publication_effect"] = "retain"
             call = computation.get("model_call")
             if isinstance(call, dict):
                 call = dict(call)
@@ -1506,6 +1538,8 @@ def _write_reduce_group_summary_result(
         if not isinstance(derived_refresh, dict):
             raise ValueError("group summary output identity was not established")
         for row_id, computation in zip(summary_row_ids, computations, strict=True):
+            if computation.get("error"):
+                continue
             observe(
                 project.db,
                 relationship_id=str(derived_refresh["relationship_id"]),
@@ -1532,7 +1566,11 @@ def _write_reduce_group_summary_result(
                 output_sheet_id=summary_sheet_id,
                 run_id=run_id,
             )
-        run_status = "failed" if failed_groups == len(computations) else "completed"
+        run_status = (
+            "failed"
+            if computations and failed_groups == len(computations)
+            else "completed"
+        )
         generations.seal(
             run_id,
             [summary_column_id],
@@ -1690,7 +1728,7 @@ def _reduce_group_summary_action_status(
     failed_groups: int,
     total_groups: int,
 ) -> str:
-    if failed_groups >= total_groups:
+    if total_groups and failed_groups >= total_groups:
         return "failed"
     if failed_groups:
         return "partial"
