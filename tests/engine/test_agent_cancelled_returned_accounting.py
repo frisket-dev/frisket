@@ -1,6 +1,7 @@
 """Capability-retained facts must not be reminted by outer row cancellation."""
 
 import json
+import asyncio
 
 import ddgs
 import pytest
@@ -20,7 +21,7 @@ from test_research_web_search_executor import _FakeDDGS
 
 
 @pytest.mark.parametrize("kind", ["research", "mcp"])
-@pytest.mark.parametrize("interrupt", ["stop", "halt"])
+@pytest.mark.parametrize("interrupt", ["stop", "halt", "postprocess", "owner_cancel"])
 def test_queued_agent_interruption_during_schema_repair_keeps_each_paid_fact_once(
     tmp_path, monkeypatch, kind, interrupt
 ):
@@ -42,7 +43,16 @@ def test_queued_agent_interruption_during_schema_repair_keeps_each_paid_fact_onc
             if interrupt == "stop" and len(calls) == expected_paid:
                 run_id = project.db.execute("SELECT MAX(id) FROM runs").fetchone()[0]
                 assert RunResultStore(project).request_cancel(run_id)
-            data = {"answer": 123} if kind == "research" else {"checked": 123}
+            value = "Paid answer" if interrupt == "postprocess" else 123
+            data = {"answer": value} if kind == "research" else {"checked": value}
+            if interrupt == "owner_cancel" and len(calls) == expected_paid:
+                owners = [
+                    task
+                    for task in asyncio.all_tasks()
+                    if task.get_coro().__qualname__ == "MapRunner.run"
+                ]
+                assert len(owners) == 1
+                owners[0].cancel()
             return LLMResponse(
                 content=json.dumps(data),
                 data=data,
@@ -53,6 +63,19 @@ def test_queued_agent_interruption_during_schema_repair_keeps_each_paid_fact_onc
             )
 
     router._adapters["anthropic"] = Adapter()
+    if interrupt == "postprocess":
+        from frisket.engine.executor import research_read
+        from frisket.ops.mcp_extract import McpExtractor
+
+        target = research_read if kind == "research" else McpExtractor
+        method = "run_quick_search" if kind == "research" else "extract"
+        original = getattr(target, method)
+
+        async def fail_after_return(*args, **kwargs):
+            await original(*args, **kwargs)
+            raise RuntimeError("Postprocessing failed after a paid response")
+
+        monkeypatch.setattr(target, method, fail_after_return)
     with TestClient(
         create_app(tmp_path / "ws", router=router, run_status_grace_seconds=3600)
     ) as client:
@@ -96,13 +119,20 @@ def test_queued_agent_interruption_during_schema_repair_keeps_each_paid_fact_onc
         )
         queued = ActionResult.model_validate(response.json())
         assert queued.status == "queued", response.text
-        drain_queue(client)
+        if interrupt == "owner_cancel":
+            with pytest.raises(asyncio.CancelledError):
+                drain_queue(client)
+        else:
+            drain_queue(client)
         receipt = project.db.execute(
             "SELECT status,body FROM receipts WHERE id=?", (queued.receipt_id,)
         ).fetchone()
-        assert receipt["status"] == (
-            "cancelled" if interrupt == "stop" else "failed"
-        ), json.loads(receipt["body"])
+        if interrupt == "owner_cancel":
+            assert receipt["status"] not in {"completed", "partial"}
+        else:
+            assert receipt["status"] == (
+                "cancelled" if interrupt == "stop" else "failed"
+            ), json.loads(receipt["body"])
         facts = RunResultStore(project).model_calls(queued.run_id)
         paid = [fact for fact in facts if fact["capability"] == "llm.complete"]
         expected_paid = 1 if kind == "research" else 2
@@ -117,13 +147,20 @@ def test_queued_agent_interruption_during_schema_repair_keeps_each_paid_fact_onc
         assert project.db.execute(
             "SELECT cost_actual FROM runs WHERE id=?", (queued.run_id,)
         ).fetchone()[0] == pytest.approx(0.001 * expected_paid)
-        assert (
-            project.db.execute(
-                "SELECT count(*) FROM cell_result_heads WHERE run_id=?",
-                (queued.run_id,),
+        if interrupt != "postprocess":
+            assert (
+                project.db.execute(
+                    "SELECT count(*) FROM cell_result_heads WHERE run_id=?",
+                    (queued.run_id,),
+                ).fetchone()[0]
+                == 0
+            )
+        else:
+            retained_tokens = project.db.execute(
+                "SELECT sum(tokens_in) FROM results WHERE run_id=?", (queued.run_id,)
             ).fetchone()[0]
-            == 0
-        )
+            assert retained_tokens == expected_paid * 10
+            assert all(fact["column_id"] is not None for fact in paid)
 
 
 @pytest.mark.parametrize("stop", [False, "invalid", "valid"])

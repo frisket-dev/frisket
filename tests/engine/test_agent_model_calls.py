@@ -156,3 +156,61 @@ async def test_retry_then_agent_schema_repair_failure_records_each_leaf_once(
     router.retain_unrecorded_error_calls(caught.value)
     assert caught.value.wire_calls == []
     await inner.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("overlap", [False, True])
+async def test_error_handoff_preserves_current_transport_and_prior_agent_facts(
+    agent_context, overlap
+):
+    from frisket.ai.models.metadata import ModelCallMeta
+    from frisket.ops.integrations.hosted_error import HostedEngineError
+
+    ctx = agent_context
+    prior = ModelCallMeta.provider_call(
+        capability="llm.complete",
+        engine="anthropic/model",
+        provider="anthropic",
+        provider_kind="chat_api",
+        model_ids=["model"],
+        credential_source="local",
+        provider_reported_cost_usd=0.01,
+        provider_cost_usd=0.01,
+        duration_ms=1,
+        units={"tokens_in": 3, "tokens_out": 2},
+        cost_source="provider",
+        warnings=[],
+    ).as_dict()
+    current = {
+        **prior,
+        "id": prior["id"] if overlap else "current-transport-call",
+        "provider_cost_usd": 0.02,
+        "units": {"tokens_in": 5, "tokens_out": 4},
+    }
+    accounting = {
+        ctx.extras["row_id"]: {
+            "model_calls": [prior],
+            "cost": 0.01,
+            "tokens_in": 3,
+            "tokens_out": 2,
+        }
+    }
+    router = AccountedAgentRouter(None, ctx, "anthropic/model", accounting)
+    error = HostedEngineError(
+        "provider_failed",
+        "Current provider call failed",
+        accounting={
+            "model_calls": [current],
+            "cost": 0.02,
+            "tokens_in": 5,
+            "tokens_out": 4,
+            "execution_receipts": [{"id": "receipt"}],
+        },
+    )
+    router.retain_unrecorded_error_calls(error)
+    assert error.accounting["model_calls"] == (
+        [current] if overlap else [current, prior]
+    )
+    assert error.accounting["cost"] == pytest.approx(0.02 if overlap else 0.03)
+    assert error.accounting["tokens_in"] == (5 if overlap else 8)
+    assert error.accounting["execution_receipts"] == [{"id": "receipt"}]

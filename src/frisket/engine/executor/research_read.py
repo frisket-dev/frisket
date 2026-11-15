@@ -269,9 +269,10 @@ class _BoundResearcher:
                 exc, (LLMError, RecipeInvocationHalt, RowError, HostedEngineError)
             ):
                 raise
-            raise RowError(
-                "research_failed", str(exc)[:500] or "Research failed"
-            ) from exc
+            failure = RowError("research_failed", str(exc)[:500] or "Research failed")
+            failure.accounting = getattr(exc, "accounting", None)
+            failure.wire_calls = getattr(exc, "wire_calls", ())
+            raise failure from exc
         finally:
             try:
                 router.set_research(recorder.snapshot())

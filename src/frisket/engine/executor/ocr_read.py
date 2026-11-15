@@ -15,6 +15,7 @@ from frisket.actions.media_types import OcrText, RecognizedDocument
 from frisket.actions.types import ColumnRef, Outcome, RowError
 from frisket.execution.resolver import preview_resolution_in_scope
 from frisket.ai.models.metadata import model_calls_cost_actual
+from frisket.ai.models.accounting import merge_accounting_meta
 from frisket.ops import ocr_engines as engines
 from frisket.engine.executor.blob_outputs import RowBlobOutput, RowBlobPlan
 from frisket.engine._workers.pdf_render_worker import (
@@ -325,7 +326,9 @@ class _BoundOcrReader:
             # the recognized document can be materialized or published.
             accounting = owner.accounting_by_row.get(self._row_id)
             if accounting is not None:
-                exc.accounting = copy.deepcopy(accounting)
+                exc.accounting = copy.deepcopy(
+                    merge_accounting_meta(getattr(exc, "accounting", None), accounting)
+                )
             raise
 
     async def _recognize(self, source, engine):

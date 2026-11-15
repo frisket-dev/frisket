@@ -6,6 +6,7 @@ import copy
 import uuid
 
 from frisket.ai.research.row_answer import model_call_accounting
+from frisket.ai.models.accounting import merge_accounting_meta
 from frisket.ai.llm.types import wire_responses
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.attempt import attempt_in_scope
@@ -35,7 +36,9 @@ class AccountedAgentRouter:
         """Hand off stable accounting and only wires not yet owned by this capability."""
         accounting = self._accounting.get(self._ctx.extras.get("row_id"))
         if accounting is not None:
-            error.accounting = copy.deepcopy(accounting)
+            error.accounting = copy.deepcopy(
+                merge_accounting_meta(getattr(error, "accounting", None), accounting)
+            )
         if getattr(error, "wire_calls", None):
             recorded = {id(response) for response in self._responses}
             error.wire_calls = [

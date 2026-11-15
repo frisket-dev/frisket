@@ -6,7 +6,7 @@ from typing import Any
 
 from frisket.ai.llm import LLMResponse
 from frisket.ai.llm.types import wire_responses as expand_wire_responses
-from frisket.ai.models.metadata import ModelCallMeta
+from frisket.ai.models.metadata import ModelCallMeta, model_calls_cost_actual
 from frisket.local_model_ids import bare_model_name
 
 
@@ -79,3 +79,38 @@ def wire_accounting_meta(
     if execution_receipts:
         result["execution_receipts"] = execution_receipts
     return result
+
+
+def merge_accounting_meta(*parts: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Combine retained accounting by durable fact identity, never minting calls.
+
+    An existing transport error goes first: its current authoritative fact wins
+    when a capability also retained an earlier observation of the same call.
+    """
+    present = [part for part in parts if part is not None]
+    if not present:
+        return None
+    if len(present) == 1:
+        return dict(present[0])
+    calls_by_id = {}
+    receipts = []
+    for part in present:
+        for call in part.get("model_calls", ()):
+            calls_by_id.setdefault(call["id"], call)
+        for receipt in part.get("execution_receipts", ()):
+            if receipt not in receipts:
+                receipts.append(receipt)
+    calls = list(calls_by_id.values())
+    merged = {
+        "tokens_in": sum(
+            call.get("units", {}).get("tokens_in", 0) or 0 for call in calls
+        ),
+        "tokens_out": sum(
+            call.get("units", {}).get("tokens_out", 0) or 0 for call in calls
+        ),
+        "cost": model_calls_cost_actual(calls),
+        "model_calls": calls,
+    }
+    if receipts:
+        merged["execution_receipts"] = receipts
+    return merged

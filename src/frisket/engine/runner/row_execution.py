@@ -25,7 +25,7 @@ from frisket.ai.llm import (
     classify_llm_error,
     classify_resumable_provider_error,
 )
-from frisket.ai.models.accounting import wire_accounting_meta
+from frisket.ai.models.accounting import merge_accounting_meta, wire_accounting_meta
 from frisket.ops.integrations.hosted_error import HostedEngineError
 from frisket.ops.base import OpContext, Recipe, RecipeInvocationHalt
 from frisket.redaction import safe_error
@@ -207,20 +207,7 @@ async def _execute_row(
         if not paid:
             return recorded
         raw = wire_accounting_meta(spec.get("model") or paid[-1].model, paid)
-        if recorded is None:
-            return raw
-        return {
-            "tokens_in": (recorded.get("tokens_in") or 0) + (raw.get("tokens_in") or 0),
-            "tokens_out": (recorded.get("tokens_out") or 0)
-            + (raw.get("tokens_out") or 0),
-            "cost": None
-            if recorded.get("cost") is None or raw.get("cost") is None
-            else recorded["cost"] + raw["cost"],
-            "model_calls": [
-                *recorded.get("model_calls", ()),
-                *raw.get("model_calls", ()),
-            ],
-        }
+        return merge_accounting_meta(recorded, raw)
 
     def retain_returned_before_halt(error):
         accounting = returned_error_accounting(error)
