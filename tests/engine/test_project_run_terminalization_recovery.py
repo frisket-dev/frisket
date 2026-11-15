@@ -435,7 +435,9 @@ def test_terminalizer_closes_change_and_resolves_unpublished_scope(project) -> N
     assert outcome["outcome"] == "not_completed"
 
 
-def test_terminalizer_preserves_deferred_family_empty_output_visibility(project) -> None:
+def test_terminalizer_preserves_deferred_family_empty_output_visibility(
+    project,
+) -> None:
     run = _seed_never_dispatched_run(project, attempt_count=0)
     row = project.db.execute(
         "SELECT op_id,sheet_id FROM runs WHERE id=?", (run.run_id,)
@@ -449,9 +451,7 @@ def test_terminalizer_preserves_deferred_family_empty_output_visibility(project)
         "UPDATE ops SET spec=? WHERE id=?",
         (json.dumps({"deferred_publication": True}), int(row["op_id"])),
     )
-    project.set_undo_info(
-        int(row["op_id"]), {"created_columns": [int(column["id"])]}
-    )
+    project.set_undo_info(int(row["op_id"]), {"created_columns": [int(column["id"])]})
     ResultGenerationStore(project).declare(
         run.run_id,
         int(column["id"]),
