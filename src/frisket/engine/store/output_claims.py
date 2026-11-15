@@ -93,7 +93,7 @@ class OutputColumnClaimStore:
             for name in names:
                 column = self.db.execute(
                     "SELECT column.id, "
-                    "(SELECT MAX(head.run_id) FROM current_result_heads head "
+                    "(SELECT MAX(head.run_id) FROM published_result_bases head "
                     " WHERE head.column_id=column.id) AS current_head_run_id "
                     "FROM columns column WHERE column.sheet_id=? AND column.name=? "
                     "AND column.active=1",

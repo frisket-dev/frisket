@@ -254,6 +254,19 @@ def test_descriptor_replacement_publishes_values_and_descriptor_at_seal_and_undo
         # An active replacement Change masks the prior value while its new
         # descriptor and result family are still pending.
         assert project.get_values(sheet_id, column_id)[row_ids[0]] is None
+        assert generations.read_cell_heads(column_id) == {}
+        token = replacement.authority.claim_token
+        assert token is not None
+        fence = generations._require_active_claim(
+            run_id=replacement.run_id,
+            column_id=column_id,
+            claim_token=token,
+        )
+        assert fence["current_head_run_id"] == first.run_id
+        assert project.db.execute(
+            "SELECT run_id FROM published_result_bases WHERE column_id=? AND row_id=?",
+            (column_id, row_ids[0]),
+        ).fetchone()["run_id"] == first.run_id
 
         assert _seal(generations, replacement, column_id) == len(row_ids)
         assert _descriptor(project, column_id) == target

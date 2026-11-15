@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS cell_baseline (
   origin_op_id INTEGER REFERENCES ops(id),
   origin_run_id INTEGER REFERENCES runs(id),
   base_producer_id INTEGER REFERENCES base_cell_producers(id),
-  PRIMARY KEY(column_id,row_id)
+  PRIMARY KEY(column_id,row_id,origin_kind)
 );
 CREATE TABLE IF NOT EXISTS cell_authority_revisions (
   column_id INTEGER PRIMARY KEY REFERENCES columns(id) ON DELETE CASCADE,
@@ -164,4 +164,20 @@ CHANGE_SCHEMA_SQL += """
 CREATE VIEW IF NOT EXISTS current_result_heads AS
 SELECT column_id,row_id,origin_run_id AS run_id FROM unmodified_cell_heads
 WHERE origin_kind='run_result' AND outcome IN ('completed','failed');
+
+-- Claim fences need the newest actually-published result even when a later
+-- logical Change currently masks it with pending coverage. This is not a
+-- canonical read view: readers continue to use current_result_heads.
+CREATE VIEW IF NOT EXISTS published_result_bases AS
+SELECT column_id,row_id,run_id FROM (
+  SELECT result.column_id,result.row_id,result.run_id,
+         ROW_NUMBER() OVER (
+           PARTITION BY result.column_id,result.row_id
+           ORDER BY COALESCE(op.change_order,0) DESC,run.id DESC
+         ) AS winner
+  FROM results result JOIN runs run ON run.id=result.run_id
+  JOIN ops op ON op.id=run.op_id
+  WHERE result.published=1 AND result.publication_effect IS NOT NULL
+    AND op.status='applied'
+) WHERE winner=1;
 """

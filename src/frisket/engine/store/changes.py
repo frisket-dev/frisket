@@ -31,6 +31,13 @@ def start_change(db: sqlite3.Connection, op_id: int, *, writing: bool = False) -
     """Allocate the order at the first actual mutation, never at admission."""
     if not db.in_transaction:
         raise RuntimeError("Change commands require a caller-owned transaction")
+    floor = db.execute(
+        "SELECT value FROM meta WHERE key='domain_history_floor'"
+    ).fetchone()
+    if floor is not None and op_id <= int(floor[0]):
+        raise ChangePublicationClosed(
+            "Pre-upgrade history is read-only; run the action again"
+        )
     row = db.execute(
         "SELECT status,change_order,publication_closed FROM ops WHERE id=?", (op_id,)
     ).fetchone()

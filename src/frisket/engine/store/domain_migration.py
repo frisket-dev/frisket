@@ -31,6 +31,19 @@ def capture_current_baseline(db: sqlite3.Connection) -> None:
         "SELECT row_id,column_id,origin_kind,origin_op_id,origin_run_id,"
         "base_producer_id FROM current_cells"
     )
+    # Keep the saved answer underneath an ordinary correction too. It remains
+    # available for Review and apply_edits=False without duplicating payloads.
+    db.execute(
+        "INSERT INTO domain_baseline_capture "
+        "SELECT current.row_id,current.column_id,"
+        "CASE WHEN head.run_id IS NULL THEN 'source_cell' ELSE 'run_result' END,"
+        "run.op_id,head.run_id,CASE WHEN head.run_id IS NULL THEN cell.producer_id END "
+        "FROM current_cells current "
+        "LEFT JOIN cell_result_heads head ON head.row_id=current.row_id AND head.column_id=current.column_id "
+        "LEFT JOIN runs run ON run.id=head.run_id "
+        "LEFT JOIN cells cell ON cell.row_id=current.row_id AND cell.column_id=current.column_id "
+        "WHERE current.origin_kind='manual_edit' AND (head.run_id IS NOT NULL OR cell.row_id IS NOT NULL)"
+    )
 
 
 def install_current_baseline(db: sqlite3.Connection) -> None:
@@ -125,7 +138,7 @@ def archive_history(db: sqlite3.Connection) -> None:
 
 
 # Pinned endpoint: later schema changes must extend this cutover explicitly.
-DOMAIN_TO_DIGEST = "frisket.schema.v1:6f84353f6511a8e33cc2acf4699ef0ac"
+DOMAIN_TO_DIGEST = "frisket.schema.v1:bfd0157751d07757b9a205fe4238703a"
 
 
 def _execute_ddl(db: sqlite3.Connection, sql: str) -> None:
@@ -156,6 +169,43 @@ def _version_source_cells(db: sqlite3.Connection) -> None:
             (producer,),
         )
     _rebuild_table(db, "cells")
+
+
+def _retain_output_descriptors(db: sqlite3.Connection) -> None:
+    """Recover only frozen declarations, never infer an old schema from today's columns."""
+    db.execute("DROP TRIGGER trg_run_output_generations_immutable_declaration")
+    db.execute(
+        "ALTER TABLE run_output_generations ADD COLUMN output_descriptor_json TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(output_descriptor_json))"
+    )
+    # Claims carry the descriptor used for execution, including renamed fields.
+    cursor = db.execute(
+        "SELECT generation.run_id,generation.column_id,generation.output_role,claim.details,run.params "
+        "FROM run_output_generations generation JOIN runs run ON run.id=generation.run_id "
+        "LEFT JOIN output_column_claims claim ON claim.claim_token=generation.claim_token "
+        "AND claim.column_id=generation.column_id"
+    )
+    for run_id, column_id, role, raw_details, raw_params in cursor:
+        details = json.loads(raw_details or "{}")
+        params = json.loads(raw_params or "{}")
+        descriptor = next(
+            (
+                field
+                for field in details.get("output_fields", [])
+                if isinstance(field, dict) and field.get("name") == role
+            ),
+            {},
+        )
+        descriptor = {
+            key: descriptor[key]
+            for key in ("column_type", "schema", "format", "semantic_type")
+            if key in descriptor
+        }
+        names = params.get("output_names", {})
+        logical = next((key for key, name in names.items() if name == role), role)
+        db.execute(
+            "UPDATE run_output_generations SET output_role=?,output_descriptor_json=? WHERE run_id=? AND column_id=?",
+            (logical, json.dumps(descriptor), run_id, column_id),
+        )
 
 
 def _rebuild_table(db: sqlite3.Connection, table: str) -> None:
@@ -217,6 +267,8 @@ def migrate_domain(db: sqlite3.Connection) -> None:
     from .consumed_sources import CONSUMED_SOURCE_SCHEMA_SQL
     from .purge import PURGE_SCHEMA_SQL
     from .materialized_lineage import migrate_materialized_lineage
+    from .domain_view_migration import migrate_unified_views
+    from .review_judgments import JUDGMENT_SCHEMA_SQL
     from .schema import (
         CURRENT_CELL_VALUES_SQL,
         UNMODIFIED_CELL_VALUES_SQL,
@@ -269,6 +321,7 @@ def migrate_domain(db: sqlite3.Connection) -> None:
         db.execute(
             "ALTER TABLE results ADD COLUMN published INTEGER NOT NULL DEFAULT 0 CHECK(published IN (0,1))"
         )
+        _retain_output_descriptors(db)
         _rebuild_table(db, "current_cells")
         _execute_ddl(db, COPIED_RESULTS_SCHEMA_SQL)
         _execute_ddl(db, CHANGE_SCHEMA_SQL)
@@ -276,6 +329,8 @@ def migrate_domain(db: sqlite3.Connection) -> None:
         _execute_ddl(db, STRUCTURAL_SCHEMA_SQL)
         migrate_materialized_lineage(db)
         migrate_alert_baselines(db)
+        migrate_unified_views(db)
+        _execute_ddl(db, JUDGMENT_SCHEMA_SQL)
         _execute_ddl(db, KEYED_UPDATE_SCHEMA)
         _execute_ddl(db, CONSUMED_SOURCE_SCHEMA_SQL)
         _execute_ddl(db, PURGE_SCHEMA_SQL)
@@ -297,8 +352,9 @@ def migrate_domain(db: sqlite3.Connection) -> None:
         for name in (
             "trg_cell_result_heads_require_publishable_result",
             "trg_cell_result_heads_update_publishable_result",
+            "trg_run_output_generations_immutable_declaration",
         ):
-            db.execute(f"DROP TRIGGER {name}")
+            db.execute(f"DROP TRIGGER IF EXISTS {name}")
             trigger = re.search(
                 r"CREATE TRIGGER IF NOT EXISTS " + name + r"\b.*?END;", SCHEMA, re.S
             )

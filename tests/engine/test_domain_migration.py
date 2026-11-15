@@ -51,11 +51,15 @@ def test_baseline_retains_winning_reference_not_a_payload_copy(old_db):
     capture_current_baseline(db)
     db.execute(
         "CREATE TABLE cell_baseline(row_id,column_id,origin_kind,origin_op_id,"
-        "origin_run_id,base_producer_id,PRIMARY KEY(column_id,row_id))"
+        "origin_run_id,base_producer_id,PRIMARY KEY(column_id,row_id,origin_kind))"
     )
     install_current_baseline(db)
     db.commit()
-    assert tuple(db.execute("SELECT * FROM cell_baseline").fetchone()) == (
+    assert tuple(
+        db.execute(
+            "SELECT * FROM cell_baseline WHERE origin_kind='manual_edit'"
+        ).fetchone()
+    ) == (
         1,
         1,
         "manual_edit",
@@ -249,3 +253,59 @@ def test_full_cutover_failure_restores_schema_and_pragmas(old_db):
     assert not db.execute(
         "SELECT 1 FROM sqlite_master WHERE name='cell_baseline'"
     ).fetchone()
+
+
+def test_cutover_preserves_saved_answer_beneath_manual_correction(old_db):
+    from frisket.engine.store.domain_migration import migrate_domain
+    from frisket.engine.store.changes import start_change, ChangePublicationClosed
+
+    db = old_db
+    db.execute(
+        "INSERT INTO runs(id,op_id,sheet_id,action_kind,status) VALUES (1,1,1,'map.ask','completed')"
+    )
+    db.execute(
+        "INSERT INTO run_output_generations(run_id,column_id,output_role,compatibility_key,write_mode,state,claim_token) VALUES (1,1,'Text','text-v1','create','active','old-claim')"
+    )
+    db.execute(
+        "INSERT INTO results(run_id,row_id,column_id,value_kind,value,outcome,publication_effect,review_state,review_decision) VALUES (1,1,1,'text','original answer','ok','publish_value','reviewed','accept')"
+    )
+    db.execute("INSERT INTO cell_result_heads(column_id,row_id,run_id) VALUES (1,1,1)")
+    db.execute(
+        "UPDATE runs SET params=? WHERE id=1",
+        (json.dumps({"output_names": {"answer": "Text"}}),),
+    )
+    db.execute(
+        "INSERT INTO output_column_claims(id,sheet_id,column_id,output_name,run_id,action_kind,claim_token,status,details) VALUES ('old',1,1,'Text',1,'map.ask','old-claim','completed',?)",
+        (json.dumps({"output_fields": [{"name": "Text", "column_type": "text"}]}),),
+    )
+    _stamp_old(db)
+    migrate_domain(db)
+    assert (
+        db.execute(
+            "SELECT value FROM current_cell_values WHERE row_id=1 AND column_id=1"
+        ).fetchone()[0]
+        == "corrected"
+    )
+    assert (
+        db.execute(
+            "SELECT value FROM unmodified_cell_values WHERE row_id=1 AND column_id=1"
+        ).fetchone()[0]
+        == "original answer"
+    )
+    assert (
+        db.execute(
+            "SELECT run_id FROM current_result_heads WHERE row_id=1 AND column_id=1"
+        ).fetchone()[0]
+        == 1
+    )
+    assert tuple(
+        db.execute("SELECT published,review_decision FROM results").fetchone()
+    ) == (1, "accept")
+    descriptor = db.execute(
+        "SELECT output_role,output_descriptor_json FROM run_output_generations"
+    ).fetchone()
+    assert descriptor[0] == "answer"
+    assert json.loads(descriptor[1]) == {"column_type": "text"}
+    with db, pytest.raises(ChangePublicationClosed, match="Pre-upgrade history"):
+        db.execute("BEGIN IMMEDIATE")
+        start_change(db, 1, writing=True)
