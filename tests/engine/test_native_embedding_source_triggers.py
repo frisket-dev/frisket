@@ -468,21 +468,71 @@ def _notification_count(env):
     ).fetchone()["n"]
 
 
+@pytest.mark.parametrize("with_baseline", [False, True])
 def test_embedding_watch_preserves_cursor_when_vector_runtime_is_unavailable(
-    env, tmp_path, monkeypatch: pytest.MonkeyPatch
+    env, tmp_path, monkeypatch: pytest.MonkeyPatch, with_baseline
 ):
+    from frisket.engine.views.evaluate import open_selection
+    from frisket.engine.views.specs import SelectionUnavailable
+    from frisket.features.watchlists.service import watch_query
+
     index_id = _create_index(env, key="unavailable")
     _full_refresh(env, index_id)
     watch_id = _embedding_watch(env, index_id, _row_id(env, "story 0"))
-    before = int(env.project.get_watch(watch_id)["last_evaluated_op"] or 0)
-    monkeypatch.setattr(native, "_NATIVE_ROOT", tmp_path / "missing-native")
+    baseline = None
+    if with_baseline:
+        baseline = run_watch_evaluation(env.project, env.project.get_watch(watch_id))
+        assert baseline["run"]["status"] == "ok"
+        assert baseline["run"]["matched_rows"] == 2
+        assert _notification_count(env) == 0
+    before = env.project.get_watch(watch_id)["last_evaluated_op"]
+    seen = [
+        dict(row) for row in env.project.db.execute("SELECT * FROM watch_seen_rows")
+    ]
+    with monkeypatch.context() as missing_runtime:
+        missing_runtime.setattr(native, "_NATIVE_ROOT", tmp_path / "missing-native")
+        with pytest.raises(SelectionUnavailable) as unavailable:
+            with open_selection(
+                env.project, watch_query(env.project.get_watch(watch_id))
+            ):
+                pytest.fail("unavailable similarity must not become an empty selection")
+        assert unavailable.value.code == "embedding_backend_unavailable"
+        assert isinstance(unavailable.value.__cause__, native.Vec1Unavailable)
 
-    evaluation = run_watch_evaluation(env.project, env.project.get_watch(watch_id))
+        evaluation = run_watch_evaluation(env.project, env.project.get_watch(watch_id))
 
     assert evaluation["run"]["status"] == "error"
     assert evaluation["run"]["error_code"] == "embedding_backend_unavailable"
-    assert env.project.get_watch(watch_id)["last_evaluated_op"] == before
+    watch = env.project.get_watch(watch_id)
+    assert watch["last_evaluated_op"] == before
+    assert watch["baseline_run_id"] == (baseline["run_id"] if baseline else None)
+    assert [
+        dict(row) for row in env.project.db.execute("SELECT * FROM watch_seen_rows")
+    ] == seen
     assert _notification_count(env) == 0
+    recovered = run_watch_evaluation(env.project, env.project.get_watch(watch_id))
+    assert recovered["run"]["status"] == "ok"
+    assert recovered["run"]["matched_rows"] == 2
+    assert env.project.watch_run_events(recovered["run_id"]) == []
+    assert _notification_count(env) == 0
+
+
+def test_view_does_not_mask_unclassified_similarity_errors(env, monkeypatch):
+    from frisket.engine.views.evaluate import open_selection
+    from frisket.features.watchlists.service import watch_query
+    from frisket.retrieval import query
+
+    index_id = _create_index(env, key="unexpected-runtime-error")
+    _full_refresh(env, index_id)
+    watch_id = _embedding_watch(env, index_id, _row_id(env, "story 0"))
+
+    def unexpected(_connection):
+        raise RuntimeError("unclassified retrieval error")
+
+    monkeypatch.setattr(query, "load_vec1", unexpected)
+    with pytest.raises(RuntimeError, match="unclassified retrieval error"):
+        with open_selection(env.project, watch_query(env.project.get_watch(watch_id))):
+            pass
 
 
 def test_embedding_watch_accepts_complete_empty_result(env):
@@ -508,24 +558,29 @@ def test_source_append_embedding_watch_evaluates_after_refresh_not_before(env):
     anchor = _row_id(env, "story 0")
     watch_id = _embedding_watch(env, index_id, anchor)
 
+    baseline = run_watch_evaluation(env.project, env.project.get_watch(watch_id))
+    assert baseline["run"]["status"] == "ok"
+    assert baseline["run"]["matched_rows"] == 2
+    assert _notification_count(env) == 0
+
     # append a new row + enqueue the source-append refresh (the source-poll path)
     env.project.add_rows(env.sheet, [{"headline": "story 3"}], env.cols)
     _trigger(env, [_row_id(env, "story 3")])
 
     # the source-append enqueue does NOT evaluate the embedding watch inline
-    assert env.project.watch_runs_total(watch_id) == 0
+    assert env.project.watch_runs_total(watch_id) == 1
 
     worker = Worker(env.queue, _registry_with_watches(env, FakeGateway()))
     # job 1: the refresh runs; the watch is STILL not evaluated, but a
     # watch.evaluate job is now queued (refresh -> watch ordering).
     assert worker.run_once() is True
-    assert env.project.watch_runs_total(watch_id) == 0
+    assert env.project.watch_runs_total(watch_id) == 1
     pending = env.queue.list_project_jobs(env.project_id, kind=WATCH_EVALUATE_KIND)
     assert any(j.status == "queued" for j in pending)
 
     # job 2: the watch.evaluate runs AFTER the refresh -> one ok run
     assert worker.run_once() is True
-    assert env.project.watch_runs_total(watch_id) == 1
+    assert env.project.watch_runs_total(watch_id) == 2
     assert env.project.watch_latest_run(watch_id)["status"] == "ok"
     # exactly one notification for the entered rows
     assert _notification_count(env) == 1
@@ -533,8 +588,7 @@ def test_source_append_embedding_watch_evaluates_after_refresh_not_before(env):
     # Other independent maintenance may remain, but the watch is exactly once.
     while worker.run_once():
         pass
-    assert env.project.watch_runs_total(watch_id) == 1
-    assert env.project.watch_runs_total(watch_id) == 1
+    assert env.project.watch_runs_total(watch_id) == 2
     assert _notification_count(env) == 1
 
 

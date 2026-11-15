@@ -18,6 +18,7 @@ from frisket.retrieval.contracts import (
     TextQuery,
 )
 from frisket.retrieval.query import RetrievalQueryService
+from frisket.retrieval.native import Vec1Unavailable
 from .specs import SelectionUnavailable, membership_hash, normalize_selection
 
 _MAX_ROWS = 9223372036854775807
@@ -241,7 +242,12 @@ def open_selection(project: Any, definition: dict[str, Any]) -> Iterator[Selecti
                 snapshot.temporary_directory(prefix="frisket-view-") / "matches.sqlite"
             )
             match_schema = "view_" + uuid.uuid4().hex
-            _stage_matches(snapshot, selection, retrieval_scope, path)
+            try:
+                _stage_matches(snapshot, selection, retrieval_scope, path)
+            except Vec1Unavailable as exc:
+                raise SelectionUnavailable(
+                    str(exc), code="embedding_backend_unavailable"
+                ) from exc
             snapshot.db.execute(
                 f"ATTACH DATABASE ? AS {match_schema}", (f"file:{path}?mode=ro",)
             )
