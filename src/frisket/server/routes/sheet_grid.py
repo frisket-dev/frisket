@@ -212,6 +212,8 @@ def register_sheet_grid_routes(
         filter_: str | None = Query(default=None, alias="filter"),
         sort: str | None = None,
         scope_row_ids: str | None = None,
+        selection: str | None = None,
+        view_id: int | None = Query(default=None, gt=0),
     ) -> ColumnStats:
         reject_unknown_query_parameters(request, ColumnStatsQuery)
         return ColumnStats.model_validate(
@@ -224,6 +226,8 @@ def register_sheet_grid_routes(
                 filter_=filter_,
                 sort=sort,
                 scope_row_ids=scope_row_ids,
+                selection=selection,
+                view_id=view_id,
             )
         )
 

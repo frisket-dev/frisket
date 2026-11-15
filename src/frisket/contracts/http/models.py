@@ -147,6 +147,9 @@ class ColumnStatsQuery(NonNullQueryWireModel):
     sort: str | None = None
     scope_row_ids: str | None = None
 
+    selection: str | None = None
+    view_id: int | None = Field(default=None, gt=0)
+
 
 class SheetRowLocationQuery(NonNullQueryWireModel):
     page_size: int = Field(default=500, ge=1, le=1000)

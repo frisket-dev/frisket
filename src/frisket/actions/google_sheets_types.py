@@ -5,20 +5,32 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from frisket.actions.types import ActionParams
+from frisket.contracts.view import ViewSelection
 
 
 class GoogleSheetsSource(ActionParams):
     kind: Literal["current_sheet", "current_view", "all_sheets"]
     sheet_id: int | None = Field(default=None, ge=1, strict=True)
     query: dict[str, Any] | None = None
+    selection: ViewSelection | None = None
     scope_row_ids: list[int] | None = Field(default=None, max_length=1000)
 
     @model_validator(mode="after")
     def _source(self) -> "GoogleSheetsSource":
         if (self.kind == "all_sheets") != (self.sheet_id is None):
             raise ValueError("invalid_sheet_ref")
-        if (self.kind == "current_view") != (self.query is not None):
+        if (self.kind == "current_view") != (
+            self.query is not None or self.selection is not None
+        ):
             raise ValueError("invalid_query_spec")
+        if self.selection is not None:
+            if (
+                self.query is not None
+                or self.scope_row_ids is not None
+                or self.selection.scope.kind != "sheet"
+                or self.selection.scope.sheet_id != self.sheet_id
+            ):
+                raise ValueError("invalid_view_selection")
         if self.scope_row_ids is not None:
             if not all(
                 isinstance(row_id, int) and not isinstance(row_id, bool) and row_id > 0

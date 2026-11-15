@@ -71,39 +71,14 @@ def sheet_columns_payload(project: Project, sheet_id: int) -> list[dict[str, Any
 
 @contextmanager
 def _selected_sheet(project, sheet_id, selection, view_id, *, legacy_scope=()):
-    from frisket.features.views.evaluate import open_selection
-    from frisket.contracts.view import ViewSelection
-    from frisket.features.views.specs import stored_selection, SelectionUnavailable
-    from frisket.retrieval.query import RetrievalQueryError
-    from frisket.ai.embeddings.similarity import SimilarityError
+    from frisket.server.services.view_selection import open_sheet_selection
 
     try:
-        if selection is not None and view_id is not None:
-            raise ValueError("Use selection or view_id, not both")
-        if any(value is not None for value in legacy_scope):
-            raise ValueError(
-                "Selection contains its own filters, order and parent scope"
-            )
-        if view_id is not None:
-            view = project.get_view(view_id)
-            if view is None:
-                raise ValueError("View is unavailable")
-            definition = stored_selection(json.loads(view["spec"]))
-        else:
-            definition = (
-                json.loads(selection) if isinstance(selection, str) else selection
-            )
-        validated = ViewSelection.model_validate(definition)
-        if validated.scope.kind != "sheet" or validated.scope.sheet_id != sheet_id:
-            raise ValueError("Selection must target this sheet")
-        with open_selection(project, definition) as selected:
+        with open_sheet_selection(
+            project, sheet_id, selection, view_id, legacy_scope=legacy_scope
+        ) as selected:
             yield selected
-    except (
-        ValueError,
-        SelectionUnavailable,
-        RetrievalQueryError,
-        SimilarityError,
-    ) as exc:
+    except ValueError as exc:
         raise SheetGridRouteError(400, str(exc)) from exc
 
 
@@ -394,9 +369,26 @@ class SheetGridService:
         filter_: str | None = None,
         sort: str | None = None,
         scope_row_ids: str | None = None,
+        selection: str | None = None,
+        view_id: int | None = None,
     ) -> dict[str, Any]:
         project = self._workspace.get(project_id)
         require_visible_sheet(project, sheet_id)
+        if selection is not None or view_id is not None:
+            with _selected_sheet(
+                project,
+                sheet_id,
+                selection,
+                view_id,
+                legacy_scope=(parent_row_id, filter_, sort, scope_row_ids),
+            ) as selected:
+                return _column_stats_payload(
+                    selected.snapshot,
+                    sheet_id,
+                    column_id,
+                    force=force,
+                    selected=selected,
+                )
         return _column_stats_payload(
             project,
             sheet_id,
@@ -780,6 +772,7 @@ def _column_stats_payload(
     filter_: str | None = None,
     sort: str | None = None,
     scope_row_ids: list[int] | None = None,
+    selected: Any | None = None,
 ) -> dict[str, Any]:
     plan = _sheet_row_scope_plan(
         project,
@@ -792,10 +785,14 @@ def _column_stats_payload(
     column = next((c for c in plan.columns if int(c["id"]) == column_id), None)
     if column is None:
         raise SheetGridRouteError(404, "column not found")
-    total = project.db.execute(
-        f"SELECT COUNT(*) FROM {plan.filter_from_sql} WHERE {plan.where_sql}",
-        plan.filter_params,
-    ).fetchone()[0]
+    total = (
+        selected.total
+        if selected is not None
+        else project.db.execute(
+            f"SELECT COUNT(*) FROM {plan.filter_from_sql} WHERE {plan.where_sql}",
+            plan.filter_params,
+        ).fetchone()[0]
+    )
     base: dict[str, Any] = {
         "schema_version": "frisket.column_stats.v1",
         "sheet_id": sheet_id,
@@ -827,17 +824,23 @@ def _column_stats_payload(
     is_file_column = str(column["type"]) == "file"
     offset = 0
     while offset < total:
-        rows = project.db.execute(
-            f"""
-            SELECT r.id
-            FROM {plan.filter_from_sql}
-            WHERE {plan.where_sql}
-            ORDER BY r.id
-            LIMIT ? OFFSET ?
-            """,
-            [*plan.filter_params, COLUMN_STATS_CHUNK_SIZE, offset],
-        ).fetchall()
-        row_ids = [int(r["id"]) for r in rows]
+        if selected is not None:
+            row_ids = [
+                int(hit["row_id"])
+                for hit in selected.hits(offset=offset, limit=COLUMN_STATS_CHUNK_SIZE)
+            ]
+        else:
+            rows = project.db.execute(
+                f"""
+                SELECT r.id
+                FROM {plan.filter_from_sql}
+                WHERE {plan.where_sql}
+                ORDER BY r.id
+                LIMIT ? OFFSET ?
+                """,
+                [*plan.filter_params, COLUMN_STATS_CHUNK_SIZE, offset],
+            ).fetchall()
+            row_ids = [int(r["id"]) for r in rows]
         if not row_ids:
             break
         values, refs = project.get_values_with_refs(

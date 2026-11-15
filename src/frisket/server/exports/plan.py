@@ -11,11 +11,15 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, field
-from typing import Any, Callable, Iterator, Literal
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal
 
 from frisket.server.exports import rowset as _rowset
 from frisket.server.exports.rowset import ExportError
 from frisket.engine.store import Project
+
+if TYPE_CHECKING:
+    from frisket.features.views.evaluate import SelectionRead
+
 
 EXPORT_PLAN_SCHEMA_VERSION = "frisket.export_plan.v1"
 
@@ -98,6 +102,7 @@ class SheetExportPlan:
     scope_row_ids: list[int] | None
     media_policy: MediaPolicy
     value_policy: ValuePolicy
+    selection_read: SelectionRead | None = None
     schema_version: str = EXPORT_PLAN_SCHEMA_VERSION
 
     @property
@@ -165,6 +170,7 @@ def build_sheet_export_plan(
     streaming_rowset: bool = False,
     scope_row_ids: list[int] | None = None,
     include_attachment_paths: bool = False,
+    selection_read: SelectionRead | None = None,
 ) -> SheetExportPlan:
     columns = columns or ExportColumns()
     if columns.mode != "all_visible":
@@ -185,15 +191,38 @@ def build_sheet_export_plan(
         )
 
     sheet = _rowset.resolve_sheet(project, sheet_id)
-    resolved = _rowset.resolve_rowset(
-        project,
-        sheet_id,
-        query,
-        max_rows=max_rows,
-        query_field=query_field,
-        materialize_small=not streaming_rowset,
-        scope_row_ids=scope_row_ids,
-    )
+    if selection_read is not None:
+        selection_scope = selection_read.selection["scope"]
+        if (
+            query is not None
+            or scope_row_ids is not None
+            or selection_scope.get("kind") != "sheet"
+            or selection_scope.get("sheet_id") != sheet_id
+        ):
+            raise ExportError(
+                "invalid_current_view_selection",
+                "Export selection must exclusively target the exported sheet",
+                field=query_field,
+            )
+        if max_rows is not None:
+            _rowset._enforce_limit(selection_read.total, max_rows, query_field)
+        resolved = _rowset.ResolvedRowset(
+            None,
+            selection_read.selection,
+            selection_read.query_hash,
+            selection_read.total,
+            {"kind": "frisket.views.selection", "version": "v1"},
+        )
+    else:
+        resolved = _rowset.resolve_rowset(
+            project,
+            sheet_id,
+            query,
+            max_rows=max_rows,
+            query_field=query_field,
+            materialize_small=not streaming_rowset,
+            scope_row_ids=scope_row_ids,
+        )
     export_columns = _build_export_columns(
         project,
         sheet_id,
@@ -212,6 +241,7 @@ def build_sheet_export_plan(
         scope_row_ids=scope_row_ids,
         media_policy=media_policy,
         value_policy=value_policy,
+        selection_read=selection_read,
     )
 
 
@@ -254,13 +284,23 @@ def iter_export_row_batches(
         if column.role in ("media_display", "media_ref")
         and column.source_column_id is not None
     }
-    for batch_row_ids in _rowset.iter_row_id_batches(
-        project,
-        plan.sheet_id,
-        plan.row_ids,
-        batch_size=batch_size,
-        query=plan.query,
-    ):
+    if plan.selection_read is not None:
+        batches = (
+            [
+                int(hit["row_id"])
+                for hit in plan.selection_read.hits(offset=offset, limit=batch_size)
+            ]
+            for offset in range(0, plan.selection_read.total, batch_size)
+        )
+    else:
+        batches = _rowset.iter_row_id_batches(
+            project,
+            plan.sheet_id,
+            plan.row_ids,
+            batch_size=batch_size,
+            query=plan.query,
+        )
+    for batch_row_ids in batches:
         values_by_col = {
             cid: project.get_values(
                 plan.sheet_id, cid, row_ids=batch_row_ids, preserve_invalid=True

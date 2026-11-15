@@ -1,5 +1,7 @@
 """Grid paging and row location use the full saved/draft View selection."""
 
+import csv
+import io
 import json
 from types import SimpleNamespace
 
@@ -42,6 +44,62 @@ def test_view_selection_filters_before_paging_and_locates_in_top_n(tmp_path):
         )
         saved = service.sheet_data("p", sheet, offset=500, limit=2, view_id=view_id)
         assert saved == result
+        stats = service.column_stats("p", sheet, score, selection=json.dumps(selection))
+        assert stats["row_count"] == 600
+        assert stats["numeric"]["min"] == 101
+        assert stats["numeric"]["max"] == 700
+        from frisket.server.services.sheet_export import SheetDatasetExportService
+        from openpyxl import load_workbook
+
+        exporter = SheetDatasetExportService(SimpleNamespace(get=lambda _: project))
+        stream = exporter.stream_csv(
+            "p",
+            [sheet],
+            filter_=None,
+            sort=None,
+            formula_policy="escape",
+            selection=json.dumps(selection),
+        )
+        try:
+            exported = list(
+                csv.reader(io.StringIO(b"".join(stream.chunks).decode("utf-8-sig")))
+            )
+        finally:
+            stream.close()
+        assert len(exported) == 601
+        assert exported[1] == ["700"]
+        assert exported[-1] == ["101"]
+        workbook = exporter.export(
+            "p",
+            [sheet],
+            format_="xlsx",
+            filter_=None,
+            sort=None,
+            formula_policy="escape",
+            view_id=view_id,
+        )
+        excel = load_workbook(io.BytesIO(workbook.content), read_only=True)
+        assert list(excel.active.values) == [("score",)] + [
+            (i,) for i in range(700, 100, -1)
+        ]
+        excel.close()
+        from frisket.actions.google_sheets_types import GoogleSheetsExportRequest
+        from frisket.engine.executor.action_families.exports import (
+            _google_sheets_tabs_for_source,
+        )
+
+        google = GoogleSheetsExportRequest(
+            connection_id="test-connection",
+            source={"kind": "current_view", "sheet_id": sheet, "selection": selection},
+            destination={"kind": "google_sheets", "mode": "new_spreadsheet"},
+        )
+        tabs = _google_sheets_tabs_for_source(
+            project, SimpleNamespace(kind="export.google_sheets"), google
+        )
+        assert isinstance(tabs, list), tabs
+        assert tabs[0]["row_count"] == 600
+        assert tabs[0]["row_ids"] == list(reversed(rows[101:]))
+        assert tabs[0]["rows"][0] == [700]
         with pytest.raises(SheetGridRouteError, match="not both"):
             service.sheet_data(
                 "p", sheet, selection=json.dumps(selection), view_id=view_id
