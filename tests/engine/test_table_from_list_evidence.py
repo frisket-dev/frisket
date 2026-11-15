@@ -8,6 +8,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from frisket.engine.store.receipts import ReceiptStore
+
 import pytest
 
 from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
@@ -477,7 +479,15 @@ def test_refresh_preserves_renamed_item_grounding_and_retires_previous_links(
         assert refused.status == "failed"
         assert refused.errors[0].code == "project_write_failed"
         for table, old_rows in before.items():
-            assert snapshot(table) == old_rows
+            if table not in {"ops", "receipts"}:
+                assert snapshot(table) == old_rows
+        failed_receipt = ReceiptStore(project).parsed_by_id(refused.receipt_id)
+        assert failed_receipt.status == "failed"
+        failed_op = project.db.execute(
+            "SELECT publication_closed,change_order FROM ops WHERE id=?",
+            (failed_receipt.op_ids[0],),
+        ).fetchone()
+        assert tuple(failed_op) == (1, None)  # no batch committed a Change
         assert active_links() == fresh_links
     finally:
         project.close()

@@ -10,8 +10,8 @@ import json
 import logging
 from copy import deepcopy
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any, Callable, Literal, NoReturn
+from datetime import datetime, timedelta, timezone
+from typing import Any, Literal, NoReturn
 
 from frisket.actions.core import CreateSheet, _ProjectAction
 from frisket.actions.join_types import JoinedTablesReader
@@ -21,6 +21,7 @@ from frisket.actions.types import (
     ActionRequest,
     ListTableReader,
     RefreshedSheet,
+    RowSource,
     SheetRefresher,
     TableError,
 )
@@ -45,7 +46,6 @@ from frisket.engine.store import Project
 from frisket.engine.store.leases import lease_held
 from frisket.engine.store.materialization import (
     MaterializedColumnSpec,
-    SingleParentMaterializedRow,
 )
 from frisket.engine.store.receipts import ReceiptStore
 
@@ -71,8 +71,21 @@ class _RefreshFacts:
 @dataclass(frozen=True)
 class _PreparedRefresh:
     sheet_id: int
-    row_count: int
-    publish: Callable[[], _RefreshFacts]
+    parent_sheet_id: int
+    parent_op_id: int
+    name: str
+    stage: Any
+    columns: Any
+    config: dict[str, Any]
+    policy: str
+    reads: tuple[dict[str, Any], ...]
+    captures: tuple[dict[str, Any], ...]
+    source_binding: dict[str, Any]
+    match_stats: dict[str, Any] | None = None
+
+    @property
+    def row_count(self):
+        return self.stage.row_count
 
 
 @dataclass(frozen=True)
@@ -272,16 +285,21 @@ def prepare_sheet_refresh_action(project, project_id, bound, *, edition=None):
     capability = _SheetRefresher(
         project, project_id, bound, request_hash, edition=edition
     )
-    returned = terminal.handler(bound.params, capability)
-    if (
-        capability.calls != 1
-        or (capability.prepared is None and capability.prepared_group is None)
-        or not isinstance(returned, RefreshedSheet)
-    ):
-        raise ValueError(
-            "refresh action must refresh one sheet and return a domain result"
-        )
-    return capability
+    try:
+        returned = terminal.handler(bound.params, capability)
+        if (
+            capability.calls != 1
+            or (capability.prepared is None and capability.prepared_group is None)
+            or not isinstance(returned, RefreshedSheet)
+        ):
+            raise ValueError(
+                "refresh action must refresh one sheet and return a domain result"
+            )
+        return capability
+    except BaseException:
+        if capability.prepared is not None:
+            capability.prepared.stage.close()
+        raise
 
 
 def run_typed_sheet_refresh_action(
@@ -316,6 +334,8 @@ def run_typed_sheet_refresh_action(
             Receipt.model_validate(json.loads(existing["body"]))
         )
 
+    capability = None
+    started = None
     try:
         existing = replay()
         if existing is not None:
@@ -343,8 +363,16 @@ def run_typed_sheet_refresh_action(
         if existing is not None:
             project.db.rollback()
             return existing
-        facts = capability.prepared.publish()
-        action_id, receipt_id = _new_id("act"), _new_id("receipt")
+        started = _begin_staged_refresh(
+            project, project_id, bound, capability.prepared, request_hash
+        )
+        project.db.commit()
+        facts = _publish_staged_refresh(
+            project, capability.prepared, started, deps=deps
+        )
+        action_id, receipt_id = started.action_id, started.receipt_id
+        project.db.execute("BEGIN IMMEDIATE")
+        _require_refresh_writer(project, capability.prepared, started)
         sheet_ref = {
             "kind": "materialized_sheet",
             "sheet_id": facts.sheet_id,
@@ -403,7 +431,16 @@ def run_typed_sheet_refresh_action(
                 )
             ],
         )
-        ReceiptStore(project).insert_completed(receipt, commit=False)
+        from frisket.engine.store.changes import ChangeStore
+
+        ChangeStore(project).close(facts.op_id)
+        _release_refresh_claim(project, facts.sheet_id, receipt_id)
+        if not ReceiptStore(project).update_body_status(
+            receipt, require_status="running", commit=False
+        ):
+            raise TableError(
+                "stale_refresh", "The refresh receipt is no longer writable"
+            )
         project.db.commit()
         return result
     except (_RefreshRefused, TableReadRefused, GroupSummaryRefused) as exc:
@@ -415,7 +452,7 @@ def run_typed_sheet_refresh_action(
             code=exc.code,
             message=str(exc),
             action_kind=kind,
-            details=exc.details,
+            details=exc.details or {},
         )
     except Exception:
         project.db.rollback()
@@ -427,9 +464,21 @@ def run_typed_sheet_refresh_action(
             action_kind=kind,
         )
     except BaseException:
-        # Cancellation must propagate without leaving uncommitted refresh writes.
         project.db.rollback()
+        if started is not None:
+            _finish_refresh_failure(
+                project,
+                started,
+                ActionError(
+                    code="cancelled", message="Refresh cancelled", action_kind=kind
+                ),
+            )
         raise
+    finally:
+        if capability is not None and capability.prepared is not None:
+            capability.prepared.stage.close()
+    if started is not None:
+        return _finish_refresh_failure(project, started, error)
     if error.needs_confirmation:
         return ActionResult(
             action=ActionIdentity(kind=kind, action_id=_new_id("act")),
@@ -589,23 +638,6 @@ def _refresh_sheet(
             raise TableError(
                 "invalid_input_ref", "refreshed list must retain its parent sheet"
             )
-        rows = []
-        sources = []
-        for values, lineage, _files in prepared.rows:
-            source = lineage.parent
-            if source is None or source not in reader.item_associations:
-                raise TableError(
-                    "invalid_input_ref", "list-item source was not admitted"
-                )
-            rows.append(values)
-            sources.append(source)
-        checked_rows = _preflight_table_rows(
-            project,
-            prepared.table.model_copy(update={"rows": rows}),
-            action_kind=derive_request.action_id,
-        )
-        if isinstance(checked_rows, ActionError):
-            raise TableReadRefused(checked_rows)
         copied_by_output = {
             prepared.resolved_output_names.get(column.name, column.name): column
             for column in reader.copied_columns
@@ -633,71 +665,65 @@ def _refresh_sheet(
                     "Selected source or copied column metadata changed; create a new derived sheet",
                     details={"columns": drifted},
                 )
-        resolved = {
-            "columns": [
-                MaterializedColumnSpec(
-                    name=column.name,
-                    type=column.type,
-                    ai_generated=_list_output_ai_generated(
-                        reader, column.name, prepared.resolved_output_names
-                    ),
-                    hidden=column.hidden,
-                    format=column.format,
-                )
-                for column in prepared.table.columns
-            ],
-            "rows": [
-                SingleParentMaterializedRow(source.row_id, values)
-                for source, values in zip(sources, checked_rows, strict=True)
-            ],
-        }
+        from frisket.engine.store.derived_refresh_stage import DerivedRefreshStage
+        from frisket.engine.store.derived_updates import DerivedRefreshRow
+        from itertools import islice
 
-        def publish():
-            _require_refresh_target(project, sheet_id, int(sheet["parent_op_id"]))
-            op_id, child_row_ids = _rewrite_child_sheet_in_place(
-                cur,
-                sheet_id=sheet_id,
-                parent_sheet_id=int(sheet["parent_sheet_id"]),
-                resolved=resolved,
-                params_hash=params_hash,
-                policy=update_policy,
-            )
-            propagate_list_item_evidence(
-                project,
-                sheet_id=sheet_id,
-                op_id=op_id,
-                child_row_ids=child_row_ids,
-                sources=sources,
-                item_associations=reader.item_associations,
-            )
-            from frisket.engine.store.consumed_sources import (
-                merge_captures,
-                store_capture,
-            )
-
-            if reader.consumed_captures:
-                store_capture(
+        stage = DerivedRefreshStage(keyed=bool(config["keyed"]))
+        try:
+            iterator = iter(prepared.rows)
+            while batch := list(islice(iterator, 256)):
+                checked = _preflight_table_rows(
                     project,
-                    merge_captures(reader.consumed_captures),
-                    owner_op_id=op_id,
-                    output_sheet_id=sheet_id,
+                    prepared.table.model_copy(
+                        update={"rows": [item[0] for item in batch]}
+                    ),
+                    action_kind=derive_request.action_id,
                 )
-            refreshed_rows = len(child_row_ids)
-            cur.execute(
-                "UPDATE sheets SET refresh_claim_token=NULL, refresh_lease_expires_at=NULL WHERE id=?",
-                (sheet_id,),
+                if isinstance(checked, ActionError):
+                    raise TableReadRefused(checked)
+                for values, (_, lineage, files) in zip(checked, batch, strict=True):
+                    source = lineage.parent
+                    if (
+                        files
+                        or source is None
+                        or source not in reader.item_associations
+                    ):
+                        raise TableError(
+                            "invalid_input_ref", "list-item source was not admitted"
+                        )
+                    stage.add(
+                        DerivedRefreshRow(values=values, parent_row_id=source.row_id),
+                        metadata=reader.item_associations[source],
+                    )
+            stage.seal()
+            return _PreparedRefresh(
+                sheet_id,
+                int(sheet["parent_sheet_id"]),
+                int(sheet["parent_op_id"]),
+                str(sheet["name"]),
+                stage,
+                tuple(
+                    MaterializedColumnSpec(
+                        name=column.name,
+                        type=column.type,
+                        ai_generated=_list_output_ai_generated(
+                            reader, column.name, prepared.resolved_output_names
+                        ),
+                        hidden=column.hidden,
+                        format=column.format,
+                    )
+                    for column in prepared.table.columns
+                ),
+                config,
+                update_policy,
+                tuple(deepcopy(reader.facts)),
+                tuple(reader.consumed_captures),
+                _refresh_source_binding(parent_op, reader.consumed_captures),
             )
-
-            return _RefreshFacts(
-                sheet_id=sheet_id,
-                parent_sheet_id=int(sheet["parent_sheet_id"]),
-                name=sheet["name"],
-                op_id=op_id,
-                row_count=refreshed_rows,
-                reads=tuple(deepcopy(reader.facts)),
-            )
-
-        return _PreparedRefresh(sheet_id, len(checked_rows), publish)
+        except BaseException:
+            stage.close()
+            raise
 
 
 def _refresh_join(
@@ -734,60 +760,57 @@ def _refresh_join(
             raise TableError(
                 "invalid_input_ref", "refreshed join must retain its parent sheet"
             )
-        rows = []
-        for values, lineage, files in prepared.rows:
-            if files:
-                raise TableError(
-                    "invalid_input_ref", "join refresh cannot publish new file handles"
-                )
-            reader.validate_lineage(lineage.sources, lineage.parent)
-            rows.append((values, lineage))
-        reads = tuple(deepcopy(reader.facts))
+        from frisket.engine.store.derived_refresh_stage import DerivedRefreshStage
+        from frisket.engine.store.derived_updates import (
+            DerivedRefreshRow,
+            join_identity,
+        )
 
-        def publish():
-            _require_refresh_target(project, int(sheet["id"]), int(parent_op["id"]))
-            op_id, row_count = _rewrite_join_sheet_in_place(
-                cur,
-                sheet_id=int(sheet["id"]),
-                columns=prepared.table.columns,
-                rows=rows,
-                source_roles=reader.source_roles,
-                reads=reads,
-                params_hash=params_hash,
-                policy=bound.request.params.get("update_policy", "keep_changes"),
-            )
-            from frisket.engine.store.consumed_sources import (
-                merge_captures,
-                store_capture,
-            )
-
-            if reader.consumed_captures:
-                store_capture(
-                    project,
-                    merge_captures(reader.consumed_captures),
-                    owner_op_id=op_id,
-                    output_sheet_id=int(sheet["id"]),
+        config = _current_refresh_config(cur, int(sheet["id"]))
+        stage = DerivedRefreshStage(keyed=bool(config["keyed"]))
+        try:
+            for values, lineage, files in prepared.rows:
+                if files:
+                    raise TableError(
+                        "invalid_input_ref",
+                        "join refresh cannot publish new file handles",
+                    )
+                reader.validate_lineage(lineage.sources, lineage.parent)
+                sources = [
+                    (source.row_id, reader.source_roles[source])
+                    for source in lineage.sources
+                ]
+                stage.add(
+                    DerivedRefreshRow(
+                        values=values,
+                        key=join_identity(sources),
+                        parent_row_id=lineage.parent.row_id if lineage.parent else None,
+                        sources=sources,
+                    )
                 )
-            cur.execute(
-                "UPDATE sheets SET refresh_claim_token=NULL, refresh_lease_expires_at=NULL WHERE id=?",
-                (int(sheet["id"]),),
-            )
-            stats = reads[0]["stats"]
-            return _RefreshFacts(
-                sheet_id=int(sheet["id"]),
-                parent_sheet_id=int(sheet["parent_sheet_id"]),
-                name=sheet["name"],
-                op_id=op_id,
-                row_count=row_count,
-                match_stats={
+            stage.seal()
+            reads = tuple(deepcopy(reader.facts))
+            return _PreparedRefresh(
+                int(sheet["id"]),
+                int(sheet["parent_sheet_id"]),
+                int(parent_op["id"]),
+                str(sheet["name"]),
+                stage,
+                prepared.table.columns,
+                config,
+                bound.request.params.get("update_policy", "keep_changes"),
+                reads,
+                tuple(reader.consumed_captures),
+                _refresh_source_binding(parent_op, reader.consumed_captures),
+                {
                     "kind": "derive_join_match_stats",
                     "how": reads[0]["how"],
-                    **stats,
+                    **reads[0]["stats"],
                 },
-                reads=reads,
             )
-
-        return _PreparedRefresh(int(sheet["id"]), len(rows), publish)
+        except BaseException:
+            stage.close()
+            raise
 
 
 def _require_refresh_target(project, sheet_id, parent_op_id):
@@ -837,49 +860,6 @@ def _reconstruct_derive_request(
         return None
 
 
-def _rewrite_join_sheet_in_place(
-    cur: Any,
-    *,
-    sheet_id: int,
-    columns: Any,
-    rows: list[Any],
-    source_roles: dict[Any, str],
-    reads: tuple[dict[str, Any], ...],
-    params_hash: str,
-    policy: str = "keep_changes",
-) -> tuple[int, int]:
-    from frisket.engine.store.derived_updates import (
-        DerivedRefreshRow,
-        join_identity,
-        publish_refresh,
-    )
-
-    config = _current_refresh_config(cur, sheet_id)
-    materialized = [
-        DerivedRefreshRow(
-            values=values,
-            key=join_identity(
-                [(source.row_id, source_roles[source]) for source in lineage.sources]
-            ),
-            parent_row_id=lineage.parent.row_id if lineage.parent else None,
-            sources=[
-                (source.row_id, source_roles[source]) for source in lineage.sources
-            ],
-        )
-        for values, lineage in rows
-    ]
-    op_id, row_ids = publish_refresh(
-        cur.connection,
-        sheet_id=sheet_id,
-        config=config,
-        columns=columns,
-        rows=materialized,
-        policy=policy,
-        spec={"params_hash": params_hash, "reads": reads},
-    )
-    return op_id, len(row_ids)
-
-
 def _current_refresh_config(cur, sheet_id):
     from frisket.engine.store.derived_updates import refresh_config
 
@@ -896,26 +876,221 @@ def _current_refresh_config(cur, sheet_id):
     return config
 
 
-def _rewrite_child_sheet_in_place(
-    cur: Any,
-    *,
-    sheet_id: int,
-    parent_sheet_id: int,
-    resolved: dict[str, Any],
-    params_hash: str,
-    policy: str = "keep_changes",
-) -> tuple[int, list[int]]:
-    from frisket.engine.store.derived_updates import DerivedRefreshRow, publish_refresh
-
-    return publish_refresh(
-        cur.connection,
-        sheet_id=sheet_id,
-        config=_current_refresh_config(cur, sheet_id),
-        columns=resolved["columns"],
-        rows=[
-            DerivedRefreshRow(values=row.values, parent_row_id=row.parent_row_id)
-            for row in resolved["rows"]
-        ],
-        policy=policy,
-        spec={"params_hash": params_hash},
+def _refresh_source_binding(parent_op, captures):
+    from frisket.engine.store.source_dependencies import (
+        SOURCE_BINDING,
+        execution_source_binding,
     )
+
+    original = json.loads(parent_op["spec"] or "{}").get(SOURCE_BINDING, {})
+    scopes = [scope for capture in captures for scope in capture.get("scopes", ())]
+    return execution_source_binding(
+        sheet_ids=[
+            *original.get("sheet_ids", ()),
+            *(scope["sheet_id"] for scope in scopes),
+        ],
+        column_ids=[
+            *original.get("column_ids", ()),
+            *(cid for scope in scopes for cid in scope["column_ids"]),
+        ],
+    )
+
+
+def _begin_staged_refresh(project, project_id, bound, prepared, request_hash):
+    from frisket.engine.store.source_dependencies import (
+        SOURCE_BINDING,
+        require_execution_sources,
+    )
+
+    _require_refresh_target(project, prepared.sheet_id, prepared.parent_op_id)
+    receipt_id = _new_id("receipt")
+    op_id = project.append_op(
+        "sheet.refresh",
+        {
+            "sheet_id": prepared.sheet_id,
+            "policy": prepared.policy,
+            "params_hash": request_hash,
+            "refresh_receipt_id": receipt_id,
+            "reads": prepared.reads,
+            SOURCE_BINDING: prepared.source_binding,
+        },
+        label=f"Refresh sheet {prepared.sheet_id}",
+        commit=False,
+    )
+    require_execution_sources(project, op_id)
+    receipt = Receipt(
+        receipt_id=receipt_id,
+        project_id=project_id,
+        action_id=_new_id("act"),
+        action_kind=bound.action.action_id,
+        op_ids=[op_id],
+        idempotency_key=bound.request.idempotency_key,
+        params_hash=request_hash,
+        status="running",
+        inputs=[
+            ReceiptIO(
+                name="target_sheet",
+                ref={"kind": "sheet", "sheet_id": prepared.sheet_id},
+            )
+        ],
+    )
+    ReceiptStore(project).insert_running(receipt, commit=False)
+    project.db.execute(
+        "UPDATE sheets SET refresh_claim_token=?,refresh_lease_expires_at=? WHERE id=?",
+        (
+            receipt.receipt_id,
+            (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
+            prepared.sheet_id,
+        ),
+    )
+    return receipt
+
+
+def _require_refresh_writer(project, prepared, receipt):
+    from frisket.engine.store.changes import ChangeStore
+    from frisket.engine.store.source_dependencies import require_execution_sources
+    from frisket.engine.store.purge import require_publication_targets
+
+    target = project.db.execute(
+        "SELECT parent_op_id,refresh_claim_token,hidden FROM sheets WHERE id=?",
+        (prepared.sheet_id,),
+    ).fetchone()
+    if (
+        target is None
+        or target["hidden"]
+        or target["parent_op_id"] != prepared.parent_op_id
+        or target["refresh_claim_token"] != receipt.receipt_id
+    ):
+        raise TableError("stale_refresh", "The refresh no longer owns its target")
+    ChangeStore(project).start(receipt.op_ids[0])
+    ChangeStore(project).require_publication(receipt.op_ids[0])
+    require_execution_sources(project, receipt.op_ids[0])
+    require_publication_targets(project.db, sheet_id=prepared.sheet_id)
+    project.db.execute(
+        "UPDATE sheets SET refresh_lease_expires_at=? WHERE id=?",
+        (
+            (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
+            prepared.sheet_id,
+        ),
+    )
+
+
+def _release_refresh_claim(project, sheet_id, token):
+    project.db.execute(
+        "UPDATE sheets SET refresh_claim_token=NULL,refresh_lease_expires_at=NULL WHERE id=? AND refresh_claim_token=?",
+        (sheet_id, token),
+    )
+
+
+def _publish_staged_refresh(project, prepared, receipt, *, deps):
+    from frisket.engine.store.derived_updates import (
+        reconcile_rows_into_open_change,
+        absent_derived_batches,
+        complete_derived_membership,
+    )
+    from frisket.engine.store.consumed_sources import merge_captures, store_capture
+
+    op_id = receipt.op_ids[0]
+    count = 0
+    capture_saved = False
+
+    def commit_batch():
+        nonlocal capture_saved
+        # Source facts belong to the first published work even if later batches
+        # fail. Output completion is the receipt state, not a source-capture flag.
+        if not capture_saved and prepared.captures:
+            store_capture(
+                project,
+                merge_captures(prepared.captures),
+                owner_op_id=op_id,
+                output_sheet_id=prepared.sheet_id,
+            )
+        project.db.commit()
+        capture_saved = True
+
+    def begin():
+        if deps is not None and deps.cancelled is not None and deps.cancelled():
+            raise TableError(
+                "cancelled", "Refresh cancelled; completed changes were kept"
+            )
+        project.db.execute("BEGIN IMMEDIATE")
+        _require_refresh_writer(project, prepared, receipt)
+
+    for batch in prepared.stage.batches():
+        begin()
+        output_ids = reconcile_rows_into_open_change(
+            project.db,
+            op_id=op_id,
+            sheet_id=prepared.sheet_id,
+            config=prepared.config,
+            columns=prepared.columns,
+            rows=[row for _, row, _ in batch],
+            policy=prepared.policy,
+        )
+        for output_id, (_, row, metadata) in zip(output_ids, batch, strict=True):
+            if output_id is None or metadata is None:
+                continue
+            source = RowSource(
+                sheet_id=metadata["source_sheet_id"], row_id=metadata["source_row_id"]
+            )
+            propagate_list_item_evidence(
+                project,
+                sheet_id=prepared.sheet_id,
+                op_id=op_id,
+                child_row_ids=[output_id],
+                sources=[source],
+                item_associations={source: metadata},
+            )
+        commit_batch()
+        prepared.stage.record_published(output_ids)
+        count += sum(row is not None for row in output_ids)
+    # Only complete enumeration and publication can establish source absence.
+    # Cancellation during this phase keeps completed absence batches, like edits.
+    for absent in absent_derived_batches(
+        project.db, config=prepared.config, seen=prepared.stage
+    ):
+        begin()
+        complete_derived_membership(
+            project.db,
+            op_id=op_id,
+            sheet_id=prepared.sheet_id,
+            config=prepared.config,
+            observed_rows=absent,
+        )
+        commit_batch()
+    if not capture_saved:
+        begin()
+        commit_batch()
+    return _RefreshFacts(
+        prepared.sheet_id,
+        prepared.parent_sheet_id,
+        prepared.name,
+        op_id,
+        count,
+        prepared.match_stats,
+        prepared.reads,
+    )
+
+
+def _finish_refresh_failure(project, receipt, error):
+    from frisket.engine.store.changes import ChangeStore
+
+    project.db.execute("BEGIN IMMEDIATE")
+    try:
+        ChangeStore(project).close(receipt.op_ids[0])
+        sheet_id = receipt.inputs[0].ref["sheet_id"]
+        _release_refresh_claim(project, sheet_id, receipt.receipt_id)
+        terminal = receipt.model_copy(
+            update={
+                "status": "cancelled" if error.code == "cancelled" else "failed",
+                "errors": [error],
+            }
+        )
+        ReceiptStore(project).update_body_status(
+            terminal, require_status="running", commit=False
+        )
+        project.db.commit()
+        return _result_from_receipt(terminal)
+    except BaseException:
+        project.db.rollback()
+        raise

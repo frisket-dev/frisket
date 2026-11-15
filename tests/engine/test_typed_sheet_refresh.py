@@ -190,9 +190,7 @@ def test_post_refresh_cancellation_rolls_back_and_closes_transaction(
         project.close()
 
 
-def test_join_receipt_failure_restores_all_rows_memberships_and_watermarks(
-    tmp_path, monkeypatch
-):
+def test_join_receipt_reservation_failure_prevents_publication(tmp_path, monkeypatch):
     seeded = _seed_join(tmp_path / "join.frisket")
     project, child_id = seeded["project"], seeded["child_id"]
     try:
@@ -201,7 +199,7 @@ def test_join_receipt_failure_restores_all_rows_memberships_and_watermarks(
         def fail_receipt(*args, **kwargs):
             raise RuntimeError("receipt unavailable")
 
-        monkeypatch.setattr(ReceiptStore, "insert_completed", fail_receipt)
+        monkeypatch.setattr(ReceiptStore, "insert_running", fail_receipt)
         failed = run_typed_sheet_refresh_action(
             project,
             "p-ref",
