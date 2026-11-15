@@ -362,7 +362,10 @@ def write_single_parent_child_sheet(
 
 
 def write_contributor_table(
-    cur: sqlite3.Cursor, plan: ContributorTablePlan
+    cur: sqlite3.Cursor,
+    plan: ContributorTablePlan,
+    *,
+    defer_publication_close: bool = False,
 ) -> ContributorTableWrite:
     """Publish rows with independently declared navigation and contributors."""
     if not plan.columns or len({column.name for column in plan.columns}) != len(
@@ -450,7 +453,8 @@ def write_contributor_table(
         ],
         "op_id": op_id,
     }
-    _close_atomic_materialization(cur, op_id)
+    if not defer_publication_close:
+        _close_atomic_materialization(cur, op_id)
     return ContributorTableWrite(
         op_id=op_id,
         sheet_id=sheet_id,

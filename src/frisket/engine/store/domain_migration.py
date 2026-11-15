@@ -139,7 +139,7 @@ def archive_history(db: sqlite3.Connection) -> None:
 
 
 # Pinned endpoint: later schema changes must extend this cutover explicitly.
-DOMAIN_TO_DIGEST = "frisket.schema.v1:69b2536ad4f6e48a207e49f2b6e0b2e3"
+DOMAIN_TO_DIGEST = "frisket.schema.v1:b6e1f1492f99975fe9e9ee2180ff2833"
 
 
 def _execute_ddl(db: sqlite3.Connection, sql: str) -> None:

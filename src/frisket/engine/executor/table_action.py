@@ -1640,6 +1640,7 @@ def _perform_table_in_txn(
                 )
             ],
         ),
+        defer_publication_close=True,
     )
     if list_reader is not None:
         from frisket.engine.executor.list_table_grounding import (
@@ -1758,6 +1759,10 @@ def _perform_table_in_txn(
             raise ActionJobTerminalizationError("table receipt completion did not land")
     else:
         ReceiptStore(project).insert_completed(receipt, commit=False)
+    from frisket.engine.store.changes import ChangeStore
+
+    # Annotation cells, evidence and blobs are part of this same atomic write.
+    ChangeStore(project).close(write.op_id)
     return _result_from_receipt(receipt)
 
 
