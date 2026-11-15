@@ -637,6 +637,60 @@ def test_semantic_cluster_persists_remote_fact_and_receipts_the_provider_cost(
         project.close()
 
 
+def test_cluster_replay_does_not_finalize_a_live_completed_writer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from frisket.engine.executor import cluster_action
+    from frisket.engine.executor.actions import run_action_spec
+
+    project = Project.create(tmp_path / "cluster-values-live-replay.frisket")
+    try:
+        seeded = _seed(project, tmp_path)
+        action = _cluster_action(
+            seeded["sheet_id"],
+            idempotency_key="cluster_values@sha256:live-completed-writer",
+            method="fingerprint",
+        )
+        original_finalize = cluster_action.finalize_cluster_action
+        replay_results = []
+        replayed = False
+
+        def replay_during_live_finalize(current_project, *args, **kwargs):
+            nonlocal replayed
+            if not replayed:
+                replayed = True
+                replay_results.append(
+                    run_action_spec(
+                        current_project,
+                        action,
+                        project_id="cluster-values-live-replay",
+                    )
+                )
+            return original_finalize(current_project, *args, **kwargs)
+
+        monkeypatch.setattr(
+            cluster_action, "finalize_cluster_action", replay_during_live_finalize
+        )
+        result = run_action_spec(
+            project,
+            action,
+            project_id="cluster-values-live-replay",
+        )
+
+        assert replayed
+        assert result.status == "completed", result.model_dump()
+        assert len(replay_results) == 1
+        assert replay_results[0].status == "failed"
+        assert replay_results[0].errors[0].code == "idempotency_in_progress"
+        run = project.db.execute(
+            "SELECT status,current_attempt_id FROM runs WHERE id=?",
+            (result.run_id,),
+        ).fetchone()
+        assert tuple(run) == ("completed", None)
+    finally:
+        project.close()
+
+
 def test_semantic_cluster_replay_and_vector_cache_do_not_double_spend(
     tmp_path: Path, monkeypatch
 ) -> None:

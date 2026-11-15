@@ -628,12 +628,17 @@ def run_typed_cluster_action(
                 "SELECT runs.*,ops.spec AS runner_spec FROM runs JOIN ops ON ops.id=runs.op_id WHERE runs.id=?",
                 (receipt.run_id,),
             ).fetchone()
+            from frisket.engine.store.output_claims import OutputColumnClaimStore
+
             if (
                 run is not None
                 and run["status"] == "running"
                 and run["total_rows"] is not None
                 and int(run["completed_rows"] or 0) >= int(run["total_rows"])
                 and run["current_attempt_id"] is not None
+                and OutputColumnClaimStore(project).attempt_handler_execution_stopped(
+                    str(run["current_attempt_id"])
+                )
             ):
                 return finalize_cluster_action(
                     project,
