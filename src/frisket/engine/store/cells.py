@@ -475,7 +475,6 @@ def add_row_with_undo(
             (sheet_id, base + 1, None),
         )
         row_id = cur.lastrowid
-        cur.execute("UPDATE ops SET status='discarded' WHERE status='undone'")
         cur.execute(
             "INSERT INTO ops (kind, label, spec, undo_info, barrier) "
             "VALUES (?, ?, ?, ?, 0)",
@@ -489,7 +488,11 @@ def add_row_with_undo(
             ),
         )
         op_id = cur.lastrowid
-        cur.execute("UPDATE meta SET value=? WHERE key='op_cursor'", (str(op_id),))
+        from .changes import start_change
+        from .structural_changes import record_structural_changes
+
+        start_change(project.db, op_id)
+        record_structural_changes(project.db, op_id, {"created_rows": [row_id]})
         producer_id = create_base_cell_producer(
             project.db, stage_id=f"op:{op_id}", op_id=op_id
         )
@@ -501,6 +504,17 @@ def add_row_with_undo(
                 for name, value in record.items()
                 if name in column_ids and value is not None
             ),
+        )
+        from .structural_changes import note_row_membership_change
+
+        note_row_membership_change(
+            project.db,
+            [sheet_id],
+            already_refreshed_columns={
+                column_ids[name]
+                for name, value in record.items()
+                if name in column_ids and value is not None
+            },
         )
         if owns_transaction:
             project.db.commit()

@@ -301,6 +301,8 @@ _RUNLESS_ACTION_KINDS: frozenset[str] = frozenset(
         # still participate in the complete public run-coordinate partition.
         "operation.redo",
         "operation.undo",
+        "operation.revert",
+        "operation.restore",
         "plugin.load",
         "query.preview",
         "replay.accept",
@@ -587,6 +589,8 @@ _INLINE_KINDS: Mapping[str, str] = MappingProxyType(
         "operation.redo": (
             "Redo applies one local op-log transition and receipt synchronously."
         ),
+        "operation.revert": "Revert one selected Change transactionally without moving navigation.",
+        "operation.restore": "Restore one selected Change transactionally without resuming work.",
         # join.semantic joined _QUEUED_PROJECT_RUN_KINDS above; it is no
         # longer declared here.
         # -- source.*: source metadata/monitor mutation, not project.run -----

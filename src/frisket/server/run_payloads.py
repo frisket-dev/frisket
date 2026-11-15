@@ -12,6 +12,7 @@ from frisket.authoring.action_metadata import (
 from frisket.engine.executor.action_reservations import QUEUED_ACTION_RUN_MARKER_PARAM
 from frisket.server.paging import offset_page_meta
 from frisket.engine.store import Project
+from frisket.engine.store.op_log import history_index, operation_target
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import FAILURE_OUTCOMES, RunResultStore, outcome_sql_list
 from frisket.operability.trace import read_trace_row_retries
@@ -104,6 +105,7 @@ def _history_op_payload(
         "kind": row["kind"],
         "label": row["label"],
         "status": row["status"],
+        "executable": row["change_order"] is not None and not bool(row["barrier"]),
         "barrier": bool(row["barrier"]),
         "at_cursor": row["id"] == cursor,
         "created_at": row["created_at"],
@@ -114,16 +116,7 @@ def _history_op_payload(
 def _history_target_payload(project: Project, row: Any | None) -> dict[str, Any] | None:
     if row is None:
         return None
-    index = (
-        int(
-            project.db.execute(
-                "SELECT COUNT(*) FROM ops WHERE id <= ?",
-                (row["id"],),
-            ).fetchone()[0]
-            or 0
-        )
-        - 1
-    )
+    index = history_index(project, int(row["id"]))
     return {
         "id": row["id"],
         "index": index,
@@ -148,19 +141,8 @@ def history_page_payload(
         if cursor > 0
         else None
     )
-    undo_row = (
-        project.db.execute(
-            "SELECT * FROM ops WHERE id <= ? AND status='applied' "
-            "ORDER BY id DESC LIMIT 1",
-            (cursor,),
-        ).fetchone()
-        if cursor > 0
-        else None
-    )
-    redo_row = project.db.execute(
-        "SELECT * FROM ops WHERE id > ? AND status='undone' ORDER BY id LIMIT 1",
-        (cursor,),
-    ).fetchone()
+    undo_row = operation_target(project, "undo")
+    redo_row = operation_target(project, "redo")
     next_offset = offset + len(rows)
     # Batch every op's run payload in two queries total (not two PER op) —
     # the cursor op may lie outside the current page, so its id joins the

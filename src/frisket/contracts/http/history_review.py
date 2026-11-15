@@ -44,6 +44,7 @@ class HistoryOperation(WireModel):
     kind: str
     label: str | None
     status: str
+    executable: bool
     barrier: bool
     at_cursor: bool
     created_at: str

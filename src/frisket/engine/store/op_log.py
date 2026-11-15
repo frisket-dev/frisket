@@ -57,10 +57,7 @@ def append_op(
     undo_info: Mapping[str, Any] | None = None,
     commit: bool = True,
 ) -> int:
-    """Append an op and clear ordinary Redo navigation, retaining history."""
-    # A new edit leaves the exploration branch, but never destroys retained
-    # contributions or their later selective Restore eligibility.
-    project.db.execute("UPDATE ops SET redo_eligible=0 WHERE status='undone'")
+    """Prepare an operation; its first mutation starts Change navigation."""
     cur = project.db.execute(
         "INSERT INTO ops (kind, label, spec, undo_info, barrier) VALUES (?, ?, ?, ?, ?)",
         (
@@ -72,7 +69,12 @@ def append_op(
         ),
     )
     op_id = cur.lastrowid
-    project.db.execute("UPDATE meta SET value=? WHERE key='op_cursor'", (str(op_id),))
+    if undo_info:
+        from .column_descriptors import record_descriptor_changes
+        from .structural_changes import record_structural_changes
+
+        record_descriptor_changes(project.db, op_id, undo_info)
+        record_structural_changes(project.db, op_id, undo_info)
     if commit:
         project.db.commit()
     return op_id
@@ -84,18 +86,26 @@ def set_undo_info(
     project.db.execute(
         "UPDATE ops SET undo_info=? WHERE id=?", (json.dumps(undo_info), op_id)
     )
+    from .column_descriptors import record_descriptor_changes
+
+    record_descriptor_changes(project.db, op_id, undo_info)
+    from .structural_changes import record_structural_changes
+
+    record_structural_changes(project.db, op_id, undo_info)
     if commit:
         project.db.commit()
 
 
+HISTORY_ORDER = "COALESCE(change_order,0),id"
+
+
 def history(project: Any) -> list[sqlite3.Row]:
-    return project.db.execute("SELECT * FROM ops ORDER BY id").fetchall()
+    return project.db.execute(f"SELECT * FROM ops ORDER BY {HISTORY_ORDER}").fetchall()
 
 
 def history_page(project: Any, offset: int, limit: int) -> list[sqlite3.Row]:
     return project.db.execute(
-        "SELECT * FROM ops ORDER BY id LIMIT ? OFFSET ?",
-        (limit, offset),
+        f"SELECT * FROM ops ORDER BY {HISTORY_ORDER} LIMIT ? OFFSET ?", (limit, offset)
     ).fetchall()
 
 
@@ -103,15 +113,44 @@ def history_total(project: Any) -> int:
     return int(project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] or 0)
 
 
+def history_index(project: Any, op_id: int) -> int:
+    row = project.db.execute(
+        "SELECT COUNT(*) FROM ops WHERE (COALESCE(change_order,0),id) <= "
+        "(SELECT COALESCE(change_order,0),id FROM ops WHERE id=?)",
+        (op_id,),
+    ).fetchone()
+    return int(row[0]) - 1
+
+
 def history_cursor_index(project: Any) -> int:
-    cursor = project.op_cursor
-    if cursor <= 0:
-        return -1
-    count = project.db.execute(
-        "SELECT COUNT(*) FROM ops WHERE id <= ?",
-        (cursor,),
-    ).fetchone()[0]
-    return int(count or 0) - 1
+    return history_index(project, project.op_cursor)
+
+
+def operation_target(project: Any, direction: str, *, op_id: int | None = None):
+    """Use the same target selection for execution, HTTP history and navigation."""
+    if direction in {"revert", "restore"}:
+        status = "applied" if direction == "revert" else "undone"
+        return project.db.execute(
+            "SELECT * FROM ops WHERE id=? AND status=? AND change_order IS NOT NULL",
+            (op_id, status),
+        ).fetchone()
+    cursor = project.db.execute(
+        "SELECT change_order FROM ops WHERE id=?", (project.op_cursor,)
+    ).fetchone()
+    order = int(cursor[0]) if cursor is not None and cursor[0] is not None else 0
+    if direction == "undo":
+        return project.db.execute(
+            "SELECT * FROM ops WHERE change_order<=? AND status='applied' "
+            "ORDER BY change_order DESC LIMIT 1",
+            (order,),
+        ).fetchone()
+    if direction == "redo":
+        return project.db.execute(
+            "SELECT * FROM ops WHERE change_order>? AND status='undone' "
+            "AND redo_eligible=1 ORDER BY change_order LIMIT 1",
+            (order,),
+        ).fetchone()
+    raise ValueError(f"unknown operation transition {direction!r}")
 
 
 @dataclass(frozen=True)
@@ -119,7 +158,7 @@ class OperationTransition:
     target: sqlite3.Row
     undo_info: dict[str, Any]
     column_ids: frozenset[int]
-    direction: Literal["undo", "redo"]
+    direction: Literal["undo", "redo", "revert", "restore"]
     cursor_before: int
     cursor_after: int
     status_before: Literal["applied", "undone"]
@@ -139,6 +178,79 @@ class OperationMismatch(Exception):
 
 class IrreversibleOperation(Exception):
     pass
+
+
+class RestorationUnavailable(ValueError):
+    """Retained results exist, but restoring their destinations would conflict."""
+
+
+def _require_restoration_targets(project, op_id, info, *, reverting):
+    restoring_sheets = info.get("deleted_sheets" if reverting else "created_sheets", [])
+    restoring_columns = info.get(
+        "deleted_columns" if reverting else "created_columns", []
+    )
+    restoring_rows = info.get("deleted_rows" if reverting else "created_rows", [])
+    if not reverting:
+        restoring_rows = [*restoring_rows, *info.get("restored_rows", [])]
+    db = project.db
+    for sheet_id in restoring_sheets:
+        sheet = db.execute("SELECT name FROM sheets WHERE id=?", (sheet_id,)).fetchone()
+        if sheet is None:
+            raise RestorationUnavailable("The original sheet is no longer available")
+        if db.execute(
+            "SELECT 1 FROM sheets WHERE name=? AND hidden=0 AND id<>?",
+            (sheet[0], sheet_id),
+        ).fetchone():
+            raise RestorationUnavailable(f"A sheet named {sheet[0]!r} already exists")
+    for column_id in restoring_columns:
+        column = db.execute(
+            "SELECT col.name,col.sheet_id,sheet.hidden FROM columns col JOIN sheets sheet ON sheet.id=col.sheet_id WHERE col.id=?",
+            (column_id,),
+        ).fetchone()
+        if column is None or (column[2] and column[1] not in restoring_sheets):
+            raise RestorationUnavailable(
+                "The original destination sheet is unavailable"
+            )
+        if db.execute(
+            "SELECT 1 FROM columns WHERE sheet_id=? AND name=? AND active=1 AND id<>?",
+            (column[1], column[0], column_id),
+        ).fetchone():
+            raise RestorationUnavailable(f"A column named {column[0]!r} already exists")
+    if (
+        restoring_rows
+        and db.execute(
+            "SELECT 1 FROM json_each(?) wanted LEFT JOIN rows row ON row.id=wanted.value LEFT JOIN sheets sheet ON sheet.id=row.sheet_id "
+            "WHERE row.id IS NULL OR (sheet.hidden=1 AND sheet.id NOT IN (SELECT value FROM json_each(?))) LIMIT 1",
+            (json.dumps(restoring_rows), json.dumps(restoring_sheets)),
+        ).fetchone()
+    ):
+        raise RestorationUnavailable(
+            "An original destination row or sheet is unavailable"
+        )
+    if not reverting:
+        # Inputs may have disappeared: retained outputs are independent. Only
+        # their destinations must still exist. Keep large scopes in SQLite.
+        invalid = db.execute(
+            "WITH destinations AS (SELECT row_id,column_id FROM edits WHERE op_id=? UNION "
+            "SELECT result.row_id,result.column_id FROM results result JOIN runs run ON run.id=result.run_id WHERE run.op_id=?) "
+            "SELECT 1 FROM destinations target LEFT JOIN rows row ON row.id=target.row_id "
+            "LEFT JOIN columns col ON col.id=target.column_id LEFT JOIN sheets sheet ON sheet.id=col.sheet_id "
+            "WHERE row.id IS NULL OR col.id IS NULL OR sheet.id IS NULL "
+            "OR (row.hidden=1 AND row.id NOT IN (SELECT value FROM json_each(?))) "
+            "OR (col.active=0 AND col.id NOT IN (SELECT value FROM json_each(?))) "
+            "OR (sheet.hidden=1 AND sheet.id NOT IN (SELECT value FROM json_each(?))) LIMIT 1",
+            (
+                op_id,
+                op_id,
+                json.dumps(restoring_rows),
+                json.dumps(restoring_columns),
+                json.dumps(restoring_sheets),
+            ),
+        ).fetchone()
+        if invalid:
+            raise RestorationUnavailable(
+                "An original output destination is unavailable; restore it first"
+            )
 
 
 class CorruptOperation(Exception):
@@ -175,24 +287,17 @@ def _plain_edit_preserves_pending_review_count(
 
 def step_operation(
     project: Any,
-    direction: Literal["undo", "redo"],
+    direction: Literal["undo", "redo", "revert", "restore"],
     *,
     expected_op_id: int | None = None,
+    op_id: int | None = None,
 ) -> OperationTransition:
     """Apply one undo/redo transition inside a caller-owned transaction."""
 
     cursor_before = project.op_cursor
-    if direction == "undo":
-        target = project.db.execute(
-            "SELECT * FROM ops WHERE id <= ? AND status='applied' "
-            "ORDER BY id DESC LIMIT 1",
-            (cursor_before,),
-        ).fetchone()
-    else:
-        target = project.db.execute(
-            "SELECT * FROM ops WHERE id > ? AND status='undone' AND redo_eligible=1 ORDER BY id LIMIT 1",
-            (cursor_before,),
-        ).fetchone()
+    selective = direction in {"revert", "restore"}
+    reverting = direction in {"undo", "revert"}
+    target = operation_target(project, direction, op_id=op_id)
     if target is None:
         raise OperationUnavailable(direction)
     target_op_id = int(target["id"])
@@ -207,7 +312,7 @@ def step_operation(
         active = active_import_session(project.db, int(session["sheet_id"]))
         if active is not None:
             raise ImportInProgress(active)
-    if direction == "undo" and target["barrier"]:
+    if reverting and target["barrier"]:
         raise IrreversibleOperation(target)
     try:
         undo_info = json.loads(target["undo_info"] or "{}")
@@ -218,9 +323,13 @@ def step_operation(
     validation_error = validate_operation_undo_info(undo_info)
     if validation_error is not None:
         raise CorruptOperation(target_op_id, validation_error)
+    from .structural_changes import record_structural_changes
+
+    record_structural_changes(project.db, target_op_id, undo_info)
+    _require_restoration_targets(project, target_op_id, undo_info, reverting=reverting)
     column_ids = operation_touched_column_ids(project, target_op_id, undo_info)
     claims = OutputColumnClaimStore(project)
-    if direction == "redo":
+    if not reverting:
         # A queued job can reserve a released name before creating its column
         # or appending an operation (and thus before discarding this redo).
         for column_id in undo_info.get("created_columns", ()):
@@ -232,7 +341,7 @@ def step_operation(
                 if claim is not None:
                     raise ClaimedOperation(target_op_id, dict(claim))
     status_before = str(target["status"])
-    if direction == "undo":
+    if reverting:
         if undo_info.get("created_columns"):
             # A live column may be intentionally hidden. Undo changes lifecycle;
             # redo must restore its visibility, not expose internal outputs.
@@ -245,6 +354,15 @@ def step_operation(
         from .changes import ChangeStore
 
         ChangeStore(project).revert(target_op_id)
+        project.db.execute(
+            "UPDATE ops SET redo_eligible=? WHERE id=?",
+            (int(not selective), target_op_id),
+        )
+        project.db.execute(
+            "UPDATE output_column_claims SET status='released',released_at=datetime('now') "
+            "WHERE status='active' AND (op_id=? OR run_id IN (SELECT id FROM runs WHERE op_id=?))",
+            (target_op_id, target_op_id),
+        )
         try:
             project._unapply(target)
         except ImportSessionConflict as exc:
@@ -253,20 +371,30 @@ def step_operation(
         project.db.execute("UPDATE ops SET status='undone' WHERE id=?", (target_op_id,))
         cursor_after = int(
             project.db.execute(
-                "SELECT COALESCE(MAX(id),0) FROM ops WHERE id < ? AND status='applied'",
-                (target_op_id,),
+                "SELECT COALESCE((SELECT id FROM ops WHERE change_order < ? "
+                "AND status='applied' ORDER BY change_order DESC LIMIT 1),0)",
+                (target["change_order"],),
             ).fetchone()[0]
         )
     else:
+        from .changes import ChangeStore
+
+        ChangeStore(project).restore(target_op_id)
         try:
             project._reapply(target)
         except ImportSessionConflict as exc:
             raise CorruptOperation(target_op_id, str(exc)) from exc
         status_after = "applied"
-        from .changes import ChangeStore
-
-        ChangeStore(project).restore(target_op_id)
+        project.db.execute("UPDATE ops SET redo_eligible=0 WHERE id=?", (target_op_id,))
         cursor_after = target_op_id
+    if selective:
+        cursor_after = cursor_before
+    from .column_descriptors import project_column_descriptors
+
+    project_column_descriptors(project.db, column_ids)
+    from .structural_changes import project_structural_changes
+
+    project_structural_changes(project.db, target_op_id)
     projection_column_ids = operation_projection_column_ids(
         project, target_op_id, undo_info
     )
@@ -283,7 +411,10 @@ def step_operation(
         )
     }
     refresh_current_cells(
-        project.db, column_ids=set(projection_column_ids) | source_columns
+        project.db,
+        column_ids=set(projection_column_ids)
+        | source_columns
+        | operation_membership_column_ids(project, undo_info),
     )
     edits = project.db.execute(
         "SELECT row_id,column_id FROM edits WHERE op_id=? LIMIT 513", (target_op_id,)
@@ -385,7 +516,10 @@ def operation_touched_column_ids(
     project: Any, op_id: int, undo_info: dict[str, Any]
 ) -> frozenset[int]:
     column_ids = set(ResultGenerationStore(project).column_ids_for_op(op_id))
-    for sheet_id in undo_info.get("created_sheets") or ():
+    for sheet_id in [
+        *undo_info.get("created_sheets", ()),
+        *undo_info.get("deleted_sheets", ()),
+    ]:
         column_ids.update(
             int(row["id"])
             for row in project.db.execute(
@@ -427,7 +561,31 @@ def operation_touched_column_ids(
             "SELECT DISTINCT column_id FROM edits WHERE op_id=?", (op_id,)
         ).fetchall()
     )
+    column_ids.update(operation_membership_column_ids(project, undo_info))
     return frozenset(column_ids)
+
+
+def operation_membership_column_ids(project: Any, info: Mapping[str, Any]) -> set[int]:
+    columns = {
+        int(row[0])
+        for field in ("created_rows", "deleted_rows", "restored_rows")
+        for row in project.db.execute(
+            "SELECT DISTINCT col.id FROM json_each(?) ids "
+            "JOIN rows row ON row.id=ids.value JOIN columns col ON col.sheet_id=row.sheet_id",
+            (json.dumps(info.get(field, [])),),
+        )
+    }
+
+    for field in ("created_rows_import_session_id", "replaced_rows_import_session_id"):
+        if info.get(field) is not None:
+            columns.update(
+                int(row[0])
+                for row in project.db.execute(
+                    "SELECT col.id FROM import_sessions session JOIN columns col ON col.sheet_id=session.sheet_id WHERE session.id=?",
+                    (info[field],),
+                )
+            )
+    return columns
 
 
 def operation_projection_column_ids(
@@ -436,7 +594,10 @@ def operation_projection_column_ids(
     """Columns whose visible value layer can change when an op changes status."""
 
     column_ids = set(ResultGenerationStore(project).column_ids_for_op(op_id))
-    for sheet_id in undo_info.get("created_sheets") or ():
+    for sheet_id in [
+        *undo_info.get("created_sheets", ()),
+        *undo_info.get("deleted_sheets", ()),
+    ]:
         column_ids.update(
             int(row["id"])
             for row in project.db.execute(
@@ -472,6 +633,9 @@ def validate_operation_undo_info(undo_info: Any) -> str | None:
         "created_columns",
         "created_rows",
         "deleted_rows",
+        "restored_rows",
+        "deleted_columns",
+        "deleted_sheets",
     ):
         value = undo_info.get(field_name)
         if value is not None and (
@@ -676,30 +840,6 @@ def _unapply(project: Any, op: sqlite3.Row) -> None:
             "UPDATE columns SET current_run_id=? WHERE id=?",
             (prev_run, int(col_id)),
         )
-    for col_id in info.get("created_columns", []):
-        project.db.execute("UPDATE columns SET active=0,hidden=1 WHERE id=?", (col_id,))
-    for col_id, prev_fmt in info.get("column_formats", {}).items():
-        project.db.execute(
-            "UPDATE columns SET format=? WHERE id=?", (prev_fmt, int(col_id))
-        )
-    for col_id, prev_type in info.get("column_types", {}).items():
-        project.db.execute(
-            "UPDATE columns SET type=? WHERE id=?", (prev_type, int(col_id))
-        )
-    for col_id, prev_semantic_type in info.get("column_semantic_types", {}).items():
-        project.db.execute(
-            "UPDATE columns SET semantic_type=? WHERE id=?",
-            (prev_semantic_type, int(col_id)),
-        )
-    for sheet_id in info.get("created_sheets", []):
-        # hide derived sheets on undo; tombstone, never delete
-        project.db.execute(
-            "UPDATE sheets SET hidden=1, name = name || ' (undone:' || id || ')' "
-            "WHERE id=? AND hidden=0 AND name NOT LIKE '%(undone:%'",
-            (sheet_id,),
-        )
-    for row_id in info.get("created_rows", []):
-        project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (row_id,))
     import_session_id = info.get("created_rows_import_session_id")
     if import_session_id is not None:
         set_import_session_rows_hidden(
@@ -708,9 +848,6 @@ def _unapply(project: Any, op: sqlite3.Row) -> None:
             session_id=import_session_id,
             hidden=True,
         )
-    for row_id in info.get("deleted_rows", []):
-        # undo of a row delete restores the soft-deleted row
-        project.db.execute("UPDATE rows SET hidden=0 WHERE id=?", (row_id,))
     if info.get("replaced_rows_import_session_id") is not None:
         set_import_session_replaced_rows_hidden(
             project.db,
@@ -759,22 +896,6 @@ def _reapply(project: Any, op: sqlite3.Row) -> None:
         project.db.execute(
             "UPDATE columns SET active=1,hidden=? WHERE id=?", (int(hidden), col_id)
         )
-    for col_id, fmt in info.get("column_formats_after", {}).items():
-        project.db.execute("UPDATE columns SET format=? WHERE id=?", (fmt, int(col_id)))
-    for col_id, t in info.get("column_types_after", {}).items():
-        project.db.execute("UPDATE columns SET type=? WHERE id=?", (t, int(col_id)))
-    for col_id, semantic_type in info.get("column_semantic_types_after", {}).items():
-        project.db.execute(
-            "UPDATE columns SET semantic_type=? WHERE id=?",
-            (semantic_type, int(col_id)),
-        )
-    for sheet_id in info.get("created_sheets", []):
-        project.db.execute(
-            "UPDATE sheets SET hidden=0, name = replace(name, ' (undone:' || id || ')', '') WHERE id=?",
-            (sheet_id,),
-        )
-    for row_id in info.get("created_rows", []):
-        project.db.execute("UPDATE rows SET hidden=0 WHERE id=?", (row_id,))
     import_session_id = info.get("created_rows_import_session_id")
     if import_session_id is not None:
         set_import_session_rows_hidden(
@@ -783,9 +904,6 @@ def _reapply(project: Any, op: sqlite3.Row) -> None:
             session_id=import_session_id,
             hidden=False,
         )
-    for row_id in info.get("deleted_rows", []):
-        # redo of a row delete re-hides the row
-        project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (row_id,))
     if info.get("replaced_rows_import_session_id") is not None:
         set_import_session_replaced_rows_hidden(
             project.db,

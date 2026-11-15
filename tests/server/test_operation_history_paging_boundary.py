@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from frisket.server.app import create_app
+from frisket.engine.store.changes import start_change
 
 
 def _seed_history(
@@ -24,6 +25,9 @@ def _seed_history(
                 label=f"history op {index + 1}",
             )
         )
+        with project.db:
+            project.db.execute("UPDATE ops SET label=label WHERE id=?", (op_ids[-1],))
+            start_change(project.db, op_ids[-1])
     for _ in range(5):
         assert project.undo() is not None
     return client, project_id, op_ids, project.op_cursor

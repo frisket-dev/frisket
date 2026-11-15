@@ -763,7 +763,7 @@ class DismissedReplayValue:
 class OperationTransition:
     op_id: int
     operation_kind: str
-    direction: Literal["undo", "redo"]
+    direction: Literal["undo", "redo", "revert", "restore"]
     status_before: Literal["applied", "undone"]
     status_after: Literal["applied", "undone"]
     cursor_before: int
@@ -1019,7 +1019,7 @@ class OperationStepActionOutput(BaseModel):
 
     op_id: int
     operation_kind: str
-    direction: Literal["undo", "redo"]
+    direction: Literal["undo", "redo", "revert", "restore"]
     status_before: Literal["applied", "undone"]
     status_after: Literal["applied", "undone"]
     cursor_before: int
@@ -1317,10 +1317,12 @@ class ReplayValueDismissor(Protocol):
 
 class OperationUndoer(Protocol):
     def undo(self, *, expected_op_id: int | None) -> OperationTransition: ...
+    def revert(self, *, op_id: int) -> OperationTransition: ...
 
 
 class OperationRedoer(Protocol):
     def redo(self, *, expected_op_id: int | None) -> OperationTransition: ...
+    def restore(self, *, op_id: int) -> OperationTransition: ...
 
 
 class QueryPreviewer(Protocol):

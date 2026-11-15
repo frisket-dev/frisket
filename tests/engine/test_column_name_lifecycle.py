@@ -3,6 +3,7 @@ from contextlib import closing
 import pytest
 
 from frisket.engine.store import Project
+from frisket.engine.store.changes import start_change
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 
 
@@ -11,7 +12,9 @@ def test_undo_redo_preserves_internal_hidden_column(tmp_path):
         sheet_id = project.add_sheet("data")
         column_id = project.add_column(sheet_id, "internal", hidden=True)
         op_id = project.append_op("fixture")
-        project.set_undo_info(op_id, {"created_columns": [column_id]})
+        project.set_undo_info(op_id, {"created_columns": [column_id]}, commit=False)
+        start_change(project.db, op_id)
+        project.db.commit()
         assert project.undo() == op_id
         assert project.get_column(column_id)["active"] == 0
         assert project.redo() == op_id
@@ -28,7 +31,9 @@ def test_redo_cannot_take_name_reserved_by_queued_action(tmp_path):
         sheet_id = project.add_sheet("data")
         column_id = project.add_column(sheet_id, "summary")
         op_id = project.append_op("fixture")
-        project.set_undo_info(op_id, {"created_columns": [column_id]})
+        project.set_undo_info(op_id, {"created_columns": [column_id]}, commit=False)
+        start_change(project.db, op_id)
+        project.db.commit()
         project.undo()
         claims = OutputColumnClaimStore(project)
         reserved, conflict = claims.acquire(

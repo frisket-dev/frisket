@@ -40,6 +40,8 @@ def start_change(db: sqlite3.Connection, op_id: int, *, writing: bool = False) -
         if writing and row[2]:
             raise ChangePublicationClosed(f"Change {op_id} publication is closed")
         return int(row[1])
+    db.execute("UPDATE ops SET redo_eligible=0 WHERE status='undone'")
+    db.execute("UPDATE meta SET value=? WHERE key='op_cursor'", (str(op_id),))
     db.execute(
         "INSERT INTO meta(key,value) VALUES ('change_sequence','1') "
         "ON CONFLICT(key) DO UPDATE SET value=CAST(value AS INTEGER)+1"

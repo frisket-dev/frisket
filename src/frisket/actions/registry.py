@@ -87,7 +87,7 @@ from frisket.actions.mcp_extract import MCP_EXTRACT
 from frisket.actions.row_research import ANSWER, EXTRACT as RESEARCH_EXTRACT
 from frisket.actions.group_summary import GROUP_SUMMARY
 from frisket.actions.find import FIND
-from frisket.actions.operations import REDO, UNDO
+from frisket.actions.operations import REDO, UNDO, REVERT, RESTORE
 from frisket.actions.plugins import LOAD
 from frisket.actions.query import PREVIEW
 from frisket.actions.review_replay import (
@@ -155,7 +155,7 @@ COLUMN_ACTIONS = ActionNamespace(
 )
 CELL_ACTIONS = ActionNamespace("cell", actions=(CELL_EDIT, CELL_EDIT_QUERY))
 ROW_ACTIONS = ActionNamespace("row", actions=(ROW_ADD, ROW_DELETE))
-OPERATION_ACTIONS = ActionNamespace("operation", actions=(UNDO, REDO))
+OPERATION_ACTIONS = ActionNamespace("operation", actions=(UNDO, REDO, REVERT, RESTORE))
 REVIEW_ACTIONS = ActionNamespace("review", actions=(REVIEW_DECISION, REVIEW_NOTE))
 REPLAY_ACTIONS = ActionNamespace(
     "replay", actions=(REPLAY_ACCEPT, REPLAY_ACCEPT_COLUMN, REPLAY_DISMISS)

@@ -413,6 +413,13 @@ class _RowCreator(_CallOnce):
                 for name, value in record.items()
             ],
         )
+        from frisket.engine.store.structural_changes import note_row_membership_change
+
+        note_row_membership_change(
+            self._project.db,
+            [sheet_id],
+            already_refreshed_columns={column_ids[name] for name in record},
+        )
         total = int(
             self._cur.execute(
                 "SELECT COUNT(*) FROM rows WHERE sheet_id=? AND hidden=0", (sheet_id,)
@@ -547,6 +554,7 @@ class _RowsAppender(_CallOnce):
             self._project.db, stage_id=f"op:{op_id}", op_id=op_id
         )
         iterator = iter(rows)
+        written_columns: set[int] = set()
         offset = 0
         while True:
             try:
@@ -594,6 +602,9 @@ class _RowsAppender(_CallOnce):
             )
             row_id = int(self._cur.lastrowid)
             row_ids.append(row_id)
+            written_columns.update(
+                column_ids[name] for name, value in record.items() if value is not None
+            )
             initialize_base_cells(
                 self._project.db,
                 producer_id=producer_id,
@@ -616,6 +627,14 @@ class _RowsAppender(_CallOnce):
                 json.dumps({"created_rows": row_ids}, sort_keys=True),
                 op_id,
             ),
+        )
+        from frisket.engine.store.structural_changes import note_row_membership_change
+
+        from frisket.engine.store.structural_changes import record_structural_changes
+
+        record_structural_changes(self._project.db, op_id, {"created_rows": row_ids})
+        note_row_membership_change(
+            self._project.db, [sheet_id], already_refreshed_columns=written_columns
         )
         total = int(
             self._cur.execute(
@@ -885,6 +904,9 @@ class _RowDeleter(_CallOnce):
             spec=_op_spec(self._action, self._params_hash),
             undo_info={"deleted_rows": list(row_ids)},
         )
+        from frisket.engine.store.structural_changes import note_row_membership_change
+
+        note_row_membership_change(self._project.db, [sheet_id])
         total = int(
             self._cur.execute(
                 "SELECT COUNT(*) FROM rows WHERE sheet_id=? AND hidden=0", (sheet_id,)

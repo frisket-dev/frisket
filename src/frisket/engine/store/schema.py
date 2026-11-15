@@ -19,6 +19,8 @@ from pathlib import Path
 from .change_schema import CHANGE_SCHEMA_SQL
 from .copied_results import COPIED_RESULTS_SCHEMA_SQL
 from .keyed_updates import KEYED_UPDATE_SCHEMA
+from .column_descriptors import DESCRIPTOR_SCHEMA_SQL
+from .structural_changes import STRUCTURAL_SCHEMA_SQL
 from .citation_text import CITATION_TEXT_SCHEMA_SQL
 from .extraction_layouts import EXTRACTION_LAYOUTS_SCHEMA_SQL
 from .evaluation import EVALUATION_SCHEMA_SQL
@@ -106,7 +108,7 @@ CREATE TABLE IF NOT EXISTS meta (
 
 CREATE TABLE IF NOT EXISTS sheets (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
   position INTEGER NOT NULL DEFAULT 0,
   parent_sheet_id INTEGER REFERENCES sheets(id),
   parent_op_id INTEGER,
@@ -137,6 +139,8 @@ CREATE TABLE IF NOT EXISTS sheets (
   title_column_id INTEGER,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_visible_sheet_name ON sheets(name) WHERE hidden=0;
 
 CREATE TABLE IF NOT EXISTS columns (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2532,6 +2536,7 @@ SCHEMA += "\n" + PDF_SPLIT_SCHEMA_SQL + "\n"
 SCHEMA += "\n" + COPIED_RESULTS_SCHEMA_SQL + "\n"
 SCHEMA += "\n" + CHANGE_SCHEMA_SQL + "\n"
 SCHEMA += "\n" + KEYED_UPDATE_SCHEMA + "\n"
+SCHEMA += "\n" + DESCRIPTOR_SCHEMA_SQL + STRUCTURAL_SCHEMA_SQL + "\n"
 # This durable bootstrap row gives the data-only OCR role repair an exact
 # schema endpoint. Fresh bundles start repaired; the known prior revision is
 # upgraded once during open and never needs a Review read-time compatibility

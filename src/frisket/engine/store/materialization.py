@@ -242,7 +242,9 @@ def _append_new_materialization_op(
         ),
     )
     op_id = int(cur.lastrowid)
-    cur.execute("UPDATE meta SET value=? WHERE key='op_cursor'", (str(op_id),))
+    from .changes import start_change
+
+    start_change(cur.connection, op_id)
     return op_id
 
 
@@ -306,6 +308,9 @@ def _write_undo_info(
         "UPDATE ops SET undo_info=? WHERE id=?",
         (json.dumps(undo_info, sort_keys=True), op_id),
     )
+    from .structural_changes import record_structural_changes
+
+    record_structural_changes(cur.connection, op_id, undo_info)
     return undo_info
 
 
@@ -363,7 +368,6 @@ def write_contributor_table(
             not _is_positive_int(source) for source, _role in row.sources
         ):
             raise ValueError("invalid or duplicate source membership")
-    cur.execute("UPDATE ops SET status='discarded' WHERE status='undone'")
     op_id = _append_new_materialization_op(cur, plan)
     producer_id = create_base_cell_producer(
         cur.connection, stage_id=f"op:{op_id}", op_id=op_id
@@ -453,15 +457,13 @@ def write_aggregate_sheet(
     """Write a materialized aggregate sheet with canonical source membership."""
 
     _validate_aggregate_sheet_plan(plan)
-    cur.execute("UPDATE ops SET status='discarded' WHERE status='undone'")
     if plan.reuse_op_id is not None:
         # The family already appended this op (its pre-egress accounting
         # envelope); finalize it in place.  The cursor already advanced when
         # the op was appended, so it is not rewound here — rewinding could
         # discard redo state appended since.
         updated = cur.execute(
-            "UPDATE ops SET kind=?, label=?, spec=?, undo_info=?, barrier=0, "
-            "status='applied' WHERE id=?",
+            "UPDATE ops SET kind=?, label=?, spec=?, undo_info=?, barrier=0 WHERE id=?",
             (
                 plan.action_kind,
                 plan.label,
@@ -476,6 +478,9 @@ def write_aggregate_sheet(
                 "the op row is missing"
             )
         op_id = int(plan.reuse_op_id)
+        from .changes import start_change
+
+        start_change(cur.connection, op_id)
     else:
         op_id = _append_new_materialization_op(cur, plan)
     producer_id = create_base_cell_producer(
@@ -565,7 +570,6 @@ def write_edge_table(
     """
 
     _validate_edge_table_plan(plan)
-    cur.execute("UPDATE ops SET status='discarded' WHERE status='undone'")
     op_id = _append_new_materialization_op(cur, plan)
     producer_id = create_base_cell_producer(
         cur.connection, stage_id=f"op:{op_id}", op_id=op_id
@@ -662,7 +666,6 @@ def write_join_table(
     """
 
     _validate_join_table_plan(plan)
-    cur.execute("UPDATE ops SET status='discarded' WHERE status='undone'")
     op_id = _append_new_materialization_op(cur, plan)
     producer_id = create_base_cell_producer(
         cur.connection, stage_id=f"op:{op_id}", op_id=op_id

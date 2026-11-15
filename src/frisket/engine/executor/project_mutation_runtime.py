@@ -60,7 +60,6 @@ def write_op(
     spec: Mapping[str, Any],
     undo_info: Mapping[str, Any],
 ) -> int:
-    cur.execute("UPDATE ops SET status='discarded' WHERE status='undone'")
     cur.execute(
         "INSERT INTO ops (kind, label, spec, undo_info, barrier) "
         "VALUES (?, ?, ?, ?, 0)",
@@ -72,7 +71,14 @@ def write_op(
         ),
     )
     op_id = int(cur.lastrowid)
-    cur.execute("UPDATE meta SET value=? WHERE key='op_cursor'", (str(op_id),))
+    from frisket.engine.store.changes import start_change
+    from frisket.engine.store.column_descriptors import record_descriptor_changes
+
+    start_change(cur.connection, op_id)
+    record_descriptor_changes(cur.connection, op_id, undo_info)
+    from frisket.engine.store.structural_changes import record_structural_changes
+
+    record_structural_changes(cur.connection, op_id, undo_info)
     return op_id
 
 
