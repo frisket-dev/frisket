@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS project_purges (
  created_at TEXT NOT NULL DEFAULT(datetime('now'))
 );
 CREATE TABLE IF NOT EXISTS project_purge_targets (
- kind TEXT NOT NULL CHECK(kind IN ('sheet','column','row','change','run','artifact','watch_run','text_surface')),
+ kind TEXT NOT NULL CHECK(kind IN ('sheet','column','row','change','run','artifact','watch_run','text_surface','qa_thread')),
  object_id INTEGER NOT NULL,
  purge_id INTEGER NOT NULL REFERENCES project_purges(id),
  PRIMARY KEY(purge_id,kind,object_id)
