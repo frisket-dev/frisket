@@ -269,7 +269,7 @@ def _binding_revision(
     project: Any, *, row_id: int, column_id: int
 ) -> BindingRevision | None:
     row = project.db.execute(
-        "SELECT retrieval_revision FROM current_cells WHERE row_id=? AND column_id=?",
+        "SELECT retrieval_revision FROM effective_current_cells WHERE row_id=? AND column_id=?",
         (row_id, column_id),
     ).fetchone()
     if row is None:

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .document_text import (
     DOCUMENT_TEXT_SCHEMA_SQL,
-    DOCUMENT_TEXT_SELECTION_VIEW_SQL,
+    LEGACY_DOCUMENT_TEXT_SELECTION_VIEW_SQL,
 )
 from .execution_metadata_migration import EXECUTION_METADATA_TO_DIGEST
 from .schema import SCHEMA_DIGEST_META_KEY
@@ -68,7 +68,7 @@ def migrate_document_text(db: sqlite3.Connection, *, bundle_path: str | Path) ->
             for statement in DOCUMENT_TEXT_SCHEMA_SQL.split(";"):
                 if statement.strip():
                     db.execute(statement)
-            db.execute(DOCUMENT_TEXT_SELECTION_VIEW_SQL)
+            db.execute(LEGACY_DOCUMENT_TEXT_SELECTION_VIEW_SQL)
             db.execute(
                 "UPDATE meta SET value=? WHERE key=?",
                 (DOCUMENT_TEXT_TO_DIGEST, SCHEMA_DIGEST_META_KEY),

@@ -427,11 +427,11 @@ def _sheet_row_scope_plan(
                 outcome_params = [value]
             if is_generation_managed(column):
                 where.append(
-                    "EXISTS (SELECT 1 FROM cell_result_heads head "
-                    "JOIN results res ON res.run_id = head.run_id "
+                    "EXISTS (SELECT 1 FROM effective_current_cells head "
+                    "JOIN results res ON res.run_id = head.origin_run_id "
                     "AND res.row_id = head.row_id "
                     "AND res.column_id = head.column_id "
-                    "WHERE head.row_id = r.id AND head.column_id = ? "
+                    "WHERE head.row_id = r.id AND head.column_id = ? AND head.origin_kind='run_result' AND res.published=1 "
                     f"AND {outcome_predicate})"
                 )
                 where_params.extend([column["id"], *outcome_params])

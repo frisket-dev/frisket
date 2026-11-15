@@ -17,17 +17,6 @@ HEAD_COLUMNS = (
 )
 
 
-def uses_ordered_changes(db: sqlite3.Connection) -> bool:
-    # Old schema migration steps still use the historical projector until the
-    # cutover installs this authority. This is not a per-project runtime mode.
-    return (
-        db.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='view' AND name='canonical_cell_heads'"
-        ).fetchone()
-        is not None
-    )
-
-
 def project_region(db: sqlite3.Connection, column_id: int, start: int, end: int) -> int:
     params = (column_id, start, end)
     db.execute(

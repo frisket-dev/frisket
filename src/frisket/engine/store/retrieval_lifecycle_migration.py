@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from .current_cells import stamp_retrieval_revision
+from .historical_current_cells import stamp_retrieval_revision
 from .prepared_content_migration import PREPARED_CONTENT_TO_DIGEST
 from .schema import BundleSchemaMismatch, SCHEMA_DIGEST_META_KEY
 from .search_index_work import enqueue_dirty_scope

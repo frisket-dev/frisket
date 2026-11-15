@@ -597,7 +597,7 @@ class ProjectQATools:
             for dependency in binding.dependencies:
                 if (
                     db.execute(
-                        "SELECT 1 FROM current_cells WHERE row_id=? AND column_id=? "
+                        "SELECT 1 FROM effective_current_cells WHERE row_id=? AND column_id=? "
                         "AND retrieval_revision=?",
                         (
                             dependency.row_id,
@@ -637,7 +637,7 @@ class ProjectQATools:
                 ):
                     raise ValueError("source_changed")
                 source_revision = db.execute(
-                    "SELECT retrieval_revision FROM current_cells "
+                    "SELECT retrieval_revision FROM effective_current_cells "
                     "WHERE row_id=? AND column_id=?",
                     (source_cell[1], source_cell[2]),
                 ).fetchone()

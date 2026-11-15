@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from .current_cells import backfill_short_text_values
+from .historical_current_cells import backfill_short_text_values
 from .schema import (
     NUMERIC_CURRENT_INDEX_SQL,
     SCHEMA_DIGEST_META_KEY,

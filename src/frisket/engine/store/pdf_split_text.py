@@ -27,7 +27,7 @@ class PdfSplitTextBinding(Protocol):
 def _identity(db: Any, row_id: int, column_id: int) -> dict[str, Any] | None:
     row = db.execute(
         "SELECT value.value_kind,value.value,head.retrieval_revision,head.origin_kind,"
-        "head.base_producer_id FROM current_cells head LEFT JOIN cells value "
+        "head.base_producer_id FROM effective_current_cells head LEFT JOIN cells value "
         "ON value.row_id=head.row_id AND value.column_id=head.column_id "
         "AND value.producer_id IS head.base_producer_id "
         "WHERE head.row_id=? AND head.column_id=?",

@@ -55,7 +55,15 @@ CREATE VIEW IF NOT EXISTS canonical_cell_heads AS
 SELECT payload.column_id,payload.row_id,
        COALESCE(revision.revision,1) AS retrieval_revision,
        payload.origin_kind,payload.origin_op_id,payload.origin_run_id,payload.base_producer_id,
-       frisket_cell_validity(descriptor.type,payload.value_kind,payload.value) AS validity,
+       CASE
+         WHEN payload.value_kind IS NULL OR payload.value_kind='null' THEN 'missing'
+         WHEN descriptor.type IN ('text','category','timestamped_transcript')
+           AND payload.value_kind='text' THEN 'valid'
+         WHEN descriptor.type='json' AND payload.value_kind='json' THEN 'valid'
+         WHEN descriptor.type IN ('number','integer','boolean') AND payload.value_kind IN ('text','json')
+           THEN 'invalid'
+         ELSE frisket_cell_validity(descriptor.type,payload.value_kind,payload.value)
+       END AS validity,
        CASE WHEN payload.value_kind IN ('null','integer','real','boolean')
          OR (payload.value_kind IN ('text','bigint') AND length(CAST(payload.value AS BLOB))<=512)
          THEN payload.value_kind END AS inline_value_kind,
@@ -79,7 +87,10 @@ FROM (
             WHEN ranked.publication_closed=0 THEN 'pending' ELSE 'not_completed' END AS outcome
   FROM (
     SELECT contribution.*,ROW_NUMBER() OVER (
-      PARTITION BY contribution.column_id,contribution.row_id ORDER BY contribution.change_order DESC
+      PARTITION BY contribution.column_id,contribution.row_id
+      ORDER BY contribution.change_order DESC,
+        CASE contribution.origin_kind WHEN 'manual_edit' THEN 2 WHEN 'run_result' THEN 1 ELSE 0 END DESC,
+        contribution.base_producer_id DESC
     ) AS winner FROM cell_contributions contribution
   ) ranked
   LEFT JOIN cells cell ON ranked.origin_kind='source_cell' AND cell.row_id=ranked.row_id
@@ -127,3 +138,20 @@ CHANGE_SCHEMA_SQL = CHANGE_SCHEMA_SQL.replace(
     "SELECT head.* FROM canonical_cell_heads head WHERE EXISTS",
     "SELECT head.* FROM dirty_cell_heads head WHERE EXISTS",
 )
+
+# Saved-answer comparison excludes only ordinary edits; it uses the same
+# ordered winner and pending-mask rules, never a column-wide run pointer.
+CHANGE_SCHEMA_SQL += (
+    "\nCREATE VIEW IF NOT EXISTS unmodified_cell_heads AS"
+    + _head_definition.replace(
+        "FROM cell_contributions contribution",
+        "FROM cell_contributions contribution WHERE contribution.origin_kind!='manual_edit'",
+    )
+    + ";\n"
+)
+
+CHANGE_SCHEMA_SQL += """
+CREATE VIEW IF NOT EXISTS current_result_heads AS
+SELECT column_id,row_id,origin_run_id AS run_id FROM unmodified_cell_heads
+WHERE origin_kind='run_result';
+"""

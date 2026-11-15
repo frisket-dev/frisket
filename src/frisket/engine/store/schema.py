@@ -2534,6 +2534,10 @@ CURRENT_CELL_VALUES_SQL = (
     )[0]
     + ";"
 )
+UNMODIFIED_CELL_VALUES_SQL = CURRENT_CELL_VALUES_SQL.replace(
+    "current_cell_values AS", "unmodified_cell_values AS"
+).replace("FROM effective_current_cells AS head", "FROM unmodified_cell_heads AS head")
+SCHEMA += "\n" + UNMODIFIED_CELL_VALUES_SQL + "\n"
 
 # The run queue (jobs + worker_heartbeats) lives in its OWN database, never a
 # project bundle: `<workspace>/.queue.db` locally, the hosted run-queue Postgres

@@ -186,7 +186,7 @@ def _resolve_text_annotations(
     if meta.value_kind != "text":
         return empty
     validity = project.db.execute(
-        "SELECT validity FROM current_cells WHERE row_id=? AND column_id=?",
+        "SELECT validity FROM effective_current_cells WHERE row_id=? AND column_id=?",
         (row_id, column_id),
     ).fetchone()
     if validity is None or validity[0] != "valid":

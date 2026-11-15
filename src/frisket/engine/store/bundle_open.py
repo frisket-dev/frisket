@@ -449,7 +449,7 @@ def _migrate_current_cells(db: sqlite3.Connection) -> None:
             db.execute("CREATE INDEX idx_current_cells_row ON current_cells(row_id)")
 
             # Lazy leaf import avoids loading the facade during bundle open.
-            from .current_cells import rebuild_current_cells
+            from .historical_current_cells import rebuild_current_cells
 
             rebuild_current_cells(db, invalidate_search=False)
             db.execute(
@@ -481,7 +481,7 @@ def _migrate_cell_validity(db: sqlite3.Connection) -> None:
                 "ALTER TABLE current_cells ADD COLUMN validity TEXT NOT NULL "
                 "DEFAULT 'valid' CHECK (validity IN ('valid','missing','invalid'))"
             )
-            from .current_cells import rebuild_current_cells
+            from .historical_current_cells import rebuild_current_cells
 
             rebuild_current_cells(db, invalidate_search=False)
             db.execute(

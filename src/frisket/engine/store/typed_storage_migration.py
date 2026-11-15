@@ -179,7 +179,7 @@ def migrate_typed_values(
                 "CREATE UNIQUE INDEX idx_current_cells_column_row "
                 "ON current_cells(column_id,row_id)"
             )
-            from .current_cells import rebuild_current_cells
+            from .historical_current_cells import rebuild_current_cells
 
             rebuilt = rebuild_current_cells(db)
             if rebuilt != current_count:

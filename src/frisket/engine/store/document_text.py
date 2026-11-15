@@ -71,11 +71,11 @@ SELECT source_column.sheet_id AS source_sheet_id,
 FROM document_text_column_roles role
 JOIN columns source_column ON source_column.id=role.source_column_id
 JOIN columns text_column ON text_column.id=role.text_column_id
-JOIN current_cells source_head ON source_head.column_id=role.source_column_id
+JOIN effective_current_cells source_head ON source_head.column_id=role.source_column_id
 JOIN current_cell_values source_live
   ON source_live.column_id=source_head.column_id
  AND source_live.row_id=source_head.row_id
-JOIN current_cells text_head
+JOIN effective_current_cells text_head
   ON text_head.column_id=role.text_column_id
  AND text_head.row_id=source_head.row_id
 JOIN current_cell_values text_live
@@ -135,6 +135,11 @@ WHERE source_column.sheet_id=text_column.sheet_id
     )
   );
 """
+
+# Historical adoption upgrades run before the ordered authority exists.
+LEGACY_DOCUMENT_TEXT_SELECTION_VIEW_SQL = DOCUMENT_TEXT_SELECTION_VIEW_SQL.replace(
+    "effective_current_cells", "current_cells"
+)
 
 
 class DocumentTextRoleError(ValueError):
@@ -354,7 +359,7 @@ def is_generation_free_document_text_target(
     ):
         return False
     stale_or_unpinned = db.execute(
-        "SELECT 1 FROM current_cells head "
+        "SELECT 1 FROM effective_current_cells head "
         "JOIN current_cell_values live "
         "ON live.row_id=head.row_id AND live.column_id=head.column_id "
         "WHERE head.column_id=? AND live.value_kind IS NOT NULL "

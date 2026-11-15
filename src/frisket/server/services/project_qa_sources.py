@@ -69,7 +69,7 @@ def _metadata(
 ) -> tuple[dict[str, Any], CurrentTextMetadata | None]:
     row = db.execute(
         "SELECT c.origin_kind,c.origin_op_id,c.origin_run_id,c.base_producer_id,"
-        "c.validity,col.type AS column_type FROM current_cells c "
+        "c.validity,col.type AS column_type FROM effective_current_cells c "
         "JOIN rows r ON r.id=c.row_id JOIN columns col ON col.id=c.column_id "
         "JOIN sheets s ON s.id=r.sheet_id "
         "WHERE r.sheet_id=? AND r.id=? AND c.column_id=? "

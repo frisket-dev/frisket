@@ -403,7 +403,7 @@ class ResultGenerationStore:
         row = self.db.execute(
             "SELECT claim.expected_current_run_id, claim.output_name, "
             "claim.action_kind, column.name AS column_name, "
-            "(SELECT MAX(head.run_id) FROM cell_result_heads head "
+            "(SELECT MAX(head.run_id) FROM current_result_heads head "
             " WHERE head.column_id=column.id) AS current_head_run_id, "
             "run.status AS run_status, op.status AS op_status "
             "FROM output_column_claims claim "
@@ -1252,10 +1252,10 @@ class ResultGenerationStore:
                 "result.publication_effect,result.value_kind,result.value,result.error,"
                 "result.error_code,result.outcome,result.review_state,"
                 "result.confidence,result.justification,result.warnings,run.op_id "
-                "FROM cell_result_heads head "
+                "FROM current_result_heads head "
                 "JOIN results result ON result.run_id=head.run_id "
                 "AND result.row_id=head.row_id "
-                "AND result.column_id=head.column_id "
+                "AND result.column_id=head.column_id AND result.published=1 "
                 "JOIN runs run ON run.id=head.run_id "
                 "WHERE head.column_id=?" + row_filter + " ORDER BY head.row_id",
                 params,
@@ -1312,7 +1312,7 @@ class ResultGenerationStore:
             return []
         if ordered_row_ids is None:
             rows = self.db.execute(
-                "SELECT DISTINCT run_id FROM cell_result_heads "
+                "SELECT DISTINCT run_id FROM current_result_heads "
                 "WHERE column_id=? ORDER BY run_id DESC LIMIT ?",
                 (int(column_id), int(limit)),
             ).fetchall()
@@ -1322,7 +1322,7 @@ class ResultGenerationStore:
         for row_id_batch in _chunks(ordered_row_ids):
             placeholders = ",".join("?" for _ in row_id_batch)
             rows = self.db.execute(
-                "SELECT DISTINCT run_id FROM cell_result_heads "
+                "SELECT DISTINCT run_id FROM current_result_heads "
                 f"WHERE column_id=? AND row_id IN ({placeholders}) "
                 "ORDER BY run_id DESC LIMIT ?",
                 (int(column_id), *row_id_batch, int(limit)),

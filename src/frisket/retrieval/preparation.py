@@ -566,7 +566,7 @@ def _resolve_work_source(
             current_dependencies = True
             for dependency in dependencies:
                 current = snapshot.db.execute(
-                    "SELECT retrieval_revision FROM current_cells "
+                    "SELECT retrieval_revision FROM effective_current_cells "
                     "WHERE column_id=? AND row_id=?",
                     (
                         dependency["dependency_column_id"],
@@ -661,7 +661,7 @@ def _document_text_bindings_current(project, resolved: ResolvedCellTextSource) -
     with project.read_snapshot() as snapshot:
         for binding in (resolved.binding, resolved.source_binding):
             current = snapshot.db.execute(
-                "SELECT current.retrieval_revision FROM current_cells current "
+                "SELECT current.retrieval_revision FROM effective_current_cells current "
                 "JOIN columns descriptor ON descriptor.id=current.column_id "
                 "JOIN rows row ON row.id=current.row_id "
                 "JOIN sheets sheet ON sheet.id=row.sheet_id "

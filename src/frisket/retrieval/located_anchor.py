@@ -26,7 +26,7 @@ def _current_binding(project: Any, binding: ScopedBinding) -> bool:
         return False
     return all(
         project.db.execute(
-            "SELECT 1 FROM current_cells WHERE row_id=? AND column_id=? "
+            "SELECT 1 FROM effective_current_cells WHERE row_id=? AND column_id=? "
             "AND retrieval_revision=?",
             (dep.row_id, dep.column_id, dep.retrieval_revision),
         ).fetchone()

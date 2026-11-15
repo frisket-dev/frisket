@@ -56,6 +56,7 @@ def test_current_reads_and_querysets_follow_candidate_beneath_edit_undo_redo(
             "row_id": row_ids[0],
             "column_id": column_id,
             "run_id": run.run_id,
+            "outcome": "completed",
         }
 
         manual = resolve_sheet_filter_rows(

@@ -37,7 +37,7 @@ def _text_identity(
     if role is None:
         return None, None
     row = project.db.execute(
-        "SELECT retrieval_revision FROM current_cells WHERE row_id=? AND column_id=?",
+        "SELECT retrieval_revision FROM effective_current_cells WHERE row_id=? AND column_id=?",
         (row_id, role.text_column_id),
     ).fetchone()
     return role.text_column_id, int(row[0]) if row is not None else None

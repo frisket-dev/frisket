@@ -55,7 +55,7 @@ def read_binding_revision(
     """Read one live binding revision by its indexed current-cell key."""
 
     row = db.execute(
-        "SELECT retrieval_revision FROM current_cells WHERE column_id=? AND row_id=?",
+        "SELECT retrieval_revision FROM effective_current_cells WHERE column_id=? AND row_id=?",
         (
             _positive_id(column_id, "column_id"),
             _positive_id(row_id, "row_id"),
@@ -77,7 +77,7 @@ def read_binding_revisions(
             f"WITH {cte} "
             "SELECT head.row_id,head.column_id,head.retrieval_revision "
             "FROM requested target "
-            "CROSS JOIN current_cells head ON head.column_id=target.column_id "
+            "CROSS JOIN effective_current_cells head ON head.column_id=target.column_id "
             "AND head.row_id=target.row_id",
             params,
         ).fetchall()
@@ -120,7 +120,7 @@ def touch_binding_revisions(
             f"WITH {cte} "
             "SELECT head.row_id,head.column_id,column_meta.sheet_id "
             "FROM requested target "
-            "CROSS JOIN current_cells head ON head.column_id=target.column_id "
+            "CROSS JOIN effective_current_cells head ON head.column_id=target.column_id "
             "AND head.row_id=target.row_id "
             "JOIN columns column_meta ON column_meta.id=head.column_id",
             params,

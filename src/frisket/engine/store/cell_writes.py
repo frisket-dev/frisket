@@ -16,7 +16,6 @@ from typing import Any
 
 from .current_cells import refresh_current_cell_pairs, refresh_current_cells
 from .changes import start_change
-from .cell_projection import uses_ordered_changes
 from .import_sessions import (
     ImportInProgress,
     active_import_session,
@@ -129,8 +128,7 @@ def bind_base_cell_producer(
     producer_id = int(producer_id)
     op_id = int(op_id)
     _require_applied_op(db, op_id)
-    if uses_ordered_changes(db):
-        start_change(db, op_id)
+    start_change(db, op_id)
     row = db.execute(
         "SELECT op_id FROM base_cell_producers WHERE id=?", (producer_id,)
     ).fetchone()
@@ -147,6 +145,16 @@ def bind_base_cell_producer(
     db.execute(
         "UPDATE base_cell_producers SET op_id=? WHERE id=? AND op_id IS NULL",
         (op_id, producer_id),
+    )
+    refresh_current_cells(
+        db,
+        column_ids=[
+            int(row[0])
+            for row in db.execute(
+                "SELECT DISTINCT column_id FROM cells WHERE producer_id=?",
+                (producer_id,),
+            )
+        ],
     )
 
 
@@ -293,26 +301,25 @@ def initialize_base_cells(
         [(row_id, column_id) for row_id, column_id, _kind, _value in encoded],
         producer_id=producer_id,
     )
-    if uses_ordered_changes(db):
-        for start in range(0, len(encoded), 400):
-            chunk = encoded[start : start + 400]
-            coordinates = ",".join("(?,?)" for _ in chunk)
-            values = [coordinate for cell in chunk for coordinate in cell[:2]]
-            existing = db.execute(
-                f"WITH incoming(row_id,column_id) AS (VALUES {coordinates}) "
-                "SELECT 1 FROM incoming JOIN cells USING(row_id,column_id) LIMIT 1",
-                values,
-            ).fetchone()
-            if existing is not None:
-                raise ValueError(
-                    "initializing an existing source cell requires an explicit replacement"
-                )
+    for start in range(0, len(encoded), 400):
+        chunk = encoded[start : start + 400]
+        coordinates = ",".join("(?,?)" for _ in chunk)
+        values = [coordinate for cell in chunk for coordinate in cell[:2]]
+        existing = db.execute(
+            f"WITH incoming(row_id,column_id) AS (VALUES {coordinates}) "
+            "SELECT 1 FROM incoming JOIN cells USING(row_id,column_id) LIMIT 1",
+            values,
+        ).fetchone()
+        if existing is not None:
+            raise ValueError(
+                "initializing an existing source cell requires an explicit replacement"
+            )
     db.executemany(
         "INSERT INTO cells (row_id,column_id,value_kind,value,producer_id) "
         "VALUES (?,?,?,?,?)",
         [(*cell, producer_id) for cell in encoded],
     )
-    if producing_op_id is not None and uses_ordered_changes(db):
+    if producing_op_id is not None:
         start_change(db, producing_op_id)
     _refresh_written_region(db, encoded)
     return len(encoded)
@@ -348,15 +355,12 @@ def remove_base_cells(
     if rows is not None:
         where += f" AND row_id IN ({','.join('?' for _ in rows)})"
         params.extend(rows)
-    if uses_ordered_changes(db):
-        start_change(db, producing_op_id)
-        cursor = db.execute(
-            "INSERT INTO cells(row_id,column_id,value_kind,value,producer_id) "
-            f"SELECT DISTINCT row_id,column_id,'null',NULL,? FROM cells WHERE {where}",
-            [producer_id, *params],
-        )
-    else:
-        cursor = db.execute(f"DELETE FROM cells WHERE {where}", params)
+    start_change(db, producing_op_id)
+    cursor = db.execute(
+        "INSERT INTO cells(row_id,column_id,value_kind,value,producer_id) "
+        f"SELECT DISTINCT row_id,column_id,'null',NULL,? FROM cells WHERE {where}",
+        [producer_id, *params],
+    )
     refresh_current_cells(db, column_ids=columns, row_ids=rows)
     return int(cursor.rowcount)
 
@@ -444,20 +448,17 @@ def replace_base_cells(
     if rows is not None:
         where += f" AND row_id IN ({','.join('?' for _ in rows)})"
         params.extend(rows)
-    if uses_ordered_changes(db):
-        start_change(db, producing_op_id)
-        provided = {(row_id, column_id) for row_id, column_id, _, _ in encoded}
-        # Sparse replacement clears omitted existing coordinates, but keeps the
-        # old producer-qualified versions available to history and baseline.
-        encoded.extend(
-            (int(row[0]), int(row[1]), "null", None)
-            for row in db.execute(
-                f"SELECT DISTINCT row_id,column_id FROM cells WHERE {where}", params
-            )
-            if (int(row[0]), int(row[1])) not in provided
+    start_change(db, producing_op_id)
+    provided = {(row_id, column_id) for row_id, column_id, _, _ in encoded}
+    # Sparse replacement clears omitted existing coordinates, but keeps the
+    # old producer-qualified versions available to history and baseline.
+    encoded.extend(
+        (int(row[0]), int(row[1]), "null", None)
+        for row in db.execute(
+            f"SELECT DISTINCT row_id,column_id FROM cells WHERE {where}", params
         )
-    else:
-        db.execute(f"DELETE FROM cells WHERE {where}", params)
+        if (int(row[0]), int(row[1])) not in provided
+    )
     if encoded:
         db.executemany(
             "INSERT INTO cells (row_id,column_id,value_kind,value,producer_id) "
@@ -502,8 +503,7 @@ def insert_edits(
         "VALUES (?,?,?,?,?)",
         encoded,
     )
-    if uses_ordered_changes(db):
-        start_change(db, op_id)
+    start_change(db, op_id)
     # Import lazily: document_text owns optional role metadata while this
     # generic writer also runs during migrations that predate that schema.
     from .document_text import inherit_document_text_manual_pins

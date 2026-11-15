@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from .current_cells import backfill_inline_scalar_values
+from .historical_current_cells import backfill_inline_scalar_values
 from .review_confidence_migration import REVIEW_CONFIDENCE_TO_DIGEST
 from .schema import (
     BundleSchemaMismatch,

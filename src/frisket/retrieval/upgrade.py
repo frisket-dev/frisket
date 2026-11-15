@@ -116,7 +116,9 @@ def prepare_retrieval_on_open(project: Any) -> None:
 
 def _queue_retrieval_repair(project: Any) -> None:
     with project.transaction_scope():
-        if not project.db.execute("SELECT 1 FROM current_cells LIMIT 1").fetchone():
+        if not project.db.execute(
+            "SELECT 1 FROM effective_current_cells LIMIT 1"
+        ).fetchone():
             return
         global_scope = project.db.execute(
             "SELECT 1 FROM search_dirty_scopes WHERE sheet_id IS NULL "

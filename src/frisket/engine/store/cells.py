@@ -25,7 +25,6 @@ from frisket.engine.store.cell_writes import (
     initialize_base_cells,
 )
 from frisket.engine.store.current_cells import (
-    decoded_cell_validity,
     refresh_current_cells,
 )
 from frisket.engine.store.current_value_windows import prepared_text_sizes
@@ -103,7 +102,7 @@ def replay_generated_snapshot(
     if run_id is None:
         return {"run_id": None}
     head_join = (
-        "JOIN cell_result_heads head ON head.column_id=res.column_id "
+        "JOIN current_result_heads head ON head.column_id=res.column_id "
         "AND head.row_id=res.row_id AND head.run_id=res.run_id "
         if managed
         else ""
@@ -552,6 +551,7 @@ def _current_cell_rows(
     row_ids: list[int] | None,
     *,
     with_refs: bool,
+    apply_edits: bool = True,
 ) -> Iterator[sqlite3.Row]:
     """Page the current read representation, including never-populated blanks."""
     if row_ids is not None and not row_ids:
@@ -574,8 +574,9 @@ def _current_cell_rows(
             row_filter = f" AND r.id IN ({','.join('?' * len(chunk))})"
             params.extend(chunk)
         rows_source = "rows r NOT INDEXED" if chunk is not None else "rows r"
+        relation = "current_cell_values" if apply_edits else "unmodified_cell_values"
         yield from project.db.execute(
-            f"SELECT {fields} FROM {rows_source} LEFT JOIN current_cell_values c "
+            f"SELECT {fields} FROM {rows_source} LEFT JOIN {relation} c "
             "ON c.column_id=? AND c.row_id=r.id "
             f"WHERE r.sheet_id=? AND r.hidden=0{row_filter}",
             params,
@@ -612,172 +613,68 @@ def get_values_with_refs(
     surfaces such as the grid and exports; ``include_validity=True`` annotates
     refs with the projection classification.
     """
-    if apply_edits:
-        values: dict[int, Any] = {}
-        refs: dict[int, dict[str, Any]] = {}
-        for row in _current_cell_rows(
-            project, sheet_id, column_id, row_ids, with_refs=True
-        ):
-            row_id = int(row["id"])
-            values[row_id] = decode_stored_value(
-                None
-                if row["validity"] == "invalid" and not preserve_invalid
-                else row["value_kind"],
-                None
-                if row["validity"] == "invalid" and not preserve_invalid
-                else row["value"],
-                tolerate_errors=tolerate_decode_errors,
-            )
-            refs[row_id] = {
-                "kind": row["origin_kind"] or "missing",
-                "op_id": row["origin_op_id"],
-                "row_id": row_id,
-                "column_id": column_id,
-                "run_id": row["origin_run_id"],
-                "outcome": row["outcome"],
-                **(
-                    {"producer_id": int(row["base_producer_id"])}
-                    if row["base_producer_id"] is not None
-                    else {}
-                ),
-                **(
-                    {"prepared_ref_id": int(row["prepared_ref_id"])}
-                    if row["prepared_ref_id"] is not None
-                    else {}
-                ),
-                **({"validity": row["validity"]} if include_validity else {}),
-            }
-        # Reapplication is an ordinary edit overlay with a retained immutable
-        # result reference. Keep that provenance visible to citation readers.
-        operation_specs = {}
-        for ref in refs.values():
-            op_id = ref.get("op_id")
-            if ref["kind"] != "manual_edit" or op_id is None:
-                continue
-            if op_id not in operation_specs:
-                op = project.db.execute(
-                    "SELECT spec FROM ops WHERE id=?", (op_id,)
-                ).fetchone()
-                operation_specs[op_id] = json.loads(op["spec"] or "{}") if op else {}
-            spec = operation_specs[op_id]
-            if spec.get("action_kind") == "run.reapply":
-                saved = next(
-                    (
-                        item
-                        for item in spec.get("result_refs", [])
-                        if item["row_id"] == ref["row_id"]
-                        and item["target_column_id"] == column_id
-                    ),
-                    None,
-                )
-                if saved is not None:
-                    ref["retained_result"] = {
-                        key: saved[key] for key in ("run_id", "row_id", "column_id")
-                    }
-        return values, refs
-    if row_ids is not None and not row_ids:
-        return {}, {}
-    if row_ids is not None and len(row_ids) > _SQLITE_ID_CHUNK_SIZE:
-        out: dict[int, Any] = {}
-        refs: dict[int, dict[str, Any]] = {}
-        for offset in range(0, len(row_ids), _SQLITE_ID_CHUNK_SIZE):
-            chunk_out, chunk_refs = get_values_with_refs(
-                project,
-                sheet_id,
-                column_id,
-                row_ids=row_ids[offset : offset + _SQLITE_ID_CHUNK_SIZE],
-                apply_edits=apply_edits,
-                tolerate_decode_errors=tolerate_decode_errors,
-                preserve_invalid=preserve_invalid,
-                include_validity=include_validity,
-            )
-            out.update(chunk_out)
-            refs.update(chunk_refs)
-        return out, refs
-    generation_store = ResultGenerationStore(project)
-    descriptor = project.db.execute(
-        "SELECT type FROM columns WHERE id=? AND sheet_id=?", (column_id, sheet_id)
-    ).fetchone()
-    if descriptor is None:
-        return {}, {}
-    column_type = str(descriptor["type"])
-    generation_managed = generation_store.is_generation_managed(column_id)
-    out: dict[int, Any] = {}
+    values: dict[int, Any] = {}
     refs: dict[int, dict[str, Any]] = {}
-    params: list[Any] = [column_id, sheet_id]
-    row_filter = ""
-    if row_ids is not None:
-        row_filter = f" AND r.id IN ({','.join('?' * len(row_ids))})"
-        params.extend(row_ids)
-    rows_source = "rows r NOT INDEXED" if row_ids is not None else "rows r"
-    # 3) source cells
-    for r in project.db.execute(
-        f"SELECT r.id, c.row_id AS source_row_id, c.value_kind, c.value "
-        f"FROM {rows_source} LEFT JOIN cells c "
-        f"ON c.row_id = r.id AND c.column_id = ? "
-        f"WHERE r.sheet_id=? AND r.hidden=0{row_filter}",
-        params,
+    for row in _current_cell_rows(
+        project, sheet_id, column_id, row_ids, with_refs=True, apply_edits=apply_edits
     ):
-        out[r["id"]] = decode_logical_value(
-            project.db,
-            r["value_kind"],
-            r["value"],
+        row_id = int(row["id"])
+        values[row_id] = decode_stored_value(
+            None
+            if row["validity"] == "invalid" and not preserve_invalid
+            else row["value_kind"],
+            None
+            if row["validity"] == "invalid" and not preserve_invalid
+            else row["value"],
             tolerate_errors=tolerate_decode_errors,
         )
-        if r["source_row_id"] is not None:
-            refs[r["id"]] = {
-                "kind": "source_cell",
-                "op_id": None,
-                "row_id": r["id"],
-                "column_id": column_id,
-                "run_id": None,
-                **(
-                    {"prepared_ref_id": int(r["value"])}
-                    if r["value_kind"] == "prepared_content_ref"
-                    else {}
+        refs[row_id] = {
+            "kind": row["origin_kind"] or "missing",
+            "op_id": row["origin_op_id"],
+            "row_id": row_id,
+            "column_id": column_id,
+            "run_id": row["origin_run_id"],
+            "outcome": row["outcome"],
+            **(
+                {"producer_id": int(row["base_producer_id"])}
+                if row["base_producer_id"] is not None
+                else {}
+            ),
+            **(
+                {"prepared_ref_id": int(row["prepared_ref_id"])}
+                if row["prepared_ref_id"] is not None
+                else {}
+            ),
+            **({"validity": row["validity"]} if include_validity else {}),
+        }
+    # Reapplication is an ordinary edit overlay with a retained immutable
+    # result reference. Keep that provenance visible to citation readers.
+    operation_specs = {}
+    for ref in refs.values():
+        op_id = ref.get("op_id")
+        if ref["kind"] != "manual_edit" or op_id is None:
+            continue
+        if op_id not in operation_specs:
+            op = project.db.execute(
+                "SELECT spec FROM ops WHERE id=?", (op_id,)
+            ).fetchone()
+            operation_specs[op_id] = json.loads(op["spec"] or "{}") if op else {}
+        spec = operation_specs[op_id]
+        if spec.get("action_kind") == "run.reapply":
+            saved = next(
+                (
+                    item
+                    for item in spec.get("result_refs", [])
+                    if item["row_id"] == ref["row_id"]
+                    and item["target_column_id"] == column_id
                 ),
-            }
-    # 2) exact active heads for generated columns. Head existence is
-    # authoritative even when the published effect is null or error: the head
-    # read model deliberately returns ``value=None`` for both, so an older
-    # result or source cell can never bleed through.
-    if generation_managed:
-        for row_id, head in generation_store.read_cell_heads(
-            column_id,
-            row_ids=row_ids,
-        ).items():
-            if row_id not in out:
-                continue
-            out[row_id] = head.value
-            refs[row_id] = {
-                "kind": "run_result",
-                "op_id": head.op_id,
-                "row_id": row_id,
-                "column_id": column_id,
-                "run_id": head.run_id,
-                **(
-                    {"prepared_ref_id": head.prepared_ref_id}
-                    if head.prepared_ref_id is not None
-                    else {}
-                ),
-            }
-    for rid in out:
-        validity = decoded_cell_validity(column_type, out[rid])
-        if validity == "invalid" and not preserve_invalid:
-            out[rid] = None
-        refs.setdefault(
-            rid,
-            {
-                "kind": "missing",
-                "op_id": None,
-                "row_id": rid,
-                "column_id": column_id,
-                "run_id": None,
-            },
-        )
-        if include_validity:
-            refs[rid]["validity"] = validity
-    return out, refs
+                None,
+            )
+            if saved is not None:
+                ref["retained_result"] = {
+                    key: saved[key] for key in ("run_id", "row_id", "column_id")
+                }
+    return values, refs
 
 
 def get_values(
@@ -1053,7 +950,7 @@ def _replay_candidate_query(
         return None
     run_id = int(source_run_id)
     head_join = (
-        "JOIN cell_result_heads head ON head.column_id=res.column_id "
+        "JOIN current_result_heads head ON head.column_id=res.column_id "
         "AND head.row_id=res.row_id AND head.run_id=res.run_id "
         if generation_managed
         else ""

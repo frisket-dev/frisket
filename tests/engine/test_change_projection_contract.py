@@ -1,11 +1,13 @@
 """Read-side acceptance independent of the projection implementation."""
 
 import json
+import tracemalloc
 
 import pytest
 
 from frisket.engine.store import Project
 from frisket.engine.store.cell_projection import repair_current_cells
+from frisket.engine.store.current_value_windows import read_current_column
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.querysets import resolve_sheet_filter_rows
@@ -46,6 +48,61 @@ def _run(project, sheet, column, rows):
     )
     _declare(ResultGenerationStore(project), run, column, write_mode="replace_scope")
     return run
+
+
+def test_same_change_manual_correction_wins_over_source_version(tmp_path):
+    from frisket.engine.store.cell_writes import EditCellWrite, insert_edits
+
+    project = Project.create(tmp_path / "same-change.frisket")
+    try:
+        sheet = project.add_sheet("Source")
+        column = project.add_column(sheet, "text")
+        row = project.add_rows(sheet, [{"text": "original"}], {"text": column})[0]
+        op = project.db.execute(
+            "SELECT producer.op_id FROM cells cell JOIN base_cell_producers producer "
+            "ON producer.id=cell.producer_id WHERE cell.row_id=? AND cell.column_id=?",
+            (row, column),
+        ).fetchone()[0]
+        project.db.execute("BEGIN")
+        with project.db:
+            insert_edits(
+                project.db, op_id=op, edits=[EditCellWrite(row, column, "corrected")]
+            )
+        values, refs = project.get_values_with_refs(sheet, column, [row])
+        assert values[row] == "corrected"
+        assert refs[row]["kind"] == "manual_edit"
+    finally:
+        project.close()
+
+
+def test_dirty_large_text_reads_stay_bounded(tmp_path):
+    project = Project.create(tmp_path / "large-dirty.frisket")
+    try:
+        sheet = project.add_sheet("Documents")
+        column = project.add_column(sheet, "text")
+        rows = project.add_rows(
+            sheet,
+            [{"text": "a" * (5 * 1024 * 1024)}] + [{"text": "small"}] * 519,
+            {"text": column},
+        )
+        assert project.db.execute("SELECT 1 FROM current_cell_repair").fetchone()
+        tracemalloc.start()
+        try:
+            values = read_current_column(
+                project.db,
+                sheet_id=sheet,
+                column_id=column,
+                row_ids=rows[:1],
+                bounded=True,
+            )
+            _, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+        assert values[rows[0]].value_present is False
+        assert values[rows[0]].bounded_value.total_bytes == 5 * 1024 * 1024
+        assert peak < 2 * 1024 * 1024
+    finally:
+        project.close()
 
 
 def test_dirty_undo_finds_new_filter_matches_and_exports_before_bounded_repair(

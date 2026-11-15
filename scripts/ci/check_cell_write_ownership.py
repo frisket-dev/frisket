@@ -37,6 +37,7 @@ TABLE_OWNERS: Mapping[str, tuple[str, ...]] = {
     "edits": ("src/frisket/engine/store/cell_writes.py",),
     "current_cells": (
         "src/frisket/engine/store/current_cells.py",
+        "src/frisket/engine/store/historical_current_cells.py",  # Frozen pre-cutover migrations.
         "src/frisket/engine/store/cell_projection.py",
     ),
     "base_cell_producers": ("src/frisket/engine/store/cell_writes.py",),
