@@ -208,8 +208,9 @@ def test_target_membership_changes_semantic_join_freshness(case):
     assert row_input_state(case.project, result.run_id, case.left_row) == "fresh"
 
 
+@pytest.mark.parametrize("undo_before_retry", [False, True])
 def test_returned_semantic_match_keeps_original_shared_corpus_on_recovery(
-    case, monkeypatch
+    case, monkeypatch, undo_before_retry
 ):
     import json
     import asyncio
@@ -220,7 +221,9 @@ def test_returned_semantic_match_keeps_original_shared_corpus_on_recovery(
     from frisket.engine.store.op_log import step_operation
     from test_map_row_effect_checkpoint import _age_silent_attempt
     from frisket.engine.executor.actions import _default_map_runner_factory
+    from frisket.engine.executor import semantic_join_action
     from frisket.engine.runner import MapRunner
+    from frisket.execution.attempt import StaleAttemptWriter
 
     class ProcessDeath(BaseException):
         pass
@@ -277,6 +280,42 @@ def test_returned_semantic_match_keeps_original_shared_corpus_on_recovery(
         )
     )
     assert progress.done and progress.completed == 1, vars(progress)
+
+    if undo_before_retry:
+        run_op_id = int(
+            case.project.db.execute(
+                "SELECT op_id FROM runs WHERE id=?", (stored["id"],)
+            ).fetchone()["op_id"]
+        )
+        edit_op_id = int(
+            case.project.db.execute(
+                "SELECT id FROM ops WHERE change_order=(SELECT MAX(change_order) FROM ops)"
+            ).fetchone()["id"]
+        )
+        assert case.project.undo() == edit_op_id
+        assert case.project.undo() == run_op_id
+        result = case.run()
+        assert result.status == "cancelled", result.errors
+        run_row = case.project.db.execute(
+            "SELECT status FROM runs WHERE id=?", (stored["id"],)
+        ).fetchone()
+        assert run_row["status"] == "cancelled"
+        assert case.project.db.execute(
+            "SELECT COUNT(*) FROM results WHERE run_id=? AND published=1",
+            (stored["id"],),
+        ).fetchone()[0] == 0
+        assert len(case.calls) == calls
+        return
+
+    finalize = semantic_join_action.finalize_semantic_join
+
+    def commit_then_lose_reply(*args, **kwargs):
+        finalize(*args, **kwargs)
+        raise StaleAttemptWriter("simulated overlapping finalizer reply")
+
+    monkeypatch.setattr(
+        semantic_join_action, "finalize_semantic_join", commit_then_lose_reply
+    )
     result = case.run()
     assert result.status == "completed", result.errors
     assert len(case.calls) == calls

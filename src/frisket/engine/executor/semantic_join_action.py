@@ -988,20 +988,57 @@ def recover_typed_semantic_join_publication(project, project_id, bound):
         idempotency_key=bound.request.idempotency_key,
         params=MappingProxyType(dict(bound.request.params)),
     )
-    return finalize_semantic_join(
-        project,
-        envelope,
-        bound.params,
-        bound=bound,
-        run_id=receipt.run_id,
-        action_id=receipt.action_id,
-        receipt_id=receipt.receipt_id,
-        params_hash=receipt.params_hash,
-        project_id=project_id,
-        writer_attempt_id=run["current_attempt_id"],
-        claim_token=_output_claim_token(receipt.receipt_id),
-        terminal_status="completed",
-        resolved=ResolvedAction.from_resolve_dict(
-            {"semantic_join": json.loads(run["runner_spec"])["semantic_join"]}
-        ),
-    )
+    try:
+        return finalize_semantic_join(
+            project,
+            envelope,
+            bound.params,
+            bound=bound,
+            run_id=receipt.run_id,
+            action_id=receipt.action_id,
+            receipt_id=receipt.receipt_id,
+            params_hash=receipt.params_hash,
+            project_id=project_id,
+            writer_attempt_id=run["current_attempt_id"],
+            claim_token=_output_claim_token(receipt.receipt_id),
+            terminal_status="completed",
+            resolved=ResolvedAction.from_resolve_dict(
+                {"semantic_join": json.loads(run["runner_spec"])["semantic_join"]}
+            ),
+        )
+    except StaleAttemptWriter:
+        # Another holder of the same exact writer may have committed the
+        # family while this retry was waiting for SQLite's write lock. Return
+        # its immutable receipt only after proving that all publication work
+        # landed and no claim remains. Undo or a failed/incomplete finalizer
+        # cannot satisfy this check.
+        current = _receipt_for_idempotency(project, bound.request.idempotency_key)
+        if current is None or current["id"] != receipt.receipt_id:
+            raise
+        from frisket.contracts.action import Receipt
+
+        completed = Receipt.model_validate(json.loads(current["body"]))
+        durable_run = project.db.execute(
+            "SELECT run.status,attempt.state AS current_attempt_state "
+            "FROM runs run LEFT JOIN execution_attempts attempt "
+            "ON attempt.id=run.current_attempt_id WHERE run.id=?",
+            (receipt.run_id,),
+        ).fetchone()
+        bindings = ResultGenerationStore(project).bindings_for_run(receipt.run_id)
+        active_claim = project.db.execute(
+            "SELECT 1 FROM output_column_claims WHERE run_id=? AND status='active' LIMIT 1",
+            (receipt.run_id,),
+        ).fetchone()
+        if (
+            completed.params_hash == receipt.params_hash
+            and completed.status in {"completed", "failed", "cancelled"}
+            and durable_run is not None
+            and durable_run["status"] == completed.status
+            and durable_run["current_attempt_state"]
+            not in {"created", "admitted", "dispatching"}
+            and bindings
+            and all(binding.state == "sealed" for binding in bindings)
+            and active_claim is None
+        ):
+            return _result_from_receipt(completed)
+        raise

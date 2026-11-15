@@ -3309,7 +3309,7 @@ class RunResultStore:
             raise RuntimeError("finish_run(commit=False) requires a caller transaction")
         try:
             run = self.db.execute(
-                "SELECT run.status,run.current_attempt_id,op.publication_closed "
+                "SELECT run.status,run.current_attempt_id,run.cancel_requested_at "
                 "FROM runs run JOIN ops op ON op.id=run.op_id WHERE run.id=?",
                 (int(run_id),),
             ).fetchone()
@@ -3318,6 +3318,10 @@ class RunResultStore:
             if str(run["status"]) != "running":
                 raise StaleAttemptWriter(
                     f"run {int(run_id)} is {run['status']!r}, not running"
+                )
+            if run["cancel_requested_at"] is not None and status != "cancelled":
+                raise StaleAttemptWriter(
+                    "a run with cancellation intent cannot finish successfully"
                 )
 
             if writer_attempt_id is not None:

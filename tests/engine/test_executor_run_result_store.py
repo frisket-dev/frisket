@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from frisket.engine.store import Project
+from frisket.engine.store.changes import ChangeStore
 from frisket.engine.store.result_generations import GenerationSealedError
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.attempt import StaleAttemptWriter
@@ -153,3 +154,30 @@ def test_run_result_store_preserves_scopes_results_model_calls_and_pointers(
     assert project.get_column(columns["score"])["current_run_id"] == run_id
     project.undo()
     assert project.get_column(columns["score"])["current_run_id"] is None
+
+
+def test_pre_dispatch_undo_cannot_be_finished_as_completed(tmp_path: Path) -> None:
+    project, sheet_id, _columns, row_ids, op_id = _seed_project(tmp_path)
+    store = RunResultStore(project)
+    try:
+        run_id = store.start_run(
+            op_id,
+            sheet_id,
+            "test.score",
+            params={},
+            total_rows=len(row_ids),
+            row_ids=row_ids,
+        )
+        project.db.execute("BEGIN IMMEDIATE")
+        ChangeStore(project).start(op_id, writing=True)
+        project.db.commit()
+        assert project.undo() == op_id
+        run = store.get_run(run_id)
+        assert run["cancel_requested_at"] is not None
+        with pytest.raises(StaleAttemptWriter, match="cancellation intent"):
+            store.finish_run(run_id, "completed")
+        assert store.get_run(run_id)["status"] == "running"
+        store.finish_run(run_id, "cancelled")
+        assert store.get_run(run_id)["status"] == "cancelled"
+    finally:
+        project.close()
