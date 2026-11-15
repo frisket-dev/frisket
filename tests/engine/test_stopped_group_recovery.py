@@ -66,7 +66,7 @@ raise RuntimeError('death hook not reached')
 """)
     killed = subprocess.run(
         [
-            sys.executable,
+            sys.executable,  # subprocess-boundary: SIGKILL after Stop must preserve committed accounting
             str(child),
             str(path),
             str(sheet),
