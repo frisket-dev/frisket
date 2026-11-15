@@ -66,7 +66,8 @@ function Harness({ onChanged }: { onChanged?: (change: ImportProgressChange) => 
           ))}
           <button type="button" onClick={() => controller.resume(activity)}>Resume</button>
           <button type="button" onClick={() => void controller.stop(activity)}>Stop remaining</button>
-          <button type="button" onClick={() => controller.keep(activity)}>Keep what's added</button>
+          <button type="button" onClick={() => controller.keep(activity)}>Keep completed work</button>
+          <button type="button" onClick={() => controller.remove(activity)}>Remove imported work</button>
         </section>
       ))}
     </div>
@@ -154,7 +155,8 @@ describe('persistent import progress controller', () => {
     resolveImportSession.mockResolvedValue({ ...table, state: 'kept' });
     render(<Harness onChanged={changed} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Stop remaining' }));
-    await waitFor(() => expect(resolveImportSession).toHaveBeenCalled());
+    await waitFor(() => expect(cancelImportSession).toHaveBeenCalled());
+    expect(resolveImportSession).not.toHaveBeenCalled();
     expect(screen.getByText('Adding rows: 3/10')).toBeInTheDocument();
     expect(changed).toHaveBeenCalledWith({ sheetId: 9, refreshData: true });
   });
@@ -170,12 +172,14 @@ describe('persistent import progress controller', () => {
     expect(screen.getByText('OCR: 0/2')).toBeInTheDocument();
   });
 
-  it('stops the browser upload before canonical cancel and keep', async () => {
+  it('stops the browser upload before cancel and waits for an explicit Keep choice', async () => {
     const order: string[] = [];
     registerImportSessionUploadAbort('import-1', () => { order.push('abort'); });
     cancelImportSession.mockImplementation(async () => {
       order.push('cancel');
-      return { ...running, state: 'cancelled' };
+      const cancelled = { ...running, state: 'cancelled' };
+      listImportSessions.mockResolvedValue({ sessions: [cancelled] });
+      return cancelled;
     });
     resolveImportSession.mockImplementation(async () => {
       order.push('keep');
@@ -185,6 +189,9 @@ describe('persistent import progress controller', () => {
     render(<Harness />);
     fireEvent.click(await screen.findByRole('button', { name: 'Stop remaining' }));
 
+    await waitFor(() => expect(cancelImportSession).toHaveBeenCalled());
+    expect(resolveImportSession).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Keep completed work' }));
     await waitFor(() => expect(resolveImportSession).toHaveBeenCalledWith(
       'project-1',
       'import-1',
@@ -218,3 +225,13 @@ describe('persistent import progress controller', () => {
     expect(listImportSessions).toHaveBeenCalledTimes(2);
   });
 });
+
+ it('removes cancelled work only after the explicit choice', async () => {
+    listImportSessions.mockResolvedValue({ sessions: [{ ...running, state: 'cancelled' }] });
+    resolveImportSession.mockResolvedValue({ ...running, state: 'removed' });
+    render(<Harness />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove imported work' }));
+    await waitFor(() => expect(resolveImportSession).toHaveBeenCalledWith('project-1', 'import-1', 'remove'));
+    expect(cancelImportSession).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByTestId('activity')).not.toBeInTheDocument());
+ });

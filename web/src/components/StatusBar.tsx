@@ -138,6 +138,7 @@ const IDLE_IMPORT_PROGRESS: ImportProgressController = {
   resume() {},
   async stop() {},
   keep() {},
+  remove() {},
 };
 
 export interface StatusBarProps {
@@ -258,13 +259,18 @@ export function StatusBar({
             onKeepImport={importActivity?.needsRecovery
               ? () => importProgress.keep(importActivity)
               : undefined}
+            onRemoveImport={importActivity?.session.state === 'cancelled'
+              ? () => importProgress.remove(importActivity)
+              : undefined}
             importActionBusy={importProgress.busyRef === importActivity?.importRef
               || importProgress.preparingRef === importActivity?.importRef}
             importMessage={importActivity ? importProgress.message : null}
             importProblemCount={importActivity?.session.problem_count}
             importSourceLabel={importActivity?.session.source_label}
-            importHint={importActivity?.session.intake_kind === 'table' && importActivity.canStop
-              ? 'You can browse rows as they arrive.' : undefined}
+            importHint={importActivity?.session.state === 'cancelled'
+              ? "Completed work is still in the sheet. Keep it or remove this import's changes."
+              : importActivity?.session.intake_kind === 'table' && importActivity.canStop
+                ? 'You can browse rows as they arrive.' : undefined}
             onImportAnotherSheet={importActivity?.session.can_rerun_workbook
               && ['completed', 'kept'].includes(importActivity.session.state)
               ? () => actSurface.openTableImportRerun(importActivity.importRef) : undefined}

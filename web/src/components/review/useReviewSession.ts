@@ -277,7 +277,7 @@ export function useReviewSession({ runId, options, readOnly = false, onDecisionS
         } else {
           await api.reviewItem(target.id, action, undefined);
         }
-        updated = { ...updated, fields: updated.fields.map((item) => item.id === target.id ? applyDecision(item, action, value) : item) };
+        updated = { ...updated, fields: updated.fields.map((item) => item.id === target.id ? applyDecision(item, action) : item) };
         const next = updated;
         setPage((current) => current && ({ ...current, bundles: current.bundles.map((row) => row.id === next.id ? next : row) }));
         saved += 1;

@@ -12,6 +12,7 @@ export function isStandaloneRibbonAction(canonicalKind: string): boolean {
   return !canonicalKind.startsWith('import.')
     && !canonicalKind.startsWith('export.')
     && !canonicalKind.startsWith('embedding.')
+    && !canonicalKind.startsWith('run.')
     && canonicalKind !== 'resolve.entities'
     && canonicalKind !== 'media.read_pdf_text';
 }

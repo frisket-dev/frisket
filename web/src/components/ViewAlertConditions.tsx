@@ -5,8 +5,6 @@ import { useSelector } from '../bind/useSelector';
 import { FormField, TextInput } from './FormControls';
 import { PanelSelect } from './PanelSelect';
 
-export const DEFAULT_VIEW_ALERTS: Conditions = { kind: 'conditions', entered: true, exited: false, count_changed: false, fields: [] };
-
 /** Shared View alert conditions; selecting these does not authorize model preparation. */
 export function ViewAlertConditions({ value, onChange, sheetId, disabled = false }: {
   value: Conditions; onChange(value: Conditions): void; sheetId?: number | null; disabled?: boolean;

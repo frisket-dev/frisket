@@ -1,4 +1,5 @@
-import { ViewAlertConditions, DEFAULT_VIEW_ALERTS } from './ViewAlertConditions';
+import { ViewAlertConditions } from './ViewAlertConditions';
+import type { ViewAlertConditions as Conditions } from '../api/types';
 import './Modal.css';
 import { Button } from './Button';
 import { ListEditorActions } from './ListEditorActions';
@@ -27,6 +28,8 @@ import type {
 } from '../state/watchRunLinkStore';
 import { useEditionModule } from '../editions/module';
 import './WatchesPanel.css';
+
+const DEFAULT_VIEW_ALERTS: Conditions = { kind: 'conditions', entered: true, exited: false, count_changed: false, fields: [] };
 
 type RunsByWatch = Record<number, WatchRunsPage>;
 type EventsByRun = Record<number, WatchRunEvent[]>;

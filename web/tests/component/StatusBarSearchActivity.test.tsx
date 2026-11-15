@@ -13,6 +13,8 @@ vi.mock('../../src/components/useSearchPreparationNotice', () => ({
 import { defineEditionModule, EditionModuleProvider } from '../../src/editions/module';
 import { TEAM_EDITION_DESCRIPTOR } from '../../src/editions/posture';
 import { StatusBar } from '../../src/components/StatusBar';
+import { importActivity } from '../../src/components/useImportProgress';
+import type { ImportSessionStatus } from '../../src/api/open';
 import { createProjectApi } from '../../src/api/real';
 import type { RunProgress } from '../../src/api/open';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
@@ -29,6 +31,35 @@ afterEach(() => {
 });
 
 describe('StatusBar search activity', () => {
+  it('offers explicit Keep or Remove after cancellation without choosing for the user', () => {
+    useSearchPreparationNotice.mockReturnValue(null);
+    const session: ImportSessionStatus = {
+      import_ref: 'import-cancelled', state: 'cancelled', intake_kind: 'table',
+      admitted_files: 1, admitted_bytes: 100, through: 1,
+      committed_rows: 3, committed_bytes: 30, processed_rows: 3,
+      sheet_id: 1, sheet_name: 'Records', cancel_requested: true, sealed: true,
+      error: null, search_preparation_status: 'none', search_preparation_batch_id: null,
+      selected_total: 20, preparation_completed: 0, preparation_total: 0,
+      ocr_completed: 0, ocr_total: 0, unreadable_total: 0,
+      preparation_pending_confirmation: null, preparation_children: [],
+    };
+    const activity = importActivity(session)!;
+    const keep = vi.fn();
+    const remove = vi.fn();
+    render(<StatusBar run={null} history={null} reviewCount={0} projectionStatus={null}
+      importProgress={{ activities: [activity], message: null, busyRef: null, preparingRef: null,
+        resume: vi.fn(), stop: vi.fn(async () => {}), keep, remove }}
+      onUndo={vi.fn()} onRedo={vi.fn()} onOpenReview={vi.fn()} onCancelRun={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('search-activity-toggle'));
+    expect(screen.getByRole('button', { name: 'Keep completed work' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Remove imported work' })).toBeVisible();
+    expect(keep).not.toHaveBeenCalled();
+    expect(remove).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove imported work' }));
+    expect(remove).toHaveBeenCalledWith(activity);
+    expect(keep).not.toHaveBeenCalled();
+  });
+
   it('does not infer model installation from a hosted edition having teams', () => {
     useSearchPreparationNotice.mockReturnValue(null);
     const hosted = defineEditionModule({ descriptor: { ...TEAM_EDITION_DESCRIPTOR, id: 'hosted-test' } });
