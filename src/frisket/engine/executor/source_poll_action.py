@@ -43,9 +43,8 @@ from frisket.engine.store.cell_writes import (
 )
 from frisket.engine.store.keyed_updates import (
     ValidatedKeyedInput,
-    canonical,
     typed_key,
-    changed_fields,
+    reconcile_fields,
     observation,
     observe,
     require_relationship,
@@ -441,6 +440,10 @@ def _perform_source_poll_in_txn(
     )
     # Insert the receipt before linking the source_run to it (source_runs.receipt_id carries
     # a FK to receipts.id).
+    from frisket.engine.store.changes import ChangeStore
+
+    for op_id in receipt.op_ids:
+        ChangeStore(project).close(op_id)
     ReceiptStore(project).insert_finished(receipt, commit=False)
     source_store.finish_source_run(
         source_run_id,
@@ -655,23 +658,17 @@ def _materialize_registered_source_poll_in_txn(
                         and target in values
                     ):
                         current[str(column)] = values[target]
-                changes = changed_fields(current, incoming, baseline, policy)
                 hidden = bool(
                     cur.execute(
                         "SELECT hidden FROM rows WHERE id=?", (target,)
                     ).fetchone()[0]
                 )
-                source_changed = baseline is None or any(
-                    key not in baseline or canonical(value) != canonical(baseline[key])
-                    for key, value in incoming.items()
+                changes, restored = reconcile_fields(
+                    current, incoming, baseline, policy, deleted=hidden
                 )
-                if hidden:
-                    if policy == "keep_changes" or not source_changed:
-                        changes = {}
-                    else:
-                        cur.execute("UPDATE rows SET hidden=0 WHERE id=?", (target,))
-                        restored = True
-                        restored_ids.append(target)
+                if restored:
+                    cur.execute("UPDATE rows SET hidden=0 WHERE id=?", (target,))
+                    restored_ids.append(target)
                 if changes or restored:
                     if op_id is None:
                         op_id = _append_source_poll_op_in_txn(
@@ -742,6 +739,12 @@ def _materialize_registered_source_poll_in_txn(
                 item.row.get("enclosure_url") or item.row.get("enclosures")
             ):
                 enclosure_row_ids.append(target)
+    if restored_ids:
+        from frisket.engine.store.changes import start_change
+        from frisket.engine.store.structural_changes import note_row_membership_change
+
+        start_change(project.db, op_id, writing=True)
+        note_row_membership_change(project.db, [sheet_id])
     if op_id is not None:
         from frisket.engine.store.op_log import set_undo_info
 

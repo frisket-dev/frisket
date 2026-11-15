@@ -9,7 +9,7 @@ from typing import Any, Iterable, Mapping, Protocol, Sequence
 from frisket.contracts.action import canonical_column_type
 from frisket.engine.store.keyed_updates import (
     ValidatedKeyedInput,
-    changed_fields,
+    reconcile_fields,
     observation,
     canonical,
     UpdatePolicy,
@@ -203,17 +203,11 @@ def plan_import_update(
                         if not (keep_existing_on_blank and value is None)
                     }
                     baseline = observation(project.db, relationship_id, target_row_id)
-                    changes = changed_fields(live, incoming, baseline, update_policy)
-                    if hidden_target:
-                        source_changed = baseline is None or any(
-                            name not in baseline
-                            or canonical(value) != canonical(baseline[name])
-                            for name, value in incoming.items()
-                        )
-                        if update_policy == "keep_changes" or not source_changed:
-                            changes = {}
-                        else:
-                            restored_rows.append(target_row_id)
+                    changes, restore = reconcile_fields(
+                        live, incoming, baseline, update_policy, deleted=hidden_target
+                    )
+                    if restore:
+                        restored_rows.append(target_row_id)
                     destination_hash.update(
                         canonical([target_row_id, baseline]).encode() + b"\n"
                     )

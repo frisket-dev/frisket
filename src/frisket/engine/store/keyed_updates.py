@@ -260,6 +260,25 @@ def changed_fields(
     return changes
 
 
+def reconcile_fields(
+    current: Mapping[str, Any],
+    incoming: Mapping[str, Any],
+    baseline: Mapping[str, Any] | None,
+    policy: UpdatePolicy,
+    *,
+    deleted: bool = False,
+) -> tuple[dict[str, Any], bool]:
+    """The same source policy governs imports, polls and derived reconciliation."""
+    source_changed = baseline is None or any(
+        field not in baseline or not typed_equal(value, baseline[field])
+        for field, value in incoming.items()
+    )
+    restore = deleted and policy == "incoming_wins" and source_changed
+    if deleted and not restore:
+        return {}, False
+    return changed_fields(current, incoming, baseline, policy), restore
+
+
 def observe(
     db: sqlite3.Connection,
     *,

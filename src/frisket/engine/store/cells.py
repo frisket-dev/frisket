@@ -447,7 +447,20 @@ def add_rows(
             producer_id = create_base_cell_producer(
                 db, stage_id=f"op:{op_id}", op_id=op_id
             )
+        from .changes import start_change
+        from .structural_changes import note_row_membership_change
+
+        owner = db.execute(
+            "SELECT op_id FROM base_cell_producers WHERE id=?", (producer_id,)
+        ).fetchone()
+        if owner is not None and owner[0] is not None:
+            start_change(db, int(owner[0]), writing=True)
         initialize_base_cells(db, producer_id=producer_id, cells=cell_writes)
+        note_row_membership_change(
+            db,
+            [sheet_id],
+            already_refreshed_columns={cell.column_id for cell in cell_writes},
+        )
         if owned_op:
             from .changes import ChangeStore
 

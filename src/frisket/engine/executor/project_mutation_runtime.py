@@ -74,7 +74,7 @@ def write_op(
     from frisket.engine.store.changes import start_change
     from frisket.engine.store.column_descriptors import record_descriptor_changes
 
-    start_change(cur.connection, op_id)
+    start_change(cur.connection, op_id, writing=True)
     record_descriptor_changes(cur.connection, op_id, undo_info)
     from frisket.engine.store.structural_changes import record_structural_changes
 

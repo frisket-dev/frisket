@@ -279,15 +279,24 @@ def _require_cell_targets_mutable(
         )
     }
     for sheet_id in sheet_ids:
+        authorized_producer = producer_id
         if import_writer_authority is not None:
             session = active_import_session(db, sheet_id)
-            if session is not None and (
-                session.state != "active"
-                or session.producer_id != producer_id
-                or session.writer_authority != import_writer_authority
-            ):
-                raise ImportInProgress(session)
-        require_import_sheet_write(db, sheet_id, producer_id=producer_id)
+            if session is not None:
+                owner = db.execute(
+                    "SELECT op_id FROM base_cell_producers WHERE id=?", (producer_id,)
+                ).fetchone()
+                if (
+                    session.state != "active"
+                    or session.writer_authority != import_writer_authority
+                    or owner is None
+                    or owner[0] != session.op_id
+                ):
+                    raise ImportInProgress(session)
+                # Immutable replacements have fresh producer IDs; the same
+                # admitted operation and current writer lease authorize them.
+                authorized_producer = session.producer_id
+        require_import_sheet_write(db, sheet_id, producer_id=authorized_producer)
 
 
 def initialize_base_cells(

@@ -2049,6 +2049,10 @@ def _perform(
         receipt_id=receipt_id,
         params_hash=params_hash,
     )
+    from frisket.engine.store.changes import ChangeStore
+
+    for op_id in result.op_ids:
+        ChangeStore(project).close(op_id)
     ReceiptStore(project).insert_completed(receipt, commit=False)
     return result
 

@@ -331,6 +331,7 @@ def test_source_replacements_preserve_consumed_versions_and_allow_repeated_clear
         BaseCellWrite,
         replace_base_cells,
         remove_base_cells,
+        create_base_cell_producer,
     )
 
     project = Project.create(tmp_path / "versions.frisket")
@@ -339,8 +340,14 @@ def test_source_replacements_preserve_consumed_versions_and_allow_repeated_clear
         column = project.add_column(sheet, "text")
         row = project.add_rows(sheet, [{"text": "original"}], {"text": column})[0]
         original = project.get_values_with_refs(sheet, column, [row])[1][row]
-        producer = original["producer_id"]
-        versions = [producer]
+        original_producer = original["producer_id"]
+        versions = [original_producer]
+        project.db.execute("BEGIN")
+        with project.db:
+            op_id = project.append_op("source.refresh", commit=False)
+            producer = create_base_cell_producer(
+                project.db, stage_id=f"op:{op_id}", op_id=op_id
+            )
         for value in ("replacement", "another"):
             project.db.execute("BEGIN")
             with project.db:
@@ -372,9 +379,23 @@ def test_source_replacements_preserve_consumed_versions_and_allow_repeated_clear
         assert (
             project.db.execute(
                 "SELECT value FROM cells WHERE row_id=? AND column_id=? AND producer_id=?",
-                (row, column, producer),
+                (row, column, original_producer),
             ).fetchone()[0]
             == "original"
         )
+        from frisket.engine.store.changes import ChangeStore, ChangePublicationClosed
+
+        project.db.execute("BEGIN")
+        with project.db:
+            ChangeStore(project).close(op_id)
+        project.db.execute("BEGIN")
+        with project.db, pytest.raises(ChangePublicationClosed):
+            replace_base_cells(
+                project.db,
+                producer_id=producer,
+                column_ids=[column],
+                row_ids=[row],
+                cells=[BaseCellWrite(row, column, "too late")],
+            )
     finally:
         project.close()
