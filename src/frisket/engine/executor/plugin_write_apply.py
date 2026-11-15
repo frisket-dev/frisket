@@ -183,8 +183,6 @@ def apply_additive_tables(
         cur.execute("BEGIN IMMEDIATE")
     try:
         _validate_temporal_values(project, model)
-        # Truncate any redo stack, mirroring the core write idiom.
-        cur.execute("UPDATE ops SET status='discarded' WHERE status='undone'")
         cur.execute(
             "INSERT INTO ops (kind, label, spec, undo_info, barrier) "
             "VALUES (?, ?, '{}', '{}', 0)",

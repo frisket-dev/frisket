@@ -707,7 +707,6 @@ def _rewrite_join_sheet_in_place(
     columns. Their ordinary descriptors can therefore follow the current schema
     atomically with the complete replacement of their cells.
     """
-    cur.execute("UPDATE ops SET status='discarded' WHERE status='undone'")
     op_spec = {
         "kind": "sheet.refresh",
         "sheet_id": sheet_id,
@@ -799,7 +798,6 @@ def _rewrite_child_sheet_in_place(
     """Replace the child sheet's rows/cells from the freshly-resolved plan, in
     place. Columns are reconciled by name (missing ones added); existing rows are
     deleted (cells cascade) and re-inserted. Appends the sheet.refresh op."""
-    cur.execute("UPDATE ops SET status='discarded' WHERE status='undone'")
     op_spec = {
         "kind": "sheet.refresh",
         "sheet_id": sheet_id,

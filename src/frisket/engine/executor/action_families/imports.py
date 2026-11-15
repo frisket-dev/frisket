@@ -131,7 +131,6 @@ def _perform_import_rows_in_txn(
         else {}
     )
 
-    cur.execute("UPDATE ops SET status='discarded' WHERE status='undone'")
     op_spec = resolved.get("op_spec") if resolved is not None else None
     if op_spec is None:
         op_spec = _op_spec(action, materialization, params_hash)

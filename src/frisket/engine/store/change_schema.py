@@ -48,6 +48,11 @@ SELECT edit.row_id,edit.column_id,'manual_edit',edit.op_id,NULL,NULL,
 FROM edits edit JOIN ops op ON op.id=edit.op_id
 WHERE op.status='applied' AND op.change_order IS NOT NULL
 UNION ALL
+SELECT copy.row_id,copy.column_id,'copied_result',copy.op_id,copy.source_run_id,NULL,
+       op.change_order,1
+FROM copied_result_outcomes copy JOIN ops op ON op.id=copy.op_id
+WHERE op.status='applied' AND op.change_order IS NOT NULL
+UNION ALL
 SELECT row_id,column_id,origin_kind,origin_op_id,origin_run_id,base_producer_id,0,1
 FROM cell_baseline;
 
@@ -75,13 +80,16 @@ FROM (
   SELECT ranked.*,
        CASE ranked.origin_kind
          WHEN 'source_cell' THEN cell.value_kind
+         WHEN 'copied_result' THEN CASE copy.publication_effect WHEN 'publish_value' THEN copy.value_kind WHEN 'publish_null' THEN 'null' END
          WHEN 'manual_edit' THEN edit.value_kind
          WHEN 'run_result' THEN CASE result.publication_effect
            WHEN 'publish_value' THEN result.value_kind WHEN 'publish_null' THEN 'null' END END AS value_kind,
        CASE ranked.origin_kind
          WHEN 'source_cell' THEN cell.value WHEN 'manual_edit' THEN edit.value
+         WHEN 'copied_result' THEN CASE WHEN copy.publication_effect='publish_value' THEN copy.value END
          WHEN 'run_result' THEN CASE WHEN result.publication_effect='publish_value' THEN result.value END END AS value,
-       CASE WHEN ranked.origin_kind!='run_result' THEN 'completed'
+       CASE WHEN ranked.origin_kind='copied_result' THEN copy.outcome
+            WHEN ranked.origin_kind!='run_result' THEN 'completed'
             WHEN result.publication_effect IN ('publish_value','publish_null') THEN 'completed'
             WHEN result.row_id IS NOT NULL THEN 'failed'
             WHEN ranked.publication_closed=0 THEN 'pending' ELSE 'not_completed' END AS outcome
@@ -99,6 +107,8 @@ FROM (
     AND edit.column_id=ranked.column_id AND edit.op_id=ranked.origin_op_id
   LEFT JOIN results result ON ranked.origin_kind='run_result' AND result.row_id=ranked.row_id
     AND result.column_id=ranked.column_id AND result.run_id=ranked.origin_run_id AND result.published=1
+  LEFT JOIN copied_result_values copy ON ranked.origin_kind='copied_result' AND copy.op_id=ranked.origin_op_id
+    AND copy.row_id=ranked.row_id AND copy.column_id=ranked.column_id
   WHERE ranked.winner=1
 ) payload
 JOIN columns descriptor ON descriptor.id=payload.column_id
@@ -153,5 +163,5 @@ CHANGE_SCHEMA_SQL += (
 CHANGE_SCHEMA_SQL += """
 CREATE VIEW IF NOT EXISTS current_result_heads AS
 SELECT column_id,row_id,origin_run_id AS run_id FROM unmodified_cell_heads
-WHERE origin_kind='run_result';
+WHERE origin_kind='run_result' AND outcome IN ('completed','failed');
 """

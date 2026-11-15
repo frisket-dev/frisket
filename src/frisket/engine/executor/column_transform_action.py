@@ -392,7 +392,6 @@ def _write_column(
     values: Mapping[int, Any],
     op_spec: Mapping[str, Any],
 ) -> tuple[int, int]:
-    cur.execute("UPDATE ops SET status='discarded' WHERE status='undone'")
     cur.execute(
         "INSERT INTO ops (kind, label, spec, undo_info, barrier) VALUES (?, ?, ?, ?, 0)",
         (

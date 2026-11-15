@@ -17,6 +17,7 @@ import sqlite3
 from pathlib import Path
 
 from .change_schema import CHANGE_SCHEMA_SQL
+from .copied_results import COPIED_RESULTS_SCHEMA_SQL
 from .keyed_updates import KEYED_UPDATE_SCHEMA
 from .citation_text import CITATION_TEXT_SCHEMA_SQL
 from .extraction_layouts import EXTRACTION_LAYOUTS_SCHEMA_SQL
@@ -1212,7 +1213,7 @@ CREATE TABLE IF NOT EXISTS current_cells (
   row_id INTEGER NOT NULL REFERENCES rows(id) ON DELETE CASCADE,
   retrieval_revision INTEGER NOT NULL CHECK (retrieval_revision > 0),
   origin_kind TEXT NOT NULL CHECK (
-    origin_kind IN ('source_cell', 'run_result', 'manual_edit')
+    origin_kind IN ('source_cell', 'run_result', 'manual_edit', 'copied_result')
   ),
   origin_op_id INTEGER REFERENCES ops(id) ON DELETE CASCADE,
   origin_run_id INTEGER REFERENCES runs(id) ON DELETE CASCADE,
@@ -1245,6 +1246,11 @@ CREATE TABLE IF NOT EXISTS current_cells (
       origin_kind='run_result'
       AND origin_op_id IS NOT NULL
       AND origin_run_id IS NOT NULL
+      AND base_producer_id IS NULL
+    )
+    OR (
+      origin_kind='copied_result'
+      AND origin_op_id IS NOT NULL
       AND base_producer_id IS NULL
     )
     OR (
@@ -1295,6 +1301,11 @@ SELECT head.column_id,head.row_id,
              AND result.row_id=head.row_id
              AND result.column_id=head.column_id AND result.published=1
          )
+         WHEN 'copied_result' THEN (
+           SELECT CASE result.publication_effect WHEN 'publish_value' THEN CASE result.value_kind WHEN 'prepared_content_ref' THEN 'text' ELSE result.value_kind END WHEN 'publish_null' THEN 'null' END
+           FROM copied_result_values result WHERE result.op_id=head.origin_op_id
+             AND result.row_id=head.row_id AND result.column_id=head.column_id
+         )
          WHEN 'manual_edit' THEN (
            SELECT CASE edit.value_kind
              WHEN 'prepared_content_ref' THEN 'text' ELSE edit.value_kind END
@@ -1326,6 +1337,11 @@ SELECT head.column_id,head.row_id,
              AND result.row_id=head.row_id
              AND result.column_id=head.column_id AND result.published=1
          )
+         WHEN 'copied_result' THEN (
+           SELECT CASE WHEN result.publication_effect='publish_value' THEN CASE result.value_kind WHEN 'prepared_content_ref' THEN (SELECT prepared.value FROM prepared_content_ref_values prepared WHERE prepared.ref_id=result.value) ELSE result.value END END
+           FROM copied_result_values result WHERE result.op_id=head.origin_op_id
+             AND result.row_id=head.row_id AND result.column_id=head.column_id
+         )
          WHEN 'manual_edit' THEN (
            SELECT CASE edit.value_kind WHEN 'prepared_content_ref' THEN (
              SELECT prepared.value FROM prepared_content_ref_values AS prepared
@@ -1353,6 +1369,11 @@ SELECT head.column_id,head.row_id,
            WHERE result.run_id=head.origin_run_id
              AND result.row_id=head.row_id
              AND result.column_id=head.column_id AND result.published=1
+         )
+         WHEN 'copied_result' THEN (
+           SELECT CASE WHEN result.publication_effect='publish_value' AND result.value_kind='prepared_content_ref' THEN result.value END
+           FROM copied_result_values result WHERE result.op_id=head.origin_op_id
+             AND result.row_id=head.row_id AND result.column_id=head.column_id
          )
          WHEN 'manual_edit' THEN (
            SELECT CASE edit.value_kind WHEN 'prepared_content_ref'
@@ -2508,6 +2529,7 @@ SCHEMA += "\n" + ACTION_SUBMISSIONS_SCHEMA_SQL + "\n"
 SCHEMA += "\n" + DOCUMENT_TEXT_SCHEMA_SQL + "\n"
 SCHEMA += "\n" + DOCUMENT_TEXT_SELECTION_VIEW_SQL + "\n"
 SCHEMA += "\n" + PDF_SPLIT_SCHEMA_SQL + "\n"
+SCHEMA += "\n" + COPIED_RESULTS_SCHEMA_SQL + "\n"
 SCHEMA += "\n" + CHANGE_SCHEMA_SQL + "\n"
 SCHEMA += "\n" + KEYED_UPDATE_SCHEMA + "\n"
 # This durable bootstrap row gives the data-only OCR role repair an exact

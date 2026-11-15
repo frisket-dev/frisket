@@ -259,7 +259,6 @@ def _write_extract_in_transaction(
 
     committed = tuple(materializer.commit_blob(project, item.clip) for item in staged)
     cur = project.db.cursor()
-    cur.execute("UPDATE ops SET status='discarded' WHERE status='undone'")
     op_spec = bound.request.model_dump(mode="json", exclude_none=True)
     op_spec["params_hash"] = params_hash
     cur.execute(
