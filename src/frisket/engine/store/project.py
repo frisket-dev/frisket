@@ -100,6 +100,8 @@ class ProjectReadSnapshot:
     Callers must still use it serially and close it when the read completes.
     """
 
+    is_read_snapshot = True
+
     def __init__(self, owner: Project):
         self.path = owner.path
         self.db_path = owner.db_path
