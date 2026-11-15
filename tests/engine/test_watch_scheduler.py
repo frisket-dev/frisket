@@ -314,3 +314,25 @@ def test_schedule_queued_before_switch_to_manual_does_not_evaluate(scene):
     assert worker.run_once()
     assert queue.get(jobs[0]["job_id"]).result["reason"] == "manual_only"
     assert p.watch_latest_run(watch) is None
+
+
+def test_deleted_view_and_watch_ids_never_retarget_old_work(scene):
+    p, sheet, _, _, old_watch, queue, worker = scene
+    old_view = p.get_watch(old_watch)["view_id"]
+    admitted = schedule(scene)
+    p.delete_view(old_view)
+    replacement = add_watch(
+        p,
+        "Replacement",
+        sheet_id=sheet,
+        query={"kind": "filter", "sheet_id": sheet, "filter": {}},
+    )
+    assert replacement > old_watch
+    assert p.get_watch(replacement)["view_id"] > old_view
+    assert p.get_view(old_view) is None
+    # A stale View command cannot edit the replacement, either.
+    p.update_view(old_view, name="Stale rename")
+    assert p.get_view(p.get_watch(replacement)["view_id"])["name"] == "Replacement"
+    assert worker.run_once()
+    assert queue.get(admitted[0]["job_id"]).result["reason"] == "not_found"
+    assert p.watch_latest_run(replacement) is None

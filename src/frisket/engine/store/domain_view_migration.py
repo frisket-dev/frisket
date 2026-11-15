@@ -79,8 +79,15 @@ def migrate_unified_views(db: Any) -> None:
     if "view_id" in watch_columns:
         return
     project = _Definitions(db)
+    # Identity cutover runs first. Preserve its allocation floor while replacing
+    # the old View shape, before allocating IDs for former lenses/alert queries.
+    prior_sequence = (
+        db.execute("SELECT seq FROM sqlite_sequence WHERE name='views'").fetchone()
+        if "sqlite_sequence" in tables
+        else None
+    )
     db.execute("""CREATE TABLE domain_views (
-        id INTEGER PRIMARY KEY,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         sheet_id INTEGER REFERENCES sheets(id) ON DELETE CASCADE,
         name TEXT NOT NULL, spec TEXT NOT NULL DEFAULT '{}',
         op_id INTEGER REFERENCES ops(id),
@@ -99,6 +106,16 @@ def migrate_unified_views(db: Any) -> None:
                 row["created_at"],
                 row["updated_at"],
             ),
+        )
+    if prior_sequence is not None:
+        db.execute(
+            "INSERT INTO sqlite_sequence(name,seq) SELECT 'domain_views',? "
+            "WHERE NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name='domain_views')",
+            (int(prior_sequence[0]),),
+        )
+        db.execute(
+            "UPDATE sqlite_sequence SET seq=MAX(seq,?) WHERE name='domain_views'",
+            (int(prior_sequence[0]),),
         )
     if "lenses" in tables:
         for row in db.execute("SELECT * FROM lenses ORDER BY id").fetchall():

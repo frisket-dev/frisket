@@ -207,3 +207,45 @@ def test_consumed_operation_and_producer_identities_are_never_reused():
         db.execute("INSERT INTO base_cell_producers(stage_id) VALUES('next')").lastrowid
         == 702
     )
+
+
+def test_view_and_watch_high_water_survives_shape_conversion_and_deletion():
+    from frisket.engine.store.domain_view_migration import migrate_unified_views
+
+    db = _prior()
+    db.execute(
+        "UPDATE ops SET spec=? WHERE id=1",
+        (json.dumps({"source": {"view_id": 100, "watch_id": 200}}),),
+    )
+    db.execute("INSERT INTO views(id,sheet_id,name,spec) VALUES(7,4,'existing','{}')")
+    db.execute("INSERT INTO lenses(id,sheet_id,name,spec) VALUES(1,4,'converted','{}')")
+    db.commit()
+    _begin(db)
+    floors = migrate_identity_high_water(db)
+    migrate_unified_views(db)
+    _commit(db)
+    assert floors["views"] == 100
+    assert floors["watches"] == 200
+    assert (
+        db.execute("SELECT id FROM views WHERE name='converted'").fetchone()[0] == 101
+    )
+    assert db.execute("SELECT id FROM views WHERE name='existing'").fetchone()[0] == 7
+    # Restoring an old explicit ID does not reset future allocation.
+    db.execute("DELETE FROM views WHERE id=101")
+    new_view = db.execute(
+        "INSERT INTO views(sheet_id,name,spec) VALUES(4,'next','{}')"
+    ).lastrowid
+    assert new_view == 102
+    watch = db.execute(
+        "INSERT INTO watches(name,view_id,detection_policy) VALUES('next',?,'{}')",
+        (new_view,),
+    ).lastrowid
+    assert watch == 201
+    db.execute("DELETE FROM watches WHERE id=?", (watch,))
+    assert (
+        db.execute(
+            "INSERT INTO watches(name,view_id,detection_policy) VALUES('next again',?,'{}')",
+            (new_view,),
+        ).lastrowid
+        == 202
+    )

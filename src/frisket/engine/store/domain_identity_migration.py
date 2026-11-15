@@ -13,6 +13,8 @@ from collections.abc import Iterator
 
 
 IDENTITY_TABLES = (
+    "views",
+    "watches",
     "sheets",
     "columns",
     "rows",
@@ -25,6 +27,8 @@ IDENTITY_TABLES = (
 
 # Historical coordinates intentionally survive without live-object foreign keys.
 _REFERENCE_NAMES = {
+    "views": {"view_id", "source_view_id"},
+    "watches": {"watch_id"},
     "ops": {"op_id", "origin_op_id", "parent_op_id", "source_op_id", "producing_op_id"},
     "base_cell_producers": {"producer_id", "base_producer_id"},
     "sheets": {
@@ -60,6 +64,8 @@ _REFERENCE_NAMES = {
     "prepared_content_refs": {"prepared_ref_id", "provenance_ref_id"},
 }
 _JSON_COLUMNS = {
+    "notification_items": ("source_ref", "deep_link"),
+    "notification_routes": ("source_ref_match_json",),
     "ops": ("spec", "undo_info"),
     "receipts": ("body",),
     "views": ("spec",),

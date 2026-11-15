@@ -1831,7 +1831,7 @@ CREATE INDEX IF NOT EXISTS idx_source_items_run
 
 -- A View owns the selection; alerts only reference it.
 CREATE TABLE IF NOT EXISTS views (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   sheet_id INTEGER REFERENCES sheets(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   spec TEXT NOT NULL DEFAULT '{}',
@@ -1844,7 +1844,7 @@ CREATE INDEX IF NOT EXISTS idx_views_sheet ON views(sheet_id);
 -- Watchlists promote saved queries into recurring checks. A watch is a
 -- saved View with shared conditions, cadence, and check history.
 CREATE TABLE IF NOT EXISTS watches (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
   view_id INTEGER NOT NULL REFERENCES views(id) ON DELETE CASCADE,
   detection_policy TEXT NOT NULL DEFAULT '{"kind":"new_matches"}',
