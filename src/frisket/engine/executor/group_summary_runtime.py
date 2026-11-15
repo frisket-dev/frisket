@@ -972,7 +972,6 @@ async def _complete_reduce_group_summaries_checkpointed(
         ),
     )
     return computations
-    return computations
 
 
 async def _reduce_group_summary_checkpointed_loop(
