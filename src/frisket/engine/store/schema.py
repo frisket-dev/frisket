@@ -800,10 +800,6 @@ CREATE TABLE IF NOT EXISTS run_output_generations (
   PRIMARY KEY (run_id, column_id),
   UNIQUE (run_id, output_role),
   CHECK (
-    (write_mode = 'create' AND state IN ('active', 'staged', 'sealed'))
-    OR (write_mode = 'replace_scope' AND state IN ('staged', 'sealed'))
-  ),
-  CHECK (
     (state = 'sealed' AND terminal_disposition IS NOT NULL AND sealed_at IS NOT NULL)
     OR (state <> 'sealed' AND terminal_disposition IS NULL AND sealed_at IS NULL)
   )

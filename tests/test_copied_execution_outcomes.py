@@ -335,3 +335,57 @@ def test_queued_retry_blocks_copy_before_a_successor_run_exists(work):
     # No successor recorded any result; the original saved outcome still wins.
     _, target, _ = _copy(work, original.run_id)
     assert project.get_values(work[1], target)[work[3][0]] == "answer 1"
+
+
+@pytest.mark.parametrize("effect", ["publish_error", "retain"])
+def test_copy_does_not_turn_withheld_terminal_result_into_usable_value(work, effect):
+    from frisket.engine.store.runs import RunResultStore
+    from frisket.engine.store.result_generations import ResultGenerationStore
+    from frisket.engine.store.output_claims import OutputColumnClaimStore
+    from helpers import run_writer_authority_fixture
+
+    project, sheet, _, rows, *_ = work
+    column = project.add_column(sheet, "Withheld")
+    source_op = project.append_op("map.extract")
+    store = RunResultStore(project)
+    source_run = store.start_run(
+        source_op, sheet, "map.extract", row_ids=[rows[0]], total_rows=1
+    )
+    auth = run_writer_authority_fixture(project, source_run, output_column_ids={column})
+    generations = ResultGenerationStore(project)
+    generations.declare(
+        source_run,
+        column,
+        output_role="answer",
+        compatibility_key="sha256:test",
+        write_mode="create",
+        claim_token=auth.claim_token,
+    )
+    store.write_results(
+        source_run,
+        [
+            {
+                "row_id": rows[0],
+                "column_id": column,
+                "value": None,
+                "error": "Required evidence unavailable",
+                "outcome": "withheld_unverified",
+                "publication_effect": effect,
+            }
+        ],
+        **auth.kwargs(),
+    )
+    generations.seal(
+        source_run,
+        [column],
+        claim_token=auth.claim_token,
+        terminal_disposition="completed",
+    )
+    store.finish_run(source_run, status="completed")
+    OutputColumnClaimStore(project).release(claim_token=auth.claim_token)
+    op, target, _ = _copy(work, source_run, selected=[rows[0]])
+    copied = project.db.execute(
+        "SELECT outcome,value FROM copied_result_values WHERE op_id=?", (op,)
+    ).fetchone()
+    assert tuple(copied) == ("failed", None)
+    assert project.get_values(sheet, target)[rows[0]] is None

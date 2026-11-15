@@ -329,7 +329,7 @@ def test_descriptor_replacement_publishes_values_and_descriptor_at_seal_and_undo
                 for position, row_id in enumerate(row_ids)
             ],
         )
-        assert _seal(generations, retry, column_id) == len(row_ids)
+        assert _seal(generations, retry, column_id) == 0
         _release(project, retry)
         retry = None
 
@@ -1049,7 +1049,13 @@ def test_staged_idempotent_write_refuses_undone_op_without_partial_mutation(
         row_ids=row_ids[:1],
         label="staged exact replay",
     )
-    _declare(generations, second, output_column_id, write_mode="replace_scope")
+    _declare(
+        generations,
+        second,
+        output_column_id,
+        write_mode="replace_scope",
+        defer_publication=True,
+    )
     batch = [
         {
             "row_id": row_ids[0],
@@ -1107,7 +1113,7 @@ def test_staged_idempotent_write_refuses_undone_op_without_partial_mutation(
         project.close()
 
 
-def test_fresh_results_stream_then_staged_subset_seals_exact_heads(
+def test_fresh_and_replacement_results_stream_then_seal_exact_heads(
     tmp_path: Path,
 ) -> None:
     project, sheet_id, output_column_id, row_ids = _seed_project(tmp_path)
@@ -1201,12 +1207,15 @@ def test_fresh_results_stream_then_staged_subset_seals_exact_heads(
         ],
     )
 
-    # Staged rows mask prior answers, while untouched rows retain their heads.
-    assert generations.read_cell_heads(output_column_id) == {
-        row_ids[3]: first_heads[row_ids[3]]
-    }
+    # Same-descriptor replacements publish their completed row family now;
+    # untouched rows retain their prior heads, before terminal sealing.
+    progressive = generations.read_cell_heads(output_column_id)
+    assert [progressive[row_id].run_id for row_id in targeted] == [second.run_id] * 3
+    assert progressive[row_ids[3]] == first_heads[row_ids[3]]
     assert _outcomes(project, output_column_id) == {
-        **{row_id: "pending" for row_id in targeted},
+        targeted[0]: "completed",
+        targeted[1]: "completed",
+        targeted[2]: "failed",
         row_ids[3]: "completed",
     }
     assert project.db.execute(
@@ -1871,7 +1880,7 @@ def test_subset_replacement_seal_refreshes_only_its_301_exact_rows(
         project.db.execute("DELETE FROM search_dirty_scopes")
         project.db.commit()
 
-        assert _seal(generations, replacement, output_column_id) == len(targeted)
+        assert _seal(generations, replacement, output_column_id) == 0
         scopes = project.db.execute(
             "SELECT sheet_id,column_id,row_id_start,row_id_end "
             "FROM search_dirty_scopes WHERE column_id=? ORDER BY id",
@@ -2194,3 +2203,69 @@ def test_progressive_head_failure_rolls_back_result_and_counters(
     assert run is not None
     assert int(run["completed_rows"]) == 0
     assert generations.read_cell_heads(output_column_id) == {}
+
+
+def test_replacement_streams_then_stop_keeps_completed_and_later_manual_edit(tmp_path):
+    project, sheet, column, rows = _seed_project(tmp_path, row_count=3)
+    generations, first = _publish_initial_generation(project, sheet, column, rows)
+    replacement = _start_claimed_run(
+        project,
+        sheet_id=sheet,
+        output_column_id=column,
+        row_ids=rows,
+        label="streamed replacement",
+    )
+    try:
+        _declare(generations, replacement, column, write_mode="replace_scope")
+        _write(
+            project,
+            replacement,
+            [
+                {
+                    "row_id": rows[0],
+                    "column_id": column,
+                    "value": "new first",
+                    "publication_effect": "publish_value",
+                }
+            ],
+        )
+        assert project.get_values(sheet, column)[rows[0]] == "new first"
+        assert _outcomes(project, column) == {
+            rows[0]: "completed",
+            rows[1]: "pending",
+            rows[2]: "pending",
+        }
+        project.apply_edits(
+            [{"row_id": rows[0], "column_id": column, "value": "later manual"}]
+        )
+        _write(
+            project,
+            replacement,
+            [
+                {
+                    "row_id": rows[1],
+                    "column_id": column,
+                    "value": "new second",
+                    "publication_effect": "publish_value",
+                }
+            ],
+        )
+        store = RunResultStore(project)
+        store.request_cancel(replacement.run_id)
+        _seal(generations, replacement, column, disposition="cancelled")
+        store.finish_run(replacement.run_id, status="cancelled")
+        assert project.get_values(sheet, column) == {
+            rows[0]: "later manual",
+            rows[1]: "new second",
+            rows[2]: None,
+        }
+        assert _outcomes(project, column)[rows[2]] == "not_completed"
+        assert project.undo() is not None
+        # Ordinary Undo follows user change order: the later manual edit first.
+        assert project.get_values(sheet, column)[rows[0]] == "new first"
+        assert project.undo() is not None
+        assert project.get_values(sheet, column) == {
+            row: f"first:{index}" for index, row in enumerate(rows)
+        }
+    finally:
+        project.close()

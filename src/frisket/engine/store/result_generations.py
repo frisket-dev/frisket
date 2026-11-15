@@ -577,9 +577,7 @@ class ResultGenerationStore:
             pending_change = pending_changes.get(str(column_id))
             if existing is not None:
                 expected_open_state = (
-                    "staged"
-                    if defer_publication or write_mode == "replace_scope"
-                    else "active"
+                    "staged" if defer_publication or descriptor_change else "active"
                 )
                 if (
                     existing.output_role != output_role
@@ -705,11 +703,7 @@ class ResultGenerationStore:
                     f"output column {column_id} has incompatible managed history "
                     f"at run {int(incompatible['run_id'])}"
                 )
-            state = (
-                "staged"
-                if defer_publication or write_mode == "replace_scope"
-                else "active"
-            )
+            state = "staged" if defer_publication or descriptor_change else "active"
             if descriptor_change:
                 if write_mode != "replace_scope":
                     raise GenerationDeclarationConflict(
