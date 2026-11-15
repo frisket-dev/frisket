@@ -271,12 +271,11 @@ class _ClusterProgram(_TypedMapBatchProgram):
 
         state = spec["cluster_values"]
         options = ClusterOptions.model_validate(state["options"])
-        values = validate_cluster_source(ctx.project, state["source"])
         source_name = state["source"]["name"]
-        if set(values_by_row) != set(values) or any(
-            row.get(source_name) != values[row_id]
-            for row_id, row in values_by_row.items()
-        ):
+        # The admission guard ran on entering this scope. Computation and its
+        # provider inputs use the exact rows paired with the runner's capture.
+        values = {row_id: row.get(source_name) for row_id, row in values_by_row.items()}
+        if set(values) != set(state["source"]["row_ids"]):
             raise RecipeInvocationHalt(
                 "promise_violation",
                 "Clustering rows differ from the admitted full column",

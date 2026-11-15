@@ -43,6 +43,9 @@ def compute_sync_states(
             "SELECT b.id,b.owner_op_id,b.capture_json FROM consumed_source_bundles b "
             "JOIN ops o ON o.id=b.owner_op_id "
             "WHERE b.output_sheet_id=? AND b.kind='aggregate' AND b.row_id IS NULL AND o.status='applied' "
+            # Row consumers' shared corpora belong to those result rows; they
+            # do not replace the derived sheet's materialization capture.
+            "AND instr(b.capture_key,':shared:')=0 "
             "AND o.change_order IS NOT NULL "
             "ORDER BY o.change_order DESC,b.id",
             (sheet_id,),

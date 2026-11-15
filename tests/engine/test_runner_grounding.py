@@ -1,8 +1,6 @@
 """Seam tests for src/frisket/engine/runner/grounding.py (CP3 of the map_runner
 split): pin the ``image_part`` explicit ``max_image_bytes`` threading, the
-mime-detection branches, and the segment-list skip in
-``inject_grounding_segments`` that a coverage review found untested at the
-old ``MapRunner`` call sites."""
+mime-detection branches, and grounded-value normalization."""
 
 from __future__ import annotations
 
@@ -13,7 +11,6 @@ import pytest
 from frisket.engine.runner.grounding import (
     grounding_enabled,
     image_part,
-    inject_grounding_segments,
     unwrap_grounded_value,
 )
 from frisket.engine.store import Project
@@ -80,32 +77,6 @@ def test_image_part_path_branch_over_limit_returns_none(
     path = tmp_path / "img.png"
     path.write_bytes(PNG_1X1)
     assert image_part(project, str(path), max_image_bytes=10) is None
-
-
-# --------------------------------------------------------------------------- #
-# inject_grounding_segments: segment-list skip
-# --------------------------------------------------------------------------- #
-
-
-def test_inject_grounding_segments_skips_when_segment_list_already_present(
-    project: Project,
-):
-    sheet = project.add_sheet("data")
-    (row_id,) = project.add_rows(sheet, [{}], {})
-    spec = {
-        "action_kind": "map.extract",
-        "sheet_id": sheet,
-        "grounding": {"enabled": True},
-    }
-    existing_segments = [{"text": "hi", "start": 0.0}, {"text": "yo", "start": 1.0}]
-    values = {"already_segmented": existing_segments}
-    before = dict(values)
-    inject_grounding_segments(project, spec, row_id, values)
-    # No new key added (in particular no "transcript_segments" injected) --
-    # the existing segment-list column already satisfies the model-facing
-    # numbered-segments contract, so injection must be skipped outright.
-    assert values == before
-    assert "transcript_segments" not in values
 
 
 # --------------------------------------------------------------------------- #

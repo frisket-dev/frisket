@@ -213,6 +213,57 @@ def _transcript_scalar_extract_action(sheet_id: int) -> dict[str, Any]:
     )
 
 
+@pytest.mark.parametrize(
+    "sources", [["transcript"], ["transcript", "transcript_segments"]]
+)
+def test_grounded_extract_ignores_unselected_later_row_artifact(
+    tmp_path, monkeypatch, sources
+):
+    from frisket.engine.store.evidence import record_source_artifact, record_source_span
+
+    seeded = _seed_transcript_project(tmp_path)
+    project = seeded["project"]
+    try:
+        monkeypatch.setitem(_TRANSCRIPT_SEGMENTS[0], "speaker", "S1")
+        _run_transcribe(seeded, monkeypatch)
+        row_id = seeded["row_ids"][0]
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="av",
+            media_type="audio/wav",
+            blob_hash=seeded["blob"],
+            source_sheet_id=seeded["sheet_id"],
+            source_row_id=row_id,
+        )
+        unrelated = "UNSELECTED LATER ARTIFACT MUST NOT ENTER THE MODEL"
+        record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="temporal",
+            start_ms=0,
+            end_ms=1000,
+            quote=unrelated,
+            selector={"segment_index": 0},
+        )
+        router, adapter = _stub_router({"verdict": {"value": "claim", "evidence": []}})
+        action = _transcript_scalar_extract_action(seeded["sheet_id"])
+        action["params"]["source"] = sources
+        result = run_action_with_exact_confirmation(
+            project,
+            action,
+            project_id=PROJECT_ID,
+            router=router,
+        )
+        assert result.status == "completed", result.errors
+        assert len(adapter.requests) == 1
+        prompt = json.dumps(adapter.requests[0].messages)
+        assert unrelated not in prompt
+        assert "some say the vote was rigged" in prompt
+        assert "[S1]" in prompt
+    finally:
+        project.close()
+
+
 def test_scalar_on_transcript_row_with_segment_index_gets_temporal_span(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

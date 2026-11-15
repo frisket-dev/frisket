@@ -15,7 +15,6 @@ from frisket.ops.base import Recipe
 from frisket.engine.runner.grounding import (
     MAX_IMAGE_BYTES,
     image_part,
-    inject_grounding_segments,
 )
 from frisket.engine.store import Project
 from frisket.authoring.templates import render_column_template
@@ -373,8 +372,6 @@ def row_values(
             consumed_capture=consumed_capture,
             unavailable_inputs=tuple(unavailable_inputs),
         )
-    if for_model:
-        inject_grounding_segments(project, spec, row_id, values)
     return RowInputValues(
         values,
         source_cells_empty=source_cells_empty,

@@ -152,6 +152,169 @@ def test_actual_receipt_can_feed_match_reader(case):
     assert backend["model"] == "fastembed/test"
 
 
+def test_target_edit_changes_semantic_join_input_freshness(case):
+    from frisket.engine.store.consumed_sources import row_input_state
+    from frisket.engine.store.op_log import step_operation
+
+    result = case.run()
+    assert result.status == "completed", result
+    assert row_input_state(case.project, result.run_id, case.left_row) == "fresh"
+    # Equal text from a different contribution is a different consumed identity.
+    edit = case.project.apply_edits(
+        [{"row_id": case.right_row, "column_id": case.company, "value": "Acme"}]
+    )
+    assert row_input_state(case.project, result.run_id, case.left_row) == "stale"
+    with case.project.transaction_scope():
+        step_operation(case.project, "revert", op_id=edit)
+    assert row_input_state(case.project, result.run_id, case.left_row) == "fresh"
+
+
+def test_semantic_rows_share_one_corpus_capture(case):
+    import json
+
+    case.project.add_rows(case.left, [{"donor": "SECOND"}], {"donor": case.donor})
+    result = case.run()
+    assert result.status == "completed", result.errors
+    bundles = case.project.db.execute(
+        "SELECT kind,capture_json FROM consumed_source_bundles WHERE run_id=?",
+        (result.run_id,),
+    ).fetchall()
+    shared = [
+        json.loads(row["capture_json"]) for row in bundles if row["kind"] == "aggregate"
+    ]
+    rows = [json.loads(row["capture_json"]) for row in bundles if row["kind"] == "row"]
+    assert len(shared) == 1
+    assert len(rows) == 2
+    assert rows[0]["shared_inputs"] == rows[1]["shared_inputs"]
+
+
+def test_target_membership_changes_semantic_join_freshness(case):
+    from frisket.engine.store.consumed_sources import row_input_state
+    from frisket.engine.store.op_log import step_operation
+
+    result = case.run()
+    assert result.status == "completed", result
+    unrelated = case.project.add_column(case.right, "unrelated")
+    case.project.apply_edits(
+        [{"row_id": case.right_row, "column_id": unrelated, "value": "unrelated"}]
+    )
+    assert row_input_state(case.project, result.run_id, case.left_row) == "fresh"
+
+    case.project.add_rows(case.right, [{"company": "Other"}], {"company": case.company})
+    append = case.project.db.execute("SELECT max(id) FROM ops").fetchone()[0]
+    assert row_input_state(case.project, result.run_id, case.left_row) == "stale"
+    with case.project.transaction_scope():
+        step_operation(case.project, "revert", op_id=append)
+    assert row_input_state(case.project, result.run_id, case.left_row) == "fresh"
+
+
+def test_returned_semantic_match_keeps_original_shared_corpus_on_recovery(
+    case, monkeypatch
+):
+    import json
+    import asyncio
+    from copy import deepcopy
+
+    from frisket.engine.store.consumed_sources import row_input_state
+    from frisket.engine.store.runs import RunResultStore
+    from frisket.engine.store.op_log import step_operation
+    from test_map_row_effect_checkpoint import _age_silent_attempt
+    from frisket.engine.executor.actions import _default_map_runner_factory
+    from frisket.engine.runner import MapRunner
+
+    class ProcessDeath(BaseException):
+        pass
+
+    write = RunResultStore.write_results
+    run = MapRunner.run
+    admitted = {}
+
+    async def remember_queue_request(runner, spec, **kwargs):
+        admitted.update(spec=deepcopy(spec), program=kwargs["program"])
+        return await run(runner, spec, **kwargs)
+
+    def die_before_results(*args, **kwargs):
+        raise ProcessDeath("after response checkpoint")
+
+    monkeypatch.setattr(RunResultStore, "write_results", die_before_results)
+    monkeypatch.setattr(MapRunner, "run", remember_queue_request)
+    with pytest.raises(ProcessDeath):
+        case.run()
+    monkeypatch.setattr(RunResultStore, "write_results", write)
+    monkeypatch.setattr(MapRunner, "run", run)
+    checkpoint = case.project.db.execute(
+        "SELECT payload,authorized_attempt_id FROM effect_checkpoints WHERE family='row_effect' AND state='returned'"
+    ).fetchone()
+    assert checkpoint is not None
+    saved = next(
+        cell["__consumed_sources"]
+        for cell in json.loads(checkpoint["payload"]).values()
+        if "__consumed_sources" in cell
+    )
+    assert len(saved["shared_inputs"]) == 1
+    calls = len(case.calls)
+    edit = case.project.apply_edits(
+        [{"row_id": case.right_row, "column_id": case.company, "value": "Acme"}]
+    )
+    _age_silent_attempt(case.project, checkpoint["authorized_attempt_id"])
+    # Resume the saved runner as the queue recovery path does; the direct
+    # action route correctly reports an in-progress receipt until rows finish.
+    stored = case.project.db.execute(
+        "SELECT runs.id,ops.spec,c.claim_token FROM runs JOIN ops ON ops.id=runs.op_id "
+        "JOIN output_column_claims c ON c.run_id=runs.id WHERE c.status='active' LIMIT 1"
+    ).fetchone()
+    runner = _default_map_runner_factory(case.project, None)
+    runner.allow_action_lifecycle_only_recipes = True
+    progress = asyncio.run(
+        runner.run(
+            admitted["spec"],
+            program=admitted["program"],
+            confirmed=True,
+            resume_run_id=stored["id"],
+            claim_token=stored["claim_token"],
+            defer_generation_seal=True,
+            defer_attempt_close=True,
+        )
+    )
+    assert progress.done and progress.completed == 1, vars(progress)
+    result = case.run()
+    assert result.status == "completed", result.errors
+    assert len(case.calls) == calls
+    actual = case.project.db.execute(
+        "SELECT capture_json FROM consumed_source_bundles WHERE run_id=? AND kind='row'",
+        (result.run_id,),
+    ).fetchone()
+    assert json.loads(actual[0])["shared_inputs"] == saved["shared_inputs"]
+    assert row_input_state(case.project, result.run_id, case.left_row) == "stale"
+    with case.project.transaction_scope():
+        step_operation(case.project, "revert", op_id=edit)
+    assert row_input_state(case.project, result.run_id, case.left_row) == "fresh"
+    # A retained result inherits only its own corpus, not the unused newer
+    # corpus read while its old response was recovered.
+    from frisket.engine.store.consumed_sources import (
+        capture_retained_results,
+        store_capture,
+        verify_bundle,
+    )
+
+    output = case.project.db.execute(
+        "SELECT column_id FROM results WHERE run_id=? LIMIT 1", (result.run_id,)
+    ).fetchone()[0]
+    retained = capture_retained_results(
+        case.project, case.left, output, result.run_id, [case.left_row]
+    )
+    with case.project.transaction_scope():
+        bundle = store_capture(
+            case.project,
+            retained,
+            owner_op_id=case.project.db.execute(
+                "SELECT op_id FROM runs WHERE id=?", (result.run_id,)
+            ).fetchone()[0],
+            output_sheet_id=case.left,
+        )
+    assert verify_bundle(case.project, bundle) == "fresh"
+
+
 def test_changed_input_during_matching_aborts_without_permanent_claim(
     case, monkeypatch
 ):

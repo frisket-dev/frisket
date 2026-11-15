@@ -66,59 +66,6 @@ def unwrap_grounded_value(
     }
 
 
-def inject_grounding_segments(
-    project: Project, spec: dict, row_id: int, values: dict[str, Any]
-) -> None:
-    """extract-scalar-temporal-anchors-v1 (segment-index default): when a
-    grounded extract's row resolves a transcript segment stream, expose the
-    numbered segments to the prompt EVEN IF the selected input columns are
-    only the free-text ``transcript`` (never the sibling
-    ``transcript_segments`` json). ExtractRecipe.render then numbers them and
-    asks the model to cite ``segment_indices`` (strategy B, the reliable
-    lookup path) instead of a positionless quote that a long/multi-segment
-    answer cannot align (the ZERO-links live failure: the model's one big
-    quote spanned ~40s and matched no single segment at threshold 0.8). The
-    stream is resolved independent of column selection so the indices match
-    the transcribe writer's own spans that resolution reuses."""
-    if not grounding_enabled(spec):
-        return
-    # Skip when a segment-list column is already present (the model already
-    # sees numbered segments via the existing sibling-column path).
-    if any(looks_like_segment_list(value) for value in values.values()):
-        return
-    from frisket.engine.store.transcript_segment_stream import (
-        resolve_transcript_segment_stream,
-    )
-
-    resolved = resolve_transcript_segment_stream(
-        project, sheet_id=spec["sheet_id"], row_id=row_id
-    )
-    if resolved is None:
-        return
-    segments: list[dict[str, Any]] = []
-    for unit in resolved.anchors.units:
-        span = unit.spans[0] if unit.spans else None
-        start_ms = span.start_ms if span is not None else None
-        end_ms = span.end_ms if span is not None else None
-        segment: dict[str, Any] = {
-            "segment_index": unit.unit_id,
-            "text": unit.text,
-            "start": start_ms / 1000 if start_ms is not None else None,
-            "end": end_ms / 1000 if end_ms is not None else None,
-        }
-        # Preserve the per-turn speaker so grounded extraction attributes
-        # a cited statement to the right speaker.
-        if unit.speaker:
-            segment["speaker"] = unit.speaker
-        segments.append(segment)
-    if not segments:
-        return
-    key = "transcript_segments"
-    while key in values:
-        key = f"_{key}"
-    values[key] = segments
-
-
 def image_part(project: Project, val: Any, *, max_image_bytes: int) -> dict | None:
     """Image columns reach LLM recipes as base64 parts, not text."""
     mime = "image/jpeg"

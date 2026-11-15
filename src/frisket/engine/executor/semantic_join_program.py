@@ -136,6 +136,10 @@ class _SemanticJoinProgram(_TypedMapRowsProgram):
     async def execution_scope(self, spec, ctx, *, expected_rows):
         from frisket.ops.base import RecipeInvocationHalt
         from frisket.ai.embeddings.backends import resolve_embedder
+        from frisket.engine.store.consumed_sources import (
+            read_consumed_source,
+            store_capture,
+        )
 
         state = spec["semantic_join"]
         try:
@@ -150,15 +154,36 @@ class _SemanticJoinProgram(_TypedMapRowsProgram):
                 "The admitted semantic embedding backend is no longer available; "
                 "review the current backend before running again.",
             )
+        _, target_values, self._target_capture = read_consumed_source(
+            ctx.project, target.sheet_id, [state["target_column"]["id"]]
+        )
+        if ctx.extras.get("preview") is not True:
+            from frisket.engine.store.output_claims import OutputColumnClaimStore
+            from frisket.execution.attempt import attempt_in_scope
+
+            attempt = attempt_in_scope(ctx.extras)
+            with ctx.project.transaction_scope():
+                OutputColumnClaimStore.require_current_writer(
+                    ctx.project.db,
+                    run_id=ctx.extras["run_id"],
+                    writer_attempt_id=attempt.attempt_id
+                    if attempt is not None
+                    else None,
+                    claim_token=ctx.extras["claim_token"],
+                )
+                store_capture(
+                    ctx.project,
+                    self._target_capture,
+                    owner_op_id=ctx.project.db.execute(
+                        "SELECT op_id FROM runs WHERE id=?", (ctx.extras["run_id"],)
+                    ).fetchone()[0],
+                    output_sheet_id=spec["sheet_id"],
+                    run_id=ctx.extras["run_id"],
+                    shared=True,
+                )
         self._matcher = AdmittedSemanticMatcher(
             target=target,
-            values=tuple(
-                sorted(
-                    ctx.project.get_values(
-                        target.sheet_id, state["target_column"]["id"]
-                    ).items()
-                )
-            ),
+            values=tuple(sorted(target_values[state["target_column"]["id"]].items())),
             backend=backend,
             estimated_model=state["embedding_model"],
         )
@@ -172,6 +197,7 @@ class _SemanticJoinProgram(_TypedMapRowsProgram):
         finally:
             self._matcher = None
             self._source_values = {}
+            self._target_capture = None
 
     async def execute(self, row_values: dict[str, Any], spec, ctx):
         source, _, _ = semantic_join_references(self._terminal, self._params)
@@ -200,6 +226,16 @@ class _SemanticJoinProgram(_TypedMapRowsProgram):
                     else None,
                     claim_token=ctx.extras["claim_token"],
                 )
-            return self._prepare_publication(produced)
+            publication = self._prepare_publication(produced)
+            if ctx.extras.get("preview") is not True:
+                from frisket.engine.store.consumed_sources import capture_fingerprint
+
+                # The corpus is stored once at the actual read. Each returned
+                # row/checkpoint refers to the corpus it really matched, even
+                # when a resumed run later reads an equal-text contribution.
+                row_values.consumed_capture["shared_inputs"] = [
+                    capture_fingerprint(self._target_capture)
+                ]
+            return publication
         except RowError as exc:
             return self._row_error_publication(exc)

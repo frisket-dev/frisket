@@ -422,12 +422,16 @@ def _retained_records(
 
 def _retained_dependencies(project: Any, scope: Mapping[str, Any]):
     return project.db.execute(
-        "WITH wanted AS (SELECT value AS id FROM json_each(?)) "
+        "WITH wanted AS (SELECT value AS id FROM json_each(?)), "
+        "shared AS (SELECT reference.value AS fingerprint FROM consumed_source_bundles row_input "
+        "JOIN json_each(row_input.capture_json,'$.shared_inputs') reference "
+        "WHERE row_input.kind='row' AND row_input.run_id=? AND row_input.row_id IN (SELECT id FROM wanted)) "
         "SELECT id,capture_json FROM consumed_source_bundles WHERE run_id=? "
-        "AND (row_id IS NULL OR json_extract(capture_json,'$.shared_run')=1 OR row_id IN (SELECT id FROM wanted) "
+        "AND ((instr(capture_key,':shared:')>0 AND input_fingerprint IN (SELECT fingerprint FROM shared)) "
+        "OR (instr(capture_key,':shared:')=0 AND (row_id IS NULL OR json_extract(capture_json,'$.shared_run')=1 OR row_id IN (SELECT id FROM wanted) "
         "OR (kind='aggregate' AND EXISTS(SELECT 1 FROM json_each(capture_json,'$.scopes') source "
-        "JOIN json_each(source.value,'$.cohort') member ON member.value IN (SELECT id FROM wanted))))",
-        (_json(scope["cohort"]), scope["run_id"]),
+        "JOIN json_each(source.value,'$.cohort') member ON member.value IN (SELECT id FROM wanted))))))",
+        (_json(scope["cohort"]), scope["run_id"], scope["run_id"]),
     )
 
 
@@ -549,18 +553,27 @@ def store_capture(
     output_sheet_id: int,
     run_id: int | None = None,
     row_id: int | None = None,
+    shared: bool = False,
 ) -> int:
     """Publish capture in the same transaction as its result or checkpoint."""
     if not project.db.in_transaction:
         raise RuntimeError("consumed inputs require the output publication transaction")
     key = f"{owner_op_id}:{run_id}:{row_id}:{output_sheet_id}"
+    if shared:
+        if capture["kind"] != "aggregate" or row_id is not None:
+            raise ValueError("shared inputs require a run-level aggregate capture")
+        key += ":shared:" + capture_fingerprint(capture)
     encoded = _json(capture)
     existing = project.db.execute(
         "SELECT id,capture_json FROM consumed_source_bundles WHERE capture_key=?",
         (key,),
     ).fetchone()
     if existing is not None:
-        if existing["capture_json"] != encoded:
+        if existing["capture_json"] != encoded and not (
+            shared
+            and capture_fingerprint(json.loads(existing["capture_json"]))
+            == capture_fingerprint(capture)
+        ):
             raise ValueError(
                 "saved output cannot be paired with newly captured sources"
             )
@@ -822,27 +835,44 @@ def row_input_state(
     project: Any, run_id: int, row_id: int, *, allow_inline: bool = True
 ) -> str:
     row = project.db.execute(
-        "SELECT id FROM consumed_source_bundles WHERE kind='row' AND run_id=? AND row_id=?",
+        "SELECT id,capture_json FROM consumed_source_bundles WHERE kind='row' AND run_id=? AND row_id=?",
         (run_id, row_id),
     ).fetchone()
     request = getattr(project, "_frisket_request_source_verification", None)
+    states = []
+    shared_inputs = set()
     if row is not None:
-        return bundle_state(
-            project,
-            int(row["id"]),
-            allow_inline=allow_inline,
-            request_verification=request,
+        shared_inputs = set(json.loads(row["capture_json"]).get("shared_inputs", ()))
+        states.append(
+            bundle_state(
+                project,
+                int(row["id"]),
+                allow_inline=allow_inline,
+                request_verification=request,
+            )
         )
+        if not shared_inputs:
+            return states[0]
     # Shared group results cover their whole output run; batch results retain
     # their selected input/output cohort under one fingerprint per batch.
     rows = project.db.execute(
-        "SELECT id,capture_json,row_id FROM consumed_source_bundles "
-        "WHERE kind='aggregate' AND run_id=?",
-        (run_id,),
+        "SELECT id,capture_json,row_id,input_fingerprint,capture_key FROM consumed_source_bundles "
+        "WHERE kind='aggregate' AND run_id=? "
+        + (
+            "AND input_fingerprint IN (SELECT value FROM json_each(?))"
+            if row is not None
+            else ""
+        ),
+        (run_id, _json(sorted(shared_inputs))) if row is not None else (run_id,),
     ).fetchall()
-    states = []
+    found_shared = set()
     for bundle in rows:
         capture = json.loads(bundle["capture_json"])
+        if ":shared:" in bundle["capture_key"]:
+            fingerprint = bundle["input_fingerprint"]
+            if fingerprint not in shared_inputs:
+                continue
+            found_shared.add(fingerprint)
         if (
             bundle["row_id"] is None
             or capture.get("shared_run")
@@ -859,6 +889,8 @@ def row_input_state(
                     request_verification=request,
                 )
             )
+    if shared_inputs - found_shared:
+        states.append("unknown")
     priority = {"fresh": 0, "unknown": 1, "checking": 2, "stale": 3}
     return max(states, key=priority.__getitem__) if states else "unknown"
 

@@ -152,6 +152,47 @@ def test_review_hash_refuses_changed_source_before_publication(cluster_project):
     assert project.db.execute("SELECT count(*) FROM runs").fetchone()[0] == 0
 
 
+def test_cluster_computes_from_captured_rows_after_equal_text_new_contribution(
+    cluster_project, monkeypatch
+):
+    from frisket.engine.executor import cluster_program
+    from frisket.engine.store.consumed_sources import row_input_state
+    from frisket.engine.store.op_log import step_operation
+
+    project, sheet, source, execute = cluster_project
+    row = project.visible_row_ids(sheet)[0]
+    run_batch = cluster_program._ClusterProgram.execute_batch
+    validate = cluster_program.validate_cluster_source
+    inside_batch = False
+    edits = []
+
+    def admission_only(*args, **kwargs):
+        assert not inside_batch, "batch computation must use its captured source values"
+        return validate(*args, **kwargs)
+
+    async def interleave(program, values, spec, ctx):
+        nonlocal inside_batch
+        edits.append(
+            project.apply_edits(
+                [{"row_id": row, "column_id": source, "value": values[row]["name"]}]
+            )
+        )
+        inside_batch = True
+        try:
+            return await run_batch(program, values, spec, ctx)
+        finally:
+            inside_batch = False
+
+    monkeypatch.setattr(cluster_program, "validate_cluster_source", admission_only)
+    monkeypatch.setattr(cluster_program._ClusterProgram, "execute_batch", interleave)
+    result = execute(options={"method": "fingerprint"})
+    assert result.status == "completed", result.errors
+    assert row_input_state(project, result.run_id, row) == "stale"
+    with project.transaction_scope():
+        step_operation(project, "revert", op_id=edits[0])
+    assert row_input_state(project, result.run_id, row) == "fresh"
+
+
 def test_source_change_during_paid_clustering_preserves_cost_not_output(
     cluster_project, monkeypatch
 ):
