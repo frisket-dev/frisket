@@ -536,25 +536,15 @@ def test_cancel_intent_before_dispatch_converges_through_unclaimed_kernel(
         if intent_timing == "before_attempt_load":
             assert RunResultStore(project).request_cancel(run_id)
         else:
-            real_cancellation_requested = RunResultStore.cancellation_requested
-            cancel_checks = 0
+            from frisket.engine.runner import map_runner as runner_module
 
-            def request_between_load_and_claim(
-                store: RunResultStore,
-                checked_run_id: int,
-            ) -> bool:
-                nonlocal cancel_checks
-                cancel_checks += 1
-                if cancel_checks == 1:
-                    return False
-                assert store.request_cancel(checked_run_id)
-                return real_cancellation_requested(store, checked_run_id)
+            real_claim = runner_module.claim_attempt
 
-            monkeypatch.setattr(
-                RunResultStore,
-                "cancellation_requested",
-                request_between_load_and_claim,
-            )
+            def cancel_before_claim(store, attempt, **kwargs):
+                assert RunResultStore(store).request_cancel(attempt.run_id)
+                return real_claim(store, attempt, **kwargs)
+
+            monkeypatch.setattr(runner_module, "claim_attempt", cancel_before_claim)
 
         replacement_registry = HandlerRegistry()
         register_project_run_handler(
@@ -573,7 +563,7 @@ def test_cancel_intent_before_dispatch_converges_through_unclaimed_kernel(
 
         job = queue.get(job_id)
         assert job is not None
-        assert job.status == "done"
+        assert job.status == "done", job.error
         assert job.result is not None
         assert job.result["status"] == "cancelled"
         run = project.db.execute(

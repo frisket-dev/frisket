@@ -835,10 +835,12 @@ def register_project_run_handler(
                 )
             if pre_run_error is None:
                 pre_run_error = queued_v1_pre_run_error(project, payload)
-            if pre_run_error is not None:
-                # Preparation can cooperatively stop its child before dispatch.
-                # Its transport error must not override durable cancellation.
-                cancel_requested = cancelled(run_id)
+            cancel_requested = cancelled(run_id)
+            if pre_run_error is not None or cancel_requested:
+                # Cancellation must dominate preparation too: starting the
+                # Change again is forbidden once its durable intent is set.
+                # The existing owner-aware kernel handles admitted, abandoned,
+                # or never-dispatched attempts without inventing writer rights.
                 terminal_status = "cancelled" if cancel_requested else "failed"
                 action_result = queued_v1_terminal_receipt_result(
                     project,
@@ -847,7 +849,8 @@ def register_project_run_handler(
                     run_id=run_id,
                     status=terminal_status,
                     error=None if cancel_requested else pre_run_error,
-                    never_dispatched=True,
+                    never_dispatched=not cancel_requested,
+                    require_cancel_intent=cancel_requested,
                 )
                 _enqueue_search_index_after_completion(
                     project,
@@ -1173,6 +1176,7 @@ def register_project_run_handler(
                     ),
                     claim_token=(claim_token if defer_attempt_close else None),
                 )
+                row = run_store.get_run(run_id)
             result = {
                 "project_id": project_id,
                 "run_id": progress.run_id,
@@ -1218,23 +1222,29 @@ def register_project_run_handler(
             # completes with a failed result (mirroring the pre_run_error
             # path), so nothing retries into the same refusal.
             row = run_store.get_run(run_id)
-            action_result = queued_v1_terminal_failure_result(
+            cancel_requested = run_store.cancellation_requested(run_id)
+            terminal_status = "cancelled" if cancel_requested else "failed"
+            action_result = queued_v1_terminal_receipt_result(
                 project,
                 payload,
                 project_id=project_id,
                 run_id=run_id,
-                error=ActionError(
+                status=terminal_status,
+                error=None
+                if cancel_requested
+                else ActionError(
                     code=exc.code,
                     message=str(exc),
                     action_kind=str(payload.get("action_kind") or RUN_PROJECT_KIND),
                 ),
-                never_dispatched=True,
+                never_dispatched=not cancel_requested,
+                require_cancel_intent=cancel_requested,
             )
             row = run_store.get_run(run_id)
             return {
                 "project_id": project_id,
                 "run_id": run_id,
-                "status": "failed",
+                "status": terminal_status,
                 "total": row["total_rows"] if row is not None else 0,
                 "completed": row["completed_rows"] if row is not None else 0,
                 "failed": row["failed_rows"] if row is not None else 0,
@@ -1311,8 +1321,8 @@ def register_project_run_handler(
                         envelope=action_envelope,
                     )
                 else:
-                    if row and row["status"] == "running":
-                        run_store.finish_run(run_id, "failed")
+                    # The terminalizer owns run, receipt, attempt and claim;
+                    # never stamp a terminal run before proving that authority.
                     queued_v1_worker_exception_failure_result(
                         project,
                         payload,
