@@ -1660,6 +1660,13 @@ def build_typed_map_rows_plan(
 ) -> TypedMapRowsPlan:
     """Resolve a typed request into a registry-free MapRunner program."""
 
+    from frisket.execution.action_admission import action_admission_error
+
+    refusal = action_admission_error(project, bound.action)
+    if refusal is not None:
+        raise TypedMapRowsPlanError(
+            refusal.code, refusal.message, field=refusal.field, details=refusal.details
+        )
     from .selection_scope import resolve_action_selection
 
     bound = resolve_action_selection(project, bound)
@@ -3652,6 +3659,11 @@ def typed_queued_map_spec(
         payload: Mapping[str, Any],
         _params: BaseModel,
     ) -> ActionError | None:
+        from frisket.execution.action_admission import action_admission_error
+
+        refusal = action_admission_error(project, bound.action)
+        if refusal is not None:
+            return refusal
         expected_ids = payload.get("v1_input_column_ids")
         expected_types = payload.get("v1_input_column_types")
         expected_output_names = payload.get("v1_output_names")

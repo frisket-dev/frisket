@@ -227,7 +227,9 @@ class ActionPreviewService:
                         admission=False,
                     )
                 elif supports_typed_backfill_action(typed.action.definition.run):
-                    backfill_plan = prepare_backfill_action(get_project(), typed)
+                    backfill_plan = prepare_backfill_action(
+                        get_project(), typed, edition=self._workspace.edition
+                    )
                 else:
                     from frisket.actions.core import MapRows, ModelRows
 

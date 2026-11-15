@@ -3453,6 +3453,15 @@ class RegisteredAction:
     _example_requests: tuple[str, ...] = field(init=False, repr=False)
 
     @property
+    def required_credentials(self) -> tuple[str, ...]:
+        terminal = self.definition.run
+        if routed_capability(terminal) is CensusDemographics:
+            return ("CENSUS_API_KEY",)
+        if OpenCorporates in getattr(terminal, "capabilities", ()):
+            return ("OPENCORPORATES_API_TOKEN",)
+        return ()
+
+    @property
     def required_capabilities(self) -> tuple[str, ...]:
         """Declared execution requirements, without building presentation schemas."""
         terminal = self.definition.run
@@ -3841,11 +3850,7 @@ class RegisteredAction:
                 and definition.run.callable_host
                 else compile_output_schema(definition.run.output_model)
             ),
-            "required_credentials": ["CENSUS_API_KEY"]
-            if routed is CensusDemographics
-            else ["OPENCORPORATES_API_TOKEN"]
-            if opencorporates
-            else [],
+            "required_credentials": list(self.required_credentials),
             "errors": [
                 {"code": code, "message": message}
                 for code, message in (

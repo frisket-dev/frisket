@@ -4,17 +4,11 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import time
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any, Callable, Literal, Mapping
 
-from frisket.authoring.action_metadata import (
-    action_available_in_edition,
-    action_edition_unavailable_message,
-    declared_action_capabilities,
-)
 from frisket.actions.system import action_id_from_request
 from frisket.ai.llm import ModelRouter
 from frisket.contracts.action import (
@@ -22,7 +16,6 @@ from frisket.contracts.action import (
     ActionResult as V1ActionResult,
     Receipt as V1Receipt,
 )
-from frisket.credentials import missing_required_credentials
 from frisket.engine.executor import BoundLocalFile, ExecutorDeps, run_action_spec
 from frisket.engine.executor.action_support import _new_id
 from frisket.engine.jobs import (
@@ -44,10 +37,8 @@ from frisket.engine.runner.validation import TrustedConsentAuthorizer
 from frisket.server.action_enqueue import (
     QueuedV1ActionRunContext,
     exact_keyless_replay_covers_action,
-    missing_action_credential_error,
     missing_model_key_error_for_request,
     missing_provider_key_error,
-    network_disabled_error,
     queue_v1_action_run,
 )
 from frisket.server.run_status import action_run_status_payload
@@ -500,15 +491,9 @@ class ActionRunService:
         # caller asked, and (for a project that DOES exist) would create the
         # project's files on the way to refusing anyway. Everything that needs
         # project state stays below `self._workspace.get`.
-        edition_result = self._edition_unavailable_result(project_id, body)
-        if edition_result is not None:
-            return _action_run_response(edition_result)
-        code_action_result = self._code_action_disabled_result(
-            project_id,
-            body,
-        )
-        if code_action_result is not None:
-            return _action_run_response(code_action_result)
+        deployment_result = self._declared_admission_result(None, project_id, body)
+        if deployment_result is not None:
+            return _action_run_response(deployment_result)
         project = self._workspace.get(project_id)
         if _observation_state is not None:
             _observation_state["project"] = project
@@ -528,22 +513,9 @@ class ActionRunService:
         execution_context = self._workspace.edition_execution_composition_context_for(
             request_context
         )
-        # This is the ONE choke point both the queued
-        # (queue_v1_action_run) and direct (run_action_spec) dispatch paths
-        # pass through below, so a required_credentials action is gated
-        # regardless of its declared placement (executor/queue_policy.py).
-        # status="failed" (not "needs_confirmation") keeps this OFF the
-        # cost-gate's 402 envelope.
-        credential_result = self._missing_credential_result(project, project_id, body)
-        if credential_result is not None:
-            return _action_run_response(credential_result)
-        # Egress gate, always-remote class: the CATALOG's static
-        # required_capabilities — never the client-supplied
-        # body["capabilities"] — decides whether the kind is network-bound.
-        # Engine-dependent kinds gate later at MapRunner._validate_spec.
-        network_result = self._network_disabled_result(project, project_id, body)
-        if network_result is not None:
-            return _action_run_response(network_result)
+        declared_result = self._declared_admission_result(project, project_id, body)
+        if declared_result is not None:
+            return _action_run_response(declared_result)
         # Resolve the request's effective router once. The missing-key gate,
         # queued admission and direct dispatcher must all inspect/use this same
         # object; a later asynchronous worker execution deliberately resolves
@@ -754,29 +726,27 @@ class ActionRunService:
             )
         return _action_run_response(result)
 
-    def _edition_unavailable_result(
-        self,
-        project_id: str,
-        body: dict[str, Any],
+    def _declared_admission_result(
+        self, project: Project | None, project_id: str, body: dict[str, Any]
     ) -> V1ActionResult | None:
+        from frisket.actions.registry import ACTION_REGISTRY
+        from frisket.execution.action_admission import action_admission_error
+
         kind = action_id_from_request(body) if isinstance(body, dict) else None
         if not isinstance(kind, str):
             return None
-        effective_edition = self._workspace.edition
-        if action_available_in_edition(kind, effective_edition):
+        try:
+            action = ACTION_REGISTRY.get(kind)
+        except KeyError:
+            return None
+        error = action_admission_error(project, action, edition=self._workspace.edition)
+        if error is None:
             return None
         return V1ActionResult(
             action={"kind": kind, "action_id": _new_id("act")},
             status="failed",
             project_id=project_id,
-            errors=[
-                V1ActionError(
-                    code="action_unavailable_in_edition",
-                    message=action_edition_unavailable_message(kind, effective_edition),
-                    action_kind=kind,
-                    field="kind",
-                )
-            ],
+            errors=[error],
         )
 
     @staticmethod
@@ -814,109 +784,6 @@ class ActionRunService:
             return None
         return typed_map_rows_replay_result(project, project_id, bound)
 
-    @staticmethod
-    def _code_action_disabled_result(
-        project_id: str,
-        body: dict[str, Any],
-    ) -> V1ActionResult | None:
-        """Apply the trusted-local code policy at the canonical action gate."""
-
-        kind = action_id_from_request(body) if isinstance(body, dict) else None
-        if not isinstance(kind, str):
-            return None
-        from frisket.authoring.action_metadata import gated_capability_phrase
-
-        gated = gated_capability_phrase(kind)
-        if gated is None or os.environ.get("FRISKET_ALLOW_CODE_RECIPES", "1") == "1":
-            return None
-        return V1ActionResult(
-            action={"kind": kind, "action_id": _new_id("act")},
-            status="failed",
-            project_id=project_id,
-            errors=[
-                V1ActionError(
-                    code="code_action_disabled",
-                    message=(
-                        f"the '{kind}' action declares {gated}, which is disabled "
-                        "on this server; enable it only on trusted/local deployments"
-                    ),
-                    action_kind=kind,
-                    field="kind",
-                )
-            ],
-        )
-
-    @staticmethod
-    def _network_disabled_result(
-        project: Project,
-        project_id: str,
-        body: dict[str, Any],
-    ) -> V1ActionResult | None:
-        """None unless the kind's static catalog ``required_capabilities``
-        carries an ``external:*`` tag AND the project's effective network
-        policy is ``off`` — then the terminal ``network_disabled`` result.
-        Reads only server-owned facts: the catalog entry (Python code) and
-        the project's stored policy. The request's ``capabilities`` list is
-        client-supplied and deliberately never consulted (bypassable in both
-        directions)."""
-        kind = action_id_from_request(body) if isinstance(body, dict) else None
-        if not isinstance(kind, str):
-            return None
-        external = next(
-            (
-                str(capability)
-                for capability in declared_action_capabilities(kind)
-                if str(capability).startswith("external:")
-            ),
-            None,
-        )
-        if external is None:
-            return None
-        if project.effective_network_policy() != "off":
-            return None
-        return V1ActionResult(
-            action={"kind": kind, "action_id": _new_id("act")},
-            status="failed",
-            project_id=project_id,
-            errors=[network_disabled_error(kind, external)],
-        )
-
-    @staticmethod
-    def _missing_credential_result(
-        project: Project,
-        project_id: str,
-        body: dict[str, Any],
-    ) -> V1ActionResult | None:
-        """None when the action either has no `required_credentials`
-        (the overwhelming majority) or all of them resolve; otherwise the
-        terminal `missing_action_credential` result (manifest
-        action-api-key-gate-v1) — census enrichment is the pinned concrete
-        case (actions/census.py)."""
-        kind = action_id_from_request(body) if isinstance(body, dict) else None
-        if not isinstance(kind, str):
-            return None
-        from frisket.actions.registry import ACTION_REGISTRY
-
-        try:
-            required = (
-                ACTION_REGISTRY.get(kind)
-                .catalog_entry()
-                .get("required_credentials", [])
-            )
-        except KeyError:
-            return None
-        if not required:
-            return None
-        missing = missing_required_credentials(project, required)
-        if not missing:
-            return None
-        return V1ActionResult(
-            action={"kind": kind, "action_id": _new_id("act")},
-            status="failed",
-            project_id=project_id,
-            errors=[missing_action_credential_error(kind, missing)],
-        )
-
     def _missing_model_key_result(
         self,
         project: Project,
@@ -935,7 +802,7 @@ class ActionRunService:
         `missing_model_key_error_for_request` (server/action_enqueue.py) for
         the full gate logic and its documented replay-mode design decision;
         this method just adapts it to the same request/response shape
-        `_missing_credential_result` above uses."""
+        `_declared_admission_result` above uses."""
         kind = action_id_from_request(body) if isinstance(body, dict) else None
         if not isinstance(kind, str):
             return None

@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import json
-import os
 from typing import Any
 
-from frisket.authoring.action_metadata import gated_capability_phrase
 from frisket.contracts.action import (
     ActionError,
     ActionResultStatus,
@@ -398,28 +396,30 @@ def _guard_backfill_run_spec(
     runner_spec: dict[str, Any],
     *,
     project: Project | None = None,
+    edition: str | None = None,
 ) -> ActionError | None:
-    # Persisted runner specs carry the canonical ``action_kind``. WHAT is
-    # gated comes from the action's
-    # declared capabilities in the contract registry, not a list of kinds.
-    code_id = runner_spec.get("action_kind")
+    from frisket.actions.registry import ACTION_REGISTRY
+    from frisket.execution.action_admission import action_admission_error
+
+    code_id = str(runner_spec.get("action_kind") or "")
+    registered = None
     if runner_spec.get("implementation_identity") is not None and project is not None:
         from frisket.authoring.workbench.installed_actions import (
             resolve_installed_action,
         )
 
-        resolve_installed_action(project, str(code_id))
-        return None
-    gated = gated_capability_phrase(code_id)
-    if gated and os.environ.get("FRISKET_ALLOW_CODE_RECIPES", "1") != "1":
-        return ActionError(
-            code="code_action_disabled",
-            message=(
-                f"the '{code_id}' action declares {gated}, which is disabled on "
-                "this server; enable it only on trusted/local deployments"
-            ),
-            action_kind="run.backfill",
-            field="params.column",
+        installed = resolve_installed_action(project, code_id)
+        if installed is not None:
+            registered = installed[0]
+    if registered is None:
+        try:
+            registered = ACTION_REGISTRY.get(code_id)
+        except KeyError:
+            return None  # The typed reconstruction owns unknown action refusal.
+    error = action_admission_error(project, registered, edition=edition)
+    if error is not None:
+        return error.model_copy(
+            update={"action_kind": "run.backfill", "field": "params.column"}
         )
     return None
 

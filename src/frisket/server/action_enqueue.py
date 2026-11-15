@@ -12,6 +12,10 @@ from typing import Any, Literal
 
 from pydantic import ValidationError
 
+from frisket.execution.action_admission import (
+    missing_action_credential_error as missing_action_credential_error,
+    network_disabled_error,
+)
 from frisket.actions.types import RowError
 from frisket.engine.executor.action_support import _row_input_action_error
 
@@ -83,26 +87,6 @@ from frisket.execution.provider import (
 MISSING_ACTION_CREDENTIAL_ERROR_CODE = "missing_action_credential"
 
 
-def missing_action_credential_error(
-    action_kind: str,
-    missing: list[str],
-) -> ActionError:
-    joined = ", ".join(missing)
-    return ActionError(
-        code=MISSING_ACTION_CREDENTIAL_ERROR_CODE,
-        message=(
-            f"'{action_kind}' requires {joined} to run. Add it in "
-            "Settings → Secrets, then try again."
-        ),
-        action_kind=action_kind,
-        details={
-            "missing_credentials": missing,
-            "settings_scope": "project",
-            "settings_section": "secrets",
-        },
-    )
-
-
 # Shared shape for a keyless-model-provider refusal — code + message match
 # the pre-existing
 # MissingProviderKey exception handlers below and in
@@ -146,18 +130,6 @@ def provider_key_refusal_error(
 # capability. status="failed", never "needs_confirmation" — off is off, not a
 # confirm-and-proceed gate. The classification is server-derived only.
 NETWORK_DISABLED_ERROR_CODE = "network_disabled"
-
-
-def network_disabled_error(action_kind: str, capability: str) -> ActionError:
-    return ActionError(
-        code=NETWORK_DISABLED_ERROR_CODE,
-        message=(
-            f"this project's network setting is off; it blocks {capability}. "
-            "Turn network on in the project settings to run this."
-        ),
-        action_kind=action_kind,
-        details={"capability": capability},
-    )
 
 
 def missing_model_key_error_for_request(

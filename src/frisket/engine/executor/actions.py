@@ -294,6 +294,11 @@ def resolve_map_preview(
                 typed = typed_action_for_request(data)
             from .selection_scope import resolve_action_selection
 
+            from frisket.execution.action_admission import action_admission_error
+
+            refusal = action_admission_error(project, typed.action)
+            if refusal is not None:
+                return refusal
             typed = resolve_action_selection(project, typed)
             if isinstance(
                 typed.action.definition.run,
@@ -528,6 +533,18 @@ def run_action_spec(
             typed = typed_action_for_request(data)
         from .selection_scope import resolve_action_selection
 
+        from frisket.execution.action_admission import action_admission_error
+        from frisket.authoring.action_metadata import product_edition_from_snapshot
+
+        refusal = action_admission_error(
+            project,
+            typed.action,
+            edition=product_edition_from_snapshot(edition_run_context),
+        )
+        if refusal is not None:
+            return _runtime_support._failed_result(
+                project_id=project_id, action_kind=typed.action.action_id, error=refusal
+            )
         typed = resolve_action_selection(project, typed, replay_before_resolution=True)
     except (KeyError, TypeError, ValueError, ValidationError) as exc:
         return _runtime_support._failed_result(
@@ -768,6 +785,7 @@ def run_action_spec(
                 typed,
                 executor_deps.router,
                 executor_deps.map_runner_factory,
+                edition=product_edition_from_snapshot(edition_run_context),
             )
         if owners[0] == "plugin":
             return run_typed_plugin_load_action(project, project_id, typed)
