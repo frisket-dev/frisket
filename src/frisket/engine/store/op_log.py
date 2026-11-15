@@ -584,7 +584,7 @@ def step_operation(
         project.db,
         column_ids=set(projection_column_ids)
         | source_columns
-        | operation_membership_column_ids(project, undo_info),
+        | operation_membership_column_ids(project, target_op_id, undo_info),
     )
     edits = project.db.execute(
         "SELECT row_id,column_id FROM edits WHERE op_id=? LIMIT 513", (target_op_id,)
@@ -738,11 +738,13 @@ def operation_touched_column_ids(
             "SELECT DISTINCT column_id FROM edits WHERE op_id=?", (op_id,)
         ).fetchall()
     )
-    column_ids.update(operation_membership_column_ids(project, undo_info))
+    column_ids.update(operation_membership_column_ids(project, op_id, undo_info))
     return frozenset(column_ids)
 
 
-def operation_membership_column_ids(project: Any, info: Mapping[str, Any]) -> set[int]:
+def operation_membership_column_ids(
+    project: Any, op_id: int, info: Mapping[str, Any]
+) -> set[int]:
     columns = {
         int(row[0])
         for field in ("created_rows", "deleted_rows", "restored_rows")
@@ -752,6 +754,28 @@ def operation_membership_column_ids(project: Any, info: Mapping[str, Any]) -> se
             (json.dumps(info.get(field, [])),),
         )
     }
+
+    if project.db.execute(
+        "SELECT 1 FROM project_purge_targets WHERE kind='change' AND object_id=?",
+        (op_id,),
+    ).fetchone():
+        # Purge removes diagnostic undo lists, not the retained membership
+        # authority. Keep row scope in SQLite and invalidate every affected
+        # column, including columns these rows never populated.
+        columns.update(
+            int(row[0])
+            for row in project.db.execute(
+                "WITH affected_sheets AS ("
+                "SELECT row.sheet_id FROM structural_changes effect INDEXED BY idx_structural_change_op "
+                "JOIN rows row ON effect.kind='row' AND row.id=effect.object_id "
+                "WHERE effect.op_id BETWEEN ? AND ? AND effect.before_visible!=effect.after_visible "
+                "UNION SELECT effect.object_id FROM structural_changes effect INDEXED BY idx_structural_change_op "
+                "WHERE effect.op_id BETWEEN ? AND ? AND effect.kind='sheet' "
+                "AND effect.before_visible!=effect.after_visible) "
+                "SELECT col.id FROM affected_sheets affected JOIN columns col ON col.sheet_id=affected.sheet_id",
+                (op_id, op_id, op_id, op_id),
+            )
+        )
 
     for field in ("created_rows_import_session_id", "replaced_rows_import_session_id"):
         if info.get(field) is not None:

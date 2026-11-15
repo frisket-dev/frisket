@@ -275,3 +275,70 @@ def test_partly_purged_group_creation_restores_retained_generated_rows(
             ).fetchone()[0]
             == 1
         )
+
+
+@pytest.mark.parametrize("purge_one", [False, True])
+def test_membership_undo_redo_invalidates_unpopulated_columns_after_partial_purge(
+    tmp_path, purge_one
+):
+    from frisket.engine.store.consumed_sources import (
+        bundle_state,
+        read_consumed_source,
+        store_capture,
+        verify_bundle,
+    )
+
+    path = tmp_path / "membership-revisions.frisket"
+    with closing(Project.create(path)) as project:
+        sheet = project.add_sheet("Documents")
+        text = project.add_column(sheet, "text")
+        summary = project.add_column(sheet, "summary")
+        unrelated_sheet = project.add_sheet("Unrelated")
+        unrelated = project.add_column(unrelated_sheet, "text")
+        project.add_rows(unrelated_sheet, [{"text": "untouched"}], {"text": unrelated})
+        doomed, kept = project.add_rows(
+            sheet, [{"text": "secret"}, {"text": "retained"}], {"text": text}
+        )
+        append = project.op_cursor
+    if purge_one:
+        with closing(Project(path, maintenance=True)) as project:
+            finish_purge(project, begin_purge(project, row_ids=[doomed]))
+    with closing(Project(path)) as project:
+
+        def revision(column):
+            return project.db.execute(
+                "SELECT revision FROM cell_authority_revisions WHERE column_id=?",
+                (column,),
+            ).fetchone()[0]
+
+        def search_work(column):
+            return project.db.execute(
+                "SELECT COALESCE(MAX(id),0) FROM search_dirty_scopes WHERE column_id=?",
+                (column,),
+            ).fetchone()[0]
+
+        _, _, capture = read_consumed_source(project, sheet, [summary])
+        with project.transaction_scope():
+            bundle = store_capture(
+                project, capture, owner_op_id=append, output_sheet_id=sheet
+            )
+        assert bundle_state(project, bundle) == "fresh"
+        before, search_before = revision(summary), search_work(summary)
+        unrelated_before = revision(unrelated)
+        assert project.undo() == append
+        assert project.visible_row_ids(sheet) == []
+        after_undo, search_after_undo = revision(summary), search_work(summary)
+        assert after_undo > before
+        assert search_after_undo > search_before
+        assert revision(unrelated) == unrelated_before
+        assert bundle_state(project, bundle, allow_inline=False) == "unknown"
+        assert verify_bundle(project, bundle) == "stale"
+        assert project.redo() == append
+        assert revision(summary) > after_undo
+        assert search_work(summary) > search_after_undo
+        assert revision(unrelated) == unrelated_before
+        assert bundle_state(project, bundle, allow_inline=False) == "unknown"
+        assert verify_bundle(project, bundle) == "fresh"
+        assert project.visible_row_ids(sheet) == (
+            [kept] if purge_one else [doomed, kept]
+        )
