@@ -216,12 +216,9 @@ def admit_table_import(
             destination_sheet_id=destination_sheet_id,
             max_rows=effective_max_rows,
         )
-        if stored.status == "queued":
-            receipts.update_body_status(
-                stored.parsed().model_copy(update={"status": "running"}),
-                require_status="queued",
-            )
-        elif stored.status != "running":
+        # The streaming writer starts the receipt and session atomically.
+        # A destination refusal must leave this reservation queued for retry.
+        if stored.status not in {"queued", "running"}:
             raise ValueError("table import reservation is already terminal")
 
         session = ImportSessionStore(project).get(frozen.import_ref)

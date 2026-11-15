@@ -1,5 +1,6 @@
 import hashlib
 import io
+import json
 
 import pytest
 from pypdf import PdfWriter
@@ -10,7 +11,7 @@ from frisket.server.services.pdf_imports.storage import PdfImportDraftError
 from frisket.server.workspace import Workspace
 
 
-def _frozen_draft(tmp_path):
+def _frozen_draft(tmp_path, organization="pages"):
     workspace = Workspace(tmp_path / "workspace", enable_local_model_pull=False)
     pid = workspace.create("Recovery", project_id="recovery")["id"]
     project = workspace.get(pid)
@@ -46,13 +47,14 @@ def _frozen_draft(tmp_path):
         expected_revision=status["revision"],
         **{
             **status["choices"],
-            "organization": "pages",
+            "organization": organization,
             "ocr_policy": "none",
             "semantic_search": False,
             "destination": {"kind": "existing", "sheet_id": sheet},
         },
     )
     status = service.match_destination(pid, status["draft_id"])
+    assert status["match"]["state"] == "ready", status["match"]
     frozen = service.freeze_for_commit(
         pid,
         status["draft_id"],
@@ -99,3 +101,54 @@ def test_failed_handoff_preserves_admitted_plan_for_replay(tmp_path, monkeypatch
         ).fetchone()[0]
         == 1
     )
+
+
+@pytest.mark.parametrize("organization", ["pages", "keep_documents"])
+def test_busy_pdf_destination_does_not_start_receipt_without_session(
+    tmp_path, organization
+):
+    from frisket.engine.store.import_sessions import ImportInProgress
+    from frisket.engine.store.streaming_import import StreamingSheetWriter
+
+    workspace, pid, sheet, service, frozen = _frozen_draft(tmp_path, organization)
+    project = workspace.get(pid)
+    busy = StreamingSheetWriter.start_append_session(
+        project,
+        session_id="busy",
+        writer_authority="busy",
+        sheet_id=sheet,
+        columns=[{"name": "note", "type": "text"}],
+        project_id=pid,
+        action_kind="import.append_rows",
+        idempotency_key="busy",
+        params_hash="sha256:busy",
+        action_id="act:busy",
+        receipt_id="receipt:busy",
+        source_ref={"kind": "inline"},
+    )
+    committer = PdfImportCommitService(workspace, intake=service)
+    for _ in range(2):
+        with pytest.raises(ImportInProgress):
+            committer.commit_frozen(pid, frozen)
+        pending = project.db.execute(
+            "SELECT id,status,body FROM receipts WHERE id!='receipt:busy'"
+        ).fetchall()
+        assert len(pending) == 1 and pending[0]["status"] == "queued"
+        if organization == "keep_documents":
+            assert (
+                len(
+                    [
+                        item
+                        for item in json.loads(pending[0]["body"])["inputs"]
+                        if item["name"] == "pdf_import_commit"
+                    ]
+                )
+                == 1
+            )
+        assert (
+            project.db.execute("SELECT COUNT(*) FROM import_sessions").fetchone()[0]
+            == 1
+        )
+    busy.finalize_session(expected_cursor=0, enumeration_complete=True)
+    accepted = committer.commit_frozen(pid, frozen)
+    assert accepted.receipt_id == pending[0]["id"]

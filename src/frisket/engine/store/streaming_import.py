@@ -232,7 +232,7 @@ class StreamingSheetWriter:
             if stored_receipt is not None:
                 reserved_receipt = stored_receipt.parsed()
                 if (
-                    stored_receipt.status != "running"
+                    stored_receipt.status not in {"queued", "running"}
                     or stored_receipt.action_kind != action_kind
                     or stored_receipt.action_id != action_id
                     or stored_receipt.idempotency_key != idempotency_key
@@ -318,6 +318,7 @@ class StreamingSheetWriter:
                     )
                 receipt = reserved_receipt.model_copy(
                     update={
+                        "status": "running",
                         "op_ids": [op_id],
                         "inputs": [
                             *reserved_receipt.inputs,
@@ -326,7 +327,7 @@ class StreamingSheetWriter:
                     }
                 )
                 if not receipt_store.update_body_status(
-                    receipt, require_status="running", commit=False
+                    receipt, require_status=stored_receipt.status, commit=False
                 ):
                     raise ImportSessionConflict("reserved import receipt changed")
             db.execute(
@@ -409,7 +410,7 @@ class StreamingSheetWriter:
                 "SELECT name FROM sheets WHERE id=? AND hidden=0", (int(sheet_id),)
             ).fetchone()
             if sheet is None:
-                raise ValueError("append destination sheet is unavailable")
+                raise ImportSessionConflict("append destination sheet is unavailable")
             active = db.execute(
                 "SELECT id FROM import_sessions WHERE sheet_id=? "
                 "AND state IN ('active','paused','cancelled')",
@@ -463,7 +464,7 @@ class StreamingSheetWriter:
             if stored_receipt is not None:
                 reserved_receipt = stored_receipt.parsed()
                 if (
-                    stored_receipt.status != "running"
+                    stored_receipt.status not in {"queued", "running"}
                     or stored_receipt.action_kind != action_kind
                     or stored_receipt.action_id != action_id
                     or stored_receipt.idempotency_key != idempotency_key
@@ -532,6 +533,7 @@ class StreamingSheetWriter:
                     )
                 receipt = reserved_receipt.model_copy(
                     update={
+                        "status": "running",
                         "op_ids": [op_id],
                         "inputs": [
                             *reserved_receipt.inputs,
@@ -540,7 +542,7 @@ class StreamingSheetWriter:
                     }
                 )
                 if not receipt_store.update_body_status(
-                    receipt, require_status="running", commit=False
+                    receipt, require_status=stored_receipt.status, commit=False
                 ):
                     raise ImportSessionConflict("reserved import receipt changed")
             db.execute(

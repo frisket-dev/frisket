@@ -250,8 +250,6 @@ def test_cancelled_append_is_kept_then_removed_by_normal_undo(tmp_path: Path) ->
             next_cursor=1,
         )
         writer.cancel(expected_cursor=1)
-        with pytest.raises(ImportSessionConflict, match="kept.*Undo"):
-            writer.remove_session(expected_cursor=1)
         publication = writer.finalize_session(expected_cursor=1, keep_cancelled=True)
 
         assert _visible_names(project, sheet_id, columns["filename"]) == [
@@ -266,7 +264,7 @@ def test_cancelled_append_is_kept_then_removed_by_normal_undo(tmp_path: Path) ->
         project.close()
 
 
-def test_pdf_created_sheet_refuses_remove_after_unrelated_row_write(
+def test_pdf_created_sheet_remove_preserves_unrelated_row_for_restore(
     tmp_path: Path,
 ) -> None:
     project = Project.create(tmp_path / "remove-new-pdf.frisket", name="pdf")
@@ -313,8 +311,24 @@ def test_pdf_created_sheet_refuses_remove_after_unrelated_row_write(
         )
         writer.cancel(expected_cursor=1)
 
-        with pytest.raises(ImportSessionConflict, match="unrelated rows"):
-            writer.remove_session(expected_cursor=1)
+        writer.remove_session(expected_cursor=1)
+        assert project.sheets() == []
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM rows WHERE sheet_id=?", (writer.sheet_id,)
+            ).fetchone()[0]
+            == 2
+        )
+        assert ImportSessionStore(project).get("pdf-new").state == "removed"
+        from frisket.engine.store.op_log import step_operation
+
+        project.db.execute("BEGIN IMMEDIATE")
+        step_operation(project, "restore", op_id=writer._op_id)
+        project.db.commit()
+        assert _visible_names(project, writer.sheet_id, filename_column) == [
+            "imported.pdf",
+            "unrelated.pdf",
+        ]
 
         assert (
             project.db.execute(

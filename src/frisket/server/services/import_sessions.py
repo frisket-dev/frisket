@@ -468,8 +468,11 @@ class ImportSessionService:
             )
             return self._split_status(project, ref, directory, header)
         if header.intake_kind == "table":
-            status = self._status(project, ref, directory, header)
-            await self._enqueue_table(project_id, ref)
+            # A previous destination refusal may have reserved only the receipt.
+            # Reuse admission before queueing, never dispatch a missing session.
+            return await self.commit_table(
+                project_id, frozen_table_import(directory), max_rows=header.max_rows
+            )
         else:
             with ImportInventory(directory / "inventory.db") as inventory:
                 status = self._status(project, ref, directory, header, inventory)

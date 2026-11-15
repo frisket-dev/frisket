@@ -938,3 +938,46 @@ def test_cancelled_append_remove_preserves_other_changes_and_restores_saved_rows
             stale_writer.append_page(
                 [{"value": "late"}], expected_cursor=1, next_cursor=2
             )
+
+
+@pytest.mark.parametrize("append", [False, True])
+def test_session_insert_failure_rolls_back_queued_receipt_start(tmp_path, append):
+    project = Project.create(tmp_path / "atomic-start.frisket", name="Atomic start")
+    sheet_id = project.add_sheet("Existing") if append else None
+    receipt = Receipt(
+        receipt_id="receipt:inventory-one",
+        project_id="streaming-project",
+        action_id="act:inventory-one",
+        action_kind="import.files",
+        status="queued",
+        idempotency_key="inventory:one",
+        params_hash="sha256:inventory-one",
+    )
+    ReceiptStore(project).insert_queued(receipt)
+    before = _counts(project)
+    project.db.execute(
+        "CREATE TEMP TRIGGER fail_session BEFORE INSERT ON import_sessions BEGIN SELECT RAISE(ABORT,'session insert failed'); END"
+    )
+    project.db.commit()
+    with pytest.raises(sqlite3.IntegrityError, match="session insert failed"):
+        if append:
+            StreamingSheetWriter.start_append_session(
+                project,
+                session_id="import:one",
+                writer_authority="claim:one",
+                sheet_id=sheet_id,
+                columns=COLUMNS,
+                project_id=receipt.project_id,
+                action_kind=receipt.action_kind,
+                idempotency_key=receipt.idempotency_key,
+                params_hash=receipt.params_hash,
+                action_id=receipt.action_id,
+                receipt_id=receipt.receipt_id,
+                source_ref={"kind": "inline"},
+            )
+        else:
+            _start_session(project)
+    assert _counts(project) == before
+    persisted = ReceiptStore(project).find_by_id(receipt.receipt_id)
+    assert persisted.status == "queued" and persisted.parsed().op_ids == []
+    assert project.db.execute("SELECT COUNT(*) FROM import_sessions").fetchone()[0] == 0

@@ -387,3 +387,56 @@ def test_large_single_record_exceeds_batch_target_without_new_api_size_limit(
         rows[0]: value,
         rows[1]: "second",
     }
+
+
+def test_direct_update_publication_failure_closes_its_reserved_receipt(
+    tmp_path, monkeypatch
+):
+    import frisket.engine.jobs.import_table as table_job
+
+    project = Project.create(tmp_path / "failed-update.frisket", name="Failed update")
+    sheet_id, columns, row_ids = _seed(project)
+    actual = table_job.run_table_import
+
+    def fail_after_committed_page(*args, **kwargs):
+        def fail():
+            raise OSError("synthetic failure after committed update")
+
+        return actual(*args, **kwargs, on_commit=fail)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(table_job, "run_table_import", fail_after_committed_page)
+        result = run_action_spec(
+            project,
+            _request(sheet_id, _params([{"id": "a", "name": "Alicia", "note": "new"}])),
+            project_id="p",
+        )
+    receipt = project.db.execute(
+        "SELECT status,body FROM receipts WHERE id=?", (result.receipt_id,)
+    ).fetchone()
+    assert receipt is not None and receipt["status"] == result.status == "partial"
+    assert "synthetic failure" in result.errors[0].message
+    assert project.get_values(sheet_id, columns["name"])[row_ids[0]] == "Alicia"
+    assert (
+        project.db.execute("SELECT state FROM import_sessions").fetchone()[0] == "kept"
+    )
+    assert (
+        project.db.execute(
+            "SELECT publication_closed FROM ops WHERE id=?", (result.op_ids[0],)
+        ).fetchone()[0]
+        == 1
+    )
+    replay = run_action_spec(
+        project,
+        _request(sheet_id, _params([{"id": "a", "name": "Alicia", "note": "new"}])),
+        project_id="p",
+    )
+    assert replay.receipt_id == result.receipt_id and replay.status == "partial"
+    next_result = run_action_spec(
+        project,
+        _request(
+            sheet_id, _params([{"id": "a", "name": "Next", "note": "new"}]), key="next"
+        ),
+        project_id="p",
+    )
+    assert next_result.status == "completed"

@@ -8,7 +8,7 @@ import uuid
 from typing import Any
 
 from frisket.actions.system import typed_action_for_request
-from frisket.contracts.action import ActionResult
+from frisket.contracts.action import ActionError, ActionResult
 from frisket.engine.store.import_intake import (
     ImportIntakeHeader,
     import_admit_lock,
@@ -17,6 +17,7 @@ from frisket.engine.store.import_intake import (
 )
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.table_import_intake import (
+    FrozenTableImport,
     TableImportColumn,
     TableImportPlan,
     TableImportScan,
@@ -286,6 +287,44 @@ def admit_typed_update(
     return frozen, envelope
 
 
+def _finalize_update(
+    project: Any,
+    frozen: FrozenTableImport,
+    envelope: ActionJobEnvelope,
+    *,
+    writer_authority: str,
+    failure: ActionError | None,
+    enumeration_complete: bool,
+) -> ActionResult:
+    """Close a direct update while its caller still owns the intake worker lock."""
+    from frisket.engine.store.import_sessions import (
+        ImportSessionConflict,
+        ImportSessionStore,
+    )
+    from frisket.engine.store.streaming_import import StreamingSheetWriter
+    from frisket.engine.store.table_import_intake import (
+        compact_table_intake,
+        finish_table_intake,
+    )
+
+    session = ImportSessionStore(project).get(frozen.import_ref)
+    receipt = ReceiptStore(project).parsed_by_id(envelope.receipt_id)
+    if receipt.status == "running" and session.state in {"active", "paused"}:
+        if session.writer_authority != writer_authority:
+            raise ImportSessionConflict("row update no longer owns publication")
+        publication = StreamingSheetWriter._from_session(
+            project, session
+        ).finalize_session(
+            expected_cursor=session.cursor,
+            failure=failure,
+            enumeration_complete=enumeration_complete,
+        )
+        receipt = publication.receipt
+        finish_table_intake(frozen.intake_dir, exact_rows=session.cursor)
+        compact_table_intake(frozen.intake_dir)
+    return _result_from_existing_action_job_receipt(receipt, job_id=None)
+
+
 def run_typed_update(
     project: Any,
     project_id: str,
@@ -295,8 +334,19 @@ def run_typed_update(
     update_params: Any = None,
     records_kind: str | None = None,
 ) -> ActionResult:
+    from contextlib import ExitStack
     from frisket.contracts.action import ActionError
     from frisket.engine.jobs.import_table import run_table_import
+    from frisket.engine.store.artifact_timeline import TimelineError
+    from frisket.actions.types import TableError
+
+    def failure(exc: Exception) -> ActionError:
+        return ActionError(
+            code=exc.code
+            if isinstance(exc, (TimelineError, TableError))
+            else "import_update_failed",
+            message=str(exc),
+        )
 
     try:
         admitted = admit_typed_update(
@@ -307,32 +357,43 @@ def run_typed_update(
             update_params=update_params,
             records_kind=records_kind,
         )
-        if isinstance(admitted, ActionResult):
-            return admitted
-        frozen, envelope = admitted
-        run_table_import(
-            project,
-            project_id=project_id,
-            import_ref=frozen.import_ref,
-            plan_hash=frozen.plan_hash,
-            writer_authority="direct:" + uuid.uuid4().hex,
-            live=lambda: not (deps.cancelled and deps.cancelled()),
-        )
-        receipt = ReceiptStore(project).parsed_by_id(envelope.receipt_id)
-        return _result_from_existing_action_job_receipt(receipt, job_id=None)
     except (ValueError, OSError, TypeError) as exc:
-        from frisket.engine.store.artifact_timeline import TimelineError
-        from frisket.actions.types import TableError
-
-        code = (
-            exc.code
-            if isinstance(exc, (TimelineError, TableError))
-            else "import_update_failed"
-        )
         return _failed_result(
             project_id=project_id,
             action_kind=bound.request.action_id,
-            error=ActionError(code=code, message=str(exc)),
+            error=failure(exc),
+        )
+    if isinstance(admitted, ActionResult):
+        return admitted
+    frozen, envelope = admitted
+    writer_authority = "direct:" + uuid.uuid4().hex
+    with ExitStack() as publication_owner:
+        error = None
+        enumeration_complete = False
+        try:
+            outcome = run_table_import(
+                project,
+                project_id=project_id,
+                import_ref=frozen.import_ref,
+                plan_hash=frozen.plan_hash,
+                writer_authority=writer_authority,
+                live=lambda: not (deps.cancelled and deps.cancelled()),
+                publication_owner=publication_owner,
+            )
+            enumeration_complete = outcome["status"] == "published"
+            if not enumeration_complete:
+                error = ActionError(
+                    code="import_update_failed", message="Row update was interrupted"
+                )
+        except Exception as exc:
+            error = failure(exc)
+        return _finalize_update(
+            project,
+            frozen,
+            envelope,
+            writer_authority=writer_authority,
+            failure=error,
+            enumeration_complete=enumeration_complete,
         )
 
 
@@ -352,10 +413,6 @@ def run_rows_updater(
     from frisket.engine.jobs.import_table import run_table_import
     from frisket.engine.store.import_sessions import ImportSessionStore
     from frisket.engine.store.streaming_import import StreamingSheetWriter
-    from frisket.engine.store.table_import_intake import (
-        finish_table_intake,
-        compact_table_intake,
-    )
 
     publication_owner = ExitStack()
 
@@ -366,6 +423,7 @@ def run_rows_updater(
         envelope = None
         replay = None
         enumeration_complete = False
+        writer_authority = "direct:" + uuid.uuid4().hex
 
         def _run(self, params, kind):
             if self.called:
@@ -388,7 +446,7 @@ def run_rows_updater(
                 project_id=project_id,
                 import_ref=self.frozen.import_ref,
                 plan_hash=self.frozen.plan_hash,
-                writer_authority="direct:" + uuid.uuid4().hex,
+                writer_authority=self.writer_authority,
                 live=lambda: not (deps.cancelled and deps.cancelled()),
                 publication_owner=publication_owner,
             )
@@ -465,16 +523,11 @@ def run_rows_updater(
                     code="import_update_failed", message="No update was requested"
                 ),
             )
-        session = ImportSessionStore(project).get(updater.frozen.import_ref)
-        receipt = ReceiptStore(project).parsed_by_id(updater.envelope.receipt_id)
-        if receipt.status in {"queued", "running"}:
-            writer = StreamingSheetWriter._from_session(project, session)
-            publication = writer.finalize_session(
-                expected_cursor=session.cursor,
-                failure=failure,
-                enumeration_complete=updater.enumeration_complete,
-            )
-            receipt = publication.receipt
-            finish_table_intake(updater.frozen.intake_dir, exact_rows=session.cursor)
-            compact_table_intake(updater.frozen.intake_dir)
-        return _result_from_existing_action_job_receipt(receipt, job_id=None)
+        return _finalize_update(
+            project,
+            updater.frozen,
+            updater.envelope,
+            writer_authority=updater.writer_authority,
+            failure=failure,
+            enumeration_complete=updater.enumeration_complete,
+        )

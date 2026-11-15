@@ -985,8 +985,10 @@ def run_inventory_table_page(
         raise ImportSessionConflict("import session belongs to another destination")
     if session is not None and session.state in {"completed", "kept", "removed"}:
         return session
-    if stored.status != "running":
-        raise ImportSessionConflict("inventory receipt is no longer running")
+    if stored.status != "running" and not (
+        session is None and stored.status == "queued"
+    ):
+        raise ImportSessionConflict("inventory receipt cannot start or continue")
     writer = None
     if session is not None:
         session = sessions.require_writer(session_id, writer_authority, admission.after)
