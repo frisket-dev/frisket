@@ -139,18 +139,9 @@ def _resolve_retry(
     bindings = ResultGenerationStore(project).bindings_for_run(root_id)
     if not bindings:
         raise ValueError("Execution has no retained output schema")
-    ph = ",".join("?" for _ in run_ids)
-    # A row is finished only when all original outputs have successful saved
-    # outcomes; publication/undo does not discard useful accepted work.
-    done = {
-        row["row_id"]
-        for row in project.db.execute(
-            f"SELECT row_id FROM results WHERE run_id IN ({ph}) "
-            "AND outcome IN ('ok','empty') AND (review_decision IS NULL OR review_decision NOT IN ('reject','reject_clear')) "
-            "GROUP BY row_id HAVING COUNT(DISTINCT column_id)=?",
-            (*run_ids, len(bindings)),
-        )
-    }
+    from frisket.engine.store.execution_groups import completed_execution_rows
+
+    done = completed_execution_rows(project, root_id, run_ids)
     remaining = sorted(requested - done)
     if not remaining:
         raise ValueError("Execution has no unfinished requested rows")

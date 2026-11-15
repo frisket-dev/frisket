@@ -13,6 +13,7 @@ from frisket.engine.store.copied_results import (
 work = recovery.work
 start = recovery.start
 
+
 def _copy(work, source_run, selected=None):
     project, sheet, _, rows, *_ = work
     target = project.add_column(sheet, "Copy")
@@ -143,3 +144,109 @@ def test_missing_outcome_is_not_completed_and_later_source_results_do_not_change
         ).fetchone()[0]
         == "not_completed"
     )
+
+
+def test_completion_never_stitches_successful_siblings_from_different_attempts(work):
+    from frisket.engine.store.runs import RunResultStore
+    from frisket.engine.store.result_generations import ResultGenerationStore
+    from frisket.engine.store.output_claims import OutputColumnClaimStore
+    from frisket.engine.store.execution_groups import completed_execution_rows
+    from helpers import run_writer_authority_fixture
+
+    project, sheet, _, rows, *_ = work
+    columns = [project.add_column(sheet, name) for name in ("A", "B")]
+    runs = RunResultStore(project)
+    generations = ResultGenerationStore(project)
+    root = None
+    run_ids = []
+    for successful in (0, 1):
+        op = project.append_op("map.extract")
+        run_id = runs.start_run(
+            op,
+            sheet,
+            "map.extract",
+            row_ids=[rows[0]],
+            total_rows=1,
+            params={} if root is None else {"execution_root_run_id": root},
+        )
+        root = root or run_id
+        run_ids.append(run_id)
+        auth = run_writer_authority_fixture(
+            project, run_id, output_column_ids=set(columns)
+        )
+        for index, column in enumerate(columns):
+            generations.declare(
+                run_id,
+                column,
+                output_role=("a", "b")[index],
+                compatibility_key="sha256:test-family",
+                write_mode="create" if len(run_ids) == 1 else "replace_scope",
+                claim_token=auth.claim_token,
+            )
+        runs.write_results(
+            run_id,
+            [
+                {
+                    "row_id": rows[0],
+                    "column_id": column,
+                    "value": f"answer {index}" if index == successful else None,
+                    "outcome": "ok" if index == successful else "model_error",
+                    "error": None if index == successful else "failed sibling",
+                    "publication_effect": "publish_value"
+                    if index == successful
+                    else "publish_error",
+                }
+                for index, column in enumerate(columns)
+            ],
+            **auth.kwargs(),
+        )
+        generations.seal(
+            run_id,
+            columns,
+            claim_token=auth.claim_token,
+            terminal_disposition="partial",
+        )
+        runs.finish_run(run_id, status="failed")
+        OutputColumnClaimStore(project).release(claim_token=auth.claim_token)
+    assert completed_execution_rows(project, root, run_ids) == set()
+    with (
+        project.transaction_scope(),
+        combined_execution_outcomes(project, root, sheet_id=sheet, row_ids=[rows[0]]),
+    ):
+        staged = project.db.execute(
+            "SELECT source_run_id,source_column_id FROM reapply_combined_outcomes ORDER BY output_role"
+        ).fetchall()
+        assert [tuple(row) for row in staged] == [
+            (run_ids[-1], columns[0]),
+            (run_ids[-1], columns[1]),
+        ]
+
+
+def test_copied_values_and_provenance_reach_bounded_and_full_readers(work):
+    from frisket.engine.store.current_value_windows import read_current_column
+
+    project, sheet, _, rows, _, adapter, run = work
+    adapter.fail = "second"
+    original = start(run)
+    source_column = next(
+        c["id"] for c in project.columns(sheet) if c["name"] == "Answer"
+    )
+    op, target, _ = _copy(work, original.run_id)
+    values, refs = project.get_values_with_refs(sheet, target, row_ids=rows)
+    bounded = read_current_column(
+        project.db, sheet_id=sheet, column_id=target, row_ids=rows, bounded=True
+    )
+    for row in rows:
+        expected = {
+            "run_id": original.run_id,
+            "row_id": row,
+            "column_id": source_column,
+        }
+        assert refs[row]["kind"] == "copied_result"
+        assert refs[row]["op_id"] == op
+        assert refs[row]["retained_result"] == expected
+        assert bounded[row].value == values[row]
+        assert bounded[row].value_ref["retained_result"] == expected
+        assert bounded[row].outcome == refs[row]["outcome"]
+    assert bounded[rows[0]].value == "answer 1"
+    assert bounded[rows[1]].value_present is False

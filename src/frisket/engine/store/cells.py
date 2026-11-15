@@ -587,6 +587,13 @@ def _current_cell_rows(
     fields = "r.id, c.value_kind, c.value, COALESCE(c.validity, 'missing') AS validity"
     if with_refs:
         fields += ", c.origin_kind, c.origin_op_id, c.origin_run_id, c.prepared_ref_id, c.base_producer_id, c.outcome"
+        fields += ", copy.source_run_id AS copied_run_id, copy.source_row_id AS copied_row_id, copy.source_column_id AS copied_column_id"
+    copy_join = (
+        " LEFT JOIN copied_result_outcomes copy ON c.origin_kind='copied_result' "
+        "AND copy.op_id=c.origin_op_id AND copy.row_id=r.id AND copy.column_id=c.column_id "
+        if with_refs
+        else " "
+    )
     for chunk in chunks:
         params: list[Any] = [column_id, sheet_id]
         row_filter = ""
@@ -607,7 +614,8 @@ def _current_cell_rows(
         yield from project.db.execute(
             f"SELECT {fields} FROM {rows_source} LEFT JOIN {relation} c "
             "ON c.column_id=? AND c.row_id=r.id "
-            f"WHERE r.sheet_id=? AND r.hidden=0{row_filter}",
+            + copy_join
+            + f"WHERE r.sheet_id=? AND r.hidden=0{row_filter}",
             params,
         )
 
@@ -676,33 +684,12 @@ def get_values_with_refs(
             ),
             **({"validity": row["validity"]} if include_validity else {}),
         }
-    # Reapplication is an ordinary edit overlay with a retained immutable
-    # result reference. Keep that provenance visible to citation readers.
-    operation_specs = {}
-    for ref in refs.values():
-        op_id = ref.get("op_id")
-        if ref["kind"] != "manual_edit" or op_id is None:
-            continue
-        if op_id not in operation_specs:
-            op = project.db.execute(
-                "SELECT spec FROM ops WHERE id=?", (op_id,)
-            ).fetchone()
-            operation_specs[op_id] = json.loads(op["spec"] or "{}") if op else {}
-        spec = operation_specs[op_id]
-        if spec.get("action_kind") == "run.reapply":
-            saved = next(
-                (
-                    item
-                    for item in spec.get("result_refs", [])
-                    if item["row_id"] == ref["row_id"]
-                    and item["target_column_id"] == column_id
-                ),
-                None,
-            )
-            if saved is not None:
-                ref["retained_result"] = {
-                    key: saved[key] for key in ("run_id", "row_id", "column_id")
-                }
+        if row["copied_run_id"] is not None:
+            refs[row_id]["retained_result"] = {
+                "run_id": int(row["copied_run_id"]),
+                "row_id": int(row["copied_row_id"]),
+                "column_id": int(row["copied_column_id"]),
+            }
     return values, refs
 
 

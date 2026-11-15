@@ -68,9 +68,6 @@ def combined_execution_outcomes(
         group,
     ).fetchone():
         raise ValueError("Stop the execution before reapplying its results")
-    # Queued Retry may not yet have a run. Its receipt still names the original
-    # execution in the submitted request; the executor admission check handles
-    # those requests using the existing execution-group admission authority.
     db.execute("CREATE TEMP TABLE reapply_selected_rows(row_id INTEGER PRIMARY KEY)")
     db.execute(
         "CREATE TEMP TABLE reapply_combined_outcomes(row_id INTEGER,output_role TEXT,source_run_id INTEGER,source_row_id INTEGER,source_column_id INTEGER,PRIMARY KEY(row_id,output_role)) WITHOUT ROWID"

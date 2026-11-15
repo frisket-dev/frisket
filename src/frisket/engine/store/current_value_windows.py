@@ -115,7 +115,9 @@ _AUTHORITY_CTE = """
 heads AS MATERIALIZED (
   SELECT r.id AS row_id,head.retrieval_revision,head.origin_kind,
          head.origin_op_id,head.origin_run_id,head.base_producer_id,
-         COALESCE(head.validity,'missing') AS validity,head.outcome
+         COALESCE(head.validity,'missing') AS validity,head.outcome,
+         copy.source_run_id AS copied_run_id,copy.source_row_id AS copied_row_id,
+         copy.source_column_id AS copied_column_id
   FROM rows AS r
   JOIN sheets AS sheet ON sheet.id=r.sheet_id AND sheet.hidden=0
   JOIN columns AS col ON col.sheet_id=r.sheet_id
@@ -123,6 +125,8 @@ heads AS MATERIALIZED (
   LEFT JOIN (SELECT * FROM effective_current_cells
              WHERE column_id=:column_id AND row_id IN ({row_ids})) AS head
     ON head.row_id=r.id AND head.column_id=:column_id
+  LEFT JOIN copied_result_outcomes copy ON head.origin_kind='copied_result'
+    AND copy.op_id=head.origin_op_id AND copy.row_id=r.id AND copy.column_id=:column_id
   WHERE r.sheet_id=:sheet_id AND r.hidden=0 AND r.id IN ({row_ids})
 ),
 authority AS NOT MATERIALIZED (
@@ -139,6 +143,13 @@ authority AS NOT MATERIALIZED (
         FROM results AS result
         WHERE result.run_id=head.origin_run_id AND result.row_id=head.row_id
           AND result.column_id=:column_id AND result.published=1)
+      WHEN 'copied_result' THEN (
+        SELECT CASE copy.publication_effect
+          WHEN 'publish_value' THEN copy.value_kind
+          WHEN 'publish_null' THEN 'null' END
+        FROM copied_result_values copy
+        WHERE copy.op_id=head.origin_op_id AND copy.row_id=head.row_id
+          AND copy.column_id=:column_id)
       WHEN 'manual_edit' THEN (
         SELECT edit.value_kind FROM edits AS edit
         WHERE edit.op_id=head.origin_op_id AND edit.row_id=head.row_id
@@ -154,6 +165,11 @@ authority AS NOT MATERIALIZED (
           THEN result.value END FROM results AS result
         WHERE result.run_id=head.origin_run_id AND result.row_id=head.row_id
           AND result.column_id=:column_id AND result.published=1)
+      WHEN 'copied_result' THEN (
+        SELECT CASE WHEN copy.publication_effect='publish_value' THEN copy.value END
+        FROM copied_result_values copy
+        WHERE copy.op_id=head.origin_op_id AND copy.row_id=head.row_id
+          AND copy.column_id=:column_id)
       WHEN 'manual_edit' THEN (
         SELECT edit.value FROM edits AS edit
         WHERE edit.op_id=head.origin_op_id AND edit.row_id=head.row_id
@@ -542,6 +558,7 @@ def read_current_column(
             + _authority_cte(chunk)
             + " SELECT row_id,retrieval_revision,origin_kind,origin_op_id,"
             "origin_run_id,base_producer_id,validity,stored_kind,outcome,"
+            "copied_run_id,copied_row_id,copied_column_id,"
             "CASE WHEN stored_kind IN ('text','json','bigint','legacy_invalid') "
             "AND length(CAST(stored_value AS BLOB))>:byte_limit "
             "THEN NULL ELSE stored_value END AS bounded_value,"
@@ -586,6 +603,12 @@ def read_current_column(
                     else {}
                 ),
             }
+            if row["copied_run_id"] is not None:
+                ref["retained_result"] = {
+                    "run_id": int(row["copied_run_id"]),
+                    "row_id": int(row["copied_row_id"]),
+                    "column_id": int(row["copied_column_id"]),
+                }
             preview: BoundedValuePreview | None = None
             value_present = row["outcome"] in (None, "completed")
             if stored_kind == "prepared_content_ref" and stored_value is not None:
