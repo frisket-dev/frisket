@@ -128,6 +128,11 @@ def _acquire_output_claims_for_runner(
         lease_seconds=int(STALE_DISPATCHING_AGE.total_seconds()),
         details={
             "idempotency_key": action.idempotency_key,
+            **(
+                {"execution_root_run_id": runner_spec["execution_root_run_id"]}
+                if runner_spec.get("execution_root_run_id") is not None
+                else {}
+            ),
             # Freeze the producer descriptors with the claim. Queue recovery
             # must not rebuild a compatibility key from whatever recipe code
             # happens to be installed later.

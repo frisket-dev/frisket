@@ -8,6 +8,8 @@ compatibility reader: only links written with the V1 semantic marker qualify.
 
 from __future__ import annotations
 
+from frisket.engine.store.cell_reference import evidence_subject_ref
+
 import json
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Mapping
@@ -154,7 +156,7 @@ def _candidate_payload(
     elif value_ref_kind != "source_cell":
         return None
     subject_ref = _loads_object(link["subject_ref_json"])
-    if subject_ref != value_ref:
+    if subject_ref != evidence_subject_ref(value_ref):
         return None
 
     try:

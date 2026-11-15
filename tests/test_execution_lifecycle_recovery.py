@@ -377,10 +377,28 @@ def test_reapply_retains_original_output_type_after_column_retype(work):
         "run.reapply",
         {"source_run_id": original.run_id},
         key="incompatible-target",
+        scope={"kind": "sheet_rows", "sheet_id": sheet, "row_ids": [rows[0]]},
         replace_existing=True,
     )
     assert refused.status == "failed"
     assert refused.errors[0].code == "output_column_exists"
+    replaced = run(
+        "run.reapply",
+        {"source_run_id": original.run_id},
+        key="whole-target",
+        replace_existing=True,
+    )
+    assert replaced.status == "completed", replaced.errors
+    assert project.get_values(sheet, output["id"]) == saved
+    assert (
+        next(c for c in project.columns(sheet) if c["id"] == output["id"])["type"]
+        == "text"
+    )
+    project.undo()
+    assert (
+        next(c for c in project.columns(sheet) if c["id"] == output["id"])["type"]
+        == "number"
+    )
     restored_result = run(
         "run.reapply",
         {"source_run_id": original.run_id},

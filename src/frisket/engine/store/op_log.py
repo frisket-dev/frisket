@@ -514,6 +514,13 @@ def operation_touched_column_ids(
     project: Any, op_id: int, undo_info: dict[str, Any]
 ) -> frozenset[int]:
     column_ids = set(ResultGenerationStore(project).column_ids_for_op(op_id))
+    column_ids.update(
+        int(row[0])
+        for row in project.db.execute(
+            "SELECT DISTINCT column_id FROM copied_result_outcomes WHERE op_id=?",
+            (op_id,),
+        )
+    )
     for sheet_id in [
         *undo_info.get("created_sheets", ()),
         *undo_info.get("deleted_sheets", ()),
@@ -592,6 +599,13 @@ def operation_projection_column_ids(
     """Columns whose visible value layer can change when an op changes status."""
 
     column_ids = set(ResultGenerationStore(project).column_ids_for_op(op_id))
+    column_ids.update(
+        int(row[0])
+        for row in project.db.execute(
+            "SELECT DISTINCT column_id FROM copied_result_outcomes WHERE op_id=?",
+            (op_id,),
+        )
+    )
     for sheet_id in [
         *undo_info.get("created_sheets", ()),
         *undo_info.get("deleted_sheets", ()),

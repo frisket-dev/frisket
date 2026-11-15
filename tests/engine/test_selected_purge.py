@@ -112,8 +112,11 @@ def test_purge_cleans_copied_watch_text_and_only_related_trace(project):
     (traces / f"run-{run}.jsonl.gz").write_bytes(b"secret")
     (traces / f"run-{other_run}.jsonl.gz").write_bytes(b"public")
     with project.db:
+        view = project.db.execute(
+            "INSERT INTO views(name,spec) VALUES ('w','{}')"
+        ).lastrowid
         watch = project.db.execute(
-            "INSERT INTO watches(name,query) VALUES ('w','{}')"
+            "INSERT INTO watches(name,view_id) VALUES ('w',?)", (view,)
         ).lastrowid
         wr = project.db.execute(
             "INSERT INTO watch_runs(watch_id,op_cursor_before,op_cursor_after) VALUES (?,0,0)",
@@ -259,7 +262,7 @@ def test_column_purge_preserves_unselected_source_baseline_fields(project):
             ("source", sheet, json.dumps([[key, "text"]])),
         )
         project.db.execute(
-            "INSERT INTO keyed_observations VALUES (?,?,?,?)",
+            "INSERT INTO keyed_observations(relationship_id,row_id,key,record) VALUES (?,?,?,?)",
             (
                 "source",
                 row,

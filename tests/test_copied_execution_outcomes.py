@@ -16,8 +16,8 @@ start = recovery.start
 
 def _copy(work, source_run, selected=None):
     project, sheet, _, rows, *_ = work
-    target = project.add_column(sheet, "Copy")
     with project.transaction_scope():
+        target = project.add_column(sheet, "Copy", commit=False)
         op = project.append_op("run.reapply", commit=False)
         with combined_execution_outcomes(
             project, source_run, sheet_id=sheet, row_ids=selected
@@ -250,3 +250,51 @@ def test_copied_values_and_provenance_reach_bounded_and_full_readers(work):
         assert bounded[row].outcome == refs[row]["outcome"]
     assert bounded[rows[0]].value == "answer 1"
     assert bounded[rows[1]].value_present is False
+
+
+def test_queued_retry_blocks_copy_before_a_successor_run_exists(work):
+    from types import SimpleNamespace
+    from frisket.contracts.action import Receipt
+    from frisket.engine.executor.action_reservations import (
+        _acquire_output_claims_for_runner,
+    )
+    from frisket.engine.store.receipts import ReceiptStore
+    from frisket.engine.store.output_claims import OutputColumnClaimStore
+
+    project, _, _, _, _, _, run = work
+    original = start(run)
+    receipt = Receipt(
+        receipt_id="receipt_queued_retry",
+        project_id="project",
+        action_id="act_retry",
+        action_kind="run.retry",
+        idempotency_key="queued-retry",
+        params_hash="retry",
+        status="queued",
+    )
+    ReceiptStore(project).insert_queued(receipt)
+    assert (
+        _acquire_output_claims_for_runner(
+            project,
+            SimpleNamespace(kind="run.retry", idempotency_key="queued-retry"),
+            {"sheet_id": work[1], "execution_root_run_id": original.run_id},
+            receipt_id=receipt.receipt_id,
+            output_fields=[{"name": "Answer", "column_type": "text"}],
+        )
+        is None
+    )
+    assert project.db.execute("SELECT count(*) FROM runs").fetchone()[0] == 1
+    with pytest.raises(ValueError, match="Stop the execution"):
+        _copy(work, original.run_id)
+    claim = project.db.execute(
+        "SELECT claim_token FROM output_column_claims WHERE receipt_id=?",
+        (receipt.receipt_id,),
+    ).fetchone()[0]
+    OutputColumnClaimStore(project).release(claim_token=claim)
+    project.db.execute(
+        "UPDATE receipts SET status='cancelled' WHERE id=?", (receipt.receipt_id,)
+    )
+    project.db.commit()
+    # No successor recorded any result; the original saved outcome still wins.
+    _, target, _ = _copy(work, original.run_id)
+    assert project.get_values(work[1], target)[work[3][0]] == "answer 1"

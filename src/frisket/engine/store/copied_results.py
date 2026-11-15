@@ -43,6 +43,10 @@ FROM copied_result_outcomes copy LEFT JOIN results result
 """
 
 
+class UnavailableReapplySelection(ValueError):
+    """An explicitly requested row is no longer available."""
+
+
 @contextmanager
 def combined_execution_outcomes(
     project, source_run_id: int, *, sheet_id: int, row_ids: list[int] | None
@@ -59,13 +63,24 @@ def combined_execution_outcomes(
     if not db.in_transaction:
         raise RuntimeError("saved-result copying requires a caller transaction")
     root, group = execution_runs(project, source_run_id)
-    source = db.execute("SELECT sheet_id FROM runs WHERE id=?", (root,)).fetchone()
+    source = db.execute(
+        "SELECT runs.sheet_id FROM runs JOIN sheets ON sheets.id=runs.sheet_id "
+        "WHERE runs.id=? AND sheets.hidden=0",
+        (root,),
+    ).fetchone()
     if source is None or source[0] != sheet_id:
         raise ValueError("Saved execution does not belong to the selected sheet")
     placeholders = ",".join("?" for _ in group)
     if db.execute(
         f"SELECT 1 FROM runs WHERE id IN ({placeholders}) AND status='running' LIMIT 1",
         group,
+    ).fetchone():
+        raise ValueError("Stop the execution before reapplying its results")
+    if db.execute(
+        "SELECT 1 FROM output_column_claims claim JOIN receipts receipt ON receipt.id=claim.receipt_id "
+        "WHERE claim.status='active' AND receipt.status IN ('queued','running') "
+        "AND json_extract(claim.details,'$.execution_root_run_id')=? LIMIT 1",
+        (root,),
     ).fetchone():
         raise ValueError("Stop the execution before reapplying its results")
     db.execute("CREATE TEMP TABLE reapply_selected_rows(row_id INTEGER PRIMARY KEY)")
@@ -96,6 +111,10 @@ def combined_execution_outcomes(
             "WHERE row.id=chosen.row_id AND row.sheet_id=? AND row.hidden=0 AND sheet.hidden=0)",
             (sheet_id,),
         ).fetchone()[0]
+        if row_ids is not None and unavailable:
+            raise UnavailableReapplySelection(
+                "Explicit Reapply selection requires visible rows"
+            )
         db.execute(
             "DELETE FROM reapply_selected_rows WHERE row_id NOT IN (SELECT id FROM rows WHERE sheet_id=? AND hidden=0)",
             (sheet_id,),

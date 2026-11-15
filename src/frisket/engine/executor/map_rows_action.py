@@ -1784,8 +1784,9 @@ def resolve_row_output_targets(
         column_id = int(column["id"])
         generation_managed = (
             project.db.execute(
-                "SELECT 1 FROM run_output_generations WHERE column_id=? LIMIT 1",
-                (column_id,),
+                "SELECT 1 FROM run_output_generations WHERE column_id=? "
+                "UNION ALL SELECT 1 FROM copied_result_outcomes WHERE column_id=? LIMIT 1",
+                (column_id, column_id),
             ).fetchone()
             is not None
         )
