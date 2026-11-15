@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from frisket.ai.llm import ModelRouter
-from frisket.ai.models.accounting import merge_accounting_meta, wire_accounting_meta
+from frisket.ai.models.accounting import wire_accounting_meta
 from frisket.cloud_execution import cloud_llm_execution_scope
 from frisket.cloud_runtime_binding import CloudRuntimeBinding, cloud_runtime_binding
 from frisket.ops.base import OpContext, Recipe, RecipeInvocationHalt
@@ -676,13 +676,12 @@ async def run_preview(
                                 "value": None,
                                 "outcome": "cancelled",
                                 **(
-                                    merge_accounting_meta(
-                                        getattr(exc, "accounting", None),
+                                    getattr(exc, "accounting", None)
+                                    or (
                                         wire_accounting_meta(spec["model"], calls)
                                         if calls
-                                        else None,
+                                        else {}
                                     )
-                                    or {}
                                 ),
                             }
                         task = asyncio.current_task()

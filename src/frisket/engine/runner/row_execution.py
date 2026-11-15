@@ -200,6 +200,9 @@ async def _execute_row(
             recorder.write_row(router.record(data=data, meta=meta, error=error))
 
     def returned_error_accounting(error):
+        materialized = getattr(error, "_row_returned_accounting", None)
+        if materialized is not None:
+            return materialized
         # Capability owners already assigned durable IDs. Only unconsumed wire
         # responses need row-level facts; using their raw history again charges
         # the same purchase twice under a different ID.
@@ -234,9 +237,11 @@ async def _execute_row(
                 # The same exception may cross preview/row/agent consumers.
                 # Mint this fact once rather than charging it under new IDs.
                 error.accounting = recorded
+            error._row_returned_accounting = recorded
             return recorded
         raw = wire_accounting_meta(spec.get("model") or paid[-1].model, paid)
-        return merge_accounting_meta(recorded, raw)
+        error._row_returned_accounting = merge_accounting_meta(recorded, raw)
+        return error._row_returned_accounting
 
     def retain_returned_before_halt(error):
         accounting = returned_error_accounting(error)

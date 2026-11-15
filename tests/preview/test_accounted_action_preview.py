@@ -179,6 +179,28 @@ def test_real_model_preview_accounts_success_failure_and_cancel(tmp_path, mode):
         assert _outputs(project) == before
 
 
+def test_cancel_before_json_repair_retains_returned_purchase_once(tmp_path):
+    with closing(Project.create(tmp_path / "preview.frisket")) as project:
+        sheet, row_ids, _ = _seed(project, ["alpha"])
+        cancelled = threading.Event()
+        adapter = _Adapter(cancel=cancelled, invalid=True)
+        runner = _runner(project, adapter)
+        plan = resolve_map_preview(project, _summarize_action(sheet, row_ids=row_ids))
+        before = _outputs(project)
+        spec, attempt = _admit(runner, plan)
+        with pytest.raises(asyncio.CancelledError):
+            asyncio.run(
+                runner.preview(
+                    spec, program=plan.program, attempt=attempt, cancel_event=cancelled
+                )
+            )
+        facts = runner.run_store.model_calls(receipt_id=attempt.receipt_id)
+        assert len(adapter.calls) == len(facts) == 1
+        assert facts[0]["provider_cost_usd"] == pytest.approx(0.01)
+        assert facts[0]["attempt_id"] == attempt.attempt_id
+        assert _outputs(project) == before
+
+
 @pytest.mark.parametrize("drift", ["scope", "source"])
 def test_paid_preview_binds_scope_but_reads_current_source(
     tmp_path,

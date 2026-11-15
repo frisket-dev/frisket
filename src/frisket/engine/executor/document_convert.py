@@ -783,10 +783,6 @@ class _BoundDocumentConverter:
 
         def observe(result):
             body, cost_usd = result
-            if accepted_accounting is None:
-                raise RuntimeError(
-                    "Datalab returned without its accepted-job accounting"
-                )
             if accepted_accounting is not None:
                 meta = accepted_accounting
                 provider_reported_cost = cost_usd
