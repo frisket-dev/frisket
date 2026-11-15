@@ -254,7 +254,9 @@ def _scope_query(project, *, sheet_id, source, scope, selection_read=None):
     envelope = "CASE WHEN d.value_kind='json' AND json_valid(d.value) THEN CASE WHEN json_type(d.value)='object' THEN d.value END END"
     selected_join, selected_params = "", []
     if selection_read is not None:
-        selected_sql, selected_params = selection_read.ordered_rows_sql(include_ordinal=True)
+        selected_sql, selected_params = selection_read.ordered_rows_sql(
+            include_ordinal=True
+        )
         selected_join = f" JOIN ({selected_sql}) view_rows ON view_rows.row_id=r.id AND view_rows.sheet_id=r.sheet_id"
     sql = (
         f"FROM {plan.filter_from_sql}{selected_join} JOIN current_cell_values d "
@@ -262,7 +264,12 @@ def _scope_query(project, *, sheet_id, source, scope, selection_read=None):
         f"WHERE {plan.where_sql} AND json_type({envelope},'$.blob')='text' "
         f"AND EXISTS (SELECT 1 FROM blobs b WHERE b.hash=json_extract({envelope},'$.blob'))"
     )
-    params = [*plan.filter_join_params, *selected_params, column["id"], *plan.where_params]
+    params = [
+        *plan.filter_join_params,
+        *selected_params,
+        column["id"],
+        *plan.where_params,
+    ]
     if kind == "this":
         if values.get("row_id") is None:
             raise ValueError("This document scope requires a row")
@@ -278,32 +285,50 @@ def _scope_query(project, *, sheet_id, source, scope, selection_read=None):
     return sql, params
 
 
-
-
 @contextmanager
 def _document_scope_read(project, *, sheet_id, source, scope):
     values = scope.model_dump(mode="json") if hasattr(scope, "model_dump") else scope
     definition = values.get("selection")
     if definition is None:
-        sql, params = _scope_query(project, sheet_id=sheet_id, source=source, scope=values)
+        sql, params = _scope_query(
+            project, sheet_id=sheet_id, source=source, scope=values
+        )
         yield project, sql, params, "r.position,r.id"
         return
     from frisket.actions.document_extraction_types import ExtractionScope
     from frisket.features.views.evaluate import open_selection
 
     validated = ExtractionScope.model_validate(values)
-    if validated.selection.scope.kind != "sheet" or validated.selection.scope.sheet_id != sheet_id:
+    if (
+        validated.selection.scope.kind != "sheet"
+        or validated.selection.scope.sheet_id != sheet_id
+    ):
         raise ValueError("Selection must target this sheet")
     with open_selection(project, definition) as selected:
-        sql, params = _scope_query(selected.snapshot, sheet_id=sheet_id, source=source, scope=values, selection_read=selected)
+        sql, params = _scope_query(
+            selected.snapshot,
+            sheet_id=sheet_id,
+            source=source,
+            scope=values,
+            selection_read=selected,
+        )
         yield selected.snapshot, sql, params, "view_rows.selection_ordinal"
 
 
 def resolve_document_scope(project, *, sheet_id, source, scope):
-    with _document_scope_read(project, sheet_id=sheet_id, source=source, scope=scope) as (snapshot, sql, params, order):
-        return [row[0] for row in snapshot.db.execute("SELECT r.id " + sql + " ORDER BY " + order, params)]
+    with _document_scope_read(
+        project, sheet_id=sheet_id, source=source, scope=scope
+    ) as (snapshot, sql, params, order):
+        return [
+            row[0]
+            for row in snapshot.db.execute(
+                "SELECT r.id " + sql + " ORDER BY " + order, params
+            )
+        ]
 
 
 def count_document_scope(project, *, sheet_id, source, scope):
-    with _document_scope_read(project, sheet_id=sheet_id, source=source, scope=scope) as (snapshot, sql, params, _order):
+    with _document_scope_read(
+        project, sheet_id=sheet_id, source=source, scope=scope
+    ) as (snapshot, sql, params, _order):
         return snapshot.db.execute("SELECT COUNT(*) " + sql, params).fetchone()[0]

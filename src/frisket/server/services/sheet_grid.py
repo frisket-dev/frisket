@@ -334,13 +334,24 @@ class SheetGridService:
             )
             decoded_sort = _decode_document_json(sort, expected=list, name="sort")
             if selection is not None:
-                with _selected_sheet(project, sheet_id, selection, None,
-                                     legacy_scope=(parent_row_id, filter_, sort, scope_row_ids)) as selected:
+                with _selected_sheet(
+                    project,
+                    sheet_id,
+                    selection,
+                    None,
+                    legacy_scope=(parent_row_id, filter_, sort, scope_row_ids),
+                ) as selected:
                     page = document_browse(
-                        selected.snapshot, sheet_id, source_column_id=source_column_id,
-                        title_column_id=title_column_id, q=q, cursor=cursor,
-                        anchor_row_id=anchor_row_id, limit=limit,
-                        _selection=selected, _storage_identity=project.storage_identity,
+                        selected.snapshot,
+                        sheet_id,
+                        source_column_id=source_column_id,
+                        title_column_id=title_column_id,
+                        q=q,
+                        cursor=cursor,
+                        anchor_row_id=anchor_row_id,
+                        limit=limit,
+                        _selection=selected,
+                        _storage_identity=project.storage_identity,
                     )
             else:
                 page = document_browse(

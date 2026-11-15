@@ -11,8 +11,6 @@ class ExtractionModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
-
-
 class ExtractionScope(ExtractionModel):
     selection: ViewSelection | None = None
     kind: Literal["this", "filter", "all", "layout"]
@@ -25,7 +23,10 @@ class ExtractionScope(ExtractionModel):
     @model_validator(mode="after")
     def selected_document(self) -> "ExtractionScope":
         if self.selection is not None:
-            if self.kind != "filter" or any(value is not None for value in (self.filter, self.parent_row_id, self.scope_row_ids)):
+            if self.kind != "filter" or any(
+                value is not None
+                for value in (self.filter, self.parent_row_id, self.scope_row_ids)
+            ):
                 raise ValueError("A View selection replaces the current filter scope")
         if self.kind == "this" and self.row_id is None:
             raise ValueError("Choose the document to extract")

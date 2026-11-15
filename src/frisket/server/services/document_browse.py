@@ -160,7 +160,11 @@ def document_browse(project, sheet_id: int, **kwargs) -> dict:
         connection.execute("BEGIN")
     try:
         return _document_browse(
-            project, sheet_id, _storage_identity=kwargs.pop("_storage_identity", None) or project.storage_identity, **kwargs
+            project,
+            sheet_id,
+            _storage_identity=kwargs.pop("_storage_identity", None)
+            or project.storage_identity,
+            **kwargs,
         )
     finally:
         if owns_transaction:
@@ -217,12 +221,25 @@ def _document_browse(
         reference_date=date.fromisoformat(today),
     )
     if _selection is not None:
-        selected_sql, selected_params = _selection.ordered_rows_sql(include_ordinal=True)
+        selected_sql, selected_params = _selection.ordered_rows_sql(
+            include_ordinal=True
+        )
         join = f"JOIN ({selected_sql}) view_rows ON view_rows.row_id=r.id AND view_rows.sheet_id=r.sheet_id"
-        terms = (SheetOrderTerm("view_rows.selection_ordinal"), SheetOrderTerm("r.position"), SheetOrderTerm("r.id"))
-        scope_plan = replace(scope_plan, joins=(join,), filter_joins=(join,),
-                             join_params=tuple(selected_params), filter_join_params=tuple(selected_params),
-                             order_terms=terms, order_parts=[term.order_sql() for term in terms], order_params=[])
+        terms = (
+            SheetOrderTerm("view_rows.selection_ordinal"),
+            SheetOrderTerm("r.position"),
+            SheetOrderTerm("r.id"),
+        )
+        scope_plan = replace(
+            scope_plan,
+            joins=(join,),
+            filter_joins=(join,),
+            join_params=tuple(selected_params),
+            filter_join_params=tuple(selected_params),
+            order_terms=terms,
+            order_parts=[term.order_sql() for term in terms],
+            order_params=[],
+        )
     columns = scope_plan.columns
     where = scope_plan.where_sql
     where_params = scope_plan.where_params

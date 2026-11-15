@@ -378,29 +378,71 @@ def test_split_source_range_is_bounded_to_current_cell(docs):
 
 def test_view_selection_keyset_uses_same_top_n_order_and_title_search(docs):
     from frisket.features.views.evaluate import open_selection
+
     project, sheet, source, title, rows = docs
-    selection = {"scope": {"kind": "sheet", "sheet_id": sheet}, "filters": [],
-                 "order": [{"column_id": title, "dir": "desc"}], "limit": 4}
+    selection = {
+        "scope": {"kind": "sheet", "sheet_id": sheet},
+        "filters": [],
+        "order": [{"column_id": title, "dir": "desc"}],
+        "limit": 4,
+    }
     with open_selection(project, selection) as selected:
         expected = [hit["row_id"] for hit in selected.hits()]
+
         def selected_page(**kwargs):
-            return document_browse(selected.snapshot, sheet, source_column_id=source, title_column_id=title,
-                                   _storage_identity=project.storage_identity, _selection=selected, **kwargs)
+            return document_browse(
+                selected.snapshot,
+                sheet,
+                source_column_id=source,
+                title_column_id=title,
+                _storage_identity=project.storage_identity,
+                _selection=selected,
+                **kwargs,
+            )
+
         first = selected_page(limit=2)
         following = selected_page(limit=2, cursor=first["next_cursor"])
-        assert [item["row_id"] for item in first["items"] + following["items"]] == expected
+        assert [
+            item["row_id"] for item in first["items"] + following["items"]
+        ] == expected
         assert following["next_cursor"] is None
-        assert selected_page(limit=2, cursor=following["previous_cursor"])["items"] == first["items"]
+        assert (
+            selected_page(limit=2, cursor=following["previous_cursor"])["items"]
+            == first["items"]
+        )
         assert all(item["row_id"] in expected for item in selected_page(q="b")["items"])
-        assert selected_page(anchor_row_id=expected[2], limit=1)["items"][0]["row_id"] == expected[2]
+        assert (
+            selected_page(anchor_row_id=expected[2], limit=1)["items"][0]["row_id"]
+            == expected[2]
+        )
 
 
 def test_document_service_accepts_selection_and_refuses_mixed_scope(docs):
     from frisket.server.services.sheet_grid import SheetGridService, SheetGridRouteError
+
     project, sheet, source, title, rows = docs
     service = SheetGridService(SimpleNamespace(get=lambda _pid: project))
-    selection = json.dumps({"scope": {"kind": "sheet", "sheet_id": sheet}, "filters": [], "order": [], "limit": 2})
-    result = service.document_page("project", sheet, source_column_id=source, title_column_id=title, selection=selection)
+    selection = json.dumps(
+        {
+            "scope": {"kind": "sheet", "sheet_id": sheet},
+            "filters": [],
+            "order": [],
+            "limit": 2,
+        }
+    )
+    result = service.document_page(
+        "project",
+        sheet,
+        source_column_id=source,
+        title_column_id=title,
+        selection=selection,
+    )
     assert [item["row_id"] for item in result["items"]] == rows[:2]
     with pytest.raises(SheetGridRouteError, match="own filters"):
-        service.document_page("project", sheet, source_column_id=source, selection=selection, scope_row_ids=str(rows[-1]))
+        service.document_page(
+            "project",
+            sheet,
+            source_column_id=source,
+            selection=selection,
+            scope_row_ids=str(rows[-1]),
+        )

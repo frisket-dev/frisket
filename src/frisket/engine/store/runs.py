@@ -181,7 +181,12 @@ def _group_row_errors(
 # Expected data failures stay failed/retryable, without treating a bad row as
 # evidence of an unexpected systemic failure or hiding its diagnostic column.
 EXPECTED_ROW_ERROR = "row_error"
-FAILURE_OUTCOMES = ("model_error", "invalid_output", EXPECTED_ROW_ERROR, "not_completed")
+FAILURE_OUTCOMES = (
+    "model_error",
+    "invalid_output",
+    EXPECTED_ROW_ERROR,
+    "not_completed",
+)
 # terminal = produced its final state, never re-run by backfill.
 # `unverified_memory`: a produced answer the model gave from parametric memory
 # with NO external source (research.answer), kept but marked -- terminal and

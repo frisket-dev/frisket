@@ -25,9 +25,7 @@ from frisket.ops.base import Recipe
 _COMPATIBILITY_SCHEMA_VERSION = "frisket.output_compatibility.v1"
 
 
-def _logical_output_roles(
-    project: Project, prepared: PreparedRun
-) -> dict[str, str]:
+def _logical_output_roles(project: Project, prepared: PreparedRun) -> dict[str, str]:
     """Map each materialized output name to its immutable logical field key."""
 
     run = project.db.execute(

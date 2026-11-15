@@ -539,17 +539,14 @@ def write_find_result(
             raise RuntimeError("map.find could not acquire its exact output claim")
         generations = ResultGenerationStore(project)
         logical_roles = {
-            str(name): str(logical)
-            for logical, name in params.output_names.items()
+            str(name): str(logical) for logical, name in params.output_names.items()
         }
         for field in output_fields:
             column_id = write.column_ids[str(field["name"])]
             generations.declare(
                 run_id,
                 column_id,
-                output_role=logical_roles.get(
-                    str(field["name"]), str(field["name"])
-                ),
+                output_role=logical_roles.get(str(field["name"]), str(field["name"])),
                 compatibility_key=_compatibility_key(field=field),
                 write_mode="create",
                 claim_token=claim_token,
