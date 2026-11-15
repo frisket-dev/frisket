@@ -58,9 +58,10 @@ for _table in ("cells", "base_cell_producers", "current_cells", "edits"):
         "src/frisket/engine/store/domain_document_text_migration.py",
     )
 
-# Structural metadata is intentionally scoped to DELETE only. INSERT and
-# UPDATE of rows/columns/sheets remain outside this checker.
+# Additional owners scoped to DELETE only. Offline purge cannot insert/update
+# result facts. Structural INSERT/UPDATE remain outside this checker.
 DELETE_OWNERS: Mapping[str, tuple[str, ...]] = {
+    "results": ("src/frisket/engine/store/purge.py",),
     "rows": (
         "src/frisket/engine/store/cell_writes.py",
         "src/frisket/engine/store/sheet_lifecycle.py",
@@ -148,7 +149,9 @@ def _owners_for(
     owners: Mapping[str, tuple[str, ...]],
 ) -> tuple[str, ...] | None:
     if table in PROTECTED_TABLES:
-        return owners.get(table, ())
+        return owners.get(table, ()) + (
+            DELETE_OWNERS.get(table, ()) if operation == "DELETE" else ()
+        )
     if operation == "DELETE" and table in DELETE_OWNERS:
         # Custom maps keep fixture tests independent of repository paths.
         return owners.get(table, DELETE_OWNERS[table])

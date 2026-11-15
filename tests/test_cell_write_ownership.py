@@ -38,6 +38,22 @@ def test_named_owner_is_allowed(tmp_path: Path):
     assert violations == []
 
 
+def test_offline_purge_owns_deletion_but_cannot_publish_results(tmp_path: Path):
+    # rule19: synthetic source tests the operation-specific owner boundary.
+    path = tmp_path / "src/frisket/engine/store/purge.py"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        'db.execute("DELETE FROM results WHERE run_id=?")\n'
+        'db.execute("INSERT INTO results VALUES (?)")\n'
+        'db.execute("UPDATE results SET value=NULL")\n'
+    )
+    violations = checker.check_paths([path], root=tmp_path)
+    assert [(v.table, v.operation) for v in violations] == [
+        ("results", "INSERT"),
+        ("results", "UPDATE"),
+    ]
+
+
 def test_f_string_and_executescript_are_checked(tmp_path: Path):
     source = """
 name = "cells"
