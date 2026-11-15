@@ -904,22 +904,35 @@ def terminalize_project_run(
             # disposition, so this stays correct even if a partially-sealed
             # run ever becomes durably observable (a mismatched prior
             # disposition still refuses loudly inside seal()).
+            stale_claimed_output_name = (
+                db.execute(
+                    "SELECT 1 FROM output_column_claims claim "
+                    "JOIN columns column ON column.id=claim.column_id "
+                    "WHERE claim.run_id=? AND claim.status='active' "
+                    "AND claim.output_name<>column.name LIMIT 1",
+                    (run_id,),
+                ).fetchone()
+                is not None
+            )
+            stale_name_terminal_close = stale_claimed_output_name and not isinstance(
+                authority, CurrentWriterTerminalAuthority
+            )
             generation_store.seal(
                 run_id,
                 [binding.column_id for binding in declared_bindings],
                 claim_token=claim_tokens.pop(),
                 terminal_disposition=terminal_run_status,
-                # A pre-dispatch target rename invalidates the queued action,
-                # but it must not strand the exact prepared run/receipt/claim.
-                # NeverDispatched authority has already proven no effect could
-                # publish; permit only this terminal close to ignore name drift.
-                allow_stale_output_name=isinstance(
-                    authority, NeverDispatchedRunTerminalAuthority
-                ),
-                # Only the host's coupled finalizer may expose these heads.
-                # Read its durable declaration, never the worker/job payload.
+                # A pre-dispatch refusal can follow a target rename. The exact
+                # prepared attempt and active claim still authorize closing
+                # this generation, while name drift must not strand its
+                # receipt. No result head is published on this path.
+                allow_stale_output_name=stale_name_terminal_close,
+                # Only a dispatched writer or the host's coupled finalizer
+                # may expose heads. A prepared/no-dispatch failure records its
+                # terminal generation but leaves prior visible values alone.
                 publish=(
                     publication_refusal is None
+                    and not stale_claimed_output_name
                     and json.loads(run["runner_spec"]).get("deferred_publication")
                     is not True
                 ),

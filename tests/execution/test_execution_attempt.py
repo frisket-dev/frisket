@@ -411,13 +411,24 @@ def test_the_attempt_receipt_route_serves_the_facts(tmp_path):
 
     app = create_app(tmp_path / "ws")
     created = app.state.workspace.create("attempts")
+    project = app.state.workspace.get(created["id"])
+    from frisket.engine.store.runs import RunResultStore
+
+    sheet_id = project.add_sheet("S")
+    op_id = project.append_op("media.transcribe")
+    run_id = RunResultStore(project).start_run(
+        op_id, sheet_id, "media.transcribe", params=dict(SPEC)
+    )
     route = next(
         route
         for route in app.routes
         if getattr(route, "path", None)
         == "/api/projects/{pid}/actions/runs/{run_id}/attempts"
     )
-    assert route.endpoint(created["id"], 1) == {"run_id": 1, "attempts": []}
+    assert route.endpoint(created["id"], run_id) == {
+        "run_id": run_id,
+        "attempts": [],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -881,8 +892,10 @@ def test_halted_reason_without_a_code_stays_representable(project, consented_run
     assert _halt_columns(project, run_id) == (None, "halted after 10 failures")
 
 
-def test_running_queue_admission_preserves_racing_cancel_intent(project, consented_run):
-    """A prepared queued run is already running when resume admission starts."""
+def test_running_queue_admission_refuses_a_closed_cancelled_change(
+    project, consented_run
+):
+    """A Stop closes its Change before a queued worker can resume it."""
 
     from frisket.engine.store.runs import RunResultStore
 
@@ -901,13 +914,19 @@ def test_running_queue_admission_preserves_racing_cancel_intent(project, consent
         reopen_operator_cancelled=False,
     )
 
-    assert admission.admitted is True
+    assert admission.admitted is False
     assert admission.prior_cancel_requested_at == requested_at
-    assert admission.transient_cancel_requested_at == requested_at
+    assert admission.transient_cancel_requested_at is None
     assert store.cancellation_requested(run_id) is True
+    change = project.db.execute(
+        "SELECT op.publication_closed FROM runs run JOIN ops op ON op.id=run.op_id "
+        "WHERE run.id=?",
+        (run_id,),
+    ).fetchone()
+    assert change[0] == 1
 
 
-def test_terminal_resume_clears_and_refused_revert_restores_cancel_intent(
+def test_terminal_cancelled_run_cannot_resume_or_clear_cancel_intent(
     project, consented_run
 ):
     from frisket.engine.store.runs import RunResultStore
@@ -926,12 +945,10 @@ def test_terminal_resume_clears_and_refused_revert_restores_cancel_intent(
     project.db.commit()
 
     admission = store.begin_run_resume(run_id)
-    assert admission.admitted is True
+    assert admission.admitted is False
     assert admission.prior_cancel_requested_at == requested_at
     assert admission.transient_cancel_requested_at is None
-    assert store.has_cancel_intent(run_id) is False
-
-    store.revert_run_resume(run_id, admission)
+    assert store.has_cancel_intent(run_id) is True
     restored = project.db.execute(
         "SELECT status, finished_at, cancel_requested_at FROM runs WHERE id=?",
         (run_id,),
@@ -981,6 +998,12 @@ def test_compaction_preserves_the_attempt_and_its_run(project):
     run_id = RunResultStore(project).start_run(
         op_id, sheet_id, "media.transcribe", params=dict(SPEC)
     )
+    from frisket.engine.store.changes import ChangeStore
+
+    project.db.execute("BEGIN IMMEDIATE")
+    ChangeStore(project).start(op_id, writing=True)
+    ChangeStore(project).close(op_id)
+    project.db.commit()
     _route, promise_set, consent = _consent_and_route(project, run_id)
     attempt = _mint(project, run_id)
     _claim_unscoped(project, attempt)
@@ -1004,14 +1027,16 @@ def test_compaction_preserves_the_attempt_and_its_run(project):
     set_attempt_state(project, attempt.attempt_id, "effected")
 
     # Undo, then a new op so the undone branch is no longer redoable.
-    project.undo()
-    project.append_op("noop")
-    assert (
-        project.db.execute("SELECT status FROM ops WHERE id=?", (op_id,)).fetchone()[
-            "status"
-        ]
-        == "discarded"
-    )
+    assert project.undo() == op_id
+    noop_op = project.append_op("noop")
+    project.db.execute("BEGIN IMMEDIATE")
+    ChangeStore(project).start(noop_op, writing=True)
+    ChangeStore(project).close(noop_op)
+    project.db.commit()
+    discarded = project.db.execute(
+        "SELECT status,redo_eligible FROM ops WHERE id=?", (op_id,)
+    ).fetchone()
+    assert tuple(discarded) == ("undone", 0)
 
     project.compact()
 

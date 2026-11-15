@@ -962,6 +962,11 @@ def queued_v1_terminal_receipt_transition(
             if isinstance(prepared_attempt_id, str) and prepared_attempt_id
             else None
         )
+        latest_attempt = project.db.execute(
+            "SELECT state FROM execution_attempts WHERE run_id=? "
+            "ORDER BY seq DESC LIMIT 1",
+            (run_id,),
+        ).fetchone()
         has_abandoned_attempt = (
             project.db.execute(
                 "SELECT 1 FROM execution_attempts "
@@ -981,6 +986,25 @@ def queued_v1_terminal_receipt_transition(
                 claimless_direct_effect=claimless_direct_effect,
                 prepared_attempt_id=prepared_attempt_id,
                 require_cancel_intent=require_cancel_intent,
+            )
+        elif not has_abandoned_attempt and (
+            (
+                prepared_attempt is not None
+                and prepared_attempt["state"] == "created"
+            )
+            or (
+                prepared_attempt is None
+                and latest_attempt is not None
+                and latest_attempt["state"] == "created"
+            )
+        ):
+            # Consent/route verification can refuse after the attempt identity
+            # is recorded but before admission. Close that zero-effect attempt
+            # under the terminalizer's NeverDispatched proof. Unclaimed
+            # terminalization cannot distinguish this legitimate refusal from
+            # an arbitrary open attempt and correctly refuses it.
+            authority = NeverDispatchedRunTerminalAuthority(
+                claimless_direct_effect=claimless_direct_effect,
             )
         elif has_abandoned_attempt:
             authority = AbandonedRunRecoveryAuthority(

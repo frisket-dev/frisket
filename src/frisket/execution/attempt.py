@@ -1313,7 +1313,19 @@ def run_attempt_receipts(
     """Attempts across an execution, or one generation for detailed inspection."""
     from frisket.engine.store.execution_groups import execution_runs
 
-    ids = [run_id] if attempt_only else execution_runs(project, run_id)[1]
+    if attempt_only:
+        ids = [run_id]
+    else:
+        # Compaction may reclaim the run while preserving its attempt receipt
+        # with run_id=NULL. The run-keyed surface answers no attempts after
+        # that boundary; project_attempt_receipts is the retained reader for
+        # the orphan and must not make the detail route raise.
+        exists = project.db.execute(
+            "SELECT 1 FROM runs WHERE id=?", (int(run_id),)
+        ).fetchone()
+        if exists is None:
+            return []
+        ids = execution_runs(project, run_id)[1]
     ph = ",".join("?" for _ in ids)
     rows = project.db.execute(
         f"SELECT id FROM execution_attempts WHERE run_id IN ({ph}) ORDER BY run_id DESC,seq DESC",

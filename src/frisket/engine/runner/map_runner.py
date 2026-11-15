@@ -826,9 +826,16 @@ class MapRunner:
         def cancelled() -> bool:
             if progress.cancelled:
                 return True
-            if self.run_store.cancellation_requested(run_id) or (
-                self.should_cancel is not None and self.should_cancel(run_id)
-            ):
+            if self.run_store.cancellation_requested(run_id):
+                progress.cancel_requested = True
+                progress.cancel()
+                return True
+            if self.should_cancel is not None and self.should_cancel(run_id):
+                # A positive stop poll is durable user intent. Close this
+                # Change before any already-returned effect is published; its
+                # accounting remains owned by the exact attempt and can still
+                # drain through the terminal writer.
+                self.run_store.request_cancel(run_id)
                 progress.cancel_requested = True
                 progress.cancel()
             return progress.cancelled
@@ -1127,6 +1134,11 @@ class MapRunner:
             except BaseException as exc:
                 close_out_pre_dispatch_failure(exc)
                 raise
+        # A pre-admitted attempt remains part of the owned context even when
+        # Stop arrives before its dispatch claim. Domain scopes may ask for
+        # dispatch permission during setup; they must see that attempt and let
+        # RunDispatch reject it, rather than treating managed work as unowned.
+        if attempt is not None:
             run_extras[ATTEMPT_EXTRA] = attempt
             progress.writer_attempt_id = attempt.attempt_id
 

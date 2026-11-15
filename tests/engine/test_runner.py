@@ -1158,10 +1158,10 @@ class TestCancel:
             == "admitted"
         )
 
-    def test_cancel_after_only_row_returns_keeps_completed_work(
+    def test_cancel_after_only_row_returns_keeps_usage_but_withdraws_publication(
         self, project, monkeypatch
     ):
-        """Cancellation retains an already-returned result and its usage."""
+        """Stop after a response retains its paid fact but publishes no head."""
         monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
         sheet, _ = seed_sheet(project, ["only row"])
         spec = classify_spec(sheet)
@@ -1189,8 +1189,14 @@ class TestCancel:
         run = project.db.execute(
             "SELECT status, completed_rows FROM runs WHERE id=?", (progress.run_id,)
         ).fetchone()
-        assert run["status"] == "completed"
-        assert run["completed_rows"] == 1
+        assert run["status"] == "cancelled"
+        assert run["completed_rows"] == 0
+        assert project.db.execute(
+            "SELECT COUNT(*) FROM results WHERE run_id=?", (progress.run_id,)
+        ).fetchone()[0] == 0
+        assert project.db.execute(
+            "SELECT COUNT(*) FROM model_calls WHERE run_id=?", (progress.run_id,)
+        ).fetchone()[0] == 1
 
     def test_uncancelled_run_still_completes(self, project, tmp_path):
         sheet, _ = seed_sheet(project, ["a", "b"])

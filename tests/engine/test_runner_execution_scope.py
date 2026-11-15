@@ -384,16 +384,27 @@ def test_local_pending_rows_drain_before_cancel_or_halt_finalization(
         progress = asyncio.run(
             run_with_output_claim(runner, _spec(scope_recipe, sheet_id))
         )
-        assert progress.cancelled and progress.completed == 2
+        assert progress.cancelled
         actual = project.db.execute(
             "SELECT row_id FROM results WHERE run_id=? ORDER BY row_id",
             (progress.run_id,),
         ).fetchall()
-        assert [row[0] for row in actual] == row_ids[:2]
         run = project.db.execute(
             "SELECT * FROM runs WHERE id=?", (progress.run_id,)
         ).fetchone()
-        assert run["status"] == "cancelled" and run["completed_rows"] == 2
+        if stop == "cancel":
+            # The callback is the Stop signal. All three local results had
+            # returned into the pending batch, but cancellation closed the
+            # Change before that batch could publish any new heads.
+            assert progress.completed == 3
+            assert actual == []
+            assert run["status"] == "cancelled" and run["completed_rows"] == 0
+        else:
+            # A recipe halt is a partial execution outcome, not operator Stop;
+            # its already-returned local rows remain publishable.
+            assert progress.completed == 2
+            assert [row[0] for row in actual] == row_ids[:2]
+            assert run["status"] == "cancelled" and run["completed_rows"] == 2
         assert scope_recipe.exits == 1
     finally:
         project.close()

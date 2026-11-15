@@ -76,7 +76,15 @@ def test_direct_preparation_derives_defer_and_visibility_from_program(
             ).fetchone()
             assert bool(column["hidden"]) is (admitted and not replacing)
             if replacing:
-                assert project.get_values(sheet, column["id"])[rows[0]] == "VALUE"
+                current = project.get_values(sheet, column["id"])[rows[0]]
+                if admitted:
+                    # Deferred/staged replacement preserves the prior head
+                    # until the owning finalizer publishes the family.
+                    assert current == "VALUE"
+                else:
+                    # An ordinary same-descriptor replacement is active and
+                    # may mask the row while its new result is pending.
+                    assert current is None
             observed.append(run_id)
             raise RuntimeError("stop before domain finalizer")
 

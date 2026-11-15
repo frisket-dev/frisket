@@ -42,6 +42,7 @@ SELECT scope.row_id,generation.column_id,'run_result',run.op_id,run.id,NULL,
 FROM run_output_generations generation JOIN runs run ON run.id=generation.run_id
 JOIN ops op ON op.id=run.op_id JOIN run_rows scope ON scope.run_id=run.id
 WHERE op.status='applied' AND op.change_order IS NOT NULL
+AND generation.state!='staged'
 AND NOT EXISTS (SELECT 1 FROM results retained WHERE retained.run_id=run.id
  AND retained.row_id=scope.row_id AND retained.column_id=generation.column_id
  AND retained.publication_effect='retain')
