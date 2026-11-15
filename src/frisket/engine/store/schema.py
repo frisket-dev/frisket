@@ -1449,9 +1449,9 @@ CREATE TABLE IF NOT EXISTS blobs (
 -- SOURCE for a further derivation (clip-of-a-clip), so the read side walks
 -- the chain hop by hop rather than this table modeling a tree directly.
 CREATE TABLE IF NOT EXISTS blob_derivations (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   derived_hash TEXT NOT NULL REFERENCES blobs(hash) ON DELETE CASCADE,
-  source_hash TEXT NOT NULL REFERENCES blobs(hash) ON DELETE RESTRICT,
+  source_hash TEXT NOT NULL,
   op TEXT NOT NULL,
   params_json TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL DEFAULT (datetime('now'))

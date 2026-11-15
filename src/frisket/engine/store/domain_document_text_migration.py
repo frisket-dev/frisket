@@ -4,16 +4,6 @@ from __future__ import annotations
 
 import sqlite3
 
-from .cell_writes import (
-    BaseCellWrite,
-    EditCellWrite,
-    create_base_cell_producer,
-    initialize_base_cells,
-    insert_edits,
-)
-from .document_text import ensure_document_text_role
-from .value_codec import PreparedContentRef
-
 # Pinned pre-cutover selection relation. Do not import the new runtime resolver:
 # migration preserves the old effective choice before removing that fallback.
 _LEGACY_READINESS = r"""current_prepared_outputs AS MATERIALIZED (
@@ -190,8 +180,9 @@ def adopt_legacy_document_text(db: sqlite3.Connection) -> dict[int, int]:
             ).fetchone()
             if count == 1 and claimed is None:
                 text_column = int(common)
-                ensure_document_text_role(
-                    db, source_column_id=source, text_column_id=text_column
+                db.execute(
+                    "INSERT INTO document_text_column_roles(source_column_id,text_column_id) VALUES (?,?)",
+                    (source, text_column),
                 )
                 # The existing column already owns its values and manual provenance.
                 # Legacy manual corrections without a role need their explicit pin.
@@ -228,8 +219,9 @@ def adopt_legacy_document_text(db: sqlite3.Connection) -> dict[int, int]:
                         (sheet, name, position),
                     ).lastrowid
                 )
-                ensure_document_text_role(
-                    db, source_column_id=source, text_column_id=text_column
+                db.execute(
+                    "INSERT INTO document_text_column_roles(source_column_id,text_column_id) VALUES (?,?)",
+                    (source, text_column),
                 )
                 if migration_op is None:
                     migration_op = int(
@@ -238,33 +230,44 @@ def adopt_legacy_document_text(db: sqlite3.Connection) -> dict[int, int]:
                             "VALUES('migration.document_text','Preserve selected document text','{}',NULL,1)"
                         ).lastrowid
                     )
-                    producer = create_base_cell_producer(
-                        db, stage_id=f"op:{migration_op}", op_id=migration_op
-                    )
+                    producer = db.execute(
+                        "INSERT INTO base_cell_producers(stage_id,op_id) VALUES (?,?)",
+                        (f"op:{migration_op}", migration_op),
+                    ).lastrowid
                 cursor = db.execute(
                     "SELECT row_id,output_column_id,prepared_ref_id,is_manual "
                     "FROM domain_document_choices WHERE source_column_id=? ORDER BY row_id",
                     (source,),
                 )
                 while batch := cursor.fetchmany(256):
-                    initialize_base_cells(
-                        db,
-                        producer_id=producer,
-                        cells=[
-                            BaseCellWrite(row, text_column, PreparedContentRef(ref))
-                            for row, _, ref, _ in batch
-                        ],
-                    )
-                    edits = []
-                    for row, old_column, _, manual in batch:
+                    # Frozen old-schema writes: do not execute new-domain
+                    # commands before its tables and authority exist.
+                    for row, old_column, ref, manual in batch:
+                        db.execute(
+                            "INSERT INTO cells(row_id,column_id,value_kind,value,producer_id) "
+                            "VALUES (?,?,'prepared_content_ref',?,?)",
+                            (row, text_column, ref, producer),
+                        )
+                        origin, owner, base = "source_cell", None, producer
                         if manual:
                             value = db.execute(
                                 "SELECT value FROM current_cell_values WHERE row_id=? AND column_id=?",
                                 (row, old_column),
                             ).fetchone()[0]
-                            edits.append(EditCellWrite(row, text_column, value))
-                    if edits:
-                        insert_edits(db, op_id=migration_op, edits=edits)
+                            db.execute(
+                                "INSERT INTO edits(op_id,row_id,column_id,value_kind,value) VALUES (?,?,?,'text',?)",
+                                (migration_op, row, text_column, value),
+                            )
+                            db.execute(
+                                "INSERT INTO document_text_manual_pins(edit_op_id,row_id,text_column_id,prepared_ref_id) VALUES (?,?,?,?)",
+                                (migration_op, row, text_column, ref),
+                            )
+                            origin, owner, base = "manual_edit", migration_op, None
+                        db.execute(
+                            "INSERT INTO current_cells(column_id,row_id,retrieval_revision,origin_kind,"
+                            "origin_op_id,base_producer_id,validity) VALUES (?,?,1,?,?,?,'valid')",
+                            (text_column, row, origin, owner, base),
+                        )
             adopted[int(source)] = text_column
         return adopted
     finally:

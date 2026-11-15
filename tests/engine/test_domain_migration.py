@@ -152,3 +152,100 @@ def test_old_history_is_inspectable_but_not_navigable(old_db):
             )
         )
     )
+
+
+def _stamp_old(db):
+    from frisket.engine.store.domain_migration import DOMAIN_FROM_DIGEST
+
+    db.execute(
+        "INSERT INTO meta(key,value) VALUES ('schema_digest',?)", (DOMAIN_FROM_DIGEST,)
+    )
+    db.commit()
+
+
+def test_full_cutover_preserves_values_and_starts_new_history(old_db):
+    from frisket.engine.store.domain_migration import migrate_domain
+    from frisket.engine.store.schema import SCHEMA_DIGEST
+
+    db = old_db
+    _stamp_old(db)
+    db.execute("PRAGMA foreign_keys=ON")
+    migrate_domain(db)
+    assert db.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+    assert db.execute("PRAGMA legacy_alter_table").fetchone()[0] == 0
+    assert (
+        db.execute("SELECT value FROM meta WHERE key='schema_digest'").fetchone()[0]
+        == SCHEMA_DIGEST
+    )
+    assert (
+        db.execute(
+            "SELECT value FROM current_cell_values WHERE column_id=1 AND row_id=1"
+        ).fetchone()[0]
+        == "corrected"
+    )
+    assert (
+        db.execute(
+            "SELECT origin_op_id FROM canonical_cell_heads WHERE column_id=1 AND row_id=1"
+        ).fetchone()[0]
+        == 2
+    )
+    assert db.execute("SELECT value FROM cells").fetchone()[0] == "source"
+    assert (
+        db.execute(
+            "SELECT COUNT(*) FROM ops WHERE change_order IS NOT NULL"
+        ).fetchone()[0]
+        == 0
+    )
+    assert not db.execute("PRAGMA foreign_key_check").fetchall()
+    migrate_domain(db)  # Reopening does not recapture or reset new history.
+
+
+def test_cutover_preserves_anonymous_source_identity(old_db):
+    from frisket.engine.store.domain_migration import migrate_domain
+
+    db = old_db
+    db.execute("DELETE FROM edits")
+    db.execute("UPDATE cells SET producer_id=NULL")
+    db.execute(
+        "UPDATE current_cells SET origin_kind='source_cell',origin_op_id=NULL,base_producer_id=NULL"
+    )
+    _stamp_old(db)
+    migrate_domain(db)
+    head = db.execute(
+        "SELECT base_producer_id,value FROM current_cell_values"
+    ).fetchone()
+    assert head[0] is not None and head[1] == "source"
+    assert (
+        db.execute(
+            "SELECT op_id FROM base_cell_producers WHERE id=?", (head[0],)
+        ).fetchone()[0]
+        is None
+    )
+    assert (
+        db.execute("SELECT base_producer_id FROM cell_baseline").fetchone()[0]
+        == head[0]
+    )
+
+
+def test_full_cutover_failure_restores_schema_and_pragmas(old_db):
+    from frisket.engine.store.domain_migration import migrate_domain, DOMAIN_FROM_DIGEST
+
+    db = old_db
+    db.execute(
+        "INSERT INTO receipts(id,action_kind,status,body) VALUES('bad','map.ask','running','{}')"
+    )
+    _stamp_old(db)
+    db.execute("PRAGMA foreign_keys=ON")
+    with pytest.raises(BundleSchemaMismatch, match="malformed receipt"):
+        migrate_domain(db)
+    assert db.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+    assert not db.in_transaction
+    assert (
+        db.execute("SELECT value FROM meta WHERE key='schema_digest'").fetchone()[0]
+        == DOMAIN_FROM_DIGEST
+    )
+    assert "change_order" not in {r[1] for r in db.execute("PRAGMA table_info(ops)")}
+    assert db.execute("SELECT value FROM edits").fetchone()[0] == "corrected"
+    assert not db.execute(
+        "SELECT 1 FROM sqlite_master WHERE name='cell_baseline'"
+    ).fetchone()

@@ -48,6 +48,15 @@ TABLE_OWNERS: Mapping[str, tuple[str, ...]] = {
     "cell_result_heads": ("src/frisket/engine/store/result_generations.py",),
 }
 
+# Frozen one-time upgrades write preceding schemas, not current store commands.
+# Keep this list exact; it is not an exemption for arbitrary migration modules.
+for _table in ("cells", "base_cell_producers", "current_cells", "results"):
+    TABLE_OWNERS[_table] += ("src/frisket/engine/store/domain_migration.py",)
+for _table in ("cells", "base_cell_producers", "current_cells", "edits"):
+    TABLE_OWNERS[_table] += (
+        "src/frisket/engine/store/domain_document_text_migration.py",
+    )
+
 # Structural metadata is intentionally scoped to DELETE only. INSERT and
 # UPDATE of rows/columns/sheets remain outside this checker.
 DELETE_OWNERS: Mapping[str, tuple[str, ...]] = {
