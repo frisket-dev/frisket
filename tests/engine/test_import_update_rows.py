@@ -362,3 +362,98 @@ def test_queued_custom_updater_keeps_original_receipt(tmp_path, monkeypatch):
     assert result.receipt_id == envelope.receipt_id
     assert result.action.kind == custom.action_id
     assert project.get_values(sheet, columns["note"])[rows[0]] == "from worker"
+
+
+def test_rekey_then_delete_cannot_restore_row_under_old_source_key(tmp_path):
+    project = Project.create(tmp_path / "hidden-rekey.frisket")
+    sheet, columns, rows = _seed(project)
+    params = _params([{"id": "a", "name": "from source"}])
+    params.relationship_id = "import:rekey"
+    first = run_action_spec(
+        project, _request(sheet, params, "reviewed", "first"), project_id="p"
+    )
+    assert first.status == "completed"
+    project.apply_edits(
+        [{"row_id": rows[0], "column_id": columns["id"], "value": "changed-key"}]
+    )
+    with project.db:
+        project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (rows[0],))
+    params.rows = [{"id": "a", "name": "later source"}]
+    later = run_action_spec(
+        project, _request(sheet, params, "reviewed", "second"), project_id="p"
+    )
+    assert later.status == "completed", later.errors
+    assert (
+        project.db.execute("SELECT hidden FROM rows WHERE id=?", (rows[0],)).fetchone()[
+            0
+        ]
+        == 1
+    )
+    assert later.op_ids == []
+
+
+def test_custom_updater_failure_after_publication_keeps_work_and_records_failure(
+    tmp_path, monkeypatch
+):
+    from dataclasses import replace
+    from frisket.actions.core import RegisteredAction
+    from frisket.actions.registry import ACTION_REGISTRY
+    from frisket.engine.store.receipts import ReceiptStore
+
+    project = Project.create(tmp_path / "failed-handler.frisket")
+    sheet, columns, rows = _seed(project)
+    original = ACTION_REGISTRY.get("import.update_rows")
+
+    def fail_after_update(params, updater):
+        original.definition.run.handler(params, updater)
+        stored = ReceiptStore(project).find_by_idempotency_key("fail-after-update")
+        assert stored.status == "running"
+        from filelock import Timeout
+        from frisket.engine.store.import_intake import (
+            import_intake_dir,
+            import_worker_lock,
+        )
+
+        session = project.db.execute(
+            "SELECT id FROM import_sessions WHERE receipt_id=?", (stored.id,)
+        ).fetchone()[0]
+        with (
+            pytest.raises(Timeout),
+            import_worker_lock(import_intake_dir(project.path, session), timeout=0),
+        ):
+            pass
+        raise RuntimeError("plugin postprocessing failed")
+
+    custom = RegisteredAction(
+        "test.failed_update",
+        replace(
+            original.definition,
+            run=replace(original.definition.run, handler=fail_after_update),
+        ),
+    )
+    monkeypatch.setattr(
+        ACTION_REGISTRY,
+        "_actions",
+        {**ACTION_REGISTRY._actions, custom.action_id: custom},
+    )
+    request = _request(
+        sheet,
+        _params([{"id": "a", "name": "published"}]),
+        "reviewed",
+        "fail-after-update",
+    )
+    request["action_id"] = custom.action_id
+    result = run_action_spec(project, request, project_id="p")
+    assert result.status == "partial", result.errors
+    assert "plugin postprocessing failed" in result.errors[0].message
+    assert project.get_values(sheet, columns["name"])[rows[0]] == "published"
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    assert receipt.status == "partial"
+    assert (
+        project.db.execute(
+            "SELECT publication_closed FROM ops WHERE id=?", (result.op_ids[0],)
+        ).fetchone()[0]
+        == 1
+    )
+    assert project.undo() == result.op_ids[0]
+    assert project.get_values(sheet, columns["name"])[rows[0]] == "Alice"

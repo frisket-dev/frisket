@@ -348,14 +348,29 @@ def run_rows_updater(
     if replay is not None:
         return replay
 
+    from contextlib import ExitStack
+    from frisket.engine.jobs.import_table import run_table_import
+    from frisket.engine.store.import_sessions import ImportSessionStore
+    from frisket.engine.store.streaming_import import StreamingSheetWriter
+    from frisket.engine.store.table_import_intake import (
+        finish_table_intake,
+        compact_table_intake,
+    )
+
+    publication_owner = ExitStack()
+
     class Updater:
+        called = False
         result = None
-        action_result = None
+        frozen = None
+        envelope = None
+        replay = None
 
         def _run(self, params, kind):
-            if self.action_result is not None:
+            if self.called:
                 raise ValueError("RowsUpdater may be called once per action")
-            self.action_result = run_typed_update(
+            self.called = True
+            admitted = admit_typed_update(
                 project,
                 project_id,
                 bound,
@@ -363,11 +378,29 @@ def run_rows_updater(
                 update_params=params,
                 records_kind=kind,
             )
-            result = self.action_result
-            if result.status not in {"completed", "partial"}:
-                raise ValueError("row update did not complete")
-            ref = result.outputs[0].ref
-            op_id = result.op_ids[0] if result.op_ids else None
+            if isinstance(admitted, ActionResult):
+                self.replay = admitted
+                raise ValueError("row update already has a terminal result")
+            self.frozen, self.envelope = admitted
+            outcome = run_table_import(
+                project,
+                project_id=project_id,
+                import_ref=self.frozen.import_ref,
+                plan_hash=self.frozen.plan_hash,
+                writer_authority="direct:" + uuid.uuid4().hex,
+                live=lambda: not (deps.cancelled and deps.cancelled()),
+                publication_owner=publication_owner,
+            )
+            if outcome["status"] != "published":
+                raise ValueError("row update was interrupted")
+            session = ImportSessionStore(project).get(self.frozen.import_ref)
+            writer = StreamingSheetWriter._from_session(project, session)
+            receipt = ReceiptStore(project).parsed_by_id(self.envelope.receipt_id)
+            snapshot = writer._completed_update_receipt(
+                receipt, row_count=session.committed_rows, status="running"
+            )
+            ref = snapshot.outputs[0].ref
+            op_id = snapshot.op_ids[0] if snapshot.op_ids else None
             row_ids = (
                 ()
                 if op_id is None
@@ -385,13 +418,7 @@ def run_rows_updater(
                 row_ids,
                 int(ref["edit_count"]),
                 op_id,
-                {
-                    str(row["name"]): int(row["id"])
-                    for row in project.db.execute(
-                        "SELECT id,name FROM columns WHERE sheet_id=? AND active=1",
-                        (bound.request.scope.sheet_id,),
-                    )
-                },
+                dict(writer._column_ids),
                 {},
             )
             return self.result
@@ -408,20 +435,42 @@ def run_rows_updater(
         def update_xlsx(self, params):
             return self._run(params, "import.update_xlsx")
 
-    updater = Updater()
-    try:
-        returned = bound.action.definition.run.handler(bound.params, updater)
-        if updater.action_result is None or returned is not updater.result:
-            raise ValueError("return the result of the action's RowsUpdater call")
-        return updater.action_result
-    except (ValueError, TypeError) as exc:
-        if (
-            updater.action_result is not None
-            and updater.action_result.status == "failed"
-        ):
-            return updater.action_result
-        return _failed_result(
-            project_id=project_id,
-            action_kind=bound.request.action_id,
-            error=ActionError(code="import_update_failed", message=str(exc)),
-        )
+    with publication_owner:
+        updater = Updater()
+        failure = None
+        try:
+            returned = bound.action.definition.run.handler(bound.params, updater)
+            if updater.result is None or returned is not updater.result:
+                raise ValueError("return the result of the action's RowsUpdater call")
+        except Exception as exc:  # committed pages survive a failed plugin handler
+            from frisket.actions.types import TableError
+            from frisket.engine.store.artifact_timeline import TimelineError
+
+            failure = ActionError(
+                code=exc.code
+                if isinstance(exc, (TableError, TimelineError))
+                else "import_update_failed",
+                message=str(exc),
+            )
+        if updater.replay is not None:
+            return updater.replay
+        if updater.frozen is None:
+            return _failed_result(
+                project_id=project_id,
+                action_kind=bound.request.action_id,
+                error=failure
+                or ActionError(
+                    code="import_update_failed", message="No update was requested"
+                ),
+            )
+        session = ImportSessionStore(project).get(updater.frozen.import_ref)
+        receipt = ReceiptStore(project).parsed_by_id(updater.envelope.receipt_id)
+        if receipt.status in {"queued", "running"}:
+            writer = StreamingSheetWriter._from_session(project, session)
+            publication = writer.finalize_session(
+                expected_cursor=session.cursor, failure=failure
+            )
+            receipt = publication.receipt
+            finish_table_intake(updater.frozen.intake_dir, exact_rows=session.cursor)
+            compact_table_intake(updater.frozen.intake_dir)
+        return _result_from_existing_action_job_receipt(receipt, job_id=None)

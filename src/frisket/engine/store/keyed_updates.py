@@ -228,12 +228,42 @@ def observation(
 def retained_hidden_targets(
     db: sqlite3.Connection, relationship_id: str, key: str
 ) -> list[int]:
+    from .value_codec import decode_stored_value
+
+    relationship = db.execute(
+        "SELECT key_definition FROM keyed_relationships WHERE id=?", (relationship_id,)
+    ).fetchone()
+    if relationship is None:
+        return []
+    definition = json.loads(relationship[0])
     rows = db.execute(
         "SELECT observation.row_id FROM keyed_observations observation JOIN rows r ON r.id=observation.row_id "
-        "WHERE observation.relationship_id=? AND observation.key=? AND r.hidden=1 LIMIT 2",
+        "WHERE observation.relationship_id=? AND observation.key=? AND r.hidden=1",
         (relationship_id, key),
-    ).fetchall()
-    return [int(row[0]) for row in rows]
+    )
+    matches = []
+    for candidate in rows:
+        row_id = int(candidate[0])
+        # A deleted row retains its values. An edited key is not an alias for
+        # the old source key merely because its row is temporarily hidden.
+        values = []
+        for column_id, kind in definition:
+            cell = db.execute(
+                "SELECT value_kind,value,validity FROM current_cell_values WHERE row_id=? AND column_id=?",
+                (row_id, column_id),
+            ).fetchone()
+            value = (
+                None
+                if cell is None or cell[2] != "valid"
+                else decode_stored_value(cell[0], cell[1])
+            )
+            values.append((kind, value))
+        if definition and typed_key(values) != key:
+            continue
+        matches.append(row_id)
+        if len(matches) == 2:
+            break
+    return matches
 
 
 def changed_fields(

@@ -331,12 +331,16 @@ def run_table_import(
     writer_authority: str,
     live: Callable[[], bool] = lambda: True,
     on_commit: Callable[[], None] = lambda: None,
+    publication_owner: ExitStack | None = None,
 ) -> dict[str, Any]:
     """Drain the same bounded publisher for local calls and queued workers."""
     directory = import_intake_dir(project.path, import_ref)
     sessions = ImportSessionStore(project)
     try:
-        with import_worker_lock(directory, timeout=5), ExitStack() as resources:
+        with ExitStack() as resources:
+            (publication_owner or resources).enter_context(
+                import_worker_lock(directory, timeout=5)
+            )
             header = read_import_header(directory)
             if (
                 header.intake_kind != "table"
@@ -478,6 +482,13 @@ def run_table_import(
                         )
                 if not page and exhausted:
                     writer = StreamingSheetWriter._from_session(project, session)
+                    if publication_owner is not None:
+                        writer.pause(expected_cursor=session.cursor)
+                        return {
+                            "status": "published",
+                            "completed_rows": session.committed_rows,
+                            "sheet_id": session.sheet_id,
+                        }
                     publication = writer.finalize_session(
                         expected_cursor=session.cursor
                     )

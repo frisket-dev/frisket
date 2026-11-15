@@ -76,7 +76,7 @@ def _project(tmp_path):
             project.db,
             relationship_id="test:baseline",
             sheet_id=sheet,
-            key_definition=[col],
+            key_definition=[(col, "text")],
         )
     return project, sheet, col, row, op
 
@@ -90,7 +90,7 @@ def test_observations_advance_when_kept_and_do_not_rewind_with_op_status(tmp_pat
                 project.db,
                 relationship_id="test:baseline",
                 row_id=row,
-                key="a",
+                key=typed_key([("text", "a")]),
                 incoming={"name": "first", "note": "retained"},
             )
         baseline = observation(project.db, "test:baseline", row)
@@ -106,7 +106,7 @@ def test_observations_advance_when_kept_and_do_not_rewind_with_op_status(tmp_pat
                 project.db,
                 relationship_id="test:baseline",
                 row_id=row,
-                key="a",
+                key=typed_key([("text", "a")]),
                 incoming={"name": "second"},
             )
             project.db.execute("UPDATE ops SET status='undone' WHERE id=?", (op,))
@@ -124,9 +124,16 @@ def test_observations_advance_when_kept_and_do_not_rewind_with_op_status(tmp_pat
             == {}
         )
         project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (row,))
-        assert retained_hidden_targets(project.db, "test:baseline", "a") == [row]
+        assert retained_hidden_targets(
+            project.db, "test:baseline", typed_key([("text", "a")])
+        ) == [row]
         project.db.execute("UPDATE rows SET hidden=0 WHERE id=?", (row,))
-        assert retained_hidden_targets(project.db, "test:baseline", "a") == []
+        assert (
+            retained_hidden_targets(
+                project.db, "test:baseline", typed_key([("text", "a")])
+            )
+            == []
+        )
 
 
 def test_import_update_uses_baseline_and_skips_whole_conflicting_key(tmp_path):

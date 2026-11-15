@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, Iterable, Mapping, Self
 
-from frisket.contracts.action import Receipt, ReceiptIO, ReceiptEvidence
+from frisket.contracts.action import ActionError, Receipt, ReceiptIO, ReceiptEvidence
 from frisket.engine.store import op_log
 from frisket.engine.store.changes import ChangeStore
 from frisket.engine.store.cell_writes import (
@@ -760,7 +760,11 @@ class StreamingSheetWriter:
         )
 
     def finalize_session(
-        self, *, expected_cursor: int, keep_cancelled: bool = False
+        self,
+        *,
+        expected_cursor: int,
+        keep_cancelled: bool = False,
+        failure: ActionError | None = None,
     ) -> StreamingSheetPublication:
         """Finalize the one reserved receipt; cancelled sessions require Keep."""
 
@@ -783,13 +787,26 @@ class StreamingSheetWriter:
                 row_count=session.committed_rows,
                 status="partial" if keep_cancelled else "completed",
             )
+            if failure is not None:
+                receipt = receipt.model_copy(
+                    update={
+                        "status": "partial" if receipt.op_ids else "failed",
+                        "errors": [*receipt.errors, failure],
+                        "warnings": [
+                            *receipt.warnings,
+                            "The action failed after publication; completed updates were kept.",
+                        ],
+                    }
+                )
             if not ReceiptStore(self.project).update_body_status(
                 receipt, require_status="running", commit=False
             ):
                 raise ImportSessionConflict("import receipt finalization lost its CAS")
             ChangeStore(self.project).close(self._op_id)
             db.execute("UPDATE ops SET barrier=0 WHERE id=?", (self._op_id,))
-            final_state = "kept" if keep_cancelled else "completed"
+            final_state = (
+                "kept" if keep_cancelled or failure is not None else "completed"
+            )
             updated = db.execute(
                 "UPDATE import_sessions SET state=?,updated_at=datetime('now') "
                 "WHERE id=? AND writer_authority=? AND cursor=? AND state=?",
