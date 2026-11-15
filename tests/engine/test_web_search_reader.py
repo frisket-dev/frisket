@@ -16,10 +16,13 @@ from frisket.engine.executor.web_search_read import (
     search_provider_use,
 )
 from frisket.ops.base import OpContext, RecipeInvocationHalt
+from frisket.execution.dispatch_control import STANDALONE
 
 
 def _context(**extras):
-    return OpContext(project=None, http=None, extras=extras)
+    return OpContext(
+        project=None, http=None, extras={"standalone_dispatch": STANDALONE, **extras}
+    )
 
 
 @pytest.mark.parametrize("mode", ["preview", "network_off", "missing_writer"])

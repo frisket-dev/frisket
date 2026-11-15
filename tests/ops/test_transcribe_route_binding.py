@@ -19,6 +19,8 @@ import wave
 import httpx
 import pytest
 
+from frisket.execution.dispatch_control import STANDALONE
+
 from frisket.engine.store.execution_routes import RouteRow
 from frisket.execution.credential_use import CredentialOwner, CredentialUseContext
 from frisket.execution.provider import ConnectionConfig
@@ -43,6 +45,8 @@ def _attempt_extras(route: RouteRow, binding: CandidateBinding, **extra) -> dict
     ``require_route_binding`` fence existed to catch: a ``RoutedAdmission``
     carries both or does not exist."""
     return {
+        "preview": True,
+        "cancelled": lambda: False,
         ATTEMPT_EXTRA: AttemptCommitment(
             attempt_id="attempt_TESTATTEMPT000000000000",
             run_id=1,
@@ -170,7 +174,13 @@ def test_sidecar_post_uses_route_connection_not_env(monkeypatch):
     ctx = OpContext(http=_capture_client(captured, {"ok": True}))
     connection = ConnectionConfig(base_url="http://route-gw:9000", token="route-token")
     body = asyncio.run(
-        sidecar_post(ctx, "/ocr", data={"engine": "x"}, connection=connection)
+        sidecar_post(
+            ctx,
+            "/ocr",
+            data={"engine": "x"},
+            connection=connection,
+            dispatch=STANDALONE,
+        )
     )
     assert body == {"ok": True}
     (request,) = captured
@@ -198,6 +208,7 @@ def test_sidecar_post_uses_route_connection_timeout_when_caller_omits_it():
             "/ner",
             json={"texts": ["hello"]},
             connection=connection,
+            dispatch=STANDALONE,
         )
     )
 
@@ -231,6 +242,7 @@ def test_sidecar_post_preserves_explicit_caller_timeout():
                 timeout_seconds=47.0,
                 connect_timeout_seconds=3.0,
             ),
+            dispatch=STANDALONE,
         )
     )
 
@@ -256,6 +268,7 @@ def test_sidecar_post_follows_modal_result_redirect() -> None:
                 connection=ConnectionConfig(
                     base_url="http://route-gw:9000", token="route-token"
                 ),
+                dispatch=STANDALONE,
             )
 
     assert asyncio.run(request()) == {"ok": True}
@@ -269,7 +282,13 @@ def test_sidecar_post_route_connection_missing_material_fails_loudly():
     ctx = OpContext(http=_capture_client([], {}))
     with pytest.raises(RuntimeError, match="route-bound"):
         asyncio.run(
-            sidecar_post(ctx, "/ocr", data={}, connection=ConnectionConfig(token="t"))
+            sidecar_post(
+                ctx,
+                "/ocr",
+                data={},
+                connection=ConnectionConfig(token="t"),
+                dispatch=STANDALONE,
+            )
         )
 
 
@@ -281,7 +300,9 @@ def test_sidecar_post_unrouted_unconfigured_gateway_refuses_with_remedy(monkeypa
     monkeypatch.delenv("FRISKET_MODELS_TOKEN", raising=False)
     ctx = OpContext(http=_capture_client([], {}))
     with pytest.raises(RuntimeError, match="FRISKET_MODELS_URL"):
-        asyncio.run(sidecar_post(ctx, "/ocr", data={"engine": "x"}))
+        asyncio.run(
+            sidecar_post(ctx, "/ocr", data={"engine": "x"}, dispatch=STANDALONE)
+        )
 
 
 def test_sidecar_post_unrouted_configured_gateway_binds_ephemerally(monkeypatch):
@@ -292,7 +313,9 @@ def test_sidecar_post_unrouted_configured_gateway_binds_ephemerally(monkeypatch)
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "env-token")
     captured: list[httpx.Request] = []
     ctx = OpContext(http=_capture_client(captured, {"ok": True}))
-    body = asyncio.run(sidecar_post(ctx, "/ocr", data={"engine": "x"}))
+    body = asyncio.run(
+        sidecar_post(ctx, "/ocr", data={"engine": "x"}, dispatch=STANDALONE)
+    )
     assert body == {"ok": True}
     (request,) = captured
     assert str(request.url) == "http://env-gw:8500/ocr"
@@ -463,7 +486,7 @@ def test_execute_without_route_keeps_factory_facts(tmp_path, monkeypatch):
             "faster_whisper",
             wav,
             {"engine": "faster_whisper"},
-            OpContext(),
+            OpContext(extras={"preview": True, "cancelled": lambda: False}),
             transport="local",
         )
     )

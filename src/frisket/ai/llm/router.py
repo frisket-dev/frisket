@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol
 import httpx
 
 from frisket.redaction import canonical_error_code, redact_text, redact_value
+from frisket.execution.dispatch_control import DispatchControl, STANDALONE
 
 from .adapters import AnthropicAdapter, OpenAICompatAdapter
 from .cache import CacheMiss, ResponseCache, request_key
@@ -565,6 +566,11 @@ class ModelRouter:
         pairs = await asyncio.gather(*(one(n, a) for n, a in targets))
         return dict(pairs)
 
+    def for_execution(self, execution: DispatchControl):
+        from .execution import ExecutionModelRouter
+
+        return ExecutionModelRouter(self, execution)
+
     async def complete(
         self,
         req: LLMRequest,
@@ -572,6 +578,7 @@ class ModelRouter:
         recipe_version: str = "1",
         trace: ModelTrace | None = None,
         on_request: Callable[[LLMRequest], None] | None = None,
+        _execution: DispatchControl = STANDALONE,
     ) -> LLMResponse:
         """When ``trace`` is given, the router
         appends one event dict per cache decision and per adapter attempt —
@@ -589,7 +596,9 @@ class ModelRouter:
             from .structured import StructuredCompleter, StructuredRequest
 
             try:
-                result = await StructuredCompleter(self).complete(
+                result = await StructuredCompleter(
+                    self.for_execution(_execution)
+                ).complete(
                     StructuredRequest(
                         model=req.model,
                         messages=req.messages,
@@ -613,7 +622,11 @@ class ModelRouter:
             return result.response
 
         return await self.complete_transport(
-            req, recipe_version=recipe_version, trace=trace, on_request=on_request
+            req,
+            recipe_version=recipe_version,
+            trace=trace,
+            on_request=on_request,
+            _execution=_execution,
         )
 
     async def complete_transport(
@@ -623,6 +636,7 @@ class ModelRouter:
         recipe_version: str = "1",
         trace: ModelTrace | None = None,
         on_request: Callable[[LLMRequest], None] | None = None,
+        _execution: DispatchControl = STANDALONE,
     ) -> LLMResponse:
         """Execute one wire call through the router's public transport seam.
 
@@ -630,7 +644,11 @@ class ModelRouter:
         before cache lookup or transport. Observer failures never alter execution.
         """
         return await self._complete_transport(
-            req, recipe_version=recipe_version, trace=trace, on_request=on_request
+            req,
+            recipe_version=recipe_version,
+            trace=trace,
+            on_request=on_request,
+            _execution=_execution,
         )
 
     async def _complete_transport(
@@ -640,8 +658,10 @@ class ModelRouter:
         recipe_version: str = "1",
         trace: ModelTrace | None = None,
         on_request: Callable[[LLMRequest], None] | None = None,
+        _execution: DispatchControl = STANDALONE,
     ) -> LLMResponse:
         """Execute one router-level wire attempt below structured repair."""
+        _execution.check()
         # The routed provider, stamped on every response leaving this seam --
         # live, chaos-fabricated and replayed alike -- so no downstream site
         # has to re-parse the model string to recover it. Cached bodies
@@ -701,7 +721,7 @@ class ModelRouter:
             raise CacheMiss(key)
 
         resp = await self._call_with_retry(
-            req, credential_source=credential_source, trace=trace
+            req, credential_source=credential_source, trace=trace, _execution=_execution
         )
         if (
             self.cache is not None
@@ -733,6 +753,7 @@ class ModelRouter:
         *,
         credential_source: str,
         trace: ModelTrace | None = None,
+        _execution: DispatchControl = STANDALONE,
     ) -> LLMResponse:
         provider = provider_from_model_id(req.model)
         cloud_adapter = None
@@ -787,6 +808,7 @@ class ModelRouter:
             return latency_ms
 
         for attempt in range(self.max_retries + 1):
+            _execution.check()
             t0 = time.perf_counter()
             admitted = False
             try:
@@ -797,6 +819,7 @@ class ModelRouter:
                             attempt, t0, outcome="chaos_fabricated"
                         )
                         return fabricated
+                _execution.check()
                 if self.model_call_policy is not None:
                     self.model_call_policy.before_live(req, credential_source)
                 admitted = True
@@ -896,7 +919,11 @@ class ModelRouter:
         return bool({"openai", "gemini"} & set(self._adapters))
 
     async def embed(
-        self, texts: list[str], *, model: str = "openai/text-embedding-3-small"
+        self,
+        texts: list[str],
+        *,
+        model: str = "openai/text-embedding-3-small",
+        _execution: DispatchControl = STANDALONE,
     ) -> list[list[float]]:
         """Embed ``texts`` into vectors via an OpenAI-compatible /embeddings
         endpoint. Raises LLMError if the provider isn't configured.
@@ -904,7 +931,7 @@ class ModelRouter:
         Vector-only by design: this is the seam the shared embedding backend already
         depends on. Native embeddings call :meth:`embed_batch` for the
         metadata-rich result."""
-        result = await self.embed_batch(texts, model=model)
+        result = await self.embed_batch(texts, model=model, _execution=_execution)
         return result["vectors"]
 
     async def embed_batch(
@@ -913,6 +940,7 @@ class ModelRouter:
         *,
         model: str = "openai/text-embedding-3-small",
         modality: str = "text",
+        _execution: DispatchControl = STANDALONE,
     ) -> "EmbeddingBatchResult":
         """Metadata-rich embedding: vectors PLUS the provider/model facts native
         embedding spaces need (actual model id, provider id/kind, dimension,
@@ -951,6 +979,7 @@ class ModelRouter:
             else sum(estimate_tokens(text) for text in texts) * input_rate / 1_000_000
         )
         operation_id = None
+        _execution.check()
         policy = self.model_call_policy
         if policy is not None and credential_source not in {"none", "local", "cache"}:
             operation_id = policy.admit_external_service(
@@ -965,6 +994,7 @@ class ModelRouter:
         # Fresh per-call clients support the sync asyncio.run embedding seam.
         async with httpx.AsyncClient() as client:
             try:
+                _execution.check()
                 vectors, meta = await adapter.embed_with_meta(texts, requested, client)
             except BaseException as error:
                 if isinstance(error, LLMError):

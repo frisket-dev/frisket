@@ -44,11 +44,9 @@ class AccountedAgentRouter:
         if request.model != self._model:
             raise ValueError("Agent model differs from its admitted model")
         attempt = require_agent_attempt(self._ctx)
-        cancelled = self._ctx.extras.get("cancelled")
-        if callable(cancelled) and cancelled():
-            import asyncio
+        from frisket.execution.dispatch_control import dispatch_for_context
 
-            raise asyncio.CancelledError
+        dispatch_for_context(self._ctx).check()
         response = await self._router.complete_transport(request, **kwargs)
         self._responses.append(response)
         accounting = model_call_accounting(self._model, self._responses)

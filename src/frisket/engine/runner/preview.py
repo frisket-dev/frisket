@@ -440,6 +440,10 @@ async def run_preview(
         },
     )
 
+    from frisket.execution.dispatch_control import dispatch_for_context
+
+    router = router.for_execution(dispatch_for_context(ctx))
+    ctx.extras["router"] = router
     values: dict[int, dict[str, dict[str, Any]]] = {}
     total_sample = len(row_ids)
     done = 0

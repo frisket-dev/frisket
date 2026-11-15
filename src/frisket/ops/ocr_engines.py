@@ -169,6 +169,9 @@ class OcrEngines:
         engines accumulate into ``usage``."""
         from frisket.execution.attempt import routed_admission_in_scope
 
+        from frisket.execution.dispatch_control import dispatch_for_context
+
+        dispatch_for_context(ctx).check()
         admission = routed_admission_in_scope(ctx.extras)
         if (
             admission is not None

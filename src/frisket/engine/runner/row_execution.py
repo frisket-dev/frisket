@@ -149,6 +149,9 @@ async def _execute_row(
 
     Every model call is captured best-effort through a ``TracingRouter``.
     """
+    from frisket.execution.dispatch_control import dispatch_for_context
+
+    router = router.for_execution(dispatch_for_context(ctx))
     # This public entry point may be called without prior spec validation.
     admission = routed_admission_in_scope(ctx.extras or {})
     validation.assert_network_policy(

@@ -5,6 +5,8 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
+from frisket.execution.dispatch_control import STANDALONE
+
 from frisket.execution.provider import ConnectionConfig
 from frisket.ops._sidecar import SidecarHTTPError, sidecar_post
 
@@ -26,6 +28,7 @@ async def test_sidecar_http_error_preserves_status_but_not_response_body(status)
                 connection=ConnectionConfig(
                     base_url="http://models.test", token="test"
                 ),
+                dispatch=STANDALONE,
             )
     assert isinstance(caught.value, RuntimeError)
     assert caught.value.status_code == status

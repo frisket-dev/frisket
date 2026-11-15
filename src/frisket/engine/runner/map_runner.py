@@ -1244,6 +1244,10 @@ class MapRunner:
                 "run_state": {},
             },
         )
+        if attempt is not None and claimed[0]:
+            from frisket.execution.dispatch_control import dispatch_for_context
+
+            ctx.extras["router"] = self.router.for_execution(dispatch_for_context(ctx))
         if not recipe.is_llm(spec) and hasattr(recipe, "execute_batch"):
             # Batch recipes intentionally keep whole-run semantics here rather
             # than any page-local execution shape: clean_column needs global

@@ -15,6 +15,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from frisket.execution.dispatch_control import dispatch_for_context
+
 from frisket.actions.document_types import ConvertedDocument
 from frisket.actions.types import ColumnRef, Row, RowError
 from frisket.cloud_execution import (
@@ -267,6 +269,7 @@ class _BoundDocumentConverter:
                 )
             return ConvertedDocument(markdown="", ocr_used=[])
 
+        dispatch_for_context(self._ctx).check()
         engine = self._selected_engine()
         media_typed = _is_media_typed(column_type)
         ocr_used: list[Any] = []
@@ -598,11 +601,8 @@ class _BoundDocumentConverter:
             op="convert",
             light_engine=LIGHT_ENGINE,
             connection=self._route_connection(),
-            should_cancel=self._owner._cancelled,
+            dispatch=dispatch_for_context(self._ctx),
         )
-        # HTTP cancellation does not stop the shared server's current conversion.
-        # Do not publish a result returned after this action was cancelled/closed.
-        self._owner._check_active()
         docs = body.get("documents") or body.get("results")
         doc = docs[0] if docs else body
         return doc.get("markdown", ""), doc.get("ocr_used") or []

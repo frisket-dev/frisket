@@ -188,6 +188,9 @@ async def run_transcription_engine(
     media: Any = None,
 ) -> TranscriptionEngineResult:
     """Run one materialized file through the shared preview/durable path."""
+    from frisket.execution.dispatch_control import dispatch_for_context
+
+    dispatch_for_context(ctx).check()
     canonical = canonical_transcription_engine(engine)
     selected_transport = transport or transcription_transport(canonical, spec, ctx)
     adapter = _adapter_for(canonical, selected_transport)

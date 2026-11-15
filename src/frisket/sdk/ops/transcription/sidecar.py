@@ -8,6 +8,8 @@ from typing import Any
 
 import httpx
 
+from frisket.execution.dispatch_control import dispatch_for_context
+
 from frisket.ai.models.metadata import ModelCallMeta
 from frisket.contracts.transcription_sidecar import (
     TRANSCRIPTION_CONTRACT_VERSION,
@@ -109,6 +111,7 @@ class TranscriptionV1Adapter:
             body = await sidecar_post(
                 ctx,
                 TRANSCRIPTION_ENDPOINT,
+                dispatch=dispatch_for_context(ctx),
                 files=[
                     (
                         "files",

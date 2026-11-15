@@ -53,9 +53,9 @@ class AdmittedWebSearcher:
             raise RecipeInvocationHalt(
                 "network_disabled", "Web search requires network access"
             )
-        cancelled = self._ctx.extras.get("cancelled")
-        if callable(cancelled) and cancelled():
-            raise asyncio.CancelledError
+        from frisket.execution.dispatch_control import dispatch_for_context
+
+        dispatch_for_context(self._ctx).check()
 
     async def aclose(self):
         self._closed = True

@@ -34,7 +34,11 @@ class Purchases:
 
 def context(policy, **kwargs):
     return OpContext(
-        extras={"service_operation_policy": policy},
+        extras={
+            "service_operation_policy": policy,
+            "preview": True,
+            "cancelled": lambda: False,
+        },
         credential_use_context=CredentialUseContext.open(),
         **kwargs,
     )

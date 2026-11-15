@@ -2,6 +2,8 @@
 
 from typing import Any, Literal
 
+from frisket.execution.dispatch_control import dispatch_for_context
+
 from frisket.ops._sidecar import sidecar_post
 from frisket.ops.base import OpContext
 from frisket.ops.entities import canonicalize_entities
@@ -23,6 +25,7 @@ class LocalNerExtractor:
             raise ValueError("NER threshold must be between zero and one")
         if not text.strip():
             return []
+        dispatch_for_context(self.context).check()
         if self.engine == "spacy":
             from frisket.ops.spacy_ner import run_spacy_ner_default, spacy_available
 
@@ -34,6 +37,7 @@ class LocalNerExtractor:
             response = await sidecar_post(
                 self.context,
                 "/ner",
+                dispatch=dispatch_for_context(self.context),
                 json={
                     "texts": [text],
                     "labels": labels,

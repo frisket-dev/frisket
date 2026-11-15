@@ -73,10 +73,13 @@ def _try_op(name: str, input_arg: str) -> int:
 
     if getattr(terminal, "capabilities", ()) == (WebSearcher,):
         from frisket.engine.executor.web_search_read import AdmittedWebSearcher
+        from frisket.execution.dispatch_control import STANDALONE
 
         async def run_search():
             searcher = AdmittedWebSearcher(
-                OpContext(project=None, http=None, extras={})
+                OpContext(
+                    project=None, http=None, extras={"standalone_dispatch": STANDALONE}
+                )
             )
             try:
                 return await terminal.handler(params, Row(row), searcher)

@@ -37,6 +37,8 @@ def _attempt_extras(route: RouteRow, binding: CandidateBinding, **extra) -> dict
     """An adapter sees the route and its binding as one value —
     the attempt in ``extras[ATTEMPT_EXTRA]``. The shape is capability-neutral."""
     return {
+        "preview": True,
+        "cancelled": lambda: False,
         ATTEMPT_EXTRA: AttemptCommitment(
             attempt_id="attempt_TESTATTEMPT000000000000",
             run_id=1,

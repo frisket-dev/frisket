@@ -28,6 +28,8 @@ import math
 import os
 from typing import Any, Callable
 
+from frisket.execution.dispatch_control import DispatchControl
+
 MAX_ATTEMPTS = 4
 BACKOFF_SECONDS = 1.5  # 429 backoff: 1.5s, 3.0s, 4.5s between the 4 attempts
 MAX_RETRY_AFTER_SECONDS = 60.0
@@ -193,23 +195,6 @@ def ephemeral_gateway_connection(
     return binding.connection
 
 
-async def _cancellable_wait(operation, should_cancel):
-    """Stop the HTTP wait on cancellation, without stopping the shared server."""
-    if should_cancel is None:
-        return await operation
-    task = asyncio.ensure_future(operation)
-    try:
-        while not task.done():
-            if should_cancel():
-                raise asyncio.CancelledError
-            await asyncio.wait({task}, timeout=0.2)
-        return task.result()
-    finally:
-        if not task.done():
-            task.cancel()
-        await asyncio.gather(task, return_exceptions=True)
-
-
 async def sidecar_post(
     ctx: Any,
     route: str,
@@ -222,7 +207,7 @@ async def sidecar_post(
     timeout: Any | None = None,
     structured_errors: bool = False,
     connection: Any | None = None,
-    should_cancel: Callable[[], bool] | None = None,
+    dispatch: DispatchControl,
 ) -> dict:
     """POST a route on the frisket-models sidecar and return the JSON body.
 
@@ -293,11 +278,10 @@ async def sidecar_post(
         kwargs["files"] = files
         kwargs["data"] = data
     for attempt in range(MAX_ATTEMPTS):
-        if should_cancel is not None and should_cancel():
-            raise asyncio.CancelledError
-        resp = await _cancellable_wait(ctx.http.post(url, **kwargs), should_cancel)
-        if should_cancel is not None and should_cancel():
-            raise asyncio.CancelledError
+        dispatch.check()
+        # A dispatched request can finish after cancellation. Return its known
+        # response for accounting; publication has its own authority check.
+        resp = await ctx.http.post(url, **kwargs)
         if resp.status_code != 429:  # sidecar backpressure: retry politely
             break
         if attempt == MAX_ATTEMPTS - 1:
@@ -311,11 +295,9 @@ async def sidecar_post(
                 delay = None
         except (TypeError, ValueError):
             delay = None
-        await _cancellable_wait(
-            asyncio.sleep(
-                delay if delay is not None else BACKOFF_SECONDS * (attempt + 1)
-            ),
-            should_cancel,
+        dispatch.check()
+        await asyncio.sleep(
+            delay if delay is not None else BACKOFF_SECONDS * (attempt + 1)
         )
     if resp.status_code != 200 and structured_errors:
         try:

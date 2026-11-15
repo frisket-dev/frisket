@@ -713,6 +713,9 @@ async def _complete_reduce_group_summaries_unfenced(
         "run_id": run_id,
         "attempt_id": commitment.attempt_id,
     }
+    from frisket.execution.dispatch_control import RunDispatch
+
+    router = router.for_execution(RunDispatch(project, run_id, commitment.attempt_id))
     recorder = _reduce_group_summary_trace_writer(project, params, run_id)
     computations: list[dict[str, Any]] = []
     try:
@@ -946,6 +949,13 @@ async def _reduce_group_summary_checkpointed_loop(
     recorder: TraceWriter | None,
 ) -> list[dict[str, Any]] | ActionError:
     from frisket.engine.store.effect_checkpoints import require_model_call_ids
+    from frisket.execution.dispatch_control import RunDispatch
+
+    router = router.for_execution(
+        RunDispatch(
+            run_store.project, int(envelope["run_id"]), str(envelope["attempt_id"])
+        )
+    )
 
     computations: list[dict[str, Any]] = []
     for plan in plans:

@@ -194,7 +194,7 @@ class _BoundResearcher:
                 router=router,
                 recipe_version="1",
                 search=self._search,
-                fetch=lambda url: fetch_page_result(url, ctx.http),
+                fetch=self._fetch,
                 recorder=recorder,
                 secret_values=search_secrets,
             )
@@ -283,3 +283,9 @@ class _BoundResearcher:
     async def _search(self, query):
         response = await self._searcher.search_response(query, max_results=6)
         return search_observation(query, response)
+
+    async def _fetch(self, url):
+        from frisket.execution.dispatch_control import dispatch_for_context
+
+        dispatch_for_context(self._ctx).check()
+        return await fetch_page_result(url, self._ctx.http)

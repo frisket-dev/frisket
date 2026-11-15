@@ -7,6 +7,8 @@ from typing import Any
 
 import httpx
 
+from frisket.execution.dispatch_control import dispatch_for_context
+
 from frisket.actions.types import Outcome, RowError
 from frisket.ai.external_pricing import (
     CLOUDFLARE_CLEF_INPUT_TOKEN,
@@ -31,7 +33,7 @@ from frisket.execution.credential_use import (
 )
 from frisket.execution.resolver import preview_resolution_in_scope
 from frisket.execution.runtime_binding import bind_fact_to_route
-from frisket.ops._sidecar import SidecarHTTPError, _cancellable_wait, sidecar_post
+from frisket.ops._sidecar import SidecarHTTPError, sidecar_post
 from frisket.ops.base import RecipeInvocationHalt
 
 
@@ -222,6 +224,7 @@ class _BoundDecisionClassifier:
                     body = await sidecar_post(
                         ctx,
                         "/classify",
+                        dispatch=dispatch_for_context(ctx),
                         connection=connection,
                         op="classify",
                         json={
@@ -229,28 +232,25 @@ class _BoundDecisionClassifier:
                             "text": text,
                             "questions": questions,
                         },
-                        should_cancel=owner.cancelled,
                     )
                 else:
-                    response = await _cancellable_wait(
-                        ctx.http.post(
-                            DECISIONS_URL if openai else connection.base_url,
-                            headers={"Authorization": f"Bearer {connection.token}"},
-                            json={
-                                "model": DECISIONS_MODEL,
-                                "input": text,
-                                "questions": questions,
-                            }
-                            if openai
-                            else {
-                                "model": "clef",
-                                "state": text,
-                                "questions": questions,
-                            },
-                            timeout=httpx.Timeout(120, connect=10),
-                            follow_redirects=False,
-                        ),
-                        owner.cancelled,
+                    dispatch_for_context(ctx).check()
+                    response = await ctx.http.post(
+                        DECISIONS_URL if openai else connection.base_url,
+                        headers={"Authorization": f"Bearer {connection.token}"},
+                        json={
+                            "model": DECISIONS_MODEL,
+                            "input": text,
+                            "questions": questions,
+                        }
+                        if openai
+                        else {
+                            "model": "clef",
+                            "state": text,
+                            "questions": questions,
+                        },
+                        timeout=httpx.Timeout(120, connect=10),
+                        follow_redirects=False,
                     )
                     if response.status_code != 200:
                         # Categorical request rejection did not buy an inference.
