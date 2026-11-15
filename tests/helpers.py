@@ -204,6 +204,13 @@ class RunWriterAuthorityFixture:
             "authorized_attempt_id": self.writer_attempt_id,
         }
 
+    def terminal_kwargs(self) -> dict[str, Any]:
+        return {
+            "writer_attempt_id": self.writer_attempt_id,
+            "claim_token": self.claim_token,
+            "claimless_direct_effect": self.claimless_direct_effect,
+        }
+
 
 def run_writer_authority_fixture(
     project: Any,

@@ -398,7 +398,11 @@ def test_managed_sheet_refresh_retains_history_and_never_overwrites_newer_change
             ],
         )
         _seal(generations, claimed_run, column_id)
-        RunResultStore(project).finish_run(claimed_run.run_id, status="completed")
+        RunResultStore(project).finish_run(
+            claimed_run.run_id,
+            status="completed",
+            **claimed_run.authority.terminal_kwargs(),
+        )
         _release(project, claimed_run)
         before_refresh = project.get_values(child_id, column_id)
         result = run_action_spec(

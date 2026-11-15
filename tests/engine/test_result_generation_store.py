@@ -17,6 +17,7 @@ from frisket.engine.store.result_generations import (
 )
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.attempt import StaleAttemptWriter
+from frisket.execution.attempt import set_attempt_state
 from helpers import RunWriterAuthorityFixture, run_writer_authority_fixture
 
 
@@ -185,6 +186,10 @@ def _publish_initial_generation(
     RunResultStore(project).point_column_at_run(
         first.op_id, output_column_id, first.run_id
     )
+    RunResultStore(project).finish_run(
+        first.run_id, **first.authority.terminal_kwargs()
+    )
+    set_attempt_state(project, first.authority.writer_attempt_id, "effected")
     _release(project, first)
     return generations, first
 
@@ -413,7 +418,9 @@ def test_aborted_descriptor_replacement_stays_unpublished_across_rebuild_and_ret
 
         assert _seal(generations, replacement, column_id, disposition=disposition) == 0
         assert _descriptor(project, column_id)["type"] == "text"
-        RunResultStore(project).finish_run(replacement.run_id, disposition)
+        RunResultStore(project).finish_run(
+            replacement.run_id, disposition, **replacement.authority.terminal_kwargs()
+        )
         assert generations.read_cell_heads(column_id) == {}
         assert _outcomes(project, column_id) == {
             row_id: "not_completed" for row_id in row_ids
@@ -518,7 +525,9 @@ def test_coupled_abort_masks_previous_heads_and_cannot_publish_on_retry(
             == 0
         )
         assert _seal(generations, second, column_id, disposition=disposition) == 0
-        RunResultStore(project).finish_run(second.run_id, disposition)
+        RunResultStore(project).finish_run(
+            second.run_id, disposition, **second.authority.terminal_kwargs()
+        )
         assert generations.read_cell_heads(column_id) == {}
         assert _outcomes(project, column_id) == {
             row_id: "not_completed" for row_id in row_ids
@@ -1021,7 +1030,9 @@ def test_managed_run_treats_every_effect_as_attempted_and_refuses_same_run_retry
         assert after == before
 
         _seal(generations, claimed_run, output_column_id)
-        store.finish_run(claimed_run.run_id)
+        store.finish_run(
+            claimed_run.run_id, **claimed_run.authority.terminal_kwargs()
+        )
         _release(project, claimed_run)
         admission = store.begin_run_resume(claimed_run.run_id)
         assert not admission.admitted
@@ -1615,7 +1626,11 @@ def test_undo_cancels_live_run_and_preserves_returned_usage(tmp_path: Path) -> N
         ).fetchone()[0]
         == 0
     )
-    RunResultStore(project).finish_run(claimed.run_id, "cancelled")
+    RunResultStore(project).finish_run(
+        claimed.run_id,
+        "cancelled",
+        **claimed.authority.terminal_kwargs(),
+    )
     assert (
         project.db.execute(
             "SELECT status FROM runs WHERE id=?", (claimed.run_id,)
@@ -2253,7 +2268,11 @@ def test_replacement_streams_then_stop_keeps_completed_and_later_manual_edit(tmp
         store = RunResultStore(project)
         store.request_cancel(replacement.run_id)
         _seal(generations, replacement, column, disposition="cancelled")
-        store.finish_run(replacement.run_id, status="cancelled")
+        store.finish_run(
+            replacement.run_id,
+            status="cancelled",
+            **replacement.authority.terminal_kwargs(),
+        )
         assert project.get_values(sheet, column) == {
             rows[0]: "later manual",
             rows[1]: "new second",

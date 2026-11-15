@@ -113,7 +113,7 @@ class _Fixture:
             claim_token=claim_token,
             terminal_disposition="completed",
         )
-        store.finish_run(run_id)
+        store.finish_run(run_id, **authority.terminal_kwargs())
         OutputColumnClaimStore(self.project).finish_current_writer(
             run_id=run_id,
             writer_attempt_id=authority.writer_attempt_id,

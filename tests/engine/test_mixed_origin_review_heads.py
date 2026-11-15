@@ -12,7 +12,6 @@ from frisket.engine.runner.review import (
     review_bundles,
     review_queue,
 )
-from frisket.engine.store.review_stats import rebuild_run_review_stats
 from test_mixed_origin_readers import (  # noqa: F401
     _MixedReaderFixture,
     mixed_reader,
@@ -42,20 +41,11 @@ def _review_state(fixture: _MixedReaderFixture, *, run_id: int, row_id: int) -> 
     return str(row["review_state"])
 
 
-def _finish_fixture_runs(fixture: _MixedReaderFixture) -> None:
-    # The shared mixed-head fixture already seals/finishes these runs.
-    # Only its deliberately raw seeded review inventory needs rebuilding.
-    with fixture.project.db:
-        rebuild_run_review_stats(fixture.project.db, fixture.first_run_id)
-        rebuild_run_review_stats(fixture.project.db, fixture.second_run_id)
-
-
 def test_review_queue_bundles_counts_and_summary_follow_exact_mixed_heads(
     request: pytest.FixtureRequest,
 ) -> None:
     fixture: _MixedReaderFixture = request.getfixturevalue("mixed_reader")
     project = fixture.project
-    _finish_fixture_runs(fixture)
 
     queue = review_queue(project, sheet_id=fixture.sheet_id)
     assert [(item["run_id"], item["row_id"], item["value"]) for item in queue] == [
@@ -99,7 +89,6 @@ def test_review_decision_grades_stable_outputs_but_skips_nonreviewable_results(
 ) -> None:
     fixture: _MixedReaderFixture = request.getfixturevalue("mixed_reader")
     project = fixture.project
-    _finish_fixture_runs(fixture)
     column_id = fixture.output_column_id
 
     retained_row = fixture.row_ids[3]

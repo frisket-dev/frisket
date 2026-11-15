@@ -542,9 +542,7 @@ def test_import_undo_after_derived_text_result_preserves_existing_rows(
         )
         _seal(generations, derived, columns["text"])
         RunResultStore(project).finish_run(
-            derived.run_id,
-            writer_attempt_id=derived.authority.writer_attempt_id,
-            claim_token=derived.authority.claim_token,
+            derived.run_id, **derived.authority.terminal_kwargs()
         )
         _release(project, derived)
 

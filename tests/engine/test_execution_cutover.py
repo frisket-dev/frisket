@@ -74,13 +74,22 @@ def test_cutover_keeps_saved_result_and_closes_generation_claim_and_receipt(tmp_
     project, run, column_id, rows = _claimed(tmp_path)
     try:
         before = [tuple(r) for r in project.db.execute("SELECT * FROM results")]
-        operations = [tuple(r) for r in project.db.execute("SELECT * FROM ops")]
+        operations = {
+            int(row["id"]): dict(row)
+            for row in project.db.execute("SELECT * FROM ops").fetchall()
+        }
         result = retire_legacy_project_work(project)
         assert result == dict(
             runs=1, receipts=1, attempts=1, claims=1, checkpoints=0, turns=0
         )
         assert [tuple(r) for r in project.db.execute("SELECT * FROM results")] == before
-        assert [tuple(r) for r in project.db.execute("SELECT * FROM ops")] == operations
+        operations_after = {
+            int(row["id"]): dict(row)
+            for row in project.db.execute("SELECT * FROM ops").fetchall()
+        }
+        expected_operations = {op_id: dict(row) for op_id, row in operations.items()}
+        expected_operations[run.op_id]["publication_closed"] = 1
+        assert operations_after == expected_operations
         assert RunResultStore(project).get_run(run.run_id)["status"] == "cancelled"
         assert ReceiptStore(project).parsed_by_id("receipt_live").status == "cancelled"
         generation = ResultGenerationStore(project).get_binding(run.run_id, column_id)
@@ -194,7 +203,11 @@ def test_cutover_absorbs_reserved_checkpoint_but_keeps_returned_evidence(tmp_pat
 def test_cutover_preserves_completed_run_with_unfinished_receipt(tmp_path):
     project, run, _, _ = _claimed(tmp_path)
     try:
-        RunResultStore(project).finish_run(run.run_id, "completed")
+        RunResultStore(project).finish_run(
+            run.run_id,
+            "completed",
+            **run.authority.terminal_kwargs(),
+        )
         retire_legacy_project_work(project)
         assert RunResultStore(project).get_run(run.run_id)["status"] == "completed"
         assert ReceiptStore(project).parsed_by_id("receipt_live").status == "cancelled"
@@ -214,8 +227,6 @@ def test_cutover_retains_staged_results_without_replacing_published_values(tmp_p
         generations, first = _publish_initial_generation(
             project, sheet_id, column_id, rows
         )
-        RunResultStore(project).finish_run(first.run_id)
-        set_attempt_state(project, first.authority.writer_attempt_id, "effected")
         old_heads = generations.read_cell_heads(column_id)
         replacement = _start_claimed_run(
             project,
@@ -226,7 +237,15 @@ def test_cutover_retains_staged_results_without_replacing_published_values(tmp_p
             replace_existing=True,
         )
         _receipt(project, "receipt_replacement", replacement.run_id)
-        _declare(generations, replacement, column_id, write_mode="replace_scope")
+        # This cutover models a coupled replacement whose row values were
+        # saved but whose complete output family never reached publication.
+        _declare(
+            generations,
+            replacement,
+            column_id,
+            write_mode="replace_scope",
+            defer_publication=True,
+        )
         _write(
             project,
             replacement,

@@ -8,6 +8,7 @@ from tests.engine.test_run_cost_projection import _seed, _fact, _writer
 def test_direct_and_receipt_linked_facts_project_once_without_spend_mutation(tmp_path):
     project, store, run_id, row_id, column_id = _seed(tmp_path)
     try:
+        authority = _writer(project, run_id, column_id)
         store.write_model_calls(
             run_id,
             [
@@ -17,7 +18,7 @@ def test_direct_and_receipt_linked_facts_project_once_without_spend_mutation(tmp
                     "model_calls": [_fact("direct", 0.02)],
                 }
             ],
-            **_writer(project, run_id, column_id),
+            **authority,
         )
         receipt_id = "receipt-linked-projection"
         ReceiptStore(project).insert_running(
@@ -75,7 +76,11 @@ def test_direct_and_receipt_linked_facts_project_once_without_spend_mutation(tmp
             "receipt-owned",
             "both-associations",
         }
-        store.finish_run(run_id)
+        store.finish_run(
+            run_id,
+            writer_attempt_id=authority["writer_attempt_id"],
+            claim_token=authority["claim_token"],
+        )
         assert (
             project.db.execute(
                 "SELECT cost_actual FROM runs WHERE id=?", (run_id,)

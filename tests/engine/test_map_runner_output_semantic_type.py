@@ -153,12 +153,23 @@ class TestReuseConvergesSemanticType:
             expected_output_names=names,
         )
         declare_prepared_outputs(p, run_store, prepared, claim_token=token)
-        run_store.finish_run(prepared.run_id, "completed")
+        from helpers import run_writer_authority_fixture
+
+        authority = run_writer_authority_fixture(
+            p,
+            prepared.run_id,
+            output_column_ids=set(prepared.out_cols.values()),
+        )
         ResultGenerationStore(p).seal(
             prepared.run_id,
             prepared.out_cols.values(),
             claim_token=token,
             terminal_disposition="completed",
+        )
+        run_store.finish_run(
+            prepared.run_id,
+            "completed",
+            **authority.terminal_kwargs(),
         )
         OutputColumnClaimStore(p).release(claim_token=token)
         return prepared
