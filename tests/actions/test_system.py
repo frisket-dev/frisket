@@ -11,6 +11,20 @@ from frisket.actions.system import (
 from frisket.sdk import ActionParams, DynamicOutput, Rows, map_batch
 
 
+@pytest.fixture(autouse=True)
+def isolated_catalog_cache():
+    from frisket.actions.system import (
+        _catalog_envelope_schemas_json,
+        _declared_catalog_entry_json,
+    )
+
+    _catalog_envelope_schemas_json.cache_clear()
+    _declared_catalog_entry_json.cache_clear()
+    yield
+    _catalog_envelope_schemas_json.cache_clear()
+    _declared_catalog_entry_json.cache_clear()
+
+
 def test_root_catalog_contains_each_legacy_and_typed_action_once() -> None:
     catalog = root_action_catalog()
     ids = [entry.kind for entry in catalog.actions]
@@ -77,3 +91,133 @@ def test_public_sdk_exports_the_complete_first_wave_authoring_surface() -> None:
     assert DynamicOutput.__name__ == "DynamicOutput"
     assert Rows.__name__ == "Rows"
     assert map_batch.__name__ == "map_batch"
+
+
+@pytest.mark.parametrize(
+    "action_kinds", [frozenset({"media.to_markdown"}), frozenset()]
+)
+def test_filtered_root_catalog_builds_only_requested_entries(
+    monkeypatch, action_kinds
+) -> None:
+    from frisket.actions.core import RegisteredAction
+
+    full = root_action_catalog().model_dump(mode="json")
+    from frisket.actions.system import _declared_catalog_entry_json
+
+    _declared_catalog_entry_json.cache_clear()
+    built = []
+    original = RegisteredAction.catalog_entry
+
+    def record(self):
+        built.append(self.action_id)
+        return original(self)
+
+    monkeypatch.setattr(RegisteredAction, "catalog_entry", record)
+    filtered = root_action_catalog(action_kinds=action_kinds).model_dump(mode="json")
+    expected = {
+        **full,
+        "actions": [
+            entry for entry in full["actions"] if entry["kind"] in action_kinds
+        ],
+    }
+    assert filtered == expected
+    assert set(built) == action_kinds
+    assert len(built) == len(action_kinds)
+
+
+def test_launcher_catalog_filters_before_building_action_schemas(monkeypatch) -> None:
+    from frisket.actions.core import RegisteredAction
+    from frisket.server.action_catalog_hints import (
+        action_catalog_payload_with_launcher_hints,
+    )
+
+    full = action_catalog_payload_with_launcher_hints(
+        {"configured": False, "engines": []}
+    )
+    from frisket.actions.system import _declared_catalog_entry_json
+
+    _declared_catalog_entry_json.cache_clear()
+    built = []
+    original = RegisteredAction.catalog_entry
+
+    def record(self):
+        built.append(self.action_id)
+        return original(self)
+
+    monkeypatch.setattr(RegisteredAction, "catalog_entry", record)
+    filtered = action_catalog_payload_with_launcher_hints(
+        {"configured": False, "engines": []},
+        action_kinds=frozenset({"media.to_markdown"}),
+    )
+    assert filtered == {
+        **full,
+        "actions": [
+            entry for entry in full["actions"] if entry["kind"] == "media.to_markdown"
+        ],
+    }
+    assert built == ["media.to_markdown"]
+
+
+def test_catalog_reuses_declared_schemas_without_sharing_mutable_results(
+    monkeypatch,
+) -> None:
+    from copy import deepcopy
+    from frisket.actions.core import RegisteredAction
+    from frisket.actions.system import _catalog_envelope_schemas_json
+
+    built = []
+    original = RegisteredAction.catalog_entry
+
+    def record(self):
+        built.append(self.action_id)
+        return original(self)
+
+    monkeypatch.setattr(RegisteredAction, "catalog_entry", record)
+    first = root_action_catalog(action_kinds=frozenset({"media.to_markdown"}))
+    expected = deepcopy(first.model_dump(mode="json"))
+    first.actions[0].input_schema["properties"].clear()
+    first.actions[0].ui_hints["request_only"] = True
+    first.action_schema.clear()
+    second = root_action_catalog(action_kinds=frozenset({"media.to_markdown"}))
+    assert second.model_dump(mode="json") == expected
+    assert built == ["media.to_markdown"]
+    assert _catalog_envelope_schemas_json.cache_info().misses == 1
+    assert _catalog_envelope_schemas_json.cache_info().hits == 1
+
+
+def test_launcher_enrichment_is_fresh_and_never_enters_declaration_cache():
+    from frisket.server.action_catalog_hints import (
+        action_catalog_payload_with_launcher_hints,
+    )
+
+    action_kinds = frozenset({"media.to_markdown"})
+    before = action_catalog_payload_with_launcher_hints(
+        {"configured": False, "engines": []}, action_kinds=action_kinds
+    )
+    after = action_catalog_payload_with_launcher_hints(
+        {
+            "configured": True,
+            "engines": [
+                {
+                    "route": "/to-markdown",
+                    "name": "docling",
+                    "available": True,
+                    "models": ["fresh-model"],
+                }
+            ],
+        },
+        action_kinds=action_kinds,
+    )
+
+    def docling(payload):
+        return next(
+            engine
+            for engine in payload["actions"][0]["ui_hints"]["engines"]
+            if engine["id"] == "docling"
+        )
+
+    assert docling(before)["available"] is False
+    assert docling(after)["available"] is True
+    assert docling(after)["models"] == ["fresh-model"]
+    declaration = root_action_catalog(action_kinds=action_kinds).actions[0]
+    assert "engines" not in declaration.ui_hints

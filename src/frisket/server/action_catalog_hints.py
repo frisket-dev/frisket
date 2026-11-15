@@ -2095,11 +2095,7 @@ def action_catalog_payload_with_launcher_hints(
         effective_router=effective_router,
         action_kinds=action_kinds,
     )
-    payload = root_action_catalog_payload()
-    if action_kinds is not None:
-        payload["actions"] = [
-            entry for entry in payload["actions"] if entry["kind"] in action_kinds
-        ]
+    payload = root_action_catalog_payload(action_kinds=action_kinds)
     collisions: list[tuple[str, list[str]]] = []
     for entry in payload["actions"]:
         hints = launcher_hints.get(entry["kind"])
