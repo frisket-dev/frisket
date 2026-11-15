@@ -695,6 +695,7 @@ def _retained_descriptor_info():
         "column_formats_after",
         "column_semantic_types",
         "column_semantic_types_after",
+        "column_hidden_after",
     )
     return (
         "json_object("
