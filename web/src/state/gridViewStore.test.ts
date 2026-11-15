@@ -137,8 +137,8 @@ describe('createGridViewStore — unit', () => {
     expect(store.get().applied.filterValueLabel).toBeNull();
   });
 
-  it('resetForSheetChange and resetForLensEntry both drop filterValueLabel', () => {
-    for (const reset of ['resetForSheetChange', 'resetForLensEntry'] as const) {
+  it('resetForSheetChange drops filterValueLabel', () => {
+    for (const reset of ['resetForSheetChange'] as const) {
       const handle = createGridViewStore();
       handle.applyFilter({
         filter: acmeGroupFilter,
@@ -216,7 +216,7 @@ describe('createGridViewStore — unit', () => {
     expect(store.get().activeSavedViewId).toBe(7);
 
     // Grid hydration can re-publish the same groups and must not erase the
-    // active attribution; a real filter or visibility edit does.
+    // active attribution; local changes remain attached as Modified.
     setColumnGroupSpecs([]);
     expect(store.get().activeSavedViewId).toBe(7);
     applyFilter({ filter: { status: { eq: 'open' } } });
@@ -227,7 +227,8 @@ describe('createGridViewStore — unit', () => {
     expect(store.get().hiddenColumnsBySheet['sheet-1']).toEqual(['later', 'new-column']);
     expect(store.get().activeSavedViewId).toBe(7);
     setHiddenColumns('sheet-1', []);
-    expect(store.get().activeSavedViewId).toBeNull();
+    expect(store.get().activeSavedViewId).toBe(7);
+    expect(store.get().presentationEdited).toBe(true);
     reconcileSavedViewHiddenColumns(7, 'sheet-1', ['stale-column']);
     expect(store.get().hiddenColumnsBySheet['sheet-1']).toEqual([]);
   });
@@ -248,19 +249,6 @@ describe('createGridViewStore — unit', () => {
     expect(s.draft.sortColumn).toBe('name');
   });
 
-  it('resetForLensEntry clears applied filter/sort and closes the sort panel, leaving draft untouched', () => {
-    const { store, applyFilter, setSortPanelOpen, resetForLensEntry } =
-      createGridViewStore();
-    applyFilter({ filter: { status: { eq: 'open' } } });
-    setSortPanelOpen(true);
-
-    resetForLensEntry();
-
-    const s = store.get();
-    expect(s.applied).toEqual({ filter: null, sort: null, filterValueLabel: null });
-    expect(s.sortPanelOpen).toBe(false);
-    expect(s.draft.sortColumn).toBe(''); // draft untouched
-  });
 
   it('setSortPanelOpen bails (reference-equal) on a no-op set', () => {
     const { store, setSortPanelOpen } = createGridViewStore();

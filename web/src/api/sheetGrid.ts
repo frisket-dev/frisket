@@ -178,6 +178,8 @@ function sheetDataQuery(
   if (opts.valueMode) query.value_mode = opts.valueMode;
   if (opts.columnIds != null) query.column_ids = opts.columnIds.map(Number).join(',');
   if (opts.scopeRowIds != null) query.scope_row_ids = opts.scopeRowIds.join(',');
+  if (opts.selection != null) query.selection = JSON.stringify(opts.selection);
+  if (opts.viewId != null) query.view_id = opts.viewId;
   if (opts.parentRowId != null) query.parent_row_id = Number(opts.parentRowId);
   if (opts.rowIds != null) {
     query.row_ids = opts.rowIds.join(',');
@@ -197,6 +199,8 @@ function locateSheetRowQuery(
   const opts = options ?? {};
   const query: LocateSheetRowContractQuery = { page_size: pageSize };
   if (opts.scopeRowIds != null) query.scope_row_ids = opts.scopeRowIds.join(',');
+  if (opts.selection != null) query.selection = JSON.stringify(opts.selection);
+  if (opts.viewId != null) query.view_id = opts.viewId;
   if (opts.parentRowId != null) query.parent_row_id = Number(opts.parentRowId);
   // A ranked row-id scope wins over filter/sort, including an explicit empty
   // scope. The server ignores the ids for locate but uses their presence to
@@ -429,6 +433,8 @@ export function createSheetGridDomainApi(
           ...(options.sort ? { sort: JSON.stringify(options.sort) } : {}),
           ...(options.parentRowId != null ? { parent_row_id: Number(options.parentRowId) } : {}),
           ...(options.scopeRowIds != null ? { scope_row_ids: options.scopeRowIds.join(',') } : {}),
+          ...(options.selection != null ? { selection: JSON.stringify(options.selection) } : {}),
+          ...(options.viewId != null ? { view_id: options.viewId } : {}),
         },
         errorFactory,
       );

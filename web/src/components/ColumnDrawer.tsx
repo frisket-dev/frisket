@@ -1,7 +1,8 @@
+import { useCurrentViewSelection } from '../bind/useCurrentViewSelection';
 import './PanelPrimitives.css';
 import './ColumnDrawer.css';
 import { Button } from './Button';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { WorkbenchResolvedLayoutContribution } from '../workbench/layout';
 import { ChevronDown, ChevronUp, Columns3, RefreshCcw, Save, Zap } from 'lucide-react';
 import {
@@ -320,8 +321,10 @@ function truncateStatValue(value: string): string {
 }
 
 function ColumnStatsSection({ column, sheetId }: { column: ColumnDef; sheetId: string }) {
-  const { projectApi, gridView } = useWorkspaceStores();
-  const scope = useSelector(gridView.store, (state) => state.applied);
+  const { projectApi, projectData } = useWorkspaceStores();
+  const sheet = useSelector(projectData.store, (state) => state.sheets.find((item) => item.id === sheetId));
+  const selection = useCurrentViewSelection(sheet);
+  const scope = useMemo(() => selection ? { selection } : {}, [selection]);
   const statsRequestKey = JSON.stringify({ sheetId, columnId: column.id, scope });
   const [state, setState] = useState<ColumnStatsState>({
     requestKey: statsRequestKey,

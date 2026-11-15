@@ -320,6 +320,7 @@ class SheetGridService:
         filter_: str | None = None,
         sort: str | None = None,
         scope_row_ids: str | None = None,
+        selection: str | None = None,
         q: str | None = None,
         cursor: str | None = None,
         anchor_row_id: int | None = None,
@@ -332,20 +333,30 @@ class SheetGridService:
                 filter_, expected=dict, name="filter"
             )
             decoded_sort = _decode_document_json(sort, expected=list, name="sort")
-            page = document_browse(
-                project,
-                sheet_id,
-                source_column_id=source_column_id,
-                title_column_id=title_column_id,
-                parent_row_id=parent_row_id,
-                filter=decoded_filter,
-                sort=decoded_sort,
-                scope_row_ids=_parse_row_ids_param(scope_row_ids),
-                q=q,
-                cursor=cursor,
-                anchor_row_id=anchor_row_id,
-                limit=limit,
-            )
+            if selection is not None:
+                with _selected_sheet(project, sheet_id, selection, None,
+                                     legacy_scope=(parent_row_id, filter_, sort, scope_row_ids)) as selected:
+                    page = document_browse(
+                        selected.snapshot, sheet_id, source_column_id=source_column_id,
+                        title_column_id=title_column_id, q=q, cursor=cursor,
+                        anchor_row_id=anchor_row_id, limit=limit,
+                        _selection=selected, _storage_identity=project.storage_identity,
+                    )
+            else:
+                page = document_browse(
+                    project,
+                    sheet_id,
+                    source_column_id=source_column_id,
+                    title_column_id=title_column_id,
+                    parent_row_id=parent_row_id,
+                    filter=decoded_filter,
+                    sort=decoded_sort,
+                    scope_row_ids=_parse_row_ids_param(scope_row_ids),
+                    q=q,
+                    cursor=cursor,
+                    anchor_row_id=anchor_row_id,
+                    limit=limit,
+                )
         except SheetGridRouteError:
             raise
         except ValueError as exc:

@@ -187,6 +187,7 @@ class DocumentExtractionService:
                     **common,
                     scope={
                         "kind": "filter",
+                        "selection": body.selection.model_dump(mode="json") if body.selection else None,
                         "filter": body.filter,
                         "parent_row_id": body.parent_row_id,
                         "scope_row_ids": body.scope_row_ids,

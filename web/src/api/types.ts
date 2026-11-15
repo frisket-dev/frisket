@@ -1848,6 +1848,7 @@ export type RegisteredSheetRowsScope = Record<string, JsonValue> & {
   kind: 'sheet_rows';
   sheet_id: number;
   row_ids?: number[];
+  selection?: ViewSelection;
 };
 
 export type RegisteredProjectScope = Record<string, JsonValue> & {
@@ -2222,6 +2223,8 @@ export interface SheetDataOptions {
    *  (distance/score order from the resolver). When set, the grid ignores
    *  column filter/sort — the lens already defines the row-set + order. */
   rowIds?: number[] | null;
+  selection?: ViewSelection | null;
+  viewId?: number | null;
 }
 
 export type DocumentSourceKind =
@@ -2253,6 +2256,7 @@ export interface DocumentListPage {
 }
 
 export interface DocumentListOptions {
+  selection?: ViewSelection;
   sourceColumnId: string;
   titleColumnId?: string | null;
   parentRowId?: string | null;
@@ -2266,7 +2270,7 @@ export interface DocumentListOptions {
   signal?: AbortSignal;
 }
 
-export type SheetViewExportOptions = Pick<SheetDataOptions, 'filter' | 'sort' | 'scopeRowIds'>;
+export type SheetViewExportOptions = Pick<SheetDataOptions, 'filter' | 'sort' | 'scopeRowIds' | 'selection' | 'viewId'>;
 
 export interface SheetDatasetExportOptions {
   format: 'csv' | 'xlsx';
@@ -2662,15 +2666,16 @@ export interface SheetRowLocation {
   pageSize: number;
 }
 
-export interface SavedView {
-  id: number;
-  name: string;
-  /** Saved Views are structurally scoped to one sheet. */
-  sheet_id: number;
-  /** The persisted definition always carries an explicit filter object. */
-  spec: Record<string, unknown> & { filter: Record<string, unknown> };
-  op_id: number | null;
-}
+export type ViewSelection = {
+  scope: { kind: 'project' } | { kind: 'sheet'; sheet_id: number; row_ids?: number[]; parent_row_id?: number };
+  filters: Array<{ column_id: number; condition: Record<string, JsonValue> }>;
+  order: Array<({ column_id: number } | { score: 'search' | 'similarity' }) & { dir: 'asc' | 'desc' }>;
+  limit: number | null;
+  search?: { text: string };
+  similarity?: Record<string, JsonValue>;
+  ranking?: 'hybrid';
+  rank_constant?: number;
+};
 
 export interface SavedViewColumnGroup {
   run_id: number;
@@ -2680,50 +2685,55 @@ export interface SavedViewColumnGroup {
   show_justification: boolean;
 }
 
-/** The complete mutable definition of a Saved View.  It deliberately omits
- * its immutable identity, name, and sheet ownership. */
+export interface ViewPresentation {
+  columns?: string[] | null;
+  column_groups?: SavedViewColumnGroup[] | null;
+}
+
 export interface SavedViewDefinitionInput {
-  scope_row_ids?: number[] | null;
-  filter: GridFilterSpec;
-  sort: GridSortSpec | null;
-  columns: string[] | null;
-  column_groups: SavedViewColumnGroup[] | null;
+  selection: ViewSelection;
+  presentation: ViewPresentation;
 }
 
-/** Closed create payload: a name, fixed sheet, and complete definition. */
-export interface SavedViewCreateInput extends SavedViewDefinitionInput {
+export interface SavedView {
+  id: number;
   name: string;
-  sheetId: string | number;
+  sheet_id: number | null;
+  spec: SavedViewDefinitionInput | null;
+  op_id: number | null;
+  unavailable_reason: string | null;
 }
-
-/** Closed rename payload. Definition fields cannot cross this mutation. */
-export interface SavedViewRenameInput {
-  name: string;
-}
-
-/** Closed definition-replacement payload. Name and sheet cannot move here. */
+export interface SavedViewCreateInput extends SavedViewDefinitionInput { name: string; }
+export interface SavedViewRenameInput { name: string; }
 export type SavedViewDefinitionReplaceInput = SavedViewDefinitionInput;
 
-export type WatchScopeKind = 'project' | 'sheet';
+export interface ViewResolved {
+  view_id: number;
+  query_hash: string;
+  refs: Array<{ sheet_id: number; row_id: number; search_score: number | null; similarity_score: number | null; relevance_score: number | null }>;
+  total: number;
+  offset: number;
+  limit: number;
+}
 
-interface WatchCreateBase {
+export interface ViewAlertConditions {
+  kind: 'conditions';
+  entered: boolean;
+  exited: boolean;
+  count_changed: boolean;
+  fields: Array<{ column_id: number; sheet_id?: number }>;
+  threshold?: Record<string, unknown>;
+}
+export interface WatchInput {
   name: string;
+  view_id: number;
+  detection_policy?: ViewAlertConditions;
   enabled?: boolean;
 }
-
-/** A direct Watch owns its snapshot query at creation time. */
-export interface DirectWatchInput extends WatchCreateBase {
-  scope?: { kind: WatchScopeKind; sheet_id?: number | string | null };
-  query: Record<string, unknown>;
-}
-
-export type WatchInput = DirectWatchInput;
-
-/** The only mutable Watch fields. Query and binding authority are fixed when
- * the Watch is created, so lifecycle PATCHes cannot carry either field. */
 export interface WatchPatchInput {
   name?: string;
   enabled?: boolean;
+  detection_policy?: ViewAlertConditions;
 }
 
 export interface WatchHit {
@@ -2756,11 +2766,9 @@ export interface WatchRun {
 export interface WatchInfo {
   id: number;
   name: string;
-  scope: WatchScopeKind | string;
+  viewId: number;
   sheetId: number | null;
-  query: Record<string, unknown>;
-  queryVersion: string | null;
-  queryHash: string | null;
+  detectionPolicy: ViewAlertConditions;
   enabled: boolean;
   lastEvaluatedOp: number;
   lastRunId: number | null;
@@ -4333,53 +4341,6 @@ export interface EmbeddingIndexAnalysisResult {
   sheetId: number;
 }
 
-/** A saved lens: a named, normalized row-anchor embedding_similarity
- *  QuerySpec persisted through the contract spine
- *  (POST /api/projects/{pid}/lenses). The spec's query resolves to an
- *  ordered row-set WITH numeric distance/score — the fields the watch path
- *  drops. */
-export interface Lens {
-  id: number;
-  name: string;
-  sheetId: number | null;
-  /** {schema_version, query, presentation}. The query for a row lens is a
-   *  normalized embedding_similarity QuerySpec (kind/embedding_index_id/anchor). */
-  spec: Record<string, unknown>;
-  opId: number | null;
-  createdAt: string | null;
-  updatedAt: string | null;
-}
-
-export interface LensSaveInput {
-  name: string;
-  /** A normalized embedding_similarity QuerySpec (row anchor). */
-  query: Record<string, unknown>;
-  presentation?: Record<string, unknown>;
-}
-
-/** One resolved row of a lens, carrying the numeric distance/score. */
-export interface LensResolvedRow {
-  rowId: number;
-  distance: number | null;
-  score: number | null;
-}
-
-/** Resolve of a saved lens (GET /lenses/{id}/resolve): the current ordered
- *  row-set with per-row distance/score (frisket.query_preview.v1). */
-export interface LensResolved {
-  lensId: number;
-  schemaVersion: string;
-  sheetId: number | null;
-  queryHash: string | null;
-  rowIds: number[];
-  rows: LensResolvedRow[];
-  scores: Record<string, { distance: number | null; score: number | null }>;
-  rowCount: number;
-  total: number;
-  offset: number;
-  limit: number;
-}
-
 export interface WorkbenchPluginContributionSummary {
   kind: string;
   count: number;
@@ -4718,15 +4679,7 @@ export interface FrisketApi {
     input: SavedViewDefinitionReplaceInput,
   ): Promise<SavedView>;
   deleteView(viewId: number): Promise<void>;
-  /** Saved lenses for a sheet. A lens is a named row-anchor
-   *  embedding_similarity QuerySpec persisted through the contract spine. */
-  listLenses(sheetId?: number | string): Promise<Lens[]>;
-  /** Persist a lens (POST /lenses). The query is a normalized
-   *  embedding_similarity QuerySpec (row anchor). */
-  saveLens(input: LensSaveInput): Promise<Lens>;
-  /** Resolve a lens to its current ordered row-set WITH per-row distance/score.
-   *  A stale anchor surfaces a typed ApiError (embedding_anchor_stale). */
-  resolveLens(lensId: number, opts?: { limit?: number; offset?: number }): Promise<LensResolved>;
+  resolveView(viewId: number, opts?: { limit?: number; offset?: number }): Promise<ViewResolved>;
   listWatches(): Promise<WatchInfo[]>;
   createWatch(input: WatchInput): Promise<WatchInfo>;
   updateWatch(watchId: number, input: WatchPatchInput): Promise<WatchInfo>;

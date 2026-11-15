@@ -5,7 +5,7 @@ import { TextInput } from '../components/FormControls';
 import { ActionPreviewBanner } from '../components/ActionPreviewBanner';
 import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { PanelSelect } from '../components/PanelSelect';
-import { BookOpen, Boxes, Eye, FileText, Images, LayoutGrid, ListFilter, MapPin, MessageSquareQuote, MoreHorizontal, Network, Plus, Rows3, ShieldCheck, WrapText, type LucideIcon } from 'lucide-react';
+import { BookOpen, Eye, FileText, Images, LayoutGrid, ListFilter, MapPin, MessageSquareQuote, MoreHorizontal, Network, Plus, Rows3, ShieldCheck, WrapText, type LucideIcon } from 'lucide-react';
 import { useNativePopover } from '../hooks/useNativePopover';
 import { useAnchoredPosition } from '../hooks/useAnchoredPosition';
 import { countLabel } from '../format';
@@ -157,6 +157,7 @@ export function WorkspaceSheetToolbar() {
     openNewSavedView,
     openSavedViews,
     activeSavedViewId,
+    viewModified,
     views,
   } = useMainViewModel();
   const gridView = useGridViewHandle();
@@ -185,7 +186,7 @@ export function WorkspaceSheetToolbar() {
                       data-testid="active-saved-view-chip"
                       onClick={openSavedViews}
                     >
-                      Active view: {views.find((view) => view.id === activeSavedViewId)!.name}
+                      {viewModified ? 'Modified' : 'View'}: {views.find((view) => view.id === activeSavedViewId)!.name}
                     </button>
                   )}
                   <WorkViewSwitcher
@@ -638,13 +639,10 @@ export function WorkspaceGridControls() {
 export function WorkspaceGridBanners() {
   const {
     activeChildFilter,
-    activeLensView,
     activePreviewView,
     clearChildFilter,
     closePreviewView,
     runPreviewForReal,
-    exitLensView,
-    lensOpenError,
     sheet,
   } = useMainViewModel();
   if (!sheet && !activePreviewView) return null;
@@ -669,43 +667,6 @@ export function WorkspaceGridBanners() {
                     onClick={() => clearChildFilter()}
                   >
                     Show all {sheet.rowCount.toLocaleString()} rows
-                  </Button>
-                </div>
-              )}
-
-              {lensOpenError && !activeLensView && (
-                <div className="lens-view-banner lens-view-error" data-testid="lens-view-open-error" role="alert">
-                  {lensOpenError}
-                </div>
-              )}
-
-              {activeLensView && (
-                <div className="lens-view-banner" data-testid="lens-view-banner">
-                  <Boxes size={13} aria-hidden />
-                  <span>
-                    Lens view: <strong>{activeLensView.name}</strong> ·{' '}
-                    {activeLensView.total > activeLensView.rowIds.length ? (
-                      <>
-                        showing {activeLensView.rowIds.length.toLocaleString()} of{' '}
-                        {activeLensView.total.toLocaleString()} ranked rows
-                      </>
-                    ) : (
-                      <>
-                        {activeLensView.rowIds.length.toLocaleString()} ranked{' '}
-                        {activeLensView.rowIds.length === 1 ? 'row' : 'rows'}
-                      </>
-                    )}
-                  </span>
-                  <span className="lens-view-score-hint" data-testid="lens-view-score-columns">
-                    showing distance · score columns
-                  </span>
-                  <Button
-                    type="button"
-
-                    data-testid="lens-view-exit"
-                    onClick={exitLensView}
-                  >
-                    Exit lens view
                   </Button>
                 </div>
               )}

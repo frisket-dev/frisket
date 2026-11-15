@@ -2,6 +2,7 @@ import type { HttpContractOperationMap } from "../generated/openHttpContracts";
 import { httpContract, type HttpContractSuccessResponse } from "./httpContract";
 import { toWireJsonObject } from "./viewsLenses";
 import type {
+  ViewAlertConditions,
   WatchHit,
   WatchInfo,
   WatchInput,
@@ -254,11 +255,9 @@ const toWatchRun = (wire: WatchRunWire & { hits?: WatchHitWire[] }): WatchRun =>
 const toWatchInfo = (wire: WatchRowWire): WatchInfo => ({
   id: wire.id,
   name: wire.name,
-  scope: wire.scope,
+  viewId: wire.view_id,
   sheetId: wire.sheet_id,
-  query: wire.query ?? {},
-  queryVersion: wire.query_version ?? null,
-  queryHash: wire.query_hash ?? null,
+  detectionPolicy: wire.detection_policy as unknown as ViewAlertConditions,
   enabled: Boolean(wire.enabled),
   lastEvaluatedOp: wire.last_evaluated_op ?? 0,
   lastRunId: wire.last_run_id,
@@ -316,19 +315,16 @@ const toWatchRunResult = (wire: WatchRunResultWire): WatchRunResult => ({
 });
 
 function toWireWatchBody(input: WatchInput): WatchCreateBody {
-  const body = {
-    name: input.name,
-    query: toWireJsonObject(input.query),
-  } as WatchCreateBody;
-  if (input.scope !== undefined) body.scope = toWireJsonObject(input.scope);
-  if (input.enabled !== undefined) body.enabled = input.enabled;
-  return body;
+  return { name: input.name, view_id: input.view_id,
+    ...(input.detection_policy ? { detection_policy: toWireJsonObject({ ...input.detection_policy }) } : {}),
+    ...(input.enabled !== undefined ? { enabled: input.enabled } : {}) };
 }
 
 function toWireWatchPatch(input: WatchPatchInput): WatchPatchBody {
   const body: WatchPatchBody = {};
   if (input.name !== undefined) body.name = input.name;
   if (input.enabled !== undefined) body.enabled = input.enabled;
+  if (input.detection_policy !== undefined) body.detection_policy = toWireJsonObject({ ...input.detection_policy });
   return body;
 }
 

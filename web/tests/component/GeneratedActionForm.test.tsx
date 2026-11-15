@@ -378,6 +378,21 @@ describe('GeneratedActionForm', () => {
     }), 'run');
   });
 
+  it('submits the full current View definition rather than a browser-enumerated row page', async () => {
+    const entry = meteredEntry();
+    const selection = { scope: { kind: 'sheet' as const, sheet_id: 7 }, filters: [{ column_id: 11, condition: { contains: 'bridge' } }], order: [], limit: 2000 };
+    const estimateAction = vi.fn(async () => ({ cost: 0.01, rows: 2000, billed_cost: 12_000, policy_id: 'metered' }));
+    const onExecute = vi.fn();
+    render(<GeneratedActionForm catalogEntry={entry} actionTemplate={generatedTemplate(entry)} sheet={SHEET}
+      viewSelection={selection} hasExactRowScopeInitializer selectedRowIds={[]}
+      initialDraft={{ action_id: entry.kind, scope: { kind: 'sheet_rows', sheet_id: 7 }, params: { source: 'raw', model: 'ready-model' }, output_names: {} }}
+      running={false} resolveParams={resolveStaticParams} estimateAction={estimateAction} onExecute={onExecute} onClose={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('field-model'));
+    await waitFor(() => expect(estimateAction).toHaveBeenCalledWith(expect.objectContaining({ scope: { kind: 'sheet_rows', sheet_id: 7, selection } })));
+    fireEvent.click(screen.getByTestId('generated-action-run'));
+    expect(onExecute).toHaveBeenCalledWith(expect.objectContaining({ scope: { kind: 'sheet_rows', sheet_id: 7, selection } }), 'run');
+  });
+
   it('keeps a model-only action disabled until the authoritative selector reports it runnable', async () => {
     const entry = syntheticActionCatalogEntry('map.model_only', {
       input_schema: {

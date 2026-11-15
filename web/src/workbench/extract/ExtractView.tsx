@@ -161,7 +161,7 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
   const [scopeChoice, setScopeChoice] = useState<{ layoutId: number; kind: ExtractionScope['kind'] } | null>(layout
     ? { layoutId: layout.id, kind: layout.has_applied ? 'layout' : 'all' } : null);
   const scopeKind = scopeChoice && scopeChoice.layoutId === layout?.id ? scopeChoice.kind : layout?.has_applied ? 'layout' : 'all';
-  const filterScope: ExtractionScopeFilter = { filter: props.filterScope?.filter,
+  const filterScope: ExtractionScopeFilter = { selection: props.filterScope?.selection, filter: props.filterScope?.filter,
     parent_row_id: props.filterScope?.parent_row_id, scope_row_ids: props.filterScope?.scope_row_ids };
   const scope: ExtractionScope = { kind: scopeKind, ...(scopeKind === 'filter' ? filterScope : {}),
     ...(scopeKind === 'this' ? { row_id: currentRowId ? Number(currentRowId) : null } : {}),

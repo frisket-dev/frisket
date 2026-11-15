@@ -65,9 +65,9 @@ export interface EmbeddingApiPort {
   runEmbeddingIndexAnalysis: FrisketApi['runEmbeddingIndexAnalysis'];
   embeddingHybridPreview: FrisketApi['embeddingHybridPreview'];
   embeddingSimilarityPreview: FrisketApi['embeddingSimilarityPreview'];
-  saveLens: FrisketApi['saveLens'];
-  listLenses: FrisketApi['listLenses'];
-  resolveLens: FrisketApi['resolveLens'];
+  saveView: FrisketApi['saveView'];
+  listViews: FrisketApi['listViews'];
+  resolveView: FrisketApi['resolveView'];
   createWatch: FrisketApi['createWatch'];
 }
 

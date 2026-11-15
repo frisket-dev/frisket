@@ -73,16 +73,7 @@ function cloneGoogleSheetsCurrentView(
   options: SheetViewExportOptions | null | undefined,
 ): SheetViewExportOptions | null {
   if (!options) return null;
-  return {
-    ...(options.filter
-      ? {
-          filter: JSON.parse(JSON.stringify(options.filter)) as NonNullable<
-            SheetViewExportOptions['filter']
-          >,
-        }
-      : {}),
-    ...(options.sort ? { sort: options.sort.map((rule) => ({ ...rule })) } : {}),
-  };
+  return structuredClone(options);
 }
 
 // Filter-on-dispatchability:
@@ -589,7 +580,7 @@ export function ProjectExportModals({
   onClose(): void;
 }) {
   const hasCurrentViewExport = Boolean(
-    currentSheetExportOptions?.filter || currentSheetExportOptions?.sort,
+    currentSheetExportOptions?.filter || currentSheetExportOptions?.sort || currentSheetExportOptions?.selection || currentSheetExportOptions?.viewId != null,
   );
   return (
     <>

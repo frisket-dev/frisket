@@ -18,7 +18,6 @@ import {
   createCompareViewStore,
   type CompareViewStoreHandle,
 } from './compareViewStore';
-import { createLensViewStore, type LensViewStoreHandle } from './lensViewStore';
 import { createPreviewViewStore, type PreviewViewStoreHandle } from './previewViewStore';
 import {
   createWatchRunLinkStore,
@@ -89,11 +88,9 @@ export interface WorkspaceStores {
   workView: WorkViewStoreHandle;
   /** The four closed first-party compare tabs and their in-memory sessions. */
   compareView: CompareViewStoreHandle;
-  /** In-memory saved-lens grid view and its last open error. */
-  lensView: LensViewStoreHandle;
   /** In-memory action preview: the small server-sampled preview a
    *  running/done/error banner tracks while open, overlaid onto the grid via
-   *  the lens row-id seam. Same "fixed sheet-change reset class" as lensView
+   *  the exact preview row-id seam. Uses the fixed sheet-change reset class
    *  (not survive-by-omission like gridView's inlineFilter) — its
    *  resetForSheetChange() is composed at the SAME resetForRouteSheetChange
    *  site as workView's, below. It also owns the poll/generation/teardown
@@ -145,7 +142,7 @@ export interface WorkspaceStores {
   // not a new field, since nothing here needs one yet). Characterization
   // only; none of the three is constructed by WEB-01.
   /** Disposes every controller/subscription this instance owns. gridView,
-   *  rowCache, selection, detail, savedViews, workView, compareView, lensView,
+   *  rowCache, selection, detail, savedViews, workView, compareView,
    *  watchRunLink, chrome, and actSurface are plain state containers with no
    *  long-lived subscriptions of their own, so their share of this is a no-op;
    *  pluginLayout.dispose() clears its timer/visibility listener and invalidates
@@ -188,9 +185,9 @@ export function createWorkspaceStores(
   // ids repeat across projects (SheetGrid.tsx's widthsKey comment), so two
   // projects sharing a sheet id must never share a cache slot.
   const rowCache = createRowCacheStore();
-  // selection/detail/savedViews/workView/compareView/lensView/previewView/watchRunLink are not project-scoped
+  // selection/detail/savedViews/workView/compareView/previewView/watchRunLink are not project-scoped
   // persistence either — every field they own is either pure in-memory
-  // session state (selection, detail's drawers, workView, compareView, lensView, previewView,
+  // session state (selection, detail's drawers, workView, compareView, previewView,
   // watchRunLink) or a
   // plain component-state list re-fetched per sheet (savedViews' `views`,
   // from api.listViews on the active-sheet transition), matching gridView/job's
@@ -201,7 +198,6 @@ export function createWorkspaceStores(
   const savedViews = createSavedViewsStore();
   const workView = createWorkViewStore();
   const compareView = createCompareViewStore();
-  const lensView = createLensViewStore();
   const previewView = createPreviewViewStore(projectApi, projectId);
   const watchRunLink = createWatchRunLinkStore();
   // The route owner is assembled after its reset participants so its private
@@ -209,7 +205,7 @@ export function createWorkspaceStores(
   const route = createRouteStore(projectId, {
     resetForSheetChange: (sheetId) =>
       resetForRouteSheetChange(
-        { gridView, selection, detail, workView, lensView, previewView },
+        { gridView, selection, detail, workView, previewView },
         sheetId,
       ),
   });
@@ -275,7 +271,6 @@ export function createWorkspaceStores(
     savedViews,
     workView,
     compareView,
-    lensView,
     previewView,
     watchRunLink,
     chrome,

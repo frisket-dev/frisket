@@ -18,7 +18,7 @@ import { telemetryPanelKind, useWorkspaceNavigationTelemetry } from '../telemetr
 function SidebarContributionBody({ contribution }: { contribution: WorkbenchResolvedLayoutContribution }) {
   const { projectApi } = useWorkspaceStores();
   const {
-    applyLens,
+    openSavedView,
     leftSidebarPluginPanelDescriptors,
     openSourceHealthMainView,
     project,
@@ -47,6 +47,10 @@ function SidebarContributionBody({ contribution }: { contribution: WorkbenchReso
     savedViewsLastPublication,
     savedViewsSaving,
     activeSavedViewId,
+    viewModified,
+    currentDefinition,
+    updateViewSelection,
+    clearViewSelection,
     addWatchForCurrentView,
     openCellSimilarity,
     selectedRowIdsForSheet,
@@ -102,6 +106,10 @@ function SidebarContributionBody({ contribution }: { contribution: WorkbenchReso
           viewName={viewName}
           editor={savedViewsEditor}
           activeSavedViewId={activeSavedViewId}
+          viewModified={viewModified}
+          currentSelection={currentDefinition?.selection}
+          onSelectionChange={updateViewSelection}
+          onClearSelection={clearViewSelection}
           isSaving={savedViewsSaving}
           lastPublication={savedViewsLastPublication}
           onPublicationConsumed={consumeSavedViewsPublication}
@@ -141,8 +149,8 @@ function SidebarContributionBody({ contribution }: { contribution: WorkbenchReso
 
             void refreshSheets().then(() => selectSheet(sheetId));
           }}
-          onOpenLens={(lensId, name) => {
-            void applyLens(lensId, name);
+          onOpenLens={(lensId) => {
+            void openSavedView(lensId);
           }}
           selectedRowIds={selectedRowIdsForSheet.map(String)}
           onFindSimilar={openCellSimilarity}

@@ -1,14 +1,16 @@
+import { PanelSelect } from '../components/PanelSelect';
+import { ViewResults } from '../components/ViewResults';
 import '../components/PanelPrimitives.css';
 import '../components/IconButton.css';
 import { ConfirmDialog } from '../components/Modal';
 import './ViewsPanel.css';
 import { Button } from '../components/Button';
-import { TextInput } from '../components/FormControls';
+import { TextInput, FormField } from '../components/FormControls';
 // Saved-views panel. This is intentionally presentational: persistence and
 // successful-create/update transitions belong to the workspace controller.
 import { useEffect, useRef, useState } from 'react';
 import { Pencil, Plus, Save, Trash2, X } from 'lucide-react';
-import type { SavedView } from '../api/open';
+import type { SavedView, ViewSelection } from '../api/open';
 import type {
   SavedViewsConfirmation,
   SavedViewsEditor,
@@ -26,6 +28,10 @@ export interface ViewsPanelProps {
   confirmation?: SavedViewsConfirmation | null;
   confirmationError?: string | null;
   canEdit: boolean;
+  viewModified?: boolean;
+  currentSelection?: ViewSelection | null;
+  onSelectionChange?(selection: ViewSelection): void;
+  onClearSelection?(): void;
   activeSavedViewId?: SavedView['id'] | null;
   onNameChange(name: string): void;
   onStartCreating(): void;
@@ -52,6 +58,10 @@ export function ViewsPanel({
   confirmationError = null,
   canEdit,
   activeSavedViewId = null,
+  viewModified = false,
+  currentSelection = null,
+  onSelectionChange,
+  onClearSelection,
   onNameChange,
   onStartCreating,
   onSave,
@@ -65,6 +75,7 @@ export function ViewsPanel({
   onConfirmDelete,
   onCancelConfirmation,
 }: ViewsPanelProps) {
+  const [resultsView, setResultsView] = useState<SavedView | null>(null);
   const [statusEvent, setStatusEvent] = useState({ token: 0, message: '' });
   const nextStatusToken = useRef(0);
   const savedViewRows = useRef(new Map<SavedView['id'], HTMLDivElement>());
@@ -82,7 +93,7 @@ export function ViewsPanel({
       : lastPublication.action === 'renamed'
         ? `Renamed ${publishedView?.name ?? 'view'}`
         : lastPublication.action === 'updated'
-          ? `Saved current display to ${publishedView?.name ?? lastPublication.viewName}.`
+          ? `Saved changes to ${publishedView?.name ?? lastPublication.viewName}.`
           : `Deleted ${lastPublication.viewName}`
     : '';
   const announce = (message: string) => {
@@ -119,7 +130,7 @@ export function ViewsPanel({
   }, [confirmation, lastPublication]);
 
   return (
-    <section className="views-panel" data-testid="views-panel" aria-label="Saved views" aria-busy={isSaving}>
+    <section className="views-panel content-stack" data-testid="views-panel" aria-label="Saved views" aria-busy={isSaving}>
       <div
         key={lastPublication ? `publication-${lastPublication.token}` : `local-${statusEvent.token}`}
         className="sr-only"
@@ -129,6 +140,20 @@ export function ViewsPanel({
       >
         {publicationAnnouncement || statusEvent.message}
       </div>
+      {currentSelection && onSelectionChange && <div className="form-stack">
+        {onClearSelection && <Button onClick={onClearSelection}>Show all rows</Button>}
+        <FormField label="Search text"><TextInput aria-label="View search text" value={currentSelection.search?.text ?? ''} placeholder="All content"
+          onChange={(event) => onSelectionChange({ ...currentSelection, search: event.currentTarget.value.trim() ? { text: event.currentTarget.value } : undefined,
+            order: !event.currentTarget.value.trim() ? currentSelection.order.filter((item) => !('score' in item && item.score === 'search')) : currentSelection.order })} /></FormField>
+        {(currentSelection.search || currentSelection.similarity) && <FormField label="Sort results"><PanelSelect aria-label="View score order"
+          value={currentSelection.order[0] && 'score' in currentSelection.order[0] ? currentSelection.order[0].score : currentSelection.order.length ? 'column' : 'rows'}
+          onChange={(event) => onSelectionChange({ ...currentSelection, order: event.currentTarget.value === 'rows' ? [] : [{ score: event.currentTarget.value as 'search' | 'similarity', dir: 'desc' }] })}>
+          {currentSelection.order.some((item) => 'column_id' in item) && <option value="column" disabled>Current column sort</option>}
+          <option value="rows">Row order</option>{currentSelection.search && <option value="search">Search score, highest first</option>}{currentSelection.similarity && <option value="similarity">Similarity score, highest first</option>}
+        </PanelSelect></FormField>}
+        <FormField label="Limit results"><TextInput aria-label="View result limit" type="number" min={1} placeholder="All matching rows" value={currentSelection.limit ?? ''}
+          onChange={(event) => { const limit = event.currentTarget.value === '' ? null : Number(event.currentTarget.value); if (limit === null || Number.isInteger(limit) && limit > 0) onSelectionChange({ ...currentSelection, limit }); }} /></FormField>
+      </div>}
       {editor && canEdit ? (
         <div
           className="views-create"
@@ -190,7 +215,7 @@ export function ViewsPanel({
             disabled={isSaving}
             onClick={onStartCreating}
           >
-            <Plus size={14} /> Save current view
+            <Plus size={14} /> Save as new view
           </Button>
         )
       )}
@@ -214,16 +239,16 @@ export function ViewsPanel({
                   type="button"
                   className="saved-view-apply"
                   data-testid="apply-saved-view"
-                  disabled={isSaving}
+                  disabled={isSaving || !!view.unavailable_reason}
                   onClick={() => {
-                    onApply(view);
-                    announce(`Applied ${view.name}`);
+                    if (view.sheet_id === null) setResultsView(view);
+                    else { onApply(view); announce(`Applied ${view.name}`); }
                   }}
                 >
                   {view.name}
                 </button>
                 <span className="saved-view-summary" data-testid="saved-view-filter-summary">{summarizeSavedView(view).summary}</span>
-                {activeSavedViewId === view.id && <span className="saved-view-active">Active</span>}
+                {activeSavedViewId === view.id && <span className="saved-view-active">{viewModified ? 'Modified' : 'Active'}</span>}
               </div>
               {canEdit && (
                 <div className="saved-view-actions">
@@ -231,15 +256,15 @@ export function ViewsPanel({
                     type="button"
                     className="icon-btn"
                     data-testid="update-saved-view-definition"
-                    aria-label={`Save current display to ${view.name}`}
-                    title={`Save current display to ${view.name}`}
-                    disabled={isSaving}
+                    aria-label={`Save changes to ${view.name}`}
+                    title={`Save changes to ${view.name}`}
+                    disabled={isSaving || view.sheet_id === null}
                     onClick={(event) => {
                       confirmationTrigger.current = event.currentTarget;
                       onStartDefinitionUpdate(view);
                     }}
                   >
-                    <Save size={13} /><span className="sr-only">Save current display</span>
+                    <Save size={13} /><span className="sr-only">Save changes</span>
                   </button>
                   <button
                     type="button"
@@ -272,11 +297,12 @@ export function ViewsPanel({
           ))
         )}
       </div>
+      {resultsView && <ViewResults key={resultsView.id} view={resultsView} onClose={() => setResultsView(null)} />}
       {confirmation && (
         <ConfirmDialog
           key={`${confirmation.kind}:${confirmation.view.id}`}
           title={confirmation.kind === 'delete' ? `Delete “${confirmation.view.name}”?`
-            : `Save current display to ${confirmation.view.name}?`}
+            : `Save changes to ${confirmation.view.name}?`}
           busy={isSaving} danger={confirmation.kind === 'delete'}
           testId={confirmation.kind === 'delete' ? 'delete-saved-view-confirmation' : 'update-saved-view-confirmation'}
           confirmTestId={confirmation.kind === 'delete' ? 'confirm-delete-saved-view' : 'confirm-update-saved-view'}
@@ -288,7 +314,7 @@ export function ViewsPanel({
           <p className="modal-body-text">
             {confirmation.kind === 'delete'
               ? 'Deleting this Saved View cannot be undone.'
-              : 'Replace this Saved View’s filters, sorting, displayed columns, and column groups with the current display.'}
+              : 'Save the current selection and display. Alerts will use these saved criteria.'}
           </p>
           {confirmationError && <div className="panel-error" role="alert">{confirmationError}</div>}
         </ConfirmDialog>

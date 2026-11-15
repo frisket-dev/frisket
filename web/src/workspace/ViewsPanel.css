@@ -74,3 +74,5 @@
   padding: 1px 7px;
 }
 .active-saved-view-chip { cursor: pointer; }
+
+.saved-view-active { align-self: flex-start; }

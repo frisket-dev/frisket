@@ -53,7 +53,7 @@ export interface WorkspaceShellHandle {
   closeRoutePanel: WorkspaceViewModel['closeRoutePanel'];
   openRowInDocumentView: WorkspaceViewModel['openRowInDocumentView'];
   openDocumentRef: WorkspaceViewModel['openDocumentRef'];
-  applyLens: WorkspaceViewModel['applyLens'];
+  openSavedView: WorkspaceViewModel['openSavedView'];
   leftSidebarPluginPanelDescriptors: WorkspaceViewModel['leftSidebarPluginPanelDescriptors'];
   openEvidenceViewer: WorkspaceViewModel['openEvidenceViewer'];
   openRowRef: WorkspaceViewModel['openRowRef'];

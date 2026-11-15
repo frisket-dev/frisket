@@ -11,7 +11,7 @@
 // here, not the epoch pattern jobStore uses.
 
 import { useEffect } from 'react';
-import type { ColumnDef, GridFilterSpec, GridSortSpec, Row } from '../api/open';
+import type { ColumnDef, GridFilterSpec, GridSortSpec, Row, ViewSelection } from '../api/open';
 import type { GridApiPort } from '../api/ports';
 import { panelsEqual } from '../core/route/RouteState';
 import type { RouteStoreHandle } from '../state/routeStore';
@@ -29,15 +29,17 @@ export interface RouteRowFetchDeps {
   activeGridFilter: GridFilterSpec | null;
   activeGridSort: GridSortSpec | null;
   activeGridScopeRowIds: number[] | null;
+  viewSelection?: ViewSelection | null;
   rowDrawerId: string | null;
   showError: (message: string) => void;
 }
 
 interface RouteRowScope {
-  parentRowId: string | null;
-  filter: GridFilterSpec | null;
-  sort: GridSortSpec | null;
-  scopeRowIds: number[] | null;
+  selection?: ViewSelection;
+  parentRowId?: string | null;
+  filter?: GridFilterSpec | null;
+  sort?: GridSortSpec | null;
+  scopeRowIds?: number[] | null;
 }
 
 async function fetchRowInScope(
@@ -52,7 +54,7 @@ async function fetchRowInScope(
     sheetId,
     0,
     1,
-    { ...scope, rowIds: [Number(rowId)], valueMode: 'bounded' },
+    { rowIds: [Number(rowId)], valueMode: 'bounded' },
   );
   const row = page.rows.find((candidate) => candidate.id === rowId);
   return row ? { ...row, index: location.index ?? row.index } : null;
@@ -69,9 +71,9 @@ export async function fetchRouteRow(
 ): Promise<Row | null> {
   const scoped = await fetchRowInScope(api, sheetId, rowId, scope);
   if (scoped) return scoped;
-  const hasRestrictiveScope = scope.parentRowId !== null
+  const hasRestrictiveScope = !!scope.selection || scope.parentRowId != null
     || Boolean(scope.filter && Object.keys(scope.filter).length > 0)
-    || scope.scopeRowIds !== null;
+    || scope.scopeRowIds != null;
   return hasRestrictiveScope ? fetchRowInScope(api, sheetId, rowId, null) : null;
 }
 
@@ -86,6 +88,7 @@ export function useRouteRowFetch(deps: RouteRowFetchDeps): void {
     activeGridFilter,
     activeGridSort,
     activeGridScopeRowIds,
+    viewSelection,
     rowDrawerId,
     showError,
   } = deps;
@@ -139,7 +142,7 @@ export function useRouteRowFetch(deps: RouteRowFetchDeps): void {
       };
     }
 
-    const scope = {
+    const scope = viewSelection ? { selection: viewSelection } : {
       parentRowId: activeChildFilterParentRowId,
       filter: activeGridFilter,
       sort: activeGridSort,
@@ -172,6 +175,7 @@ export function useRouteRowFetch(deps: RouteRowFetchDeps): void {
     activeGridFilter,
     activeGridSort,
     activeGridScopeRowIds,
+    viewSelection,
     rowDrawerId,
     showError,
     api,

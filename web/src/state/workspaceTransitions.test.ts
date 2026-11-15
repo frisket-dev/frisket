@@ -24,7 +24,6 @@ import { createPreviewViewStore } from './previewViewStore';
 import { createDetailStore } from './detailStore';
 import { createWorkViewStore } from './workViewStore';
 import { createCompareViewStore } from './compareViewStore';
-import { createLensViewStore } from './lensViewStore';
 import { createChromeStore } from './chromeStore';
 import {
   actionLaunchForRoute,
@@ -44,7 +43,6 @@ import {
   openAskProposalTransition,
   closeRoutePanelTransition,
   confirmDeleteRowsTransition,
-  applyLensTransition,
   setWorkViewExtractTransition,
   setWorkViewResetTransition,
 } from './workspaceTransitions';
@@ -369,7 +367,7 @@ describe('gridViewStore + selection/detail stores — cross-domain transaction p
     expect(selection.store.get().selectedRows).toEqual(emptySelectedRows('s1'));
   });
 
-  it('applySavedViewGrid: grid fields replace wholesale AND selectedRows/rowDrawer/columnDrawer clear — childFilter is NOT cleared (asymmetry pinned, matches pre-migration :448-469)', () => {
+  it('applySavedViewGrid: saved scope replaces prior child filter and clears selection/drawers', () => {
     const gridView = createGridViewStore();
     const { selection, detail } = seedSelectionAndDetail();
 
@@ -390,7 +388,7 @@ describe('gridViewStore + selection/detail stores — cross-domain transaction p
     expect(selection.store.get().selectedRows).toEqual(emptySelectedRows('s1'));
     expect(detail.store.get().rowDrawer).toBeNull();
     expect(detail.store.get().columnDrawer).toBeNull();
-    expect(detail.store.get().childFilter).not.toBeNull(); // the documented asymmetry
+    expect(detail.store.get().childFilter).toBeNull();
   });
 });
 
@@ -566,7 +564,7 @@ describe('workspaceTransitions.ts — invariant 10b closure sweep (workspace-sub
   it('keeps the revision-pinned search passage and selected field after a real cross-sheet reset', () => {
     const stores = {
       detail: createDetailStore(), selection: createSelectionStore(), gridView: createGridViewStore(),
-      workView: createWorkViewStore(), lensView: createLensViewStore(),
+      workView: createWorkViewStore(),
       previewView: createPreviewViewStore({ startPreview: vi.fn(), getPreview: vi.fn(), cancelPreview: vi.fn() }),
     };
     const route = createRouteStore('p1', {
@@ -674,36 +672,6 @@ describe('workspaceTransitions.ts — invariant 10b closure sweep (workspace-sub
     expect(detail.store.get().childFilter).toBeNull();
   });
 
-  it('applyLensTransition: resets the grid filter/sort for lens entry, closes the header menu, clears any stale lens-open error, and records the resolved lens view', () => {
-    const gridView = createGridViewStore();
-    const detail = createDetailStore();
-    const lensView = createLensViewStore();
-    gridView.applyFilter({ filter: { status: { eq: 'open' } } });
-    const seedColumn = { id: 'c1' } as unknown as ColumnDef;
-    detail.openHeaderMenu(
-      { column: seedColumn, columnIndex: 0, bounds: { x: 0, y: 0, width: 1, height: 1 } },
-    );
-    lensView.setLensOpenError('This view is out of date — refresh the index before opening it.');
-
-    // = production's applyLens post-resolve composition (useWorkspaceModel.tsx,
-    // whose body literally comments "Cross-domain transition").
-    applyLensTransition(
-      { gridView, detail, lensView },
-      { lensId: 9, name: 'my lens', sheetId: 's1', rowIds: [1, 2, 3], scores: {}, total: 3 },
-    );
-
-    expect(gridView.store.get().applied.filter).toBeNull();
-    expect(detail.store.get().headerMenu).toBeNull();
-    expect(lensView.store.get().lensOpenError).toBeNull();
-    expect(lensView.store.get().lensView).toEqual({
-      lensId: 9,
-      name: 'my lens',
-      sheetId: 's1',
-      rowIds: [1, 2, 3],
-      scores: {},
-      total: 3,
-    });
-  });
 });
 
 describe('invariant 10b closure — no multi-store handler sequence survives outside this module (grep-shaped, precedent: core/route/writeCutover.test.ts)', () => {
@@ -791,15 +759,13 @@ describe('invariant 10b closure — no multi-store handler sequence survives out
     });
   }
 
-  it('the six swept call sites now call a *Transition helper, not the raw store pair, at their production call sites', () => {
+  it('the five swept call sites now call a *Transition helper, not the raw store pair, at their production call sites', () => {
     const model = read('workspace/useWorkspaceModel.tsx');
     const navigation = read('workspace/useWorkspaceNavigationController.ts');
-    const actions = read('workspace/useWorkspaceActionController.ts');
     expect(navigation).toMatch(/openRowPanelTransition\(\{ detail, selection \}/);
     expect(navigation).toMatch(/openColumnPanelTransition\(\{ detail, selection \}/);
     expect(navigation).toMatch(/openRowRefTransition\(\{ selection \}/);
     expect(navigation).toMatch(/closeRoutePanelTransition\(\{ detail, selection \}/);
     expect(model).toMatch(/confirmDeleteRowsTransition\(\{ selection, detail \}/);
-    expect(actions).toMatch(/applyLensTransition\(\s*\{ gridView, detail, lensView: lensViewHandle \}/);
   });
 });

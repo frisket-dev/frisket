@@ -1,3 +1,4 @@
+import type { ViewSelection } from '../../api/types';
 import '../ActionPanel.css';
 import { Button } from '../Button';
 import { TextArea, TextInput } from '../FormControls';
@@ -212,6 +213,7 @@ export interface GeneratedActionFormProps {
   title?: string;
   sheet: SheetMeta | null;
   selectedRowIds?: string[];
+  viewSelection?: ViewSelection | null;
   hasExactRowScopeInitializer?: boolean;
   initialSourceColumn?: string;
   initialPrompt?: string;
@@ -531,6 +533,7 @@ function GeneratedActionFormContents({
   title,
   sheet,
   selectedRowIds = EMPTY_ROW_IDS,
+  viewSelection = null,
   hasExactRowScopeInitializer = false,
   initialSourceColumn,
   initialPrompt,
@@ -623,14 +626,14 @@ function GeneratedActionFormContents({
       : [];
   const defaultScope = launchMode
     ? 'all'
-    : ((hasExactRowScopeInitializer || scopeSelectedRowIds.length > 0)
+    : ((hasExactRowScopeInitializer || viewSelection !== null || scopeSelectedRowIds.length > 0)
       && allowedScopes.includes('exact_membership') ? 'selected' : 'all');
   const [runScope, setRunScope] = useState<'all' | 'selected'>(defaultScope);
   const effectiveRunScope = runScope === 'selected'
     && allowedScopes.includes('exact_membership')
-    && (scopeSelectedRowIds.length > 0 || hasExactRowScopeInitializer)
+    && (scopeSelectedRowIds.length > 0 || viewSelection !== null || hasExactRowScopeInitializer)
     ? 'selected' : allowedScopes.includes('all_rows') ? 'all' : 'selected';
-  const selectedScopeSummary = `${scopeSelectedRowIds.length.toLocaleString()} selected ${
+  const selectedScopeSummary = viewSelection && scopeSelectedRowIds.length === 0 ? 'Current view' : `${scopeSelectedRowIds.length.toLocaleString()} selected ${
     scopeSelectedRowIds.length === 1 ? 'row' : 'rows'}`;
   const scopeFor = useCallback((scope: 'all' | 'selected'): GeneratedActionRequest['scope'] => {
     if (savedTableScope) return savedTableScope;
@@ -638,9 +641,10 @@ function GeneratedActionFormContents({
     if (sheetId === null) throw new Error('A row action requires a source sheet.');
     return {
       kind: 'sheet_rows', sheet_id: sheetId,
-      ...(scope === 'selected' ? { row_ids: scopeSelectedRowIds.map(Number) } : {}),
+      ...(scope === 'selected' ? viewSelection && scopeSelectedRowIds.length === 0
+        ? { selection: viewSelection } : { row_ids: scopeSelectedRowIds.map(Number) } : {}),
     };
-  }, [savedTableScope, projectScoped, sheetId, scopeSelectedRowIds]);
+  }, [savedTableScope, projectScoped, sheetId, scopeSelectedRowIds, viewSelection]);
   const requestScope = useMemo(() => scopeFor(effectiveRunScope), [scopeFor, effectiveRunScope]);
   const [draft, setDraft] = useState<CanonicalDraft>(() =>
     initialParams(catalogEntry, actionTemplate, columns, initialSourceColumn, initialDraft, initialPrompt));
@@ -1187,7 +1191,7 @@ function GeneratedActionFormContents({
   const billingLabel = currentEstimate?.billing_label?.trim() || null;
   const estimateWarning = currentEstimate?.warning?.trim() || null;
   const estimateRowCount = currentEstimate?.rows
-    ?? (sheet ? effectiveRunScope === 'selected' ? scopeSelectedRowIds.length : sheet.rowCount : null);
+    ?? (sheet ? effectiveRunScope === 'selected' ? viewSelection ? null : scopeSelectedRowIds.length : sheet.rowCount : null);
   const outputColumnCount = dynamicOutputs && resolving ? 0 : outputs.length;
 
   const primaryOutputName = outputs[0] ? outputNames[outputs[0].key]?.trim() : '';

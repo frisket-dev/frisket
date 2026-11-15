@@ -448,3 +448,17 @@ def test_prior_bundle_upgrade_preserves_source_cells_and_op_history(tmp_path):
         ] == history
         assert layouts.list_layouts(upgraded, sheet, column) == []
         assert save(upgraded, sheet, template)["name"] == "Layout 1"
+
+
+def test_current_view_extraction_scope_preserves_limit_and_order(tmp_path):
+    with closing(Project.create(tmp_path / "view.frisket", name="Views")) as project:
+        sheet, column, rows, _template = seed(project, count=4)
+        selection = {"scope": {"kind": "sheet", "sheet_id": sheet, "row_ids": rows[1:]},
+                     "filters": [], "order": [], "limit": 2}
+        scope = ExtractionScope(kind="filter", selection=selection)
+        assert layouts.resolve_document_scope(project, sheet_id=sheet, source="document", scope=scope) == rows[1:3]
+        with project.read_snapshot() as snapshot:
+            assert layouts.count_document_scope(snapshot, sheet_id=sheet, source="document", scope=scope) == 2
+            assert snapshot.db.execute("SELECT 1").fetchone()[0] == 1
+        with pytest.raises(ValueError, match="replaces"):
+            ExtractionScope(kind="filter", selection=selection, scope_row_ids=rows)

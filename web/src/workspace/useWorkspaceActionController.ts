@@ -1,22 +1,18 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import {
-  ApiError, MAX_LENS_VIEW_ROWS, freshActionRequestKey,
-  type ActionExecutionRequest, type LensResolved,
+  freshActionRequestKey,
+  type ActionExecutionRequest,
   type PreviewSampleResult, type RegisteredActionRequest, type SheetMeta,
 } from '../api/open';
 import { backfillWithConfirmation } from '../api/backfillWithConfirmation';
 import { retryWithConfirmation, retryFailedRowsWithConfirmation } from '../api/retryWithConfirmation';
 import { useDetailHandle } from '../bind/useDetailHandle';
-import { useGridViewHandle } from '../bind/useGridViewHandle';
 import { useJobsHandle } from '../bind/useJobsHandle';
-import { useLensViewHandle } from '../bind/useLensViewHandle';
 import { usePreviewViewHandle } from '../bind/usePreviewViewHandle';
 import { useProjectDataResource, useRouteHandle } from '../bind/useRouteHandle';
 import { useSelector } from '../bind/useSelector';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { previewViewForSheet } from '../state/previewViewStore';
-import { applyLensTransition } from '../state/workspaceTransitions';
-import { LENS_REFRESH_NEEDED_CODES } from './gridColumnState';
 
 /** Launches through the existing jobs and preview resources, including their consent and generation fences. */
 export function useWorkspaceActionController({
@@ -30,16 +26,10 @@ export function useWorkspaceActionController({
   const { projectApi } = useWorkspaceStores();
   const projectData = useProjectDataResource();
   const detail = useDetailHandle();
-  const gridView = useGridViewHandle();
   const route = useRouteHandle();
-  const lensViewHandle = useLensViewHandle();
   const previewViewHandle = usePreviewViewHandle();
   const { afterBackfill, requestCostConfirmation } = useJobsHandle();
-  const lensView = useSelector(lensViewHandle.store, (s) => s.lensView);
-  const lensOpenError = useSelector(lensViewHandle.store, (s) => s.lensOpenError);
   const previewView = useSelector(previewViewHandle.store, (s) => s.previewView);
-  const activeLensView =
-    lensView && sheet?.id === lensView.sheetId ? lensView : null;
   const activePreviewView = previewViewForSheet(previewView, sheet?.id);
   const teardownPreviewJob = useCallback(
     () => previewViewHandle.teardownPreviewJob(),
@@ -50,52 +40,6 @@ export function useWorkspaceActionController({
     () => route.registerSheetChangeTeardown(teardownPreviewJob),
     [route, teardownPreviewJob],
   );
-
-  const applyLens = useCallback(
-    async (lensId: number, name: string) => {
-      if (!sheet) return;
-      const resolveGeneration = lensViewHandle.beginLensResolve();
-      lensViewHandle.setLensOpenError(null);
-      let resolved: LensResolved;
-      try {
-        resolved = await projectApi.resolveLens(lensId, { limit: MAX_LENS_VIEW_ROWS });
-      } catch (e) {
-        if (!lensViewHandle.isCurrentLensResolve(resolveGeneration)) return;
-        if (e instanceof ApiError && LENS_REFRESH_NEEDED_CODES.has(e.code ?? '')) {
-          lensViewHandle.setLensView(null);
-          lensViewHandle.setLensOpenError('This view is out of date — refresh the index before opening it.');
-        } else {
-          const message = e instanceof Error ? e.message : String(e);
-          lensViewHandle.setLensView(null);
-          lensViewHandle.setLensOpenError(message);
-          showError(message);
-        }
-        return;
-      }
-      if (!lensViewHandle.isCurrentLensResolve(resolveGeneration)) return;
-
-      applyLensTransition(
-        { gridView, detail, lensView: lensViewHandle },
-        {
-          lensId,
-          name,
-          sheetId: sheet.id,
-          rowIds: resolved.rowIds,
-          scores: resolved.scores,
-          total: resolved.total,
-        },
-      );
-      projectData.invalidate();
-    },
-    [detail, gridView, lensViewHandle, projectApi, projectData, sheet, showError],
-  );
-
-  const exitLensView = useCallback(() => {
-    lensViewHandle.beginLensResolve();
-    lensViewHandle.setLensView(null);
-    lensViewHandle.setLensOpenError(null);
-    projectData.invalidate();
-  }, [lensViewHandle, projectData]);
 
   // Drop stale preview results by generation.
   const openPreviewView = useCallback(
@@ -208,11 +152,11 @@ export function useWorkspaceActionController({
   );
 
   return useMemo(() => ({
-    activeLensView, lensOpenError, activePreviewView, applyLens, exitLensView, closePreviewView,
+    activePreviewView, closePreviewView,
     runPreviewForReal, runWithPreview, executeRegisteredAction, runActionBackfill, resumeHaltedRun,
     retryFailedRows,
   }), [
-    activeLensView, lensOpenError, activePreviewView, applyLens, exitLensView, closePreviewView,
+    activePreviewView, closePreviewView,
     runPreviewForReal, runWithPreview, executeRegisteredAction, runActionBackfill, resumeHaltedRun,
     retryFailedRows,
   ]);

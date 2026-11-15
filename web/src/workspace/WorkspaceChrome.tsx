@@ -1,3 +1,4 @@
+import { useCurrentViewSelection } from '../bind/useCurrentViewSelection';
 import '../workbench/contributions.css';
 import './WorkspaceChrome.css';
 import { memo, useEffect, useMemo, useState } from 'react';
@@ -14,7 +15,6 @@ import { ProjectExportModals, ProjectMenu } from '../components/TopNav';
 import { ProjectAskDock } from '../components/ProjectAskDock';
 import type { AskScope } from '../api/projectQA';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
-import { useGridViewHandle } from '../bind/useGridViewHandle';
 import { useChromeHandle } from '../bind/useChromeHandle';
 import { useActSurfaceHandle } from '../bind/useActSurfaceHandle';
 import { useActionCatalogHandle } from '../bind/useActionCatalogHandle';
@@ -78,13 +78,8 @@ export const WorkspaceChromeBarRegion = memo(function WorkspaceChromeBarRegion()
 function useWorkspaceExportContext() {
   const { project, projectApi } = useWorkspaceShell();
   const { sheet, sheets } = useCurrentSheet();
-  const gridView = useGridViewHandle();
-  const filter = useSelector(gridView.store, (state) => state.applied.filter);
-  const sort = useSelector(gridView.store, (state) => state.applied.sort);
-  const scopeRowIds = useSelector(gridView.store, (state) => state.applied.scopeRowIds ?? null);
-  const currentSheetExportOptions = filter || sort || scopeRowIds !== null
-    ? { filter, sort, scopeRowIds }
-    : null;
+  const selection = useCurrentViewSelection(sheet);
+  const currentSheetExportOptions = selection ? { selection } : null;
   return { project, projectApi, currentSheet: sheet ?? null, sheets, currentSheetExportOptions };
 }
 

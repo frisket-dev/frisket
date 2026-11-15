@@ -99,7 +99,7 @@ export function createPreviewViewStore(api: Pick<
   dispose(): void;
 
   /** = the 'selectSheet' reducer case's previewView-owned half (unconditional):
-   *  composed alongside lensView/lensOpenError/workView at
+   *  composed alongside workView at
    *  state/workspaceTransitions.ts's resetForRouteSheetChange, the fixed
    *  class-1/2 sheet-change reset. */
   resetForSheetChange(): void;

@@ -1,3 +1,4 @@
+import { ViewAlertConditions, DEFAULT_VIEW_ALERTS } from './ViewAlertConditions';
 import './Modal.css';
 import { Button } from './Button';
 import { ListEditorActions } from './ListEditorActions';
@@ -8,6 +9,7 @@ import { ChevronDown, ChevronRight, Play, RefreshCw, Watch } from 'lucide-react'
 import {
   ApiError,
   type WatchInfo,
+  type WatchPatchInput,
   type WatchRun,
   type WatchRunEvent,
   type WatchRunsPage,
@@ -78,23 +80,17 @@ function reduceWatchesPanelState(
 }
 
 function watchSummary(watch: WatchInfo): string {
-  const kind = String(watch.query?.kind ?? '');
-  if (kind === 'fts') return `Search "${String(watch.query?.q ?? '')}"`;
-  if (kind === 'filter') return 'Saved filter';
-  if (kind === 'embedding_similarity') return 'Rows similar to a row';
-  return kind || 'Watch';
+  const policy = watch.detectionPolicy;
+  return [policy.entered && 'New matches', policy.fields.length > 0 && 'Changed values', policy.exited && 'Rows leaving', policy.count_changed && 'Count changes'].filter(Boolean).join(' · ') || 'Alerts paused';
 }
-
-// An embedding_similarity watch blocks until its index is refreshed — a
-// manual stale/incomplete state needs a refresh.
 function blockedEmbeddingIndexId(watch: WatchInfo): string | null {
-  if (String(watch.query?.kind ?? '') !== 'embedding_similarity') return null;
-  const code = watch.latestRun?.errorCode ?? '';
-  if (code !== 'embedding_index_incomplete' && code !== 'embedding_index_stale') {
-    return null;
-  }
-  const indexId = watch.query?.embedding_index_id;
-  return typeof indexId === 'string' ? indexId : null;
+  const query = watch.latestRun?.resolvedQuery;
+  const similarity = query?.similarity;
+  if (!similarity || typeof similarity !== 'object') return null;
+  const code = watch.latestRun?.errorCode;
+  if (code !== 'embedding_index_incomplete' && code !== 'embedding_index_stale') return null;
+  const id = Reflect.get(similarity, 'embedding_index_id');
+  return typeof id === 'string' ? id : null;
 }
 
 function runSummary(run: WatchRun | null): string {
@@ -348,10 +344,10 @@ function useWatchesPanelController(canEdit: boolean) {
 
   const updateWatch = useCallback((
     watchId: number,
-    patch: { name?: string; enabled?: boolean },
+    patch: WatchPatchInput,
   ) => {
     if (!canEdit) return Promise.resolve(false);
-    const intent: WatchActionIntent = patch.name === undefined
+    const intent: WatchActionIntent = patch.detection_policy ? 'configure' : patch.name === undefined
       ? (patch.enabled ? 'resume' : 'pause')
       : 'rename';
     const claim = watchRunLinkHandle.claimWatchAction(watchId, intent);
@@ -360,7 +356,7 @@ function useWatchesPanelController(canEdit: boolean) {
     setPanelState((current) => ({
       error: null,
       errorCode: null,
-      status: intent === 'rename' ? 'Renaming Watch…' : intent === 'pause' ? 'Pausing Watch…' : 'Resuming Watch…',
+      status: intent === 'configure' ? 'Saving alerts…' : intent === 'rename' ? 'Renaming Watch…' : intent === 'pause' ? 'Pausing Watch…' : 'Resuming Watch…',
       mutationErrors: { ...current.mutationErrors, [watchId]: '' },
     }));
     let outcome!: WatchActionOutcome;
@@ -368,7 +364,7 @@ function useWatchesPanelController(canEdit: boolean) {
       .updateWatch(watchId, patch)
       .then((updated) => {
         outcome = {
-          status: patch.name === undefined
+          status: patch.detection_policy ? `Saved alerts for ${updated.name}.` : patch.name === undefined
             ? `${updated.name} is now ${updated.enabled ? 'active' : 'paused'}.`
             : `Renamed Watch to ${updated.name}.`,
           error: null,
@@ -481,7 +477,7 @@ function useWatchesPanelController(canEdit: boolean) {
     invalidateWatchList();
     setPanelState({ creating: true, error: null, errorCode: null, status: 'Creating Watch…' });
     void projectApi
-      .createWatch({ name, query: draft.query, scope: draft.scope })
+      .createWatch({ name, view_id: draft.view_id, detection_policy: draft.detection_policy })
       .then((watch) => {
         watchRunLinkHandle.settleCreateWatch(action, {
           status: `Created Watch ${watch.name}.`, error: null, errorCode: null, watch, focusWatchId: watch.id,
@@ -498,7 +494,7 @@ function useWatchesPanelController(canEdit: boolean) {
   }, [canEdit, watchRunLinkHandle]);
 
   const updateCreateDraft = useCallback((
-    patch: Pick<PendingCreateDraft, 'name'>,
+    patch: Partial<Pick<PendingCreateDraft, 'name' | 'detection_policy'>>,
   ) => {
     if (!canEdit || watchRunLinkHandle.store.get().pendingCreateAction?.phase === 'pending') return;
     watchRunLinkHandle.updatePendingCreateDraft(patch);
@@ -579,14 +575,14 @@ function WatchCreateComposer({
   draft: PendingCreateDraft;
   onCancel(): void;
   onCreate(): void;
-  onUpdate(patch: Pick<PendingCreateDraft, 'name'>): void;
+  onUpdate(patch: Partial<Pick<PendingCreateDraft, 'name' | 'detection_policy'>>): void;
 }) {
   const trimmedName = draft.name.trim();
   return (
     <div className="panel-card" data-testid="watch-create-composer">
       <div>
-        <div className="panel-item-meta">New Watch</div>
-        <strong className="panel-item-title">Keep an eye on new matches.</strong>
+        <div className="panel-item-meta">View alerts</div>
+        <strong className="panel-item-title">Choose what to watch for.</strong>
       </div>
       <label className="form-field">
         <span className="form-label">Watch name</span>
@@ -602,12 +598,14 @@ function WatchCreateComposer({
         />
       </label>
       {!trimmedName && <span id="watch-create-name-error" data-testid="watch-create-name-error">Enter a name to continue.</span>}
+      <ViewAlertConditions value={draft.detection_policy ?? DEFAULT_VIEW_ALERTS} sheetId={draft.sheet_id} disabled={creating}
+        onChange={(detection_policy) => onUpdate({ detection_policy })} />
       <div className="panel-notice">
         {NOTIFICATION_SETUP_GUIDANCE}
       </div>
       <div className="form-actions">
         <ListEditorActions testId="create-watch-button" cancelTestId="cancel"
-          icon={WatchIcon} saveLabel={creating ? 'Creating…' : 'Create new watch'}
+          icon={WatchIcon} saveLabel={creating ? 'Creating…' : 'Enable alerts'}
           busy={creating} saveDisabled={!trimmedName} onSave={onCreate} onCancel={onCancel} />
       </div>
     </div>
@@ -704,7 +702,7 @@ function WatchItem({
   onRefreshWatches(): void;
   onRun(watchId: number): void;
   onToggleRuns(watchId: number): void;
-  onUpdateWatch(watchId: number, patch: { name?: string; enabled?: boolean }): Promise<boolean>;
+  onUpdateWatch(watchId: number, patch: WatchPatchInput): Promise<boolean>;
   onDeleteWatch(watchId: number, focusAfterDeleteId: number | null): Promise<boolean>;
   focusAfterDeleteId: number | null;
   shouldFocus: boolean;
@@ -718,6 +716,8 @@ function WatchItem({
   const itemRef = useRef<HTMLLIElement>(null);
   const deleteButtonRef = useRef<HTMLButtonElement>(null);
   const [renaming, setRenaming] = useState(false);
+  const [configuring, setConfiguring] = useState(false);
+  const [conditions, setConditions] = useState(watch.detectionPolicy);
   const [renameValue, setRenameValue] = useState(watch.name);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const trimmedRename = renameValue.trim();
@@ -783,6 +783,13 @@ function WatchItem({
       <div className="panel-item-description">
         {watchSummary(watch)}
       </div>
+      {canEdit && <Button type="button" disabled={isPending} onClick={() => { setConditions(watch.detectionPolicy); setConfiguring(!configuring); }}>Alert conditions</Button>}
+      {configuring && <div className="form-stack">
+        <ViewAlertConditions value={conditions} onChange={setConditions} sheetId={watch.sheetId} disabled={isPending} />
+        <ListEditorActions busy={isPending} saveLabel="Save alerts" onSave={() => {
+          void onUpdateWatch(watch.id, { detection_policy: conditions }).then((saved) => { if (saved) setConfiguring(false); });
+        }} onCancel={() => setConfiguring(false)} />
+      </div>}
       {!watch.enabled && <div className="control-row"><StatusChip tone="neutral" size="sm" testId="watch-status">Paused</StatusChip></div>}
       <div className="control-row panel-item-meta" data-testid="watch-latest-run">
         {runSummary(watch.latestRun)}
@@ -918,8 +925,8 @@ function WatchesPanelBody({
   onToggleRuns(watchId: number): void;
   onCancelCreate(): void;
   onCreate(): void;
-  onUpdateCreate(patch: Pick<PendingCreateDraft, 'name'>): void;
-  onUpdateWatch(watchId: number, patch: { name?: string; enabled?: boolean }): Promise<boolean>;
+  onUpdateCreate(patch: Partial<Pick<PendingCreateDraft, 'name' | 'detection_policy'>>): void;
+  onUpdateWatch(watchId: number, patch: WatchPatchInput): Promise<boolean>;
   onDeleteWatch(watchId: number, focusAfterDeleteId: number | null): Promise<boolean>;
   mutationErrors: Record<number, string>;
   focusWatchId: number | null;

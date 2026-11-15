@@ -45,12 +45,12 @@ const hitRow = {
 const watchRow = {
   id: 1,
   name: "Budget",
-  scope: "project",
+
   sheet_id: null,
-  query: { kind: "fts", q: "budget", mode: "keyword", rerank: "off", limit: 50 },
+  view_id: 4,
   query_version: "frisket.query.v1",
   query_hash: "sha256:abc",
-  detection_policy: { kind: "new_matches" },
+  detection_policy: { kind: "conditions", entered: true, exited: false, count_changed: false, fields: [] },
   enabled: true,
   last_evaluated_op: 3,
   last_run_id: 4,
@@ -136,11 +136,10 @@ const expectedHit = {
 const expectedWatch = {
   id: 1,
   name: "Budget",
-  scope: "project",
+
   sheetId: null,
-  query: { kind: "fts", q: "budget", mode: "keyword", rerank: "off", limit: 50 },
-  queryVersion: "frisket.query.v1",
-  queryHash: "sha256:abc",
+  viewId: 4,
+  detectionPolicy: { kind: "conditions", entered: true, exited: false, count_changed: false, fields: [] },
   enabled: true,
   lastEvaluatedOp: 3,
   lastRunId: 4,
@@ -391,7 +390,7 @@ describe("watchlist generated HTTP transport", () => {
 
     await api.listWatches(options);
     await api.createWatch(
-      { name: "Budget", query: { kind: "fts", q: "budget" } },
+      { name: "Budget", view_id: 4 },
       options,
     );
     await api.updateWatch(1, { name: "Renamed" }, options);
@@ -429,7 +428,7 @@ describe("watchlist generated HTTP transport", () => {
       undefined,
       JSON.stringify({
         name: "Budget",
-        query: { kind: "fts", q: "budget" },
+        view_id: 4,
       }),
       JSON.stringify({ name: "Renamed" }),
       undefined,
@@ -468,7 +467,7 @@ describe("watchlist generated HTTP transport", () => {
     const listed = await projectApi.listWatches();
     const created = await projectApi.createWatch({
       name: "Budget",
-      query: { kind: "fts", q: "budget" },
+      view_id: 4,
     });
     const runResult = await projectApi.runWatch(1);
     const runsPage = await projectApi.getWatchRuns(1, 2, 3);
@@ -519,7 +518,7 @@ describe("watchlist generated HTTP transport", () => {
     expect(requests[1].init?.body).toBe(
       JSON.stringify({
         name: "Budget",
-        query: { kind: "fts", q: "budget" },
+        view_id: 4,
       }),
     );
   });
@@ -674,7 +673,7 @@ describe("watchlist generated HTTP transport", () => {
       await invoke("createWatch", () =>
         projectApi.createWatch({
           name: "Budget",
-          query: { kind: "fts", q: "budget" },
+          view_id: 4,
         }),
       );
       const lifecycleApi = projectApi as unknown as WatchesLifecycleProjectApi;
@@ -740,7 +739,7 @@ describe("watchlist generated HTTP transport", () => {
       if (operationId === "tenant.create_watch.post") {
         return {
           ...watchRow,
-          query: { kind: "filter", sheet_id: 3, filter: { status: { eq: "open" } } },
+          view_id: 4,
         };
       }
       return transportResponse(operationId);
@@ -752,8 +751,8 @@ describe("watchlist generated HTTP transport", () => {
       );
       const input: WatchInput = {
         name: "Budget",
-        query: { kind: "filter", sheet_id: 3, filter: { status: { eq: "open" } } },
-        scope: { kind: "sheet", sheet_id: 3 },
+        view_id: 4,
+
         enabled: false,
       };
       const created = domain.createWatch(input);
@@ -782,8 +781,8 @@ describe("watchlist generated HTTP transport", () => {
       ]);
       expect(calls[0].options.body).toEqual({
         name: "Budget",
-        query: { kind: "filter", sheet_id: 3, filter: { status: { eq: "open" } } },
-        scope: { kind: "sheet", sheet_id: 3 },
+        view_id: 4,
+
         enabled: false,
       });
       expect(calls[0].options.body).not.toHaveProperty("detection_policy");
@@ -805,8 +804,8 @@ describe("watchlist generated HTTP transport", () => {
 
       // Mapping allocates feature containers but leaves typed JSON subtrees
       // referentially intact, just as the legacy adapter did.
-      expect(listed[0].query).toBe(watchRow.query);
-      expect(createdWatch.query).toEqual({ kind: "filter", sheet_id: 3, filter: { status: { eq: "open" } } });
+      expect(listed[0].detectionPolicy).toBe(watchRow.detection_policy);
+      expect(createdWatch.viewId).toBe(4);
       expect(runResult.hits).not.toBe(runResultFixture.hits);
       expect(runResult.run.resolvedQuery).toBe(runRow.resolved_query);
       expect(runsPage.runs[0].hits).toEqual([]);
@@ -819,7 +818,7 @@ describe("watchlist generated HTTP transport", () => {
     });
   });
 
-  it("serializes an independent filter Watch without a Saved View source", async () => {
+  it("serializes alert configuration by saved View identity without copying criteria", async () => {
     await withMockedTransport(transportResponse, async (calls) => {
       const fresh = (await import("../../src/api/watches")) as WatchesModule;
       const domain = fresh.createWatchesDomainApi(
@@ -829,8 +828,8 @@ describe("watchlist generated HTTP transport", () => {
 
       await domain.createWatch({
         name: "Open rows",
-        query: { kind: "filter", sheet_id: 7, filter: { status: { eq: "open" } } },
-        scope: { kind: "sheet", sheet_id: 7 },
+        view_id: 4,
+
       });
 
       expect(calls[0]).toMatchObject({
@@ -838,8 +837,8 @@ describe("watchlist generated HTTP transport", () => {
         options: {
           body: {
             name: "Open rows",
-            query: { kind: "filter", sheet_id: 7, filter: { status: { eq: "open" } } },
-            scope: { kind: "sheet", sheet_id: 7 },
+            view_id: 4,
+
           },
         },
       });

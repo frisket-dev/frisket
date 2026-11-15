@@ -205,9 +205,7 @@ import type {
   EmbeddingProvider,
   EmbeddingComposedQuery,
   EmbeddingSimilarityResult,
-  Lens,
-  LensSaveInput,
-  LensResolved,
+  ViewResolved,
   ColumnDef,
   ColumnPatch,
   ColumnRunsInfo,
@@ -1029,19 +1027,8 @@ class RealApi implements FrisketApi {
     return this.viewsLensesApi.deleteView(viewId);
   }
 
-  listLenses(sheetId?: number | string): Promise<Lens[]> {
-    return this.viewsLensesApi.listLenses(sheetId);
-  }
-
-  saveLens(input: LensSaveInput): Promise<Lens> {
-    return this.viewsLensesApi.saveLens(input);
-  }
-
-  async resolveLens(
-    lensId: number,
-    opts?: { limit?: number; offset?: number },
-  ): Promise<LensResolved> {
-    return this.viewsLensesApi.resolveLens(lensId, opts);
+  resolveView(viewId: number, opts?: { limit?: number; offset?: number }): Promise<ViewResolved> {
+    return this.viewsLensesApi.resolveView(viewId, opts);
   }
 
   async listWatches(): Promise<WatchInfo[]> {

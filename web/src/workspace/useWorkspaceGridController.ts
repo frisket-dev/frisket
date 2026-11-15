@@ -105,6 +105,7 @@ export function useWorkspaceGridController({
     () => groupManagedHiddenColumnNames(columnGroupSpecs),
     [columnGroupSpecs],
   );
+  const presentationEdited = useSelector(gridView.store, (state) => state.presentationEdited);
   const activeSavedView = useMemo(
     () => activeSavedViewId === null || !sheet
       ? null
@@ -114,11 +115,11 @@ export function useWorkspaceGridController({
     [activeSavedViewId, sheet, views],
   );
   const activeExactViewColumns = useMemo(() => {
-    const raw = activeSavedView?.spec.columns;
+    const raw = presentationEdited ? null : activeSavedView?.spec?.presentation.columns;
     return Array.isArray(raw)
       ? raw.filter((name): name is string => typeof name === 'string')
       : null;
-  }, [activeSavedView]);
+  }, [activeSavedView, presentationEdited]);
   const activeExactHiddenColumns = useMemo(() => {
     if (!sheet || activeExactViewColumns === null) return [];
     return exactViewHiddenColumns(sheet, activeExactViewColumns, groupManagedHiddenColumns);

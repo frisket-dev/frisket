@@ -1,3 +1,4 @@
+import { useCurrentViewSelection } from '../bind/useCurrentViewSelection';
 import {
   useCallback, useEffect, useMemo, useRef, useState,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -61,6 +62,7 @@ export function useWorkspaceNavigationController({
   showError: (message: string) => void;
 }) {
   const { projectApi } = useWorkspaceStores();
+  const viewSelection = useCurrentViewSelection(sheet);
   const route = useRouteHandle();
   const detail = useDetailHandle();
   const selection = useSelectionHandle();
@@ -374,6 +376,7 @@ export function useWorkspaceNavigationController({
     activeGridFilter,
     activeGridSort,
     activeGridScopeRowIds: scopeRowIds,
+    viewSelection,
     rowDrawerId: rowDrawer?.loadedColumnIds ? null : rowDrawer?.id ?? null,
     showError,
   });
@@ -399,11 +402,7 @@ export function useWorkspaceNavigationController({
       if (!sheet || !rowDrawer) return;
       const targetIndex = rowDrawer.index + direction;
       if (targetIndex < 0) return;
-      const scope = {
-        parentRowId: activeChildFilter?.parentRowId ?? null,
-        filter: activeGridFilter,
-        sort: activeGridSort,
-      };
+      const scope = viewSelection ? { selection: viewSelection } : {};
       void projectApi
         .getSheetData(sheet.id, targetIndex, 1, { ...scope, valueMode: 'bounded' })
         .then((page) => {
@@ -419,9 +418,7 @@ export function useWorkspaceNavigationController({
         .catch((e: Error) => showError(e.message));
     },
     [
-      activeChildFilter?.parentRowId,
-      activeGridFilter,
-      activeGridSort,
+      viewSelection,
       openRowPanel,
       rowDrawer,
       projectApi,

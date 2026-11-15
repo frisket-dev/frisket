@@ -127,42 +127,13 @@ const HISTORY_WIRE = {
   revision: { total: 0, max_op_id: 0, op_cursor: 0 },
 };
 
-// The complete frisket.query_preview.v1 resolve payload. `query` and
-// `evaluator` are fields the server always emits, so the fixture carries them
-// rather than the transport pretending they are optional; `evaluator` is the
-// producer's own SHEET_FILTER_ROWSET_EVALUATOR constant.
-function resolvedLens(lensId: number, rowId: number): Response {
-  return jsonResponse({
-    lens_id: lensId,
-    schema_version: 'frisket.query_preview.v1',
-    query: { schema_version: 'frisket.query.v1', kind: 'sheet.filter' },
-    sheet_id: 1,
-    query_hash: `query-${lensId}`,
-    row_ids: [rowId],
-    row_count: 1,
-    total: 1,
-    offset: 0,
-    limit: 5000,
-    evaluator: { kind: 'frisket.querysets.sheet_filter', version: 'v1' },
-    scores: {},
-  });
-}
-
-let lensRequests: Map<number, ReturnType<typeof deferred<Response>>>;
-
 function installFetchStub() {
-  lensRequests = new Map();
   vi.stubGlobal(
     'fetch',
     vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? 'GET').toUpperCase();
-      const lensMatch = url.match(/^\/api\/projects\/p1\/lenses\/(\d+)\/resolve/);
-      if (method === 'GET' && lensMatch) {
-        const pending = deferred<Response>();
-        lensRequests.set(Number(lensMatch[1]), pending);
-        return pending.promise;
-      }
+      if (method === 'GET' && url.startsWith('/api/projects/p1/views')) return Promise.resolve(jsonResponse([]));
       if (method === 'GET' && url === '/api/projects/p1/sheets') {
         return Promise.resolve(jsonResponse(SHEET_LIST_WIRE));
       }
@@ -197,83 +168,40 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('STRUCT-A1 applyLens generation guard', () => {
-  it('drops a resolve released after a sheet switch without resetting the grid for lens entry', async () => {
+describe('saved View asynchronous opening', () => {
+  const view = (id: number) => ({ id, name: `View ${id}`, sheet_id: 1, op_id: null, unavailable_reason: null,
+    spec: { selection: { scope: { kind: 'sheet' as const, sheet_id: 1 }, filters: [], order: [], limit: id }, presentation: {} } });
+  it('drops a definition released after a sheet switch', async () => {
     await readyWorkspace();
-    const resetForLensEntry = vi.spyOn(stores().gridView, 'resetForLensEntry');
-
-    let applying!: Promise<void>;
-    act(() => {
-      applying = model().applyLens(1, 'old sheet lens');
-    });
-    expect(lensRequests.has(1)).toBe(true);
-
+    const pending = deferred<ReturnType<typeof view>[]>();
+    vi.spyOn(stores().projectApi, 'listViews').mockReturnValueOnce(pending.promise);
+    let opening!: Promise<void>;
+    act(() => { opening = model().openSavedView(1); });
     act(() => model().selectSheet('2'));
-    await waitFor(() => expect(stores().route.store.get().sheetId).toBe('2'));
-    expect(stores().lensView.store.get().lensView).toBeNull();
-
-    await act(async () => {
-      lensRequests.get(1)!.resolve(resolvedLens(1, 101));
-      await applying;
-    });
-
-    expect({
-      lensView: stores().lensView.store.get().lensView,
-      resetForLensEntryCalls: resetForLensEntry.mock.calls.length,
-    }).toEqual({ lensView: null, resetForLensEntryCalls: 0 });
+    await act(async () => { pending.resolve([view(1)]); await opening; });
+    expect(stores().gridView.store.get().activeSavedViewId).toBeNull();
+    expect(stores().gridView.store.get().applied.selection).toBeUndefined();
   });
-
-  it('drops a rejection released after invalidation without setting lensOpenError', async () => {
+  it('lets the newer same-sheet opening win when the older definition arrives last', async () => {
     await readyWorkspace();
-
-    let applying!: Promise<void>;
-    act(() => {
-      applying = model().applyLens(1, 'rejected lens');
-    });
-    stores().lensView.resetForSheetChange();
-
-    await act(async () => {
-      lensRequests.get(1)!.reject(new Error('late rejection'));
-      await applying;
-    });
-
-    expect(stores().lensView.store.get().lensOpenError).toBeNull();
+    const older = deferred<ReturnType<typeof view>[]>();
+    const newer = deferred<ReturnType<typeof view>[]>();
+    vi.spyOn(stores().projectApi, 'listViews').mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise).mockResolvedValue([view(1), view(2)]);
+    let a!: Promise<void>; let b!: Promise<void>;
+    act(() => { a = model().openSavedView(1); b = model().openSavedView(2); });
+    await act(async () => { newer.resolve([view(2)]); await b; });
+    expect(stores().gridView.store.get().applied.selection?.limit).toBe(2);
+    await act(async () => { older.resolve([view(1)]); await a; });
+    expect(stores().gridView.store.get().applied.selection?.limit).toBe(2);
   });
-
-  it('lets the newer same-sheet applyLens win when the older resolve settles last', async () => {
+  it('show all rows invalidates an outstanding definition request', async () => {
     await readyWorkspace();
-    const resetForLensEntry = vi.spyOn(stores().gridView, 'resetForLensEntry');
-
-    let applyingA!: Promise<void>;
-    let applyingB!: Promise<void>;
-    act(() => {
-      applyingA = model().applyLens(1, 'lens A');
-      applyingB = model().applyLens(2, 'lens B');
-    });
-
-    await act(async () => {
-      lensRequests.get(2)!.resolve(resolvedLens(2, 202));
-      await applyingB;
-    });
-    const stateAfterB = stores().lensView.store.get();
-    expect(stateAfterB.lensView).toMatchObject({ lensId: 2, name: 'lens B', rowIds: [202] });
-
-    await act(async () => {
-      lensRequests.get(1)!.resolve(resolvedLens(1, 101));
-      await applyingA;
-    });
-
-    expect(stores().lensView.store.get()).toBe(stateAfterB);
-    expect(resetForLensEntry).toHaveBeenCalledTimes(1);
-  });
-
-  it('exitLensView invalidates an outstanding store generation token', async () => {
-    await readyWorkspace();
-    const token = stores().lensView.beginLensResolve();
-
-    act(() => model().mainViewModel.exitLensView());
-
-    expect(stores().lensView.isCurrentLensResolve(token)).toBe(false);
+    const pending = deferred<ReturnType<typeof view>[]>();
+    vi.spyOn(stores().projectApi, 'listViews').mockReturnValueOnce(pending.promise);
+    let opening!: Promise<void>;
+    act(() => { opening = model().openSavedView(1); model().mainViewModel.clearViewSelection(); });
+    await act(async () => { pending.resolve([view(1)]); await opening; });
+    expect(stores().gridView.store.get().applied.selection).toBeUndefined();
   });
 });
 

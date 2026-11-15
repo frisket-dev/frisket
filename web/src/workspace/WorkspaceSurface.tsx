@@ -1,7 +1,7 @@
+import { useCurrentViewSelection } from '../bind/useCurrentViewSelection';
 import './WorkspaceSurface.css';
 import '../grid/SheetGrid.css';
-import { lazy, Suspense, useCallback, useMemo, type ReactNode } from 'react';
-import { toWireJsonObject } from '../api/viewsLenses';
+import { lazy, Suspense, useCallback, type ReactNode } from 'react';
 import { X } from 'lucide-react';
 import { listProjectDocuments } from '../api/open';
 import { PanelLoading } from '../components/PanelPrimitives';
@@ -21,7 +21,6 @@ import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { useGridViewHandle } from '../bind/useGridViewHandle';
 import { useActionCatalogHandle } from '../bind/useActionCatalogHandle';
 import { useWorkViewHandle } from '../bind/useWorkViewHandle';
-import { useDetailHandle } from '../bind/useDetailHandle';
 import { useJobsHandle } from '../bind/useJobsHandle';
 import { useSelector } from '../bind/useSelector';
 import { useCurrentSheet, useMainViewModel } from './WorkspaceContext';
@@ -178,9 +177,7 @@ export function WorkspacePrimarySurface() {
     workbenchHostContext,
   } = useMainViewModel();
   const gridView = useGridViewHandle();
-  const detail = useDetailHandle();
-  const childFilter = useSelector(detail.store, (current) => current.childFilter);
-  const activeChildFilter = childFilter?.sheetId === sheet?.id ? childFilter : null;
+  const viewSelection = useCurrentViewSelection(sheet);
   const workView = useWorkViewHandle();
   const answersViewState = useSelector(workView.store, (state) => state.answersView);
 
@@ -205,10 +202,7 @@ export function WorkspacePrimarySurface() {
     },
     [nerCatalogEntry, projectApi, sheet, showError, startRun],
   );
-  const activeGridFilter = useSelector(gridView.store, (s) => s.applied.filter);
-  const scopeRowIds = useSelector(gridView.store, (s) => s.applied.scopeRowIds ?? null);
   const activeGridSort = useSelector(gridView.store, (s) => s.applied.sort);
-  const extractionFilter = useMemo(() => activeGridFilter ? toWireJsonObject(activeGridFilter) : null, [activeGridFilter]);
   const splitResize = useResizable({
     storageKey: `frisket:work-split-w:${project.id}`,
     minWidth: 280,
@@ -221,11 +215,9 @@ export function WorkspacePrimarySurface() {
     (args: { columnIds?: string[]; offset: number; limit: number }) =>
       projectApi.getSheetData(sheetIdForGallery, args.offset, args.limit, {
         columnIds: args.columnIds, valueMode: 'bounded',
-        filter: activeGridFilter,
-        scopeRowIds,
-        sort: activeGridSort,
+        ...(viewSelection ? { selection: viewSelection } : {}),
       }),
-    [activeGridFilter, activeGridSort, sheetIdForGallery, scopeRowIds],
+    [viewSelection, sheetIdForGallery],
   );
   const showImageGalleryPane =
     !gridOnly &&
@@ -251,19 +243,14 @@ export function WorkspacePrimarySurface() {
         | 'asc'
         | 'desc'
         | undefined) ?? null;
-    const orderKey = `${activeChildFilter?.parentRowId ?? ''}|${JSON.stringify(scopeRowIds)}|${JSON.stringify(activeGridFilter ?? null)}|${JSON.stringify(
-      activeGridSort ?? null,
-    )}`;
+    const orderKey = JSON.stringify(viewSelection);
     const queryDocuments = (args: {
       sourceColumnId: string; titleColumnId: string | null; query: string;
       cursor?: string; anchorRowId?: string; limit: number;
     }) => listProjectDocuments(project.id, sheet.id, {
       sourceColumnId: args.sourceColumnId,
       titleColumnId: args.titleColumnId,
-      parentRowId: activeChildFilter?.parentRowId ?? null,
-      filter: activeGridFilter,
-      sort: activeGridSort,
-      scopeRowIds,
+      ...(viewSelection ? { selection: viewSelection } : {}),
       query: args.query,
       cursor: args.cursor,
       anchorRowId: args.anchorRowId,
@@ -289,7 +276,7 @@ export function WorkspacePrimarySurface() {
         titleColumnOrder={titleColumnOrder}
         refreshKey={sheets}
         extractionRunning={extractionRunning}
-        filterScope={{ filter: extractionFilter, parent_row_id: activeChildFilter?.parentRowId ? Number(activeChildFilter.parentRowId) : null, scope_row_ids: scopeRowIds }}
+        filterScope={viewSelection ? { selection: viewSelection } : {}}
         onExtract={({ template, source, repeat_group_id, sheet_name, layout_id, extraction_scope }) => {
           const usedNames = new Set(sheets.map((entry) => entry.name));
           let uniqueName = sheet_name;
@@ -334,9 +321,7 @@ export function WorkspacePrimarySurface() {
   if (answersViewShowing && sheet) {
 
     const titleColumnOrder = visibleOrderedColumns.map((column) => column.name);
-    const orderKey = `${JSON.stringify(scopeRowIds)}|${JSON.stringify(activeGridFilter ?? null)}|${JSON.stringify(
-      activeGridSort ?? null,
-    )}`;
+    const orderKey = JSON.stringify(viewSelection);
     return (
       <AnswersView
         projectId={project.id}
@@ -485,20 +470,15 @@ export function WorkspacePromotedView() {
     visibleOrderedColumns,
     workbenchHostContext,
   } = useMainViewModel();
-  const gridView = useGridViewHandle();
-  const activeGridFilter = useSelector(gridView.store, (s) => s.applied.filter);
-  const scopeRowIds = useSelector(gridView.store, (s) => s.applied.scopeRowIds ?? null);
-  const activeGridSort = useSelector(gridView.store, (s) => s.applied.sort);
+  const viewSelection = useCurrentViewSelection(sheet);
   const sheetId = sheet?.id ?? '';
   const queryRows = useCallback(
     (args: { columnIds?: string[]; offset: number; limit: number }) =>
       projectApi.getSheetData(sheetId, args.offset, args.limit, {
         columnIds: args.columnIds, valueMode: 'bounded',
-        filter: activeGridFilter,
-        scopeRowIds,
-        sort: activeGridSort,
+        ...(viewSelection ? { selection: viewSelection } : {}),
       }),
-    [activeGridFilter, activeGridSort, sheetId, scopeRowIds],
+    [viewSelection, sheetId],
   );
   if (!activePromotedView || !sheet) return <>{gridContribution}</>;
   const view = activePromotedView;

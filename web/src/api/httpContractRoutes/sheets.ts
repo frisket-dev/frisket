@@ -30,6 +30,8 @@ export interface SheetGridContractOptions {
 }
 
 export interface SheetDataContractQuery {
+  selection?: string;
+  view_id?: number;
   offset?: number;
   limit?: number;
   column_ids?: string;
@@ -42,6 +44,8 @@ export interface SheetDataContractQuery {
 }
 
 export interface LocateSheetRowContractQuery {
+  selection?: string;
+  view_id?: number;
   page_size: number;
   parent_row_id?: number;
   filter?: string;
@@ -389,7 +393,7 @@ export function getColumnStatsContract(
   projectId: string,
   sheetId: number,
   columnId: number,
-  query: Pick<SheetDataContractQuery, 'filter' | 'sort' | 'scope_row_ids' | 'parent_row_id'> & { force?: boolean },
+  query: Pick<SheetDataContractQuery, 'filter' | 'sort' | 'scope_row_ids' | 'parent_row_id' | 'selection' | 'view_id'> & { force?: boolean },
   errorFactory: ContractErrorFactory,
   options: SheetGridContractOptions = {},
 ): Promise<ColumnStats> {

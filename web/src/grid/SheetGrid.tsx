@@ -1,3 +1,4 @@
+import type { ViewSelection } from '../api/types';
 import type { ExpectedProjection } from '../api/evaluation';
 import '../workspace/gridMenus.css';
 import '../components/PanelPrimitives.css';
@@ -297,6 +298,7 @@ const EMPTY_EXPECTED_ROWS: ExpectedProjection['rows'] = {};
 
 export interface SheetGridProps {
   scopeRowIds?: number[] | null;
+  viewSelection?: ViewSelection | null;
   citationColumnId?: string | null;
   sheet: SheetMeta;
   /** Bump to hard-invalidate the cache (undo/redo, review edits). */
@@ -1352,7 +1354,7 @@ function useSheetGridController({
   sheet, dataVersion, liveRun, backgroundLiveRun = null, priorityReadingRowId = null,
   pendingImportRowCount = 0, importRowRefreshKey = null,
   rowHeight, wrapText, childSheet, parentRowFilter,
-  activeFilter, activeSort, columnOrder, lensRowIds, lensScores, scopeRowIds, citationColumnId,
+  activeFilter, activeSort, columnOrder, lensRowIds, lensScores, scopeRowIds, viewSelection, citationColumnId,
   previewColumns, previewCells,
   rowDrawerOpen = false, frozenColumnCount = 1, columnGroupsStorageScope, columnGroupsVersion,
   hiddenColumnNames = EMPTY_COLUMN_NAMES, userHiddenColumnNames = EMPTY_COLUMN_NAMES,
@@ -1393,13 +1395,14 @@ function useSheetGridController({
         parentRowId: parentRowFilter?.parentRowId,
         filter: activeFilter,
         scopeRowIds,
+        selection: viewSelection,
         sort: activeSort,
         lensRowIds: lensActive ? (lensRowIdsKey ? lensRowIdsKey.split(',').map(Number) : []) : null,
       }),
       columnIds: projectedColumnIds,
       valueMode: 'bounded',
     }),
-    [activeFilter, activeSort, parentRowFilter?.parentRowId, lensActive, lensRowIdsKey, scopeRowIds, projectedColumnIds],
+    [activeFilter, activeSort, parentRowFilter?.parentRowId, lensActive, lensRowIdsKey, scopeRowIds, projectedColumnIds, viewSelection],
   );
   const fallbackRowCacheStore = useMemo(() => createRowCacheStore(), []);
   const cache = useRowCache(

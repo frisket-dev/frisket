@@ -128,6 +128,7 @@ class CellValueDownloadQuery(NonNullQueryWireModel):
 
 
 class DocumentBrowseQuery(NonNullQueryWireModel):
+    selection: str | None = None
     source_column_id: int = Field(ge=1)
     title_column_id: int | None = Field(default=None, ge=1)
     parent_row_id: int | None = Field(default=None, ge=1)
