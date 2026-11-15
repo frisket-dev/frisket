@@ -1584,17 +1584,12 @@ def test_direct_join_semantic_stale_clear_retry_resumes_abandoned_run(
     # (execution/attempt_authority.py:152), but only once BOTH the attempt
     # and its claims' 6-hour lease (STALE_DISPATCHING_AGE) are old enough --
     # a real crash discovered hours later clears this organically as a
-    # byproduct of the next dispatch. Simulate "hours passed" the same way
-    # this call already gets exercised in production (a `now` far enough
-    # ahead), and release the claims themselves (their `status` never
-    # expires on its own -- OutputColumnClaimStore marks this exact shape
-    # `requires_recovery: True` for an operator/reconcile flow, defect 4's
-    # territory) to isolate what THIS defect's fix owns: once the crashed
-    # attempt is closed, does the retry resume run_a's row checkpoints
-    # instead of re-buying them?
+    # byproduct of the next dispatch. Simulate the old attempt and its actual
+    # claim lease expiring; let the normal stale-recovery path prove and
+    # release the claim rather than pre-releasing it in the fixture.
     project.db.execute(
-        "UPDATE output_column_claims SET status='released', "
-        "released_at=datetime('now') WHERE run_id=? AND status='active'",
+        "UPDATE output_column_claims SET lease_expires_at=datetime('now', '-1 hour') "
+        "WHERE run_id=? AND status='active'",
         (run_a,),
     )
     project.db.commit()

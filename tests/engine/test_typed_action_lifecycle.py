@@ -895,7 +895,10 @@ def test_typed_action_terminalizes_failed_run_and_retries_cleanly(
 
     assert failed.status == "failed"
     assert failed.errors[0].code == "map_rows_failed"
-    assert ReceiptStore(store).count() == 0
+    assert failed.receipt_id is not None
+    failed_receipt = ReceiptStore(store).parsed_by_id(failed.receipt_id)
+    assert failed_receipt is not None
+    assert failed_receipt.status == "failed"
     run = store.db.execute("SELECT status, finished_at FROM runs").fetchone()
     assert run is not None
     assert run["status"] == "failed"
@@ -913,7 +916,10 @@ def test_typed_action_terminalizes_failed_run_and_retries_cleanly(
     assert hidden["hidden"] == 1
 
     monkeypatch.setattr(MapRunner, "run", original_run)
+    retry_request = request.model_copy(
+        update={"idempotency_key": f"{request.idempotency_key}:retry"}
+    )
     retried = run_typed_map_rows_action(
-        store, "project-1", action, request, None, _runner
+        store, "project-1", action, retry_request, None, _runner
     )
     assert retried.status == "completed", retried.errors

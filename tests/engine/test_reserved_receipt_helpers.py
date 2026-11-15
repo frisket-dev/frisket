@@ -458,6 +458,13 @@ def test_reserved_receipt_cleanup_is_wired_across_action_builder_families(
                 (action["idempotency_key"],),
             ).fetchone()
             assert owned["run_id"] is not None and owned["status"] == "running"
+        elif fault in {"runner", "confirmation_retry_runner"}:
+            owned = env.project.db.execute(
+                "SELECT run_id,status FROM receipts WHERE idempotency_key=?",
+                (action["idempotency_key"],),
+            ).fetchone()
+            assert owned is not None
+            assert owned["run_id"] is not None and owned["status"] == "failed"
         else:
             assert (
                 env.project.db.execute(
@@ -555,7 +562,13 @@ def test_stale_receipt_recovery_rechecks_dispatch_and_real_lease(
             "SELECT state FROM execution_attempts WHERE id=?",
             (authority.writer_attempt_id,),
         ).fetchone()[0]
-        if live_lease:
+        if claimless:
+            # A direct claimless effect has no queue-handler terminal evidence;
+            # attempt age alone cannot revoke its writer tuple.
+            assert result is None
+            assert state == "dispatching"
+            assert _receipt_row(project) is not None
+        elif live_lease:
             assert result is None
             assert state == "dispatching"
             assert _receipt_row(project) is not None

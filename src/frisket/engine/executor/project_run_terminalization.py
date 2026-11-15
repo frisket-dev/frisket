@@ -234,7 +234,7 @@ def terminalize_project_run(
         run = db.execute(
             "SELECT runs.status, runs.finished_at, runs.current_attempt_id, "
             "runs.cancel_requested_at, ops.spec AS runner_spec, "
-            "ops.status AS change_status, ops.publication_closed "
+            "ops.id AS op_id, ops.status AS change_status, ops.publication_closed "
             "FROM runs JOIN ops ON ops.id=runs.op_id WHERE runs.id=?",
             (run_id,),
         ).fetchone()
@@ -995,6 +995,45 @@ def terminalize_project_run(
                     generation_store.rebuild_heads_from_key_table(
                         key_table, commit=False
                     )
+
+        if run_status_written and terminal_run_status != "cancelled" and declared_bindings:
+            # Prepared and recovery terminal paths share the same visibility
+            # rule as the ordinary runner finalizer: a fresh output with no
+            # successful result stays hidden after a failed run. This is
+            # visibility-only and remains inside the terminal receipt tx.
+            from frisket.engine.runner.column_retirement import (
+                hide_zero_success_created_columns,
+                reveal_recovered_columns,
+            )
+            from frisket.engine.runner.finalization import (
+                zero_success_created_columns_for_run,
+            )
+            from frisket.engine.store.runs import RunResultStore
+
+            output_columns = {
+                str(int(binding.column_id)): int(binding.column_id)
+                for binding in declared_bindings
+            }
+            zero_success = zero_success_created_columns_for_run(
+                project,
+                RunResultStore(project),
+                run_id,
+                int(run["op_id"]),
+                output_columns,
+            )
+            if zero_success:
+                hide_zero_success_created_columns(
+                    project,
+                    int(run["op_id"]),
+                    output_columns,
+                    only_columns=zero_success,
+                )
+            reveal_recovered_columns(
+                project,
+                int(run["op_id"]),
+                output_columns,
+                still_zero_success=zero_success,
+            )
 
         if run_status_written or isinstance(authority, CurrentWriterTerminalAuthority):
             # The ordinary finisher and every recovery/admin terminal path
