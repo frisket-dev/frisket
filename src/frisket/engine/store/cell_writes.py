@@ -427,8 +427,9 @@ def replace_base_cells(
     cells: Iterable[BaseCellWrite],
     row_ids: Collection[int] | None = None,
     import_writer_authority: str | None = None,
+    clear_omitted: bool = True,
 ) -> int:
-    """Replace exactly one declared base-cell region with a new sparse set."""
+    """Version a declared cell region; explicit updates can retain omitted cells."""
 
     _require_transaction(db)
     producer_id = int(producer_id)
@@ -475,13 +476,14 @@ def replace_base_cells(
     provided = {(row_id, column_id) for row_id, column_id, _, _ in encoded}
     # Sparse replacement clears omitted existing coordinates, but keeps the
     # old producer-qualified versions available to history and baseline.
-    encoded.extend(
-        (int(row[0]), int(row[1]), "null", None)
-        for row in db.execute(
-            f"SELECT DISTINCT row_id,column_id FROM cells WHERE {where}", params
+    if clear_omitted:
+        encoded.extend(
+            (int(row[0]), int(row[1]), "null", None)
+            for row in db.execute(
+                f"SELECT DISTINCT row_id,column_id FROM cells WHERE {where}", params
+            )
+            if (int(row[0]), int(row[1])) not in provided
         )
-        if (int(row[0]), int(row[1])) not in provided
-    )
     if encoded:
         version_producer_id = _replacement_producer(db, producing_op_id)
         db.executemany(

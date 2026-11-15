@@ -1001,8 +1001,9 @@ def test_stop_keeps_committed_table_rows_and_finishes_intake(tmp_path: Path) -> 
         assert listed.can_rerun_workbook is True
 
 
+@pytest.mark.parametrize("fail_inside_page", [False, True])
 def test_keyed_table_worker_validates_whole_source_and_resumes_atomic_pages(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, fail_inside_page
 ):
     from frisket.engine.store.keyed_updates import observation
     from frisket.engine.store.table_import_intake import TableImportUpdate
@@ -1071,7 +1072,18 @@ def test_keyed_table_worker_validates_whole_source_and_resumes_atomic_pages(
         published.append(kwargs["next_cursor"])
         return result
 
-    monkeypatch.setattr(table_job, "publish_keyed_page", interrupted)
+    import frisket.engine.store.keyed_import as keyed_writer
+
+    original_observe = keyed_writer.observe
+
+    def interrupted_observation(*args, **kwargs):
+        original_observe(*args, **kwargs)
+        raise RuntimeError("crash after cell write and observation, before cursor")
+
+    if fail_inside_page:
+        monkeypatch.setattr(keyed_writer, "observe", interrupted_observation)
+    else:
+        monkeypatch.setattr(table_job, "publish_keyed_page", interrupted)
     with closing(SqliteJobQueue(tmp_path / "queue.db")) as queue:
         registry = HandlerRegistry()
         register_import_table_handler(registry, workspace_root=tmp_path, queue=queue)
@@ -1084,17 +1096,21 @@ def test_keyed_table_worker_validates_whole_source_and_resumes_atomic_pages(
         assert Worker(queue, registry, worker_id="first").run_once()
         with closing(Project(project_path)) as project:
             session = ImportSessionStore(project).get(IMPORT_REF)
-            assert session.cursor == 2
+            assert session.cursor == (0 if fail_inside_page else 2)
             assert project.get_values(sheet, value_col, row_ids) == {
                 row_ids[0]: "original",
-                row_ids[1]: "updated-b",
+                row_ids[1]: "original" if fail_inside_page else "updated-b",
                 row_ids[2]: "original",
             }
             assert observation(project.db, "test:table", row_ids[0]) is None
-            assert (
-                observation(project.db, "test:table", row_ids[1])[str(value_col)]
-                == "updated-b"
-            )
+            if fail_inside_page:
+                assert observation(project.db, "test:table", row_ids[1]) is None
+            else:
+                assert (
+                    observation(project.db, "test:table", row_ids[1])[str(value_col)]
+                    == "updated-b"
+                )
+        monkeypatch.setattr(keyed_writer, "observe", original_observe)
         monkeypatch.setattr(table_job, "publish_keyed_page", original_publish)
         queue.enqueue(IMPORT_TABLE_STREAM_KIND, payload)
         assert Worker(queue, registry, worker_id="second").run_once()

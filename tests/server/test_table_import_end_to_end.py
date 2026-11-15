@@ -88,3 +88,43 @@ def test_reviewed_table_reaches_grid_errors_and_one_undo(tmp_path):
     project = app.state.workspace.get(pid)
     assert project.undo() is not None
     assert project.sheets() == []
+
+
+def test_typed_row_update_queues_compact_input_and_preserves_receipt(tmp_path):
+    app = create_app(tmp_path / "workspace")
+    client = TestClient(app)
+    pid = client.post("/api/projects", json={"name": "Keyed updates"}).json()["id"]
+    drain_queue(client, worker_id="keyed-setup")
+    project = app.state.workspace.get(pid)
+    sheet = project.add_sheet("People")
+    columns = {name: project.add_column(sheet, name, "text") for name in ("id", "name")}
+    row = project.add_rows(sheet, [{"id": "a", "name": "Ada"}], columns)[0]
+    body = {
+        "action_id": "import.update_rows",
+        "scope": {"kind": "sheet_rows", "sheet_id": sheet},
+        "params": {
+            "columns": [{"name": name, "type": "text"} for name in columns],
+            "key_columns": ["id"],
+            "update_policy": "incoming_wins",
+            "rows": [{"id": "a", "name": "Augusta"}],
+        },
+        "idempotency_key": "typed-update-once",
+    }
+    response = client.post(f"/api/projects/{pid}/actions/v1/run", json=body)
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["status"] == "queued", result
+    job = app.state.workspace.queue.get(result["job_id"])
+    assert job.kind == "import.table.stream"
+    assert job.payload["action_job"]["action"]["params"]["rows"] == []
+    assert job.payload["action_job"]["action"]["params"]["staged_input"]
+    drain_queue(client, worker_id="typed-update-worker")
+    assert project.get_values(sheet, columns["name"])[row] == "Augusta"
+    from frisket.engine.store.receipts import ReceiptStore
+
+    receipt = ReceiptStore(project).parsed_by_id(result["receipt_id"])
+    assert receipt.status == "completed"
+    assert receipt.action_kind == "import.update_rows"
+    assert receipt.outputs[0].ref["kind"] == "updated_import_rows"
+    assert project.undo() == receipt.op_ids[0]
+    assert project.get_values(sheet, columns["name"])[row] == "Ada"

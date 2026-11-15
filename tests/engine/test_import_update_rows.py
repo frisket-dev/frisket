@@ -117,7 +117,9 @@ def test_exact_update_preserves_rows_and_undoes_as_one_edit_op(tmp_path: Path) -
     assert replay.receipt_id == result.receipt_id
 
 
-def test_stale_preview_and_late_duplicate_write_nothing(tmp_path: Path) -> None:
+def test_updates_use_current_cells_and_late_duplicate_group_is_skipped(
+    tmp_path: Path,
+) -> None:
     project = Project.create(tmp_path / "stale.frisket", name="Stale")
     sheet_id, columns, row_ids = _seed(project)
     params = _params([{"id": "a", "name": "Alicia", "note": "new"}])
@@ -138,8 +140,8 @@ def test_stale_preview_and_late_duplicate_write_nothing(tmp_path: Path) -> None:
     stale = run_action_spec(
         project, _request(sheet_id, params, preview.confirmation), project_id="p"
     )
-    assert stale.status == "failed"
-    assert stale.errors[0].code == "stale_import_preview"
+    assert stale.status == "completed"
+    assert project.get_values(sheet_id, columns["note"])[row_ids[0]] == "new"
     assert project.db.execute("SELECT COUNT(*) FROM edits").fetchone()[0] == before
 
     duplicate = _params(
@@ -187,12 +189,11 @@ def test_keep_existing_blank_is_bound_and_previewed_as_retained(tmp_path: Path) 
     )
     assert preview.changed_cells == 0
     assert preview.samples[0]["after"] == {"name": "Alice", "note": "keep"}
-    wrong_policy = _params(params.rows, keep=False)
-    refused = run_action_spec(
-        project, _request(sheet_id, wrong_policy, preview.confirmation), project_id="p"
+    result = run_action_spec(
+        project, _request(sheet_id, params, preview.confirmation), project_id="p"
     )
-    assert refused.status == "failed"
-    assert refused.errors[0].code == "stale_import_preview"
+    assert result.status == "completed"
+    assert result.op_ids == []
     assert project.get_values(sheet_id, columns["name"])[row_ids[0]] == "Alice"
 
 
@@ -296,3 +297,68 @@ def test_update_temporal_value_requires_live_project_anchor(tmp_path: Path) -> N
     assert set(
         project.get_values(seeded["sheet_id"], seeded["columns"]["selection"]).values()
     ) == {None}
+
+
+def test_custom_rows_updater_uses_same_publication_without_outer_transaction(
+    tmp_path, monkeypatch
+):
+    from dataclasses import replace
+    from frisket.actions.core import RegisteredAction
+    from frisket.actions.registry import ACTION_REGISTRY
+
+    project = Project.create(tmp_path / "custom.frisket")
+    sheet, columns, rows = _seed(project)
+    original = ACTION_REGISTRY.get("import.update_rows")
+    custom = RegisteredAction("test.update_people", replace(original.definition))
+    monkeypatch.setattr(
+        ACTION_REGISTRY,
+        "_actions",
+        {**ACTION_REGISTRY._actions, custom.action_id: custom},
+    )
+    request = _request(
+        sheet, _params([{"id": "a", "name": "new"}]), "reviewed", "custom"
+    )
+    request["action_id"] = custom.action_id
+    result = run_action_spec(project, request, project_id="p")
+    assert result.status == "completed", result.errors
+    assert result.action.kind == custom.action_id
+    assert project.get_values(sheet, columns["name"])[rows[0]] == "new"
+    assert project.get_values(sheet, columns["note"])[rows[0]] == "keep"
+    assert project.undo() == result.op_ids[0]
+    assert project.get_values(sheet, columns["name"])[rows[0]] == "Alice"
+    replay = run_action_spec(project, request, project_id="p")
+    assert replay.receipt_id == result.receipt_id
+
+
+def test_queued_custom_updater_keeps_original_receipt(tmp_path, monkeypatch):
+    from dataclasses import replace
+    from frisket.actions.core import RegisteredAction
+    from frisket.actions.registry import ACTION_REGISTRY
+    from frisket.actions.system import typed_action_for_request
+    from frisket.engine.executor.action_jobs import (
+        reserve_typed_action_job,
+        run_action_run_job,
+    )
+
+    project = Project.create(tmp_path / "queued-custom.frisket")
+    sheet, columns, rows = _seed(project)
+    original = ACTION_REGISTRY.get("import.update_rows")
+    custom = RegisteredAction("test.queued_update", replace(original.definition))
+    monkeypatch.setattr(
+        ACTION_REGISTRY,
+        "_actions",
+        {**ACTION_REGISTRY._actions, custom.action_id: custom},
+    )
+    request = _request(
+        sheet,
+        _params([{"id": "a", "note": "from worker"}]),
+        "reviewed",
+        "queued-custom",
+    )
+    request["action_id"] = custom.action_id
+    envelope = reserve_typed_action_job(project, "p", typed_action_for_request(request))
+    result = run_action_run_job(project, {"action_job": envelope.to_json()})
+    assert result.status == "completed", result.errors
+    assert result.receipt_id == envelope.receipt_id
+    assert result.action.kind == custom.action_id
+    assert project.get_values(sheet, columns["note"])[rows[0]] == "from worker"

@@ -378,6 +378,9 @@ _QUEUED_PROJECT_RUN_KINDS: frozenset[str] = frozenset(
 # dispatch through the generic action.run job.
 _QUEUED_ACTION_JOB_KINDS: frozenset[str] = frozenset(
     {
+        "import.update_rows",
+        "import.update_csv",
+        "import.update_xlsx",
         "media.extract_document",
         "embedding.index_refresh",
         "temporal.extract_range",
@@ -399,9 +402,6 @@ _INLINE_KINDS: Mapping[str, str] = MappingProxyType(
         "import.append_csv": "Bounded local CSV append publishes rows and its receipt in-request.",
         "import.append_rows": "Bounded row append publishes rows and its receipt in-request.",
         "import.append_xlsx": "Bounded local XLSX append publishes rows and its receipt in-request.",
-        "import.update_csv": "Bounded local CSV update publishes cell edits and its receipt in-request.",
-        "import.update_rows": "Bounded row update publishes cell edits and its receipt in-request.",
-        "import.update_xlsx": "Bounded local XLSX update publishes cell edits and its receipt in-request.",
         "plugin.load": "Bounded local package validation and receipt without activation or network.",
         # -- direct row/column/cell CRUD: local sheet mutation, no network ---
         "cell.edit": "Single-cell write is local, bounded, and synchronous.",

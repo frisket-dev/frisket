@@ -495,7 +495,11 @@ class StreamingSheetWriter:
                 barrier=True,
                 undo_info={
                     "created_rows": [],
-                    "created_rows_import_session_id": session_id,
+                    **(
+                        {}
+                        if source_ref.get("update_relationship") is not None
+                        else {"created_rows_import_session_id": session_id}
+                    ),
                     "created_columns": created_column_ids,
                 },
                 commit=False,
@@ -901,6 +905,10 @@ class StreamingSheetWriter:
     def _completed_session_receipt(
         self, receipt: Receipt, *, row_count: int, status: str
     ) -> Receipt:
+        if self._source_ref.get("update_relationship") is not None:
+            return self._completed_update_receipt(
+                receipt, row_count=row_count, status=status
+            )
         source = self._source_ref
         outputs = [
             ReceiptIO(
@@ -967,6 +975,54 @@ class StreamingSheetWriter:
                         else [*receipt.warnings, *self._warnings]
                     )
                 ),
+            }
+        )
+
+    def _completed_update_receipt(
+        self, receipt: Receipt, *, row_count: int, status: str
+    ) -> Receipt:
+        # The receipt refers to durable version ownership, not a second huge
+        # row-ID list or a fictitious newly materialized sheet.
+        counts = self.project.db.execute(
+            "SELECT COUNT(*) AS cells, COUNT(DISTINCT cell.row_id) AS rows, "
+            "COALESCE(SUM(cell.value IS NULL),0) AS cleared "
+            "FROM cells cell JOIN base_cell_producers producer ON producer.id=cell.producer_id "
+            "WHERE producer.op_id=?",
+            (self._op_id,),
+        ).fetchone()
+        ref = {
+            "kind": "updated_import_rows",
+            "sheet_id": self.sheet_id,
+            "op_id": self._op_id,
+            "row_count": counts["rows"],
+            "edit_count": counts["cells"],
+            "cleared_cells": counts["cleared"],
+            "matched": row_count,
+        }
+        changed = (
+            self.project.db.execute(
+                "SELECT change_order FROM ops WHERE id=?", (self._op_id,)
+            ).fetchone()[0]
+            is not None
+        )
+        return receipt.model_copy(
+            update={
+                "status": status,
+                "op_ids": [self._op_id] if changed else [],
+                "outputs": [ReceiptIO(name="updated_rows", ref=ref)],
+                "evidence": [
+                    *receipt.evidence,
+                    ReceiptEvidence(ref=ref, retention="pinned"),
+                ],
+                "warnings": [
+                    *receipt.warnings,
+                    *self._warnings,
+                    *(
+                        ["Import was stopped; completed updates were kept."]
+                        if status == "partial"
+                        else []
+                    ),
+                ],
             }
         )
 

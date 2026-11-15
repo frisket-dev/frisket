@@ -1124,6 +1124,25 @@ def run_action_run_job(
                         should_cancel=should_cancel,
                     )
 
+        if executor is None and not isinstance(bound, ActionResult):
+            from frisket.actions.types import RowsUpdater
+
+            if getattr(bound.action.definition.run, "capabilities", ()) == (
+                RowsUpdater,
+            ):
+                from frisket.engine.executor.import_update_admission import (
+                    run_rows_updater,
+                )
+                from frisket.engine.executor.action_inventory import ExecutorDeps
+
+                def executor(current, intent):
+                    return run_rows_updater(
+                        current,
+                        intent.project_id,
+                        bound,
+                        ExecutorDeps(cancelled=should_cancel),
+                    )
+
         if executor is None:
             from frisket.actions.core import CreateSheet
             from frisket.authoring.workbench.installed_actions import (

@@ -20,6 +20,7 @@ from frisket.engine.store.import_intake import (
     read_import_header,
     write_import_header,
 )
+from frisket.authoring import column_types
 from frisket.table_import import DateOrder, SourceKind, TableReadSettings, TargetType
 
 
@@ -158,7 +159,9 @@ class TableImportColumn:
             raise ValueError(
                 "table import columns require stable source and target names"
             )
-        if self.target_type not in _TARGET_TYPES:
+        if self.target_type not in _TARGET_TYPES and not column_types.is_registered(
+            self.target_type
+        ):
             raise ValueError("unsupported frozen table target type")
         if self.target_column_id is not None and self.target_column_id < 1:
             raise ValueError("target column ids must be positive")
@@ -237,8 +240,17 @@ class TableImportPlan:
     extra_values_target_name: str | None = None
     dedup: TableImportDedup | None = None
     update: TableImportUpdate | None = None
+    record_encoding: Literal["table", "stored_values"] = "table"
+    action_kind: str | None = None
+    request_hash: str | None = None
 
     def __post_init__(self) -> None:
+        if self.record_encoding not in {"table", "stored_values"}:
+            raise ValueError("unknown table record encoding")
+        if self.record_encoding == "table" and any(
+            column.target_type not in _TARGET_TYPES for column in self.columns
+        ):
+            raise ValueError("unsupported table reader type")
         if self.settings_revision < 0 or not self.sheet_name or not self.columns:
             raise ValueError("frozen table plan is incomplete")
         indices = [column.source_index for column in self.columns]
@@ -264,6 +276,9 @@ class TableImportPlan:
     def to_json(self) -> dict[str, Any]:
         return {
             "schema_version": TABLE_PLAN_SCHEMA,
+            "record_encoding": self.record_encoding,
+            "action_kind": self.action_kind,
+            "request_hash": self.request_hash,
             "settings_revision": self.settings_revision,
             "settings": asdict(self.settings),
             "sheet_name": self.sheet_name,
@@ -281,6 +296,9 @@ class TableImportPlan:
         dedup = value.get("dedup")
         update = value.get("update")
         return cls(
+            record_encoding=value.get("record_encoding", "table"),
+            action_kind=value.get("action_kind"),
+            request_hash=value.get("request_hash"),
             settings_revision=int(value["settings_revision"]),
             settings=TableReadSettings(**dict(value["settings"])),
             sheet_name=str(value["sheet_name"]),

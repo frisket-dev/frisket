@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import json
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from contextlib import ExitStack
@@ -109,6 +110,20 @@ def _prepared_rows(
 ) -> Iterator[_PreparedRow]:
     plan = frozen.plan
     source_path = frozen.intake_dir / "source"
+    if plan.record_encoding == "stored_values":
+        from frisket.engine.store.value_codec import decode_stored_value
+
+        with source_path.open("r", encoding="utf-8") as source:
+            for ordinal, line in enumerate(source, 1):
+                if ordinal <= start_cursor:
+                    continue
+                fields = json.loads(line)
+                values = {
+                    name: decode_stored_value(kind, value)
+                    for name, (kind, value) in fields.items()
+                }
+                yield _PreparedRow(ordinal, values, (), len(line.encode("utf-8")))
+        return
     dedup = TableDedupSnapshot(frozen.intake_dir) if plan.dedup is not None else None
     try:
         reader_context = open_table(
@@ -208,15 +223,34 @@ def _validate_reserved_action(bound: Any, frozen: FrozenTableImport) -> None:
         else "import.append_rows"
     )
     if frozen.plan.update is not None:
-        expected_action = "import.update_rows"
+        expected_action = frozen.plan.action_kind or "import.update_rows"
     if bound.action.action_id != expected_action:
         raise ValueError("table intake action does not match its destination")
-    if getattr(bound.params, "rows", None) != []:
+    if frozen.plan.action_kind not in {
+        None,
+        "import.update_rows",
+        "import.update_csv",
+        "import.update_xlsx",
+    }:
+        from frisket.actions.types import RowsUpdater
+        from frisket.engine.executor.map_rows_action import typed_request_hash
+
+        if (
+            getattr(bound.action.definition.run, "capabilities", ()) != (RowsUpdater,)
+            or frozen.plan.record_encoding != "stored_values"
+            or frozen.plan.request_hash != typed_request_hash(bound)
+            or bound.request.scope.sheet_id != frozen.plan.destination_sheet_id
+        ):
+            raise ValueError(
+                "staged capability update differs from its admitted request"
+            )
+        return
+    if getattr(bound.params, "rows", None) not in (None, []):
         raise ValueError("streaming table action must not carry inline rows")
     actual_columns = [
         (
             column.name,
-            column.source_name,
+            column.source_name or column.name,
             column.type,
             column.format,
         )
@@ -233,8 +267,39 @@ def _validate_reserved_action(bound: Any, frozen: FrozenTableImport) -> None:
     ]
     if frozen.plan.extra_values_target_name is not None:
         expected_columns.append(
-            (frozen.plan.extra_values_target_name, None, "json", None)
+            (
+                frozen.plan.extra_values_target_name,
+                frozen.plan.extra_values_target_name,
+                "json",
+                None,
+            )
         )
+    if frozen.plan.update is not None:
+        staged = getattr(bound.params, "staged_input", None)
+        if (
+            staged is None
+            or staged.import_ref != frozen.import_ref
+            or staged.plan_hash != frozen.plan_hash
+            or staged.source_hash.removeprefix("sha256:")
+            != frozen.source.sha256.removeprefix("sha256:")
+        ):
+            raise ValueError("typed update must identify its admitted staged input")
+        expected_keys = [
+            column.target_name
+            for column in frozen.plan.columns
+            if column.source_index in frozen.plan.update.key_source_indices
+        ]
+        if (
+            bound.request.scope.sheet_id != frozen.plan.destination_sheet_id
+            or list(bound.params.key_columns) != expected_keys
+            or bound.params.update_policy != frozen.plan.update.policy
+            or bound.params.relationship_id != frozen.plan.update.relationship_id
+            or bound.params.keep_existing_on_blank
+            != frozen.plan.update.keep_existing_on_blank
+        ):
+            raise ValueError(
+                "typed update destination or policy changed after admission"
+            )
     if actual_columns != expected_columns:
         raise ValueError("table intake columns changed after review")
 
@@ -255,6 +320,263 @@ def _project_payload(
     if isinstance(context.trusted_job_org_id, int):
         result["org_id"] = context.trusted_job_org_id
     return result
+
+
+def run_table_import(
+    project: Any,
+    *,
+    project_id: str,
+    import_ref: str,
+    plan_hash: str,
+    writer_authority: str,
+    live: Callable[[], bool] = lambda: True,
+    on_commit: Callable[[], None] = lambda: None,
+) -> dict[str, Any]:
+    """Drain the same bounded publisher for local calls and queued workers."""
+    directory = import_intake_dir(project.path, import_ref)
+    sessions = ImportSessionStore(project)
+    try:
+        with import_worker_lock(directory, timeout=5), ExitStack() as resources:
+            header = read_import_header(directory)
+            if (
+                header.intake_kind != "table"
+                or header.project_id != project_id
+                or header.storage_identity != project.storage_identity
+            ):
+                raise ValueError("table intake belongs to another project")
+            frozen = frozen_table_import(directory)
+            requested_hash = plan_hash
+            if requested_hash != frozen.plan_hash:
+                raise ValueError("queued table plan identity changed")
+            envelope = ActionJobEnvelope.from_json(header.envelope)
+            bound = bind_typed_action_job(envelope, project=project)
+            if isinstance(bound, ActionResult):
+                raise ValueError("table intake request no longer validates")
+            _validate_reserved_action(bound, frozen)
+            session = sessions.get(import_ref)
+            if session is None:
+                raise ValueError("table import session has not been started")
+            state = table_import_status(directory)
+            if session.state in {"completed", "kept"}:
+                if state.phase != "terminal":
+                    finish_table_intake(
+                        directory,
+                        exact_rows=max(state.source_cursor, session.cursor),
+                    )
+                if session.state == "kept" and header.resolution is None:
+                    with import_admit_lock(directory):
+                        set_import_resolution(directory, "kept")
+                compact_table_intake(directory)
+                state = table_import_status(directory)
+            if state.phase == "terminal" or session.state in {
+                "completed",
+                "kept",
+                "removed",
+            }:
+                return {
+                    "status": session.state,
+                    "completed_rows": session.committed_rows,
+                    "sheet_id": session.sheet_id,
+                    "problems": state.problem_count,
+                }
+            stored = ReceiptStore(project).find_by_id(envelope.receipt_id)
+            if stored is None or stored.status not in {"queued", "running"}:
+                raise ValueError("table import reservation is unavailable")
+            if stored.status == "queued":
+                ReceiptStore(project).update_body_status(
+                    stored.parsed().model_copy(update={"status": "running"}),
+                    require_status="queued",
+                )
+            if session.state == "paused":
+                StreamingSheetWriter.resume_session(
+                    project,
+                    session_id=import_ref,
+                    writer_authority=writer_authority,
+                    expected_cursor=session.cursor,
+                )
+                session = sessions.get(import_ref)
+                assert session is not None
+            elif session.state != "active":
+                raise ValueError("table import session cannot execute")
+            elif session.writer_authority != writer_authority:
+                StreamingSheetWriter.resume_session(
+                    project,
+                    session_id=import_ref,
+                    writer_authority=writer_authority,
+                    expected_cursor=session.cursor,
+                )
+                session = sessions.get(import_ref)
+                assert session is not None
+
+            if state.source_cursor < session.cursor:
+                advance_table_progress(
+                    directory,
+                    expected_cursor=state.source_cursor,
+                    source_cursor=session.cursor,
+                )
+            keyed = None
+            if frozen.plan.update is not None:
+                keyed = resources.enter_context(
+                    ValidatedKeyedInput(retain_records=False)
+                )
+                # A later conflicting duplicate must invalidate its first
+                # occurrence before any visible field can be published.
+                keyed.stage(
+                    (record_key(frozen.plan, item.values), item.values)
+                    for item in _prepared_rows(frozen, start_cursor=0)
+                    if item.values is not None
+                )
+                keyed.seal()
+                index_targets(project, frozen.plan, keyed)
+            iterator = _prepared_rows(
+                frozen, start_cursor=max(session.cursor, state.source_cursor)
+            )
+            exact_rows = max(session.cursor, state.source_cursor)
+            while True:
+                header = read_import_header(directory)
+                session = sessions.get(import_ref)
+                assert session is not None
+                if header.cancel_requested or not live():
+                    writer = StreamingSheetWriter._from_session(project, session)
+                    if header.cancel_requested:
+                        cancelled = writer.cancel(expected_cursor=session.cursor)
+                        writer = StreamingSheetWriter._from_session(project, cancelled)
+                        publication = writer.finalize_session(
+                            expected_cursor=cancelled.cursor,
+                            keep_cancelled=True,
+                        )
+                        with import_admit_lock(directory):
+                            set_import_resolution(directory, "kept")
+                        finish_table_intake(directory, exact_rows=None)
+                        compact_table_intake(directory)
+                        return {
+                            "status": "kept",
+                            "completed_rows": publication.row_count,
+                            "sheet_id": publication.sheet_id,
+                            "problems": table_import_status(directory).problem_count,
+                        }
+                    writer.pause(expected_cursor=session.cursor)
+                    return {
+                        "status": "paused",
+                        "completed_rows": session.committed_rows,
+                    }
+
+                page: list[_PreparedRow] = []
+                page_bytes = 0
+                exhausted = False
+                while len(page) < _PAGE_ROWS and page_bytes < _PAGE_BYTES:
+                    try:
+                        item = next(iterator)
+                    except StopIteration:
+                        exhausted = True
+                        break
+                    page.append(item)
+                    page_bytes += item.source_bytes
+                    if item.source_bytes > _PAGE_BYTES:
+                        raise ValueError(
+                            "one table source row exceeds the import page byte limit"
+                        )
+                if not page and exhausted:
+                    writer = StreamingSheetWriter._from_session(project, session)
+                    publication = writer.finalize_session(
+                        expected_cursor=session.cursor
+                    )
+                    exact_rows = max(
+                        exact_rows,
+                        table_import_status(directory).source_cursor,
+                        session.cursor,
+                    )
+                    finish_table_intake(directory, exact_rows=exact_rows)
+                    compact_table_intake(directory)
+                    on_commit()
+                    return {
+                        "status": "completed",
+                        "completed_rows": publication.row_count,
+                        "sheet_id": publication.sheet_id,
+                        "problems": table_import_status(directory).problem_count,
+                    }
+                exact_rows = page[-1].source_cursor
+                issues = [issue for item in page for issue in item.issues]
+                record_table_issues(directory, issues)
+                records = [item.values for item in page if item.values is not None]
+                next_cursor = page[-1].source_cursor
+                if keyed is not None:
+                    writer = StreamingSheetWriter._from_session(project, session)
+                    publish_keyed_page(
+                        writer,
+                        frozen.plan,
+                        keyed,
+                        [
+                            (item.source_cursor, item.values)
+                            for item in page
+                            if item.values is not None
+                        ],
+                        expected_cursor=session.cursor,
+                        next_cursor=next_cursor,
+                        committed_bytes=page_bytes,
+                    )
+                    advance_table_progress(
+                        directory,
+                        expected_cursor=table_import_status(directory).source_cursor,
+                        source_cursor=next_cursor,
+                    )
+                elif records:
+                    if (
+                        header.max_rows is not None
+                        and session.committed_rows + len(records) > header.max_rows
+                    ):
+                        raise ValueError(
+                            "table import exceeds the configured row limit"
+                        )
+                    writer = StreamingSheetWriter._from_session(project, session)
+                    writer.append_page(
+                        records,
+                        expected_cursor=session.cursor,
+                        next_cursor=next_cursor,
+                        committed_bytes=page_bytes,
+                    )
+                    advance_table_progress(
+                        directory,
+                        expected_cursor=table_import_status(directory).source_cursor,
+                        source_cursor=next_cursor,
+                    )
+                else:
+                    # Duplicate-only pages own no project rows. Their source
+                    # cursor remains durable progress even when the full page
+                    # has not observed EOF yet.
+                    advance_table_progress(
+                        directory,
+                        expected_cursor=table_import_status(directory).source_cursor,
+                        source_cursor=next_cursor,
+                    )
+                on_commit()
+                if exhausted:
+                    # The next iteration finalizes through the ordinary empty
+                    # EOF path without reopening the source.
+                    continue
+    except Exception as exc:
+        session = sessions.get(import_ref)
+        if (
+            session is not None
+            and session.state == "active"
+            and session.writer_authority == writer_authority
+        ):
+            StreamingSheetWriter._from_session(project, session).pause(
+                expected_cursor=session.cursor
+            )
+        safe_error = redact_stored_error(
+            exc,
+            fallback_code="table_import_failed",
+        )
+        if safe_error is not None:
+            try:
+                record_table_execution_error(directory, safe_error)
+            except (OSError, ValueError):
+                LOG.warning(
+                    "table import error state could not be published",
+                    exc_info=True,
+                )
+        raise
 
 
 def register_import_table_handler(
@@ -295,274 +617,26 @@ def register_import_table_handler(
             if project_opener is None
             else open_claimed_project(payload, path, project_opener)
         )
-        directory = import_intake_dir(project.path, import_ref)
-        sessions = ImportSessionStore(project)
-        try:
-            with import_worker_lock(directory, timeout=5), ExitStack() as resources:
-                header = read_import_header(directory)
-                if (
-                    header.intake_kind != "table"
-                    or header.project_id != project_id
-                    or header.storage_identity != project.storage_identity
-                ):
-                    raise ValueError("table intake belongs to another project")
-                frozen = frozen_table_import(directory)
-                requested_hash = payload.get("plan_hash")
-                if requested_hash != frozen.plan_hash:
-                    raise ValueError("queued table plan identity changed")
-                envelope = ActionJobEnvelope.from_json(header.envelope)
-                bound = bind_typed_action_job(envelope, project=project)
-                if isinstance(bound, ActionResult):
-                    raise ValueError("table intake request no longer validates")
-                _validate_reserved_action(bound, frozen)
-                session = sessions.get(import_ref)
-                if session is None:
-                    raise ValueError("table import session has not been started")
-                state = table_import_status(directory)
-                if session.state in {"completed", "kept"}:
-                    if state.phase != "terminal":
-                        finish_table_intake(
-                            directory,
-                            exact_rows=max(state.source_cursor, session.cursor),
-                        )
-                    if session.state == "kept" and header.resolution is None:
-                        with import_admit_lock(directory):
-                            set_import_resolution(directory, "kept")
-                    compact_table_intake(directory)
-                    state = table_import_status(directory)
-                if state.phase == "terminal" or session.state in {
-                    "completed",
-                    "kept",
-                    "removed",
-                }:
-                    return {
-                        "status": session.state,
-                        "completed_rows": session.committed_rows,
-                        "sheet_id": session.sheet_id,
-                        "problems": state.problem_count,
-                    }
-                stored = ReceiptStore(project).find_by_id(envelope.receipt_id)
-                if stored is None or stored.status not in {"queued", "running"}:
-                    raise ValueError("table import reservation is unavailable")
-                if stored.status == "queued":
-                    ReceiptStore(project).update_body_status(
-                        stored.parsed().model_copy(update={"status": "running"}),
-                        require_status="queued",
-                    )
-                if session.state == "paused":
-                    StreamingSheetWriter.resume_session(
-                        project,
-                        session_id=import_ref,
-                        writer_authority=context.handler_authority_id,
-                        expected_cursor=session.cursor,
-                    )
-                    session = sessions.get(import_ref)
-                    assert session is not None
-                elif session.state != "active":
-                    raise ValueError("table import session cannot execute")
-                elif session.writer_authority != context.handler_authority_id:
-                    StreamingSheetWriter.resume_session(
-                        project,
-                        session_id=import_ref,
-                        writer_authority=context.handler_authority_id,
-                        expected_cursor=session.cursor,
-                    )
-                    session = sessions.get(import_ref)
-                    assert session is not None
 
-                if state.source_cursor < session.cursor:
-                    advance_table_progress(
-                        directory,
-                        expected_cursor=state.source_cursor,
-                        source_cursor=session.cursor,
-                    )
-                keyed = None
-                if frozen.plan.update is not None:
-                    keyed = resources.enter_context(
-                        ValidatedKeyedInput(retain_records=False)
-                    )
-                    # A later conflicting duplicate must invalidate its first
-                    # occurrence before any visible field can be published.
-                    keyed.stage(
-                        (record_key(frozen.plan, item.values), item.values)
-                        for item in _prepared_rows(frozen, start_cursor=0)
-                        if item.values is not None
-                    )
-                    keyed.seal()
-                    index_targets(project, frozen.plan, keyed)
-                iterator = _prepared_rows(
-                    frozen, start_cursor=max(session.cursor, state.source_cursor)
-                )
-                exact_rows = max(session.cursor, state.source_cursor)
-                while True:
-                    header = read_import_header(directory)
-                    session = sessions.get(import_ref)
-                    assert session is not None
-                    if header.cancel_requested or not live():
-                        writer = StreamingSheetWriter._from_session(project, session)
-                        if header.cancel_requested:
-                            cancelled = writer.cancel(expected_cursor=session.cursor)
-                            writer = StreamingSheetWriter._from_session(
-                                project, cancelled
-                            )
-                            publication = writer.finalize_session(
-                                expected_cursor=cancelled.cursor,
-                                keep_cancelled=True,
-                            )
-                            with import_admit_lock(directory):
-                                set_import_resolution(directory, "kept")
-                            finish_table_intake(directory, exact_rows=None)
-                            compact_table_intake(directory)
-                            return {
-                                "status": "kept",
-                                "completed_rows": publication.row_count,
-                                "sheet_id": publication.sheet_id,
-                                "problems": table_import_status(
-                                    directory
-                                ).problem_count,
-                            }
-                        writer.pause(expected_cursor=session.cursor)
-                        return {
-                            "status": "paused",
-                            "completed_rows": session.committed_rows,
-                        }
+        def on_commit() -> None:
+            from .search_index import enqueue_search_index
 
-                    page: list[_PreparedRow] = []
-                    page_bytes = 0
-                    exhausted = False
-                    while len(page) < _PAGE_ROWS and page_bytes < _PAGE_BYTES:
-                        try:
-                            item = next(iterator)
-                        except StopIteration:
-                            exhausted = True
-                            break
-                        page.append(item)
-                        page_bytes += item.source_bytes
-                        if item.source_bytes > _PAGE_BYTES:
-                            raise ValueError(
-                                "one table source row exceeds the import page byte limit"
-                            )
-                    if not page and exhausted:
-                        writer = StreamingSheetWriter._from_session(project, session)
-                        publication = writer.finalize_session(
-                            expected_cursor=session.cursor
-                        )
-                        exact_rows = max(
-                            exact_rows,
-                            table_import_status(directory).source_cursor,
-                            session.cursor,
-                        )
-                        finish_table_intake(directory, exact_rows=exact_rows)
-                        compact_table_intake(directory)
-                        from .search_index import enqueue_search_index
-
-                        enqueue_search_index(
-                            project,
-                            queue,
-                            _project_payload(
-                                payload, context, project_id, project_root
-                            ),
-                        )
-                        return {
-                            "status": "completed",
-                            "completed_rows": publication.row_count,
-                            "sheet_id": publication.sheet_id,
-                            "problems": table_import_status(directory).problem_count,
-                        }
-                    exact_rows = page[-1].source_cursor
-                    issues = [issue for item in page for issue in item.issues]
-                    record_table_issues(directory, issues)
-                    records = [item.values for item in page if item.values is not None]
-                    next_cursor = page[-1].source_cursor
-                    if keyed is not None:
-                        writer = StreamingSheetWriter._from_session(project, session)
-                        publish_keyed_page(
-                            writer,
-                            frozen.plan,
-                            keyed,
-                            [
-                                (item.source_cursor, item.values)
-                                for item in page
-                                if item.values is not None
-                            ],
-                            expected_cursor=session.cursor,
-                            next_cursor=next_cursor,
-                            committed_bytes=page_bytes,
-                        )
-                        advance_table_progress(
-                            directory,
-                            expected_cursor=table_import_status(
-                                directory
-                            ).source_cursor,
-                            source_cursor=next_cursor,
-                        )
-                    elif records:
-                        if (
-                            header.max_rows is not None
-                            and session.committed_rows + len(records) > header.max_rows
-                        ):
-                            raise ValueError(
-                                "table import exceeds the configured row limit"
-                            )
-                        writer = StreamingSheetWriter._from_session(project, session)
-                        writer.append_page(
-                            records,
-                            expected_cursor=session.cursor,
-                            next_cursor=next_cursor,
-                            committed_bytes=page_bytes,
-                        )
-                        advance_table_progress(
-                            directory,
-                            expected_cursor=table_import_status(
-                                directory
-                            ).source_cursor,
-                            source_cursor=next_cursor,
-                        )
-                    else:
-                        # Duplicate-only pages own no project rows. Their source
-                        # cursor remains durable progress even when the full page
-                        # has not observed EOF yet.
-                        advance_table_progress(
-                            directory,
-                            expected_cursor=table_import_status(
-                                directory
-                            ).source_cursor,
-                            source_cursor=next_cursor,
-                        )
-                    from .search_index import enqueue_search_index
-
-                    enqueue_search_index(
-                        project,
-                        queue,
-                        _project_payload(payload, context, project_id, project_root),
-                    )
-                    if exhausted:
-                        # The next iteration finalizes through the ordinary empty
-                        # EOF path without reopening the source.
-                        continue
-        except Exception as exc:
-            session = sessions.get(import_ref)
-            if (
-                session is not None
-                and session.state == "active"
-                and session.writer_authority == context.handler_authority_id
-            ):
-                StreamingSheetWriter._from_session(project, session).pause(
-                    expected_cursor=session.cursor
-                )
-            safe_error = redact_stored_error(
-                exc,
-                fallback_code="table_import_failed",
+            enqueue_search_index(
+                project,
+                queue,
+                _project_payload(payload, context, project_id, project_root),
             )
-            if safe_error is not None:
-                try:
-                    record_table_execution_error(directory, safe_error)
-                except (OSError, ValueError):
-                    LOG.warning(
-                        "table import error state could not be published",
-                        exc_info=True,
-                    )
-            raise
+
+        try:
+            return run_table_import(
+                project,
+                project_id=project_id,
+                import_ref=import_ref,
+                plan_hash=payload["plan_hash"],
+                writer_authority=context.handler_authority_id,
+                live=live,
+                on_commit=on_commit,
+            )
         finally:
             project.close()
 

@@ -533,6 +533,15 @@ def run_action_spec(
                 action_kind=str(data.get("action_id", "unknown")),
             ),
         )
+    from frisket.engine.executor.import_update_admission import (
+        UPDATE_ACTIONS,
+        run_typed_update,
+    )
+
+    if typed.request.action_id in UPDATE_ACTIONS:
+        return run_typed_update(
+            project, project_id, typed, deps or _runtime_inventory.ExecutorDeps()
+        )
     from frisket.actions.types import SheetRows
     from frisket.engine.executor.import_read_guard import (
         require_action_sheet_readable,

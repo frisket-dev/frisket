@@ -83,7 +83,6 @@ from frisket.engine.store.cell_writes import (
     BaseCellWrite,
     create_base_cell_producer,
     initialize_base_cells,
-    replace_base_cells,
 )
 from frisket.engine.store.current_cells import (
     decoded_cell_validity,
@@ -649,242 +648,6 @@ class _RowsAppender(_CallOnce):
         return result
 
 
-class _RowsUpdater(_CallOnce):
-    def __init__(self, *args: Any, max_rows: int | None = None):
-        super().__init__(*args)
-        self._max_rows = max_rows
-
-    def update(
-        self,
-        *,
-        columns: tuple[Any, ...],
-        key_columns: tuple[str, ...],
-        rows: tuple[Mapping[str, Any], ...],
-        source: Mapping[str, Any],
-        keep_existing_on_blank: bool,
-        update_policy: str = "keep_changes",
-        relationship_id: str | None = None,
-    ) -> UpdatedImportedRows:
-        self._begin()
-        return self._update_rows(
-            columns,
-            key_columns,
-            rows,
-            source,
-            keep_existing_on_blank,
-            update_policy,
-            relationship_id,
-        )
-
-    def update_csv(self, params: Any) -> UpdatedImportedRows:
-        from frisket.actions.imports import import_csv
-
-        self._begin()
-
-        with open_local_file_reader(self._file_sources) as reader:
-            produced = import_csv(params, reader)
-            return self._update_rows(
-                tuple(params.columns),
-                tuple(params.key_columns),
-                (row.output.root for row in produced.rows),
-                dict(produced.source or {}),
-                bool(params.keep_existing_on_blank),
-                params.update_policy,
-                params.relationship_id,
-            )
-
-    def update_xlsx(self, params: Any) -> UpdatedImportedRows:
-        from frisket.actions.import_xlsx import import_xlsx
-
-        self._begin()
-
-        with open_local_file_reader(self._file_sources) as reader:
-            produced = import_xlsx(params, reader)
-            return self._update_rows(
-                tuple(params.columns),
-                tuple(params.key_columns),
-                (row.output.root for row in produced.rows),
-                dict(produced.source or {}),
-                bool(params.keep_existing_on_blank),
-                params.update_policy,
-                params.relationship_id,
-            )
-
-    def _update_rows(
-        self,
-        columns: tuple[Any, ...],
-        key_columns: tuple[str, ...],
-        rows: Any,
-        source: Mapping[str, Any],
-        keep_existing_on_blank: bool,
-        update_policy: str = "keep_changes",
-        relationship_id: str | None = None,
-    ) -> UpdatedImportedRows:
-        from frisket.engine.executor.import_update import plan_import_update
-
-        try:
-            plan = plan_import_update(
-                self._project,
-                sheet_id=int(self._action.row_scope.sheet_id),
-                columns=columns,
-                key_columns=key_columns,
-                rows=rows,
-                keep_existing_on_blank=keep_existing_on_blank,
-                preflight_rows=preflight_typed_rows_for_persistence,
-                max_rows=self._max_rows,
-                update_policy=update_policy,
-                relationship_id=relationship_id,
-            )
-        except TableError as exc:
-            _refuse(
-                exc.code,
-                str(exc),
-                action_kind=self._action.kind,
-                field="params",
-                details=exc.details,
-            )
-        except OverflowError as exc:
-            _refuse(
-                "import_workload_limit_exceeded",
-                "import.update_rows exceeds the deployment row limit",
-                action_kind=self._action.kind,
-                field="params.rows",
-                details={"row_count": int(exc.args[0]), "max_rows": self._max_rows},
-            )
-        except TimelineError as exc:
-            code = (
-                exc.code if exc.code in _TEMPORAL_ERRORS else "invalid_temporal_value"
-            )
-            _refuse(
-                code,
-                _TEMPORAL_ERRORS[code],
-                action_kind=self._action.kind,
-                field="params.rows",
-                details={"reason": exc.message},
-            )
-        except LookupError as exc:
-            code = str(exc)
-            _refuse(
-                code,
-                code.replace("_", " "),
-                action_kind=self._action.kind,
-                field="scope.sheet_id",
-            )
-        if self._action.confirmation != plan.confirmation:
-            _refuse(
-                "stale_import_preview",
-                "Preview these updates again before applying them",
-                action_kind=self._action.kind,
-                field="confirmation",
-                details={
-                    "confirmation": plan.confirmation,
-                    "preview": plan.__dict__ | {"targets": [], "observations": []},
-                },
-            )
-        for column_id in {int(target["column_id"]) for target in plan.targets}:
-            _claimed_column(
-                self._project,
-                column_id,
-                action_kind=self._action.kind,
-                field="params.columns",
-            )
-        from frisket.engine.store.op_log import append_op
-        from frisket.engine.store.evidence import mark_evidence_stale_for_cell_refs
-        from itertools import groupby
-
-        op_id = None
-        if plan.targets or plan.restored_rows:
-            op_id = append_op(
-                self._project,
-                self._action.kind,
-                spec={
-                    "action_id": self._action.kind,
-                    "scope": {
-                        "kind": "sheet_rows",
-                        "sheet_id": int(self._action.row_scope.sheet_id),
-                    },
-                    "params": {
-                        **{
-                            key: value
-                            for key, value in self._action.params.items()
-                            if key != "rows"
-                        },
-                        "row_count": plan.matched + plan.unmatched + plan.ambiguous,
-                        "params_hash": self._params_hash,
-                    },
-                    "idempotency_key": self._action.idempotency_key,
-                },
-                label=f"update {plan.matched} imported rows",
-                undo_info={"restored_rows": list(plan.restored_rows)},
-                commit=False,
-            )
-            self._cur.executemany(
-                "UPDATE rows SET hidden=0 WHERE id=?",
-                [(row,) for row in plan.restored_rows],
-            )
-            producer = create_base_cell_producer(
-                self._project.db, stage_id=f"op:{op_id}", op_id=op_id
-            )
-            for row_id, grouped in groupby(
-                plan.targets, key=lambda target: int(target["row_id"])
-            ):
-                cells = list(grouped)
-                replace_base_cells(
-                    self._project.db,
-                    producer_id=producer,
-                    column_ids=[int(target["column_id"]) for target in cells],
-                    row_ids=[row_id],
-                    cells=[
-                        BaseCellWrite(
-                            row_id, int(target["column_id"]), target["value_after"]
-                        )
-                        for target in cells
-                    ],
-                )
-            mark_evidence_stale_for_cell_refs(
-                self._project,
-                plan.targets,
-                reason="imported_cell_update",
-                preserve_map_extract_item_links=True,
-            )
-        from uuid import uuid4
-        from frisket.engine.store.keyed_updates import require_relationship, observe
-
-        relation = relationship_id or f"import:{uuid4().hex}"
-        require_relationship(
-            self._project.db,
-            relationship_id=relation,
-            sheet_id=int(self._action.row_scope.sheet_id),
-            key_definition=plan.key_definition,
-        )
-        for item in plan.observations:
-            observe(
-                self._project.db,
-                relationship_id=relation,
-                row_id=item["row_id"],
-                key=item["key"],
-                incoming=item["record"],
-            )
-        source = dict(source) | {
-            "relationship_id": relation,
-            "skipped_conflicts": plan.ambiguous,
-        }
-        result = UpdatedImportedRows(
-            int(self._action.row_scope.sheet_id),
-            tuple(sorted({int(target["row_id"]) for target in plan.targets})),
-            plan.changed_cells,
-            op_id,
-            {
-                str(target["column_name"]): int(target["column_id"])
-                for target in plan.targets
-            },
-            source,
-        )
-        self._plan = plan
-        self.result = result
-        return result
-
-
 class _RowDeleter(_CallOnce):
     def delete(self, sheet_id: int, *, row_ids: tuple[int, ...]) -> DeletedRows:
         self._begin()
@@ -1416,7 +1179,6 @@ _CAPABILITY_IMPL = {
     ColumnCreator: _ColumnCreator,
     RowCreator: _RowCreator,
     RowsAppender: _RowsAppender,
-    RowsUpdater: _RowsUpdater,
     RowDeleter: _RowDeleter,
     ColumnTyper: _ColumnTyper,
     CellEditor: _CellEditor,
@@ -1432,6 +1194,7 @@ def supports_typed_mutation_action(terminal: object) -> bool:
         for cap in {
             **_CAPABILITY_IMPL,
             **CAPABILITY_IMPL,
+            RowsUpdater: None,
         }
     )
 
@@ -2081,6 +1844,10 @@ def run_typed_mutation_action(
     terminal = bound.action.definition.run
     if not supports_typed_mutation_action(terminal):
         raise TypeError("typed mutation executor requires a column or row action")
+    if terminal.capabilities == (RowsUpdater,):
+        from frisket.engine.executor.import_update_admission import run_rows_updater
+
+        return run_rows_updater(project, project_id, bound, deps or ExecutorDeps())
     params = bound.params.model_dump(mode="json")
     _require_mutation_targets_mutable(project, bound, terminal, params)
     envelope = _TypedProjectEnvelope(

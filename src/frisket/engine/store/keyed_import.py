@@ -9,16 +9,16 @@ from typing import Any
 from frisket.contracts.action import canonical_column_type
 
 from .cell_writes import BaseCellWrite, replace_base_cells
-from .changes import ChangePublicationClosed
+from .changes import ChangePublicationClosed, start_change
+from .structural_changes import note_row_membership_change
 from .import_sessions import ImportSessionConflict, ImportSessionStore
 from .keyed_updates import (
     ValidatedKeyedInput,
-    changed_fields,
+    reconcile_fields,
     observation,
     observe,
     require_relationship,
     retained_hidden_targets,
-    typed_equal,
     typed_key,
 )
 from .table_import_intake import TableImportPlan
@@ -114,6 +114,7 @@ def publish_keyed_page(
     ]
     matched = 0
     restored = []
+    writes = []
     try:
         db.execute("BEGIN IMMEDIATE")
         session = ImportSessionStore(project).require_writer(
@@ -171,7 +172,11 @@ def publish_keyed_page(
                 )
                 if current_key != admitted.key:
                     continue
-            incoming = {str(columns[name]): value for name, value in record.items()}
+            incoming = {
+                str(columns[name]): value
+                for name, value in record.items()
+                if not (plan.update.keep_existing_on_blank and value is None)
+            }
             current = {}
             for column in updates:
                 column_id = columns[column.target_name]
@@ -181,38 +186,21 @@ def publish_keyed_page(
                 if refs.get(row_id, {}).get("kind") != "missing" and row_id in values:
                     current[str(column_id)] = values[row_id]
             baseline = observation(db, relationship, row_id)
-            changes = changed_fields(
-                current,
-                {
-                    str(columns[column.target_name]): record[column.target_name]
-                    for column in updates
-                    if column.target_name in record
-                },
-                baseline,
-                plan.update.policy,
+            changes, restore = reconcile_fields(
+                current, incoming, baseline, plan.update.policy, deleted=hidden
             )
-            if hidden:
-                changed_source = baseline is None or any(
-                    name not in baseline or not typed_equal(value, baseline[name])
-                    for name, value in incoming.items()
-                )
-                if plan.update.policy == "keep_changes" or not changed_source:
-                    changes = {}
-                else:
-                    db.execute("UPDATE rows SET hidden=0 WHERE id=?", (row_id,))
-                    restored.append(row_id)
-            if changes:
-                replace_base_cells(
-                    db,
-                    producer_id=writer._producer_id,
-                    column_ids=[int(column_id) for column_id in changes],
-                    row_ids=[row_id],
-                    cells=[
-                        BaseCellWrite(row_id, int(column_id), value)
-                        for column_id, value in changes.items()
-                    ],
-                    import_writer_authority=writer._writer_authority,
-                )
+            writable = {str(columns[column.target_name]) for column in updates}
+            changes = {
+                column: value for column, value in changes.items() if column in writable
+            }
+            if restore:
+                db.execute("UPDATE rows SET hidden=0 WHERE id=?", (row_id,))
+                restored.append(row_id)
+                start_change(db, writer._op_id, writing=True)
+            writes.extend(
+                BaseCellWrite(row_id, int(column_id), value)
+                for column_id, value in changes.items()
+            )
             observe(
                 db,
                 relationship_id=relationship,
@@ -221,7 +209,21 @@ def publish_keyed_page(
                 incoming=incoming,
             )
             matched += 1
+        refreshed_columns = {cell.column_id for cell in writes}
+        if writes:
+            replace_base_cells(
+                db,
+                producer_id=writer._producer_id,
+                column_ids=refreshed_columns,
+                row_ids={cell.row_id for cell in writes} | set(restored),
+                cells=writes,
+                import_writer_authority=writer._writer_authority,
+                clear_omitted=False,
+            )
         if restored:
+            note_row_membership_change(
+                db, [writer.sheet_id], already_refreshed_columns=refreshed_columns
+            )
             info = json.loads(
                 db.execute(
                     "SELECT undo_info FROM ops WHERE id=?", (writer._op_id,)

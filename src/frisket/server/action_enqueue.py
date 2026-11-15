@@ -797,14 +797,30 @@ def queue_v1_action_run(
                 action_kind=kind,
                 error=ActionError(code="source_poll_invalid", message=str(exc)),
             )
+    from frisket.engine.executor.import_update_admission import UPDATE_ACTIONS
+
+    if kind in UPDATE_ACTIONS:
+        from frisket.server.import_update_enqueue import queue_import_update
+
+        try:
+            return queue_import_update(project, project_id, dict(action_body), ctx)
+        except (KeyError, TypeError, ValueError, OSError) as exc:
+            return _failed_result(
+                project_id=project_id,
+                action_kind=kind,
+                error=ActionError(code="import_update_failed", message=str(exc)),
+            )
     if installed is not None:
         from frisket.actions.core import CreateSheet
+        from frisket.actions.types import RowsUpdater
 
         if installed.action.catalog_entry()["async_mode"] != "queued":
             return None
         placement = (
             PlacementPolicy.QUEUED_ACTION_JOB
             if isinstance(installed.action.definition.run, CreateSheet)
+            or getattr(installed.action.definition.run, "capabilities", ())
+            == (RowsUpdater,)
             else PlacementPolicy.QUEUED_PROJECT_RUN
         )
     if installed is None:
