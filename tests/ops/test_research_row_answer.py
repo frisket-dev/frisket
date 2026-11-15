@@ -19,6 +19,7 @@ from frisket.ai.research.search import (
     SearchUsage,
     SearchUsageUnit,
 )
+from frisket.execution.dispatch_control import STANDALONE
 
 
 class ScriptedResearchAdapter:
@@ -69,7 +70,7 @@ async def test_domain_loop_uses_actual_goal_and_accounts_for_every_turn(
         {"company": "Acme"},
         goal=goal,
         model_id="anthropic/claude-haiku-4-5",
-        router=router,
+        router=router.for_execution(STANDALONE),
         recipe_version="1",
         search=search,
         fetch=fetch,
@@ -104,7 +105,7 @@ async def test_domain_budget_failure_preserves_spent_model_calls():
         {"company": "Acme"},
         goal="Find records",
         model_id="anthropic/claude-haiku-4-5",
-        router=router,
+        router=router.for_execution(STANDALONE),
         recipe_version="1",
         search=search,
         fetch=fetch,
@@ -156,7 +157,7 @@ async def test_domain_loop_preserves_paid_search_usage_and_citations():
         {"company": "Acme"},
         goal="Find records",
         model_id="anthropic/claude-haiku-4-5",
-        router=router,
+        router=router.for_execution(STANDALONE),
         recipe_version="1",
         search=search,
         fetch=fetch,

@@ -18,6 +18,7 @@ import pytest
 
 from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
 from frisket.engine.store import Project
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ops.base import RecipeInvocationHalt
 
 
@@ -299,7 +300,7 @@ def test_domain_extract_uses_actual_inputs_and_keeps_both_phases_wire_facts(
                 schema=schema,
                 first_output="company_name",
                 recipe_version="independent-domain-caller",
-                router=_router(adapter),
+                router=_router(adapter).for_execution(STANDALONE),
             )
             if invalid_final:
                 with pytest.raises(SchemaViolation) as raised:
@@ -352,7 +353,7 @@ def test_domain_cancellation_closes_sessions_without_observing_or_retrying_it():
                 schema={"type": "object"},
                 first_output="company_name",
                 recipe_version="cancelled-domain-caller",
-                router=_router(adapter),
+                router=_router(adapter).for_execution(STANDALONE),
             )
 
     with pytest.raises(asyncio.CancelledError):
@@ -497,18 +498,19 @@ def test_team_refuses_crafted_mcp_extract_requests_and_stale_worker(
 
     team = TestClient(create_app(tmp_path / "team", edition="team", serve_spa=False))
     body = {"action_id": "map.mcp_extract", "params": {}}
+    team_pid = team.post("/api/projects", json={"name": "Team admission"}).json()["id"]
 
-    run = team.post("/api/projects/missing/actions/v1/run", json=body)
+    run = team.post(f"/api/projects/{team_pid}/actions/v1/run", json=body)
     assert run.status_code == 400
     assert run.json()["errors"][0]["code"] == "action_unavailable_in_edition"
 
-    preview = team.post("/api/projects/missing/actions/v1/preview", json=body)
+    preview = team.post(f"/api/projects/{team_pid}/actions/v1/preview", json=body)
     assert preview.status_code == 400
     assert preview.json()["error"]["code"] == "action_unavailable_in_edition"
 
     for suffix in ("estimate", "validate-params"):
         response = team.post(
-            f"/api/projects/missing/actions/v1/{suffix}",
+            f"/api/projects/{team_pid}/actions/v1/{suffix}",
             json={"action": body},
         )
         assert response.status_code == 400
@@ -523,6 +525,7 @@ def test_team_refuses_crafted_mcp_extract_requests_and_stale_worker(
 
     monkeypatch.setenv("FRISKET_ALLOW_CODE_RECIPES", "0")
     solo = TestClient(create_app(tmp_path / "solo", edition="solo", serve_spa=False))
-    disabled = solo.post("/api/projects/missing/actions/v1/run", json=body)
+    solo_pid = solo.post("/api/projects", json={"name": "Solo admission"}).json()["id"]
+    disabled = solo.post(f"/api/projects/{solo_pid}/actions/v1/run", json=body)
     assert disabled.status_code == 400
     assert disabled.json()["errors"][0]["code"] == "code_action_disabled"

@@ -16,6 +16,7 @@ import pytest
 from frisket.ai.embeddings import EmbeddingGateway
 from frisket.ai.llm import ModelRouter
 from frisket.ai.llm.adapters import OpenAICompatAdapter
+from frisket.execution.dispatch_control import STANDALONE
 from tests.deterministic_time import controlled_time
 
 
@@ -63,7 +64,7 @@ def test_two_sequential_remote_embeds_survive(local_embed_server):
     router._adapters["test"] = OpenAICompatAdapter(
         "k", f"http://127.0.0.1:{local_embed_server}"
     )
-    gw = EmbeddingGateway(router=router)
+    gw = EmbeddingGateway(router=router.for_execution(STANDALONE))
     first = gw.embed(["hi"], provider="test", model="m", modality="text")
     second = gw.embed(
         ["yo"], provider="test", model="m", modality="text"

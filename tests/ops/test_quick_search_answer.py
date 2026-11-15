@@ -9,6 +9,7 @@ from frisket.ai.llm import LLMResponse, ModelRouter
 from frisket.ai.research.quick_search import run_quick_search
 from frisket.ai.research.recorder import ResearchRecorder
 from frisket.ai.research.search import SearchHit, SearchResponse, SearchUsage
+from frisket.execution.dispatch_control import STANDALONE
 
 
 class AnswerAdapter:
@@ -61,7 +62,7 @@ async def run(answers, searched, *, secret_values=()):
     result = await run_quick_search(
         query="When was Acme founded?",
         model_id="anthropic/claude-haiku-4-5",
-        router=router,
+        router=router.for_execution(STANDALONE),
         search=search,
         recorder=recorder,
         secret_values=secret_values,
