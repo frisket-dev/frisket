@@ -8,7 +8,6 @@ from typing import Any, Mapping
 
 from frisket.actions.core import _ProjectAction
 from frisket.actions.mutations import COLUMN_DISPLAY_FORMATS
-from frisket.actions.review_replay import ReviewDecisionParams
 from frisket.actions.system import BoundTypedActionRequest
 from frisket.actions.types import (
     AcceptedReplayColumn,
@@ -1476,9 +1475,14 @@ def _require_mutation_targets_mutable(
         ReplayValueAcceptor,
         ReplayValueDismissor,
     }:
-        run = project.db.execute(
-            "SELECT sheet_id FROM runs WHERE id=?", (int(params["run_id"]),)
-        ).fetchone()
+        if params.get("copied_op_id") is not None:
+            run = project.db.execute(
+                "SELECT sheet_id FROM rows WHERE id=?", (int(params["row_id"]),)
+            ).fetchone()
+        else:
+            run = project.db.execute(
+                "SELECT sheet_id FROM runs WHERE id=?", (int(params["run_id"]),)
+            ).fetchone()
         if run is not None:
             sheet_ids.add(int(run["sheet_id"]))
     elif capability is ReplayColumnAcceptor:
@@ -2079,24 +2083,6 @@ def run_typed_mutation_action(
         raise TypeError("typed mutation executor requires a column or row action")
     params = bound.params.model_dump(mode="json")
     _require_mutation_targets_mutable(project, bound, terminal, params)
-    if (
-        isinstance(bound.params, ReviewDecisionParams)
-        and bound.params.decision == "edit"
-        and "value" not in bound.params.model_fields_set
-    ):
-        return _failed_result(
-            project_id=project_id,
-            action_kind=bound.action.action_id,
-            error=ActionError(
-                code="review_value_required",
-                message=(
-                    "review.decision edit requires a replacement value "
-                    "(which may be null)"
-                ),
-                action_kind=bound.action.action_id,
-                field="params.value",
-            ),
-        )
     envelope = _TypedProjectEnvelope(
         kind=bound.action.action_id,
         idempotency_key=bound.request.idempotency_key,

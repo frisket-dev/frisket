@@ -5,13 +5,13 @@ export function isDecided(field: ReviewBundleField): boolean {
 }
 
 export function decisionLabel(field: ReviewBundleField): string {
-  if (field.reviewDecision === 'edit') return 'Corrected';
   if (field.reviewState === 'verified') return 'Accepted';
   if (field.reviewState === 'rejected') return 'Rejected';
   return 'Unreviewed';
 }
 
-export function applyDecision(field: ReviewBundleField, action: ReviewAction, value?: CellValue): ReviewBundleField {
+export function applyDecision(field: ReviewBundleField, action: ReviewAction, _value?: CellValue): ReviewBundleField {
+  if (action === 'edit') return { ...field, canEdit: false };
   if (action === 'clear') return { ...field, reviewDecision: null, reviewState: 'unreviewed', chore: true };
   const rejected = action === 'reject' || action === 'reject_clear';
   return {
@@ -19,7 +19,6 @@ export function applyDecision(field: ReviewBundleField, action: ReviewAction, va
     reviewDecision: action,
     reviewState: rejected ? 'rejected' : 'verified',
     chore: false,
-    ...(action === 'edit' ? { value: value ?? null, changed: true } : {}),
     ...(action === 'reject_clear' ? { value: null, changed: true } : {}),
   };
 }

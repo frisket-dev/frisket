@@ -25,17 +25,6 @@ from frisket.engine.store.current_cells import (
     refresh_current_cells,
 )
 from frisket.engine.store.result_generations import ResultGenerationStore
-from frisket.engine.store.runs import RunResultStore
-
-
-def _parse_review_state_key(key: object) -> tuple[int, int, int]:
-    parts = str(key).split(":")
-    if len(parts) != 3:
-        raise ValueError(f"invalid review state key: {key!r}")
-    run_id, row_id, column_id = (int(part) for part in parts)
-    if run_id <= 0 or row_id <= 0 or column_id <= 0:
-        raise ValueError(f"invalid review state key: {key!r}")
-    return run_id, row_id, column_id
 
 
 def _valid_review_metadata(value: Any) -> bool:
@@ -74,6 +63,9 @@ def append_op(
         from .structural_changes import record_structural_changes
 
         record_descriptor_changes(project.db, op_id, undo_info)
+        from .review_judgments import record_judgment_changes
+
+        record_judgment_changes(project.db, op_id, undo_info)
         record_structural_changes(project.db, op_id, undo_info)
     if commit:
         project.db.commit()
@@ -89,6 +81,9 @@ def set_undo_info(
     from .column_descriptors import record_descriptor_changes
 
     record_descriptor_changes(project.db, op_id, undo_info)
+    from .review_judgments import record_judgment_changes
+
+    record_judgment_changes(project.db, op_id, undo_info)
     from .structural_changes import record_structural_changes
 
     record_structural_changes(project.db, op_id, undo_info)
@@ -395,6 +390,9 @@ def step_operation(
     from .structural_changes import project_structural_changes
 
     project_structural_changes(project.db, target_op_id)
+    from .review_judgments import project_judgments
+
+    project_judgments(project, target_op_id)
     projection_column_ids = operation_projection_column_ids(
         project, target_op_id, undo_info
     )
@@ -553,8 +551,8 @@ def operation_touched_column_ids(
             continue
         for target_key in value:
             parts = str(target_key).split(":")
-            if len(parts) == 3 and parts[2].isdecimal() and int(parts[2]) > 0:
-                column_ids.add(int(parts[2]))
+            if _is_review_state_key(str(target_key)):
+                column_ids.add(int(parts[-1]))
     column_ids.update(
         int(row["column_id"])
         for row in project.db.execute(
@@ -799,11 +797,13 @@ def operation_affected_refs(undo_info: Mapping[str, Any]) -> list[dict[str, Any]
         )
     state_after = undo_info.get("review_states_after") or {}
     for key, before_state in undo_info.get("review_states", {}).items():
-        run_id, row_id, column_id = (int(part) for part in str(key).split(":"))
+        from .review_judgments import parse_result_key
+
+        kind, owner, row_id, column_id = parse_result_key(str(key))
         refs.append(
             {
                 "kind": "review_state",
-                "run_id": run_id,
+                "run_id" if kind == "run" else "copied_op_id": owner,
                 "row_id": row_id,
                 "column_id": column_id,
                 "before": before_state,
@@ -826,8 +826,13 @@ def _is_intish_id(value: Any) -> bool:
 def _is_review_state_key(value: Any) -> bool:
     if not isinstance(value, str):
         return False
-    parts = value.split(":")
-    return len(parts) == 3 and all(_is_intish_id(part) for part in parts)
+    from .review_judgments import parse_result_key
+
+    try:
+        parse_result_key(value)
+        return True
+    except ValueError:
+        return False
 
 
 def _unapply(project: Any, op: sqlite3.Row) -> None:
@@ -855,25 +860,6 @@ def _unapply(project: Any, op: sqlite3.Row) -> None:
             session_id=info["replaced_rows_import_session_id"],
             hidden=False,
         )
-    for key, previous_state in info.get("review_states", {}).items():
-        run_id, row_id, column_id = _parse_review_state_key(key)
-        updated = RunResultStore(project).set_result_review_state(
-            run_id, row_id, column_id, previous_state, commit=False
-        )
-        if updated != 1:
-            raise ValueError(f"review state target not found: {key!r}")
-    for key, previous in info.get("review_metadata", {}).items():
-        run_id, row_id, column_id = _parse_review_state_key(key)
-        updated = RunResultStore(project).set_result_review_metadata(
-            run_id,
-            row_id,
-            column_id,
-            previous.get("decision"),
-            previous.get("note"),
-            commit=False,
-        )
-        if updated != 1:
-            raise ValueError(f"review metadata target not found: {key!r}")
     for transition in info.get("evidence_links_staled", []):
         project.db.execute(
             "UPDATE evidence_links SET status='active',stale_reason=NULL,stale_at=NULL "
@@ -911,25 +897,6 @@ def _reapply(project: Any, op: sqlite3.Row) -> None:
             session_id=info["replaced_rows_import_session_id"],
             hidden=True,
         )
-    for key, next_state in info.get("review_states_after", {}).items():
-        run_id, row_id, column_id = _parse_review_state_key(key)
-        updated = RunResultStore(project).set_result_review_state(
-            run_id, row_id, column_id, next_state, commit=False
-        )
-        if updated != 1:
-            raise ValueError(f"review state target not found: {key!r}")
-    for key, next_value in info.get("review_metadata_after", {}).items():
-        run_id, row_id, column_id = _parse_review_state_key(key)
-        updated = RunResultStore(project).set_result_review_metadata(
-            run_id,
-            row_id,
-            column_id,
-            next_value.get("decision"),
-            next_value.get("note"),
-            commit=False,
-        )
-        if updated != 1:
-            raise ValueError(f"review metadata target not found: {key!r}")
     for transition in info.get("evidence_links_staled", []):
         project.db.execute(
             "UPDATE evidence_links SET status='stale',stale_reason=?,"

@@ -666,6 +666,8 @@ export type UpdateCsvParams = ({
   "source_label_column"?: (((string)) | ((null)));
   "key_columns": (Array<(string)>);
   "keep_existing_on_blank"?: (boolean);
+  "update_policy"?: ("keep_changes" | "incoming_wins") & (string);
+  "relationship_id"?: (((string)) | ((null)));
 });
 
 type UpdateRowsParams_ImportRowsColumn = ({
@@ -701,6 +703,8 @@ export type UpdateRowsParams = ({
   "source"?: (((UpdateRowsParams_ImportRowsSource)) | ((null)));
   "key_columns": (Array<(string)>);
   "keep_existing_on_blank"?: (boolean);
+  "update_policy"?: ("keep_changes" | "incoming_wins") & (string);
+  "relationship_id"?: (((string)) | ((null)));
 });
 
 type UpdateXlsxParams_FileSource = ({
@@ -725,6 +729,8 @@ export type UpdateXlsxParams = ({
   "worksheet"?: (((string)) | ((null)));
   "key_columns": (Array<(string)>);
   "keep_existing_on_blank"?: (boolean);
+  "update_policy"?: ("keep_changes" | "incoming_wins") & (string);
+  "relationship_id"?: (((string)) | ((null)));
 });
 
 export type ImportUrlsParams = ({
@@ -1310,6 +1316,10 @@ export type OperationStepParams = ({
   "expected_op_id"?: (((number)) | ((null)));
 });
 
+export type OperationTargetParams = ({
+  "op_id": (number);
+});
+
 type PluginLoadParams_PluginManifestSource = ({
   "kind": ("local_file") & (string);
   "path": (string);
@@ -1489,16 +1499,17 @@ export type SubstituteParams = ({
 });
 
 export type ReviewDecisionParams = ({
-  "run_id": (number);
+  "run_id"?: (((number)) | ((null)));
+  "copied_op_id"?: (((number)) | ((null)));
   "row_id": (number);
   "column_id": (number);
-  "decision": ("accept" | "reject" | "reject_clear" | "edit" | "clear") & (string);
-  "value"?: ((JsonValue) | ((null)));
+  "decision": ("accept" | "reject" | "reject_clear" | "clear") & (string);
   "note"?: (((string)) | ((null)));
 });
 
 export type ReviewNoteParams = ({
-  "run_id": (number);
+  "run_id"?: (((number)) | ((null)));
+  "copied_op_id"?: (((number)) | ((null)));
   "row_id": (number);
   "note"?: (((string)) | ((null)));
 });
@@ -1723,6 +1734,8 @@ export interface GeneratedActionParams {
   'media.video_frames': VideoFramesParams;
   'media.ytdlp_download': MediaDownloadParams;
   'operation.redo': OperationStepParams;
+  'operation.restore': OperationTargetParams;
+  'operation.revert': OperationTargetParams;
   'operation.undo': OperationStepParams;
   'plugin.load': PluginLoadParams;
   'query.preview': QueryPreviewParams;

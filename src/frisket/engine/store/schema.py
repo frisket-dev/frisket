@@ -21,6 +21,7 @@ from .change_schema import CHANGE_SCHEMA_SQL
 from .copied_results import COPIED_RESULTS_SCHEMA_SQL
 from .consumed_sources import CONSUMED_SOURCE_SCHEMA_SQL
 from .purge import PURGE_SCHEMA_SQL
+from .review_judgments import JUDGMENT_SCHEMA_SQL
 from .keyed_updates import KEYED_UPDATE_SCHEMA
 from .column_descriptors import DESCRIPTOR_SCHEMA_SQL
 from .structural_changes import STRUCTURAL_SCHEMA_SQL
@@ -2622,3 +2623,6 @@ def require_current_schema(
         f"(bundle schema {stamped or 'unstamped'}; this build expects "
         f"{SCHEMA_DIGEST})"
     )
+
+
+SCHEMA += "\n" + JUDGMENT_SCHEMA_SQL

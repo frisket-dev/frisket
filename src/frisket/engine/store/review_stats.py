@@ -11,7 +11,7 @@ from .runs import REVIEWABLE_OUTCOMES
 
 
 _SQL_ALIAS = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-_INCORRECT_DECISIONS = frozenset({"edit", "reject", "reject_clear"})
+_INCORRECT_DECISIONS = frozenset({"reject", "reject_clear"})
 
 
 def _require_alias(alias: str) -> str:
@@ -23,30 +23,16 @@ def _require_alias(alias: str) -> str:
 def current_review_run_predicate(
     run_alias: str = "runs", *, terminal_only: bool = True
 ) -> str:
-    """SQL predicate for a run with a still-current output on a visible sheet.
-
-    Managed outputs are current only through exact result heads. The legacy
-    column pointer fallback explicitly excludes every managed column, so a
-    stale pointer cannot retain a fully replaced managed run.
-    """
-
+    """A still-current saved result on a visible sheet, from the current projection."""
     run = _require_alias(run_alias)
     terminal = f"{run}.status <> 'running' AND " if terminal_only else ""
     return (
         f"{terminal}"
-        f"EXISTS (SELECT 1 FROM ops review_op WHERE review_op.id={run}.op_id "
-        "AND review_op.status='applied') AND ("
-        "EXISTS (SELECT 1 FROM current_result_heads review_head "
+        "EXISTS (SELECT 1 FROM effective_current_cells review_head "
         "JOIN columns review_column ON review_column.id=review_head.column_id "
         "JOIN sheets review_sheet ON review_sheet.id=review_column.sheet_id "
-        f"WHERE review_head.run_id={run}.id AND review_column.active=1 "
-        "AND review_sheet.hidden=0) OR "
-        "EXISTS (SELECT 1 FROM columns review_column "
-        "JOIN sheets review_sheet ON review_sheet.id=review_column.sheet_id "
-        f"WHERE review_column.current_run_id={run}.id "
-        "AND review_column.active=1 AND review_sheet.hidden=0 AND NOT EXISTS ("
-        "SELECT 1 FROM run_output_generations review_generation "
-        "WHERE review_generation.column_id=review_column.id)))"
+        f"WHERE review_head.origin_kind='run_result' AND review_head.origin_run_id={run}.id "
+        "AND review_column.active=1 AND review_sheet.hidden=0)"
     )
 
 

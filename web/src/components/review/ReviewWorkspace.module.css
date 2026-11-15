@@ -14,7 +14,6 @@
 .field[data-review-state='rejected'] .value { text-decoration: line-through; color: var(--text-mid); }
 .field[data-review-state='verified'] .fieldHeading small { color: var(--green); }
 .field[data-review-state='rejected'] .fieldHeading small { color: var(--red); }
-.field[data-review-decision='edit'] .fieldHeading small { color: var(--red); }
 .confidence { display: block; font-size: 10px; margin-top: 6px; }
 .verdict { display: flex; align-self: start; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
 .verdict button { display: grid; place-items: center; width: 31px; height: 28px; border: 0; background: var(--bg-panel); color: var(--text-mid); cursor: pointer; }

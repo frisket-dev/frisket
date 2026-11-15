@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import json
-from typing import Any, Literal
+from typing import Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, model_validator
 
 from frisket.actions.core import ActionCategory, action
 from frisket.actions.types import (
@@ -23,33 +22,25 @@ from frisket.actions.types import (
 )
 
 
-class ReviewDecisionParams(ActionParams):
-    run_id: int = Field(ge=1, strict=True)
+class ReviewTargetParams(ActionParams):
+    run_id: int | None = Field(default=None, ge=1, strict=True)
+    copied_op_id: int | None = Field(default=None, ge=1, strict=True)
     row_id: int = Field(ge=1, strict=True)
-    column_id: int = Field(ge=1, strict=True)
-    decision: Literal["accept", "reject", "reject_clear", "edit", "clear"]
-    value: Any | None = None
-    note: str | None = None
-
-    @field_validator("value")
-    @classmethod
-    def _json_value(cls, value: Any | None) -> Any | None:
-        try:
-            json.dumps(value, allow_nan=False)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("value must be JSON-serializable") from exc
-        return value
 
     @model_validator(mode="after")
-    def _value_belongs_only_to_edit(self) -> ReviewDecisionParams:
-        if self.decision != "edit" and "value" in self.model_fields_set:
-            raise ValueError("value is only valid for an edit decision")
+    def _one_result_owner(self):
+        if (self.run_id is None) == (self.copied_op_id is None):
+            raise ValueError("select exactly one run_id or copied_op_id")
         return self
 
 
-class ReviewNoteParams(ActionParams):
-    run_id: int = Field(ge=1, strict=True)
-    row_id: int = Field(ge=1, strict=True)
+class ReviewDecisionParams(ReviewTargetParams):
+    column_id: int = Field(ge=1, strict=True)
+    decision: Literal["accept", "reject", "reject_clear", "clear"]
+    note: str | None = None
+
+
+class ReviewNoteParams(ReviewTargetParams):
     note: str | None = None
 
 
@@ -79,18 +70,22 @@ def decide_review(
 ) -> ReviewDecision:
     return reviews.decide(
         run_id=params.run_id,
+        copied_op_id=params.copied_op_id,
         row_id=params.row_id,
         column_id=params.column_id,
         decision=params.decision,
-        value=params.value,
-        value_supplied="value" in params.model_fields_set,
         note=params.note,
         note_supplied="note" in params.model_fields_set,
     )
 
 
 def note_review(params: ReviewNoteParams, reviews: ReviewNoter) -> ReviewNote:
-    return reviews.note(run_id=params.run_id, row_id=params.row_id, note=params.note)
+    return reviews.note(
+        run_id=params.run_id,
+        copied_op_id=params.copied_op_id,
+        row_id=params.row_id,
+        note=params.note,
+    )
 
 
 def accept_replay(
@@ -130,13 +125,13 @@ REVIEW_DECISION = action(
     examples=(
         ReviewDecisionParams(run_id=1, row_id=1, column_id=1, decision="accept"),
         ReviewDecisionParams(
-            run_id=1, row_id=1, column_id=1, decision="edit", value=None
+            copied_op_id=1, row_id=1, column_id=1, decision="reject_clear"
         ),
     ),
     name="decision",
     title="Review decision",
     description=(
-        "Record or clear an accept, reject, or edit decision for the current "
+        "Record or clear an accept or reject decision for the current "
         "generated result cell, with an optional note and pinned receipt evidence. "
         "Clearing keeps the current visible cell value and its review note."
     ),

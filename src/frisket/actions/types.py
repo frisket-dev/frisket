@@ -709,10 +709,11 @@ class QueryEditedCells:
 
 @dataclass(frozen=True)
 class ReviewDecision:
-    run_id: int
+    run_id: int | None
+    copied_op_id: int | None
     row_id: int
     column_id: int
-    decision: Literal["accept", "reject", "reject_clear", "edit", "clear"]
+    decision: Literal["accept", "reject", "reject_clear", "clear"]
     review_state_before: Literal["unreviewed", "verified", "rejected"]
     review_state_after: Literal["unreviewed", "verified", "rejected"]
     note: str | None
@@ -721,7 +722,8 @@ class ReviewDecision:
 
 @dataclass(frozen=True)
 class ReviewNote:
-    run_id: int
+    run_id: int | None
+    copied_op_id: int | None
     row_id: int
     note: str | None
     column_count: int
@@ -955,10 +957,11 @@ class CellEditQueryActionOutput(BaseModel):
 class ReviewDecisionActionOutput(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    run_id: int
+    run_id: int | None
+    copied_op_id: int | None
     row_id: int
     column_id: int
-    decision: Literal["accept", "reject", "reject_clear", "edit", "clear"]
+    decision: Literal["accept", "reject", "reject_clear", "clear"]
     review_state_before: Literal["unreviewed", "verified", "rejected"]
     review_state_after: Literal["unreviewed", "verified", "rejected"]
     note: str | None
@@ -969,7 +972,8 @@ class ReviewDecisionActionOutput(BaseModel):
 class ReviewNoteActionOutput(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    run_id: int
+    run_id: int | None
+    copied_op_id: int | None
     row_id: int
     note: str | None
     column_count: int
@@ -1264,12 +1268,11 @@ class ReviewDecider(Protocol):
     def decide(
         self,
         *,
-        run_id: int,
+        run_id: int | None,
+        copied_op_id: int | None,
         row_id: int,
         column_id: int,
-        decision: Literal["accept", "reject", "reject_clear", "edit", "clear"],
-        value: Any,
-        value_supplied: bool,
+        decision: Literal["accept", "reject", "reject_clear", "clear"],
         note: str | None,
         note_supplied: bool,
     ) -> ReviewDecision: ...
@@ -1279,7 +1282,8 @@ class ReviewNoter(Protocol):
     def note(
         self,
         *,
-        run_id: int,
+        run_id: int | None,
+        copied_op_id: int | None,
         row_id: int,
         note: str | None,
     ) -> ReviewNote: ...

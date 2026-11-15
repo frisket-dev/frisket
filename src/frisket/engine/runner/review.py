@@ -1,7 +1,7 @@
 """Review queue: pending AI results triaged by humans,
 sorted ascending by confidence — attention goes where the model is least sure.
-Accept/reject/edit write review_state on results; edits also land in the
-edit overlay (so they beat model values and are undoable)."""
+Accept/reject judge saved results. Cell edits are separate Changes and never
+change the judgment or saved answer."""
 
 from __future__ import annotations
 
@@ -15,21 +15,17 @@ from frisket.engine.store.review_stats import (
 )
 from frisket.engine.store.review_values import read_review_results
 from frisket.engine.store.runs import REVIEWABLE_OUTCOMES_SQL, RunResultStore
-from frisket.review_predicate import authored_output_roles, is_exact_review_correction
+from frisket.review_predicate import authored_output_roles
 from frisket.server.paging import offset_page_payload
 
 
 _ACTIVE_HEAD_JOIN = (
-    "LEFT JOIN current_result_heads active_head "
+    "LEFT JOIN effective_current_cells active_head "
     "ON active_head.column_id=res.column_id "
-    "AND active_head.row_id=res.row_id AND active_head.run_id=res.run_id"
+    "AND active_head.row_id=res.row_id AND active_head.origin_kind='run_result' "
+    "AND active_head.origin_run_id=res.run_id"
 )
-_ACTIVE_RESULT_WHERE = (
-    "(active_head.run_id IS NOT NULL OR ("
-    "c.current_run_id=res.run_id AND NOT EXISTS ("
-    "SELECT 1 FROM run_output_generations generation "
-    "WHERE generation.column_id=c.id)))"
-)
+_ACTIVE_RESULT_WHERE = "active_head.origin_run_id IS NOT NULL"
 
 
 def _review_execution_runs(project: Project, run_id: int) -> tuple[int, list[int]]:
@@ -229,9 +225,9 @@ def review_queue(
                res.confidence, res.justification, res.error,
                res.review_decision, res.review_note,
                review_field.column_name, c.sheet_id, runs.action_kind, runs.model,
-               EXISTS (SELECT 1 FROM current_result_heads head JOIN ops applied ON applied.id=runs.op_id
-                 WHERE head.run_id=res.run_id AND head.row_id=res.row_id AND head.column_id=res.column_id
-                 AND applied.status='applied') AS applied
+               EXISTS (SELECT 1 FROM effective_current_cells head
+                 WHERE head.origin_kind='run_result' AND head.origin_run_id=res.run_id
+                 AND head.row_id=res.row_id AND head.column_id=res.column_id) AS applied
         FROM results res
         {current_join}
         JOIN run_review_fields review_field
@@ -488,25 +484,6 @@ def _hydrate_review_bundles(project: Project, keys: list[Any]) -> list[dict[str,
             preserve_invalid=True,
         )
 
-    op_ids = sorted(
-        {
-            int(ref["op_id"])
-            for reads in current_reads.values()
-            for current in reads.values()
-            for ref in [current.value_ref]
-            if ref.get("kind") == "manual_edit" and ref.get("op_id") is not None
-        }
-    )
-    ops_by_id: dict[int, dict[str, Any]] = {}
-    for offset in range(0, len(op_ids), 800):
-        chunk = op_ids[offset : offset + 800]
-        placeholders = ",".join("?" for _ in chunk)
-        for op in project.db.execute(
-            f"SELECT id,status,kind,spec FROM ops WHERE id IN ({placeholders})",
-            chunk,
-        ):
-            ops_by_id[int(op["id"])] = dict(op)
-
     result_coordinates: list[tuple[int, int, int]] = []
     for cells in cells_by_bundle.values():
         for cell in cells:
@@ -514,21 +491,11 @@ def _hydrate_review_bundles(project: Project, keys: list[Any]) -> list[dict[str,
                 (int(cell["sheet_id"]), int(cell["column_id"]))
             ].get(int(cell["row_id"]))
             ref = current.value_ref if current is not None else None
-            op_id = ref.get("op_id") if isinstance(ref, dict) else None
-            cell["changed"] = is_exact_review_correction(
-                run_id=int(cell["run_id"]),
-                row_id=int(cell["row_id"]),
-                column_id=int(cell["column_id"]),
-                ref=ref,
-                op=ops_by_id.get(int(op_id)) if op_id is not None else None,
-            )
-            cell["current_exact"] = bool(cell["can_edit"]) and (
-                bool(cell["changed"])
-                or (
-                    isinstance(ref, dict)
-                    and ref.get("kind") == "run_result"
-                    and ref.get("run_id") == cell["run_id"]
-                )
+            cell["changed"] = False
+            cell["current_exact"] = (
+                isinstance(ref, dict)
+                and ref.get("kind") == "run_result"
+                and ref.get("run_id") == cell["run_id"]
             )
             result_coordinates.append(
                 (
@@ -785,7 +752,7 @@ def _execution_review_fields(project: Project, run_id: int) -> list[dict[str, An
         SELECT column_id,column_name,column_type,COUNT(*) AS eligible_count,
                SUM(review_decision IS NOT NULL) AS reviewed_count,
                SUM(CASE WHEN review_decision='accept' THEN 1 ELSE 0 END) AS accepted_count,
-               SUM(CASE WHEN review_decision IN ('edit','reject','reject_clear') THEN 1 ELSE 0 END) AS incorrect_count,
+               SUM(CASE WHEN review_decision IN ('reject','reject_clear') THEN 1 ELSE 0 END) AS incorrect_count,
                SUM(review_state='unreviewed' AND review_decision IS NULL) AS unreviewed_count,
                SUM(confidence IS NOT NULL) AS confidence_count
         FROM candidates WHERE position=1 GROUP BY column_id ORDER BY column_position,column_id

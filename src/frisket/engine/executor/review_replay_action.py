@@ -40,34 +40,24 @@ from frisket.engine.store.cells import (
     replay_origin_run_id,
 )
 from frisket.engine.store.current_value_windows import (
-    MANUAL_EDIT_BYTE_LIMIT,
     read_current_column,
 )
+from frisket.engine.store.review_judgments import result_key, project_judgments
 from frisket.engine.store.review_stats import ensure_run_review_stats
 from frisket.engine.store.runs import REVIEWABLE_OUTCOMES_SQL, RunResultStore
-from frisket.engine.store.value_codec import encode_stored_value
-from frisket.review_predicate import is_exact_review_correction
 
 
 def _is_current_review_value(
     project: Any, target: dict[str, Any], ref: dict[str, Any] | None
 ) -> bool:
-    if not bool(target["can_edit"]) or not isinstance(ref, dict):
+    if not isinstance(ref, dict):
         return False
-    if ref.get("kind") == "run_result":
-        return ref.get("run_id") == target["run_id"]
-    if ref.get("kind") != "manual_edit" or ref.get("op_id") is None:
-        return False
-    op = project.db.execute(
-        "SELECT status,kind,spec FROM ops WHERE id=?", (int(ref["op_id"]),)
-    ).fetchone()
-    return is_exact_review_correction(
-        run_id=int(target["run_id"]),
-        row_id=int(target["row_id"]),
-        column_id=int(target["column_id"]),
-        ref=ref,
-        op=dict(op) if op is not None else None,
-    )
+    if target.get("copied_op_id") is not None:
+        return (
+            ref.get("kind") == "copied_result"
+            and ref.get("op_id") == target["copied_op_id"]
+        )
+    return ref.get("kind") == "run_result" and ref.get("run_id") == target["run_id"]
 
 
 def _review_target(
@@ -80,12 +70,7 @@ def _review_target(
                res.confidence, res.justification, res.error, res.review_state,
                res.review_decision, res.review_note, runs.review_completed_at,
                c.sheet_id, c.name AS column_name,
-               CASE WHEN active_head.run_id IS NOT NULL OR (
-                    c.current_run_id=res.run_id AND NOT EXISTS (
-                      SELECT 1 FROM run_output_generations generation
-                      WHERE generation.column_id=c.id
-                    )
-               ) THEN 1 ELSE 0 END AS can_edit
+               1 AS can_edit
         FROM results res
         JOIN runs ON runs.id=res.run_id
         JOIN columns c ON c.id=res.column_id
@@ -93,9 +78,6 @@ def _review_target(
           ON review_field.run_id=res.run_id
          AND review_field.column_id=res.column_id
          AND review_field.is_primary=1
-        LEFT JOIN cell_result_heads active_head
-          ON active_head.column_id=res.column_id
-          AND active_head.row_id=res.row_id AND active_head.run_id=res.run_id
         JOIN rows ON rows.id=res.row_id AND rows.sheet_id=c.sheet_id
         WHERE res.run_id=? AND res.row_id=? AND res.column_id=?
           AND res.outcome IN ({REVIEWABLE_OUTCOMES_SQL})
@@ -126,6 +108,54 @@ def _review_target(
     decoded = RunResultStore(project).decoded_result_rows([coordinate]).get(coordinate)
     target["value"] = decoded["value"] if decoded is not None else None
     return target
+
+
+def _copied_review_row_targets(project, *, copied_op_id, row_id, action_kind):
+    rows = project.db.execute(
+        "SELECT copy.*,c.sheet_id,c.name column_name,1 can_edit FROM copied_result_values copy "
+        "JOIN ops ON ops.id=copy.op_id JOIN columns c ON c.id=copy.column_id "
+        "JOIN rows ON rows.id=copy.row_id AND rows.sheet_id=c.sheet_id "
+        "WHERE copy.op_id=? AND copy.row_id=? AND ops.status='applied' "
+        "AND copy.outcome='completed' ORDER BY copy.column_id",
+        (copied_op_id, row_id),
+    ).fetchall()
+    if not rows:
+        _refuse(
+            "review_target_not_found",
+            "Saved results are unavailable for review",
+            action_kind=action_kind,
+            field="params",
+        )
+    targets = []
+    for row in rows:
+        target = dict(row)
+        target["run_id"] = None
+        target["copied_op_id"] = copied_op_id
+        coordinate = (
+            target["source_run_id"],
+            target["source_row_id"],
+            target["source_column_id"],
+        )
+        decoded = (
+            RunResultStore(project).decoded_result_rows([coordinate]).get(coordinate)
+        )
+        target["value"] = decoded["value"] if decoded is not None else None
+        targets.append(target)
+    return targets
+
+
+def _copied_review_target(project, *, copied_op_id, row_id, column_id, action_kind):
+    for target in _copied_review_row_targets(
+        project, copied_op_id=copied_op_id, row_id=row_id, action_kind=action_kind
+    ):
+        if target["column_id"] == column_id:
+            return target
+    _refuse(
+        "review_target_not_found",
+        "Saved result field is unavailable for review",
+        action_kind=action_kind,
+        field="params",
+    )
 
 
 def _review_row_targets(
@@ -274,47 +304,34 @@ class _ReviewDecider(_CallOnce):
     def decide(
         self,
         *,
-        run_id: int,
+        run_id: int | None,
+        copied_op_id: int | None,
         row_id: int,
         column_id: int,
-        decision: Literal["accept", "reject", "reject_clear", "edit", "clear"],
-        value: Any,
-        value_supplied: bool,
+        decision: Literal["accept", "reject", "reject_clear", "clear"],
         note: str | None,
         note_supplied: bool,
     ) -> ReviewDecision:
         self._begin()
-        if decision == "edit" and not value_supplied:
-            _refuse(
-                "review_value_required",
-                "review.decision edit requires a replacement value (which may be null)",
+        target = (
+            _review_target(
+                self._project,
+                run_id=run_id,
+                row_id=row_id,
+                column_id=column_id,
                 action_kind=self._action.kind,
-                field="params.value",
             )
-        target = _review_target(
-            self._project,
-            run_id=run_id,
-            row_id=row_id,
-            column_id=column_id,
-            action_kind=self._action.kind,
+            if run_id is not None
+            else _copied_review_target(
+                self._project,
+                copied_op_id=copied_op_id,
+                row_id=row_id,
+                column_id=column_id,
+                action_kind=self._action.kind,
+            )
         )
-        if decision == "edit":
-            replacement_kind, replacement = encode_stored_value(value)
-            if (
-                replacement_kind in {"text", "json", "bigint", "legacy_invalid"}
-                and isinstance(replacement, str)
-                and len(replacement.encode("utf-8")) > MANUAL_EDIT_BYTE_LIMIT
-            ):
-                _refuse(
-                    "review_value_too_large",
-                    "Review edits are limited to 64 KiB of UTF-8 text.",
-                    action_kind=self._action.kind,
-                    field="params.value",
-                    details={"maximum_bytes": MANUAL_EDIT_BYTE_LIMIT},
-                )
         current_ref: dict[str, Any] | None = None
-        current_is_bounded = False
-        if decision in {"edit", "reject_clear"}:
+        if decision == "reject_clear":
             current = read_current_column(
                 self._project.db,
                 sheet_id=int(target["sheet_id"]),
@@ -324,8 +341,7 @@ class _ReviewDecider(_CallOnce):
             ).get(row_id)
             if current is not None:
                 current_ref = dict(current.value_ref)
-                current_is_bounded = current.bounded_value is not None
-        if decision in {"edit", "reject_clear"} and not _is_current_review_value(
+        if decision == "reject_clear" and not _is_current_review_value(
             self._project, target, current_ref
         ):
             _refuse(
@@ -338,19 +354,6 @@ class _ReviewDecider(_CallOnce):
                     "row_id": row_id,
                     "column_id": column_id,
                     "reason": "result_not_current",
-                },
-            )
-        if decision == "edit" and current_is_bounded:
-            _refuse(
-                "review_value_truncated",
-                "Only an excerpt of this value is available in Review, so it cannot be edited here.",
-                action_kind=self._action.kind,
-                field="params",
-                details={
-                    "run_id": run_id,
-                    "row_id": row_id,
-                    "column_id": column_id,
-                    "maximum_bytes": MANUAL_EDIT_BYTE_LIMIT,
                 },
             )
         _claimed_column(self._project, column_id, action_kind=self._action.kind)
@@ -366,24 +369,29 @@ class _ReviewDecider(_CallOnce):
         note_after = (
             target["review_note"] if decision == "clear" or not note_supplied else note
         )
+        key = result_key(run_id, copied_op_id, row_id, column_id)
         undo_info = {
-            "review_states": {f"{run_id}:{row_id}:{column_id}": state_before},
-            "review_states_after": {f"{run_id}:{row_id}:{column_id}": state_after},
+            "review_states": {key: state_before},
+            "review_states_after": {key: state_after},
             "review_metadata": {
-                f"{run_id}:{row_id}:{column_id}": {
+                key: {
                     "decision": target["review_decision"],
                     "note": target["review_note"],
                 }
             },
             "review_metadata_after": {
-                f"{run_id}:{row_id}:{column_id}": {
+                key: {
                     "decision": decision_after,
-                    "note": note_after,
+                    **(
+                        {"note": note_after}
+                        if note_supplied and decision != "clear"
+                        else {}
+                    ),
                 }
             },
         }
-        edit_value = value if decision == "edit" else None
-        if decision in {"edit", "reject_clear"}:
+        edit_value = None
+        if decision == "reject_clear":
             op_id = _write_edit_overlay(
                 self._project,
                 self._cur,
@@ -413,25 +421,9 @@ class _ReviewDecider(_CallOnce):
                 spec=_op_spec(self._action, self._params_hash),
                 undo_info=undo_info,
             )
-        from frisket.engine.store.runs import RunResultStore
-
-        store = RunResultStore(self._project)
-        updated = store.set_result_review_state(
-            run_id, row_id, column_id, state_after, commit=False
-        )
-        if updated != 1:
-            _refuse(
-                "review_target_not_found",
-                "review.decision target result cell was not found",
-                action_kind=self._action.kind,
-                field="params",
-                details={"run_id": run_id, "row_id": row_id, "column_id": column_id},
-            )
-        store.set_result_review_metadata(
-            run_id, row_id, column_id, decision_after, note_after, commit=False
-        )
+        project_judgments(self._project, op_id)
         edit_ref = None
-        if decision in {"edit", "reject_clear"}:
+        if decision == "reject_clear":
             edit_ref = {
                 "kind": "edit_overlay",
                 "op_id": op_id,
@@ -441,6 +433,7 @@ class _ReviewDecider(_CallOnce):
             }
         result = ReviewDecision(
             run_id=run_id,
+            copied_op_id=copied_op_id,
             row_id=row_id,
             column_id=column_id,
             decision=decision,
@@ -456,13 +449,29 @@ class _ReviewDecider(_CallOnce):
 
 
 class _ReviewNoter(_CallOnce):
-    def note(self, *, run_id: int, row_id: int, note: str | None) -> ReviewNote:
+    def note(
+        self,
+        *,
+        run_id: int | None,
+        copied_op_id: int | None,
+        row_id: int,
+        note: str | None,
+    ) -> ReviewNote:
         self._begin()
-        targets = _review_row_targets(
-            self._project,
-            run_id=run_id,
-            row_id=row_id,
-            action_kind=self._action.kind,
+        targets = (
+            _review_row_targets(
+                self._project,
+                run_id=run_id,
+                row_id=row_id,
+                action_kind=self._action.kind,
+            )
+            if run_id is not None
+            else _copied_review_row_targets(
+                self._project,
+                copied_op_id=copied_op_id,
+                row_id=row_id,
+                action_kind=self._action.kind,
+            )
         )
         for target in targets:
             _claimed_column(
@@ -471,16 +480,13 @@ class _ReviewNoter(_CallOnce):
                 action_kind=self._action.kind,
             )
         before = {
-            f"{run_id}:{row_id}:{target['column_id']}": {
+            result_key(run_id, copied_op_id, row_id, int(target["column_id"])): {
                 "decision": target["review_decision"],
                 "note": target["review_note"],
             }
             for target in targets
         }
-        after = {
-            key: {"decision": before_value["decision"], "note": note}
-            for key, before_value in before.items()
-        }
+        after = {key: {"note": note} for key in before}
         op_id = _write_op(
             self._cur,
             kind=self._action.kind,
@@ -491,28 +497,10 @@ class _ReviewNoter(_CallOnce):
                 "review_metadata_after": after,
             },
         )
-        from frisket.engine.store.runs import RunResultStore
-
-        store = RunResultStore(self._project)
-        for target in targets:
-            updated = store.set_result_review_metadata(
-                run_id,
-                row_id,
-                int(target["column_id"]),
-                target["review_decision"],
-                note,
-                commit=False,
-            )
-            if updated != 1:
-                _refuse(
-                    "review_target_not_found",
-                    "review.note target result cell was not found",
-                    action_kind=self._action.kind,
-                    field="params",
-                    details={"run_id": run_id, "row_id": row_id},
-                )
+        project_judgments(self._project, op_id)
         result = ReviewNote(
             run_id=run_id,
+            copied_op_id=copied_op_id,
             row_id=row_id,
             note=note,
             column_count=len(targets),
@@ -771,6 +759,11 @@ def _review_result_and_receipt(
     target_ref = {
         "kind": "target_result_cell",
         "run_id": returned.run_id,
+        **(
+            {"copied_op_id": returned.copied_op_id}
+            if returned.copied_op_id is not None
+            else {}
+        ),
         "row_id": returned.row_id,
         "column_id": returned.column_id,
         "sheet_id": int(target["sheet_id"]),
@@ -793,6 +786,11 @@ def _review_result_and_receipt(
         "target": {
             "kind": "result_cell",
             "run_id": returned.run_id,
+            **(
+                {"copied_op_id": returned.copied_op_id}
+                if returned.copied_op_id is not None
+                else {}
+            ),
             "row_id": returned.row_id,
             "column_id": returned.column_id,
         },
@@ -800,6 +798,11 @@ def _review_result_and_receipt(
     state_ref = {
         "kind": "review_state_transition",
         "run_id": returned.run_id,
+        **(
+            {"copied_op_id": returned.copied_op_id}
+            if returned.copied_op_id is not None
+            else {}
+        ),
         "row_id": returned.row_id,
         "column_id": returned.column_id,
         "before": returned.review_state_before,
@@ -850,6 +853,11 @@ def _review_note_result_and_receipt(
     target_ref = {
         "kind": "review_row",
         "run_id": returned.run_id,
+        **(
+            {"copied_op_id": returned.copied_op_id}
+            if returned.copied_op_id is not None
+            else {}
+        ),
         "row_id": returned.row_id,
         "sheet_id": int(capability.targets[0]["sheet_id"]),
         "columns": [
@@ -863,6 +871,11 @@ def _review_note_result_and_receipt(
     note_ref = {
         "kind": "review_note",
         "run_id": returned.run_id,
+        **(
+            {"copied_op_id": returned.copied_op_id}
+            if returned.copied_op_id is not None
+            else {}
+        ),
         "row_id": returned.row_id,
         "note": returned.note,
         "column_count": returned.column_count,

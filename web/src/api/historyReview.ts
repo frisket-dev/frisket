@@ -796,25 +796,18 @@ export function createHistoryReviewDomainApi(
       });
     },
 
-    async reviewItem(itemId, action, editedValue, note) {
+    async reviewItem(itemId, action, _editedValue, note) {
       const itemRef = itemId.split(':');
-      const [runId, rowId, colId] = itemRef.map(Number);
-      if (
-        itemRef.length !== 3 ||
-        ![runId, rowId, colId].every((id) => Number.isInteger(id) && id > 0)
-      ) {
-        throw new ApiError(400, `Review item ${itemId} is not a valid v1 result-cell ref`);
+      const copied = itemRef[0] === 'copy';
+      if (copied) itemRef.shift();
+      const [ownerId, rowId, colId] = itemRef.map(Number);
+      if (itemRef.length !== 3 || ![ownerId, rowId, colId].every((id) => Number.isInteger(id) && id > 0)) {
+        throw new ApiError(400, `Invalid review result reference: ${itemId}`);
       }
+      if (action === 'edit') throw new ApiError(400, 'Use cell editing to change a value');
       const params: ReviewDecisionActionParams = {
-        run_id: runId,
-        row_id: rowId,
-        column_id: colId,
-        decision: action,
-        // An edit carries its value (null when cleared); the two rejection
-        // decisions name their persistence semantics themselves.
-        ...(action === 'edit'
-          ? { value: (editedValue ?? null) as ReviewDecisionActionParams['value'] }
-          : {}),
+        ...(copied ? { copied_op_id: ownerId } : { run_id: ownerId }),
+        row_id: rowId, column_id: colId, decision: action,
         ...(note !== undefined ? { note } : {}),
       };
       const spec = v1ActionSession.registeredProjectActionSpec('review.decision', params);
