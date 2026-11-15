@@ -2558,7 +2558,10 @@ class MapRunner:
                     if not getattr(values, "unavailable_inputs", ())
                 }
                 raw_results = {}
-                if ready:
+                # An empty admitted batch is still a valid whole-column operation
+                # (for example, clustering records an empty result). Do not confuse
+                # it with a nonempty batch whose inputs are all unavailable.
+                if ready or not values_by_row:
                     async with recipe.execution_scope(
                         spec, ctx, expected_rows=len(ready)
                     ):

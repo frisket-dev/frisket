@@ -27,6 +27,7 @@ class _EvidenceBatchRecipe(Recipe):
         )
         self.fail_evidence = fail_evidence
         self.evidence_batches: list[list[int]] = []
+        self.executed_batches: list[list[int]] = []
 
     def source_columns(self, spec: dict[str, Any]) -> list[str]:
         del spec
@@ -43,6 +44,7 @@ class _EvidenceBatchRecipe(Recipe):
         ctx: OpContext,
     ) -> dict[int, dict[str, Any]]:
         del spec, ctx
+        self.executed_batches.append(list(values_by_row))
         return {
             row_id: {"output": f"published:{values['source']}"}
             for row_id, values in values_by_row.items()
@@ -237,5 +239,33 @@ def test_batch_preview_and_publication_never_dispatch_unavailable_required_rows(
         assert [tuple(row) for row in saved] == [
             ("not_completed", "input_invalid")
         ] * len(rows)
+    finally:
+        project.close()
+
+
+@pytest.mark.parametrize("invalid_row", [False, True])
+def test_empty_batch_executes_but_unavailable_batch_does_not(tmp_path, invalid_row):
+    project = Project.create(tmp_path / "empty-batch.frisket")
+    project.db.execute("CREATE TABLE batch_evidence_probe (row_id INTEGER NOT NULL)")
+    sheet = project.add_sheet("Rows")
+    source = project.add_column(sheet, "source", type="integer")
+    if invalid_row:
+        project.add_rows(sheet, [{"source": "not an integer"}], {"source": source})
+    recipe = _EvidenceBatchRecipe()
+    recipe.allow_all_empty_input = True
+    try:
+        progress = asyncio.run(
+            run_with_output_claim(
+                _runner(project), _spec(sheet), program=recipe, confirmed=True
+            )
+        )
+        assert recipe.executed_batches == ([] if invalid_row else [[]])
+        outcomes = project.db.execute(
+            "SELECT outcome,error_code FROM results WHERE run_id=?",
+            (progress.run_id,),
+        ).fetchall()
+        assert [tuple(row) for row in outcomes] == (
+            [("not_completed", "input_invalid")] if invalid_row else []
+        )
     finally:
         project.close()

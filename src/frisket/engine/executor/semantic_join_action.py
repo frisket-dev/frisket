@@ -757,7 +757,12 @@ def typed_semantic_join_queue_spec(bound, *, initial_plan=None, semantic_state=N
                 )
             }
             if len(bindings) != len(bound.output_fields) or any(
-                columns.get(binding.output_role) != binding.column_id
+                columns.get(
+                    bound.request.output_names.get(
+                        binding.output_role, binding.output_role
+                    )
+                )
+                != binding.column_id
                 for binding in bindings
             ):
                 raise ValueError(
