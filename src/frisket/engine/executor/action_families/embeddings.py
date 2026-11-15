@@ -65,7 +65,10 @@ from frisket.ai.embeddings import (
 )
 from frisket.ai.embeddings.capabilities import embedding_model_size_budget_gb
 from frisket.ai.models.metadata import provider_network_blocked
-from frisket.ai.embeddings.gateway import provider_normalization
+from frisket.ai.embeddings.gateway import (
+    ExecutionEmbeddingGateway,
+    provider_normalization,
+)
 from frisket.ai.embeddings.scope import IndexScopeError, resolve_scope_rows
 from frisket.ai.embeddings.source_payload import build_source_payloads
 from frisket.ai.embeddings.spaces import canonical_json
@@ -1070,9 +1073,8 @@ def _run_paid_embedding_dimension_probe(
     from frisket.execution.dispatch_control import RunDispatch
 
     execution = RunDispatch(project, run_id, attempt_id)
-    execution.check()
-    gateway = embedding_gateway or EmbeddingGateway(
-        router=router.for_execution(execution) if router is not None else None
+    gateway = ExecutionEmbeddingGateway(
+        embedding_gateway or EmbeddingGateway(router=router), execution
     )
     try:
         probe = gateway.embed(
@@ -2260,11 +2262,8 @@ def _do_refresh(
                         from frisket.execution.dispatch_control import RunDispatch
 
                         execution = RunDispatch(project, run_id, attempt_id)
-                        execution.check()
-                        batch_gateway = gateway or EmbeddingGateway(
-                            router=router.for_execution(execution)
-                            if router is not None
-                            else None
+                        batch_gateway = ExecutionEmbeddingGateway(
+                            gateway or EmbeddingGateway(router=router), execution
                         )
                         try:
                             result = batch_gateway.embed(

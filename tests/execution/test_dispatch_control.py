@@ -259,10 +259,12 @@ async def test_unbound_router_cannot_silently_dispatch_standalone():
         assert len(calls) == 1
 
 
+@pytest.mark.parametrize("injected", [False, True])
 def test_embedding_refresh_checks_run_cancellation_before_provider(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, injected
 ):
-    from frisket.engine.executor import run_action_spec
+    from frisket.engine.executor import ExecutorDeps, run_action_spec
+    from frisket.ai.embeddings import EmbeddingGateway
     from frisket.engine.executor.action_families import embeddings
     from tests.engine.test_embedding_index_actions import (
         _create_action,
@@ -304,6 +306,12 @@ def test_embedding_refresh_checks_run_cancellation_before_provider(
         )
         with pytest.raises(asyncio.CancelledError):
             run_action_spec(
-                project, _refresh_action(index_id), project_id="test", router=router
+                project,
+                _refresh_action(index_id),
+                project_id="test",
+                router=router,
+                deps=ExecutorDeps(embedding_gateway=EmbeddingGateway(router=router))
+                if injected
+                else None,
             )
         assert not calls
