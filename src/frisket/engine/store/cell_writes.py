@@ -223,6 +223,13 @@ def _validate_cell_pairs(
 
     if not pairs:
         return
+    from .purge import require_publication_targets
+
+    require_publication_targets(
+        db,
+        column_ids={int(column_id) for _row_id, column_id in pairs},
+        row_ids={int(row_id) for row_id, _column_id in pairs},
+    )
     encoded = json.dumps([[row_id, column_id] for row_id, column_id in pairs])
     invalid = db.execute(
         "WITH requested(row_id,column_id) AS ("
@@ -269,12 +276,21 @@ def _require_cell_targets_mutable(
     db: sqlite3.Connection,
     pairs: Collection[tuple[int, int]],
     *,
+    column_ids: Collection[int] = (),
     producer_id: int | None = None,
     import_writer_authority: str | None = None,
 ) -> None:
-    if not pairs:
+    columns = {int(column_id) for column_id in column_ids}
+    columns.update(int(column_id) for _row_id, column_id in pairs)
+    rows = {int(row_id) for row_id, _column_id in pairs}
+    if not rows and not columns:
         return
-    row_ids = sorted({int(row_id) for row_id, _column_id in pairs})
+    from .purge import require_publication_targets
+
+    require_publication_targets(db, column_ids=columns, row_ids=rows)
+    if not rows:
+        return
+    row_ids = sorted(rows)
     marks = ",".join("?" for _ in row_ids)
     sheet_ids = {
         int(row[0])
@@ -379,7 +395,11 @@ def remove_base_cells(
             columns,
         )
     ]
-    _require_cell_targets_mutable(db, [(row_id, columns[0]) for row_id in target_rows])
+    _require_cell_targets_mutable(
+        db,
+        [(row_id, columns[0]) for row_id in target_rows],
+        column_ids=columns,
+    )
     params: list[int] = list(columns)
     where = f"column_id IN ({','.join('?' for _ in columns)})"
     if rows is not None:
@@ -413,6 +433,18 @@ def delete_sheet_rows(
 
     _require_transaction(db)
     _require_base_producer(db, int(producer_id))
+    from .purge import require_publication_targets
+
+    require_publication_targets(
+        db,
+        sheet_id=int(sheet_id),
+        row_ids=(
+            int(row[0])
+            for row in db.execute(
+                "SELECT id FROM rows WHERE sheet_id=?", (int(sheet_id),)
+            )
+        ),
+    )
     if active_import_session(db, sheet_id) is not None:
         if import_writer_authority is None or import_expected_cursor is None:
             require_import_sheet_write(db, sheet_id)
@@ -471,6 +503,7 @@ def replace_base_cells(
     _require_cell_targets_mutable(
         db,
         [(row_id, columns[0]) for row_id in target_rows],
+        column_ids=columns,
         producer_id=producer_id if import_writer_authority is not None else None,
         import_writer_authority=import_writer_authority,
     )

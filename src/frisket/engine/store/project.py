@@ -246,6 +246,7 @@ class Project:
     ):
         self.path = Path(bundle_path)
         self.db_path = self.path / "project.db"
+        self.maintenance = bool(maintenance)
         self.blob_store: ProjectBlobStore = (
             blob_store
             if blob_store is not None

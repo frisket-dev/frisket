@@ -11,11 +11,11 @@ from .blob_backend import _fsync_directory
 
 
 def cleanup_unowned_bundle_content(project: Any, *, dry_run: bool) -> dict[str, int]:
-    """Called by the existing offline sweep under its maintenance transaction.
+    """Collect unreachable prepared content in a short project DB transaction.
 
     Retained cells, results, edits and document correction pins own prepared
     content regardless of visibility. A saved result copied elsewhere therefore
-    protects the same immutable reference. Traces only belong to extant runs.
+    protects the same immutable reference.
     Selected-scope purge must detach its owners before invoking this sweep.
     """
     db = project.db
@@ -61,9 +61,19 @@ def cleanup_unowned_bundle_content(project: Any, *, dry_run: bool) -> dict[str, 
     finally:
         db.execute("DROP TABLE temp.gc_live_prepared_refs")
 
-    counts["traces_reclaimable"] = 0
-    counts["trace_bytes_reclaimable"] = 0
-    counts["traces_removed"] = 0
+    return counts
+
+
+def cleanup_unowned_traces(project: Any, *, dry_run: bool) -> dict[str, int]:
+    """Remove unowned trace files outside the project DB writer transaction."""
+    db = project.db
+    if db.in_transaction:
+        raise ValueError("trace cleanup requires no project DB transaction")
+    counts = {
+        "traces_reclaimable": 0,
+        "trace_bytes_reclaimable": 0,
+        "traces_removed": 0,
+    }
     root = project.path / "traces"
     if not root.exists() or root.is_symlink():
         return counts

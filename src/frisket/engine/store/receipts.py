@@ -88,6 +88,12 @@ class StoredReceipt:
         return iter(self.keys())
 
     def parsed(self) -> Receipt:
+        if self.body.strip() == "{}":
+            from .purge import PurgedMaterialUnavailable
+
+            raise PurgedMaterialUnavailable(
+                "This receipt's recovery material was permanently removed."
+            )
         return Receipt.model_validate_json(self.body)
 
 

@@ -230,10 +230,14 @@ def _require_restoration_targets(project, op_id, info, *, reverting):
             "SELECT result.row_id,result.column_id FROM results result JOIN runs run ON run.id=result.run_id WHERE run.op_id=?) "
             "SELECT 1 FROM destinations target LEFT JOIN rows row ON row.id=target.row_id "
             "LEFT JOIN columns col ON col.id=target.column_id LEFT JOIN sheets sheet ON sheet.id=col.sheet_id "
-            "WHERE row.id IS NULL OR col.id IS NULL OR sheet.id IS NULL "
+            "WHERE (row.id IS NULL OR col.id IS NULL OR sheet.id IS NULL "
             "OR (row.hidden=1 AND row.id NOT IN (SELECT value FROM json_each(?))) "
             "OR (col.active=0 AND col.id NOT IN (SELECT value FROM json_each(?))) "
-            "OR (sheet.hidden=1 AND sheet.id NOT IN (SELECT value FROM json_each(?))) LIMIT 1",
+            "OR (sheet.hidden=1 AND sheet.id NOT IN (SELECT value FROM json_each(?)))) "
+            "AND NOT EXISTS (SELECT 1 FROM project_purge_targets purged WHERE "
+            "(purged.kind='row' AND purged.object_id=target.row_id) OR "
+            "(purged.kind='column' AND purged.object_id=target.column_id) OR "
+            "(purged.kind='sheet' AND purged.object_id=sheet.id)) LIMIT 1",
             (
                 op_id,
                 op_id,
@@ -318,6 +322,55 @@ def step_operation(
     validation_error = validate_operation_undo_info(undo_info)
     if validation_error is not None:
         raise CorruptOperation(target_op_id, validation_error)
+    from .purge import require_restore_available
+
+    structural_scope = any(
+        undo_info.get(field)
+        for field in (
+            "created_sheets",
+            "deleted_sheets",
+            "created_columns",
+            "deleted_columns",
+            "created_rows",
+            "deleted_rows",
+            "restored_rows",
+            "created_rows_import_session_id",
+            "replaced_rows_import_session_id",
+        )
+    )
+    structural_scope = structural_scope or (
+        project.db.execute(
+            "SELECT 1 FROM structural_changes effect "
+            "JOIN project_purge_targets target ON target.kind=effect.kind "
+            "AND target.object_id=effect.object_id "
+            "WHERE effect.op_id=? LIMIT 1",
+            (target_op_id,),
+        ).fetchone()
+        is not None
+    )
+    if structural_scope:
+        require_restore_available(project.db, op_ids=(target_op_id,))
+    require_restore_available(
+        project.db,
+        sheet_ids=(
+            undo_info.get("deleted_sheets", [])
+            if reverting
+            else undo_info.get("created_sheets", [])
+        ),
+        column_ids=(
+            undo_info.get("deleted_columns", [])
+            if reverting
+            else undo_info.get("created_columns", [])
+        ),
+        row_ids=(
+            undo_info.get("deleted_rows", [])
+            if reverting
+            else [
+                *undo_info.get("created_rows", []),
+                *undo_info.get("restored_rows", []),
+            ]
+        ),
+    )
     from .structural_changes import record_structural_changes
 
     record_structural_changes(project.db, target_op_id, undo_info)

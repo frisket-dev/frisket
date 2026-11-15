@@ -13,7 +13,9 @@ from frisket.engine.store.purge import (
 
 @pytest.fixture
 def project(tmp_path):
-    with closing(Project.create(tmp_path / "purge.frisket")) as project:
+    path = tmp_path / "purge.frisket"
+    Project.create(path).close()
+    with closing(Project(path, maintenance=True)) as project:
         yield project
 
 
@@ -57,11 +59,219 @@ def test_scope_preserves_independent_owner_and_blocks_stale_publication(project)
     assert project.db.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
+def test_purged_rows_and_columns_are_fenced_from_restore_and_mutation(project):
+    from frisket.engine.store.cell_writes import EditCellWrite, insert_edits
+    from frisket.engine.store.op_log import OperationUnavailable, step_operation
+
+    sheet, purged_column, purged_row = add(project, "purged", "secret")
+    finish_purge(project, begin_purge(project, row_ids=[purged_row]))
+    assert (
+        project.db.execute(
+            "SELECT hidden FROM rows WHERE id=?", (purged_row,)
+        ).fetchone()[0]
+        == 1
+    )
+    with pytest.raises(PurgedMaterialUnavailable):
+        project.undo()
+    assert (
+        project.db.execute(
+            "SELECT hidden FROM rows WHERE id=?", (purged_row,)
+        ).fetchone()[0]
+        == 1
+    )
+    with pytest.raises(PurgedMaterialUnavailable):
+        with project.db:
+            project.db.execute("BEGIN IMMEDIATE")
+            op_id = project.append_op("test.edit", commit=False)
+            insert_edits(
+                project.db,
+                op_id=op_id,
+                edits=[EditCellWrite(purged_row, purged_column, "late")],
+            )
+
+    # Purge fences are target-specific: a retained row still accepts a write.
+    retained_sheet, retained_column, retained_row = add(project, "retained", "keep")
+    with project.db:
+        project.db.execute("BEGIN IMMEDIATE")
+        retained_edit = project.append_op("test.edit", commit=False)
+        insert_edits(
+            project.db,
+            op_id=retained_edit,
+            edits=[EditCellWrite(retained_row, retained_column, "updated")],
+        )
+    assert (
+        project.get_values(retained_sheet, retained_column)[retained_row] == "updated"
+    )
+
+    third_sheet = project.add_sheet("column-purge")
+    doomed = project.add_column(third_sheet, "doomed")
+    safe = project.add_column(third_sheet, "safe")
+    third_row = project.add_rows(
+        third_sheet,
+        [{"doomed": "x", "safe": "y"}],
+        {"doomed": doomed, "safe": safe},
+    )[0]
+    from frisket.engine.store.changes import start_change
+    from frisket.engine.store.op_log import append_op
+
+    with project.db:
+        project.db.execute("BEGIN IMMEDIATE")
+        column_op = append_op(
+            project,
+            "test.created_column",
+            undo_info={"created_columns": [doomed]},
+            commit=False,
+        )
+        start_change(project.db, column_op)
+    finish_purge(project, begin_purge(project, column_ids=[doomed]))
+    with pytest.raises(PurgedMaterialUnavailable):
+        with project.db:
+            project.db.execute("BEGIN IMMEDIATE")
+            op_id = project.append_op("test.edit", commit=False)
+            insert_edits(
+                project.db,
+                op_id=op_id,
+                edits=[EditCellWrite(third_row, doomed, "late")],
+            )
+    with project.db:
+        project.db.execute("BEGIN IMMEDIATE")
+        with pytest.raises(PurgedMaterialUnavailable):
+            step_operation(project, "revert", op_id=column_op)
+    with pytest.raises(OperationUnavailable):
+        with project.db:
+            project.db.execute("BEGIN IMMEDIATE")
+            step_operation(project, "restore", op_id=column_op)
+
+
+def test_purged_undone_row_cannot_be_restored(project):
+    from frisket.engine.store.op_log import step_operation
+
+    _sheet, _column, row = add(project, "restore", "secret")
+    row_op = project.db.execute(
+        "SELECT op_id FROM structural_changes WHERE kind='row' AND object_id=? ORDER BY op_id DESC LIMIT 1",
+        (row,),
+    ).fetchone()[0]
+    assert project.undo() == row_op
+    finish_purge(project, begin_purge(project, row_ids=[row]))
+    with pytest.raises(PurgedMaterialUnavailable):
+        with project.db:
+            project.db.execute("BEGIN IMMEDIATE")
+            step_operation(project, "restore", op_id=row_op)
+    assert (
+        project.db.execute("SELECT hidden FROM rows WHERE id=?", (row,)).fetchone()[0]
+        == 1
+    )
+
+
+def test_purge_keeps_independent_reapply_results_replayable(project):
+    from frisket.engine.store.changes import start_change
+    from frisket.engine.store.current_cells import refresh_current_cells
+    from frisket.engine.store.result_generations import ResultGenerationStore
+    from frisket.engine.store.runs import RunResultStore
+    from helpers import run_writer_authority_fixture
+
+    source_sheet = project.add_sheet("source")
+    source_column = project.add_column(
+        source_sheet, "generated", type="text", ai_generated=True
+    )
+    source_row = project.add_rows(
+        source_sheet, [{"generated": "input"}], {"generated": source_column}
+    )[0]
+    source_op = project.append_op("test.run")
+    runs = RunResultStore(project)
+    source_run = runs.start_run(
+        source_op, source_sheet, "test.run", row_ids=[source_row], total_rows=1
+    )
+    authority = run_writer_authority_fixture(
+        project, source_run, output_column_ids={source_column}
+    )
+    generations = ResultGenerationStore(project)
+    generations.declare(
+        source_run,
+        source_column,
+        output_role="saved",
+        compatibility_key="sha256:independent-saved-output",
+        write_mode="create",
+        claim_token=authority.claim_token,
+    )
+    runs.write_results(
+        source_run,
+        [
+            {
+                "row_id": source_row,
+                "column_id": source_column,
+                "value": "saved",
+                "publication_effect": "publish_value",
+            }
+        ],
+        **authority.kwargs(),
+    )
+    generations.seal(
+        source_run,
+        {source_column},
+        claim_token=authority.claim_token,
+        terminal_disposition="completed",
+    )
+    runs.finish_run(source_run)
+    destination = project.add_sheet("copies")
+    output = project.add_column(destination, "saved", type="text", ai_generated=True)
+    first, second = project.add_rows(
+        destination,
+        [{"saved": None}, {"saved": None}],
+        {"saved": output},
+    )
+    copy_op = project.append_op("reapply.results")
+    with project.db:
+        project.db.execute("BEGIN IMMEDIATE")
+        start_change(project.db, copy_op)
+        project.db.executemany(
+            "INSERT INTO copied_result_outcomes(op_id,row_id,column_id,source_run_id,source_row_id,source_column_id) VALUES (?,?,?,?,?,?)",
+            [
+                (copy_op, row_id, output, source_run, source_row, source_column)
+                for row_id in (first, second)
+            ],
+        )
+        refresh_current_cells(project.db, column_ids=[output])
+
+    assert project.get_values(destination, output)[second] == "saved"
+    finish_purge(project, begin_purge(project, row_ids=[first]))
+    assert [
+        int(row[0])
+        for row in project.db.execute(
+            "SELECT row_id FROM copied_result_outcomes WHERE op_id=?", (copy_op,)
+        )
+    ] == [second]
+    finish_purge(project, begin_purge(project, row_ids=[source_row]))
+    assert (
+        project.db.execute(
+            "SELECT count(*) FROM results WHERE run_id=? AND row_id=?",
+            (source_run, source_row),
+        ).fetchone()[0]
+        == 1
+    )
+    assert project.get_values(destination, output)[second] == "saved"
+    assert project.undo() == copy_op
+    assert project.redo() == copy_op
+    assert project.get_values(destination, output)[second] == "saved"
+    assert first not in project.visible_row_ids(destination)
+
+
 def test_invalid_scope_rolls_back_purge(project):
     add(project, "first", "hello")
     with pytest.raises(ValueError, match="Unknown row"):
         begin_purge(project, row_ids=[900])
     assert project.db.execute("SELECT COUNT(*) FROM project_purges").fetchone()[0] == 0
+
+
+def test_purge_requires_explicit_maintenance_project(tmp_path):
+    path = tmp_path / "online.frisket"
+    with closing(Project.create(path)) as project:
+        _sheet, _column, row = add(project, "first", "hello")
+        with pytest.raises(ValueError, match="maintenance Project"):
+            begin_purge(project, row_ids=[row])
+        assert (
+            project.db.execute("SELECT COUNT(*) FROM project_purges").fetchone()[0] == 0
+        )
 
 
 def test_interrupted_content_cleanup_resumes(project, monkeypatch):
@@ -127,6 +337,28 @@ def test_purge_cleans_copied_watch_text_and_only_related_trace(project):
             (wr, first[0], first[2], "secret"),
         )
         project.db.execute(
+            "INSERT INTO watch_run_hits(run_id,sheet_id,row_id,rank,snippet) VALUES (?,?,?,2,?)",
+            (wr, second[0], second[2], "public"),
+        )
+        project.db.execute(
+            "UPDATE watches SET baseline_run_id=?,last_run_id=? WHERE id=?",
+            (wr, wr, watch),
+        )
+        project.db.executemany(
+            "INSERT INTO watch_seen_rows(watch_id,sheet_id,row_id,first_seen_run_id,last_seen_run_id) VALUES (?,?,?,?,?)",
+            [
+                (watch, first[0], first[2], wr, wr),
+                (watch, second[0], second[2], wr, wr),
+            ],
+        )
+        project.db.executemany(
+            "INSERT INTO watch_row_field_state(watch_id,sheet_id,row_id,column_id,value_hash,value_json,last_observed_run_id) VALUES (?,?,?,?,?,?,?)",
+            [
+                (watch, first[0], first[2], first[1], "secret", '"secret"', wr),
+                (watch, second[0], second[2], second[1], "public", '"public"', wr),
+            ],
+        )
+        project.db.execute(
             "INSERT INTO notification_items(source_kind,source_ref,dedupe_key,title,summary) VALUES ('watch',json_object('watch_id',?,'run_id',?),'private','private','secret')",
             (watch, wr),
         )
@@ -140,8 +372,232 @@ def test_purge_cleans_copied_watch_text_and_only_related_trace(project):
     assert [
         r[0] for r in project.db.execute("SELECT summary FROM notification_items")
     ] == ["unrelated"]
-    assert project.db.execute("SELECT count(*) FROM watch_runs").fetchone()[0] == 0
+    assert project.db.execute("SELECT count(*) FROM watch_runs").fetchone()[0] == 1
+    assert project.db.execute("SELECT count(*) FROM watch_run_hits").fetchone()[0] == 1
+    assert (
+        project.db.execute("SELECT row_id FROM watch_run_hits").fetchone()[0]
+        == second[2]
+    )
+    assert project.db.execute("SELECT baseline_run_id FROM watches").fetchone()[0] == wr
+    assert (
+        project.db.execute("SELECT row_id FROM watch_seen_rows").fetchone()[0]
+        == second[2]
+    )
+    assert (
+        project.db.execute("SELECT row_id FROM watch_row_field_state").fetchone()[0]
+        == second[2]
+    )
     assert project.db.execute("SELECT count(*) FROM watches").fetchone()[0] == 1
+
+
+def test_purge_scrubs_only_targeted_review_judgment_and_undo_is_safe(project):
+    import json
+
+    from frisket.engine.store.review_judgments import (
+        project_judgments,
+        record_judgment_changes,
+        result_key,
+    )
+    from frisket.engine.store.runs import RunResultStore
+
+    sheet, column, row = add(project, "review", "source")
+    other_row = project.add_rows(sheet, [{"value": "other source"}], {"value": column})[
+        0
+    ]
+    run_op = project.append_op("test.run")
+    runs = RunResultStore(project)
+    run_id = runs.start_run(run_op, sheet, "test.run")
+    runs.finish_run(run_id)
+    with project.db:
+        project.db.execute(
+            "INSERT INTO results(run_id,row_id,column_id,value_kind,value,published) VALUES (?,?,?,'text','answer',1)",
+            (run_id, row, column),
+        )
+    target = result_key(run_id, None, row, column)
+    retained_target = result_key(run_id, None, other_row, column)
+    with project.db:
+        project.db.execute(
+            "INSERT INTO results(run_id,row_id,column_id,value_kind,value,published) VALUES (?,?,?,'text','other answer',1)",
+            (run_id, other_row, column),
+        )
+    review_op = project.append_op("review.verify")
+    info = {
+        "review_states": {target: "unreviewed", retained_target: "unreviewed"},
+        "review_states_after": {target: "verified", retained_target: "verified"},
+        "review_metadata": {
+            target: {"decision": None, "note": None},
+            retained_target: {"decision": None, "note": None},
+        },
+        "review_metadata_after": {
+            target: {"decision": "accept", "note": "private judgment note"},
+            retained_target: {"decision": "accept", "note": "retained note"},
+        },
+    }
+    with project.db:
+        project.db.execute("BEGIN IMMEDIATE")
+        project.set_undo_info(review_op, info, commit=False)
+        from frisket.engine.store.changes import start_change
+
+        start_change(project.db, review_op)
+        record_judgment_changes(project.db, review_op, info)
+        project_judgments(project, review_op)
+
+    finish_purge(project, begin_purge(project, row_ids=[row]))
+    cleaned = json.loads(
+        project.db.execute(
+            "SELECT undo_info FROM ops WHERE id=?", (review_op,)
+        ).fetchone()[0]
+    )
+    assert not any(target in cleaned.get(field, {}) for field in info)
+    assert (
+        project.db.execute(
+            "SELECT count(*) FROM result_judgment_changes WHERE target=?", (target,)
+        ).fetchone()[0]
+        == 0
+    )
+    assert cleaned["review_metadata_after"][retained_target]["note"] == "retained note"
+    assert (
+        project.db.execute(
+            "SELECT count(*) FROM result_judgment_changes WHERE target=?",
+            (retained_target,),
+        ).fetchone()[0]
+        > 0
+    )
+    with project.db:
+        project.db.execute(
+            "UPDATE meta SET value=? WHERE key='op_cursor'", (str(review_op),)
+        )
+    assert project.undo() == review_op
+
+
+def test_purged_receipt_replays_as_valid_refusal(project):
+    from frisket.contracts.action import Receipt
+    from frisket.engine.store.receipts import ReceiptStore
+    from frisket.engine.store.runs import RunResultStore
+
+    sheet, _column, row = add(project, "receipt", "secret")
+    op_id = project.append_op("test.receipted")
+    run_id = RunResultStore(project).start_run(op_id, sheet, "test.receipted")
+    RunResultStore(project).finish_run(run_id)
+    receipt_id = "receipt-purged-material-test"
+    ReceiptStore(project).insert(
+        Receipt(
+            receipt_id=receipt_id,
+            project_id=project.storage_identity,
+            action_id="act-purged-test",
+            action_kind="test.receipted",
+            run_id=run_id,
+            idempotency_key="purged-material-key",
+            params_hash="sha256:fixture",
+            status="completed",
+            outputs=[{"name": "value", "ref": {"kind": "cell", "row_id": row}}],
+        )
+    )
+    with project.db:
+        project.db.execute(
+            "INSERT INTO results(run_id,row_id,column_id,value_kind,value,published) VALUES (?,?,?,'text','answer',1)",
+            (run_id, row, _column),
+        )
+    finish_purge(project, begin_purge(project, row_ids=[row]))
+    replay = ReceiptStore(project).find_by_idempotency_key("purged-material-key")
+    assert replay is not None
+    parsed = replay.parsed()
+    assert parsed.status == "failed"
+    assert parsed.errors[0].code == "purged_material_unavailable"
+    assert parsed.outputs == []
+
+
+def test_late_result_refusal_keeps_paid_usage(project):
+    from frisket.engine.store.result_generations import ResultGenerationStore
+    from frisket.engine.store.runs import RunResultStore
+    from helpers import run_writer_authority_fixture
+
+    sheet = project.add_sheet("late-provider")
+    source = project.add_column(sheet, "source")
+    output = project.add_column(sheet, "generated", ai_generated=True)
+    row = project.add_rows(sheet, [{"source": "paid request"}], {"source": source})[0]
+    op_id = project.append_op(
+        "map.regex_extract", {"pattern": "(.*)", "output": "generated"}
+    )
+    runs = RunResultStore(project)
+    run_id = runs.start_run(
+        op_id, sheet, "map.regex_extract", row_ids=[row], total_rows=1
+    )
+    authority = run_writer_authority_fixture(
+        project, run_id, output_column_ids={output}
+    )
+    token = authority.claim_token
+    assert token is not None
+    ResultGenerationStore(project).declare(
+        run_id,
+        output,
+        output_role="match",
+        compatibility_key="sha256:purge-late-response",
+        write_mode="create",
+        claim_token=token,
+        defer_publication=True,
+    )
+    with project.db:
+        purge_id = int(
+            project.db.execute(
+                "INSERT INTO project_purges(phase) VALUES ('complete')"
+            ).lastrowid
+        )
+        project.db.execute(
+            "INSERT INTO project_purge_targets(kind,object_id,purge_id) VALUES ('row',?,?)",
+            (row, purge_id),
+        )
+
+    batch = [
+        {
+            "row_id": row,
+            "column_id": output,
+            "value": "provider response",
+            "publication_effect": "publish_value",
+            "model_calls": [
+                {
+                    "id": "purge-late-call",
+                    "fact_version": "frisket.model-call-fact.v1",
+                    "capability": "classify",
+                    "engine": "fixture",
+                    "provider": "fixture",
+                    "provider_kind": "test",
+                    "model_ids": ["fixture-model"],
+                    "credential_source": "platform_key",
+                    "provider_cost_usd": 0.025,
+                }
+            ],
+        }
+    ]
+    with pytest.raises(PurgedMaterialUnavailable):
+        runs.write_results(run_id, batch, **authority.kwargs())
+    assert (
+        project.db.execute(
+            "SELECT count(*) FROM model_calls WHERE id='purge-late-call'"
+        ).fetchone()[0]
+        == 1
+    )
+    assert project.db.execute(
+        "SELECT cost_actual FROM runs WHERE id=?", (run_id,)
+    ).fetchone()[0] == pytest.approx(0.025)
+    assert (
+        project.db.execute(
+            "SELECT count(*) FROM results WHERE run_id=? AND row_id=?",
+            (run_id, row),
+        ).fetchone()[0]
+        == 0
+    )
+    generations = ResultGenerationStore(project)
+    assert (
+        generations.seal(
+            run_id,
+            [output],
+            claim_token=token,
+            terminal_disposition="cancelled",
+        )
+        == 0
+    )
+    assert generations.get_binding(run_id, output).state == "sealed"
 
 
 def test_removed_notification_does_not_become_route_test(project):
@@ -430,7 +886,8 @@ def test_normal_open_refuses_interrupted_purge_and_maintenance_can_finish(tmp_pa
     path = tmp_path / "resume.frisket"
     with closing(Project.create(path)) as original:
         sheet, column, row = add(original, "first", "private content")
-        purge = begin_purge(original, row_ids=[row])
+    with closing(Project(path, maintenance=True)) as maintenance:
+        purge = begin_purge(maintenance, row_ids=[row])
     with pytest.raises(PurgedMaterialUnavailable, match="unfinished"):
         Project(path)
     with closing(Project(path, maintenance=True)) as maintenance:

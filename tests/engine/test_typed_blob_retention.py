@@ -22,7 +22,13 @@ from frisket.engine.store.runs import RunResultStore
 
 @pytest.fixture
 def project(tmp_path):
-    with closing(Project.create(tmp_path / "retention.frisket")) as project:
+    path = tmp_path / "retention.frisket"
+    project = Project.create(path)
+    with project.db:
+        project.db.execute("BEGIN")
+        migrate_blob_derivation_ownership(project.db)
+    project.close()
+    with closing(Project(path, maintenance=True)) as project:
         with project.db:
             project.db.execute("BEGIN")
             migrate_blob_derivation_ownership(project.db)

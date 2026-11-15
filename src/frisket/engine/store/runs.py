@@ -1090,9 +1090,15 @@ class RunResultStore:
             if started_transaction:
                 self.db.rollback()
             from frisket.engine.store.changes import ChangePublicationClosed
+            from frisket.engine.store.purge import PurgedMaterialUnavailable
 
             if isinstance(
-                exc, (DocumentTextPublicationRefused, ChangePublicationClosed)
+                exc,
+                (
+                    DocumentTextPublicationRefused,
+                    ChangePublicationClosed,
+                    PurgedMaterialUnavailable,
+                ),
             ):
                 # Publication can refuse a known source mismatch after the
                 # provider returned, or Undo can close the Change during the

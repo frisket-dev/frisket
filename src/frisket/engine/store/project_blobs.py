@@ -485,6 +485,10 @@ def reclaim_local_blobs(project: Any, *, dry_run: bool = True) -> dict[str, Any]
     describe logical file sizes, not filesystem blocks (which may be shared).
     """
     store = project.blob_store
+    if not dry_run:
+        from .purge import _require_maintenance
+
+        _require_maintenance(project)
     root = project.path / "blobs"
     if (
         not isinstance(store, FilesystemProjectBlobStore)
@@ -505,12 +509,35 @@ def reclaim_local_blobs(project: Any, *, dry_run: bool = True) -> dict[str, Any]
         "bytes_retained": 0,
         "dry_run": dry_run,
     }
-    with _live_blob_hashes(project, writing=True, strict=True) as db:
-        from .bundle_cleanup import cleanup_unowned_bundle_content
+    db = project.db
+    db.execute(
+        "CREATE TEMP TABLE gc_live_blob_hashes(hash TEXT PRIMARY KEY) WITHOUT ROWID"
+    )
+    try:
+        # Snapshot all owners without taking the writer lock. The selected
+        # cleanup command already holds the offline lifetime lock, so this
+        # snapshot stays authoritative while files are inspected and unlinked.
+        db.execute("BEGIN")
+        _populate_live_blob_hashes(project, strict=True)
+        db.commit()
 
-        counts.update(cleanup_unowned_bundle_content(project, dry_run=dry_run))
+        from .bundle_cleanup import (
+            cleanup_unowned_bundle_content,
+            cleanup_unowned_traces,
+        )
+
+        db.execute("BEGIN IMMEDIATE" if not dry_run else "BEGIN")
+        try:
+            counts.update(cleanup_unowned_bundle_content(project, dry_run=dry_run))
+            db.commit()
+        except BaseException:
+            db.rollback()
+            raise
+        counts.update(cleanup_unowned_traces(project, dry_run=dry_run))
+
         # Files may predate metadata-only GC; reachability must not depend on
-        # whether a blobs row still exists for their digest.
+        # whether a blobs row still exists for their digest. No project DB
+        # transaction is held while walking the tree or unlinking bytes.
         if root.exists():
             with os.scandir(root) as shards:
                 for shard in shards:
@@ -544,23 +571,44 @@ def reclaim_local_blobs(project: Any, *, dry_run: bool = True) -> dict[str, Any]
                                 counts["bytes_freed"] += size
                     if changed:
                         _fsync_directory(Path(shard.path))
+
         if not dry_run:
-            # Retain metadata for skipped noncanonical objects. Missing files
-            # include a previous interrupted sweep and are safe to acknowledge.
-            db.execute(
-                "DELETE FROM blob_derivations WHERE NOT EXISTS (SELECT 1 FROM temp.gc_live_blob_hashes WHERE hash=derived_hash)"
-            )
-            for row in db.execute(
-                "SELECT hash FROM blobs WHERE NOT EXISTS (SELECT 1 FROM temp.gc_live_blob_hashes WHERE hash=blobs.hash)"
-            ):
-                digest = validate_blob_digest(row[0])
-                path = root / digest[:2] / digest
-                if (
-                    not path.parent.is_symlink()
-                    and not path.is_symlink()
-                    and not path.exists()
-                ):
-                    db.execute("DELETE FROM blobs WHERE hash=?", (digest,))
+            with db:
+                db.execute(
+                    "DELETE FROM blob_derivations WHERE NOT EXISTS "
+                    "(SELECT 1 FROM temp.gc_live_blob_hashes WHERE hash=derived_hash)"
+                )
+            cursor = ""
+            while True:
+                stale = db.execute(
+                    "SELECT hash FROM blobs WHERE hash>? AND NOT EXISTS "
+                    "(SELECT 1 FROM temp.gc_live_blob_hashes live WHERE live.hash=blobs.hash) "
+                    "ORDER BY hash LIMIT 500",
+                    (cursor,),
+                ).fetchall()
+                if not stale:
+                    break
+                cursor = str(stale[-1][0])
+                missing = []
+                for (digest_value,) in stale:
+                    digest = validate_blob_digest(digest_value)
+                    path = root / digest[:2] / digest
+                    if (
+                        not path.parent.is_symlink()
+                        and not path.is_symlink()
+                        and not path.exists()
+                    ):
+                        missing.append(digest)
+                if missing:
+                    with db:
+                        db.executemany(
+                            "DELETE FROM blobs WHERE hash=?",
+                            [(digest,) for digest in missing],
+                        )
+    finally:
+        if db.in_transaction:
+            db.rollback()
+        db.execute("DROP TABLE IF EXISTS temp.gc_live_blob_hashes")
     return counts
 
 

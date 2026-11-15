@@ -369,6 +369,17 @@ class ResultGenerationStore:
         )
         if not column_ids:
             return
+        from .purge import require_publication_targets
+
+        require_publication_targets(
+            self.db,
+            column_ids=column_ids,
+            row_ids={
+                int(item["row_id"])
+                for item in batch
+                if item.get("publication_effect") is not None
+            },
+        )
         bindings = {
             binding.column_id: binding for binding in self.bindings_for_run(int(run_id))
         }
@@ -1222,6 +1233,29 @@ class ResultGenerationStore:
                 and str(operation["status"]) == "applied"
                 and not bool(operation["publication_closed"])
             )
+            if publish_generation:
+                from .purge import (
+                    PurgedMaterialUnavailable,
+                    require_publication_targets,
+                )
+
+                row_ids = {
+                    int(row[0])
+                    for row in self.db.execute(
+                        "SELECT row_id FROM run_rows WHERE run_id=?",
+                        (int(run_id),),
+                    )
+                }
+                try:
+                    require_publication_targets(
+                        self.db,
+                        column_ids=ordered_column_ids,
+                        row_ids=row_ids,
+                    )
+                except PurgedMaterialUnavailable:
+                    # The generation still terminalizes below, but no member
+                    # of its frozen output family may publish after purge.
+                    publish_generation = False
             if pending_descriptor_changes and publish_generation:
                 publish_generation = terminal_disposition in {
                     "completed",

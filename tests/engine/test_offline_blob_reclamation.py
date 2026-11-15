@@ -15,10 +15,13 @@ from frisket.engine.store.blob_retention_migration import (
 
 @pytest.fixture
 def project(tmp_path):
-    project = Project.create(tmp_path / "cleanup.frisket")
+    path = tmp_path / "cleanup.frisket"
+    project = Project.create(path)
     with project.db:
         project.db.execute("BEGIN")
         migrate_blob_derivation_ownership(project.db)
+    project.close()
+    project = Project(path, maintenance=True)
     try:
         yield project
     finally:
