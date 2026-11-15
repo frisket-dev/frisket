@@ -996,11 +996,18 @@ def terminalize_project_run(
                         key_table, commit=False
                     )
 
-        if run_status_written and terminal_run_status != "cancelled" and declared_bindings:
-            # Prepared and recovery terminal paths share the same visibility
-            # rule as the ordinary runner finalizer: a fresh output with no
-            # successful result stays hidden after a failed run. This is
-            # visibility-only and remains inside the terminal receipt tx.
+        deferred_publication = (
+            json.loads(run["runner_spec"]).get("deferred_publication") is True
+        )
+        if (
+            run_status_written
+            and terminal_run_status != "cancelled"
+            and declared_bindings
+            and not deferred_publication
+        ):
+            # Prepared and recovery terminal paths share the ordinary
+            # finalizer's visibility rule unless a coupled publisher owns
+            # publication and visibility for this run.
             from frisket.engine.runner.column_retirement import (
                 hide_zero_success_created_columns,
                 reveal_recovered_columns,

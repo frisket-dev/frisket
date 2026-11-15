@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 
 import pytest
@@ -425,6 +426,54 @@ def test_terminalizer_closes_change_and_resolves_unpublished_scope(project) -> N
     assert tuple(operation) == ("applied", 1)
     with pytest.raises(ChangePublicationClosed):
         ChangeStore(project).require_publication(int(row["op_id"]))
+    outcome = project.db.execute(
+        "SELECT outcome FROM effective_current_cells WHERE row_id IN "
+        "(SELECT row_id FROM run_rows WHERE run_id=?) AND column_id=?",
+        (run.run_id, int(column["id"])),
+    ).fetchone()
+    assert outcome is not None
+    assert outcome["outcome"] == "not_completed"
+
+
+def test_terminalizer_preserves_deferred_family_empty_output_visibility(project) -> None:
+    run = _seed_never_dispatched_run(project, attempt_count=0)
+    row = project.db.execute(
+        "SELECT op_id,sheet_id FROM runs WHERE id=?", (run.run_id,)
+    ).fetchone()
+    column = project.db.execute(
+        "SELECT id,hidden FROM columns WHERE sheet_id=? AND name='extracted'",
+        (row["sheet_id"],),
+    ).fetchone()
+    assert run.claim_token is not None
+    project.db.execute(
+        "UPDATE ops SET spec=? WHERE id=?",
+        (json.dumps({"deferred_publication": True}), int(row["op_id"])),
+    )
+    project.set_undo_info(
+        int(row["op_id"]), {"created_columns": [int(column["id"])]}
+    )
+    ResultGenerationStore(project).declare(
+        run.run_id,
+        int(column["id"]),
+        output_role="extracted",
+        compatibility_key="sha256:deferred-output-v1",
+        write_mode="create",
+        claim_token=run.claim_token,
+    )
+
+    result = terminalize_project_run(
+        project,
+        run_id=run.run_id,
+        receipt_id=run.receipt_id,
+        status="failed",
+        authority=NeverDispatchedRunTerminalAuthority(),
+    )
+
+    assert result.disposition == "terminalized"
+    stored_column = project.db.execute(
+        "SELECT hidden FROM columns WHERE id=?", (int(column["id"]),)
+    ).fetchone()
+    assert int(stored_column["hidden"]) == int(column["hidden"])
     outcome = project.db.execute(
         "SELECT outcome FROM effective_current_cells WHERE row_id IN "
         "(SELECT row_id FROM run_rows WHERE run_id=?) AND column_id=?",
