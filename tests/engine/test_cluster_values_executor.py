@@ -666,6 +666,11 @@ def test_cluster_replay_does_not_finalize_a_live_completed_writer(
                         project_id="cluster-values-live-replay",
                     )
                 )
+                owner = current_project.db.execute(
+                    "SELECT state FROM execution_attempts WHERE id=?",
+                    (kwargs["writer_attempt_id"],),
+                ).fetchone()
+                assert owner is not None and owner["state"] == "dispatching"
             return original_finalize(current_project, *args, **kwargs)
 
         monkeypatch.setattr(

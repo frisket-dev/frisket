@@ -238,7 +238,7 @@ class _ActionCoreSpec:
     params_hash_fn: Callable[[ActionSpec], str] | None = None
     needs_confirmation_error_fn: Callable[[ActionSpec, Any], ActionError] | None = None
     confirmed_fn: Callable[[Any], bool] | None = None
-    result_from_existing_fn: Callable[..., ActionResult] | None = None
+    result_from_existing_fn: Callable[..., ActionResult | None] | None = None
     reserve_fn: Callable[..., dict[str, str] | ActionResult] | None = None
     delete_reservation_fn: Callable[[Any, str], None] | None = None
 

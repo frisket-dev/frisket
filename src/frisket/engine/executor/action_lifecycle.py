@@ -171,7 +171,7 @@ def _run_action_core_spec(
     if spec.result_from_existing_fn is not None:
         existing = _receipt_for_idempotency(project, action.idempotency_key)
         if existing is not None:
-            return spec.result_from_existing_fn(
+            existing_result = spec.result_from_existing_fn(
                 project,
                 existing,
                 params_hash=params_hash,
@@ -179,6 +179,8 @@ def _run_action_core_spec(
                 action=action,
                 params=params,
             )
+            if existing_result is not None:
+                return existing_result
     if spec.body_kind == "child_sheet_deterministic":
         return _run_child_sheet_deterministic_body(
             project,

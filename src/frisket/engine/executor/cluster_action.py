@@ -6,6 +6,7 @@ import copy
 import json
 from functools import partial
 from types import MappingProxyType
+from typing import Any
 
 from frisket.actions.cluster_types import (
     ClusterColumn,
@@ -602,6 +603,10 @@ def run_typed_cluster_action(
     )
 
     envelope, queued, program = typed_cluster_queue_spec(bound)
+    from frisket.execution.handler_lineage import current_handler_lineage
+
+    direct_invocation = current_handler_lineage() is None
+    direct_writer: dict[str, Any] = {}
     try:
         prior_run = _cluster_abandoned_run(project, bound)
     except ValueError:
@@ -666,6 +671,63 @@ def run_typed_cluster_action(
         runner.allow_action_lifecycle_only_recipes = True
         return runner
 
+    finalize = partial(finalize_cluster_action, bound=bound)
+
+    def finalize_owned_direct_writer(project, action, params, **kwargs):
+        if direct_invocation:
+            writer_attempt_id = kwargs.get("writer_attempt_id")
+            claim_token = kwargs.get("claim_token")
+            run_id = kwargs.get("run_id")
+            if (
+                isinstance(writer_attempt_id, str)
+                and writer_attempt_id
+                and isinstance(claim_token, str)
+                and claim_token == _output_claim_token(str(kwargs.get("receipt_id")))
+                and isinstance(run_id, int)
+            ):
+                # Capture authority only from the callback this invocation is
+                # actually executing. A replay that returns idempotency-in-
+                # progress never receives this writer tuple.
+                direct_writer.update(
+                    run_id=run_id,
+                    writer_attempt_id=writer_attempt_id,
+                    claim_token=claim_token,
+                    receipt_id=str(kwargs["receipt_id"]),
+                )
+        return finalize(project, action, params, **kwargs)
+
+    def relinquish_direct_writer() -> None:
+        if not direct_invocation or not direct_writer:
+            return
+        row = project.db.execute(
+            "SELECT runs.status,runs.current_attempt_id,receipts.status AS receipt_status "
+            "FROM runs JOIN receipts ON receipts.run_id=runs.id "
+            "WHERE runs.id=? AND receipts.id=?",
+            (direct_writer["run_id"], direct_writer["receipt_id"]),
+        ).fetchone()
+        if (
+            row is None
+            or row["status"] != "running"
+            or row["receipt_status"] != "running"
+            or row["current_attempt_id"] != direct_writer["writer_attempt_id"]
+        ):
+            return
+        from frisket.engine.store.output_claims import OutputColumnClaimStore
+        from frisket.execution.attempt import StaleAttemptWriter
+
+        try:
+            OutputColumnClaimStore(project).finish_current_writer(
+                run_id=direct_writer["run_id"],
+                writer_attempt_id=direct_writer["writer_attempt_id"],
+                claim_token=direct_writer["claim_token"],
+                attempt_state="halted",
+                claim_status="released",
+            )
+        except StaleAttemptWriter:
+            # Another terminal owner or successor may have won after the
+            # observation above. The exact-writer fence leaves it untouched.
+            return
+
     spec = _ReservedMaprunnerActionSpec(
         kind=bound.action.action_id,
         params_model=type(bound.params),
@@ -674,7 +736,7 @@ def run_typed_cluster_action(
             project, params, spec, router
         ),
         precheck_fn=queued.precheck_fn,
-        write_fn=partial(finalize_cluster_action, bound=bound),
+        write_fn=finalize_owned_direct_writer,
         reservation_kind=queued.reservation_kind,
         program_fn=lambda project, spec: program,
         replay_error_fn=lambda project, params, receipt, action: _replay_error(
@@ -686,15 +748,18 @@ def run_typed_cluster_action(
         resume_run_id_fn=lambda _project, _params, resolved: resolved["resume_run_id"],
         map_error_code="cluster_failed",
     )
-    return _run_reserved_maprunner_action_spec(
-        project,
-        envelope,
-        bound.params,
-        spec=spec,
-        ctx=ExecutorContext(
-            project_id=project_id,
-            deps=ExecutorDeps(router=router, map_runner_factory=factory),
-            edition_run_context=edition_run_context,
-        ),
-        map_runner_factory=factory,
-    )
+    try:
+        return _run_reserved_maprunner_action_spec(
+            project,
+            envelope,
+            bound.params,
+            spec=spec,
+            ctx=ExecutorContext(
+                project_id=project_id,
+                deps=ExecutorDeps(router=router, map_runner_factory=factory),
+                edition_run_context=edition_run_context,
+            ),
+            map_runner_factory=factory,
+        )
+    finally:
+        relinquish_direct_writer()

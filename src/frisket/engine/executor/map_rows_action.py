@@ -2857,20 +2857,27 @@ def typed_map_rows_replay_result(
 
         if bound.action.definition.run.capabilities == (ValueClusterer,):
             run_id = existing["run_id"]
-            ready = (
-                project.db.execute(
-                    "SELECT 1 FROM runs WHERE id=? AND status='running' "
-                    "AND total_rows IS NOT NULL AND completed_rows>=total_rows "
-                    "AND current_attempt_id IS NOT NULL",
+            ready = None
+            if run_id is not None and existing["params_hash"] == typed_request_hash(
+                bound
+            ):
+                ready = project.db.execute(
+                    "SELECT 1 FROM runs r WHERE r.id=? AND r.status='running' "
+                    "AND r.total_rows IS NOT NULL AND r.completed_rows>=r.total_rows "
+                    "AND (r.current_attempt_id IS NOT NULL OR ("
+                    "r.current_attempt_id IS NULL AND EXISTS ("
+                    "SELECT 1 FROM execution_attempts a WHERE a.run_id=r.id "
+                    "AND a.state='halted' AND a.seq=(SELECT MAX(last.seq) "
+                    "FROM execution_attempts last WHERE last.run_id=r.id)) "
+                    "AND NOT EXISTS (SELECT 1 FROM output_column_claims c "
+                    "WHERE c.run_id=r.id AND c.status='active'))) LIMIT 1",
                     (run_id,),
                 ).fetchone()
-                if run_id is not None
-                else None
-            )
             if ready is not None:
-                # A prior worker returned all rows but crashed during its
-                # coupled cluster publication. Let the cluster terminalizer
-                # reconcile its durable checkpoints and receipt atomically.
+                # A previous invocation returned all rows but did not close
+                # its coupled cluster publication. Let the cluster owner
+                # either reconcile a stopped handler or resume an explicitly
+                # halted direct writer from its retained checkpoints.
                 return None
     action = _TypedExecutionEnvelope(
         kind=bound.action.action_id,

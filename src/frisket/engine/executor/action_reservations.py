@@ -728,7 +728,7 @@ def _reserve_running_action_receipt(
     params_hash: str,
     project_id: str,
     reservation_kind: str,
-    result_from_existing_fn: Callable[..., ActionResult] | None = None,
+    result_from_existing_fn: Callable[..., ActionResult | None] | None = None,
     replay_error_fn: Callable[[Receipt], ActionError | None] | None = None,
     params_model: type[BaseModel] | None = None,
     edition_run_context: Mapping[str, Any] | None = None,
@@ -773,12 +773,18 @@ def _reserve_running_action_receipt(
             }
             if params_model is not None:
                 kwargs["params"] = params_model.model_validate(action.params)
-            if replay_error_fn is not None:
-                return _reserved_receipt_result_from_existing(
-                    project, existing, **kwargs, replay_error_fn=replay_error_fn
-                )
-            assert result_from_existing_fn is not None
-            return result_from_existing_fn(project, existing, **kwargs)
+            if result_from_existing_fn is not None:
+                replay = result_from_existing_fn(project, existing, **kwargs)
+                if replay is None:
+                    return {
+                        "action_id": str(_row_value(existing, "action_id")),
+                        "receipt_id": str(_row_value(existing, "id")),
+                    }
+                return replay
+            assert replay_error_fn is not None
+            return _reserved_receipt_result_from_existing(
+                project, existing, **kwargs, replay_error_fn=replay_error_fn
+            )
         ReceiptStore(project).insert_running(
             receipt,
             edition_run_context=edition_run_context,
@@ -1884,7 +1890,81 @@ def _finalize_direct_reserved_action_receipt(
 
 def _reserved_maprunner_result_from_existing(
     spec: _ReservedMaprunnerActionSpec,
-) -> Callable[..., ActionResult]:
+) -> Callable[..., ActionResult | None]:
+    def resumable_direct_run(
+        project: Any, existing: Any, *, params_hash: str, action: ActionSpec
+    ) -> bool:
+        """Whether this resume-capable action left an exact owned run idle.
+
+        Only an explicitly halted last attempt, no active claims, and a
+        missing current-writer pointer allow continuing the still-running
+        receipt. The normal reservation and MapRunner resume path then opens
+        a fresh attempt under its own claim.
+        """
+        if (
+            spec.resume_run_id_fn is None
+            or _row_value(existing, "status") != "running"
+            or _row_value(existing, "params_hash") != params_hash
+        ):
+            return False
+        try:
+            receipt = Receipt.model_validate(json.loads(_row_value(existing, "body")))
+        except (TypeError, ValueError):
+            return False
+        if (
+            receipt.receipt_id != str(_row_value(existing, "id"))
+            or receipt.run_id is None
+            or receipt.run_id != _row_value(existing, "run_id")
+            or receipt.action_kind != action.kind
+        ):
+            return False
+        run_id = int(receipt.run_id)
+        run = project.db.execute(
+            "SELECT runs.status,runs.current_attempt_id,runs.action_kind,ops.spec "
+            "FROM runs JOIN ops ON ops.id=runs.op_id WHERE runs.id=?",
+            (run_id,),
+        ).fetchone()
+        if (
+            run is None
+            or run["status"] != "running"
+            or run["current_attempt_id"] is not None
+            or run["action_kind"] != action.kind
+        ):
+            return False
+        try:
+            persisted_spec = json.loads(run["spec"] or "{}")
+        except (TypeError, ValueError):
+            return False
+        if persisted_spec.get("idempotency_key") != action.idempotency_key:
+            return False
+        attempts = project.db.execute(
+            "SELECT id,state,handler_authority_id FROM execution_attempts "
+            "WHERE run_id=? ORDER BY seq",
+            (run_id,),
+        ).fetchall()
+        if not attempts or str(attempts[-1]["state"]) != "halted":
+            return False
+        if any(
+            str(attempt["state"]) in {"created", "admitted", "dispatching"}
+            for attempt in attempts
+        ):
+            return False
+        if project.db.execute(
+            "SELECT 1 FROM output_column_claims WHERE status='active' "
+            "AND (receipt_id=? OR run_id=?) LIMIT 1",
+            (receipt.receipt_id, run_id),
+        ).fetchone():
+            return False
+        last_attempt = attempts[-1]
+        if last_attempt["handler_authority_id"] is not None:
+            from frisket.engine.store.output_claims import OutputColumnClaimStore
+
+            if not OutputColumnClaimStore(project).attempt_handler_execution_stopped(
+                str(last_attempt["id"])
+            ):
+                return False
+        return True
+
     def result_from_existing(
         project: Any,
         existing: Any,
@@ -1893,7 +1973,11 @@ def _reserved_maprunner_result_from_existing(
         project_id: str,
         action: ActionSpec,
         params: Any | None = None,
-    ) -> ActionResult:
+    ) -> ActionResult | None:
+        if resumable_direct_run(
+            project, existing, params_hash=params_hash, action=action
+        ):
+            return None
         typed_params = (
             params
             if params is not None
