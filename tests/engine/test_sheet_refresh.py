@@ -726,3 +726,32 @@ def test_pending_list_result_is_not_observed_as_empty_refresh(tmp_path):
         assert project.visible_row_ids(child) == old_rows
     finally:
         project.close()
+
+
+@pytest.mark.parametrize("retirement", ["no_order", "history_floor"])
+def test_historical_refresh_setup_must_be_recreated(tmp_path, retirement):
+    project, parent, column, child, rows = _build(tmp_path)
+    original_child_rows = project.visible_row_ids(child)
+    try:
+        parent_op = project.db.execute(
+            "SELECT parent_op_id FROM sheets WHERE id=?", (child,)
+        ).fetchone()[0]
+        if retirement == "no_order":
+            project.db.execute(
+                "UPDATE ops SET change_order=NULL WHERE id=?", (parent_op,)
+            )
+        else:
+            project.db.execute(
+                "INSERT OR REPLACE INTO meta(key,value) VALUES ('domain_history_floor',?)",
+                (str(parent_op),),
+            )
+        project.db.commit()
+        assert not sheet_supports_refresh(project, child)
+        result = run_action_spec(
+            project, _refresh(sheet_id=child, key="retired-refresh"), project_id="p-ref"
+        )
+        assert result.status == "failed"
+        assert result.errors[0].code == "historical_refresh_unavailable"
+        assert project.visible_row_ids(child) == original_child_rows
+    finally:
+        project.close()

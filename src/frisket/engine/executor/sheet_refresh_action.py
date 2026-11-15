@@ -75,6 +75,17 @@ class _SheetRefreshPlan:
     request: ActionRequest
 
 
+def _retired_refresh_parent(project: Project, parent_op: Any) -> bool:
+    if parent_op is None:
+        return False
+    floor = project.db.execute(
+        "SELECT value FROM meta WHERE key='domain_history_floor'"
+    ).fetchone()
+    return parent_op["change_order"] is None or (
+        floor is not None and int(parent_op["id"]) <= int(floor[0])
+    )
+
+
 def _sheet_refresh_plan(
     project: Project,
     sheet: Any,
@@ -87,7 +98,7 @@ def _sheet_refresh_plan(
         return None
     from frisket.engine.store.derived_updates import refresh_config
 
-    if refresh_config(parent_op) is None:
+    if _retired_refresh_parent(project, parent_op) or refresh_config(parent_op) is None:
         return None
 
     derive_request = _reconstruct_derive_request(parent_op, idempotency_key)
@@ -385,6 +396,14 @@ def _refresh_sheet(
         "SELECT * FROM ops WHERE id=?", (int(sheet["parent_op_id"]),)
     ).fetchone()
     parent_op_kind = parent_op["kind"] if parent_op is not None else None
+    if _retired_refresh_parent(project, parent_op):
+        return _fail(
+            project_id=project_id,
+            code="historical_refresh_unavailable",
+            message="This refresh setup predates the history migration; recreate the derived sheet.",
+            field="sheet_id",
+            details={"sheet_id": sheet_id},
+        )
 
     # Saved canonical authoring determines refresh support even for an empty
     # join. Membership rows describe outputs, not the operation that made them.
