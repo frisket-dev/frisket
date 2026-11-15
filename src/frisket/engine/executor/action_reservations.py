@@ -779,6 +779,7 @@ def _reserve_running_action_receipt(
                     return {
                         "action_id": str(_row_value(existing, "action_id")),
                         "receipt_id": str(_row_value(existing, "id")),
+                        "reservation_reused": "true",
                     }
                 return replay
             assert replay_error_fn is not None
@@ -1739,7 +1740,7 @@ def _finalize_reserved_action_receipt(
     receipt: Receipt,
     reservation_lost_message: str,
     update_failed_message: str,
-    result_from_existing_fn: Callable[..., ActionResult] | None = None,
+    result_from_existing_fn: Callable[..., ActionResult | None] | None = None,
     replay_error_fn: Callable[[Receipt], ActionError | None] | None = None,
     result_from_existing_kwargs: dict[str, Any] | None = None,
     require_running_status: bool = True,
@@ -1782,7 +1783,7 @@ def _finalize_reserved_action_receipt(
                     **kwargs,
                 )
             assert result_from_existing_fn is not None
-            return result_from_existing_fn(
+            existing_result = result_from_existing_fn(
                 project,
                 existing,
                 params_hash=params_hash,
@@ -1790,6 +1791,17 @@ def _finalize_reserved_action_receipt(
                 action=action,
                 **kwargs,
             )
+            if existing_result is None:
+                return _failed_result(
+                    project_id=project_id,
+                    action_kind=action.kind,
+                    error=ActionError(
+                        code="project_write_failed",
+                        message=reservation_lost_message,
+                        action_kind=action.kind,
+                    ),
+                )
+            return existing_result
         if existing["params_hash"] != params_hash:
             if commit:
                 project.db.rollback()

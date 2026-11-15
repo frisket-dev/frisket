@@ -1443,8 +1443,11 @@ def _run_reserved_maprunner_action(
         if params_hash_fn is not None
         else _params_hash(action)
     )
+    reused_reservation_ids: set[str] = set()
 
     def delete_reservation_fn(current_project: Any, receipt_id: str) -> None:
+        if receipt_id in reused_reservation_ids:
+            return
         if prepared_execution is not None:
             if prepared_execution.queued_reservation_owner:
                 # An action.run worker owns this pre-existing reservation and
@@ -1554,6 +1557,8 @@ def _run_reserved_maprunner_action(
             if atomic_publication:
                 project.db.rollback()
             return reservation
+        if reservation.get("reservation_reused") == "true":
+            reused_reservation_ids.add(reservation["receipt_id"])
 
         claim_token = _output_claim_token(reservation["receipt_id"])
         claim_error = _acquire_output_claims_for_runner(

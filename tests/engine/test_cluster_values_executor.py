@@ -3,8 +3,10 @@ from __future__ import annotations
 import copy
 import json
 import sqlite3
+import threading
 from array import array
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -1065,6 +1067,7 @@ def test_semantic_cluster_terminal_receipt_and_context_transfer_are_atomic(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from frisket.engine.executor.actions import run_action_spec
+    from frisket.engine.store.output_claims import OutputColumnClaimStore
     from frisket.engine.store.receipts import ReceiptStore
     from frisket.team.security.secrets import encrypt_secret, key_hint
 
@@ -1123,9 +1126,11 @@ def test_semantic_cluster_terminal_receipt_and_context_transfer_are_atomic(
             )
         assert len(adapter.calls) == 1
         receipt = project.db.execute(
-            "SELECT status,edition_run_context FROM receipts"
+            "SELECT id,run_id,status,edition_run_context FROM receipts"
         ).fetchone()
         assert receipt["status"] == "running"
+        original_receipt_id = str(receipt["id"])
+        original_run_id = int(receipt["run_id"])
         assert json.loads(receipt["edition_run_context"]) == original_context
         assert (
             project.db.execute("SELECT COUNT(*) FROM cell_result_heads").fetchone()[0]
@@ -1142,6 +1147,75 @@ def test_semantic_cluster_terminal_receipt_and_context_transfer_are_atomic(
             ).fetchone()
             is None
         )
+        claims = OutputColumnClaimStore(project)
+        _, conflict = claims.acquire(
+            sheet_id=seeded["sheet_id"],
+            output_names=["name_canonical"],
+            action_kind="test.foreign_writer",
+            claim_token="test:foreign-cluster-output",
+        )
+        assert conflict is None
+        refused = run_action_spec(
+            project,
+            confirmed,
+            project_id="cluster-values-receipt-atomic",
+            router=router,
+        )
+        assert refused.status == "failed"
+        assert refused.errors[0].code == "output_column_busy"
+        stored_receipt = project.db.execute(
+            "SELECT id,run_id,status FROM receipts WHERE id=?",
+            (original_receipt_id,),
+        ).fetchone()
+        assert stored_receipt is not None
+        assert stored_receipt["run_id"] == original_run_id
+        assert stored_receipt["status"] == "running"
+        claims.release(claim_token="test:foreign-cluster-output", status="released")
+
+        # Both retries pass the idle receipt check before either reaches the
+        # output claim CAS. Hold the winner's claim until the competing retry
+        # has observed the conflict, proving it cannot delete the reused receipt.
+        acquire_barrier = threading.Barrier(2)
+        competing_refusal = threading.Event()
+        original_acquire = OutputColumnClaimStore.acquire
+
+        def synchronize_resume_claim(self, **kwargs):
+            if (
+                kwargs.get("receipt_id") == original_receipt_id
+                and kwargs.get("claim_token") == f"output-claim:{original_receipt_id}"
+            ):
+                acquire_barrier.wait(timeout=10)
+                result = original_acquire(self, **kwargs)
+                if result[1] is None:
+                    assert competing_refusal.wait(timeout=10)
+                return result
+            return original_acquire(self, **kwargs)
+
+        monkeypatch.setattr(OutputColumnClaimStore, "acquire", synchronize_resume_claim)
+
+        def resume():
+            result = run_action_spec(
+                project,
+                confirmed,
+                project_id="cluster-values-receipt-atomic",
+                router=router,
+                edition_run_context={"reservation_id": "replacement-must-not-win"},
+            )
+            if result.status == "failed":
+                competing_refusal.set()
+            return result
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            resumptions = [pool.submit(resume) for _ in range(2)]
+            results = [future.result(timeout=30) for future in resumptions]
+
+        completed = [result for result in results if result.status == "completed"]
+        refused = [result for result in results if result.status == "failed"]
+        assert len(completed) == 1
+        assert len(refused) == 1
+        assert refused[0].errors[0].code == "output_column_busy"
+        assert completed[0].receipt_id == original_receipt_id
+        assert len(adapter.calls) == 1
         replay = run_action_spec(
             project,
             confirmed,
@@ -1149,9 +1223,8 @@ def test_semantic_cluster_terminal_receipt_and_context_transfer_are_atomic(
             router=router,
             edition_run_context={"reservation_id": "replacement-must-not-win"},
         )
-
         assert replay.status == "completed", replay.errors
-        assert len(adapter.calls) == 1
+        assert replay.receipt_id == original_receipt_id
         assert (
             project.db.execute(
                 "SELECT COUNT(*) FROM effect_checkpoints WHERE family='model_call'"
@@ -1160,7 +1233,7 @@ def test_semantic_cluster_terminal_receipt_and_context_transfer_are_atomic(
         )
         receipt = project.db.execute(
             "SELECT edition_run_context FROM receipts WHERE id=?",
-            (replay.receipt_id,),
+            (original_receipt_id,),
         ).fetchone()
         assert json.loads(receipt["edition_run_context"]) == original_context
     finally:
