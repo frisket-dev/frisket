@@ -120,7 +120,8 @@ heads AS MATERIALIZED (
   JOIN sheets AS sheet ON sheet.id=r.sheet_id AND sheet.hidden=0
   JOIN columns AS col ON col.sheet_id=r.sheet_id
     AND col.id=:column_id AND (:include_hidden=1 OR col.hidden=0)
-  LEFT JOIN effective_current_cells AS head
+  LEFT JOIN (SELECT * FROM effective_current_cells
+             WHERE column_id=:column_id AND row_id IN ({row_ids})) AS head
     ON head.row_id=r.id AND head.column_id=:column_id
   WHERE r.sheet_id=:sheet_id AND r.hidden=0 AND r.id IN ({row_ids})
 ),

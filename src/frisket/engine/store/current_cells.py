@@ -220,6 +220,7 @@ def refresh_current_cells(
     column_ids: Collection[int],
     row_ids: Collection[int] | None = None,
     source_values_changed: bool = False,
+    eager_limit: int = 512,
 ) -> int:
     """Refresh one column/row region inside the caller's transaction.
 
@@ -242,7 +243,11 @@ def refresh_current_cells(
     from .cell_projection import refresh_ordered_cells
 
     return refresh_ordered_cells(
-        db, columns, rows, retrieval_revision=retrieval_revision
+        db,
+        columns,
+        rows,
+        retrieval_revision=retrieval_revision,
+        eager_limit=eager_limit,
     )
 
 
@@ -267,7 +272,12 @@ def refresh_current_cell_pairs(
         for row_ids, column_ids in sorted(columns_by_rows.items())
     ]
     total = sum(
-        refresh_current_cells(db, column_ids=column_ids, row_ids=row_ids)
+        refresh_current_cells(
+            db,
+            column_ids=column_ids,
+            row_ids=row_ids,
+            eager_limit=512 if len(pairs) <= 512 else 0,
+        )
         for row_ids, column_ids in groups
     )
     return total

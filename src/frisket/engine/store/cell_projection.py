@@ -47,8 +47,8 @@ def invalidate_region(
         (column_id, end, start),
     )
     db.execute(
-        "INSERT INTO current_cell_repair(column_id,row_id_start,row_id_end) VALUES (?,?,?)",
-        (column_id, start, end),
+        "INSERT INTO current_cell_repair(column_id,row_id_start,row_id_end,cursor) VALUES (?,?,?,?)",
+        (column_id, start, end, start - 1),
     )
 
 
@@ -58,8 +58,10 @@ def refresh_ordered_cells(
     row_ids: Collection[int] | None,
     *,
     retrieval_revision: int,
+    eager_limit: int = SMALL_WRITE_LIMIT,
 ) -> int:
     total = 0
+    remaining = eager_limit
     for column_id in column_ids:
         # This is invalidation of authoritative facts, not acknowledgement of a
         # cache refresh. It happens even if the winning pointer stays unchanged.
@@ -79,39 +81,53 @@ def refresh_ordered_cells(
             start, end, count = map(int, scope)
         else:
             start, end, count = min(row_ids), max(row_ids), len(row_ids)
-        if count > SMALL_WRITE_LIMIT:
+        if count > remaining:
             invalidate_region(db, column_id, start, end)
         elif row_ids is not None:
+            remaining -= count
             for row_id in row_ids:
                 total += project_region(db, column_id, row_id, row_id)
         else:
+            remaining -= count
             total += project_region(db, column_id, start, end)
     return total
 
 
-def invalidate_run_scope(db: sqlite3.Connection, run_id: int, column_id: int) -> None:
-    """Start/close a run without fetching its fixed row cohort into Python."""
+def invalidate_run_scopes(
+    db: sqlite3.Connection, run_id: int, column_ids: Collection[int]
+) -> None:
+    """Invalidate a whole output family with one bounded eager-write budget."""
     from .current_cells import _enqueue_region
 
+    columns = sorted(set(column_ids))
+    if not columns:
+        return
     scope = db.execute(
         "SELECT MIN(row_id),MAX(row_id),COUNT(*) FROM run_rows WHERE run_id=?",
         (run_id,),
     ).fetchone()
     if not scope[2]:
         return
-    revision = _enqueue_region(db, column_ids=[column_id], row_ids=None)
-    db.execute(
+    revision = _enqueue_region(db, column_ids=columns, row_ids=None)
+    db.executemany(
         "INSERT INTO cell_authority_revisions(column_id,revision) VALUES (?,?) "
         "ON CONFLICT(column_id) DO UPDATE SET revision=excluded.revision",
-        (column_id, revision),
+        [(column, revision) for column in columns],
     )
-    if scope[2] <= SMALL_WRITE_LIMIT:
-        for row in db.execute(
+    if scope[2] * len(columns) <= SMALL_WRITE_LIMIT:
+        rows = db.execute(
             "SELECT row_id FROM run_rows WHERE run_id=?", (run_id,)
-        ).fetchall():
-            project_region(db, column_id, int(row[0]), int(row[0]))
+        ).fetchall()
+        for column in columns:
+            for row in rows:
+                project_region(db, column, int(row[0]), int(row[0]))
     else:
-        invalidate_region(db, column_id, int(scope[0]), int(scope[1]))
+        for column in columns:
+            invalidate_region(db, column, int(scope[0]), int(scope[1]))
+
+
+def invalidate_run_scope(db: sqlite3.Connection, run_id: int, column_id: int) -> None:
+    invalidate_run_scopes(db, run_id, [column_id])
 
 
 def repair_current_cells(project: object, *, limit: int = SMALL_WRITE_LIMIT) -> int:
@@ -141,8 +157,8 @@ def repair_current_cells(project: object, *, limit: int = SMALL_WRITE_LIMIT) -> 
             db.execute("DELETE FROM current_cell_repair WHERE id=?", (work["id"],))
         else:
             db.execute(
-                "UPDATE current_cell_repair SET cursor=? WHERE id=? AND cursor=?",
-                (end, work["id"], work["cursor"]),
+                "UPDATE current_cell_repair SET cursor=?,row_id_start=? WHERE id=? AND cursor=?",
+                (end, end + 1, work["id"], work["cursor"]),
             )
         db.commit()
         return len(rows)

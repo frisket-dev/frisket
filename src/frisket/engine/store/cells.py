@@ -575,6 +575,15 @@ def _current_cell_rows(
             params.extend(chunk)
         rows_source = "rows r NOT INDEXED" if chunk is not None else "rows r"
         relation = "current_cell_values" if apply_edits else "unmodified_cell_values"
+        if chunk is not None:
+            # A compound current-value view on the right of a LEFT JOIN is
+            # materialized by SQLite. Scope it before joining, so a viewport
+            # cannot materialize every row or historical contribution.
+            relation = (
+                f"(SELECT * FROM {relation} WHERE column_id=? "
+                f"AND row_id IN ({','.join('?' * len(chunk))}))"
+            )
+            params = [column_id, *chunk, *params]
         yield from project.db.execute(
             f"SELECT {fields} FROM {rows_source} LEFT JOIN {relation} c "
             "ON c.column_id=? AND c.row_id=r.id "
