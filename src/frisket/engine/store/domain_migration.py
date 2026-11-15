@@ -139,7 +139,7 @@ def archive_history(db: sqlite3.Connection) -> None:
 
 
 # Pinned endpoint: later schema changes must extend this cutover explicitly.
-DOMAIN_TO_DIGEST = "frisket.schema.v1:7e34e2e13b5c117892d070ae8c8b727f"
+DOMAIN_TO_DIGEST = "frisket.schema.v1:7c34d59f1b2b6c9a815801508fae4a0d"
 
 
 def _execute_ddl(db: sqlite3.Connection, sql: str) -> None:
@@ -390,6 +390,7 @@ def migrate_domain(db: sqlite3.Connection) -> None:
             "trg_cell_result_heads_require_publishable_result",
             "trg_cell_result_heads_update_publishable_result",
             "trg_run_output_generations_immutable_declaration",
+            "trg_results_published_no_delete",
         ):
             db.execute(f"DROP TRIGGER IF EXISTS {name}")
             trigger = re.search(

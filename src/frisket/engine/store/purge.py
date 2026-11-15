@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections.abc import Iterable
+from contextlib import contextmanager
 from itertools import islice
 from typing import Any
 
@@ -289,7 +290,7 @@ def _effect_scope():
     return f"(family='row_effect' AND CAST(group_key AS INTEGER) IN ({_targets('run')})) OR authorized_attempt_id IN (SELECT id FROM execution_attempts WHERE run_id IN ({_targets('run')}))"
 
 
-def _delete_batches(db, table, predicate, parameters, *, batch_size):
+def _delete_batches(db, table, predicate, parameters, *, batch_size, project=None):
     # Explicit per-table primary keys also support WITHOUT ROWID tables.
     keys = [
         r[1]
@@ -300,16 +301,58 @@ def _delete_batches(db, table, predicate, parameters, *, batch_size):
     while True:
         db.execute("BEGIN IMMEDIATE")
         try:
-            changed = db.execute(
-                f"DELETE FROM {table} WHERE {key} IN (SELECT {','.join(keys) if keys else 'rowid'} FROM {table} WHERE {predicate} LIMIT :batch)",
-                {**parameters, "batch": batch_size},
-            ).rowcount
+            if table == "results":
+                result_rows = db.execute(
+                    "SELECT run_id,row_id,column_id FROM results WHERE "
+                    f"{predicate} LIMIT :batch",
+                    {**parameters, "batch": batch_size},
+                ).fetchall()
+                with _authorize_purge_result_deletes(
+                    project,
+                    (
+                        (int(row["run_id"]), int(row["row_id"]), int(row["column_id"]))
+                        for row in result_rows
+                    ),
+                ):
+                    changed = sum(
+                        db.execute(
+                            "DELETE FROM results WHERE run_id=? AND row_id=? AND column_id=?",
+                            (row["run_id"], row["row_id"], row["column_id"]),
+                        ).rowcount
+                        for row in result_rows
+                    )
+            else:
+                changed = db.execute(
+                    f"DELETE FROM {table} WHERE {key} IN (SELECT {','.join(keys) if keys else 'rowid'} FROM {table} WHERE {predicate} LIMIT :batch)",
+                    {**parameters, "batch": batch_size},
+                ).rowcount
             db.commit()
         except BaseException:
             db.rollback()
             raise
         if changed < batch_size:
             break
+
+
+@contextmanager
+def _authorize_purge_result_deletes(project, keys):
+    """Authorize only selected result keys inside one maintenance transaction."""
+    if not bool(getattr(project, "maintenance", False)):
+        raise ValueError("published result deletion requires offline maintenance")
+    db = project.db
+    if not db.in_transaction:
+        raise RuntimeError("published result deletion requires a purge transaction")
+    if not db.execute(
+        "SELECT 1 FROM project_purges WHERE phase='content' LIMIT 1"
+    ).fetchone():
+        raise RuntimeError("published result deletion requires an active purge")
+    if getattr(project._purge_result_delete_scope, "keys", None) is not None:
+        raise RuntimeError("published result deletion authorization cannot be nested")
+    project._purge_result_delete_scope.keys = frozenset(keys)
+    try:
+        yield
+    finally:
+        del project._purge_result_delete_scope.keys
 
 
 def finish_purge(project: Any, purge_id: int, *, batch_size: int = 1000) -> dict:
@@ -430,15 +473,18 @@ def _scrub_content(project, p, batch_size):
     )
     for table, predicate in deletions:
         if table == "copied_result_outcomes":
-            _delete_copied_results(db, p, batch_size=batch_size)
+            _delete_copied_results(db, p, project=project, batch_size=batch_size)
         else:
-            _delete_batches(db, table, predicate, p, batch_size=batch_size)
+            _delete_batches(
+                db, table, predicate, p, batch_size=batch_size, project=project
+            )
     _delete_batches(
         db,
         "results",
         f"(row_id IN ({_targets('row')}) OR column_id IN ({_targets('column')})) AND NOT EXISTS (SELECT 1 FROM copied_result_outcomes copy WHERE copy.source_run_id=results.run_id AND copy.source_row_id=results.row_id AND copy.source_column_id=results.column_id)",
         p,
         batch_size=batch_size,
+        project=project,
     )
     from .keyed_updates import purge_baseline_columns
 
@@ -825,7 +871,7 @@ def _purge_text_surface_payloads(db, p, batch_size):
         cursor = ids[-1]
 
 
-def _delete_copied_results(db, p, *, batch_size):
+def _delete_copied_results(db, p, *, project, batch_size):
     """Delete selected copies and only their newly orphaned purged sources."""
     while True:
         rows = db.execute(
@@ -844,22 +890,25 @@ def _delete_copied_results(db, p, *, batch_size):
                     "DELETE FROM copied_result_outcomes WHERE op_id=? AND row_id=? AND column_id=?",
                     (row["op_id"], row["row_id"], row["column_id"]),
                 )
-                db.execute(
-                    "DELETE FROM results WHERE run_id=? AND row_id=? AND column_id=? "
-                    "AND NOT EXISTS (SELECT 1 FROM copied_result_outcomes copy "
-                    "WHERE copy.source_run_id=results.run_id "
-                    "AND copy.source_row_id=results.row_id "
-                    "AND copy.source_column_id=results.column_id) "
-                    "AND (EXISTS (SELECT 1 FROM project_purge_targets target "
-                    "WHERE target.kind='row' AND target.object_id=results.row_id) "
-                    "OR EXISTS (SELECT 1 FROM project_purge_targets target "
-                    "WHERE target.kind='column' AND target.object_id=results.column_id))",
-                    (
-                        row["source_run_id"],
-                        row["source_row_id"],
-                        row["source_column_id"],
-                    ),
-                )
+                if row["source_run_id"] is not None:
+                    source_key = (
+                        int(row["source_run_id"]),
+                        int(row["source_row_id"]),
+                        int(row["source_column_id"]),
+                    )
+                    with _authorize_purge_result_deletes(project, [source_key]):
+                        db.execute(
+                            "DELETE FROM results WHERE run_id=? AND row_id=? AND column_id=? "
+                            "AND NOT EXISTS (SELECT 1 FROM copied_result_outcomes copy "
+                            "WHERE copy.source_run_id=results.run_id "
+                            "AND copy.source_row_id=results.row_id "
+                            "AND copy.source_column_id=results.column_id) "
+                            "AND (EXISTS (SELECT 1 FROM project_purge_targets target "
+                            "WHERE target.kind='row' AND target.object_id=results.row_id) "
+                            "OR EXISTS (SELECT 1 FROM project_purge_targets target "
+                            "WHERE target.kind='column' AND target.object_id=results.column_id))",
+                            source_key,
+                        )
             db.commit()
         except BaseException:
             db.rollback()

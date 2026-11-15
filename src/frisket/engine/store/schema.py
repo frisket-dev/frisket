@@ -1004,6 +1004,9 @@ WHEN OLD.publication_effect IS NOT NULL
     WHERE generation.run_id = OLD.run_id
       AND generation.column_id = OLD.column_id
   )
+  AND frisket_purge_result_delete_authorized(
+    OLD.run_id, OLD.row_id, OLD.column_id
+  )=0
 BEGIN
   SELECT RAISE(ABORT, 'published result is immutable');
 END;

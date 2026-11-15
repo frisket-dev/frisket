@@ -268,6 +268,7 @@ class Project:
         if not self.db_path.exists():
             raise FileNotFoundError(f"not a frisket bundle: {self.path}")
         self._local = threading.local()
+        self._purge_result_delete_scope = threading.local()
         self._connections: weakref.WeakSet[_ThreadConnection] = weakref.WeakSet()
         self._connections_lock = threading.Lock()
         self._closed = False
@@ -294,6 +295,22 @@ class Project:
             from .current_cells import register_current_cell_functions
 
             register_current_cell_functions(conn)
+            purge_delete_scope = self._purge_result_delete_scope
+            maintenance = self.maintenance
+
+            def purge_result_delete_authorized(run_id, row_id, column_id):
+                scope = getattr(purge_delete_scope, "keys", None)
+                return int(
+                    maintenance
+                    and scope is not None
+                    and (int(run_id), int(row_id), int(column_id)) in scope
+                )
+
+            conn.create_function(
+                "frisket_purge_result_delete_authorized",
+                3,
+                purge_result_delete_authorized,
+            )
             conn.executescript(
                 "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; "
                 "PRAGMA busy_timeout=10000;"

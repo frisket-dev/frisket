@@ -361,6 +361,121 @@ def test_real_reapply_after_source_cohort_purge_refuses_only_purged_row(project)
     assert first not in project.visible_row_ids(sheet)
 
 
+def test_purge_removes_unowned_published_result_but_retains_shared_result(project):
+    import sqlite3
+
+    from frisket.engine.store.changes import ChangeStore, start_change
+    from frisket.engine.store.current_cells import refresh_current_cells
+    from frisket.engine.store.result_generations import ResultGenerationStore
+    from frisket.engine.store.runs import RunResultStore
+    from helpers import run_writer_authority_fixture
+
+    sheet = project.add_sheet("published-results")
+    source = project.add_column(sheet, "source", type="text")
+    output = project.add_column(sheet, "generated", type="text", ai_generated=True)
+    unowned, shared = project.add_rows(
+        sheet,
+        [{"source": "unowned"}, {"source": "shared"}],
+        {"source": source},
+    )
+    op = project.append_op("map.ask")
+    runs = RunResultStore(project)
+    run_id = runs.start_run(
+        op, sheet, "map.ask", row_ids=[unowned, shared], total_rows=2
+    )
+    authority = run_writer_authority_fixture(
+        project, run_id, output_column_ids={output}
+    )
+    generations = ResultGenerationStore(project)
+    generations.declare(
+        run_id,
+        output,
+        output_role="answer",
+        compatibility_key="sha256:purge-owned-result-v1",
+        write_mode="create",
+        claim_token=authority.claim_token,
+    )
+    runs.write_results(
+        run_id,
+        [
+            {
+                "row_id": row_id,
+                "column_id": output,
+                "value": value,
+                "publication_effect": "publish_value",
+            }
+            for row_id, value in ((unowned, "remove me"), (shared, "keep me"))
+        ],
+        **authority.kwargs(),
+    )
+    generations.seal(
+        run_id,
+        [output],
+        claim_token=authority.claim_token,
+        terminal_disposition="completed",
+    )
+    runs.finish_run(run_id)
+
+    # The global immutability backstop remains active without exact purge scope.
+    with pytest.raises(sqlite3.IntegrityError, match="published result is immutable"):
+        with project.db:
+            project.db.execute(
+                "DELETE FROM results WHERE run_id=? AND row_id=? AND column_id=?",
+                (run_id, unowned, output),
+            )
+
+    saved_sheet = project.add_sheet("independent-owner")
+    saved_column = project.add_column(
+        saved_sheet, "saved", type="text", ai_generated=True
+    )
+    [saved_row] = project.add_rows(saved_sheet, [{}], {})
+    copy_op = project.append_op("run.reapply", {"action_kind": "run.reapply"})
+    with project.db:
+        project.db.execute("BEGIN IMMEDIATE")
+        start_change(project.db, copy_op)
+        project.db.execute(
+            "INSERT INTO copied_result_outcomes(op_id,row_id,column_id,source_run_id,source_row_id,source_column_id) VALUES (?,?,?,?,?,?)",
+            (copy_op, saved_row, saved_column, run_id, shared, output),
+        )
+        refresh_current_cells(project.db, column_ids=[saved_column])
+        ChangeStore(project).close(copy_op)
+
+    finish_purge(project, begin_purge(project, row_ids=[unowned]))
+    assert (
+        project.db.execute(
+            "SELECT count(*) FROM results WHERE run_id=? AND row_id=?",
+            (run_id, unowned),
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        project.db.execute(
+            "SELECT count(*) FROM results WHERE run_id=? AND row_id=?",
+            (run_id, shared),
+        ).fetchone()[0]
+        == 1
+    )
+
+    finish_purge(project, begin_purge(project, row_ids=[shared]))
+    assert (
+        project.db.execute(
+            "SELECT count(*) FROM results WHERE run_id=? AND row_id=?",
+            (run_id, shared),
+        ).fetchone()[0]
+        == 1
+    )
+    assert project.get_values(saved_sheet, saved_column)[saved_row] == "keep me"
+
+    finish_purge(project, begin_purge(project, row_ids=[saved_row]))
+    assert (
+        project.db.execute(
+            "SELECT count(*) FROM results WHERE run_id=? AND row_id=?",
+            (run_id, shared),
+        ).fetchone()[0]
+        == 0
+    )
+
+
 def test_invalid_scope_rolls_back_purge(project):
     add(project, "first", "hello")
     with pytest.raises(ValueError, match="Unknown row"):
