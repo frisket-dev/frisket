@@ -1,99 +1,57 @@
-import json
+"""Admission fixes selection; execution reads current values within that selection."""
+
+from contextlib import closing
 from types import SimpleNamespace
 
 import pytest
 
-from frisket.engine.runner.row_inputs import _expected_source_cell, row_values
+from frisket.engine.runner.row_inputs import row_values
 from frisket.engine.store import Project
 from frisket.execution.scope_identity import (
     AdmittedWorkScopeSnapshot,
     canonical_work_scope_binding,
 )
-from frisket.ops.base import RecipeInvocationHalt
-
-
-def test_expected_cells_are_indexed_once_without_changing_the_snapshot():
-    class CountingCells(list):
-        iterations = 0
-
-        def __iter__(self):
-            self.iterations += 1
-            return super().__iter__()
-
-    first = {"row_id": 1, "value_hash": "first"}
-    second = {"row_id": 2, "value_hash": "second"}
-    cells = CountingCells([first, second, {"row_id": 1, "value_hash": "duplicate"}])
-    payload = {"sources": [{"name": "text", "column_id": 4, "cells": cells}]}
-    snapshot = AdmittedWorkScopeSnapshot(payload)
-    assert cells.iterations == 1
-    for _ in range(10):
-        for row_id, expected in ((1, first), (2, second)):
-            assert (
-                _expected_source_cell(
-                    snapshot, source_index=0, name="text", column_id=4, row_id=row_id
-                )
-                is expected
-            )
-    assert cells.iterations == 1
-    assert json.dumps(snapshot) == json.dumps(payload)
-
-
-@pytest.mark.parametrize("mutation", ["row_id", "column_id", "name", "cells"])
-def test_changed_snapshot_identity_cannot_reuse_cached_expected_facts(mutation):
-    source = {"name": "text", "column_id": 4, "cells": [{"row_id": 1}]}
-    snapshot = AdmittedWorkScopeSnapshot({"sources": [source]})
-    if mutation == "row_id":
-        source["cells"][0]["row_id"] = 2
-    elif mutation == "cells":
-        source["cells"] = [{"row_id": 1}]
-    else:
-        source[mutation] = "changed"
-    with pytest.raises(RecipeInvocationHalt) as exc:
-        _expected_source_cell(
-            snapshot, source_index=0, name="text", column_id=4, row_id=1
-        )
-    assert exc.value.code == "promise_violation"
 
 
 @pytest.mark.parametrize("replacement", ["changed", "original"])
-def test_indexed_admitted_read_still_checks_live_value_and_revision(
-    tmp_path, replacement
-):
-    project = Project.create(tmp_path / "source.frisket")
-    try:
+def test_admitted_selection_allows_live_edits_but_not_new_rows(tmp_path, replacement):
+    with closing(Project.create(tmp_path / "source.frisket")) as project:
         sheet = project.add_sheet("Source")
         column = project.add_column(sheet, "text")
-        project.add_rows(sheet, [{"text": "original"}], {"text": column})
-        row_id = project.visible_row_ids(sheet)[0]
+        row_id = project.add_rows(sheet, [{"text": "original"}], {"text": column})[0]
         recipe = SimpleNamespace(source_columns=lambda _spec: ["text"])
         spec = {"sheet_id": sheet}
         payload = {}
-        canonical_work_scope_binding(project, recipe, spec, [row_id], snapshot=payload)
-        snapshot = AdmittedWorkScopeSnapshot(payload)
-        assert row_values(
-            project,
-            recipe,
-            spec,
-            {"text": column},
-            row_id,
-            for_model=False,
-            column_types={"text": "text"},
-            admitted_work_scope=snapshot,
-        ) == {"text": "original"}
-        project.apply_edits(
-            [{"row_id": row_id, "column_id": column, "value": replacement}]
+        binding = canonical_work_scope_binding(
+            project, recipe, spec, [row_id], snapshot=payload
         )
-        with pytest.raises(RecipeInvocationHalt) as exc:
-            row_values(
+        snapshot = AdmittedWorkScopeSnapshot(payload)
+        assert payload["row_ids"] == [row_id]
+        assert payload["sources"] == [{"name": "text", "column_id": column}]
+
+        def read(selected_row):
+            return row_values(
                 project,
                 recipe,
                 spec,
                 {"text": column},
-                row_id,
+                selected_row,
                 for_model=False,
                 column_types={"text": "text"},
                 admitted_work_scope=snapshot,
             )
-        assert exc.value.code == "promise_violation"
-    finally:
-        project.close()
+
+        before = read(row_id)
+        assert before == {"text": "original"}
+        project.apply_edits(
+            [{"row_id": row_id, "column_id": column, "value": replacement}]
+        )
+        added = project.add_rows(sheet, [{"text": "new row"}], {"text": column})[0]
+        after = read(row_id)
+        assert after == {"text": replacement}
+        assert after.source_cells != before.source_cells
+        # Input edits do not invalidate the approved selection or require a new quote.
+        assert canonical_work_scope_binding(project, recipe, spec, [row_id]) == binding
+        with pytest.raises(ValueError, match="outside the admitted selection"):
+            read(added)
+        assert snapshot["row_ids"] == [row_id]
