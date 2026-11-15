@@ -63,3 +63,15 @@ def test_unknown_group_quote_never_claims_zero(monkeypatch):
     assert estimate["cost"] is None
     assert estimate["cost_source"] == "unknown"
     assert '"story": false' in messages[0][1]["content"]
+
+
+def test_group_identity_keeps_values_distinct_from_display_labels():
+    rows = {1: {"g": None}, 2: {"g": "null"}, 3: {"g": 1}, 4: {"g": "1"}}
+    groups = group_summary_rows(rows, source=[], group_by="g")
+    assert len(groups) == 4
+    assert len({group["identity_key"] for group in groups}) == 4
+    numeric = group_summary_rows(
+        {1: {"g": 1}, 2: {"g": 1.0}}, source=[], group_by="g", group_type="number"
+    )
+    assert len(numeric) == 1
+    assert numeric[0]["source_row_ids"] == [1, 2]

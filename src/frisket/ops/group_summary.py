@@ -19,14 +19,32 @@ def group_summary_rows(
     *,
     source: Sequence[str],
     group_by: str | None,
+    group_type: str | None = None,
 ) -> list[dict[str, Any]]:
     """Retain admitted row order and all contributing IDs in each group."""
     groups: dict[str, dict[str, Any]] = {}
     for row_id, row in rows.items():
         raw_group = row.get(group_by) if group_by is not None else "all"
         name = "null" if raw_group is None else str(raw_group)
+        # Display labels are not identity: null and "null", or 1 and "1",
+        # must never collapse into the same derived row.
+        key_value = raw_group
+        if group_type == "number" and type(key_value) in (int, float):
+            key_value = float(key_value)
+        identity_key = json.dumps(
+            [group_type or type(key_value).__name__, key_value],
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
         group = groups.setdefault(
-            name, {"name": name, "source_row_ids": [], "rows": []}
+            identity_key,
+            {
+                "name": name,
+                "identity_key": identity_key,
+                "source_row_ids": [],
+                "rows": [],
+            },
         )
         group["source_row_ids"].append(row_id)
         group["rows"].append(
