@@ -258,7 +258,11 @@ async def test_datalab_dispatch_uses_inline_saved_key(setup_client, tmp_path, en
         b"\x89PNG\r\n\x1a\n bytes" if engine == "ocr" else b"%PDF-1.4 bytes"
     )
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-        ctx = OpContext(project=project, http=http, extras={})
+        ctx = OpContext(
+            project=project,
+            http=http,
+            extras={"preview": True, "cancelled": lambda: False},
+        )
         if engine == "ocr":
             usage = {"cost": 0, "calls": 0}
             result = await ocr_datalab([path], ctx, usage)

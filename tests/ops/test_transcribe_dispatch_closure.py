@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from frisket.execution.dispatch_control import STANDALONE
 import pytest
 
 from frisket.contracts.actions.schemas._engines import (
@@ -46,7 +47,9 @@ async def test_indra_ocr_dispatches_through_local_adapter(
     result = await engines.run_engine_on_pages(
         "indra-ocr",
         [page],
-        OpContext(),
+        OpContext(
+            extras={"standalone_dispatch": STANDALONE},
+        ),
         usage={},
         scratch=scratch,
     )

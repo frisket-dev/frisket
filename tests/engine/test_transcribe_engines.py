@@ -1,3 +1,4 @@
+from frisket.execution.dispatch_control import STANDALONE
 import frisket.sdk.ops.transcribe_engines as transcribe_engines
 import asyncio
 import io
@@ -130,7 +131,9 @@ def test_vibevoice_sidecar_request_omits_unsupported_clean_default(
             "vibevoice-asr",
             str(audio),
             {"clean": False, "context": "names"},
-            OpContext(),
+            OpContext(
+                extras={"standalone_dispatch": STANDALONE},
+            ),
         )
     )
 
@@ -224,7 +227,9 @@ def test_shared_engine_boundary_dispatches_each_existing_family(
             engine,
             "/nonexistent.wav",
             {"engine": engine},
-            OpContext(),
+            OpContext(
+                extras={"standalone_dispatch": STANDALONE},
+            ),
             transport=transport,
         )
     )
@@ -237,7 +242,13 @@ def test_unknown_engine_rejected(tmp_path):
     with pytest.raises(ValueError, match="unknown transcription engine"):
         asyncio.run(
             transcribe_engines.run_transcription_engine(
-                "bogus", str(tmp_path / "a.wav"), {}, OpContext(), transport="local"
+                "bogus",
+                str(tmp_path / "a.wav"),
+                {},
+                OpContext(
+                    extras={"standalone_dispatch": STANDALONE},
+                ),
+                transport="local",
             )
         )
 
@@ -760,7 +771,10 @@ def test_remote_engine_needs_configured_provider(tmp_path, monkeypatch):
     to the local engines — never a silent fallback."""
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     router = ModelRouter(cache=None, cache_mode="off")
-    ctx = OpContext(http=httpx.AsyncClient(), extras={"router": router})
+    ctx = OpContext(
+        http=httpx.AsyncClient(),
+        extras={"router": router, "standalone_dispatch": STANDALONE},
+    )
     path = _wav(tmp_path / "a.wav")
     with pytest.raises(RuntimeError, match="'openai' provider"):
         asyncio.run(
@@ -798,7 +812,7 @@ def test_remote_engine_posts_audio(tmp_path, monkeypatch):
 
     ctx = OpContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-        extras={"router": router},
+        extras={"router": router, "standalone_dispatch": STANDALONE},
     )
     path = _wav(tmp_path / "a.wav")
     result = asyncio.run(
@@ -858,7 +872,7 @@ def test_mai_transcribe_2_posts_its_documented_openrouter_options(tmp_path):
 
     ctx = OpContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-        extras={"router": router},
+        extras={"router": router, "standalone_dispatch": STANDALONE},
     )
     result = asyncio.run(
         transcribe_engines.run_transcription_engine(
@@ -918,7 +932,7 @@ def test_mai_transcribe_2_rejects_unsupported_format_before_egress(tmp_path):
 
     ctx = OpContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-        extras={"router": router},
+        extras={"router": router, "standalone_dispatch": STANDALONE},
     )
     unsupported = _wav(tmp_path / "mai.ogg")
     with pytest.raises(ValueError, match="MAI-Transcribe 2 accepts WAV, MP3, or FLAC"):
@@ -965,7 +979,7 @@ def test_declared_openrouter_model_does_not_inherit_mai_request_options(
 
     ctx = OpContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-        extras={"router": router},
+        extras={"router": router, "standalone_dispatch": STANDALONE},
     )
     asyncio.run(
         transcribe_engines.OpenAITranscriptionAdapter().transcribe(
@@ -1025,7 +1039,7 @@ def test_remote_engine_routes_qualified_local_model_and_records_local_facts(
     engine = "ollama/@studio/whisper-1"
     ctx = OpContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-        extras={"router": router},
+        extras={"router": router, "standalone_dispatch": STANDALONE},
     )
     result = asyncio.run(
         transcribe_engines.run_transcription_engine(
@@ -1071,7 +1085,7 @@ def test_qualified_local_http_failure_still_records_known_zero(tmp_path) -> None
         http=httpx.AsyncClient(
             transport=httpx.MockTransport(lambda _request: httpx.Response(503))
         ),
-        extras={"router": router},
+        extras={"router": router, "standalone_dispatch": STANDALONE},
     )
     engine = "ollama/@studio/frisket-new-unlisted-model"
 
@@ -1148,7 +1162,7 @@ def test_remote_engine_names_the_upload_from_the_media_row(tmp_path, monkeypatch
         ctx = OpContext(
             project=project,
             http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-            extras={"router": router},
+            extras={"router": router, "preview": True, "cancelled": lambda: False},
         )
         with project.materialize_blob(digest) as path:
             asyncio.run(
@@ -1196,7 +1210,7 @@ def test_remote_engine_upload_suffix_follows_the_media_mime(tmp_path, monkeypatc
         ctx = OpContext(
             project=project,
             http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-            extras={"router": router},
+            extras={"router": router, "preview": True, "cancelled": lambda: False},
         )
         with project.materialize_blob(digest) as path:
             asyncio.run(
@@ -1243,7 +1257,10 @@ def test_remote_engine_ollama_edge_auth_raises_typed_unsupported_error(
             ),
         ),
     )
-    ctx = OpContext(http=httpx.AsyncClient(), extras={"router": router})
+    ctx = OpContext(
+        http=httpx.AsyncClient(),
+        extras={"router": router, "standalone_dispatch": STANDALONE},
+    )
     path = _wav(tmp_path / "a.wav")
     with pytest.raises(
         LocalTranscribeUnsupportedError, match="authenticated front door"
@@ -1280,7 +1297,7 @@ def test_remote_engine_ollama_tokenless_keeps_todays_behavior(tmp_path) -> None:
 
     ctx = OpContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-        extras={"router": router},
+        extras={"router": router, "standalone_dispatch": STANDALONE},
     )
     path = _wav(tmp_path / "a.wav")
     from frisket.sdk.ops.transcribe_engines import LocalTranscribeUnsupportedError
@@ -1307,7 +1324,7 @@ def test_remote_engine_failure_redacts_borrowed_provider_key(tmp_path) -> None:
 
     ctx = OpContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-        extras={"router": router},
+        extras={"router": router, "standalone_dispatch": STANDALONE},
     )
     with pytest.raises(RuntimeError) as excinfo:
         asyncio.run(
@@ -1339,7 +1356,7 @@ def test_remote_engine_normalizes_all_success_path_failures(
 
     ctx = OpContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-        extras={"router": router},
+        extras={"router": router, "standalone_dispatch": STANDALONE},
     )
     with pytest.raises(RuntimeError) as excinfo:
         asyncio.run(
@@ -1365,7 +1382,7 @@ def test_remote_engine_survives_hostile_transport_stringification(tmp_path) -> N
 
     ctx = OpContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-        extras={"router": router},
+        extras={"router": router, "standalone_dispatch": STANDALONE},
     )
     with pytest.raises(RuntimeError) as excinfo:
         asyncio.run(
@@ -1403,7 +1420,7 @@ def test_remote_engine_survives_hostile_postprocess_stringification(
 
     ctx = OpContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-        extras={"router": router},
+        extras={"router": router, "standalone_dispatch": STANDALONE},
     )
     with pytest.raises(RuntimeError) as excinfo:
         asyncio.run(
@@ -1432,7 +1449,7 @@ def test_remote_engine_token_priced_model_costs_from_usage(tmp_path, monkeypatch
 
     ctx = OpContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-        extras={"router": router},
+        extras={"router": router, "standalone_dispatch": STANDALONE},
     )
     path = _wav(tmp_path / "a.wav")
     result = asyncio.run(
@@ -1457,7 +1474,7 @@ def test_remote_engine_unknown_model_reports_unknown_cost(tmp_path, monkeypatch)
 
     ctx = OpContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-        extras={"router": router},
+        extras={"router": router, "standalone_dispatch": STANDALONE},
     )
     path = _wav(tmp_path / "a.wav")
     result = asyncio.run(

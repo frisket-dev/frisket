@@ -1,5 +1,6 @@
 """Media calls declare transport counts; unrelated attribution facts do not."""
 
+from frisket.execution.dispatch_control import STANDALONE
 import asyncio
 from types import SimpleNamespace
 
@@ -107,7 +108,10 @@ def test_ocr_vlm_cached_pages_do_not_count_as_requests(tmp_path, include_uncache
     )
     try:
         router._adapters["mock"] = adapter
-        ctx = OpContext(http=None, extras={"router": router})
+        ctx = OpContext(
+            http=None,
+            extras={**({"router": router}), "standalone_dispatch": STANDALONE},
+        )
         engines = OcrEngines()
         initial_usage = {"calls": 0, "in": 0, "out": 0, "cost": 0.0}
         asyncio.run(

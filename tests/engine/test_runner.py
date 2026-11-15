@@ -23,6 +23,7 @@ from frisket.ai.llm import (
 from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
 from frisket.ai.llm.pricing import cost_of_with_source
 from frisket.ops.base import OpContext, Recipe, RenderedCall
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ops.builtin import prompt_hash_of
 from frisket.engine.runner import CostGate, MapRunner, validation
 from frisket.engine.runner.row_execution import AdaptiveThrottle, execute_row, llm_row
@@ -1448,7 +1449,10 @@ def test_map_row_exhausts_after_exactly_three_repairs_and_keeps_accounting(
                 model_plan(spec).program,
                 {"text": "Ada Lovelace"},
                 spec,
-                OpContext(project=project),
+                OpContext(
+                    project=project,
+                    extras={"preview": True, "cancelled": lambda: False},
+                ),
                 output_field_names=("relevance",),
             )
         finally:
@@ -1517,7 +1521,11 @@ class TestStructuredArrayUnwrapMapPath:
         recipe = _FakeArrayRecipe()
         spec = {"model": "anthropic/claude-haiku-4-5"}
 
-        data, meta = asyncio.run(llm_row(router, AdaptiveThrottle(), recipe, {}, spec))
+        data, meta = asyncio.run(
+            llm_row(
+                router.for_execution(STANDALONE), AdaptiveThrottle(), recipe, {}, spec
+            )
+        )
 
         assert data == items  # the bare list, NOT {"items": [...]}
         assert meta["tokens_in"] == 10

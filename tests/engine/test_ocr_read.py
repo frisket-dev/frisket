@@ -84,7 +84,9 @@ def source(tmp_path):
 async def _reader(source, *, options=None, preview=False, engine="tesseract"):
     project, sheet, column, row_id, value = source
     options = options or OcrOptions()
-    ctx = OpContext(project=project, extras={})
+    ctx = OpContext(
+        project=project, extras={"preview": True, "cancelled": lambda: False}
+    )
     files = RowFileStager(project, preview=preview)
     reader = module.AdmittedOcrReader(
         ctx, files, engine=engine, options=options.normalize(engine)
@@ -1092,7 +1094,9 @@ async def test_remote_engine_cannot_start_without_admission(source):
     project = source[0]
     files = RowFileStager(project)
     reader = module.AdmittedOcrReader(
-        OpContext(project=project, extras={}),
+        OpContext(
+            project=project, extras={"preview": True, "cancelled": lambda: False}
+        ),
         files,
         engine="datalab",
         options=OcrOptions().normalize("datalab"),

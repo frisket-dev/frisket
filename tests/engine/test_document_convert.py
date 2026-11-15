@@ -103,7 +103,9 @@ def _run_convert(
     ctx = OpContext(
         project=project,
         http=http,
-        extras=extras if extras is not None else {"row_id": row_id, "run_id": 1},
+        extras=extras
+        if extras is not None
+        else {"row_id": row_id, "preview": True, "cancelled": lambda: False},
         credential_use_context=credential_ctx,
         execution_limits=limits,
     )
@@ -500,7 +502,10 @@ def test_actual_renamed_source_column_is_selected_by_argument(project, monkeypat
 def test_wrong_source_argument_refuses(project, monkeypatch):
     _stub_markitdown(monkeypatch)
     sheet, cid, row_id = _seed(project, HTML, name="renamed")
-    ctx = OpContext(project=project, extras={"row_id": row_id, "run_id": 1})
+    ctx = OpContext(
+        project=project,
+        extras={"row_id": row_id, "preview": True, "cancelled": lambda: False},
+    )
     conv = AdmittedDocumentConverter(ctx, engine="markitdown")
     row = Row({"renamed": HTML})
 
@@ -600,7 +605,10 @@ def test_missing_file_cell_refuses_before_document_conversion(project):
 def test_stale_source_value_refuses(project, monkeypatch):
     _stub_markitdown(monkeypatch)
     sheet, cid, row_id = _seed(project, HTML)
-    ctx = OpContext(project=project, extras={"row_id": row_id, "run_id": 1})
+    ctx = OpContext(
+        project=project,
+        extras={"row_id": row_id, "preview": True, "cancelled": lambda: False},
+    )
     conv = AdmittedDocumentConverter(ctx, engine="markitdown")
     row = Row({"doc": HTML})
 

@@ -439,7 +439,10 @@ def test_research_only_cancellation_trace_is_persisted_and_cancellation_re_raise
                     CancelledRecipe(llm=False),
                     {},
                     {"action_kind": "map.cancelled_test"},
-                    OpContext(project=project),
+                    OpContext(
+                        project=project,
+                        extras={"preview": True, "cancelled": lambda: False},
+                    ),
                     row_id=1,
                     recorder=writer,
                 )

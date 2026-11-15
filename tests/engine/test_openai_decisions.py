@@ -1,6 +1,7 @@
 """Decisions uses existing classification contracts, admission and paid usage."""
 
 import json
+from frisket.execution.dispatch_control import STANDALONE
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -83,7 +84,10 @@ async def invoke(monkeypatch, handler, *, resolution=None, extract=False, owner=
     row = Row({"body": "Example court filing"})
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         ctx = SimpleNamespace(
-            http=client, extras={}, credential_use_context=CredentialUseContext.open()
+            project=None,
+            http=client,
+            extras={"standalone_dispatch": STANDALONE},
+            credential_use_context=CredentialUseContext.open(),
         )
         bound = owner.bind_row(row, row_id=1, ctx=ctx)
         if extract:

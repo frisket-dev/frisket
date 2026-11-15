@@ -209,7 +209,9 @@ def test_prepared_publication_seam_leaves_legacy_control_behavior_unchanged(
             _LegacyControlRecipe(llm=False),
             {},
             {"action_kind": "map.legacy_test"},
-            OpContext(project=store),
+            OpContext(
+                project=store, extras={"preview": True, "cancelled": lambda: False}
+            ),
         )
     )
 

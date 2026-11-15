@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from frisket.execution.dispatch_control import STANDALONE
 import asyncio
 
 from frisket.actions.media import OcrParams, _ocr_outputs, ocr_options
@@ -75,7 +76,7 @@ def test_generic_vlm_dispatch_receives_actual_position_choice(
         OcrEngines().run_engine_on_pages(
             GENERIC_ENGINE,
             [page],
-            OpContext(extras={}),
+            OpContext(extras={**({}), "standalone_dispatch": STANDALONE}),
             usage={},
             scratch=tmp_path,
             keep_text_position=False,

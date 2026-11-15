@@ -8,10 +8,11 @@ import pytest
 
 from frisket.execution.provider import ConnectionConfig
 from frisket.ops._sidecar import sidecar_post
+from frisket.execution.dispatch_control import TransientDispatch
 
 
 @pytest.mark.parametrize("status", [200, 429])
-def test_cancel_after_response_discards_result_and_does_not_retry(status):
+def test_cancel_after_response_retains_success_and_prevents_retry(status):
     cancelled = False
     requests = []
 
@@ -22,15 +23,18 @@ def test_cancel_after_response_discards_result_and_does_not_retry(status):
         return httpx.Response(status, json={"documents": [{"markdown": "ignored"}]})
 
     async def run():
-        await sidecar_post(
+        return await sidecar_post(
             SimpleNamespace(http=SimpleNamespace(post=post)),
             "/to-markdown",
+            dispatch=TransientDispatch(lambda: cancelled),
             connection=ConnectionConfig(base_url="http://127.0.0.1:1234", token="test"),
-            should_cancel=lambda: cancelled,
         )
 
-    with pytest.raises(asyncio.CancelledError):
-        asyncio.run(run())
+    if status == 200:
+        assert asyncio.run(run()) == {"documents": [{"markdown": "ignored"}]}
+    else:
+        with pytest.raises(asyncio.CancelledError):
+            asyncio.run(run())
     assert len(requests) == 1
 
 
@@ -42,8 +46,8 @@ def test_cancel_before_request_does_not_submit():
         await sidecar_post(
             SimpleNamespace(http=SimpleNamespace(post=post)),
             "/to-markdown",
+            dispatch=TransientDispatch(lambda: True),
             connection=ConnectionConfig(base_url="http://127.0.0.1:1234", token="test"),
-            should_cancel=lambda: True,
         )
 
     with pytest.raises(asyncio.CancelledError):
@@ -51,7 +55,7 @@ def test_cancel_before_request_does_not_submit():
 
 
 @pytest.mark.parametrize("during_backoff", [False, True])
-def test_cancel_stops_waiting_without_waiting_for_server(during_backoff):
+def test_preview_task_cancel_stops_waiting_without_waiting_for_server(during_backoff):
     async def run():
         cancelled = asyncio.Event()
         stopped = asyncio.Event()
@@ -59,7 +63,7 @@ def test_cancel_stops_waiting_without_waiting_for_server(during_backoff):
 
         async def post(*args, **kwargs):
             calls.append(1)
-            asyncio.get_running_loop().call_later(0.01, cancelled.set)
+            asyncio.get_running_loop().call_later(0.01, asyncio.current_task().cancel)
             if during_backoff:
                 return httpx.Response(429, headers={"Retry-After": "30"})
             try:
@@ -72,10 +76,10 @@ def test_cancel_stops_waiting_without_waiting_for_server(during_backoff):
                 sidecar_post(
                     SimpleNamespace(http=SimpleNamespace(post=post)),
                     "/to-markdown",
+                    dispatch=TransientDispatch(cancelled.is_set),
                     connection=ConnectionConfig(
                         base_url="http://127.0.0.1:1234", token="test"
                     ),
-                    should_cancel=cancelled.is_set,
                 ),
                 timeout=2,
             )

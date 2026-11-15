@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from frisket.execution.dispatch_control import STANDALONE
 import asyncio
 import json
 from dataclasses import dataclass, field
@@ -71,7 +72,9 @@ def test_ocr_vlm_repairs_invalid_then_valid_via_completer(tmp_path):
     router, adapter = _scripted_router(
         [_resp({}), _resp({"text": "HELLO WORLD"})]  # 1st: missing required "text"
     )
-    ctx = OpContext(http=None, extras={"router": router})
+    ctx = OpContext(
+        http=None, extras={**({"router": router}), "standalone_dispatch": STANDALONE}
+    )
     usage = {"calls": 0, "in": 0, "out": 0, "cost": 0.0}
     out = run(
         OcrEngines()._ocr_vlm("mock/vlm", [page], ctx, usage, keep_text_position=False)
@@ -86,7 +89,9 @@ def test_ocr_vlm_exhausts_repair_and_raises(tmp_path):
     page = tmp_path / "scan.png"
     page.write_bytes(b"\x89PNG\r\n\x1a\nnot-a-real-image-but-bytes-are-enough")
     router, _ = _scripted_router([_resp({}), _resp({})])
-    ctx = OpContext(http=None, extras={"router": router})
+    ctx = OpContext(
+        http=None, extras={**({"router": router}), "standalone_dispatch": STANDALONE}
+    )
     usage = {"calls": 0, "in": 0, "out": 0, "cost": 0.0}
     with pytest.raises(SchemaViolation):
         run(
@@ -154,7 +159,7 @@ def test_ops_agent_dispatches_search_tool_through_real_wire_and_finishes(
             goal="find stuff",
             model_id="anthropic/claude-haiku-4-5",
             recipe_version="1",
-            router=router,
+            router=router.for_execution(STANDALONE),
             search=fake_search,
             fetch=lambda url: pytest.fail("No fetch expected"),
         )
@@ -199,7 +204,7 @@ def test_ops_agent_hits_step_limit_without_finishing(monkeypatch):
             goal="find stuff",
             model_id="anthropic/claude-haiku-4-5",
             recipe_version="1",
-            router=router,
+            router=router.for_execution(STANDALONE),
             search=fake_search,
             fetch=lambda url: pytest.fail("No fetch expected"),
         )
@@ -256,7 +261,7 @@ def test_ops_agent_empty_model_turn_finishes_with_empty_answer():
             goal="find stuff",
             model_id="anthropic/claude-haiku-4-5",
             recipe_version="1",
-            router=router,
+            router=router.for_execution(STANDALONE),
             search=lambda query: pytest.fail("No search expected"),
             fetch=lambda url: pytest.fail("No fetch expected"),
         )
@@ -311,7 +316,7 @@ def test_ops_agent_unknown_tool_call_continues_until_step_limit():
             goal="find stuff",
             model_id="anthropic/claude-haiku-4-5",
             recipe_version="1",
-            router=router,
+            router=router.for_execution(STANDALONE),
             search=lambda query: pytest.fail("No search expected"),
             fetch=lambda url: pytest.fail("No fetch expected"),
         )

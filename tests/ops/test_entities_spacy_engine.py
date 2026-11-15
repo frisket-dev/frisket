@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from frisket.execution.dispatch_control import STANDALONE
 import importlib.util
 
 import pytest
@@ -194,7 +195,12 @@ async def test_ner_recipe_spacy_engine_raises_honest_error_when_unavailable(
         spacy_ner_module, "spacy_available", lambda model=None: (False, "not installed")
     )
     with pytest.raises(RuntimeError, match="not installed"):
-        await LocalNerExtractor("spacy", OpContext()).extract(
+        await LocalNerExtractor(
+            "spacy",
+            OpContext(
+                extras={"standalone_dispatch": STANDALONE},
+            ),
+        ).extract(
             "Ada Lovelace wrote notes.",
             labels=["person"],
             threshold=0.5,
@@ -217,7 +223,12 @@ async def test_ner_recipe_spacy_engine_calls_run_spacy_ner_default(monkeypatch):
 
     monkeypatch.setattr("frisket.ops.spacy_ner.run_spacy_ner_default", fake_run)
 
-    out = await LocalNerExtractor("spacy", OpContext()).extract(
+    out = await LocalNerExtractor(
+        "spacy",
+        OpContext(
+            extras={"standalone_dispatch": STANDALONE},
+        ),
+    ).extract(
         "Ada wrote notes.",
         labels=["person"],
         threshold=0.5,

@@ -1,5 +1,6 @@
 """Clef field projection, strict decision decoding and admitted HTTP boundary."""
 
+from frisket.execution.dispatch_control import STANDALONE
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -157,7 +158,10 @@ async def invoke(
     row = Row({"body": text})
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         ctx = SimpleNamespace(
-            http=client, extras={}, credential_use_context=CredentialUseContext.open()
+            project=None,
+            http=client,
+            extras={"standalone_dispatch": STANDALONE},
+            credential_use_context=CredentialUseContext.open(),
         )
         bound = owner.bind_row(row, row_id=1, ctx=ctx)
         result = await classify_row(params(engine, include_confidence=True), row, bound)
