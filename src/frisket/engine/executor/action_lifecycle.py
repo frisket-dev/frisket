@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sqlite3
+from uuid import uuid4
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
@@ -646,14 +648,19 @@ def _run_in_txn_idempotent_perform(
     owns_transaction = not project.db.in_transaction
     if not owns_transaction and post_commit_fn is not None:
         raise RuntimeError("an action with post-commit work must own its transaction")
-    savepoint = "plain_action_write"
+    savepoint = f"plain_action_write_{uuid4().hex}"
 
     def rollback_write():
         if owns_transaction:
             project.db.rollback()
         else:
-            cur.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
-            cur.execute(f"RELEASE SAVEPOINT {savepoint}")
+            try:
+                cur.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+            except sqlite3.OperationalError as exc:
+                if "no such savepoint" not in str(exc).lower():
+                    raise
+            else:
+                cur.execute(f"RELEASE SAVEPOINT {savepoint}")
 
     def commit_write():
         if owns_transaction:
