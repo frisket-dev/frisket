@@ -40,6 +40,7 @@ class AdmittedListTableReader:
         self.source_ai_generated = False
         self.copied_columns: tuple[ListCopiedColumn, ...] = ()
         self.facts: list[dict[str, Any]] = []
+        self.require_complete = False
 
     def read(
         self,
@@ -96,7 +97,7 @@ class AdmittedListTableReader:
             else:
                 row_ids = project.visible_row_ids(source.sheet_id)
                 values, value_refs = project.get_values_with_refs(
-                    source.sheet_id, source.column_id
+                    source.sheet_id, source.column_id, include_validity=True
                 )
 
             copied_columns = []
@@ -141,6 +142,16 @@ class AdmittedListTableReader:
             entries = []
             associations = {}
             for row_id in row_ids:
+                current_ref = value_refs.get(row_id, {})
+                if self.require_complete and (
+                    current_ref.get("outcome") not in (None, "completed")
+                    or current_ref.get("validity") == "invalid"
+                ):
+                    raise TableError(
+                        "invalid_input_ref",
+                        "Source list is unavailable; refresh cannot infer that its previous items disappeared",
+                        details={"row_id": row_id, "reason": "upstream_unavailable"},
+                    )
                 value = values.get(row_id)
                 if value is None and isinstance(source, ListColumnSource):
                     continue

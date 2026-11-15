@@ -698,3 +698,31 @@ def test_complete_empty_list_refresh_hides_generated_rows_and_undo_restores(tmp_
         assert project.visible_row_ids(child) == old_rows
     finally:
         project.close()
+
+
+def test_pending_list_result_is_not_observed_as_empty_refresh(tmp_path):
+    from frisket.engine.store.result_generations import ResultGenerationStore
+    from test_result_generation_store import _start_claimed_run, _declare
+
+    project, parent, source, child, _ = _build(tmp_path)
+    try:
+        old_rows = project.visible_row_ids(child)
+        run = _start_claimed_run(
+            project,
+            sheet_id=parent,
+            output_column_id=source,
+            row_ids=project.visible_row_ids(parent),
+            label="pending lists",
+            replace_existing=True,
+        )
+        _declare(
+            ResultGenerationStore(project), run, source, write_mode="replace_scope"
+        )
+        result = run_action_spec(
+            project, _refresh(sheet_id=child, key="pending-refresh"), project_id="p-ref"
+        )
+        assert result.status == "failed", result.errors
+        assert result.errors[0].details["reason"] == "upstream_unavailable"
+        assert project.visible_row_ids(child) == old_rows
+    finally:
+        project.close()

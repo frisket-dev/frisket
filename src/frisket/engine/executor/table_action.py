@@ -642,6 +642,7 @@ def prepare_table_producer(
                 resources.callback(reader.close)
             elif capability is ListTableReader:
                 reader = AdmittedListTableReader(project, bound.action.action_id)
+                reader.require_complete = empty_list_schema is not None
             elif capability is SheetRowsReader:
                 reader = AdmittedSheetRowsReader(
                     project, scope=bound.request.scope, params=bound.params
