@@ -236,6 +236,12 @@ def _row_effect_identity(
             "values": values,
             "cloud_payer": dict(cloud_payer),
         }
+    # Equal decoded values are not the same executable input when a source
+    # becomes pending, invalid, or failed. Never complete an uncertain paid
+    # checkpoint as a zero-cost availability short-circuit.
+    identity_payload["unavailable_inputs"] = list(
+        getattr(values, "unavailable_inputs", ())
+    )
     encoded = json.dumps(
         identity_payload,
         sort_keys=True,

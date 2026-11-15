@@ -146,10 +146,14 @@ def _coordinator(project, transport, *, payer=None, ceiling=100):
     )
 
 
-def _claimless_run(project, *, attempt_id: str, state: str = "dispatching"):
+def _claimless_run(
+    project, *, attempt_id: str, state: str = "dispatching", execution_root_run_id=None
+):
     sheet_id = project.db.execute("SELECT id FROM sheets LIMIT 1").fetchone()[0]
     op_id = project.append_op("map", {"recipe": "extract"})
-    run_id = RunResultStore(project).start_run(op_id, sheet_id, "map.extract")
+    run_id = RunResultStore(project).start_run(
+        op_id, sheet_id, "map.extract", execution_root_run_id=execution_root_run_id
+    )
     project.db.execute(
         "INSERT INTO execution_attempts "
         "(id, run_id, seq, state, action_identity_hash, scope_json, created_at) "
@@ -259,6 +263,15 @@ def test_reserved_request_is_adopted_by_fresh_run_writer(tmp_path):
             (second_attempt.request_id,),
         ).fetchone()
         assert tuple(row) == ("returned", "attempt-second")
+        RunResultStore(project).write_returned_call_accounting(
+            second_run,
+            [
+                {"row_id": None, "column_id": None, **entry}
+                for entry in recovered.returned_accounting
+            ],
+            writer_attempt_id="attempt-second",
+            claimless_direct_effect=True,
+        )
         recovered.retire_returned()
         assert (
             project.db.execute(

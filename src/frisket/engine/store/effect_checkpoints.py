@@ -40,7 +40,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections.abc import Callable
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, ClassVar
@@ -541,6 +541,7 @@ class EffectCheckpointStore:
         writer_attempt_id: str | None = None,
         claim_token: str | None = None,
         claimless_direct_effect: bool = False,
+        commit: bool = True,
     ) -> float:
         """Idempotently persist a ``returned`` unit's accounting without consuming.
 
@@ -549,7 +550,11 @@ class EffectCheckpointStore:
         the payload (the caller passes its zero-cost replay); replays return
         ``0.0`` without re-running ``accrue``."""
 
-        with self._txn():
+        if not commit and not self.db.in_transaction:
+            raise InvalidCheckpointState(
+                "account_returned(commit=False) requires its caller transaction"
+            )
+        with self._txn() if commit else nullcontext():
             checkpoint = self._verified_unit(
                 checkpoint_id,
                 family=family,
@@ -687,6 +692,10 @@ class EffectCheckpointStore:
             claimless_direct_effect=claimless_direct_effect,
             authorized_attempt_id=checkpoint["authorized_attempt_id"],
         )
+        if family == "model_call" and not checkpoint["accounting_persisted"]:
+            raise InvalidCheckpointState(
+                "returned model-call accounting must be persisted before retirement"
+            )
         if finalize is not None:
             finalize(checkpoint)
         deleted = self.db.execute(

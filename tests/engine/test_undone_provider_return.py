@@ -9,6 +9,7 @@ import test_execution_lifecycle_recovery as lifecycle_recovery
 
 from frisket.ai.llm import ModelRouter
 from frisket.engine.store import Project
+from frisket.engine.store.runs import RunResultStore
 from tests.engine.test_map_row_effect_checkpoint import (
     _ReturnedProviderCall,
     _bound,
@@ -176,6 +177,15 @@ def test_cloud_child_return_survives_undo_and_can_retire_after_accounting(tmp_pa
         assert (
             EffectCheckpointStore(project.db).get(checkpoint.checkpoint_id)["state"]
             == "returned"
+        )
+        RunResultStore(project).write_returned_call_accounting(
+            run.run_id,
+            [
+                {"row_id": rows[0], "column_id": column, **entry}
+                for entry in coordinator.returned_accounting
+            ],
+            writer_attempt_id=run.authority.writer_attempt_id,
+            claim_token=run.authority.claim_token,
         )
         coordinator.retire_returned()
         assert EffectCheckpointStore(project.db).get(checkpoint.checkpoint_id) is None

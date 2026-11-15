@@ -57,6 +57,11 @@ def test_cloud_scratch_records_returned_children_before_retirement(
             assert coordinator.returned_checkpoints, "must record before retiring"
             if failure == "record":
                 raise RuntimeError("recording unavailable")
+            from frisket.engine.store.runs import RunResultStore
+
+            RunResultStore(project).write_unscoped_model_calls(
+                list(calls), row_id=None, column_id=None
+            )
             recorded.extend(calls)
 
         monkeypatch.setattr(

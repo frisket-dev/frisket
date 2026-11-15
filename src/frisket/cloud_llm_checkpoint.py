@@ -225,6 +225,48 @@ class CloudLLMCheckpointCoordinator:
 
         store = EffectCheckpointStore(self.project.db)
         for ref in self.returned_checkpoints:
+            returned = store.returned_for_replay(
+                family=_FAMILY,
+                group_key=ref.group_key,
+                unit_key=ref.unit_key,
+                action_kind=ref.action_kind,
+                identity=ref.identity,
+            )
+            owner = returned["authorized_attempt_id"]
+            original = (
+                self.project.db.execute(
+                    "SELECT run_id FROM execution_attempts WHERE id=?", (owner,)
+                ).fetchone()
+                if owner is not None
+                else None
+            )
+            original_run = original[0] if original is not None else None
+            calls = self._accounting[ref.checkpoint_id]["model_calls"]
+
+            def verify_accounted(_checkpoint):
+                for call in calls:
+                    fact = self.project.db.execute(
+                        "SELECT attempt_id FROM model_calls WHERE id=?", (call["id"],)
+                    ).fetchone()
+                    if fact is None or fact[0] != owner:
+                        raise RuntimeError(
+                            "returned Cloud call has not been accounted under its original attempt"
+                        )
+                return 0.0
+
+            store.account_returned(
+                ref.checkpoint_id,
+                family=_FAMILY,
+                group_key=ref.group_key,
+                unit_key=ref.unit_key,
+                action_kind=ref.action_kind,
+                identity=ref.identity,
+                payload=returned["payload"],
+                accrue=verify_accounted,
+                run_id=original_run,
+                writer_attempt_id=owner,
+                claimless_direct_effect=True,
+            )
             store.consume_and_retire(
                 ref.checkpoint_id,
                 family=_FAMILY,
@@ -232,10 +274,9 @@ class CloudLLMCheckpointCoordinator:
                 unit_key=ref.unit_key,
                 action_kind=ref.action_kind,
                 identity=ref.identity,
-                run_id=self.run_id,
-                writer_attempt_id=self.writer_attempt_id,
-                claim_token=self.claim_token,
-                claimless_direct_effect=self.claimless_direct_effect,
+                run_id=original_run,
+                writer_attempt_id=owner,
+                claimless_direct_effect=True,
             )
             self._returned.pop(ref.checkpoint_id, None)
             self._accounting.pop(ref.checkpoint_id, None)

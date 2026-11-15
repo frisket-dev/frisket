@@ -2637,29 +2637,138 @@ class RunResultStore:
                 writer_attempt_id=writer_attempt_id,
                 claim_token=claim_token,
             )
-            cost = self.write_returned_call_accounting(
-                int(run_id),
-                accounting_batch,
-                writer_attempt_id=writer_attempt_id,
-                claim_token=claim_token,
-                claimless_direct_effect=claimless_direct_effect,
-                authorized_attempt_id=checkpoint["authorized_attempt_id"],
-                commit=False,
-            )
+            # Child calls can predate this row's recovery attempt. Their own
+            # checkpoint is the immutable accounting authority, never the new
+            # parent or current writer that happens to publish the result.
+            cost = 0.0
+            child_call_ids = set()
+            effects = self._effect_store()
             for child in child_checkpoints:
-                self._effect_store().consume_and_retire(
+                returned = effects.returned_for_replay(
+                    family=MODEL_CALL_CHECKPOINT_FAMILY,
+                    group_key=child.group_key,
+                    unit_key=child.unit_key,
+                    action_kind=child.action_kind,
+                    identity=child.identity,
+                )
+                if returned["id"] != child.checkpoint_id:
+                    raise RuntimeError("returned child checkpoint identity changed")
+                call_id = returned["payload"]["response"]["execution_id"]
+                selected = [
+                    {**entry, "model_calls": calls}
+                    for entry in accounting_batch
+                    if (
+                        calls := [
+                            call
+                            for call in entry.get("model_calls", ())
+                            if call.get("id") == call_id
+                        ]
+                    )
+                ]
+                owner = returned["authorized_attempt_id"]
+                owner_run = self.db.execute(
+                    "SELECT run_id,head_route_id FROM execution_attempts WHERE id=?",
+                    (owner,),
+                ).fetchone()
+                if owner_run is None or owner_run[0] is None or not selected:
+                    raise RuntimeError(
+                        "returned child accounting has no original run owner or facts"
+                    )
+                original_run = int(owner_run[0])
+                if owner_run["head_route_id"] is not None:
+                    from frisket.engine.store.execution_routes import route_row_by_id
+                    from frisket.execution.runtime_binding import bind_fact_to_route
+
+                    route = route_row_by_id(self.db, owner_run["head_route_id"])
+                    if route is None:
+                        raise RuntimeError(
+                            "returned child lost its original execution route"
+                        )
+                    selected = [
+                        {
+                            **entry,
+                            "model_calls": [
+                                bind_fact_to_route(route, call)
+                                for call in entry["model_calls"]
+                            ],
+                        }
+                        for entry in selected
+                    ]
+                if original_run != run_id:
+                    selected = [{**entry, "column_id": None} for entry in selected]
+
+                def accrue_child(
+                    _verified, selected=selected, owner=owner, original_run=original_run
+                ):
+                    return self.write_returned_call_accounting(
+                        original_run,
+                        selected,
+                        writer_attempt_id=owner,
+                        authorized_attempt_id=owner,
+                        claimless_direct_effect=True,
+                        commit=False,
+                    )
+
+                child_cost = effects.account_returned(
                     child.checkpoint_id,
                     family=MODEL_CALL_CHECKPOINT_FAMILY,
                     group_key=child.group_key,
                     unit_key=child.unit_key,
                     action_kind=child.action_kind,
                     identity=child.identity,
-                    run_id=run_id,
-                    writer_attempt_id=writer_attempt_id,
-                    claim_token=claim_token,
-                    claimless_direct_effect=claimless_direct_effect,
+                    payload=returned["payload"],
+                    accrue=accrue_child,
+                    run_id=original_run,
+                    writer_attempt_id=owner,
+                    claimless_direct_effect=True,
                     commit=False,
                 )
+                if original_run == run_id:
+                    cost += child_cost
+                effects.consume_and_retire(
+                    child.checkpoint_id,
+                    family=MODEL_CALL_CHECKPOINT_FAMILY,
+                    group_key=child.group_key,
+                    unit_key=child.unit_key,
+                    action_kind=child.action_kind,
+                    identity=child.identity,
+                    run_id=original_run,
+                    writer_attempt_id=owner,
+                    claimless_direct_effect=True,
+                    commit=False,
+                )
+                child_call_ids.add(call_id)
+            parent_batch = [
+                {
+                    **entry,
+                    "model_calls": [
+                        call
+                        for call in entry.get("model_calls", ())
+                        if call.get("id") not in child_call_ids
+                    ],
+                }
+                for entry in accounting_batch
+            ]
+            cost += self.write_returned_call_accounting(
+                int(run_id),
+                parent_batch,
+                writer_attempt_id=checkpoint["authorized_attempt_id"],
+                claim_token=claim_token,
+                claimless_direct_effect=claimless_direct_effect,
+                authorized_attempt_id=checkpoint["authorized_attempt_id"],
+                commit=False,
+            )
+            # These durable facts already belong to their child, possibly in an
+            # earlier attempt/run. Result replay must not reassign them to this
+            # parent's attempt. Their original call history remains queryable.
+            for payload in replay_response.values():
+                if not child_call_ids or "model_calls" not in payload:
+                    continue
+                payload["model_calls"] = [
+                    call
+                    for call in payload.get("model_calls", ())
+                    if call.get("id") not in child_call_ids
+                ]
             return cost
 
         cost = self._effect_store().complete(
