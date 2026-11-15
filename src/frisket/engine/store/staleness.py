@@ -40,7 +40,7 @@ def compute_sync_states(
         if sheet_id in own:
             continue
         bundles = project.db.execute(
-            "SELECT b.id,b.owner_op_id,b.capture_json FROM consumed_source_bundles b "
+            "SELECT b.id,b.owner_op_id,b.capture_json,o.kind,o.spec FROM consumed_source_bundles b "
             "JOIN ops o ON o.id=b.owner_op_id "
             "WHERE b.output_sheet_id=? AND b.kind='aggregate' AND b.row_id IS NULL AND o.status='applied' "
             # Row consumers' shared corpora belong to those result rows; they
@@ -52,6 +52,22 @@ def compute_sync_states(
         ).fetchall()
         latest_owner = int(bundles[0]["owner_op_id"]) if bundles else None
         states = []
+        owner_spec = json.loads(bundles[0]["spec"]) if bundles else {}
+        if bundles and (
+            bundles[0]["kind"] == "sheet.refresh" or "refresh_receipt_id" in owner_spec
+        ):
+            receipt = project.db.execute(
+                "SELECT status,body FROM receipts WHERE id=?",
+                (owner_spec.get("refresh_receipt_id"),),
+            ).fetchone()
+            if (
+                receipt is None
+                or receipt["status"] != "completed"
+                or latest_owner not in json.loads(receipt["body"]).get("op_ids", ())
+            ):
+                # Inputs may have been read completely while only some output
+                # batches committed. The exact owning receipt proves coverage.
+                states.append("unknown")
         source_ids = {int(parents[sheet_id])}
         for bundle in bundles:
             if int(bundle["owner_op_id"]) != latest_owner:
