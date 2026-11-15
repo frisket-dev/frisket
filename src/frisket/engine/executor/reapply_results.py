@@ -101,13 +101,8 @@ def reapply_results(project, project_id, bound):
                 sheet_id=scope.sheet_id,
                 row_ids=None if scope.row_ids is None else list(scope.row_ids),
             ) as (source, unavailable):
-                run = project.db.execute(
-                    "SELECT op_id,params FROM runs WHERE id=?", (source,)
-                ).fetchone()
                 bindings = ResultGenerationStore(project).bindings_for_run(source)
-                require_restore_available(
-                    project.db, sheet_ids=[scope.sheet_id], op_ids=[run["op_id"]]
-                )
+                require_restore_available(project.db, sheet_ids=[scope.sheet_id])
                 require_restore_available(
                     project.db, column_ids=[binding.column_id for binding in bindings]
                 )

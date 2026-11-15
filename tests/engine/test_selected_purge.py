@@ -256,6 +256,111 @@ def test_purge_keeps_independent_reapply_results_replayable(project):
     assert first not in project.visible_row_ids(destination)
 
 
+def test_real_reapply_after_source_cohort_purge_refuses_only_purged_row(project):
+    from frisket.engine.executor import run_action_spec
+    from frisket.engine.store.result_generations import ResultGenerationStore
+    from frisket.engine.store.runs import RunResultStore
+    from helpers import run_writer_authority_fixture
+
+    sheet = project.add_sheet("source-cohort")
+    source = project.add_column(sheet, "source", type="text")
+    output = project.add_column(sheet, "generated", type="text", ai_generated=True)
+    first, second = project.add_rows(
+        sheet,
+        [{"source": "remove"}, {"source": "retain"}],
+        {"source": source},
+    )
+    op = project.append_op("map.ask")
+    runs = RunResultStore(project)
+    run_id = runs.start_run(op, sheet, "map.ask", row_ids=[first, second], total_rows=2)
+    authority = run_writer_authority_fixture(
+        project, run_id, output_column_ids={output}
+    )
+    generations = ResultGenerationStore(project)
+    generations.declare(
+        run_id,
+        output,
+        output_role="answer",
+        compatibility_key="sha256:source-cohort-answer-v1",
+        write_mode="create",
+        claim_token=authority.claim_token,
+    )
+    runs.write_results(
+        run_id,
+        [
+            {
+                "row_id": row_id,
+                "column_id": output,
+                "value": value,
+                "publication_effect": "publish_value",
+            }
+            for row_id, value in ((first, "saved remove"), (second, "saved retain"))
+        ],
+        **authority.kwargs(),
+    )
+    generations.seal(
+        run_id,
+        [output],
+        claim_token=authority.claim_token,
+        terminal_disposition="completed",
+    )
+    runs.finish_run(run_id)
+    # The independently retained outcome on the row being purged keeps its
+    # source result alive while that source row itself is removed.
+    saved_sheet = project.add_sheet("independent-copy")
+    saved_column = project.add_column(
+        saved_sheet, "saved", type="text", ai_generated=True
+    )
+    [saved_row] = project.add_rows(saved_sheet, [{}], {})
+    from frisket.engine.store.changes import ChangeStore, start_change
+    from frisket.engine.store.current_cells import refresh_current_cells
+
+    saved_op = project.append_op("run.reapply", {"action_kind": "run.reapply"})
+    with project.db:
+        project.db.execute("BEGIN IMMEDIATE")
+        start_change(project.db, saved_op)
+        project.db.execute(
+            "INSERT INTO copied_result_outcomes(op_id,row_id,column_id,source_run_id,source_row_id,source_column_id) VALUES (?,?,?,?,?,?)",
+            (saved_op, saved_row, saved_column, run_id, first, output),
+        )
+        refresh_current_cells(project.db, column_ids=[saved_column])
+        ChangeStore(project).close(saved_op)
+    finish_purge(project, begin_purge(project, row_ids=[first]))
+
+    def reapply(row_id: int, key: str):
+        return run_action_spec(
+            project,
+            {
+                "action_id": "run.reapply",
+                "idempotency_key": key,
+                "scope": {
+                    "kind": "sheet_rows",
+                    "sheet_id": sheet,
+                    "row_ids": [row_id],
+                },
+                "params": {"source_run_id": run_id},
+                "output_names": {"answer": "Copied"},
+            },
+            project_id="purge-test",
+        )
+
+    refused = reapply(first, "reapply-purged-source-row")
+    assert refused.status == "failed"
+    assert (
+        project.db.execute(
+            "SELECT count(*) FROM ops WHERE kind='run.reapply'"
+        ).fetchone()[0]
+        == 1
+    )
+    retained = reapply(second, "reapply-retained-source-row")
+    assert retained.status == "completed", retained.errors
+    copied = next(
+        column for column in project.columns(sheet) if column["name"] == "Copied"
+    )
+    assert project.get_values(sheet, copied["id"]) == {second: "saved retain"}
+    assert first not in project.visible_row_ids(sheet)
+
+
 def test_invalid_scope_rolls_back_purge(project):
     add(project, "first", "hello")
     with pytest.raises(ValueError, match="Unknown row"):
