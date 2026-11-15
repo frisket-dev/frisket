@@ -164,6 +164,7 @@ def test_cache_write_failure_preserves_response_and_every_purchase(
                     0.01 if len(outcomes) == 1 else 0.03
                 )
                 assert cache.count() == 0
+                assert not cache.db.in_transaction
             finally:
                 await router.aclose()
 

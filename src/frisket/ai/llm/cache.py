@@ -122,12 +122,12 @@ class ResponseCache:
         # prior user's payer/charge evidence.
         payload["actual_accounting"] = None
         payload.pop("prior_wire_calls", None)
-        self.db.execute(
-            "INSERT INTO llm_cache (key, model, response) VALUES (?,?,?) "
-            "ON CONFLICT(key) DO UPDATE SET response=excluded.response",
-            (key, resp.model, json.dumps(payload)),
-        )
-        self.db.commit()
+        with self.db:
+            self.db.execute(
+                "INSERT INTO llm_cache (key, model, response) VALUES (?,?,?) "
+                "ON CONFLICT(key) DO UPDATE SET response=excluded.response",
+                (key, resp.model, json.dumps(payload)),
+            )
 
     def count(self) -> int:
         return self.db.execute("SELECT COUNT(*) FROM llm_cache").fetchone()[0]
