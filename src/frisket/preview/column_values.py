@@ -407,19 +407,28 @@ def resolve_column_values_preview(
     ``omitted_rows`` make partial counts explicit; complete entries may also
     be paged earlier to fit the response budget. Exact authoring is unchanged.
     """
-    snapshot_factory = getattr(project, "read_snapshot", None)
-    if callable(snapshot_factory):
-        with snapshot_factory() as snapshot:
-            return resolve_column_values_preview(
-                snapshot,
-                sheet_id=sheet_id,
-                input_column=input_column,
-                search=search,
-                limit=limit,
-                offset=offset,
-                value_mode=value_mode,
-            )
+    with project.read_snapshot() as snapshot:
+        return _resolve_column_values_preview_snapshot(
+            snapshot,
+            sheet_id=sheet_id,
+            input_column=input_column,
+            search=search,
+            limit=limit,
+            offset=offset,
+            value_mode=value_mode,
+        )
 
+
+def _resolve_column_values_preview_snapshot(
+    project: Project,
+    *,
+    sheet_id: Any,
+    input_column: Any,
+    search: Any = None,
+    limit: Any = None,
+    offset: Any = None,
+    value_mode: Any = "exact",
+) -> dict[str, Any]:
     if not isinstance(sheet_id, int) or isinstance(sheet_id, bool) or sheet_id < 1:
         raise ColumnValuesPreviewError(
             "invalid_input_ref",

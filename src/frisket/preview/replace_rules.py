@@ -213,18 +213,26 @@ def resolve_replace_rules_preview(
     and still wants a snapshot plus the unmatched count); the commit requires
     at least one rule.
     """
-    snapshot_factory = getattr(project, "read_snapshot", None)
-    if callable(snapshot_factory):
-        with snapshot_factory() as snapshot:
-            return resolve_replace_rules_preview(
-                snapshot,
-                sheet_id=sheet_id,
-                input_column=input_column,
-                rules=rules,
-                unmatched=unmatched,
-                test_value=test_value,
-            )
+    with project.read_snapshot() as snapshot:
+        return _resolve_replace_rules_preview_snapshot(
+            snapshot,
+            sheet_id=sheet_id,
+            input_column=input_column,
+            rules=rules,
+            unmatched=unmatched,
+            test_value=test_value,
+        )
 
+
+def _resolve_replace_rules_preview_snapshot(
+    project: Any,
+    *,
+    sheet_id: Any,
+    input_column: Any,
+    rules: Any,
+    unmatched: Any = "keep",
+    test_value: Any = None,
+) -> dict[str, Any]:
     if not isinstance(sheet_id, int) or isinstance(sheet_id, bool) or sheet_id < 1:
         raise ReplaceRulesPreviewError(
             "invalid_input_ref",
