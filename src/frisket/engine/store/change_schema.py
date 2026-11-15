@@ -91,6 +91,7 @@ FROM (
        CASE WHEN ranked.origin_kind='copied_result' THEN copy.outcome
             WHEN ranked.origin_kind!='run_result' THEN 'completed'
             WHEN result.publication_effect IN ('publish_value','publish_null') THEN 'completed'
+            WHEN result.outcome='not_completed' THEN 'not_completed'
             WHEN result.row_id IS NOT NULL THEN 'failed'
             WHEN ranked.publication_closed=0 THEN 'pending' ELSE 'not_completed' END AS outcome
   FROM (

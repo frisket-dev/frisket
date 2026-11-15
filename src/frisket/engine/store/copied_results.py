@@ -35,6 +35,7 @@ SELECT copy.*,result.value_kind,result.value,result.publication_effect,
        result.outcome AS result_outcome,result.error,result.error_code,
        result.confidence,result.justification,result.warnings,
        CASE WHEN copy.source_run_id IS NULL THEN 'not_completed'
+            WHEN result.outcome='not_completed' THEN 'not_completed'
             WHEN result.publication_effect IN ('publish_value','publish_null') THEN 'completed'
             ELSE 'failed' END AS outcome
 FROM copied_result_outcomes copy LEFT JOIN results result
