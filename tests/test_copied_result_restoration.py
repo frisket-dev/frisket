@@ -42,6 +42,27 @@ def _copy_into_existing(work):
     return original, target, op
 
 
+def test_reapplied_grid_exposes_retained_result_through_response_contract(work):
+    from types import SimpleNamespace
+
+    from frisket.contracts.http.models import SheetData
+    from frisket.server.services.sheet_grid import SheetGridService
+
+    project, sheet, _, rows, _, _, _ = work
+    original, target, _ = _copy_into_existing(work)
+    source = next(c["id"] for c in project.columns(sheet) if c["name"] == "Answer")
+    service = SheetGridService(SimpleNamespace(get=lambda _: project))
+    response = SheetData.model_validate(service.sheet_data("p", sheet))
+    expected = {
+        row_id: {"run_id": original.run_id, "row_id": row_id, "column_id": source}
+        for row_id in rows
+    }
+    for row in response.rows:
+        ref = row.meta[str(target)].current_value_ref
+        assert ref.column_id == target
+        assert ref.retained_result.model_dump() == expected[row.id]
+
+
 @pytest.mark.parametrize("destination", ["row", "column", "sheet"])
 def test_restore_copied_change_requires_original_destination(work, destination):
     project, sheet, _, rows, _, _, run = work

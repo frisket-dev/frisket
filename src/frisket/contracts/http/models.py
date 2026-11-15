@@ -307,6 +307,12 @@ class SheetDataColumn(WireModel):
     default_hidden: bool = False
 
 
+class RetainedResultRef(WireModel):
+    run_id: int
+    row_id: int
+    column_id: int
+
+
 class SheetDataValueRef(WireModel):
     kind: str
     op_id: int | None
@@ -316,6 +322,7 @@ class SheetDataValueRef(WireModel):
     producer_id: int | None = Field(default=None, gt=0)
     outcome: Literal["completed", "pending", "failed", "not_completed"] | None = None
     prepared_ref_id: int | None = Field(default=None, gt=0)
+    retained_result: RetainedResultRef | None = None
 
 
 class SheetDataPendingValue(WireModel):
