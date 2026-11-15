@@ -284,7 +284,6 @@ def migrate_domain(db: sqlite3.Connection) -> None:
     from .document_text import DOCUMENT_TEXT_SELECTION_VIEW_SQL
     from .current_cells import register_current_cell_functions
     from .domain_document_text_migration import adopt_legacy_document_text
-    from .domain_reapply_migration import migrate_reapplied_results
     from .domain_identity_migration import migrate_identity_high_water
     from .keyed_updates import KEYED_UPDATE_SCHEMA
     from .consumed_sources import CONSUMED_SOURCE_SCHEMA_SQL
@@ -356,7 +355,7 @@ def migrate_domain(db: sqlite3.Connection) -> None:
         _execute_ddl(db, KEYED_UPDATE_SCHEMA)
         _execute_ddl(db, CONSUMED_SOURCE_SCHEMA_SQL)
         _execute_ddl(db, PURGE_SCHEMA_SQL)
-        migrate_reapplied_results(db)
+
         install_current_baseline(db)
         # Saved-but-unpublished checkpoints must not become visible.
         db.execute(
