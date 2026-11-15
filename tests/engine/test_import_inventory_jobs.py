@@ -33,7 +33,7 @@ from frisket.server.services import import_sessions as import_sessions_module
 from frisket.server.services import search_preparation as preparation_module
 from frisket.server.services.import_sessions import ImportSessionService
 from frisket.server.services.search_preparation import SearchPreparationService
-from frisket.server.services.sheet_grid import SheetGridService
+from frisket.server.services.sheet_grid import SheetGridService, SheetGridRouteError
 
 REF = "import-" + "a" * 32
 
@@ -522,14 +522,35 @@ def test_multi_page_cancel_retry_and_resolution_preserve_exact_partial_state(
                     == "partial"
                 )
             else:
-                assert project.row_count(session.sheet_id) == 0
-                removed = browser.document_page(
-                    "files",
-                    session.sheet_id,
-                    source_column_id=source_column,
-                    limit=100,
+                # Remove is a reversible Change: the new sheet disappears,
+                # while its rows are retained for an explicit Restore.
+                assert project.sheets() == []
+                assert project.row_count(session.sheet_id) == 512
+                with pytest.raises(SheetGridRouteError) as unavailable:
+                    browser.document_page(
+                        "files",
+                        session.sheet_id,
+                        source_column_id=source_column,
+                        limit=100,
+                    )
+                assert unavailable.value.status_code == 404
+                from frisket.engine.store.op_log import step_operation
+
+                with project.db:
+                    project.db.execute("BEGIN IMMEDIATE")
+                    step_operation(project, "restore", op_id=session.op_id)
+                assert (
+                    len(
+                        browser.document_page(
+                            "files",
+                            session.sheet_id,
+                            source_column_id=source_column,
+                            limit=100,
+                        )["items"]
+                    )
+                    == 100
                 )
-                assert removed["items"] == []
+                assert ImportSessionStore(project).get(REF).state == "removed"
                 assert (
                     ReceiptStore(project).find_by_id(envelope.receipt_id).status
                     == "cancelled"

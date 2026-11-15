@@ -131,18 +131,34 @@ def operation_target(project: Any, direction: str, *, op_id: int | None = None):
     ).fetchone()
     order = int(cursor[0]) if cursor is not None and cursor[0] is not None else 0
     if direction == "undo":
-        return project.db.execute(
-            "SELECT * FROM ops WHERE change_order<=? AND status='applied' "
-            "ORDER BY change_order DESC LIMIT 1",
-            (order,),
-        ).fetchone()
-    if direction == "redo":
-        return project.db.execute(
-            "SELECT * FROM ops WHERE change_order>? AND status='undone' "
-            "AND redo_eligible=1 ORDER BY change_order LIMIT 1",
-            (order,),
-        ).fetchone()
-    raise ValueError(f"unknown operation transition {direction!r}")
+        predicate, ordering = "change_order<=? AND status='applied'", "DESC"
+    elif direction == "redo":
+        predicate = "change_order>? AND status='undone' AND redo_eligible=1"
+        ordering = "ASC"
+    else:
+        raise ValueError(f"unknown operation transition {direction!r}")
+    from .purge import PurgedMaterialUnavailable
+
+    for target in project.db.execute(
+        f"SELECT ops.*, EXISTS(SELECT 1 FROM project_purge_targets purged "
+        f"WHERE purged.kind='change' AND purged.object_id=ops.id) AS purged "
+        f"FROM ops WHERE {predicate} ORDER BY change_order {ordering}",
+        (order,),
+    ):
+        if target["purged"]:
+            # Purged recovery material is unavailable, not a project-wide
+            # history barrier. Partially retained edits remain navigable.
+            try:
+                _require_retained_transition(
+                    project,
+                    int(target["id"]),
+                    json.loads(target["undo_info"] or "{}"),
+                    reverting=direction == "undo",
+                )
+            except PurgedMaterialUnavailable:
+                continue
+        return target
+    return None
 
 
 @dataclass(frozen=True)
@@ -283,49 +299,7 @@ def _plain_edit_preserves_pending_review_count(
     return bool(facts["has_edits"]) and not bool(facts["has_runs"])
 
 
-def step_operation(
-    project: Any,
-    direction: Literal["undo", "redo", "revert", "restore"],
-    *,
-    expected_op_id: int | None = None,
-    op_id: int | None = None,
-) -> OperationTransition:
-    """Apply one undo/redo transition inside a caller-owned transaction."""
-
-    cursor_before = project.op_cursor
-    selective = direction in {"revert", "restore"}
-    reverting = direction in {"undo", "revert"}
-    target = operation_target(project, direction, op_id=op_id)
-    if target is None:
-        raise OperationUnavailable(direction)
-    target_op_id = int(target["id"])
-    if expected_op_id is not None and expected_op_id != target_op_id:
-        raise OperationMismatch(expected_op_id, target_op_id)
-    session_row = project.db.execute(
-        "SELECT id FROM import_sessions WHERE op_id=? "
-        "AND state IN ('active','paused','cancelled')",
-        (target_op_id,),
-    ).fetchone()
-    if session_row is not None and reverting:
-        from .import_sessions import ImportSessionStore
-        from .streaming_import import StreamingSheetWriter
-
-        session = ImportSessionStore(project).get(str(session_row["id"]))
-        StreamingSheetWriter._from_session(project, session).prepare_removal(session)
-        target = project.db.execute(
-            "SELECT * FROM ops WHERE id=?", (target_op_id,)
-        ).fetchone()
-    if reverting and target["barrier"]:
-        raise IrreversibleOperation(target)
-    try:
-        undo_info = json.loads(target["undo_info"] or "{}")
-    except json.JSONDecodeError as exc:
-        raise CorruptOperation(
-            target_op_id, "Target operation undo_info is not valid JSON"
-        ) from exc
-    validation_error = validate_operation_undo_info(undo_info)
-    if validation_error is not None:
-        raise CorruptOperation(target_op_id, validation_error)
+def _require_retained_transition(project, target_op_id, undo_info, *, reverting):
     from .purge import require_restore_available
 
     structural_scope = any(
@@ -376,6 +350,52 @@ def step_operation(
             ]
         ),
     )
+
+
+def step_operation(
+    project: Any,
+    direction: Literal["undo", "redo", "revert", "restore"],
+    *,
+    expected_op_id: int | None = None,
+    op_id: int | None = None,
+) -> OperationTransition:
+    """Apply one undo/redo transition inside a caller-owned transaction."""
+
+    cursor_before = project.op_cursor
+    selective = direction in {"revert", "restore"}
+    reverting = direction in {"undo", "revert"}
+    target = operation_target(project, direction, op_id=op_id)
+    if target is None:
+        raise OperationUnavailable(direction)
+    target_op_id = int(target["id"])
+    if expected_op_id is not None and expected_op_id != target_op_id:
+        raise OperationMismatch(expected_op_id, target_op_id)
+    session_row = project.db.execute(
+        "SELECT id FROM import_sessions WHERE op_id=? "
+        "AND state IN ('active','paused','cancelled')",
+        (target_op_id,),
+    ).fetchone()
+    if session_row is not None and reverting:
+        from .import_sessions import ImportSessionStore
+        from .streaming_import import StreamingSheetWriter
+
+        session = ImportSessionStore(project).get(str(session_row["id"]))
+        StreamingSheetWriter._from_session(project, session).prepare_removal(session)
+        target = project.db.execute(
+            "SELECT * FROM ops WHERE id=?", (target_op_id,)
+        ).fetchone()
+    if reverting and target["barrier"]:
+        raise IrreversibleOperation(target)
+    try:
+        undo_info = json.loads(target["undo_info"] or "{}")
+    except json.JSONDecodeError as exc:
+        raise CorruptOperation(
+            target_op_id, "Target operation undo_info is not valid JSON"
+        ) from exc
+    validation_error = validate_operation_undo_info(undo_info)
+    if validation_error is not None:
+        raise CorruptOperation(target_op_id, validation_error)
+    _require_retained_transition(project, target_op_id, undo_info, reverting=reverting)
     from .structural_changes import record_structural_changes
 
     record_structural_changes(project.db, target_op_id, undo_info)

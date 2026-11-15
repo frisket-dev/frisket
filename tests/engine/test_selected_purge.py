@@ -71,8 +71,8 @@ def test_purged_rows_and_columns_are_fenced_from_restore_and_mutation(project):
         ).fetchone()[0]
         == 1
     )
-    with pytest.raises(PurgedMaterialUnavailable):
-        project.undo()
+    # Automatic navigation skips the permanently unavailable creation.
+    assert project.undo() is None
     assert (
         project.db.execute(
             "SELECT hidden FROM rows WHERE id=?", (purged_row,)
