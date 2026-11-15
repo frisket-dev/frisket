@@ -21,17 +21,17 @@ def _require_alias(alias: str) -> str:
 
 
 def current_review_run_predicate(
-    run_alias: str = "runs", *, terminal_only: bool = True
+    run_alias: str = "runs", *, terminal_only: bool = False
 ) -> str:
-    """A still-current saved result on a visible sheet, from the current projection."""
+    """A saved result still belonging to a visible output, ignoring ordinary edits."""
     run = _require_alias(run_alias)
     terminal = f"{run}.status <> 'running' AND " if terminal_only else ""
     return (
         f"{terminal}"
-        "EXISTS (SELECT 1 FROM effective_current_cells review_head "
+        "EXISTS (SELECT 1 FROM current_result_heads review_head "
         "JOIN columns review_column ON review_column.id=review_head.column_id "
         "JOIN sheets review_sheet ON review_sheet.id=review_column.sheet_id "
-        f"WHERE review_head.origin_kind='run_result' AND review_head.origin_run_id={run}.id "
+        f"WHERE review_head.run_id={run}.id "
         "AND review_column.active=1 AND review_sheet.hidden=0)"
     )
 
@@ -177,13 +177,13 @@ def rebuild_run_review_stats(db: sqlite3.Connection, run_id: int) -> None:
 
 
 def ensure_run_review_stats(db: sqlite3.Connection, run_id: int) -> None:
-    """Heal a missing/dirty terminal summary; live runs remain writer-owned."""
+    """Heal a missing/dirty summary in the same serialized database snapshot."""
 
     run_id = int(run_id)
     row = db.execute(
         "SELECT status,review_stats_ready FROM runs WHERE id=?", (run_id,)
     ).fetchone()
-    if row is None or row["status"] == "running":
+    if row is None:
         return
     if bool(row["review_stats_ready"]):
         return
@@ -200,11 +200,7 @@ def ensure_run_review_stats(db: sqlite3.Connection, run_id: int) -> None:
         row = db.execute(
             "SELECT status,review_stats_ready FROM runs WHERE id=?", (run_id,)
         ).fetchone()
-        if (
-            row is not None
-            and row["status"] != "running"
-            and not bool(row["review_stats_ready"])
-        ):
+        if row is not None and not bool(row["review_stats_ready"]):
             rebuild_run_review_stats(db, run_id)
         db.commit()
     except BaseException:

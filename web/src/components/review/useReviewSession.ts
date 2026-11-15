@@ -275,7 +275,7 @@ export function useReviewSession({ runId, options, readOnly = false, onDecisionS
         if (action === 'edit') {
           await api.editCells([{ rowId: bundle.rowId, columnId: target.columnId, value: value ?? null }]);
         } else {
-          await api.reviewItem(target.id, action);
+          await api.reviewItem(target.id, action, undefined);
         }
         updated = { ...updated, fields: updated.fields.map((item) => item.id === target.id ? applyDecision(item, action, value) : item) };
         const next = updated;

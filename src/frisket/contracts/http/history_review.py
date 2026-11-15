@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import Field, JsonValue
+from pydantic import Field, JsonValue, model_validator
 
 from frisket.contracts.http.models import RunRowErrorSummary, WireModel
 from frisket.contracts.http.action_compare import ActionDraft, ActionDraftScope
@@ -168,7 +168,8 @@ class ReviewBoundedText(WireModel):
 
 
 class ReviewBundleItem(WireModel):
-    run_id: int
+    run_id: int | None
+    copied_op_id: int | None = None
     row_id: int
     column_id: int
     column_name: str
@@ -206,7 +207,8 @@ class ReviewBundleSource(WireModel):
 class ReviewBundle(WireModel):
     execution_run_id: int | None = None
     id: str
-    run_id: int
+    run_id: int | None
+    copied_op_id: int | None = None
     row_id: int
     sheet_id: int
     sheet_name: str
@@ -223,9 +225,16 @@ class ReviewBundle(WireModel):
 
 
 class ReviewBatchScope(WireModel):
-    run_id: int = Field(gt=0)
+    run_id: int | None = Field(default=None, gt=0)
+    copied_op_id: int | None = Field(default=None, gt=0)
     field_id: int | None = Field(default=None, gt=0)
     include_reviewed: bool = False
+
+    @model_validator(mode="after")
+    def _one_owner(self):
+        if (self.run_id is None) == (self.copied_op_id is None):
+            raise ValueError("select exactly one run_id or copied_op_id")
+        return self
 
 
 class ReviewSampleRequest(ReviewBatchScope):
@@ -271,12 +280,14 @@ class ReviewRunField(ReviewDecisionCounts):
 
 
 class ReviewRun(WireModel):
-    run_id: int = Field(gt=0)
+    run_id: int | None = Field(default=None, gt=0)
+    copied_op_id: int | None = Field(default=None, gt=0)
     sheet_id: int = Field(gt=0)
     sheet_name: str
     action_kind: str
     action_name: str
     model: str | None
+    running: bool = False
     started_at: str
     review_status: Literal["open", "complete"]
     review_completed_at: str | None

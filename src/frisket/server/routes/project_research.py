@@ -154,14 +154,17 @@ def register_project_entity_review_routes(
         offset: PageOffset = 0,
         limit: PageLimit100 = 25,
         run_id: int | None = Query(default=None, ge=1),
+        copied_op_id: int | None = Query(default=None, ge=1),
         include_reviewed: bool = False,
         field_id: int | None = Query(default=None, ge=1),
         order: Literal["confidence", "row"] = "confidence",
         cursor: int | None = Query(default=None, ge=0),
     ) -> ReviewBundlesPage:
+        if run_id is not None and copied_op_id is not None:
+            raise HTTPException(status_code=422, detail="select one review source")
         if cursor is not None and order != "row":
             raise HTTPException(status_code=422, detail="cursor requires order=row")
-        if order == "row" and run_id is None:
+        if order == "row" and run_id is None and copied_op_id is None:
             raise HTTPException(status_code=422, detail="order=row requires run_id")
         if order == "row" and offset != 0:
             raise HTTPException(status_code=422, detail="order=row requires offset=0")
@@ -172,6 +175,7 @@ def register_project_entity_review_routes(
                 offset=offset,
                 limit=limit,
                 run_id=run_id,
+                copied_op_id=copied_op_id,
                 include_reviewed=include_reviewed,
                 field_id=field_id,
                 order=order,
@@ -196,14 +200,18 @@ def register_project_entity_review_routes(
         pid: str,
         sheet_id: int | None = Query(default=None, ge=1),
         run_id: int | None = Query(default=None, ge=1),
+        copied_op_id: int | None = Query(default=None, ge=1),
         offset: PageOffset = 0,
         limit: int = Query(default=25, ge=1, le=50),
     ) -> ReviewRunsPage:
+        if run_id is not None and copied_op_id is not None:
+            raise HTTPException(status_code=422, detail="select one review source")
         return ReviewRunsPage.model_validate(
             service.review_runs(
                 pid,
                 sheet_id=sheet_id,
                 run_id=run_id,
+                copied_op_id=copied_op_id,
                 offset=offset,
                 limit=limit,
             )

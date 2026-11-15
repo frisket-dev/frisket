@@ -81,7 +81,6 @@ def _review_target(
         JOIN rows ON rows.id=res.row_id AND rows.sheet_id=c.sheet_id
         WHERE res.run_id=? AND res.row_id=? AND res.column_id=?
           AND res.outcome IN ({REVIEWABLE_OUTCOMES_SQL})
-          AND runs.status<>'running'
           AND EXISTS (SELECT 1 FROM ops review_op
                       WHERE review_op.id=runs.op_id
                         AND review_op.status='applied')
@@ -114,9 +113,11 @@ def _copied_review_row_targets(project, *, copied_op_id, row_id, action_kind):
     rows = project.db.execute(
         "SELECT copy.*,c.sheet_id,c.name column_name,1 can_edit FROM copied_result_values copy "
         "JOIN ops ON ops.id=copy.op_id JOIN columns c ON c.id=copy.column_id "
+        "JOIN json_each(ops.spec,'$.output_bindings') binding "
+        "ON json_extract(binding.value,'$.column_id')=copy.column_id "
         "JOIN rows ON rows.id=copy.row_id AND rows.sheet_id=c.sheet_id "
         "WHERE copy.op_id=? AND copy.row_id=? AND ops.status='applied' "
-        "AND copy.outcome='completed' ORDER BY copy.column_id",
+        "AND copy.outcome='completed' AND json_extract(binding.value,'$.review_role')='field' ORDER BY copy.column_id",
         (copied_op_id, row_id),
     ).fetchall()
     if not rows:
@@ -164,7 +165,7 @@ def _review_row_targets(
     ensure_run_review_stats(project.db, run_id)
     run = project.db.execute(
         "SELECT runs.review_completed_at FROM runs "
-        "WHERE runs.id=? AND runs.status<>'running' "
+        "WHERE runs.id=? "
         "AND EXISTS (SELECT 1 FROM ops review_op "
         "WHERE review_op.id=runs.op_id AND review_op.status='applied')",
         (run_id,),
@@ -356,7 +357,8 @@ class _ReviewDecider(_CallOnce):
                     "reason": "result_not_current",
                 },
             )
-        _claimed_column(self._project, column_id, action_kind=self._action.kind)
+        if decision == "reject_clear":
+            _claimed_column(self._project, column_id, action_kind=self._action.kind)
         state_before = str(target["review_state"])
         state_after = (
             "unreviewed"
@@ -473,12 +475,6 @@ class _ReviewNoter(_CallOnce):
                 action_kind=self._action.kind,
             )
         )
-        for target in targets:
-            _claimed_column(
-                self._project,
-                int(target["column_id"]),
-                action_kind=self._action.kind,
-            )
         before = {
             result_key(run_id, copied_op_id, row_id, int(target["column_id"])): {
                 "decision": target["review_decision"],

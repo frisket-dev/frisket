@@ -18,6 +18,7 @@ export function ReviewResearch({ bundle, field }: {
     .find(item => item.outputKey === 'sources');
 
   useEffect(() => {
+    if (!bundle.runId) return;
     let active = true;
     api.getRunTraceRow(bundle.runId, bundle.rowId, field.columnId)
       .then(result => { if (active) setEvidence(result); })

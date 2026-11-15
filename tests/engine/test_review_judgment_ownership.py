@@ -83,13 +83,43 @@ def test_copied_result_judgment_is_independent(tmp_path: Path):
         column = project.add_column(seeded["sheet_id"], "saved", type="text")
         row = seeded["row_ids"][0]
         project.db.execute("BEGIN IMMEDIATE")
-        copy = append_op(project, "reapply_results", commit=False)
+        copy = append_op(
+            project,
+            "reapply_results",
+            {
+                "output_bindings": {
+                    "risk": {
+                        "column_id": column,
+                        "source_column_id": seeded["risk_column_id"],
+                        "review_role": "field",
+                    }
+                }
+            },
+            commit=False,
+        )
         start_change(project.db, copy)
         project.db.execute(
             "INSERT INTO copied_result_outcomes(op_id,row_id,column_id,source_run_id,source_row_id,source_column_id) VALUES (?,?,?,?,?,?)",
             (copy, row, column, seeded["run_id"], row, seeded["risk_column_id"]),
         )
         project.db.commit()
+        from frisket.engine.runner.copied_review import copied_review_page
+        from frisket.engine.runner.review import review_runs_page
+        from frisket.contracts.http.history_review import (
+            ReviewBundlesPage,
+            ReviewRunsPage,
+        )
+
+        page = copied_review_page(project, copy)
+        ReviewBundlesPage.model_validate(page)
+        assert page["bundles"][0]["fields"][0]["value"] == "high"
+        assert page["bundles"][0]["fields"][0]["copied_op_id"] == copy
+        assert page["bundles"][0]["run_id"] is None
+        sources = review_runs_page(project)
+        assert any(source["copied_op_id"] == copy for source in sources["runs"])
+        for source in sources["runs"]:
+            source.setdefault("action_name", "Test")
+        ReviewRunsPage.model_validate(sources)
         request = {
             "action_id": "review.decision",
             "scope": {"kind": "project"},
@@ -133,7 +163,7 @@ def test_repeated_explicit_accept_keeps_its_own_judgment(tmp_path: Path):
 
 
 def test_edit_does_not_judge_or_replace_saved_answer(tmp_path: Path):
-    from frisket.engine.runner.review import review_bundle_page
+    from frisket.engine.runner.review import review_bundle_page, review_runs_page
 
     with closing(Project.create(tmp_path / "p")) as project:
         seeded = _seed(project, tmp_path)
@@ -158,6 +188,33 @@ def test_edit_does_not_judge_or_replace_saved_answer(tmp_path: Path):
         )
         assert edit.status == "completed", edit.errors
         assert _review_state(project, seeded, row) == "unreviewed"
+        # Ordinary edits to every output do not remove the saved answer from Review.
+        extra_edits = [
+            {
+                "row_id": target["row_id"],
+                "column_id": target["column_id"],
+                "value": "manual",
+            }
+            for target in project.db.execute(
+                "SELECT row_id,column_id FROM results WHERE run_id=?",
+                (seeded["run_id"],),
+            )
+        ]
+        result = run_action_spec(
+            project,
+            {
+                "action_id": "cell.edit",
+                "scope": {"kind": "project"},
+                "params": {"edits": extra_edits},
+                "idempotency_key": "edit-all",
+            },
+            project_id="review-ownership",
+        )
+        assert result.status == "completed", result.errors
+        assert any(
+            source["run_id"] == seeded["run_id"]
+            for source in review_runs_page(project)["runs"]
+        )
         bundle = next(
             b
             for b in review_bundle_page(project, run_id=seeded["run_id"])["bundles"]

@@ -27,7 +27,7 @@ function page(name: string): ReviewBundlePage {
     nextCursor: null,
     bundles: [{
       id: `bundle-${name}`,
-      runId: '9',
+      runId: '9', sourceId: '9', copiedOpId: null,
       sheetId: '2',
       sheetName: 'Stories',
       rowId: '3',
@@ -39,7 +39,7 @@ function page(name: string): ReviewBundlePage {
       source: { story: 'Example' },
       context: 'story: Example',
       fields: [{
-        id: '9:3:4', runId: '9', sheetId: '2', rowId: '3', columnId: '4',
+        id: '9:3:4', runId: '9', sourceId: '9', copiedOpId: null, sheetId: '2', rowId: '3', columnId: '4',
         columnName: name, columnType: 'text', value: 'result', confidence: 0.4,
         justification: '', reviewDecision: name === 'reviewed' ? 'accept' : null,
         note: null, reviewState: name === 'reviewed' ? 'verified' : 'unreviewed',
@@ -73,7 +73,7 @@ it('reapplies saved results only after explicit replacement confirmation', async
   vi.spyOn(stores.projectApi, 'listReviewRuns').mockResolvedValue({
     schemaVersion: 'frisket.review_runs_page.v1', offset: 0, limit: 50, total: 1,
     hasMore: false, nextOffset: null,
-    runs: [{ runId: '9', sheetId: '2', sheetName: 'Stories', actionKind: 'map.ask',
+    runs: [{ runId: '9', sourceId: '9', copiedOpId: null, sheetId: '2', sheetName: 'Stories', actionKind: 'map.ask',
       actionName: 'Ask', model: null, startedAt: '2026-11-14T00:00:00Z',
       reviewStatus: 'open', reviewCompletedAt: null, total: counts,
       fields: [{ columnId: '4', columnName: 'Answer', columnType: 'text', ...counts }] }],
@@ -268,19 +268,21 @@ it.each([['ArrowLeft', 'accept'], ['a', 'accept'], ['ArrowRight', 'reject'], ['d
   await waitFor(() => expect(decide).toHaveBeenCalledWith('9:3:4', decision, undefined));
 });
 
-it('edits the field whose pencil was clicked and records a correction', async () => {
+it('edits the field whose pencil was clicked without judging or replacing the saved answer', async () => {
   vi.spyOn(stores.projectApi, 'getReviewBundles').mockResolvedValue(multiPage());
   const decide = vi.spyOn(stores.projectApi, 'reviewItem').mockResolvedValue();
   vi.spyOn(stores.projectApi, 'getReviewCount').mockResolvedValue(1);
+  const edit = vi.spyOn(stores.projectApi, 'editCells').mockResolvedValue();
   mount();
   fireEvent.click(await screen.findByRole('button', { name: 'Edit second', exact: true }));
   fireEvent.change(screen.getByRole('textbox', { name: 'Edit proposed second value' }), { target: { value: 'Fixed' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save edit' }));
-  await waitFor(() => expect(screen.getByTestId('review-field-second')).toHaveTextContent('Fixed'));
-  expect(decide).toHaveBeenCalledWith('9:3:5', 'edit', 'Fixed');
-  expect(screen.getByRole('button', { name: 'Edit second', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await waitFor(() => expect(edit).toHaveBeenCalledWith([{ rowId: '3', columnId: '5', value: 'Fixed' }]));
+  expect(screen.getByTestId('review-field-second')).not.toHaveTextContent('Fixed');
+  expect(decide).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: 'Edit second', exact: true })).toHaveAttribute('aria-pressed', 'false');
   expect(screen.getByRole('button', { name: 'Accept second' })).toHaveAttribute('aria-pressed', 'false');
-  expect(screen.getByTestId('review-field-second')).toHaveAttribute('data-review-decision', 'edit');
+  expect(screen.getByTestId('review-field-second')).not.toHaveAttribute('data-review-decision', 'edit');
   expect(screen.queryByRole('button', { name: 'Reject and clear' })).not.toBeInTheDocument();
 });
 

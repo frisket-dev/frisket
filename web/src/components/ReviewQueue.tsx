@@ -31,7 +31,7 @@ export function ReviewQueue({ onClose, onChanged, runId, reviewExportUrl }: Revi
   const [reapplyOpen, setReapplyOpen] = useState(false);
   const [fieldId, setFieldId] = useState<string | null>(null);
   const [order, setOrder] = useState<ReviewBundleOrder>('shuffle');
-  const selectedRun = runs.runs.find((run) => run.runId === runs.selectedRunId);
+  const selectedRun = runs.runs.find((run) => run.sourceId === runs.selectedRunId);
   const selectedField = selectedRun?.fields.find((field) => field.columnId === fieldId);
   const hasConfidence = (selectedField ?? selectedRun?.total)?.confidenceCount;
   const effectiveOrder = order === 'confidence' && !hasConfidence ? 'shuffle' : order;
@@ -40,7 +40,7 @@ export function ReviewQueue({ onClose, onChanged, runId, reviewExportUrl }: Revi
   }), [effectiveOrder, fieldId]);
 
   const runSavedAction = async (action: 'retry' | 'reapply') => {
-    if (!selectedRun || actionBusy) return;
+    if (!selectedRun?.runId || actionBusy) return;
     setActionBusy(true);
     setActionError(null);
     try {
@@ -78,7 +78,7 @@ export function ReviewQueue({ onClose, onChanged, runId, reviewExportUrl }: Revi
         onLoadMore={() => { void runs.loadMore(); }}
         reviewExportUrl={reviewExportUrl}
         onRunStatusChange={(_run, status) => leave(() => { void runs.setRunStatus(status); })}
-        resultActions={(close) => selectedRun && <>
+        resultActions={(close) => selectedRun?.runId && <>
           <Button type="button" disabled={busy || actionBusy}
             onClick={() => { close(); leave(() => { void runSavedAction('retry'); }); }}>Retry unfinished</Button>
           <Button type="button" disabled={busy || actionBusy}
@@ -90,15 +90,15 @@ export function ReviewQueue({ onClose, onChanged, runId, reviewExportUrl }: Revi
   );
 
   if (!runs.loading && selectedRun) return <ReviewSession
-    key={`${selectedRun.runId}:${fieldId ?? ''}:${effectiveOrder}`}
-    runId={selectedRun.runId} options={options} readOnly={selectedRun.reviewStatus === 'complete' || runs.statusBusy}
+    key={`${selectedRun.sourceId}:${fieldId ?? ''}:${effectiveOrder}`}
+    runId={selectedRun.sourceId} options={options} readOnly={selectedRun.reviewStatus === 'complete' || runs.statusBusy}
     onChanged={onChanged} onClose={onClose} renderToolbar={toolbar}
     renderFrame={(content, leave, busy, editing) => <ReviewShell busy={busy} onClose={() => { if (!editing) leave(onClose); }}>
       {runs.error && <p className="panel-error review-load-error" role="alert">{runs.error}</p>}
       {actionError && !reapplyOpen && <p className="panel-error" role="alert">{actionError}</p>}
       {content}{reapplyDialog}
     </ReviewShell>}
-    onDecisionSaved={() => { void runs.refreshRun(selectedRun.runId); }} />;
+    onDecisionSaved={() => { void runs.refreshRun(selectedRun.sourceId); }} />;
 
   return <ReviewShell busy={false} onClose={onClose}>
     {toolbar(null, (action) => action(), runs.loading)}

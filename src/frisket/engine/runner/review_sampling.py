@@ -81,7 +81,7 @@ def _eligible_key_query(
         JOIN sheets s ON s.id=c.sheet_id
         JOIN rows rr ON rr.id=res.row_id AND rr.sheet_id=c.sheet_id
         JOIN runs ON runs.id=res.run_id
-        WHERE res.run_id=? AND runs.status<>'running'
+        WHERE res.run_id=?
           AND EXISTS (SELECT 1 FROM ops review_op
                       WHERE review_op.id=runs.op_id
                         AND review_op.status='applied')

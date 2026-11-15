@@ -5,8 +5,8 @@ import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
 const PAGE_SIZE = 50;
 
 function mergeRuns(current: ReviewRun[], incoming: ReviewRun[]): ReviewRun[] {
-  const byId = new Map(current.map((run) => [run.runId, run]));
-  for (const run of incoming) byId.set(run.runId, run);
+  const byId = new Map(current.map((run) => [run.sourceId, run]));
+  for (const run of incoming) byId.set(run.sourceId, run);
   return [...byId.values()];
 }
 
@@ -37,9 +37,9 @@ export function useReviewRuns(initialRunId?: string) {
       const available = mergeRuns(page.runs, pinned?.runs ?? []);
       setRuns(available);
       setNextOffset(page.nextOffset);
-      setSelectedRunId(pinned?.runs[0]?.runId
-        ?? available.find((run) => run.reviewStatus === 'open')?.runId
-        ?? available[0]?.runId ?? '');
+      setSelectedRunId(pinned?.runs[0]?.sourceId
+        ?? available.find((run) => run.reviewStatus === 'open')?.sourceId
+        ?? available[0]?.sourceId ?? '');
     }).catch(() => {
       if (active) setError('Could not load runs for review. Close Review and try again.');
     }).finally(() => { if (active) setLoading(false); });
@@ -71,14 +71,14 @@ export function useReviewRuns(initialRunId?: string) {
   }, [projectApi, nextVersion]);
 
   const setRunStatus = useCallback(async (status: 'open' | 'complete') => {
-    if (!selectedRunId || statusBusy) return;
+    if (!selectedRunId || selectedRunId.startsWith('copy:') || statusBusy) return;
     nextVersion(selectedRunId);
     setStatusBusy(true);
     setError(null);
     try {
       const result = await projectApi.setReviewRunStatus(selectedRunId, status);
       nextVersion(selectedRunId);
-      setRuns((current) => current.map((run) => run.runId === selectedRunId
+      setRuns((current) => current.map((run) => run.sourceId === selectedRunId
         ? { ...run, reviewStatus: result.status, reviewCompletedAt: result.reviewCompletedAt }
         : run));
     } catch {

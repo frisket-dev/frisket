@@ -201,7 +201,7 @@ def review_queue(
         current_join = ""
         ph = ",".join("?" for _ in ids)
         where = (
-            f"AND res.run_id IN ({ph}) AND runs.status<>'running' "
+            f"AND res.run_id IN ({ph}) "
             f"AND NOT EXISTS (SELECT 1 FROM results newer WHERE newer.run_id IN ({ph}) "
             "AND newer.run_id>res.run_id AND newer.row_id=res.row_id AND newer.column_id=res.column_id "
             "AND newer.outcome IN ('ok','empty') "
@@ -311,7 +311,7 @@ def _execution_bundle_query(project, run_id, *, sheet_id, include_reviewed, fiel
             FROM results res JOIN runs ON runs.id=res.run_id
             JOIN sheets s ON s.id=runs.sheet_id
             JOIN run_review_fields field ON field.run_id=res.run_id AND field.column_id=res.column_id AND field.is_primary=1
-            WHERE res.run_id IN ({ph}) AND runs.status<>'running'
+            WHERE res.run_id IN ({ph})
               AND res.outcome IN ({REVIEWABLE_OUTCOMES_SQL})
               {where}
         ), latest AS (SELECT row_id,MAX(run_id) AS run_id FROM successful GROUP BY row_id)
@@ -583,6 +583,7 @@ def _hydrate_review_bundles(project: Project, keys: list[Any]) -> list[dict[str,
             {
                 "id": f"{key['run_id']}:{key['row_id']}",
                 "run_id": key["run_id"],
+                "execution_run_id": key["run_id"],
                 "row_id": key["row_id"],
                 "sheet_id": key["sheet_id"],
                 "sheet_name": key["sheet_name"],
@@ -767,11 +768,26 @@ def review_runs_page(
     *,
     sheet_id: int | None = None,
     run_id: int | None = None,
+    copied_op_id: int | None = None,
     offset: int = 0,
     limit: int = 25,
 ) -> dict[str, Any]:
     """List current review runs, or resolve one explicit historical run."""
 
+    from .copied_review import copied_review_source
+
+    if copied_op_id is not None:
+        if run_id is not None:
+            raise ValueError("select one review source")
+        source = copied_review_source(project, copied_op_id)
+        return offset_page_payload(
+            "frisket.review_runs_page.v1",
+            items=[source] if source else [],
+            item_key="runs",
+            offset=0,
+            limit=limit,
+            total=int(source is not None),
+        )
     if run_id is not None:
         run_id, group = _review_execution_runs(project, run_id)
         for member in group:
@@ -779,7 +795,6 @@ def review_runs_page(
     else:
         _ensure_current_review_stats(project, sheet_id=sheet_id)
     filters = [
-        "runs.status<>'running'",
         "COALESCE(json_extract(runs.params,'$.execution_root_run_id'),runs.id)=runs.id",
     ]
     params: list[Any] = []
@@ -796,34 +811,43 @@ def review_runs_page(
         "AND review_field.is_primary=1 AND review_field.eligible_count>0)"
     )
     where = " AND ".join(f"({item})" for item in filters)
-    total_row = project.db.execute(
-        f"SELECT COUNT(*) AS count FROM runs WHERE {where}",
-        params,
-    ).fetchone()
-    total = int(total_row["count"] if total_row is not None else 0)
+    source_sql = f"""SELECT runs.id run_id,NULL copied_op_id,runs.sheet_id,sheets.name sheet_name,
+        runs.action_kind,runs.model,runs.started_at,runs.review_completed_at,(runs.status='running') running
+        FROM runs JOIN sheets ON sheets.id=runs.sheet_id WHERE {where}"""
+    if run_id is None:
+        copy_filter = "AND col.sheet_id=?" if sheet_id is not None else ""
+        source_sql += f""" UNION ALL SELECT NULL,op.id,col.sheet_id,sheet.name,'run.reapply',NULL,op.created_at,NULL,0
+            FROM ops op JOIN copied_result_values copy ON copy.op_id=op.id
+            JOIN columns col ON col.id=copy.column_id JOIN sheets sheet ON sheet.id=col.sheet_id
+            JOIN json_each(op.spec,'$.output_bindings') binding ON json_extract(binding.value,'$.column_id')=copy.column_id
+            WHERE op.status='applied' AND col.active=1 AND sheet.hidden=0 AND json_extract(binding.value,'$.review_role')='field'
+              AND copy.outcome='completed' {copy_filter} GROUP BY op.id,col.sheet_id"""
+        if sheet_id is not None:
+            params.append(sheet_id)
+    total = int(
+        project.db.execute(f"SELECT COUNT(*) FROM ({source_sql})", params).fetchone()[0]
+    )
     run_rows = project.db.execute(
-        f"""
-        SELECT runs.id AS run_id, runs.sheet_id, sheets.name AS sheet_name,
-               runs.action_kind, runs.model, runs.started_at,
-               runs.review_completed_at
-        FROM runs
-        JOIN sheets ON sheets.id = runs.sheet_id
-        WHERE {where}
-        ORDER BY runs.started_at DESC, runs.id DESC
-        LIMIT ? OFFSET ?
-        """,
+        f"SELECT * FROM ({source_sql}) ORDER BY started_at DESC,COALESCE(run_id,copied_op_id) DESC LIMIT ? OFFSET ?",
         (*params, limit, offset),
     ).fetchall()
     fields_by_run = {
         int(row["run_id"]): _execution_review_fields(project, int(row["run_id"]))
         for row in run_rows
+        if row["run_id"] is not None
     }
     runs = []
     for row in run_rows:
+        if row["copied_op_id"] is not None:
+            source = copied_review_source(project, int(row["copied_op_id"]))
+            if source is not None:
+                runs.append(source)
+            continue
         fields = fields_by_run[int(row["run_id"])]
         runs.append(
             {
                 **dict(row),
+                "running": bool(row["running"]),
                 "review_status": (
                     "complete" if row["review_completed_at"] is not None else "open"
                 ),
@@ -914,7 +938,16 @@ def queue_count(project: Project, *, run_id: int | None = None) -> int:
             FROM run_review_fields review_field
             JOIN runs ON runs.id=review_field.run_id
             WHERE review_field.is_primary=1
-              AND {current_review_run_predicate("runs", terminal_only=True)}
+              AND {current_review_run_predicate("runs", terminal_only=False)}
             """
         ).fetchone()
-    return int(row["count"] if row is not None else 0)
+    copies = project.db.execute("""SELECT COUNT(*) FROM copied_result_values copy
+        JOIN ops op ON op.id=copy.op_id JOIN columns col ON col.id=copy.column_id
+        JOIN sheets sheet ON sheet.id=col.sheet_id JOIN rows target ON target.id=copy.row_id
+        JOIN json_each(op.spec,'$.output_bindings') binding ON json_extract(binding.value,'$.column_id')=copy.column_id
+        WHERE op.status='applied' AND col.active=1 AND sheet.hidden=0 AND target.hidden=0
+          AND copy.outcome='completed' AND json_extract(binding.value,'$.review_role')='field'
+          AND copy.review_state='unreviewed' AND copy.review_decision IS NULL""").fetchone()[
+        0
+    ]
+    return int(row["count"] if row is not None else 0) + int(copies)

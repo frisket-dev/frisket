@@ -7394,12 +7394,13 @@ type HttpHistoryPage_HistoryOperation = ({
   "at_cursor": (boolean);
   "barrier": (boolean);
   "created_at": (string);
+  "executable": (boolean);
   "id": (number);
   "index": (number);
   "kind": (string);
   "label": (((string)) | ((null)));
   "run": (((HttpHistoryPage_HistoryRun)) | ((null)));
-  "status": (string);
+  "status": ("applied" | "undone" | "discarded") & (string);
 });
 
 type HttpHistoryPage_HistoryOutputColumn = ({
@@ -7545,8 +7546,10 @@ export type HttpImportPasteConfirmBody = ({
   "keep_existing_on_blank"?: (boolean);
   "key_columns"?: (((Array<(string)>)) | ((null)));
   "raw": (string);
+  "relationship_id"?: (((string)) | ((null)));
   "sheet_name"?: (((string)) | ((null)));
-  [key: string]: JsonValue | (Array<(HttpImportPasteConfirmBody_ImportUpdatePreviewColumn)>) | (((string)) | ((null))) | (((number)) | ((null))) | (string) | (boolean) | (((Array<(string)>)) | ((null))) | undefined;
+  "update_policy"?: ("keep_changes" | "incoming_wins") & (string);
+  [key: string]: JsonValue | (Array<(HttpImportPasteConfirmBody_ImportUpdatePreviewColumn)>) | (((string)) | ((null))) | (((number)) | ((null))) | (string) | (boolean) | (((Array<(string)>)) | ((null))) | ("keep_changes" | "incoming_wins") & (string) | undefined;
 });
 
 export type HttpImportPasteConfirmResponse = ({
@@ -7795,7 +7798,9 @@ export type HttpImportUpdatePreviewBody = ({
   "keep_existing_on_blank"?: (boolean);
   "key_columns": (Array<(string)>);
   "raw": (string);
-  [key: string]: JsonValue | (Array<(HttpImportUpdatePreviewBody_ImportUpdatePreviewColumn)>) | (number) | (string) | (boolean) | (Array<(string)>) | undefined;
+  "relationship_id"?: (((string)) | ((null)));
+  "update_policy"?: ("keep_changes" | "incoming_wins") & (string);
+  [key: string]: JsonValue | (Array<(HttpImportUpdatePreviewBody_ImportUpdatePreviewColumn)>) | (number) | (string) | (boolean) | (Array<(string)>) | (((string)) | ((null))) | ("keep_changes" | "incoming_wins") & (string) | undefined;
 });
 
 type HttpImportUpdatePreviewResponse_ImportUpdatePreviewSample = ({
@@ -8116,17 +8121,6 @@ export type HttpInline_3e1cc7c95e01e7fa = ({
   "source_kind"?: (((string)) | ((null)));
   "source_ref"?: (((string)) | ((null)));
   "state"?: (string);
-});
-
-export type HttpInline_3eeec944bc84ce8c = ({
-  "cursor"?: (((number)) | ((null)));
-  "field_id"?: (((number)) | ((null)));
-  "include_reviewed"?: (boolean);
-  "limit"?: (number);
-  "offset"?: (number);
-  "order"?: ("confidence" | "row") & (string);
-  "run_id"?: (((number)) | ((null)));
-  "sheet_id"?: (((number)) | ((null)));
 });
 
 export type HttpInline_44136fa355b3678a = JsonValue;
@@ -8797,20 +8791,22 @@ export type HttpInline_96a5d2705cf3cbbb = ({
 });
 
 type HttpInline_9886baa4a5a5ff4c_ReviewRowsRequest = ({
+  "copied_op_id"?: (((number)) | ((null)));
   "field_id"?: (((number)) | ((null)));
   "include_reviewed"?: (boolean);
   "kind": ("rows") & (string);
   "row_ids": (Array<(number)>);
-  "run_id": (number);
+  "run_id"?: (((number)) | ((null)));
 });
 
 type HttpInline_9886baa4a5a5ff4c_ReviewSampleRequest = ({
+  "copied_op_id"?: (((number)) | ((null)));
   "exclude_row_ids"?: (Array<(number)>);
   "field_id"?: (((number)) | ((null)));
   "include_reviewed"?: (boolean);
   "kind": ("sample") & (string);
   "limit"?: (number);
-  "run_id": (number);
+  "run_id"?: (((number)) | ((null)));
 });
 
 export type HttpInline_9886baa4a5a5ff4c = (((HttpInline_9886baa4a5a5ff4c_ReviewSampleRequest)) | ((HttpInline_9886baa4a5a5ff4c_ReviewRowsRequest)));
@@ -9207,6 +9203,18 @@ export type HttpInline_a84ebabaf698eacd = ({
   "include_stale"?: (boolean);
 });
 
+export type HttpInline_a9196f16735a20ed = ({
+  "copied_op_id"?: (((number)) | ((null)));
+  "cursor"?: (((number)) | ((null)));
+  "field_id"?: (((number)) | ((null)));
+  "include_reviewed"?: (boolean);
+  "limit"?: (number);
+  "offset"?: (number);
+  "order"?: ("confidence" | "row") & (string);
+  "run_id"?: (((number)) | ((null)));
+  "sheet_id"?: (((number)) | ((null)));
+});
+
 export type HttpInline_a95e0d1832ce1bc0 = ({
   "receipts_limit"?: (number);
   "receipts_offset"?: (number);
@@ -9335,6 +9343,14 @@ export type HttpInline_b4fba50c46a3827d = ({
   "sheet_id": (number);
 });
 
+export type HttpInline_b598bc6015ad36bc = ({
+  "copied_op_id"?: (((number)) | ((null)));
+  "limit"?: (number);
+  "offset"?: (number);
+  "run_id"?: (((number)) | ((null)));
+  "sheet_id"?: (((number)) | ((null)));
+});
+
 export type HttpInline_b782b1851b85e75a = ({
   "sample_id": (string);
 });
@@ -9458,13 +9474,6 @@ export type HttpInline_c9a2f2dc803f9a8b = ({
 
 export type HttpInline_c9f18fae6ecff1c4 = ({
   "email": (string);
-});
-
-export type HttpInline_ca8048e52b1f7635 = ({
-  "limit"?: (number);
-  "offset"?: (number);
-  "run_id"?: (((number)) | ((null)));
-  "sheet_id"?: (((number)) | ((null)));
 });
 
 export type HttpInline_cd5e2492515e7874 = ({
@@ -13101,14 +13110,16 @@ type HttpReviewBundlesPage_ReviewBundle = ({
   "action_kind": (string);
   "action_name": (string);
   "confidence": (((number)) | ((null)));
+  "copied_op_id"?: (((number)) | ((null)));
   "evidence": (Array<(HttpReviewBundlesPage_ReviewBundleItem)>);
+  "execution_run_id"?: (((number)) | ((null)));
   "fields": (Array<(HttpReviewBundlesPage_ReviewBundleItem)>);
   "id": (string);
   "items": (Array<(HttpReviewBundlesPage_ReviewBundleItem)>);
   "model": (((string)) | ((null)));
   "review_note"?: (((string)) | ((null)));
   "row_id": (number);
-  "run_id": (number);
+  "run_id": (((number)) | ((null)));
   "sheet_id": (number);
   "sheet_name": (string);
   "source": ({
@@ -13118,6 +13129,7 @@ type HttpReviewBundlesPage_ReviewBundle = ({
 });
 
 type HttpReviewBundlesPage_ReviewBundleItem = ({
+  "applied"?: (boolean);
   "bounded_justification"?: (((HttpReviewBundlesPage_ReviewBoundedText)) | ((null)));
   "bounded_value"?: (((HttpReviewBundlesPage_ReviewBoundedText)) | ((null)));
   "can_edit": (boolean);
@@ -13127,6 +13139,7 @@ type HttpReviewBundlesPage_ReviewBundleItem = ({
   "column_name": (string);
   "column_type": (string);
   "confidence": (((number)) | ((null)));
+  "copied_op_id"?: (((number)) | ((null)));
   "error": (((string)) | ((null)));
   "format"?: (((string)) | ((null)));
   "justification": (((string)) | ((null)));
@@ -13136,7 +13149,7 @@ type HttpReviewBundlesPage_ReviewBundleItem = ({
   "review_state": (((string)) | ((null)));
   "role": ("field" | "evidence") & (string);
   "row_id": (number);
-  "run_id": (number);
+  "run_id": (((number)) | ((null)));
   "semantic_type"?: (((string)) | ((null)));
   "sheet_id": (number);
   "value": (HttpReviewBundlesPage_JsonValue);
@@ -13190,11 +13203,13 @@ type HttpReviewRunsPage_ReviewDecisionCounts = ({
 type HttpReviewRunsPage_ReviewRun = ({
   "action_kind": (string);
   "action_name": (string);
+  "copied_op_id"?: (((number)) | ((null)));
   "fields": (Array<(HttpReviewRunsPage_ReviewRunField)>);
   "model": (((string)) | ((null)));
   "review_completed_at": (((string)) | ((null)));
   "review_status": ("open" | "complete") & (string);
-  "run_id": (number);
+  "run_id"?: (((number)) | ((null)));
+  "running"?: (boolean);
   "sheet_id": (number);
   "sheet_name": (string);
   "started_at": (string);
@@ -14433,7 +14448,9 @@ type HttpSheetData_SheetDataValueRef = ({
   "column_id": (number);
   "kind": (string);
   "op_id": (((number)) | ((null)));
+  "outcome"?: ((("completed" | "pending" | "failed" | "not_completed") & (string)) | ((null)));
   "prepared_ref_id"?: (((number)) | ((null)));
+  "producer_id"?: (((number)) | ((null)));
   "row_id": (number);
   "run_id": (((number)) | ((null)));
 });
@@ -14700,6 +14717,13 @@ type HttpTableImportDestinationRequest_TableImportExistingColumnTarget = ({
 type HttpTableImportDestinationRequest_TableImportExistingDestination = ({
   "kind": ("existing") & (string);
   "sheet_id": (number);
+  "update"?: (((HttpTableImportDestinationRequest_TableImportKeyedUpdate)) | ((null)));
+});
+
+type HttpTableImportDestinationRequest_TableImportKeyedUpdate = ({
+  "key_source_indices": (Array<(number)>);
+  "policy"?: ("keep_changes" | "incoming_wins") & (string);
+  "relationship_id"?: (((string)) | ((null)));
 });
 
 type HttpTableImportDestinationRequest_TableImportMappingRequest = ({
@@ -14819,6 +14843,7 @@ type HttpTableImportDraft_TableImportExistingColumnTarget = ({
 type HttpTableImportDraft_TableImportExistingDestination = ({
   "kind": ("existing") & (string);
   "sheet_id": (number);
+  "update"?: (((HttpTableImportDraft_TableImportKeyedUpdate)) | ((null)));
 });
 
 type HttpTableImportDraft_TableImportIssueCounts = ({
@@ -14826,6 +14851,12 @@ type HttpTableImportDraft_TableImportIssueCounts = ({
   "malformed_records"?: (number);
   "missing_values"?: (number);
   "unreadable_cells"?: (number);
+});
+
+type HttpTableImportDraft_TableImportKeyedUpdate = ({
+  "key_source_indices": (Array<(number)>);
+  "policy"?: ("keep_changes" | "incoming_wins") & (string);
+  "relationship_id"?: (((string)) | ((null)));
 });
 
 type HttpTableImportDraft_TableImportMapping = ({
@@ -19852,7 +19883,7 @@ export type HttpContractOperationMap = {
   };
   readonly "tenant.review_bundles_ep.get": {
     readonly pathParams: HttpInline_87cacc773db826e7;
-    readonly query: HttpInline_3eeec944bc84ce8c;
+    readonly query: HttpInline_a9196f16735a20ed;
     readonly request: undefined;
     readonly responses: {
       readonly "200": HttpReviewBundlesPage;
@@ -19891,7 +19922,7 @@ export type HttpContractOperationMap = {
   };
   readonly "tenant.review_runs_ep.get": {
     readonly pathParams: HttpInline_87cacc773db826e7;
-    readonly query: HttpInline_ca8048e52b1f7635;
+    readonly query: HttpInline_b598bc6015ad36bc;
     readonly request: undefined;
     readonly responses: {
       readonly "200": HttpReviewRunsPage;

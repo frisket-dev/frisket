@@ -1069,18 +1069,6 @@ describe('history and review mutations owned by the domain', () => {
       edited: undefined,
       decision: { decision: 'reject_clear' },
     },
-    {
-      name: 'edit carrying a value',
-      action: 'edit' as const,
-      edited: 'corrected',
-      decision: { decision: 'edit', value: 'corrected' },
-    },
-    {
-      name: 'edit clearing the value',
-      action: 'edit' as const,
-      edited: undefined,
-      decision: { decision: 'edit', value: null },
-    },
   ])('posts a review.decision envelope for $name', async (scenario) => {
     const exchange = stubHistoryAndPosts(
       [],
@@ -1106,6 +1094,18 @@ describe('history and review mutations owned by the domain', () => {
     }]);
   });
 
+  it('reviews a saved copy using its Change identity, without an execution id', async () => {
+    const exchange = stubHistoryAndPosts([], [{ result: actionResult('review.decision', 'completed') }]);
+    await historyReviewDomain('118').reviewItem('copy:12:7:5','accept');
+    expect(exchange.bodies()[0].params).toEqual({copied_op_id:12,row_id:7,column_id:5,decision:'accept'});
+  });
+
+  it('does not turn a cell edit into a review judgment', async () => {
+    const exchange = stubHistoryAndPosts([], []);
+    await expect(historyReviewDomain('118').reviewItem('9:7:5','edit','replacement')).rejects.toThrow('Use cell editing');
+    expect(exchange.calls()).toEqual([]);
+  });
+
   it.each(['9:7', '9:7:5:1', '0:7:5', '9:0:5', '9:7:-5', 'a:b:c', '9:7.5:5', ''])(
     'rejects the malformed review ref %j without posting',
     async (itemId) => {
@@ -1115,7 +1115,7 @@ describe('history and review mutations owned by the domain', () => {
       await expect(api.reviewItem(itemId, 'accept')).rejects.toMatchObject({
         name: 'ApiError',
         status: 400,
-        message: `Review item ${itemId} is not a valid v1 result-cell ref`,
+        message: `Invalid review result reference: ${itemId}`,
       });
       expect(exchange.calls()).toEqual([]);
     },

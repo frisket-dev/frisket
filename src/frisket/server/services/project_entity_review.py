@@ -84,12 +84,32 @@ class ProjectEntityReviewService:
         offset: int,
         limit: int,
         run_id: int | None,
+        copied_op_id: int | None = None,
         include_reviewed: bool,
         field_id: int | None,
         order: str,
         cursor: int | None,
     ) -> dict[str, Any]:
         project = self._project(project_id)
+        if copied_op_id is not None:
+            from frisket.engine.runner.copied_review import copied_review_page
+
+            if run_id is not None:
+                raise ValueError("select one review source")
+            page = copied_review_page(
+                project,
+                copied_op_id,
+                offset=offset,
+                limit=limit,
+                include_reviewed=include_reviewed,
+                field_id=field_id,
+                order=order,
+                cursor=cursor,
+            )
+            return {
+                **page,
+                "bundles": _project_review_download_links(project_id, page["bundles"]),
+            }
         page = review_bundle_page(
             project,
             sheet_id=sheet_id,
@@ -111,6 +131,27 @@ class ProjectEntityReviewService:
         self, project_id: str, request: ReviewBatchRequest
     ) -> dict[str, Any]:
         project = self._project(project_id)
+        if request.copied_op_id is not None:
+            from frisket.engine.runner.copied_review import copied_review_page
+
+            page = copied_review_page(
+                project,
+                request.copied_op_id,
+                limit=request.limit
+                if request.kind == "sample"
+                else len(request.row_ids),
+                include_reviewed=request.include_reviewed,
+                field_id=request.field_id,
+                order="sample" if request.kind == "sample" else "row",
+                row_ids=request.row_ids if request.kind == "rows" else None,
+                exclude_row_ids=request.exclude_row_ids
+                if request.kind == "sample"
+                else (),
+            )
+            return {
+                **page,
+                "bundles": _project_review_download_links(project_id, page["bundles"]),
+            }
         if request.kind == "sample":
             page = sample_review_bundle_page(
                 project,
@@ -145,6 +186,7 @@ class ProjectEntityReviewService:
         *,
         sheet_id: int | None,
         run_id: int | None,
+        copied_op_id: int | None = None,
         offset: int,
         limit: int,
     ) -> dict[str, Any]:
@@ -152,6 +194,7 @@ class ProjectEntityReviewService:
             self._project(project_id),
             sheet_id=sheet_id,
             run_id=run_id,
+            copied_op_id=copied_op_id,
             offset=offset,
             limit=limit,
         )

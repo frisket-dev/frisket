@@ -3849,7 +3849,9 @@ export interface ReviewValueExcerpt {
 
 export interface ReviewBundleField {
   id: string;
-  runId: string;
+  sourceId: string;
+  runId: string | null;
+  copiedOpId: string | null;
   sheetId: string;
   rowId: string;
   columnId: string;
@@ -3887,7 +3889,9 @@ export interface ReviewBundleSource {
 
 export interface ReviewBundle {
   id: string;
-  runId: string;
+  sourceId: string;
+  runId: string | null;
+  copiedOpId: string | null;
   sheetId: string;
   sheetName: string;
   rowId: string;
@@ -3959,12 +3963,15 @@ export interface ReviewRunsOptions {
 
 /** A persisted action run available to the review queue. */
 export interface ReviewRun {
-  runId: string;
+  sourceId: string;
+  runId: string | null;
+  copiedOpId: string | null;
   sheetId: string;
   sheetName: string;
   actionKind: string;
   actionName: string;
   model: string | null;
+  running?: boolean;
   startedAt: string;
   reviewStatus: ReviewRunStatus;
   reviewCompletedAt: string | null;
