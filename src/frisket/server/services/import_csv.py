@@ -144,6 +144,8 @@ class ImportCsvUploadService:
         column_mapping: str,
         key_columns: str,
         keep_existing_on_blank: bool,
+        update_policy: str = "keep_changes",
+        relationship_id: str | None = None,
         encoding: str | None = None,
         deps: ExecutorDeps | None = None,
     ) -> dict[str, Any]:
@@ -165,6 +167,8 @@ class ImportCsvUploadService:
                 ],
                 key_columns=mapping.key_columns,
                 keep_existing_on_blank=keep_existing_on_blank,
+                update_policy=update_policy,
+                relationship_id=relationship_id,
             )
             assert isinstance(params, UpdateCsvParams)
             with open_local_file_reader(
@@ -187,6 +191,8 @@ class ImportCsvUploadService:
                     key_columns=params.key_columns,
                     rows=(row.output.root for row in produced.rows),
                     keep_existing_on_blank=keep_existing_on_blank,
+                    update_policy=update_policy,
+                    relationship_id=relationship_id,
                     max_rows=max_rows,
                 )
         except OverflowError as exc:
@@ -216,6 +222,8 @@ class ImportCsvUploadService:
         column_mapping: str | None = None,
         update_key_columns: str | None = None,
         keep_existing_on_blank: bool = False,
+        update_policy: str = "keep_changes",
+        relationship_id: str | None = None,
         confirmation: str | None = None,
         deps: ExecutorDeps | None = None,
     ) -> ImportCsvUploadResponse:
@@ -293,6 +301,8 @@ class ImportCsvUploadService:
             destination_sheet_id=destination_sheet_id,
             key_columns=keys,
             keep_existing_on_blank=keep_existing_on_blank,
+            update_policy=update_policy,
+            relationship_id=relationship_id,
             confirmation=confirmation,
             router=self._workspace.router_for(project),
         )

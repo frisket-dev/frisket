@@ -36,6 +36,8 @@ class ImportUpdatePreviewBody(BaseModel):
     columns: list[ImportUpdatePreviewColumn] = Field(min_length=1)
     key_columns: list[str] = Field(min_length=1)
     keep_existing_on_blank: bool = False
+    update_policy: Literal["keep_changes", "incoming_wins"] = "keep_changes"
+    relationship_id: str | None = Field(default=None, min_length=1, max_length=200)
 
 
 class ImportPasteConfirmBody(BaseModel):
@@ -46,6 +48,8 @@ class ImportPasteConfirmBody(BaseModel):
     destination_sheet_id: int | None = Field(default=None, ge=1, strict=True)
     key_columns: list[str] | None = None
     keep_existing_on_blank: bool = False
+    update_policy: Literal["keep_changes", "incoming_wins"] = "keep_changes"
+    relationship_id: str | None = Field(default=None, min_length=1, max_length=200)
     confirmation: str | None = Field(default=None, min_length=1)
 
 

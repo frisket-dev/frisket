@@ -232,6 +232,8 @@ def register_import_csv_routes(
         column_mapping: str | None = None,
         update_key_columns: str | None = None,
         keep_existing_on_blank: bool = False,
+        update_policy: str = "keep_changes",
+        relationship_id: str | None = None,
         confirmation: str | None = None,
     ) -> dict[str, Any] | Response:
         executor_deps = service.executor_deps_for_request(pid, request)
@@ -246,6 +248,8 @@ def register_import_csv_routes(
             column_mapping=column_mapping,
             update_key_columns=update_key_columns,
             keep_existing_on_blank=keep_existing_on_blank,
+            update_policy=update_policy,
+            relationship_id=relationship_id,
             confirmation=confirmation,
             deps=executor_deps,
         )
@@ -285,6 +289,8 @@ def register_import_csv_routes(
         column_mapping: Annotated[str, Form(min_length=2)],
         key_columns: Annotated[str, Form(min_length=2)],
         keep_existing_on_blank: Annotated[bool, Form()] = False,
+        update_policy: Annotated[str, Form()] = "keep_changes",
+        relationship_id: Annotated[str | None, Form()] = None,
         encoding: str | None = None,
     ) -> dict[str, Any]:
         return await await_thread_worker(
@@ -295,6 +301,8 @@ def register_import_csv_routes(
             column_mapping=column_mapping,
             key_columns=key_columns,
             keep_existing_on_blank=keep_existing_on_blank,
+            update_policy=update_policy,
+            relationship_id=relationship_id,
             encoding=encoding,
             deps=service.executor_deps_for_request(pid, request),
         )
@@ -375,6 +383,8 @@ def register_import_csv_routes(
         key_columns: Annotated[str, Form(min_length=2)],
         confirmation: Annotated[str, Form(min_length=1)],
         keep_existing_on_blank: Annotated[bool, Form()] = False,
+        update_policy: Annotated[str, Form()] = "keep_changes",
+        relationship_id: Annotated[str | None, Form()] = None,
         encoding: str | None = None,
     ) -> dict[str, Any] | Response:
         return await upload(
@@ -388,6 +398,8 @@ def register_import_csv_routes(
             column_mapping=column_mapping,
             update_key_columns=key_columns,
             keep_existing_on_blank=keep_existing_on_blank,
+            update_policy=update_policy,
+            relationship_id=relationship_id,
             confirmation=confirmation,
         )
 
@@ -425,6 +437,8 @@ def register_import_xlsx_routes(
         column_mapping: Annotated[str, Form(min_length=2)],
         key_columns: Annotated[str, Form(min_length=2)],
         keep_existing_on_blank: Annotated[bool, Form()] = False,
+        update_policy: Annotated[str, Form()] = "keep_changes",
+        relationship_id: Annotated[str | None, Form()] = None,
     ) -> dict[str, Any]:
         return await await_thread_worker(
             service.preview_xlsx_update,
@@ -434,6 +448,8 @@ def register_import_xlsx_routes(
             column_mapping=column_mapping,
             key_columns=key_columns,
             keep_existing_on_blank=keep_existing_on_blank,
+            update_policy=update_policy,
+            relationship_id=relationship_id,
             deps=service.executor_deps_for_request(pid, request),
         )
 
@@ -526,6 +542,8 @@ def register_import_xlsx_routes(
         key_columns: Annotated[str, Form(min_length=2)],
         confirmation: Annotated[str, Form(min_length=1)],
         keep_existing_on_blank: Annotated[bool, Form()] = False,
+        update_policy: Annotated[str, Form()] = "keep_changes",
+        relationship_id: Annotated[str | None, Form()] = None,
     ) -> dict[str, Any] | Response:
         response = await await_thread_worker(
             service.upload_xlsx,
@@ -538,6 +556,8 @@ def register_import_xlsx_routes(
             column_mapping=column_mapping,
             update_key_columns=key_columns,
             keep_existing_on_blank=keep_existing_on_blank,
+            update_policy=update_policy,
+            relationship_id=relationship_id,
             confirmation=confirmation,
         )
         if response.force_json_response:

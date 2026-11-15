@@ -1231,6 +1231,8 @@ class RowsUpdater(Protocol):
         rows: tuple[Mapping[str, Any], ...],
         source: Mapping[str, Any],
         keep_existing_on_blank: bool,
+        update_policy: Literal["keep_changes", "incoming_wins"] = "keep_changes",
+        relationship_id: str | None = None,
     ) -> UpdatedImportedRows: ...
 
     def update_csv(self, params: Any) -> UpdatedImportedRows: ...

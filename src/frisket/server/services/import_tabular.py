@@ -226,6 +226,8 @@ def plan_tabular_update(
     key_columns: Iterable[str],
     rows: Iterable[Mapping[str, Any]],
     keep_existing_on_blank: bool,
+    update_policy: str = "keep_changes",
+    relationship_id: str | None = None,
     max_rows: int | None,
 ) -> ImportUpdatePlan:
     """Compose the server's temporal preflight with the existing update planner."""
@@ -237,6 +239,8 @@ def plan_tabular_update(
         key_columns=key_columns,
         rows=rows,
         keep_existing_on_blank=keep_existing_on_blank,
+        update_policy=update_policy,
+        relationship_id=relationship_id,
         preflight_rows=preflight_typed_rows_for_persistence,
         max_rows=max_rows,
     )

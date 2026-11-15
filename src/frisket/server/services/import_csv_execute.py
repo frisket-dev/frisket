@@ -19,6 +19,8 @@ def params_from_scans(
     columns_override: Sequence[dict[str, Any]] | None = None,
     key_columns: Sequence[str] | None = None,
     keep_existing_on_blank: bool = False,
+    update_policy: str = "keep_changes",
+    relationship_id: str | None = None,
 ) -> ImportCsvParams | UpdateCsvParams:
     """Keep CSV's source metadata, widening, and optional source label concrete."""
 
@@ -45,7 +47,10 @@ def params_from_scans(
     }
     if key_columns is not None:
         values.update(
-            key_columns=list(key_columns), keep_existing_on_blank=keep_existing_on_blank
+            key_columns=list(key_columns),
+            keep_existing_on_blank=keep_existing_on_blank,
+            update_policy=update_policy,
+            relationship_id=relationship_id,
         )
         return UpdateCsvParams.model_validate(values)
     return ImportCsvParams.model_validate(values)
@@ -66,6 +71,8 @@ def run_scanned_csv_import(
     destination_sheet_id: int | None = None,
     key_columns: Sequence[str] | None = None,
     keep_existing_on_blank: bool = False,
+    update_policy: str = "keep_changes",
+    relationship_id: str | None = None,
     confirmation: str | None = None,
     router: Any | None = None,
     bound_sources: dict[str, BoundLocalFile] | None = None,
@@ -79,6 +86,8 @@ def run_scanned_csv_import(
         columns_override=columns_override,
         key_columns=key_columns,
         keep_existing_on_blank=keep_existing_on_blank,
+        update_policy=update_policy,
+        relationship_id=relationship_id,
     )
     files = (
         bound_sources

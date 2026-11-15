@@ -89,6 +89,9 @@ class SourceStore:
             self.db.commit()
 
     def delete_source(self, source_id: int, *, commit: bool = True) -> None:
+        self.db.execute(
+            "DELETE FROM keyed_relationships WHERE id=?", (f"source:{source_id}",)
+        )
         self.db.execute("DELETE FROM sources WHERE id=?", (source_id,))
         if commit:
             self.db.commit()

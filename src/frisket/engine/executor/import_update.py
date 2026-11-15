@@ -8,6 +8,13 @@ from dataclasses import dataclass
 from typing import Any, Iterable, Mapping, Protocol, Sequence
 
 from frisket.contracts.action import canonical_column_type
+from frisket.engine.store.keyed_updates import (
+    ValidatedKeyedInput,
+    changed_fields,
+    observation,
+    canonical,
+    UpdatePolicy,
+)
 from frisket.engine.runner.confirmation_context import (
     ParamsScope,
     mint_confirmation_hash,
@@ -61,6 +68,8 @@ class ImportUpdatePlan:
     targets: tuple[dict[str, Any], ...]
     samples: tuple[dict[str, Any], ...]
     confirmation: str
+    observations: tuple[dict[str, Any], ...] = ()
+    key_definition: tuple[tuple[int, str], ...] = ()
 
 
 class ImportUpdateAmbiguous(ValueError):
@@ -78,6 +87,8 @@ def plan_import_update(
     preflight_rows: TypedRowsPreflight,
     sample_limit: int = 20,
     max_rows: int | None = None,
+    relationship_id: str | None = None,
+    update_policy: UpdatePolicy = "keep_changes",
 ) -> ImportUpdatePlan:
     """Resolve exact live-value matches and bind all reviewed state in one token."""
 
@@ -102,122 +113,147 @@ def plan_import_update(
         ) != canonical_column_type(column.type):
             raise LookupError("incompatible_update_mapping")
 
-    visible_rows = [
-        int(row["id"])
-        for row in project.db.execute(
+    targets: list[dict[str, Any]] = []
+    observations: list[dict[str, Any]] = []
+    samples: list[dict[str, Any]] = []
+    matched = unmatched = blank_keys = ambiguous = cleared = 0
+    type_names = {name: str(destination[name]["type"]) for name in by_name}
+    destination_hash = hashlib.sha256()
+    with ValidatedKeyedInput() as staged:
+        # Index existing current keys in bounded batches. Historical hidden keys
+        # never intercept a different visible row carrying the current key.
+        cursor = project.db.execute(
             "SELECT id FROM rows WHERE sheet_id=? AND hidden=0 ORDER BY position,id",
             (sheet_id,),
         )
-    ]
-    live: dict[str, dict[int, Any]] = {}
-    live_refs: dict[str, dict[int, Any]] = {}
-    for name in by_name:
-        values, refs = project.get_values_with_refs(
-            sheet_id, int(destination[name]["id"]), row_ids=visible_rows
-        )
-        live[name] = values
-        live_refs[name] = refs
-    index: dict[tuple[str, ...], list[int]] = {}
-    destination_snapshot: list[list[Any]] = []
-    for row_id in visible_rows:
-        parts = tuple(
-            _component(live[name].get(row_id), str(destination[name]["type"]))
-            for name in keys
-        )
-        destination_snapshot.append(
-            [row_id, *[live[name].get(row_id) for name in keys + update_names]]
-        )
-        if all(part is not None for part in parts):
-            index.setdefault(parts, []).append(row_id)  # type: ignore[arg-type]
+        while batch := cursor.fetchmany(500):
+            row_ids = [int(row[0]) for row in batch]
+            current = {
+                name: project.get_values(
+                    sheet_id, int(destination[name]["id"]), row_ids
+                )
+                for name in by_name
+            }
+            keys_for_batch = []
+            for row_id in row_ids:
+                parts = tuple(
+                    _component(current[name].get(row_id), type_names[name])
+                    for name in keys
+                )
+                key = (
+                    canonical(parts)
+                    if all(part is not None for part in parts)
+                    else None
+                )
+                keys_for_batch.append((key, row_id))
+                destination_hash.update(
+                    canonical(
+                        [row_id, {name: current[name].get(row_id) for name in by_name}]
+                    ).encode()
+                    + b"\n"
+                )
+            staged.add_targets(keys_for_batch)
 
-    targets: list[dict[str, Any]] = []
-    samples: list[dict[str, Any]] = []
-    matched = unmatched = blank_keys = ambiguous = cleared = 0
-    records: list[dict[str, Any]] = []
-    type_names = {name: str(destination[name]["type"]) for name in by_name}
-    for row_number, record in enumerate(rows, 1):
-        if max_rows is not None and row_number > max_rows:
-            raise OverflowError(row_number)
-        normalized = {
-            name: _normalized_import_value(value) for name, value in record.items()
-        }
-        records.append(
-            preflight_rows(project, column_types_by_name=type_names, rows=[normalized])[
-                0
-            ]
-        )
-    source_key_counts: dict[tuple[str, ...], int] = {}
-    source_hasher = hashlib.sha256()
-    for record in records:
-        source_hasher.update(
-            json.dumps(
-                record, sort_keys=True, separators=(",", ":"), allow_nan=False
-            ).encode()
-        )
-        source_hasher.update(b"\n")
-        parts = tuple(
-            _component(record.get(name), str(by_name[name].type)) for name in keys
-        )
-        if all(part is not None for part in parts):
-            source_key_counts[parts] = source_key_counts.get(parts, 0) + 1  # type: ignore[arg-type]
-    for source_row, record in enumerate(records, 1):
-        parts = tuple(
-            _component(record.get(name), str(by_name[name].type)) for name in keys
-        )
-        status = "unmatched"
-        target_row_id: int | None = None
-        before: dict[str, Any] = {}
-        after: dict[str, Any] = {}
-        if any(part is None for part in parts):
-            blank_keys += 1
-            unmatched += 1
-            status = "blank_key"
-        else:
-            typed_parts = parts  # narrowed by the branch above
-            candidates = index.get(typed_parts, [])  # type: ignore[arg-type]
-            if len(candidates) > 1 or source_key_counts[typed_parts] > 1:  # type: ignore[index]
-                ambiguous += 1
-                status = "ambiguous"
-            elif not candidates:
-                unmatched += 1
+        def prepared():
+            for row_number, record in enumerate(rows, 1):
+                if max_rows is not None and row_number > max_rows:
+                    raise OverflowError(row_number)
+                normalized = {
+                    name: _normalized_import_value(value)
+                    for name, value in record.items()
+                }
+                record = preflight_rows(
+                    project, column_types_by_name=type_names, rows=[normalized]
+                )[0]
+                parts = tuple(
+                    _component(record.get(name), str(by_name[name].type))
+                    for name in keys
+                )
+                key = (
+                    canonical(parts)
+                    if all(part is not None for part in parts)
+                    else None
+                )
+                yield key, record
+
+        staged.stage(prepared())
+        source_hash = staged.seal()
+        for item in staged.records():
+            record = item.record
+            status = "unmatched"
+            target_row_id = None
+            before = {}
+            after = {}
+            if item.key is None:
+                blank_keys += item.copies
+                unmatched += item.copies
+                status = "blank_key"
             else:
-                matched += 1
-                status = "matched"
-                target_row_id = candidates[0]
-                for name in update_names:
-                    old = live[name].get(target_row_id)
-                    supplied = record.get(name)
-                    blank = supplied is None
-                    new = None if blank else supplied
-                    before[name] = old
-                    after[name] = old if keep_existing_on_blank and blank else new
-                    if keep_existing_on_blank and blank:
-                        continue
-                    if old != new:
-                        if new is None:
-                            cleared += 1
+                candidates = staged.targets(item.key)
+                if item.conflicting or len(candidates) > 1:
+                    ambiguous += item.copies
+                    status = "ambiguous"
+                elif not candidates:
+                    unmatched += 1
+                else:
+                    matched += 1
+                    status = "matched"
+                    target_row_id = candidates[0]
+                    live = {}
+                    refs = {}
+                    for name in update_names:
+                        values, value_refs = project.get_values_with_refs(
+                            sheet_id,
+                            int(destination[name]["id"]),
+                            row_ids=[target_row_id],
+                        )
+                        if target_row_id in values:
+                            live[str(destination[name]["id"])] = values[target_row_id]
+                        refs[name] = value_refs.get(target_row_id)
+                    incoming = {
+                        str(destination[name]["id"]): value
+                        for name, value in record.items()
+                        if not (keep_existing_on_blank and value is None)
+                    }
+                    baseline = observation(project.db, relationship_id, target_row_id)
+                    changes = changed_fields(live, incoming, baseline, update_policy)
+                    destination_hash.update(
+                        canonical([target_row_id, baseline]).encode() + b"\n"
+                    )
+                    observations.append(
+                        {"row_id": target_row_id, "key": item.key, "record": incoming}
+                    )
+                    for name in update_names:
+                        column_id = int(destination[name]["id"])
+                        old = live.get(str(column_id))
+                        before[name] = old
+                        after[name] = changes.get(str(column_id), old)
+                        if str(column_id) not in changes:
+                            continue
+                        new = changes[str(column_id)]
+                        cleared += int(new is None)
                         targets.append(
                             {
                                 "sheet_id": sheet_id,
                                 "row_id": target_row_id,
-                                "column_id": int(destination[name]["id"]),
+                                "column_id": column_id,
                                 "column_name": name,
                                 "value_before": old,
-                                "current_value_ref": live_refs[name].get(target_row_id),
+                                "current_value_ref": refs[name],
                                 "value_after": new,
                             }
                         )
-        if len(samples) < sample_limit:
-            samples.append(
-                {
-                    "source_row": source_row,
-                    "key": {name: record.get(name) for name in keys},
-                    "status": status,
-                    "target_row_id": target_row_id,
-                    "before": before,
-                    "after": after,
-                }
-            )
+            if len(samples) < sample_limit:
+                samples.append(
+                    {
+                        "source_row": item.ordinal,
+                        "key": {name: record.get(name) for name in keys},
+                        "status": status,
+                        "target_row_id": target_row_id,
+                        "before": before,
+                        "after": after,
+                    }
+                )
 
     bindings = {
         "sheet_id": sheet_id,
@@ -225,8 +261,10 @@ def plan_import_update(
             [name, int(destination[name]["id"]), str(destination[name]["type"])]
             for name in by_name
         ],
-        "destination": destination_snapshot,
-        "source_hash": source_hasher.hexdigest(),
+        "destination_hash": destination_hash.hexdigest(),
+        "source_hash": source_hash,
+        "relationship_id": relationship_id,
+        "update_policy": update_policy,
         "key_columns": list(keys),
         "keep_existing_on_blank": keep_existing_on_blank,
     }
@@ -249,4 +287,9 @@ def plan_import_update(
         tuple(targets),
         tuple(samples),
         confirmation,
+        tuple(observations),
+        tuple(
+            (int(destination[name]["id"]), str(destination[name]["type"]))
+            for name in keys
+        ),
     )

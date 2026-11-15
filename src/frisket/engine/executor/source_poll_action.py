@@ -36,7 +36,21 @@ from frisket.engine.executor.action_lifecycle import (
 )
 from frisket.engine.executor.map_rows_action import typed_request_hash
 from frisket.engine.store import Project
-from frisket.engine.store.cell_writes import create_base_cell_producer
+from frisket.engine.store.cell_writes import (
+    BaseCellWrite,
+    create_base_cell_producer,
+    replace_base_cells,
+)
+from frisket.engine.store.keyed_updates import (
+    ValidatedKeyedInput,
+    canonical,
+    typed_key,
+    changed_fields,
+    observation,
+    observe,
+    require_relationship,
+    retained_hidden_targets,
+)
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.sources import SourceStore
 from frisket.server.sources.rss import ensure_rss_poller, rss_poller_for_fetch_override
@@ -527,116 +541,205 @@ def _materialize_registered_source_poll_in_txn(
         sheet_id=sheet_id,
         poll_summary=poll_result.summary,
     )
-    new_rows: list[tuple[SourcePollItem, dict[str, Any], int | None]] = []
-    skipped = 0
-    changed = 0
-    revisions = 0
-    batch, duplicates_collapsed = _collapse_duplicate_dedupe_keys(poll_result.items)
-    for item in batch:
-        existing = source_store.source_item_for_dedupe(source_id, item.dedupe_key)
-        item_hash = item.stable_hash()
-        if existing is None:
-            new_rows.append(
-                (item, _source_poll_row(source_id, source_run_id, item), None)
-            )
-            continue
-        if existing["item_hash"] == item_hash:
-            skipped += 1
-            source_store.upsert_source_item(
-                source_id=source_id,
-                source_item_id=item.stable_item_id(),
-                dedupe_key=item.dedupe_key,
-                item_hash=item_hash,
-                row_id=existing["row_id"],
-                source_run_id=source_run_id,
-                raw_ref=_source_item_raw_ref(item),
-                commit=False,
-            )
-            continue
-        changed += 1
-        revisions += 1
-        row = _source_poll_row(source_id, source_run_id, item)
-        row["_revises"] = item.dedupe_key
-        revision = _source_item_revision(project, source_id, item.dedupe_key)
-        row["_revision"] = revision
-        new_rows.append((item, row, revision))
-
+    # Finish key validation before creating or updating any row. A later
+    # conflicting duplicate must not invalidate an earlier published value.
+    records = [
+        _source_poll_row(source_id, source_run_id, item) for item in poll_result.items
+    ]
+    column_ids = _ensure_source_poll_columns_in_txn(
+        cur, sheet_id, records, source_kind=str(source_before["kind"])
+    )
+    if not records:
+        return {
+            "sheet_id": sheet_id,
+            "op_id": None,
+            "row_ids": [],
+            "enclosure_row_ids": [],
+            "new_rows": 0,
+            "skipped_rows": 0,
+            "changed_rows": 0,
+            "revisions": 0,
+            "materialized_rows": 0,
+            "duplicates_collapsed": 0,
+        }
+    relation = f"source:{source_id}"
+    require_relationship(
+        project.db,
+        relationship_id=relation,
+        sheet_id=sheet_id,
+        key_definition=[column_ids["source_id"], column_ids["source_item_id"]],
+    )
+    policy = _source_config_dict(source_before.get("config")).get(
+        "update_policy", "keep_changes"
+    )
+    if policy not in ("keep_changes", "incoming_wins"):
+        raise ValueError("unknown source update policy")
     op_id = None
-    row_ids: list[int] = []
-    enclosure_row_ids: list[int] = []
-    if new_rows:
-        records = [row for _item, row, _revision in new_rows]
-        column_ids = _ensure_source_poll_columns_in_txn(
-            cur, sheet_id, records, source_kind=str(source_before["kind"])
+    producer_id = None
+    row_ids = []
+    enclosure_row_ids = []
+    new_rows = changed = skipped = duplicates_collapsed = 0
+    with ValidatedKeyedInput() as staged:
+        staged.stage(
+            (
+                typed_key([("integer", source_id), ("text", item.stable_item_id())]),
+                {key: value for key, value in record.items() if key != "source_run_id"},
+            )
+            for item, record in zip(poll_result.items, records, strict=True)
         )
-        op_id = _append_source_poll_op_in_txn(
-            cur,
-            {
-                "source_id": source_id,
-                "source_run_id": source_run_id,
-                "new_rows": len(new_rows) - revisions,
-                "revisions": revisions,
-            },
-            label=f"source poll {len(new_rows)} from {source_before['name']}",
+        staged.seal()
+        visible = project.db.execute(
+            "SELECT id FROM rows WHERE sheet_id=? AND hidden=0 ORDER BY id", (sheet_id,)
         )
-        producer_id = create_base_cell_producer(
-            project.db, stage_id=f"op:{op_id}", op_id=op_id
-        )
-        row_ids = _add_source_poll_rows_in_txn(
-            project, sheet_id, records, column_ids, producer_id=producer_id
-        )
-        enclosure_row_ids = [
-            row_id
-            for row_id, (_item, row, _revision) in zip(row_ids, new_rows, strict=True)
-            if row.get("enclosure_url") or row.get("enclosures")
-        ]
-        for row_id, (item, _row, revision) in zip(row_ids, new_rows, strict=True):
+        while batch := visible.fetchmany(500):
+            batch_ids = [int(row[0]) for row in batch]
+            source_values = project.get_values(
+                sheet_id, column_ids["source_id"], batch_ids
+            )
+            key_values = project.get_values(
+                sheet_id, column_ids["source_item_id"], batch_ids
+            )
+            staged.add_targets(
+                (
+                    typed_key(
+                        [
+                            ("integer", source_values.get(row)),
+                            ("text", key_values.get(row)),
+                        ]
+                    ),
+                    row,
+                )
+                for row in batch_ids
+            )
+        for staged_item in staged.records():
+            duplicates_collapsed += max(0, staged_item.copies - 1)
+            if staged_item.conflicting or staged_item.key is None:
+                skipped += staged_item.copies
+                continue
+            targets = staged.targets(staged_item.key)
+            if len(targets) > 1:
+                skipped += staged_item.copies
+                continue
+            targets = targets or retained_hidden_targets(
+                project.db, relation, staged_item.key
+            )
+            if len(targets) > 1:
+                skipped += staged_item.copies
+                continue
+            target = targets[0] if targets else None
+            published = False
+            incoming = {
+                str(column_ids[name]): value
+                for name, value in staged_item.record.items()
+            }
+            baseline = (
+                observation(project.db, relation, target)
+                if target is not None
+                else None
+            )
+            item = poll_result.items[staged_item.ordinal - 1]
+            restored = False
+            if target is not None:
+                current = {}
+                for name, column in column_ids.items():
+                    values = project.get_values(sheet_id, column, [target])
+                    if target in values:
+                        current[str(column)] = values[target]
+                changes = changed_fields(current, incoming, baseline, policy)
+                hidden = bool(
+                    cur.execute(
+                        "SELECT hidden FROM rows WHERE id=?", (target,)
+                    ).fetchone()[0]
+                )
+                source_changed = baseline is None or any(
+                    key not in baseline or canonical(value) != canonical(baseline[key])
+                    for key, value in incoming.items()
+                )
+                if hidden:
+                    if policy == "keep_changes" or not source_changed:
+                        changes = {}
+                    else:
+                        cur.execute("UPDATE rows SET hidden=0 WHERE id=?", (target,))
+                        restored = True
+                if changes or restored:
+                    if op_id is None:
+                        op_id = _append_source_poll_op_in_txn(
+                            cur,
+                            {"source_id": source_id, "source_run_id": source_run_id},
+                            label=f"source poll {source_before['name']}",
+                        )
+                        producer_id = create_base_cell_producer(
+                            project.db, stage_id=f"op:{op_id}", op_id=op_id
+                        )
+                    if changes:
+                        replace_base_cells(
+                            project.db,
+                            producer_id=producer_id,
+                            column_ids=[int(key) for key in changes],
+                            row_ids=[target],
+                            cells=[
+                                BaseCellWrite(target, int(key), value)
+                                for key, value in changes.items()
+                            ],
+                        )
+                    row_ids.append(target)
+                    published = True
+                    changed += 1
+                else:
+                    skipped += 1
+            else:
+                if op_id is None:
+                    op_id = _append_source_poll_op_in_txn(
+                        cur,
+                        {"source_id": source_id, "source_run_id": source_run_id},
+                        label=f"source poll {source_before['name']}",
+                    )
+                    producer_id = create_base_cell_producer(
+                        project.db, stage_id=f"op:{op_id}", op_id=op_id
+                    )
+                [target] = _add_source_poll_rows_in_txn(
+                    project,
+                    sheet_id,
+                    [records[staged_item.ordinal - 1]],
+                    column_ids,
+                    producer_id=producer_id,
+                )
+                row_ids.append(target)
+                published = True
+                new_rows += 1
+            observe(
+                project.db,
+                relationship_id=relation,
+                row_id=target,
+                key=staged_item.key,
+                incoming=incoming,
+            )
             source_store.upsert_source_item(
                 source_id=source_id,
                 source_item_id=item.stable_item_id(),
                 dedupe_key=item.dedupe_key,
                 item_hash=item.stable_hash(),
-                row_id=row_id,
+                row_id=target,
                 source_run_id=source_run_id,
-                revision=revision,
                 raw_ref=_source_item_raw_ref(item),
                 commit=False,
             )
+            if published and (
+                item.row.get("enclosure_url") or item.row.get("enclosures")
+            ):
+                enclosure_row_ids.append(target)
     return {
         "sheet_id": sheet_id,
         "op_id": op_id,
         "row_ids": row_ids,
         "enclosure_row_ids": enclosure_row_ids,
-        "new_rows": len(new_rows) - revisions,
+        "new_rows": new_rows,
         "skipped_rows": skipped,
         "changed_rows": changed,
-        "revisions": revisions,
+        "revisions": 0,
         "materialized_rows": len(row_ids),
         "duplicates_collapsed": duplicates_collapsed,
     }
-
-
-def _collapse_duplicate_dedupe_keys(
-    items: list[SourcePollItem],
-) -> tuple[list[SourcePollItem], int]:
-    """Reduce a poll batch to one item per dedupe_key.
-
-    The existence check below reads `source_items` as it stood before this
-    batch, so without this two items sharing a dedupe_key are invisible to each
-    other: both look new, both get a row, and `rows` has no constraint to catch
-    it. Worse, only the last one lands in the ledger, so every later poll sees
-    the other one's hash as "changed" and appends a revision row forever --
-    unbounded growth from zero new items. Feeds do produce this (a republished
-    entry keeping its guid; a generator omitting guid so `link` is the key).
-
-    Last statement wins the content -- matching the ledger write order this
-    loop already had -- at the first occurrence's position, so row order stays
-    stable if a later poll drops the duplicate.
-    """
-    collapsed: dict[str, SourcePollItem] = {}
-    for item in items:
-        collapsed[item.dedupe_key] = item
-    return list(collapsed.values()), len(items) - len(collapsed)
 
 
 def _rename_default_media_source_in_txn(
@@ -832,9 +935,9 @@ def _source_poll_row(
     item: SourcePollItem,
 ) -> dict[str, Any]:
     row = dict(item.row)
-    row.setdefault("source_id", source_id)
-    row.setdefault("source_run_id", source_run_id)
-    row.setdefault("source_item_id", item.stable_item_id())
+    row["source_id"] = source_id
+    row["source_run_id"] = source_run_id
+    row["source_item_id"] = item.stable_item_id()
     row.setdefault("source_url", item.url)
     row.setdefault("source_raw", item.raw)
     if item.title is not None:
@@ -856,14 +959,6 @@ def _source_item_raw_ref(item: SourcePollItem) -> dict[str, Any]:
         "media": item.media,
         "artifacts": item.artifacts,
     }
-
-
-def _source_item_revision(project: Project, source_id: int, dedupe_key: str) -> int:
-    existing = SourceStore(project).source_item_for_dedupe(source_id, dedupe_key)
-    if existing is None:
-        return 1
-    keys = set(existing.keys())
-    return int(existing["revision"] if "revision" in keys else 0) + 1
 
 
 def _source_poll_column_order(records: list[dict[str, Any]]) -> list[str]:

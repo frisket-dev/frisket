@@ -47,8 +47,25 @@ class ImportRowsParams(ActionParams):
 
 
 class UpdateRowsParams(ImportRowsParams):
+    @model_validator(mode="after")
+    def _validate_rows(self) -> UpdateRowsParams:
+        types = {column.name: column.type for column in self.columns}
+        for row in self.rows:
+            if not set(row).issubset(types):
+                raise ValueError("row_shape_mismatch")
+        self.rows = [
+            {
+                name: normalize_import_value(types[name], value)
+                for name, value in row.items()
+            }
+            for row in self.rows
+        ]
+        return self
+
     key_columns: list[str] = Field(min_length=1)
     keep_existing_on_blank: bool = False
+    update_policy: Literal["keep_changes", "incoming_wins"] = "keep_changes"
+    relationship_id: str | None = Field(default=None, min_length=1, max_length=200)
 
     @model_validator(mode="after")
     def _validate_update_mapping(self) -> UpdateRowsParams:
@@ -77,6 +94,8 @@ def update_rows(params: UpdateRowsParams, updater: RowsUpdater) -> UpdatedImport
         rows=tuple(params.rows),
         source=params.source.model_dump(mode="json") if params.source else {},
         keep_existing_on_blank=params.keep_existing_on_blank,
+        update_policy=params.update_policy,
+        relationship_id=params.relationship_id,
     )
 
 
@@ -145,6 +164,8 @@ class ImportCsvParams(ActionParams):
 class UpdateCsvParams(ImportCsvParams):
     key_columns: list[str] = Field(min_length=1)
     keep_existing_on_blank: bool = False
+    update_policy: Literal["keep_changes", "incoming_wins"] = "keep_changes"
+    relationship_id: str | None = Field(default=None, min_length=1, max_length=200)
 
     @model_validator(mode="after")
     def _validate_update_mapping(self) -> UpdateCsvParams:

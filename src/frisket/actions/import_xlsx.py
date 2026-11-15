@@ -38,6 +38,8 @@ class ImportXlsxParams(ActionParams):
 class UpdateXlsxParams(ImportXlsxParams):
     key_columns: list[str] = Field(min_length=1)
     keep_existing_on_blank: bool = False
+    update_policy: Literal["keep_changes", "incoming_wins"] = "keep_changes"
+    relationship_id: str | None = Field(default=None, min_length=1, max_length=200)
 
     @model_validator(mode="after")
     def _validate_update_mapping(self) -> UpdateXlsxParams:

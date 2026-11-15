@@ -164,6 +164,8 @@ def prepare_pasted_rows(
     destination_sheet_id: int | None = None,
     key_columns: Sequence[str] | None = None,
     keep_existing_on_blank: bool = False,
+    update_policy: str = "keep_changes",
+    relationship_id: str | None = None,
 ) -> ImportRowsParams | UpdateRowsParams:
     reviewed = _reviewed_entries(reviewed_columns, analysis.headers)
     if destination_sheet_id is None:
@@ -211,7 +213,10 @@ def prepare_pasted_rows(
     values: dict[str, Any] = {"columns": columns, "rows": rows, "source": source}
     if destination_sheet_id is not None and key_columns is not None:
         values.update(
-            key_columns=list(key_columns), keep_existing_on_blank=keep_existing_on_blank
+            key_columns=list(key_columns),
+            keep_existing_on_blank=keep_existing_on_blank,
+            update_policy=update_policy,
+            relationship_id=relationship_id,
         )
         return UpdateRowsParams.model_validate(values)
     return ImportRowsParams.model_validate(values)
@@ -265,6 +270,8 @@ class ImportDraftService:
                 destination_sheet_id=body.destination_sheet_id,
                 key_columns=body.key_columns,
                 keep_existing_on_blank=body.keep_existing_on_blank,
+                update_policy=body.update_policy,
+                relationship_id=body.relationship_id,
             )
         except ImportDraftRouteError:
             raise
@@ -296,6 +303,8 @@ class ImportDraftService:
                 key_columns=params.key_columns,
                 rows=params.rows,
                 keep_existing_on_blank=params.keep_existing_on_blank,
+                update_policy=params.update_policy,
+                relationship_id=params.relationship_id,
                 max_rows=max_rows,
             )
         except OverflowError as exc:
@@ -355,6 +364,8 @@ class ImportDraftService:
             if isinstance(params, UpdateRowsParams)
             else [],
             "keep_existing_on_blank": body.keep_existing_on_blank,
+            "update_policy": body.update_policy,
+            "relationship_id": body.relationship_id,
         }
         key = (
             "paste@sha256:"

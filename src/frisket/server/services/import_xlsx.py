@@ -118,6 +118,8 @@ def _xlsx_params(
     columns: list[dict[str, Any]] | None = None,
     key_columns: tuple[str, ...] | None = None,
     keep_existing_on_blank: bool = False,
+    update_policy: str = "keep_changes",
+    relationship_id: str | None = None,
 ) -> ImportXlsxParams | UpdateXlsxParams:
     values: dict[str, Any] = {
         "source": {"kind": "file", "path": source_path, "label": scan.logical_path},
@@ -126,7 +128,10 @@ def _xlsx_params(
     }
     if key_columns is not None:
         values.update(
-            key_columns=list(key_columns), keep_existing_on_blank=keep_existing_on_blank
+            key_columns=list(key_columns),
+            keep_existing_on_blank=keep_existing_on_blank,
+            update_policy=update_policy,
+            relationship_id=relationship_id,
         )
         return UpdateXlsxParams.model_validate(values)
     return ImportXlsxParams.model_validate(values)
@@ -185,6 +190,8 @@ class ImportXlsxUploadService:
         column_mapping: str,
         key_columns: str,
         keep_existing_on_blank: bool,
+        update_policy: str = "keep_changes",
+        relationship_id: str | None = None,
         deps: ExecutorDeps | None = None,
     ) -> dict[str, Any]:
         project = self._workspace.get(project_id)
@@ -205,6 +212,8 @@ class ImportXlsxUploadService:
                 ],
                 key_columns=mapping.key_columns,
                 keep_existing_on_blank=keep_existing_on_blank,
+                update_policy=update_policy,
+                relationship_id=relationship_id,
             )
             assert isinstance(params, UpdateXlsxParams)
             with open_local_file_reader(
@@ -227,6 +236,8 @@ class ImportXlsxUploadService:
                     key_columns=params.key_columns,
                     rows=(row.output.root for row in produced.rows),
                     keep_existing_on_blank=keep_existing_on_blank,
+                    update_policy=update_policy,
+                    relationship_id=relationship_id,
                     max_rows=max_rows,
                 )
         except OverflowError as exc:
@@ -255,6 +266,8 @@ class ImportXlsxUploadService:
         column_mapping: str | None = None,
         update_key_columns: str | None = None,
         keep_existing_on_blank: bool = False,
+        update_policy: str = "keep_changes",
+        relationship_id: str | None = None,
         confirmation: str | None = None,
     ) -> ImportXlsxUploadResponse:
         project = self._workspace.get(project_id)
@@ -327,6 +340,8 @@ class ImportXlsxUploadService:
             columns=columns,
             key_columns=keys,
             keep_existing_on_blank=keep_existing_on_blank,
+            update_policy=update_policy,
+            relationship_id=relationship_id,
         )
         result = run_tabular_action(
             project,

@@ -642,10 +642,18 @@ class _RowsUpdater(_CallOnce):
         rows: tuple[Mapping[str, Any], ...],
         source: Mapping[str, Any],
         keep_existing_on_blank: bool,
+        update_policy: str = "keep_changes",
+        relationship_id: str | None = None,
     ) -> UpdatedImportedRows:
         self._begin()
         return self._update_rows(
-            columns, key_columns, rows, source, keep_existing_on_blank
+            columns,
+            key_columns,
+            rows,
+            source,
+            keep_existing_on_blank,
+            update_policy,
+            relationship_id,
         )
 
     def update_csv(self, params: Any) -> UpdatedImportedRows:
@@ -661,6 +669,8 @@ class _RowsUpdater(_CallOnce):
                 (row.output.root for row in produced.rows),
                 dict(produced.source or {}),
                 bool(params.keep_existing_on_blank),
+                params.update_policy,
+                params.relationship_id,
             )
 
     def update_xlsx(self, params: Any) -> UpdatedImportedRows:
@@ -676,6 +686,8 @@ class _RowsUpdater(_CallOnce):
                 (row.output.root for row in produced.rows),
                 dict(produced.source or {}),
                 bool(params.keep_existing_on_blank),
+                params.update_policy,
+                params.relationship_id,
             )
 
     def _update_rows(
@@ -685,6 +697,8 @@ class _RowsUpdater(_CallOnce):
         rows: Any,
         source: Mapping[str, Any],
         keep_existing_on_blank: bool,
+        update_policy: str = "keep_changes",
+        relationship_id: str | None = None,
     ) -> UpdatedImportedRows:
         from frisket.engine.executor.import_update import plan_import_update
 
@@ -698,6 +712,8 @@ class _RowsUpdater(_CallOnce):
                 keep_existing_on_blank=keep_existing_on_blank,
                 preflight_rows=preflight_typed_rows_for_persistence,
                 max_rows=self._max_rows,
+                update_policy=update_policy,
+                relationship_id=relationship_id,
             )
         except TableError as exc:
             _refuse(
@@ -734,14 +750,6 @@ class _RowsUpdater(_CallOnce):
                 action_kind=self._action.kind,
                 field="scope.sheet_id",
             )
-        if plan.ambiguous:
-            _refuse(
-                "ambiguous_import_keys",
-                "Duplicate exact keys make the imported update ambiguous",
-                action_kind=self._action.kind,
-                field="params.rows",
-                details={"ambiguous": plan.ambiguous},
-            )
         if self._action.confirmation != plan.confirmation:
             _refuse(
                 "stale_import_preview",
@@ -750,7 +758,7 @@ class _RowsUpdater(_CallOnce):
                 field="confirmation",
                 details={
                     "confirmation": plan.confirmation,
-                    "preview": plan.__dict__ | {"targets": []},
+                    "preview": plan.__dict__ | {"targets": [], "observations": []},
                 },
             )
         for column_id in {int(target["column_id"]) for target in plan.targets}:
@@ -784,6 +792,28 @@ class _RowsUpdater(_CallOnce):
             targets=list(plan.targets),
             stale_reason="imported_cell_update",
         )
+        from uuid import uuid4
+        from frisket.engine.store.keyed_updates import require_relationship, observe
+
+        relation = relationship_id or f"import:{uuid4().hex}"
+        require_relationship(
+            self._project.db,
+            relationship_id=relation,
+            sheet_id=int(self._action.row_scope.sheet_id),
+            key_definition=plan.key_definition,
+        )
+        for item in plan.observations:
+            observe(
+                self._project.db,
+                relationship_id=relation,
+                row_id=item["row_id"],
+                key=item["key"],
+                incoming=item["record"],
+            )
+        source = dict(source) | {
+            "relationship_id": relation,
+            "skipped_conflicts": plan.ambiguous,
+        }
         result = UpdatedImportedRows(
             int(self._action.row_scope.sheet_id),
             tuple(sorted({int(target["row_id"]) for target in plan.targets})),
