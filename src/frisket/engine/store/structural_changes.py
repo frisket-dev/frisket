@@ -126,12 +126,24 @@ def project_structural_changes(db, op_id):
     if not db.in_transaction:
         raise RuntimeError("structural projection requires a caller-owned transaction")
     # Scope stays in SQLite, including a million-row import. A structural edit
-    # never replays or traverses downstream content.
+    # never replays or traverses downstream content. Most cell Changes have no
+    # membership effects; avoid planning a whole structural window for them.
+    # Explicit equal bounds keep this a range seek even when ANALYZE saw
+    # only one large import owner and estimates an equality as the whole index.
+    kinds = {
+        row[0]
+        for row in db.execute(
+            "SELECT DISTINCT kind FROM structural_changes INDEXED BY idx_structural_change_op WHERE op_id BETWEEN ? AND ?",
+            (op_id, op_id),
+        )
+    }
     for kind, table, field in (
         ("row", "rows", "hidden"),
         ("column", "columns", "active"),
         ("sheet", "sheets", "hidden"),
     ):
+        if kind not in kinds:
+            continue
         visible = "visible" if field == "active" else "1-visible"
         hidden_update = (
             ",hidden=CASE WHEN (SELECT visible FROM winners WHERE winners.object_id=columns.id)=0 THEN 1 ELSE hidden END"

@@ -343,13 +343,14 @@ def step_operation(
             "replaced_rows_import_session_id",
         )
     )
+    # Equal bounds keep an indexed seek under heavily skewed import statistics.
     structural_scope = structural_scope or (
         project.db.execute(
-            "SELECT 1 FROM structural_changes effect "
-            "JOIN project_purge_targets target ON target.kind=effect.kind "
+            "SELECT 1 FROM structural_changes effect INDEXED BY idx_structural_change_op "
+            "CROSS JOIN project_purge_targets target ON target.kind=effect.kind "
             "AND target.object_id=effect.object_id "
-            "WHERE effect.op_id=? LIMIT 1",
-            (target_op_id,),
+            "WHERE effect.op_id BETWEEN ? AND ? LIMIT 1",
+            (target_op_id, target_op_id),
         ).fetchone()
         is not None
     )
@@ -481,12 +482,24 @@ def step_operation(
     source_columns = {
         int(row[0])
         for row in project.db.execute(
-            "SELECT DISTINCT cell.column_id FROM cells cell "
-            "JOIN base_cell_producers producer ON producer.id=cell.producer_id "
+            "SELECT DISTINCT cell.column_id FROM base_cell_producers producer "
+            "CROSS JOIN cells cell ON producer.id=cell.producer_id "
             "WHERE producer.op_id=?",
             (target_op_id,),
         )
     }
+    from .cell_projection import invalidate_run_scopes
+
+    for run in project.db.execute("SELECT id FROM runs WHERE op_id=?", (target_op_id,)):
+        run_id = int(run[0])
+        generation_columns = [
+            int(row[0])
+            for row in project.db.execute(
+                "SELECT column_id FROM run_output_generations WHERE run_id=?", (run_id,)
+            )
+            if int(row[0]) not in projection_column_ids
+        ]
+        invalidate_run_scopes(project.db, run_id, generation_columns)
     refresh_current_cells(
         project.db,
         column_ids=set(projection_column_ids)
@@ -677,7 +690,7 @@ def operation_projection_column_ids(
 ) -> frozenset[int]:
     """Columns whose visible value layer can change when an op changes status."""
 
-    column_ids = set(ResultGenerationStore(project).column_ids_for_op(op_id))
+    column_ids: set[int] = set()
     column_ids.update(
         int(row[0])
         for row in project.db.execute(
@@ -697,8 +710,6 @@ def operation_projection_column_ids(
         )
     for field_name in (
         "created_columns",
-        "column_pointers",
-        "column_pointers_after",
         "column_formats",
         "column_formats_after",
         "column_types",
@@ -711,6 +722,11 @@ def operation_projection_column_ids(
             column_ids.update(int(column_id) for column_id in value)
         elif isinstance(value, list):
             column_ids.update(int(column_id) for column_id in value)
+    generated = set(ResultGenerationStore(project).column_ids_for_op(op_id))
+    for field in ("column_pointers", "column_pointers_after"):
+        column_ids.update(
+            int(cid) for cid in undo_info.get(field, {}) if int(cid) not in generated
+        )
     return frozenset(column_ids)
 
 

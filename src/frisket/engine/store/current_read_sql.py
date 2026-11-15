@@ -90,3 +90,39 @@ def current_values_sql(
         )
         + ")"
     )
+
+
+def current_result_coordinate_sql(coordinate_alias: str) -> str:
+    """Resolve unmodified result authority for one correlated row/column key.
+
+    A run-only filter cannot push through the winner window: run ownership is
+    chosen *after* comparing contributions. Correlate on its partition keys
+    before ranking, using the same authoritative definition as broad reads.
+    """
+    import re
+    from .change_schema import CHANGE_SCHEMA_SQL
+
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", coordinate_alias):
+        raise ValueError("coordinate SQL alias must be an identifier")
+    canonical = CHANGE_SCHEMA_SQL.split(
+        "CREATE VIEW IF NOT EXISTS canonical_cell_heads AS", 1
+    )[1].split(";", 1)[0]
+    contributions = CHANGE_SCHEMA_SQL.split(
+        "CREATE VIEW IF NOT EXISTS cell_contributions AS", 1
+    )[1].split(";", 1)[0]
+    # SQLite does not push a correlated predicate through this UNION/window.
+    # Scope each unchanged contribution arm before combining and ranking it.
+    scoped = " UNION ALL ".join(
+        "SELECT * FROM (" + arm + ") candidate "
+        f"WHERE candidate.column_id={coordinate_alias}.column_id "
+        f"AND candidate.row_id={coordinate_alias}.row_id"
+        for arm in contributions.split("\nUNION ALL\n")
+    )
+    canonical = canonical.replace(
+        "FROM cell_contributions contribution",
+        f"FROM ({scoped}) contribution WHERE contribution.origin_kind!='manual_edit'",
+    )
+    return (
+        "(SELECT column_id,row_id,origin_run_id AS run_id FROM (" + canonical + ") "
+        "WHERE origin_kind='run_result' AND outcome IN ('completed','failed'))"
+    )

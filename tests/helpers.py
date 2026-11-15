@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import json
 import logging
 import os
 import sys
@@ -28,6 +29,24 @@ from fastapi.testclient import TestClient
 from frisket.ai.llm import ModelRouter, ResponseCache
 from frisket.server.app import create_app
 from frisket.testing import llm_cache_path
+
+
+def stored_output_descriptor(db: Any, column_id: int) -> str:
+    """Freeze the real column descriptor for raw generation-storage fixtures."""
+    row = db.execute(
+        "SELECT type,format,semantic_type FROM columns WHERE id=?", (column_id,)
+    ).fetchone()
+    if row is None:
+        raise AssertionError(f"missing output descriptor column {column_id}")
+    return json.dumps(
+        {
+            "column_type": row[0],
+            "schema": {},
+            "format": row[1],
+            "semantic_type": row[2],
+        },
+        sort_keys=True,
+    )
 
 
 def replace_test_source_cell(
@@ -338,6 +357,13 @@ def write_claimed_test_results(
     output_column_ids = {
         int(item["column_id"]) for item in batch if item.get("column_id") is not None
     }
+    runs = RunResultStore(project)
+    if runs.run_row_scope_if_present(run_id) is None:
+        # This fixture publishes one complete batch, so that batch is its
+        # declared cohort. Never replace a scope the caller already froze.
+        runs.record_run_row_scope(
+            run_id, list(dict.fromkeys(int(item["row_id"]) for item in batch))
+        )
     authority = run_writer_authority_fixture(
         project,
         run_id,

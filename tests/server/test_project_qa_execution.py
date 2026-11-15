@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from helpers import stored_output_descriptor
 
 from frisket.actions.system import root_action_catalog_payload
 from frisket.engine.store import Project
@@ -693,9 +694,17 @@ async def test_replacement_respects_write_mode_at_frozen_target(
     project.db.execute(
         "INSERT INTO run_output_generations "
         "(run_id,column_id,output_role,compatibility_key,write_mode,state,"
-        "claim_token,terminal_disposition,sealed_at) "
-        "VALUES (?,?,?,?,?,'sealed',?,'completed',datetime('now'))",
-        (run_id, greeting_column, "rendered", "text", "create", "prior-claim"),
+        "claim_token,terminal_disposition,sealed_at,output_descriptor_json) "
+        "VALUES (?,?,?,?,?,'sealed',?,'completed',datetime('now'),?)",
+        (
+            run_id,
+            greeting_column,
+            "rendered",
+            "text",
+            "create",
+            "prior-claim",
+            stored_output_descriptor(project.db, greeting_column),
+        ),
     )
     project.db.commit()
     if decision is not None:

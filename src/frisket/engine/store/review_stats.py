@@ -24,15 +24,22 @@ def current_review_run_predicate(
     run_alias: str = "runs", *, terminal_only: bool = False
 ) -> str:
     """A saved result still belonging to a visible output, ignoring ordinary edits."""
+    from .current_read_sql import current_result_coordinate_sql
+
     run = _require_alias(run_alias)
+    heads = current_result_coordinate_sql("review_result")
     terminal = f"{run}.status <> 'running' AND " if terminal_only else ""
     return (
         f"{terminal}"
-        "EXISTS (SELECT 1 FROM current_result_heads review_head "
-        "JOIN columns review_column ON review_column.id=review_head.column_id "
+        "EXISTS (SELECT 1 FROM results review_result "
+        "JOIN columns review_column ON review_column.id=review_result.column_id "
         "JOIN sheets review_sheet ON review_sheet.id=review_column.sheet_id "
-        f"WHERE review_head.run_id={run}.id "
-        "AND review_column.active=1 AND review_sheet.hidden=0)"
+        f"WHERE review_result.run_id={run}.id AND review_result.published=1 "
+        "AND review_column.active=1 AND review_sheet.hidden=0 "
+        f"AND EXISTS (SELECT 1 FROM {heads} review_head "
+        "WHERE review_head.column_id=review_result.column_id "
+        "AND review_head.row_id=review_result.row_id "
+        "AND review_head.run_id=review_result.run_id))"
     )
 
 

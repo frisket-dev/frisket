@@ -4,6 +4,8 @@ from collections.abc import Iterable
 import json
 from pathlib import Path
 
+from helpers import stored_output_descriptor
+
 from frisket.engine.store import Project
 from frisket.engine.runner.review import review_bundle_count
 from frisket.engine.store.review_stats import mark_run_review_stats_dirty
@@ -29,10 +31,15 @@ def _publish_managed_results(
         row_ids=row_ids,
         total_rows=len(row_ids),
     )
+    if point_heads:
+        from frisket.engine.store.changes import start_change
+
+        project.db.execute("BEGIN IMMEDIATE")
+        start_change(project.db, op_id, writing=True)
     project.db.executemany(
         "INSERT INTO run_output_generations "
         "(run_id,column_id,output_role,compatibility_key,write_mode,state,"
-        "claim_token) VALUES (?,?,?,?,?,?,?)",
+        "claim_token,output_descriptor_json) VALUES (?,?,?,?,?,?,?,?)",
         [
             (
                 run_id,
@@ -42,14 +49,15 @@ def _publish_managed_results(
                 "create",
                 "active",
                 f"claim:{run_id}",
+                stored_output_descriptor(project.db, column_id),
             )
             for column_id in column_ids
         ],
     )
     project.db.executemany(
         "INSERT INTO results "
-        "(run_id,row_id,column_id,value_kind,value,outcome,publication_effect) "
-        "VALUES (?,?,?,?,?,?,?)",
+        "(run_id,row_id,column_id,value_kind,value,outcome,publication_effect,published) "
+        "VALUES (?,?,?,?,?,?,?,?)",
         [
             (
                 run_id,
@@ -58,6 +66,7 @@ def _publish_managed_results(
                 *encode_stored_value("value"),
                 "ok",
                 "publish_value",
+                int(point_heads),
             )
             for row_id in row_ids
             for column_id in column_ids

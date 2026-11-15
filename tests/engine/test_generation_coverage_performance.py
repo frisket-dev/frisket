@@ -125,7 +125,11 @@ def _publication_work(root: Path, row_count: int):
         )
         project.db.execute("ANALYZE")
         project.db.commit()
-        assert generations.read_cell_heads(column_id)[target].run_id == first.run_id
+        # A declared replacement masks the old value immediately. Its staged
+        # value becomes readable at publication; pending coverage must not
+        # expose the previous generation as though this run had succeeded.
+        assert target not in generations.read_cell_heads(column_id)
+        assert project.get_values(sheet_id, column_id, [target]) == {target: None}
         measurements = {}
         with _vm_work(project.db) as work:
             _seal(generations, second, column_id)
