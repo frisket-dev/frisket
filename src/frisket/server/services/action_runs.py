@@ -488,16 +488,7 @@ class ActionRunService:
             and not trusted_consent_principal.strip()
         ):
             raise ValueError("trusted consent principal must be non-empty")
-        # Payload-only gates FIRST, before the project is resolved. These two
-        # read nothing but the action envelope and this process's environment,
-        # so a refusal they own is already final: opening the workspace to
-        # produce a 404 instead would answer a different question than the
-        # caller asked, and (for a project that DOES exist) would create the
-        # project's files on the way to refusing anyway. Everything that needs
-        # project state stays below `self._workspace.get`.
-        deployment_result = self._declared_admission_result(None, project_id, body)
-        if deployment_result is not None:
-            return _action_run_response(deployment_result)
+        # A matching completed receipt is observation, not newly admitted work.
         project = self._workspace.get(project_id)
         if _observation_state is not None:
             _observation_state["project"] = project
@@ -773,7 +764,8 @@ class ActionRunService:
             return None
 
         try:
-            from frisket.actions.core import MapBatch, MapRows, ModelRows
+            from frisket.actions.core import MapBatch, MapRows, ModelRows, SemanticJoin
+            from frisket.actions.cluster_types import ValueClusterer
             from frisket.actions.system import typed_action_for_request
             from frisket.engine.executor.map_rows_action import (
                 typed_map_rows_replay_result,
@@ -784,7 +776,9 @@ class ActionRunService:
             return None
         if not isinstance(
             bound.action.definition.run,
-            (MapRows, MapBatch, ModelRows),
+            (MapRows, MapBatch, ModelRows, SemanticJoin),
+        ) and getattr(bound.action.definition.run, "capabilities", ()) != (
+            ValueClusterer,
         ):
             return None
         return typed_map_rows_replay_result(project, project_id, bound)

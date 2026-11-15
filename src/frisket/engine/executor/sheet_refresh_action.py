@@ -253,6 +253,16 @@ class _SheetRefresher:
             if sheet is not None
             else None
         )
+        if plan is not None:
+            from frisket.execution.action_admission import action_admission_error
+
+            refusal = action_admission_error(
+                self.project,
+                ACTION_REGISTRY.get(plan.request.action_id),
+                edition=self.edition,
+            )
+            if refusal is not None:
+                raise _RefreshRefused(refusal)
         if plan is not None and plan.kind == "group":
             from frisket.engine.executor.group_summary_refresh import prepare_refresh
 

@@ -59,8 +59,7 @@ def action_admission_error(
 ) -> ActionError | None:
     """Return a refusal before any action effect; None admits declared needs.
 
-    A projectless call checks deployment policy only, preserving the HTTP
-    pre-open refusal. The resolved inner action must pass this gate itself;
+    A projectless call checks deployment policy only. The resolved inner action must pass this gate itself;
     permission to Retry/Refresh is not permission to its target's capabilities.
     """
     kind = action.action_id

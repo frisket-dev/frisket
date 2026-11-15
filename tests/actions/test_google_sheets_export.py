@@ -308,3 +308,34 @@ def test_interrupted_intent_reservation_rolls_back_before_reraise(
     assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
     assert calls == []
     assert EffectCheckpointStore(project.db).list_all() == []
+
+
+def test_worker_rechecks_network_and_terminal_replay_skips_fresh_admission(export_case):
+    project, bound, deps, prepared, calls = export_case
+    bound = _confirmed(project, bound, deps)
+    envelope = prepare_google_sheets_action_job(project, "project", bound, deps=deps)
+    project.set_network_policy(mode="off")
+
+    def execute(current, intent, *, execution):
+        return run_google_sheets_action_job(
+            current, intent, execution=execution, deps=deps
+        )
+
+    refused = run_action_run_job(
+        project,
+        {"action_job": envelope.to_json()},
+        executor_lookup=lambda kind: execute,
+    )
+    assert refused.status == "failed"
+    assert refused.errors[0].code == "network_disabled"
+    assert not calls
+    # A terminal receipt is returned without admitting any new external effect.
+    project.set_network_policy(mode="on")
+    replay = run_action_run_job(
+        project,
+        {"action_job": envelope.to_json()},
+        executor_lookup=lambda kind: execute,
+    )
+    assert replay.receipt_id == refused.receipt_id
+    assert replay.errors == refused.errors
+    assert not calls

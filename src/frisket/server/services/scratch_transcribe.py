@@ -60,6 +60,15 @@ def paid_transcribe_scratch_plan(
 ) -> tuple[ScratchActionPreviewPlan, dict[str, Any]]:
     """Prepare one native transcription candidate over transient bytes."""
 
+    from frisket.actions.registry import ACTION_REGISTRY
+    from frisket.execution.action_admission import action_admission_error
+
+    refusal = action_admission_error(project, ACTION_REGISTRY.get("media.transcribe"))
+    if refusal is not None:
+        raise TranscribeComparePreviewError(
+            refusal.code, refusal.message, field=refusal.field, details=refusal.details
+        )
+
     engine = payload.get("engine")
     if not isinstance(engine, str) or not engine.strip():
         raise TranscribeComparePreviewError(

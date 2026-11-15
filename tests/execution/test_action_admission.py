@@ -126,3 +126,104 @@ def test_resolved_plugin_capabilities_do_not_depend_on_builtin_id(monkeypatch):
     error = action_admission_error(None, action)
     assert error.code == "code_action_disabled"
     assert error.action_kind == "example.research"
+
+
+def _declare_external(monkeypatch, action_id):
+    """Exercise the declared capability seam without depending on engine choice."""
+    from frisket.actions.core import RegisteredAction
+
+    original = RegisteredAction.required_capabilities
+    monkeypatch.setattr(
+        RegisteredAction,
+        "required_capabilities",
+        property(
+            lambda self: (
+                ("external:test",)
+                if self.action_id == action_id
+                else original.fget(self)
+            )
+        ),
+    )
+
+
+@pytest.mark.parametrize("family", ["ocr", "transcribe"])
+def test_scratch_preview_declared_gate_precedes_media_probe(
+    tmp_path, monkeypatch, family
+):
+    from frisket.server.services.scratch_ocr import paid_ocr_scratch_plan
+    from frisket.server.services.scratch_transcribe import paid_transcribe_scratch_plan
+    from frisket.preview.common import ComparePreviewError
+
+    action_id = "media.ocr" if family == "ocr" else "media.transcribe"
+    _declare_external(monkeypatch, action_id)
+    with closing(Project.create(tmp_path / "scratch.frisket")) as project:
+        project.set_network_policy(mode="off")
+        prepare = (
+            paid_ocr_scratch_plan if family == "ocr" else paid_transcribe_scratch_plan
+        )
+        with pytest.raises(ComparePreviewError) as caught:
+            prepare(
+                project,
+                media_bytes=b"not-media",
+                payload={"engine": "local"},
+                composition=None,
+            )
+        assert caught.value.code == "network_disabled"
+
+
+def test_refresh_checks_resolved_derive_action_before_read_or_publish(
+    tmp_path, monkeypatch
+):
+    from tests.engine.test_sheet_refresh import _build, _refresh
+
+    project, _, _, child_id, _ = _build(tmp_path)
+    try:
+        _declare_external(monkeypatch, "derive.table_from_list")
+        project.set_network_policy(mode="off")
+        before = tuple(project.db.iterdump())
+        result = run_action_spec(
+            project,
+            _refresh(sheet_id=child_id, key="blocked-refresh"),
+            project_id="p-ref",
+        )
+        assert result.status == "failed"
+        assert result.errors[0].code == "network_disabled"
+        assert tuple(project.db.iterdump()) == before
+    finally:
+        project.close()
+
+
+def test_queued_cluster_rechecks_declared_requirements_after_admission(
+    tmp_path, monkeypatch
+):
+    from fastapi.testclient import TestClient
+    from frisket.ai.llm import ModelRouter
+    from frisket.server.app import create_app
+    from frisket.engine.executor.queued_actions import queued_v1_payload_envelope
+
+    with TestClient(create_app(tmp_path / "workspace", router=ModelRouter())) as client:
+        pid = client.post("/api/projects", json={"name": "Gate"}).json()["id"]
+        imported = client.post(
+            f"/api/projects/{pid}/import/csv",
+            files={"file": ("names.csv", "name\nJon Smith\nSmith Jon\n", "text/csv")},
+        )
+        response = client.post(
+            f"/api/projects/{pid}/actions/v1/run",
+            json={
+                "action_id": "cluster.values",
+                "scope": {
+                    "kind": "sheet_rows",
+                    "sheet_id": imported.json()["sheet_id"],
+                },
+                "params": {"source": "name"},
+                "idempotency_key": "cluster-gate",
+            },
+        )
+        body = response.json()
+        assert body["status"] == "queued", body
+        job = client.app.state.workspace.queue.get(body["job_id"])
+        project = client.app.state.workspace.get(pid)
+        envelope = queued_v1_payload_envelope(job.payload)
+        _declare_external(monkeypatch, "cluster.values")
+        project.set_network_policy(mode="off")
+        assert envelope.pre_run_error(project).code == "network_disabled"

@@ -1145,6 +1145,42 @@ def run_action_run_job(
     try:
         execution.check()
         bound = bind_typed_action_job(envelope, project=project)
+        from frisket.actions.registry import ACTION_REGISTRY
+        from frisket.authoring.workbench.installed_actions import (
+            resolve_installed_action,
+        )
+        from frisket.authoring.action_metadata import product_edition_from_snapshot
+        from frisket.execution.action_admission import action_admission_error
+
+        installed = resolve_installed_action(project, action_kind)
+        try:
+            declared = (
+                installed[0]
+                if installed is not None
+                else ACTION_REGISTRY.get(action_kind)
+            )
+        except KeyError:
+            declared = None  # Composition-owned custom executors may have no public declaration.
+        if declared is not None:
+            snapshot = project.db.execute(
+                "SELECT edition_run_context FROM receipts WHERE id=?", (receipt_id,)
+            ).fetchone()[0]
+            refusal = action_admission_error(
+                project,
+                declared,
+                edition=product_edition_from_snapshot(
+                    json.loads(snapshot) if snapshot else None
+                ),
+            )
+            if refusal is not None:
+                return action_job_failure_result(
+                    project,
+                    project_id=project_id,
+                    receipt_id=receipt_id,
+                    action_kind=action_kind,
+                    error=refusal,
+                    job_id=job_id,
+                )
         if not isinstance(bound, ActionResult):
             from frisket.actions.core import MapBatch
 

@@ -166,6 +166,21 @@ class QueuedV1PayloadEnvelope:
         return kwargs
 
     def pre_run_error(self, project: Project) -> ActionError | None:
+        from frisket.actions.registry import ACTION_REGISTRY
+        from frisket.authoring.workbench.installed_actions import (
+            resolve_installed_action,
+        )
+        from frisket.execution.action_admission import action_admission_error
+
+        installed = resolve_installed_action(project, self.action.kind)
+        action = (
+            installed[0]
+            if installed is not None
+            else ACTION_REGISTRY.get(self.action.kind)
+        )
+        refusal = action_admission_error(project, action)
+        if refusal is not None:
+            return refusal
         if self.entry.pre_run_guard is None:
             return None
         return self.entry.pre_run_guard(project, self.payload, self.params)

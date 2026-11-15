@@ -154,3 +154,37 @@ def test_completed_direct_replay_does_not_require_current_network_or_key(
     assert fresh.status == "failed"
     assert fresh.errors[0].code in {"missing_action_credential", "network_disabled"}
     assert len(calls) == 2
+
+
+def test_http_completed_replay_precedes_changed_deployment_policy(
+    census_client, monkeypatch
+):
+    from frisket.actions.core import RegisteredAction
+
+    client, project_id, project, _, calls, body = census_client
+    url = f"/api/projects/{project_id}/actions/v1/run"
+    response = client.post(url, json=body)
+    drain_queue(client)
+    assert (
+        ReceiptStore(project).parsed_by_id(response.json()["receipt_id"]).status
+        == "completed"
+    )
+    original = RegisteredAction.required_capabilities
+    monkeypatch.setattr(
+        RegisteredAction,
+        "required_capabilities",
+        property(
+            lambda self: (
+                ("unsafe:local_code",)
+                if self.action_id == body["action_id"]
+                else original.fget(self)
+            )
+        ),
+    )
+    monkeypatch.setenv("FRISKET_ALLOW_CODE_RECIPES", "0")
+    replay = client.post(url, json=body)
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["receipt_id"] == response.json()["receipt_id"]
+    fresh = client.post(url, json={**body, "idempotency_key": "new-disabled-census"})
+    assert fresh.json()["errors"][0]["code"] == "code_action_disabled"
+    assert len(calls) == 2
