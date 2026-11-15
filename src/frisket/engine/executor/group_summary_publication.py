@@ -487,10 +487,9 @@ class GroupPublication:
             yield
         finally:
             task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+            # Collect the renewal task's cancellation without swallowing a
+            # separate cancellation of this invocation while joining it.
+            await asyncio.gather(task, return_exceptions=True)
 
     def _saved_write(
         self, op_id, sheet_id, *, row_ids=(), source_row_ids=(), memberships=()

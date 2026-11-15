@@ -689,12 +689,17 @@ async def _complete_reduce_group_summary_call(
             logger.warning("could not initialize group-summary call trace")
             row_trace = None
             traced_router = router
+    response = None
     try:
         async with publication.provider_lease():
             response = await traced_router.complete(
                 request, recipe_version="group_summary.v1"
             )
     except BaseException as exc:
+        if response is not None:
+            # Cleanup can be cancelled after the provider has returned. Its
+            # purchase still belongs to the returned-checkpoint recorder.
+            exc.wire_calls = wire_responses([*getattr(exc, "wire_calls", ()), response])
         if recorder is not None and row_trace is not None:
             trace_record[0] = traced_router.record(error=str(exc))
         raise

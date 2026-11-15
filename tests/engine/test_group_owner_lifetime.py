@@ -30,6 +30,32 @@ from test_group_summary_refresh import (
 project = _project_fixture
 
 
+def test_cancel_during_lease_cleanup_retains_returned_purchase(project):
+    class CancelAfterResponse(_CountingSummaryAdapter):
+        async def complete(self, req, client, **kwargs):
+            response = await super().complete(req, client, **kwargs)
+            asyncio.get_running_loop().call_soon(asyncio.current_task().cancel)
+            return response
+
+    adapter = CancelAfterResponse()
+    with pytest.raises(asyncio.CancelledError):
+        _run(
+            project,
+            _action(project._sheet_id, key="cancel-lease-cleanup"),
+            _project_key_router(adapter),
+        )
+    assert len(adapter.requests) == 1
+    run_id = project.db.execute("SELECT MAX(id) FROM runs").fetchone()[0]
+    calls = RunResultStore(project).model_calls(run_id)
+    assert len(calls) == 1
+    assert calls[0]["provider_cost_usd"] == pytest.approx(0.006)
+    assert project.db.execute("SELECT COUNT(*) FROM results").fetchone()[0] == 0
+    assert (
+        project.db.execute("SELECT state FROM effect_checkpoints").fetchone()[0]
+        == "returned"
+    )
+
+
 def test_external_task_cancel_in_retry_backoff_retains_usage_and_stops_next_group(
     project, monkeypatch
 ):
