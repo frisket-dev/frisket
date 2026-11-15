@@ -151,14 +151,14 @@ def test_duplicate_fanout_is_lazy_and_exact_confirmation_binds_sources(
         project, "Left", [{"k": "a", "v": "one"}, {"k": "a", "v": "two"}]
     )
     right, _, _ = sheet(project, "Right", [{"k": "a"}] * 3)
-    original = module.iter_join_records
+    original = module.JoinReadStage.records
     calls = []
 
-    def expand(**kwargs):
+    def expand(self, *args, **kwargs):
         calls.append(True)
-        yield from original(**kwargs)
+        yield from original(self, *args, **kwargs)
 
-    monkeypatch.setattr(module, "iter_join_records", expand)
+    monkeypatch.setattr(module.JoinReadStage, "records", expand)
     produced = read(reader(project, left), right, max_output_rows=5)
     assert len(produced.schema) == 2
     assert not calls

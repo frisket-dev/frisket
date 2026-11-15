@@ -202,3 +202,126 @@ def test_cancellation_during_absence_keeps_completed_retirements_and_undo_restor
         assert project.visible_row_ids(child) == original
     finally:
         project.close()
+
+
+def test_list_reader_pages_payloads_replays_schema_and_releases_item_tokens(
+    tmp_path, monkeypatch
+):
+    from frisket.actions.types import ListColumnSource
+    from frisket.engine.store import Project
+    from frisket.engine.executor.list_table_read import AdmittedListTableReader
+    import frisket.engine.store.consumed_source_pages as pages_module
+
+    project = Project.create(tmp_path / "bounded-list")
+    reader = None
+    try:
+        sheet = project.add_sheet("lists")
+        column = project.add_column(sheet, "items", "json")
+        rows = project.add_rows(
+            sheet,
+            [{"items": [{"v": str(i), "body": "x" * 4096}]} for i in range(600)],
+            {"items": column},
+        )
+        # Row display order need not be ID order; paging must retain that order.
+        project.db.execute("UPDATE rows SET position=-1 WHERE id=?", (rows[-1],))
+        project.db.commit()
+        actual = pages_module.iter_consumed_source_pages
+        sizes = []
+
+        def bounded(*args, **kwargs):
+            for page, values, refs in actual(*args, **kwargs):
+                sizes.append(len(page))
+                assert len(page) <= 256
+                assert all(
+                    len(column_values) <= 256 for column_values in values.values()
+                )
+                yield page, values, refs
+
+        monkeypatch.setattr(pages_module, "iter_consumed_source_pages", bounded)
+        reader = AdmittedListTableReader(project)
+        items = reader.read(
+            ListColumnSource(kind="column", sheet_id=sheet, column_id=column)
+        )
+        assert sizes == [256, 256, 88]
+        assert len(items) == 600
+        assert not reader.sources
+        assert items[0].value["v"] == "599"
+        for _ in range(2):
+            for item in items:
+                assert len(reader.sources) <= 2
+        token = weakref.ref(item.source)
+        del item
+        gc.collect()
+        assert token() is None
+        assert not reader.sources
+        assert not reader.item_associations
+        assert len(reader.consumed_captures) == 1
+        assert reader.consumed_captures[0]["scopes"][0]["cohort"] is None
+    finally:
+        if reader is not None:
+            reader.close()
+        project.close()
+
+
+def test_join_reader_stages_payloads_without_retaining_fanout_tokens(
+    tmp_path, monkeypatch
+):
+    from frisket.engine.store import Project
+    from frisket.engine.executor.joined_tables_read import AdmittedJoinedTablesReader
+    from frisket.actions.types import SheetRows, SheetRef
+    from frisket.actions.join_types import JoinKeyPair
+    import frisket.engine.store.consumed_source_pages as pages_module
+
+    project = Project.create(tmp_path / "bounded-join")
+    reader = None
+    try:
+        sheets = []
+        for name in ("left", "right"):
+            sheet = project.add_sheet(name)
+            cols = {n: project.add_column(sheet, n, "text") for n in ("k", "payload")}
+            project.add_rows(
+                sheet, [{"k": "same", "payload": "x" * 2048} for _ in range(300)], cols
+            )
+            sheets.append(sheet)
+        actual = pages_module.iter_consumed_source_pages
+        sizes = []
+
+        def bounded(*args, **kwargs):
+            for page, values, refs in actual(*args, **kwargs):
+                sizes.append(len(page))
+                assert all(
+                    len(column_values) <= 256 for column_values in values.values()
+                )
+                yield page, values, refs
+
+        monkeypatch.setattr(pages_module, "iter_consumed_source_pages", bounded)
+        reader = AdmittedJoinedTablesReader(
+            project,
+            scope=SheetRows(sheet_id=sheets[0]),
+            action_kind="derive.join",
+            request_identity={},
+            confirmation=None,
+        )
+        output = reader.read(
+            SheetRef(sheet_id=sheets[1]),
+            join_keys=[JoinKeyPair(left_column="k", right_column="k")],
+            max_output_rows=100000,
+        )
+        assert sizes == [256, 44, 256, 44]
+        assert reader.facts[0]["stats"]["both"] == 90000
+        assert not reader.sources
+        iterator = iter(output.rows)
+        for _ in range(20):
+            row = next(iterator)
+            reader.validate_lineage(row.sources, row.parent)
+            assert len(reader.sources) <= 4
+        del row
+        iterator.close()
+        del iterator, output
+        gc.collect()
+        assert not reader.sources
+        assert not reader.source_roles
+    finally:
+        if reader is not None:
+            reader.close()
+        project.close()

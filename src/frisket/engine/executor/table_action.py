@@ -646,6 +646,7 @@ def prepare_table_producer(
             elif capability is ListTableReader:
                 reader = AdmittedListTableReader(project, bound.action.action_id)
                 reader.require_complete = empty_list_schema is not None
+                resources.callback(reader.close)
             elif capability is SheetRowsReader:
                 reader = AdmittedSheetRowsReader(
                     project, scope=bound.request.scope, params=bound.params
@@ -673,6 +674,7 @@ def prepare_table_producer(
                     confirmation=bound.request.confirmation,
                     refresh_admission=join_refresh,
                 )
+                resources.callback(reader.close)
             elif capability is TranscriptReader:
                 reader = AdmittedTranscriptReader(
                     project,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any, Iterator
+from collections.abc import Sequence
 
 from pydantic import Field, field_validator, model_validator
 
@@ -147,7 +148,7 @@ class EmptyListSchema(TableError):
 
 
 def infer_projection(
-    items: tuple[ListItem, ...], include_columns: list[str] | None
+    items: Sequence[ListItem], include_columns: list[str] | None
 ) -> tuple[ListProjectionColumn, ...]:
     if not items:
         raise EmptyListSchema()
@@ -204,7 +205,7 @@ def infer_projection(
 
 
 def project_items(
-    items: tuple[ListItem, ...],
+    items: Sequence[ListItem],
     columns: list[ListProjectionColumn] | tuple[ListProjectionColumn, ...],
     *,
     require_paths: bool,

@@ -296,12 +296,14 @@ def test_join_confirmation_is_current_refresh_target_and_input_bound(
         )
         project.db.commit()
         after_edit = _snapshot(project)
-        build_records = joined_tables_read.iter_join_records
+        build_records = joined_tables_read.JoinReadStage.records
 
         def forbid_expansion(*args, **kwargs):
             pytest.fail("fan-out rows expanded before refresh confirmation")
 
-        monkeypatch.setattr(joined_tables_read, "iter_join_records", forbid_expansion)
+        monkeypatch.setattr(
+            joined_tables_read.JoinReadStage, "records", forbid_expansion
+        )
         stale = refresh(token)
         assert stale.status == "needs_confirmation"
         assert (
@@ -310,9 +312,49 @@ def test_join_confirmation_is_current_refresh_target_and_input_bound(
         )
         assert stale.errors[0].details["promise_set_hash"] != token
         assert _snapshot(project) == after_edit
-        monkeypatch.setattr(joined_tables_read, "iter_join_records", build_records)
+        monkeypatch.setattr(joined_tables_read.JoinReadStage, "records", build_records)
         confirmed = refresh(stale.errors[0].details["promise_set_hash"])
         assert confirmed.status == "completed", confirmed.errors
         assert confirmed.outputs[0].sheet_id == child_id
+    finally:
+        project.close()
+
+
+def test_pending_join_source_cannot_retire_previous_matches(tmp_path):
+    from frisket.engine.store.result_generations import ResultGenerationStore
+    from test_result_generation_store import _start_claimed_run, _declare
+    from frisket.engine.executor import run_action_spec
+
+    seeded = _seed_join(tmp_path / "pending-join")
+    project, child = seeded["project"], seeded["child_id"]
+    try:
+        original = project.visible_row_ids(child)
+        column = seeded["left_cols"]["state_fips"]
+        run = _start_claimed_run(
+            project,
+            sheet_id=seeded["left_id"],
+            output_column_id=column,
+            row_ids=project.visible_row_ids(seeded["left_id"]),
+            label="pending join keys",
+            replace_existing=True,
+        )
+        _declare(
+            ResultGenerationStore(project), run, column, write_mode="replace_scope"
+        )
+        result = run_action_spec(
+            project,
+            {
+                "scope": {"kind": "project"},
+                "action_id": "sheet.refresh",
+                "idempotency_key": "pending-join-refresh",
+                "params": {"sheet_id": child},
+            },
+            project_id="p",
+        )
+        assert result.status == "failed", result.errors
+        assert result.errors[0].details.get("reason") == "upstream_unavailable", (
+            result.errors
+        )
+        assert project.visible_row_ids(child) == original
     finally:
         project.close()

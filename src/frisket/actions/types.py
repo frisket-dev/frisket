@@ -1879,7 +1879,7 @@ class ListTableReader(Protocol):
         *,
         item_schema: dict[str, Any] | None = None,
         parent_columns: Sequence[ListParentColumn] = (),
-    ) -> tuple[ListItem, ...]:
+    ) -> Sequence[ListItem]:
         """Admit and read list items; the host retains item evidence privately."""
         ...
 

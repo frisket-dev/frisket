@@ -911,6 +911,7 @@ def _begin_staged_refresh(project, project_id, bound, prepared, request_hash):
             "policy": prepared.policy,
             "params_hash": request_hash,
             "refresh_receipt_id": receipt_id,
+            "derived_refresh": prepared.config,
             "reads": prepared.reads,
             SOURCE_BINDING: prepared.source_binding,
         },
