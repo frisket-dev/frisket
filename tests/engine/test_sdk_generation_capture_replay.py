@@ -204,9 +204,7 @@ def _publish_managed(
         claim_token=authority.claim_token,
         terminal_disposition="completed",
     )
-    RunResultStore(project).finish_run(
-        run_id, **authority.terminal_kwargs()
-    )
+    RunResultStore(project).finish_run(run_id, **authority.terminal_kwargs())
     RunResultStore(project).point_column_at_run(op_id, column_id, run_id)
     _release(project, authority)
     return _PublishedRun(op_id=op_id, run_id=run_id)
@@ -236,9 +234,7 @@ def _publish_legacy(
         ],
         **authority.kwargs(),
     )
-    RunResultStore(project).finish_run(
-        run_id, **authority.terminal_kwargs()
-    )
+    RunResultStore(project).finish_run(run_id, **authority.terminal_kwargs())
     RunResultStore(project).point_column_at_run(op_id, column_id, run_id)
     _release(project, authority)
     return _PublishedRun(op_id=op_id, run_id=run_id)
@@ -396,9 +392,7 @@ def test_capture_refuses_recipe_binding_role_drift_instead_of_filtering(sheet) -
         claim_token=authority.claim_token,
         terminal_disposition="completed",
     )
-    RunResultStore(project).finish_run(
-        run_id, **authority.terminal_kwargs()
-    )
+    RunResultStore(project).finish_run(run_id, **authority.terminal_kwargs())
 
     with pytest.raises(GenerationStateError, match="unexpected=.*generated_optional"):
         capture_maprunner_facts(

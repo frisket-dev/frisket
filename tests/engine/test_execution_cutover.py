@@ -12,7 +12,6 @@ from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
-from frisket.execution.attempt import set_attempt_state
 from test_result_generation_store import (
     _declare,
     _publish_initial_generation,

@@ -1030,9 +1030,7 @@ def test_managed_run_treats_every_effect_as_attempted_and_refuses_same_run_retry
         assert after == before
 
         _seal(generations, claimed_run, output_column_id)
-        store.finish_run(
-            claimed_run.run_id, **claimed_run.authority.terminal_kwargs()
-        )
+        store.finish_run(claimed_run.run_id, **claimed_run.authority.terminal_kwargs())
         _release(project, claimed_run)
         admission = store.begin_run_resume(claimed_run.run_id)
         assert not admission.admitted

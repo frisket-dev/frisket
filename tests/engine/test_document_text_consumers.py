@@ -759,7 +759,9 @@ def test_explicit_document_consumers_allow_hidden_active_roles(tmp_path, hidden)
             )
             == {}
         )
-        project.db.execute("UPDATE columns SET active=0,hidden=1 WHERE id=?", (cell[2],))
+        project.db.execute(
+            "UPDATE columns SET active=0,hidden=1 WHERE id=?", (cell[2],)
+        )
         project.db.commit()
         with pytest.raises(DocumentTextUnavailable):
             resolve_document_text_selection(project, cell, allow_hidden=True)

@@ -161,9 +161,7 @@ def test_missing_outcome_is_not_completed_and_later_source_results_do_not_change
         claim_token=auth.claim_token,
         terminal_disposition="cancelled",
     )
-    store.finish_run(
-        source_run, status="cancelled", **auth.terminal_kwargs()
-    )
+    store.finish_run(source_run, status="cancelled", **auth.terminal_kwargs())
     OutputColumnClaimStore(project).release(claim_token=auth.claim_token)
     op, target, _ = _copy(work, source_run)
     assert (
@@ -383,9 +381,7 @@ def test_copy_does_not_turn_withheld_terminal_result_into_usable_value(work, eff
         claim_token=auth.claim_token,
         terminal_disposition="completed",
     )
-    store.finish_run(
-        source_run, status="completed", **auth.terminal_kwargs()
-    )
+    store.finish_run(source_run, status="completed", **auth.terminal_kwargs())
     OutputColumnClaimStore(project).release(claim_token=auth.claim_token)
     op, target, _ = _copy(work, source_run, selected=[rows[0]])
     copied = project.db.execute(
