@@ -579,6 +579,9 @@ def _publish(
             if conflict:
                 project.db.rollback()
                 return conflict
+            from frisket.engine.store.run_lifecycle import close_run_change
+
+            close_run_change(project, run_id)
             set_attempt_state(project, writer, "effected", commit=False)
             if not claims.release(claim_token=claim, status="released", commit=False):
                 raise StaleAttemptWriter("Formula publication lost its output claim")

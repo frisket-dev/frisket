@@ -168,6 +168,21 @@ def test_reapply_from_retry_collects_success_union_and_retry_does_not_expand_sco
     adapter.fail = None
     retried = run("run.retry", {"source_run_id": original.run_id})
     assert retried.status == "completed", retried.errors
+    assert (
+        project.db.execute(
+            "SELECT published FROM results WHERE run_id=? AND row_id=?",
+            (retried.run_id, rows[1]),
+        ).fetchone()[0]
+        == 1
+    )
+    assert (
+        project.db.execute(
+            "SELECT publication_closed FROM ops JOIN runs ON runs.op_id=ops.id "
+            "WHERE runs.id=?",
+            (retried.run_id,),
+        ).fetchone()[0]
+        == 1
+    )
     combined = review_bundle_page(
         project, run_id=original.run_id, include_reviewed=True
     )

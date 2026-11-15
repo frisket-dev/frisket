@@ -83,6 +83,14 @@ def test_remote_cluster_exact_consent_accounting_and_cache(
         router=router, options={"method": "semantic"}, confirmation=confirmed
     )
     assert result.status == "completed", result.model_dump()
+    assert (
+        project.db.execute(
+            "SELECT publication_closed FROM ops JOIN runs ON runs.op_id=ops.id "
+            "WHERE runs.id=?",
+            (result.run_id,),
+        ).fetchone()[0]
+        == 1
+    )
     assert len(adapter.calls) == 1
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
     assert receipt.provider_use[0]["cost_actual"] == adapter.COST_USD

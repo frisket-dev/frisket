@@ -85,8 +85,6 @@ def _finalize_run_in_transaction(
     # writer tuple.  Its paired receipt owner then writes the actual terminal
     # run status together with receipt + attempt + claim in the terminalizer
     # kernel.  Every other path keeps the established one-step run close.
-    if not defer_terminal_status:
-        run_store.finish_run(run_id, status, commit=False)
     if managed_column_ids and not defer_generation_seal:
         if not isinstance(generation_claim_token, str) or not generation_claim_token:
             raise RuntimeError(
@@ -98,6 +96,14 @@ def _finalize_run_in_transaction(
             claim_token=generation_claim_token,
             terminal_disposition=status,
             commit=False,
+        )
+    # Publication must land before finish_run closes the owning Change.
+    if not defer_terminal_status:
+        run_store.finish_run(
+            run_id,
+            status,
+            commit=False,
+            defer_publication_close=defer_generation_seal,
         )
     never_point = {int(column_id) for column_id in never_point_column_ids}
     if never_point:

@@ -217,6 +217,29 @@ def test_prepared_publication_seam_leaves_legacy_control_behavior_unchanged(
     assert cells["second"]["confidence"] == 0.3
 
 
+@pytest.mark.parametrize("output_name", ["source", "note"])
+def test_plan_refuses_input_output_overlap_in_columns_and_templates(
+    project, output_name
+):
+    store, sheet_id, row_ids = project
+    request = ActionRequest(
+        action_id="map.render_test",
+        scope=SheetRows(sheet_id=sheet_id, row_ids=tuple(row_ids)),
+        params={"source": "source", "template": {"text": "{{note}}"}},
+        output_names={"rendered": output_name},
+        replace_existing=True,
+        idempotency_key="overlap",
+    )
+    with pytest.raises(TypedMapRowsPlanError) as raised:
+        build_typed_map_rows_plan(
+            store,
+            BoundTypedActionRequest.bind(REGISTRY.get(request.action_id), request),
+        )
+    assert raised.value.code == "input_output_overlap"
+    assert raised.value.details == {"columns": [output_name]}
+    assert store.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
+
+
 def test_plan_resolves_semantic_refs_and_logical_output_names(
     project: tuple[Project, int, list[int]],
 ) -> None:

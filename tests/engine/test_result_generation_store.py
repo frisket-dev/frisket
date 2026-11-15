@@ -189,6 +189,16 @@ def _publish_initial_generation(
     return generations, first
 
 
+def _outcomes(project: Project, column_id: int) -> dict[int, str]:
+    return {
+        row["row_id"]: row["outcome"]
+        for row in project.db.execute(
+            "SELECT row_id,outcome FROM canonical_cell_heads WHERE column_id=?",
+            (column_id,),
+        )
+    }
+
+
 def _descriptor(project: Project, column_id: int) -> dict[str, object]:
     row = project.db.execute(
         "SELECT type,format,semantic_type FROM columns WHERE id=?", (column_id,)
@@ -263,10 +273,13 @@ def test_descriptor_replacement_publishes_values_and_descriptor_at_seal_and_undo
             claim_token=token,
         )
         assert fence["current_head_run_id"] == first.run_id
-        assert project.db.execute(
-            "SELECT run_id FROM published_result_bases WHERE column_id=? AND row_id=?",
-            (column_id, row_ids[0]),
-        ).fetchone()["run_id"] == first.run_id
+        assert (
+            project.db.execute(
+                "SELECT run_id FROM published_result_bases WHERE column_id=? AND row_id=?",
+                (column_id, row_ids[0]),
+            ).fetchone()["run_id"]
+            == first.run_id
+        )
 
         assert _seal(generations, replacement, column_id) == len(row_ids)
         assert _descriptor(project, column_id) == target
@@ -400,14 +413,30 @@ def test_aborted_descriptor_replacement_stays_unpublished_across_rebuild_and_ret
 
         assert _seal(generations, replacement, column_id, disposition=disposition) == 0
         assert _descriptor(project, column_id)["type"] == "text"
-        assert {
-            head.run_id for head in generations.read_cell_heads(column_id).values()
-        } == {first.run_id}
+        RunResultStore(project).finish_run(replacement.run_id, disposition)
+        assert generations.read_cell_heads(column_id) == {}
+        assert _outcomes(project, column_id) == {
+            row_id: "not_completed" for row_id in row_ids
+        }
+        # Neither the prior published results nor the failed attempt's saved
+        # checkpoints are discarded by its not-completed mask.
+        assert project.db.execute(
+            "SELECT COUNT(*) FROM results WHERE run_id=? AND published=1",
+            (first.run_id,),
+        ).fetchone()[0] == len(row_ids)
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM results WHERE run_id=? AND published=0",
+                (replacement.run_id,),
+            ).fetchone()[0]
+            == effect_count
+        )
 
         generations.rebuild_heads([column_id])
-        assert {
-            head.run_id for head in generations.read_cell_heads(column_id).values()
-        } == {first.run_id}
+        assert generations.read_cell_heads(column_id) == {}
+        assert _outcomes(project, column_id) == {
+            row_id: "not_completed" for row_id in row_ids
+        }
         assert _seal(generations, replacement, column_id, disposition=disposition) == 0
         info = json.loads(
             project.db.execute(
@@ -444,7 +473,7 @@ def test_aborted_descriptor_replacement_stays_unpublished_across_rebuild_and_ret
 
 
 @pytest.mark.parametrize("disposition", ["cancelled", "failed"])
-def test_coupled_abort_keeps_previous_heads_and_cannot_publish_on_retry(
+def test_coupled_abort_masks_previous_heads_and_cannot_publish_on_retry(
     tmp_path: Path, disposition: str
 ) -> None:
     project, sheet_id, column_id, row_ids = _seed_project(tmp_path)
@@ -489,9 +518,18 @@ def test_coupled_abort_keeps_previous_heads_and_cannot_publish_on_retry(
             == 0
         )
         assert _seal(generations, second, column_id, disposition=disposition) == 0
-        heads = generations.read_cell_heads(column_id)
-        assert all(head.run_id == first.run_id for head in heads.values())
-        assert heads[row_ids[0]].value == "first:0"
+        RunResultStore(project).finish_run(second.run_id, disposition)
+        assert generations.read_cell_heads(column_id) == {}
+        assert _outcomes(project, column_id) == {
+            row_id: "not_completed" for row_id in row_ids
+        }
+        assert (
+            project.db.execute(
+                "SELECT value FROM results WHERE run_id=? AND row_id=?",
+                (first.run_id, row_ids[0]),
+            ).fetchone()[0]
+            == "first:0"
+        )
         assert (
             project.db.execute(
                 "SELECT value FROM results WHERE run_id=?", (second.run_id,)
@@ -1059,7 +1097,12 @@ def test_staged_idempotent_write_refuses_undone_op_without_partial_mutation(
             ),
             generations.read_cell_heads(output_column_id),
         )
-        assert after == before
+        assert after[:2] == before[:2]
+        # Undo itself restores the old head; the refused writer changes no
+        # payload or counter, and cannot reapply its pending mask.
+        assert set(before[2]) == set(row_ids[1:])
+        assert set(after[2]) == set(row_ids)
+        assert {head.run_id for head in after[2].values()} == {first.run_id}
     finally:
         project.close()
 
@@ -1158,9 +1201,18 @@ def test_fresh_results_stream_then_staged_subset_seals_exact_heads(
         ],
     )
 
-    # Existing output replacement is staged: no partial visibility and no
-    # carry-forward copies into the new run.
-    assert generations.read_cell_heads(output_column_id) == first_heads
+    # Staged rows mask prior answers, while untouched rows retain their heads.
+    assert generations.read_cell_heads(output_column_id) == {
+        row_ids[3]: first_heads[row_ids[3]]
+    }
+    assert _outcomes(project, output_column_id) == {
+        **{row_id: "pending" for row_id in targeted},
+        row_ids[3]: "completed",
+    }
+    assert project.db.execute(
+        "SELECT COUNT(*) FROM results WHERE run_id=? AND published=1",
+        (first.run_id,),
+    ).fetchone()[0] == len(row_ids)
     assert (
         project.db.execute(
             "SELECT COUNT(*) FROM results WHERE run_id=? AND column_id=?",
@@ -1393,14 +1445,20 @@ def test_seal_after_undo_cannot_publish_a_staged_generation(tmp_path: Path) -> N
         )
         == 0
     )
-    assert project.db.execute(
-        "SELECT published FROM results WHERE run_id=? AND row_id=? AND column_id=?",
-        (claimed.run_id, row_ids[0], output_column_id),
-    ).fetchone()[0] == 0
-    assert project.db.execute(
-        "SELECT COUNT(*) FROM cell_result_heads WHERE run_id=?",
-        (claimed.run_id,),
-    ).fetchone()[0] == 0
+    assert (
+        project.db.execute(
+            "SELECT published FROM results WHERE run_id=? AND row_id=? AND column_id=?",
+            (claimed.run_id, row_ids[0], output_column_id),
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM cell_result_heads WHERE run_id=?",
+            (claimed.run_id,),
+        ).fetchone()[0]
+        == 0
+    )
     op = project.db.execute(
         "SELECT status,publication_closed FROM ops WHERE id=?", (claimed.op_id,)
     ).fetchone()
@@ -1427,7 +1485,6 @@ def test_seal_publishes_only_complete_output_families(tmp_path: Path) -> None:
         run_id,
         output_column_ids={first_column_id, second_column_id},
     )
-    claimed = _ClaimedRun(op_id=op_id, run_id=run_id, authority=authority)
     token = authority.claim_token
     assert token is not None
     generations = ResultGenerationStore(project)
@@ -1468,12 +1525,18 @@ def test_seal_publishes_only_complete_output_families(tmp_path: Path) -> None:
         claim_token=token,
         terminal_disposition="cancelled",
     )
-    assert project.db.execute(
-        "SELECT COUNT(*) FROM results WHERE run_id=? AND published=1", (run_id,)
-    ).fetchone()[0] == 0
-    assert project.db.execute(
-        "SELECT COUNT(*) FROM cell_result_heads WHERE run_id=?", (run_id,)
-    ).fetchone()[0] == 0
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM results WHERE run_id=? AND published=1", (run_id,)
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM cell_result_heads WHERE run_id=?", (run_id,)
+        ).fetchone()[0]
+        == 0
+    )
     project.close()
 
 
@@ -1530,17 +1593,26 @@ def test_undo_cancels_live_run_and_preserves_returned_usage(tmp_path: Path) -> N
             batch,
             **claimed.authority.kwargs(),
         )
-    assert RunResultStore(project).model_calls(claimed.run_id)[0]["provider_cost_usd"] == 0.025
+    assert (
+        RunResultStore(project).model_calls(claimed.run_id)[0]["provider_cost_usd"]
+        == 0.025
+    )
     assert project.db.execute(
         "SELECT cost_actual FROM runs WHERE id=?", (claimed.run_id,)
     ).fetchone()[0] == pytest.approx(0.025)
-    assert project.db.execute(
-        "SELECT COUNT(*) FROM results WHERE run_id=?", (claimed.run_id,)
-    ).fetchone()[0] == 0
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM results WHERE run_id=?", (claimed.run_id,)
+        ).fetchone()[0]
+        == 0
+    )
     RunResultStore(project).finish_run(claimed.run_id, "cancelled")
-    assert project.db.execute(
-        "SELECT status FROM runs WHERE id=?", (claimed.run_id,)
-    ).fetchone()[0] == "cancelled"
+    assert (
+        project.db.execute(
+            "SELECT status FROM runs WHERE id=?", (claimed.run_id,)
+        ).fetchone()[0]
+        == "cancelled"
+    )
     project.close()
 
 

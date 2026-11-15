@@ -1091,7 +1091,9 @@ class RunResultStore:
                 self.db.rollback()
             from frisket.engine.store.changes import ChangePublicationClosed
 
-            if isinstance(exc, (DocumentTextPublicationRefused, ChangePublicationClosed)):
+            if isinstance(
+                exc, (DocumentTextPublicationRefused, ChangePublicationClosed)
+            ):
                 # Publication can refuse a known source mismatch after the
                 # provider returned, or Undo can close the Change during the
                 # request. Facts and spend remain historical truth even though
@@ -3157,8 +3159,18 @@ class RunResultStore:
         ).fetchall()
 
     def finish_run(
-        self, run_id: int, status: str = "completed", *, commit: bool = True
+        self,
+        run_id: int,
+        status: str = "completed",
+        *,
+        commit: bool = True,
+        defer_publication_close: bool = False,
     ) -> None:
+        """Record worker completion; coupled publishers close after materialization.
+
+        Only a caller owning deferred generation publication may defer closure.
+        Its final transaction must seal results and close the Change together.
+        """
         # Whole-action previews may bind their running receipt to a published
         # run after provider accounting. Keep fact ownership immutable and
         # project its recorded cost through that explicit receipt link.
@@ -3169,7 +3181,8 @@ class RunResultStore:
         )
         from .run_lifecycle import close_run_change
 
-        close_run_change(self.project, run_id)
+        if not defer_publication_close:
+            close_run_change(self.project, run_id)
         from .review_stats import mark_run_review_stats_dirty, rebuild_run_review_stats
 
         mark_run_review_stats_dirty(self.db, run_id)

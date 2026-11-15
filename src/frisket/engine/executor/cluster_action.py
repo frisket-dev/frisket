@@ -411,6 +411,9 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
             "UPDATE ops SET spec=? WHERE id=?",
             (json.dumps(op_spec, sort_keys=True, allow_nan=False), run["op_id"]),
         )
+        from frisket.engine.store.run_lifecycle import close_run_change
+
+        close_run_change(project, run_id)
         set_attempt_state(project, writer, "effected", commit=False)
         if not claims.release(claim_token=claim, status="released", commit=False):
             raise StaleAttemptWriter("Cluster publication lost its output claim")

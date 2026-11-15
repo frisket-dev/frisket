@@ -494,9 +494,12 @@ class ResultGenerationStore:
             raise ValueError(f"unsupported generation write_mode {write_mode!r}")
 
         with self._write_scope(commit=commit):
-            if self.db.execute(
-                "SELECT 1 FROM run_scopes WHERE run_id=?", (run_id,)
-            ).fetchone() is None:
+            if (
+                self.db.execute(
+                    "SELECT 1 FROM run_scopes WHERE run_id=?", (run_id,)
+                ).fetchone()
+                is None
+            ):
                 raise GenerationStateError(
                     f"run {run_id} cannot declare outputs without a frozen row scope"
                 )
@@ -528,7 +531,9 @@ class ResultGenerationStore:
                 }
             )
             schema_snapshot = (
-                {} if target_descriptor is None else target_descriptor.get("schema") or {}
+                {}
+                if target_descriptor is None
+                else target_descriptor.get("schema") or {}
             )
             output_descriptor_json = json.dumps(
                 {
@@ -559,8 +564,7 @@ class ResultGenerationStore:
                 )
                 if (
                     existing.output_role != output_role
-                    or existing.output_descriptor
-                    != json.loads(output_descriptor_json)
+                    or existing.output_descriptor != json.loads(output_descriptor_json)
                     or existing.compatibility_key != compatibility_key
                     or existing.write_mode != write_mode
                     or (
@@ -1040,6 +1044,10 @@ class ResultGenerationStore:
             "UPDATE ops SET undo_info=? WHERE id=?",
             (json.dumps(info), int(operation["id"])),
         )
+        if publish:
+            from .column_descriptors import record_descriptor_changes
+
+            record_descriptor_changes(self.db, int(operation["id"]), info)
         return changed_column_ids if publish else set()
 
     def _record_unpublished_generations(
@@ -1159,9 +1167,8 @@ class ResultGenerationStore:
             operation = self._run_operation(int(run_id))
             if operation is None:
                 raise GenerationStateError(f"run {run_id} has no owning Change")
-            change_open = (
-                str(operation["status"]) == "applied"
-                and not bool(operation["publication_closed"])
+            change_open = str(operation["status"]) == "applied" and not bool(
+                operation["publication_closed"]
             )
             open_bindings: list[RunOutputGeneration] = []
             for column_id in ordered_column_ids:

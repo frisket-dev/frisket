@@ -1699,3 +1699,57 @@ def test_abandoned_writer_terminalization_rolls_back_when_claim_release_fails(
 
     assert release_reached
     assert _durable_snapshot(project, orphan) == before
+
+
+def test_deferred_writer_closes_change_when_terminal_status_is_already_recorded(
+    project,
+):
+    orphan = _seed_orphaned_run(project)
+    project.db.execute("BEGIN IMMEDIATE")
+    project.db.execute(
+        "UPDATE execution_attempts SET state='dispatching' WHERE id=?",
+        (orphan.attempt_id,),
+    )
+    project.db.execute(
+        "UPDATE runs SET current_attempt_id=? WHERE id=?",
+        (orphan.attempt_id, orphan.run_id),
+    )
+    from frisket.engine.store.changes import start_change
+
+    op_id = project.db.execute(
+        "SELECT op_id FROM runs WHERE id=?",
+        (orphan.run_id,),
+    ).fetchone()[0]
+    start_change(project.db, op_id, writing=True)
+    RunResultStore(project).finish_run(
+        orphan.run_id,
+        "cancelled",
+        commit=False,
+        defer_publication_close=True,
+    )
+    project.db.commit()
+    assert (
+        project.db.execute(
+            "SELECT publication_closed FROM ops WHERE id=?",
+            (op_id,),
+        ).fetchone()[0]
+        == 0
+    )
+    result = terminalize_project_run(
+        project,
+        run_id=orphan.run_id,
+        receipt_id=orphan.receipt_id,
+        status="cancelled",
+        authority=CurrentWriterTerminalAuthority(
+            writer_attempt_id=orphan.attempt_id,
+            claim_token=orphan.claim_token,
+        ),
+    )
+    assert result.disposition == "terminalized"
+    assert (
+        project.db.execute(
+            "SELECT publication_closed FROM ops WHERE id=?",
+            (op_id,),
+        ).fetchone()[0]
+        == 1
+    )

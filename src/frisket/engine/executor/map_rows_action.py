@@ -1693,6 +1693,20 @@ def build_typed_map_rows_plan(
                 row_ids=request.scope.row_ids,
                 source_column_ids=references.source_column_ids,
             )
+    overlapping_columns = sorted(
+        set(references.source_columns)
+        & {
+            field.materialized_name(request.output_names)
+            for field in bound.output_fields
+        }
+    )
+    if overlapping_columns:
+        raise TypedMapRowsPlanError(
+            "input_output_overlap",
+            "Output columns must be separate from input columns. Choose a new output name.",
+            field="output_names",
+            details={"columns": overlapping_columns},
+        )
     if _admit_output_targets:
         output_names, output_target_preconditions = _resolve_typed_output_targets(
             project,
@@ -3532,7 +3546,9 @@ def typed_queued_map_spec(
                     str(role): str(name) for role, name in plan.output_names.items()
                 }
                 prepared_targets = {
-                    role_to_name.get(binding.output_role, binding.output_role): binding.column_id
+                    role_to_name.get(
+                        binding.output_role, binding.output_role
+                    ): binding.column_id
                     for binding in ResultGenerationStore(project).bindings_for_run(
                         run_id
                     )
@@ -3714,7 +3730,9 @@ def typed_queued_map_spec(
         }
         prepared_targets = (
             {
-                role_to_name.get(binding.output_role, binding.output_role): binding.column_id
+                role_to_name.get(
+                    binding.output_role, binding.output_role
+                ): binding.column_id
                 for binding in ResultGenerationStore(project).bindings_for_run(run_id)
             }
             if type(run_id) is int

@@ -260,9 +260,9 @@ def _materialize(
     }
     values = {
         key: project.get_values(
-            sheet_id, output_ids[name], row_ids=state["source"]["row_ids"]
+            sheet_id, output_ids[key], row_ids=state["source"]["row_ids"]
         )
-        for key, name in plan.output_names.items()
+        for key in plan.output_names
     }
     copied = {
         "source": state["source_column"],
@@ -305,6 +305,9 @@ def _materialize(
         label=f"semantic join {state['source']['name']} → {state['target']['name']}",
         commit=False,
     )
+    from frisket.engine.store.changes import ChangeStore, start_change
+
+    start_change(project.db, op_id, writing=True)
     producer_id = create_base_cell_producer(
         project.db, stage_id=f"op:{op_id}", op_id=op_id
     )
@@ -361,6 +364,7 @@ def _materialize(
         },
         commit=False,
     )
+    ChangeStore(project).close(op_id)
     edges = [
         {
             "child_row_id": child,
@@ -668,6 +672,9 @@ def finalize_semantic_join(
         if result is not None:
             project.db.rollback()
             return result
+        from frisket.engine.store.run_lifecycle import close_run_change
+
+        close_run_change(project, run_id)
         set_attempt_state(project, writer, "effected", commit=False)
         if not OutputColumnClaimStore(project).release(
             claim_token=claim,

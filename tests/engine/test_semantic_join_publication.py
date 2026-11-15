@@ -55,6 +55,14 @@ def test_custom_semantic_action_uses_declared_refs_not_builtin_names(case, monke
         },
     )
     assert result.status == "completed", result
+    assert (
+        case.project.db.execute(
+            "SELECT publication_closed FROM ops JOIN runs ON runs.op_id=ops.id "
+            "WHERE runs.id=?",
+            (result.run_id,),
+        ).fetchone()[0]
+        == 1
+    )
     assert result.action.kind == custom.action_id
     receipt = ReceiptStore(case.project).parsed_by_id(result.receipt_id)
     assert (
@@ -220,7 +228,7 @@ def test_replay_refuses_changed_matching_inputs(case, side):
     assert replay.errors[0].code == "stale_replay"
 
 
-def test_source_replacement_preserves_original_in_child(case):
+def test_source_replacement_refuses_input_output_overlap(case):
     first = case.run()
     assert first.status == "completed", first
     case.project.apply_edits(
@@ -236,18 +244,10 @@ def test_source_replacement_preserves_original_in_child(case):
         idempotency_key="review-two",
         replace_existing=True,
     )
-    assert result.status == "completed", result
-    child = next(
-        sheet for sheet in case.project.sheets() if sheet["name"] == "Matches2"
-    )
-    original = next(
-        column
-        for column in case.project.columns(child["id"])
-        if column["name"] == "source"
-    )
-    assert list(case.project.get_values(child["id"], original["id"]).values()) == [
-        "Acme"
-    ]
+    assert result.status == "failed", result
+    assert result.errors[0].code == "input_output_overlap"
+    assert case.project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 1
+    assert not any(sheet["name"] == "Matches2" for sheet in case.project.sheets())
 
 
 def test_final_child_failure_publishes_no_source_heads(case, monkeypatch):

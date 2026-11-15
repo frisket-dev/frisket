@@ -961,7 +961,9 @@ def terminalize_project_run(
                         key_table, commit=False
                     )
 
-        if run_status_written:
+        if run_status_written or isinstance(authority, CurrentWriterTerminalAuthority):
+            # A coupled publisher may already have the same provisional terminal
+            # status, while its fenced Change still awaits publication closure.
             # The ordinary finisher and every recovery/admin terminal path
             # share one transactional Change close plus scope invalidation.
             from frisket.engine.store.run_lifecycle import close_run_change
