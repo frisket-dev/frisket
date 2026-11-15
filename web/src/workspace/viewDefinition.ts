@@ -1,6 +1,6 @@
 import { toWireJsonObject } from '../api/viewsLenses';
 import { normalizeGridFilterSpec } from './gridColumnState';
-import type { GridFilterSpec, GridSortSpec, SheetMeta, ViewSelection, SavedViewDefinitionInput } from '../api/types';
+import type { GridFilterSpec, GridSortSpec, SheetMeta, ViewSelection, SavedViewDefinitionInput, ViewPresentation, SavedViewColumnGroup } from '../api/types';
 
 /** Resolve display names at the browser boundary; saved definitions use stable IDs. */
 export function selectionFromGrid(sheet: SheetMeta, filter: GridFilterSpec | null, sort: GridSortSpec | null, rowIds: number[] | null, base?: ViewSelection | null, bindings?: { filterColumnIds?: Record<string, number>; sortColumnIds?: Record<string, number> }): ViewSelection {
@@ -37,4 +37,23 @@ export function sameViewDefinition(a: SavedViewDefinitionInput, b: SavedViewDefi
     return JSON.stringify(value);
   };
   return canonical(a) === canonical(b);
+}
+
+/** Layout references are IDs on disk; grid-local names are resolved only at the boundary. */
+export function presentationFromGrid(sheet: SheetMeta, columns: string[] | null, groups: SavedViewColumnGroup[]): ViewPresentation {
+  const ids = (names: string[]) => names.flatMap(name => {
+    const column = sheet.columns.find(item => item.name === name);
+    return column ? [Number(column.id)] : [];
+  });
+  return { columns: columns === null ? null : ids(columns),
+    column_groups: groups.length ? groups.map(group => ({ ...group, columns: ids(group.columns) })) : null };
+}
+
+export function gridFromPresentation(sheet: SheetMeta, presentation: ViewPresentation): { columns: string[] | null; groups: SavedViewColumnGroup[] } {
+  const names = (ids: number[]) => ids.flatMap(id => {
+    const column = sheet.columns.find(item => Number(item.id) === id);
+    return column ? [column.name] : [];
+  });
+  return { columns: presentation.columns == null ? null : names(presentation.columns),
+    groups: (presentation.column_groups ?? []).map(group => ({ ...group, columns: names(group.columns) })) };
 }

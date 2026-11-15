@@ -16,6 +16,7 @@ from frisket.features.watchlists.events import (
 )
 from frisket.contracts.query_spec import (
     normalize_detection_policy,
+    detection_conditions,
 )
 from frisket.features.watchlists.service import WatchBindingError, run_watch_evaluation
 
@@ -248,9 +249,9 @@ def _watch_detection_policy(row) -> dict[str, Any]:
     except (TypeError, ValueError):
         policy = {}
     try:
-        return normalize_detection_policy(policy if isinstance(policy, dict) else {})
+        return detection_conditions(normalize_detection_policy(policy if isinstance(policy, dict) else {}))
     except ValueError:
-        return {"kind": "new_matches"}
+        return detection_conditions({"kind": "new_matches"})
 
 
 def _watch_run_dict(

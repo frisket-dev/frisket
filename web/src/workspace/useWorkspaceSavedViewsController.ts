@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { ProjectInfo, SavedView, SheetMeta, GridSortDirection } from '../api/open';
 import { canEditProject } from '../api/projectRole';
-import type { ColumnGroupViewSpec } from '../grid/SheetGrid';
 import { useCurrentViewSelection } from '../bind/useCurrentViewSelection';
 import { useDetailHandle } from '../bind/useDetailHandle';
 import { useGridViewHandle } from '../bind/useGridViewHandle';
@@ -17,7 +16,7 @@ import {
   normalizeGridFilterSpec, normalizeGridSortSpec, normalizeColumnOrder,
   exactViewHiddenColumns, columnOrderKey, hiddenColumnsKey,
 } from './gridColumnState';
-import { gridFromSelection, sameViewDefinition } from './viewDefinition';
+import { gridFromSelection, sameViewDefinition, presentationFromGrid, gridFromPresentation } from './viewDefinition';
 import { groupManagedHiddenColumnNames } from './workspaceColumnVisibility';
 import type { useWorkspaceChromeState } from './useWorkspaceChromeState';
 import type { useWorkbenchContributionVisibility } from './useWorkbenchContributionVisibility';
@@ -135,12 +134,12 @@ export function useWorkspaceSavedViewsController({
 
   const currentSelection = useCurrentViewSelection(sheet);
   const currentViewDefinition = useCallback(() => {
-    if (!currentSelection) throw new Error('Choose a sheet first.');
+    if (!currentSelection || !sheet) throw new Error('Choose a sheet first.');
     return {
       selection: currentSelection,
-      presentation: { columns: currentViewColumns, column_groups: columnGroupSpecs.length > 0 ? columnGroupSpecs : null },
+      presentation: presentationFromGrid(sheet, currentViewColumns, columnGroupSpecs),
     };
-  }, [currentSelection, currentViewColumns, columnGroupSpecs]);
+  }, [currentSelection, currentViewColumns, columnGroupSpecs, sheet]);
   const activeView = views.find((view) => view.id === activeSavedViewId);
   const currentDefinition = useMemo(() => sheet ? currentViewDefinition() : null, [sheet, currentViewDefinition]);
   const viewModified = !!activeView?.spec && !!currentDefinition && !sameViewDefinition(activeView.spec, currentDefinition);
@@ -253,12 +252,7 @@ export function useWorkspaceSavedViewsController({
       catch (error) { showError(error instanceof Error ? error.message : String(error)); return; }
       const filter = normalizeGridFilterSpec(grid.filter);
       const sort = normalizeGridSortSpec(grid.sort);
-      const rawColumns = Array.isArray(view.spec.presentation.columns)
-        ? view.spec.presentation.columns.filter((name): name is string => typeof name === 'string')
-        : null;
-      const groups = Array.isArray(view.spec.presentation.column_groups)
-        ? (view.spec.presentation.column_groups as ColumnGroupViewSpec[])
-        : [];
+      const { columns: rawColumns, groups } = gridFromPresentation(sheet, view.spec.presentation);
       const layouts = Object.fromEntries(
         groups.map((group) => [
           String(group.run_id),

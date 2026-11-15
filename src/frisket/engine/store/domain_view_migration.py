@@ -22,18 +22,36 @@ class _Definitions:
         ).fetchall()
 
 
+def _presentation_ids(project: Any, sheet_id: int | None, presentation: dict[str, Any]) -> dict[str, Any]:
+    """Freeze legacy layout names once; removed display columns need not block data."""
+    by_name = {row["name"]: int(row["id"]) for row in project.columns(sheet_id, include_hidden=True)} if sheet_id is not None else {}
+    def ids(values: Any) -> Any:
+        if values is None:
+            return None
+        if not isinstance(values, list):
+            raise ValueError("View layout columns must be a list")
+        return [value if type(value) is int else by_name[value] for value in values
+                if type(value) is int or isinstance(value, str) and value in by_name]
+    result = dict(presentation)
+    if "columns" in result:
+        result["columns"] = ids(result["columns"])
+    if result.get("column_groups") is not None:
+        result["column_groups"] = [{**group, "columns": ids(group.get("columns", []))}
+                                   for group in result["column_groups"]]
+    return result
+
+
 def _convert(project: Any, row: Any, *, query: Any = None) -> str:
     raw = query if query is not None else row["spec"]
     try:
         spec = json.loads(raw) if isinstance(raw, str) else raw
         if not isinstance(spec, dict):
             raise ValueError("Saved definition is not an object")
-        if "selection" in spec:
-            return json.dumps(spec, sort_keys=True)
-        selection = legacy_selection(project, sheet_id=row["sheet_id"], spec=spec)
+        selection = spec.get("selection") or legacy_selection(project, sheet_id=row["sheet_id"], spec=spec)
         presentation = spec.get("presentation") or {
             key: spec[key] for key in ("columns", "column_groups") if key in spec
         }
+        presentation = _presentation_ids(project, row["sheet_id"], presentation)
         return json.dumps(
             {"selection": selection, "presentation": presentation}, sort_keys=True
         )

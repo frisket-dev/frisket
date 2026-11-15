@@ -259,6 +259,14 @@ def normalize_view_spec(project: Any, spec: dict[str, Any]) -> dict[str, Any]:
     for name, value in presentation.items():
         if value is not None and not isinstance(value, list):
             raise ValueError(f"{name} must be a list or null")
+    def validate_columns(values: Any) -> None:
+        if values is not None and (not isinstance(values, list) or any(type(value) is not int or value <= 0 for value in values)):
+            raise ValueError("view layout columns must be positive column IDs")
+    validate_columns(presentation.get("columns"))
+    for group in presentation.get("column_groups") or []:
+        if not isinstance(group, dict):
+            raise ValueError("view column group must be an object")
+        validate_columns(group.get("columns"))
     return {
         "selection": normalize_selection(project, spec.get("selection")),
         "presentation": deepcopy(presentation),

@@ -2686,8 +2686,8 @@ export interface SavedViewColumnGroup {
 }
 
 export interface ViewPresentation {
-  columns?: string[] | null;
-  column_groups?: SavedViewColumnGroup[] | null;
+  columns?: number[] | null;
+  column_groups?: (Omit<SavedViewColumnGroup, 'columns'> & { columns: number[] })[] | null;
 }
 
 export interface SavedViewDefinitionInput {

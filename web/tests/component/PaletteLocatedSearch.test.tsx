@@ -856,7 +856,7 @@ describe('located palette search', () => {
 
     await waitFor(() => expect(saveView).toHaveBeenCalledWith({
       name: 'Search: budget',
-      selection: { scope: { kind: 'sheet', sheet_id: 1 }, filters: [], order: [{ score: 'similarity', dir: 'desc' }], limit: null, similarity: {
+      selection: { scope: { kind: 'sheet', sheet_id: 1 }, filters: [], order: [{ score: 'similarity', dir: 'desc' }], limit: 500, similarity: {
         kind: 'embedding_similarity',
         embedding_index_id: 'index-1',
         sheet_id: 1,
@@ -867,6 +867,24 @@ describe('located palette search', () => {
       } }, presentation: {},
     }));
     expect(await screen.findByTestId('save-search-lens-status')).toHaveTextContent('Saved view');
+  });
+
+  it('saves hybrid search with bounded membership and fused relevance order', async () => {
+    searchProject.mockResolvedValue(completeResponse);
+    render(<PaletteHarness />);
+    const index = await screen.findByTestId('search-index-select');
+    await waitFor(() => expect(index).toHaveTextContent('Research passages'));
+    fireEvent.change(index, { target: { value: 'index-1' } });
+    fireEvent.change(screen.getByTestId('search-mode-select'), { target: { value: 'hybrid' } });
+    fireEvent.click(screen.getByTestId('save-search-lens-button'));
+    await waitFor(() => expect(saveView).toHaveBeenCalledWith({
+      name: 'Search: budget', presentation: {}, selection: {
+        scope: { kind: 'sheet', sheet_id: 1 }, filters: [], order: [], limit: 500,
+        search: { text: 'budget' }, ranking: 'hybrid',
+        similarity: { kind: 'embedding_similarity', sheet_id: 1, embedding_index_id: 'index-1',
+          anchor: { kind: 'manual_text_query', text: 'budget' } },
+      },
+    }));
   });
 
   it('creates a persisted row-similarity watch from a named-index anchor', async () => {
@@ -882,10 +900,19 @@ describe('located palette search', () => {
       view_id: 4,
     }));
 
+    expect(saveView).toHaveBeenCalledWith({
+      name: 'Similar to page 2', presentation: {}, selection: {
+        scope: { kind: 'sheet', sheet_id: 1 }, filters: [],
+        order: [{ score: 'similarity', dir: 'desc' }], limit: 500,
+        similarity: { kind: 'embedding_similarity', sheet_id: 1,
+          embedding_index_id: 'index-1', anchor: { kind: 'row', row_id: 2 } },
+      },
+    });
+
     fireEvent.click(screen.getByTestId('save-search-lens-button'));
     await waitFor(() => expect(saveView).toHaveBeenCalledWith({
       name: 'Similar to page 2',
-      selection: { scope: { kind: 'sheet', sheet_id: 1 }, filters: [], order: [{ score: 'similarity', dir: 'desc' }], limit: null, similarity: {
+      selection: { scope: { kind: 'sheet', sheet_id: 1 }, filters: [], order: [{ score: 'similarity', dir: 'desc' }], limit: 500, similarity: {
         kind: 'embedding_similarity',
         embedding_index_id: 'index-1',
         sheet_id: 1,
@@ -905,6 +932,12 @@ describe('located palette search', () => {
     await waitFor(() => expect(watch).toBeEnabled());
     fireEvent.click(watch);
 
+    await waitFor(() => expect(saveView).toHaveBeenCalledWith({
+      name: 'Search: budget', presentation: {}, selection: {
+        scope: { kind: 'project' }, filters: [], order: [{ score: 'search', dir: 'desc' }],
+        limit: null, search: { text: 'budget' },
+      },
+    }));
     await waitFor(() => expect(createWatch).toHaveBeenCalledWith({
       name: 'Search: budget',
       view_id: 4,

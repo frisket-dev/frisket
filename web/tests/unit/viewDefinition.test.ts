@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import type { SheetMeta, ViewSelection } from '../../src/api/types';
-import { gridFromSelection, sameViewDefinition, selectionFromGrid } from '../../src/workspace/viewDefinition';
+import { gridFromSelection, sameViewDefinition, selectionFromGrid, presentationFromGrid, gridFromPresentation } from '../../src/workspace/viewDefinition';
 import { computeRowCacheKey } from '../../src/grid/rowCacheStore';
 const sheet = { id: '1', name: 'Contracts', columns: [{ id: '10', name: 'amount' }, { id: '11', name: 'supplier' }] } as SheetMeta;
 const selection: ViewSelection = { scope: { kind: 'sheet', sheet_id: 1, parent_row_id: 8 }, filters: [{ column_id: 10, condition: { gte: '100' } }], order: [{ column_id: 10, dir: 'desc' }], limit: 20, search: { text: 'bridge' } };
@@ -15,7 +15,7 @@ it('opening a view follows column identity after a rename and refuses deleted id
   expect(() => gridFromSelection({ ...sheet, columns: [] }, selection)).toThrow('unavailable');
 });
 it('marks real browsing edits modified without depending on JSON object key order', () => {
-  const a = { selection, presentation: { columns: ['amount'] } };
+  const a = { selection, presentation: { columns: [10] } };
   expect(sameViewDefinition(a, { presentation: a.presentation, selection: { ...selection } })).toBe(true);
   expect(sameViewDefinition(a, { ...a, selection: { ...selection, limit: 21 } })).toBe(false);
 });
@@ -44,4 +44,16 @@ it('keeps applied criteria bound across rename, deletion and reuse of a display 
   grid.clearSort();
   grid.applyFilter({ filter: { amount: { gte: '200' } } });
   expect(read().filters[0].column_id).toBe(11); // Explicitly choosing the replacement binds it.
+});
+
+it('preserves layout identities through rename and never adopts a replacement name', () => {
+  const presentation = presentationFromGrid(sheet, ['amount'], [{ run_id: 4, label: 'Output',
+    columns: ['amount', 'supplier'], show_confidence: false, show_justification: true }]);
+  expect(presentation.columns).toEqual([10]);
+  expect(presentation.column_groups?.[0].columns).toEqual([10, 11]);
+  const renamed = { ...sheet, columns: [{ ...sheet.columns[0], name: 'renamed' }, { ...sheet.columns[1], name: 'amount' }] };
+  expect(gridFromPresentation(renamed, presentation).columns).toEqual(['renamed']);
+  expect(gridFromPresentation({ ...renamed, columns: [renamed.columns[1]] }, presentation)).toEqual({
+    columns: [], groups: [{ run_id: 4, label: 'Output', columns: ['amount'], show_confidence: false, show_justification: true }],
+  });
 });

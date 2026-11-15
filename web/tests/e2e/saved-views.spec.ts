@@ -17,7 +17,7 @@ import {
 function savedViewData(
   name: string,
   sheetId: number,
-  definition: { filters?: { column_id: number; condition: Record<string, string> }[]; order?: { column_id: number; dir: 'asc' | 'desc' }[]; columns?: string[] } = {},
+  definition: { filters?: { column_id: number; condition: Record<string, string> }[]; order?: { column_id: number; dir: 'asc' | 'desc' }[]; columns?: number[] } = {},
 ) {
   return {
     name,
@@ -543,11 +543,12 @@ test('Saved Views summarizes filters, sorting, and custom displayed columns in o
     'rows.csv',
     'city,status,owner\nAlbany,open,Ada\nBuffalo,closed,Grace\n',
   );
+  const columns = await sheetColumns(page.request, pid, sheetId);
   await page.request.post(`/api/projects/${pid}/views`, {
     data: savedViewData('Open cities', sheetId, {
       filters: [{ column_id: (await sheetColumns(page.request, pid, sheetId)).find((column) => column.name === 'status')!.id, condition: { eq: 'open' } }],
       order: [{ column_id: (await sheetColumns(page.request, pid, sheetId)).find((column) => column.name === 'city')!.id, dir: 'asc' }],
-      columns: ['city', 'status'],
+      columns: [columns.find(column => column.name === 'city')!.id, columns.find(column => column.name === 'status')!.id],
     }),
   });
   await page.request.post(`/api/projects/${pid}/views`, {

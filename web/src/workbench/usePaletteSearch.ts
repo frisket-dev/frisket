@@ -268,8 +268,8 @@ export function usePaletteSearch(
     setWatchBusy(true);
     setWatchStatus(null);
     const selection: import('../api/types').ViewSelection = similarity
-      ? { scope: { kind: 'sheet', sheet_id: selectedIndex.sheetId! }, filters: [], order: [{ score: 'similarity', dir: 'desc' }], limit: null,
-          similarity: { kind: 'embedding_similarity', embedding_index_id: selectedIndex.indexId, anchor: { kind: 'row', row_id: selectedRowId } } }
+      ? { scope: { kind: 'sheet', sheet_id: selectedIndex.sheetId! }, filters: [], order: [{ score: 'similarity', dir: 'desc' }], limit: MAX_LENS_VIEW_ROWS,
+          similarity: { kind: 'embedding_similarity', sheet_id: selectedIndex.sheetId!, embedding_index_id: selectedIndex.indexId, anchor: { kind: 'row', row_id: selectedRowId } } }
       : { scope: { kind: 'project' }, filters: [], order: [{ score: 'search', dir: 'desc' }], limit: null, search: { text: trimmedQuery } };
     const name = similarity ? `Similar to ${anchorLabel ?? `row ${selectedRowId}`}` : `Search: ${trimmedQuery}`;
     void projectApi.saveView({ name, selection, presentation: {} })
@@ -328,11 +328,12 @@ export function usePaletteSearch(
     }
     setSaveBusy(true);
     setSaveStatus(null);
-    const selection: import('../api/types').ViewSelection = { scope: { kind: 'sheet', sheet_id: selectedIndex.sheetId }, filters: [], order: [{ score: 'similarity', dir: 'desc' }], limit: null };
+    const selection: import('../api/types').ViewSelection = { scope: { kind: 'sheet', sheet_id: selectedIndex.sheetId }, filters: [], order: [{ score: 'similarity', dir: 'desc' }], limit: MAX_LENS_VIEW_ROWS };
     if (lensQuery.kind === 'embedding_hybrid') {
       selection.search = { text: trimmedQuery };
-      selection.similarity = { kind: 'embedding_similarity', embedding_index_id: selectedIndex.indexId, anchor: { kind: 'manual_text_query', text: trimmedQuery } };
+      selection.similarity = { kind: 'embedding_similarity', sheet_id: selectedIndex.sheetId, embedding_index_id: selectedIndex.indexId, anchor: { kind: 'manual_text_query', text: trimmedQuery } };
       selection.ranking = 'hybrid';
+      selection.order = [];
     } else {
       delete lensQuery.limit;
       selection.similarity = toWireJsonObject(lensQuery);
