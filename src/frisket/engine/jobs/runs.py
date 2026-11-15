@@ -1095,21 +1095,33 @@ def register_project_run_handler(
                 action_envelope = replace(
                     action_envelope, runner_spec=dict(payload["spec"])
                 )
+            terminal_run = run_store.get_run(progress.run_id)
+            cooperative_cancel = bool(
+                progress.cancel_requested
+                and progress.cancelled
+                and terminal_run["status"] == "running"
+            )
             provider_error = _resumable_provider_error(
                 project,
                 run_id=progress.run_id,
                 action_kind=str(payload.get("action_kind") or RUN_PROJECT_KIND),
                 spec=spec,
             )
-            if provider_error is not None:
-                if not defer_attempt_close:
-                    run_store.finish_run(progress.run_id, "failed")
-                action_result = queued_v1_terminal_failure_result(
+            if provider_error is not None and not cooperative_cancel:
+                # Ordinary maps have already sealed their generation and closed
+                # the run. Project the provider error onto the still-live receipt;
+                # only a deferred publisher retains current-writer authority.
+                action_result = queued_v1_terminal_receipt_result(
                     project,
                     payload,
                     project_id=project_id,
                     run_id=progress.run_id,
                     error=provider_error,
+                    status="failed",
+                    repair_terminal_run_receipt=not defer_attempt_close,
+                    terminal_run_status=(
+                        terminal_run["status"] if not defer_attempt_close else None
+                    ),
                     writer_attempt_id=(
                         progress.writer_attempt_id if defer_attempt_close else None
                     ),
@@ -1126,17 +1138,12 @@ def register_project_run_handler(
                 return {
                     "project_id": project_id,
                     "run_id": progress.run_id,
-                    "status": "failed",
+                    "status": run_store.get_run(progress.run_id)["status"],
                     "completed": progress.completed,
                     "failed": progress.failed,
                     "action_result": action_result.model_dump(mode="json"),
                 }
             row = run_store.get_run(run_id)
-            cooperative_cancel = bool(
-                progress.cancel_requested
-                and progress.cancelled
-                and progress.completed < progress.total
-            )
             if cooperative_cancel:
                 action_result = queued_v1_terminal_receipt_result(
                     project,

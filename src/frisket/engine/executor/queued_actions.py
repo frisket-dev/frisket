@@ -722,6 +722,19 @@ def queued_v1_finalize_action_result(
     envelope: QueuedV1PayloadEnvelope | None = None,
 ) -> ActionResult | None:
     # The live worker supplies the envelope whose program actually executed.
+    receipt_id = payload.get("v1_receipt_id")
+    if isinstance(receipt_id, str):
+        stored = ReceiptStore(project).parsed_by_id(receipt_id)
+        if (
+            stored is not None
+            and stored.run_id == run_id
+            and stored.status not in {"queued", "running"}
+        ):
+            # A redelivered worker observes the recorded terminal answer. It
+            # must not regenerate errors from row projections or release again.
+            from frisket.engine.executor.action_receipts import _result_from_receipt
+
+            return _result_from_receipt(stored)
     # Reconstruct only for recovery paths without invocation-local resources.
     envelope = envelope or queued_v1_payload_envelope(payload, project=project)
     if envelope is None:

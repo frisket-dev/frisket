@@ -1674,9 +1674,17 @@ def _finalize_reserved_action_receipt(
                     field="idempotency_key",
                 ),
             )
-        updated = ReceiptStore(project).update_body_status(
+        if existing["status"] not in {"queued", "running"}:
+            # Re-delivery may project the run again, but a completed receipt is
+            # the durable answer. Explicit resume must reopen it first.
+            stored = ReceiptStore(project).parsed_by_id(receipt.receipt_id)
+            assert stored is not None
+            if commit:
+                project.db.rollback()
+            return _result_from_receipt(stored)
+        updated = ReceiptStore(project).update_if_status_in(
             receipt,
-            require_status="running" if require_running_status else None,
+            {"running"} if require_running_status else {"queued", "running"},
             commit=False,
         )
         if not updated:

@@ -3825,6 +3825,17 @@ def typed_queued_map_spec(
             plan=plan,
             params_hash=str(kwargs["params_hash"]),
         )
+
+        def release_output_claim():
+            from frisket.execution.attempt import StaleAttemptWriter
+
+            if not OutputColumnClaimStore(project).release(
+                claim_token=_output_claim_token(str(kwargs["receipt_id"])),
+                status="failed" if receipt.status == "failed" else "released",
+                commit=False,
+            ):
+                raise StaleAttemptWriter("queued map receipt lost its output claim")
+
         finalized = _finalize_reserved_action_receipt(
             project,
             action,
@@ -3835,13 +3846,9 @@ def typed_queued_map_spec(
             update_failed_message=f"{action.kind} receipt update failed",
             replay_error_fn=_typed_replay_error(project, bound),
             require_running_status=False,
+            before_commit=release_output_claim,
         )
-        result = finalized or _result_from_receipt(receipt)
-        OutputColumnClaimStore(project).release(
-            claim_token=_output_claim_token(str(kwargs["receipt_id"])),
-            status="failed" if result.status == "failed" else "released",
-        )
-        return result
+        return finalized or _result_from_receipt(receipt)
 
     spec = _QueuedActionSpec(
         kind=bound.action.action_id,

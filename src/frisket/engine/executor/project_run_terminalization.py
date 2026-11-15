@@ -430,12 +430,13 @@ def terminalize_project_run(
             )
 
         authority_attempt_id: str | None = None
+        closed_cancellation = False
         if isinstance(authority, CurrentWriterTerminalAuthority):
             authority_attempt_id = authority.writer_attempt_id
             try:
                 from frisket.engine.store.run_lifecycle import require_terminal_writer
 
-                require_terminal_writer(
+                closed_cancellation = require_terminal_writer(
                     project,
                     terminal_status=terminal_run_status,
                     run_id=run_id,
@@ -798,6 +799,7 @@ def terminalize_project_run(
             and stored_row is not None
             and stored_row.status in {"queued", "running"}
             and not isinstance(authority, NeverDispatchedRunTerminalAuthority)
+            and not closed_cancellation
         ):
             return complete(
                 _result(
