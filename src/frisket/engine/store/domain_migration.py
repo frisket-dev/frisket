@@ -170,6 +170,15 @@ def _version_source_cells(db: sqlite3.Connection) -> None:
     _rebuild_table(db, "cells", fallback_producer_id=producer)
 
 
+def _historical_object(raw: str | None) -> dict:
+    """Optional historical metadata must not prevent retaining the actual data."""
+    try:
+        value = json.loads(raw or "{}")
+    except (TypeError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
 def _retain_output_descriptors(db: sqlite3.Connection) -> None:
     """Recover only frozen declarations, never infer an old schema from today's columns."""
     db.execute("DROP TRIGGER trg_run_output_generations_immutable_declaration")
@@ -192,12 +201,15 @@ def _retain_output_descriptors(db: sqlite3.Connection) -> None:
     )
     cursor = db.execute("SELECT * FROM domain_output_declarations")
     for run_id, column_id, role, raw_details, raw_params in cursor:
-        details = json.loads(raw_details or "{}")
-        params = json.loads(raw_params or "{}")
+        details = _historical_object(raw_details)
+        params = _historical_object(raw_params)
+        fields = details.get("output_fields", [])
+        if not isinstance(fields, list):
+            fields = []
         descriptor = next(
             (
                 field
-                for field in details.get("output_fields", [])
+                for field in fields
                 if isinstance(field, dict) and field.get("name") == role
             ),
             {},
@@ -208,7 +220,10 @@ def _retain_output_descriptors(db: sqlite3.Connection) -> None:
             if key in descriptor
         }
         names = params.get("output_names", {})
-        logical = next((key for key, name in names.items() if name == role), role)
+        if not isinstance(names, dict):
+            names = {}
+        matches = [key for key, name in names.items() if key and name == role]
+        logical = matches[0] if len(matches) == 1 else role
         db.execute(
             "UPDATE run_output_generations SET output_role=?,output_descriptor_json=? WHERE run_id=? AND column_id=?",
             (logical, json.dumps(descriptor), run_id, column_id),

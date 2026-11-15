@@ -338,3 +338,59 @@ def test_cutover_normalizes_swapped_output_roles_atomically(old_db):
             "SELECT output_descriptor_json FROM run_output_generations"
         )
     } == {"{}"}
+
+
+
+@pytest.mark.parametrize(
+    "details,params",
+    [
+        ("not JSON", "not JSON"),
+        ("null", "null"),
+        ("[]", "[]"),
+        ("true", "42"),
+        ('{"output_fields":null}', '{"output_names":null}'),
+        ('{"output_fields":42}', '{"output_names":[]}'),
+        ('{"output_fields":[null,42,"wrong"]}', '{"output_names":"wrong"}'),
+        ('{"output_fields":{"name":"Text","column_type":"text"}}', "{}"),
+        ("{}", '{"output_names":{"a":"Text","b":"Text"}}'),
+    ],
+)
+def test_cutover_retains_data_when_optional_output_metadata_is_malformed(
+    old_db, details, params
+):
+    from frisket.engine.store.domain_migration import migrate_domain, DOMAIN_TO_DIGEST
+    from frisket.engine.store.schema import SCHEMA_DIGEST_META_KEY
+
+    db = old_db
+    db.execute(
+        "INSERT INTO runs(id,op_id,sheet_id,action_kind,status,params) "
+        "VALUES (1,1,1,'map.ask','completed',?)",
+        (params,),
+    )
+    db.execute(
+        "INSERT INTO run_output_generations(run_id,column_id,output_role,compatibility_key,write_mode,state,claim_token) "
+        "VALUES (1,1,'Text','text-v1','create','active','old-claim')"
+    )
+    db.execute(
+        "INSERT INTO output_column_claims(id,sheet_id,column_id,output_name,run_id,action_kind,claim_token,status,details) "
+        "VALUES ('old',1,1,'Text',1,'map.ask','old-claim','completed',?)",
+        (details,),
+    )
+    _stamp_old(db)
+    migrate_domain(db)
+    assert tuple(
+        db.execute(
+            "SELECT output_role,output_descriptor_json FROM run_output_generations"
+        ).fetchone()
+    ) == ("Text", "{}")
+    assert (
+        db.execute("SELECT value FROM current_cell_values").fetchone()[0] == "corrected"
+    )
+    assert db.execute("SELECT params FROM runs WHERE id=1").fetchone()[0] == params
+    assert (
+        db.execute(
+            "SELECT value FROM meta WHERE key=?", (SCHEMA_DIGEST_META_KEY,)
+        ).fetchone()[0]
+        == DOMAIN_TO_DIGEST
+    )
+    assert db.execute("PRAGMA foreign_key_check").fetchall() == []
