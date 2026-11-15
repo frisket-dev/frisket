@@ -38,3 +38,14 @@ export function ViewAlertConditions({ value, onChange, sheetId, disabled = false
     </div></details>
   </div>;
 }
+
+export function ViewAlertSchedule({ value, onChange, disabled = false }: {
+  value: string | null; onChange(value: string | null): void; disabled?: boolean;
+}) {
+  const known = [null, '@hourly', '@daily'].includes(value);
+  return <FormField label="Check frequency"><PanelSelect aria-label="Check frequency" value={value ?? ''}
+    disabled={disabled} onChange={event => onChange(event.currentTarget.value || null)}>
+    <option value="">Manual</option><option value="@hourly">Hourly</option><option value="@daily">Daily</option>
+    {!known && value && <option value={value}>{value}</option>}
+  </PanelSelect></FormField>;
+}

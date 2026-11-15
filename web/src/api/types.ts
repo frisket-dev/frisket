@@ -2728,12 +2728,14 @@ export interface WatchInput {
   name: string;
   view_id: number;
   detection_policy?: ViewAlertConditions;
+  schedule?: string | null;
   enabled?: boolean;
 }
 export interface WatchPatchInput {
   name?: string;
   enabled?: boolean;
   detection_policy?: ViewAlertConditions;
+  schedule?: string | null;
 }
 
 export interface WatchHit {
@@ -2769,6 +2771,7 @@ export interface WatchInfo {
   viewId: number;
   sheetId: number | null;
   detectionPolicy: ViewAlertConditions;
+  schedule: string | null;
   enabled: boolean;
   lastEvaluatedOp: number;
   lastRunId: number | null;

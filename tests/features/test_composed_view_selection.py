@@ -261,3 +261,24 @@ def test_search_selections_borrow_one_snapshot_and_cleanup_attachments(data):
         ]
         assert len(paths) == 2 and all(path.exists() for path in paths)
     assert all(not path.exists() for path in paths)
+
+
+def test_view_presentation_requires_stable_ids_without_changing_membership(data):
+    from frisket.engine.views.specs import normalize_view_spec
+
+    project, sheet, text, _, rows = data
+    definition = {'selection': {'scope': {'kind': 'sheet', 'sheet_id': sheet},
+                               'filters': [], 'order': [], 'limit': None},
+                  'presentation': {'columns': [text], 'column_groups': [{
+                      'run_id': 4, 'columns': [text], 'label': 'Output',
+                      'show_confidence': False, 'show_justification': True,
+                  }]}}
+    normalized = normalize_view_spec(project, definition)
+    assert normalized['presentation']['columns'] == [text]
+    project.db.execute('UPDATE columns SET name=? WHERE id=?', ('renamed', text))
+    project.db.commit()
+    assert normalize_view_spec(project, definition)['presentation']['columns'] == [text]
+    with open_selection(project, normalized['selection']) as selected:
+        assert selected.total == len(rows)
+    with pytest.raises(ValueError, match='column IDs'):
+        normalize_view_spec(project, {**definition, 'presentation': {'columns': ['renamed']}})

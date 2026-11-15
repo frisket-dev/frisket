@@ -32,7 +32,8 @@ function watch(id: number, name: string): WatchInfo {
     name,
     sheetId: 1,
     viewId: id,
-    detectionPolicy: { kind: 'conditions', entered: true, exited: false, count_changed: false, fields: [] },
+    schedule: '@hourly',
+  detectionPolicy: { kind: 'conditions', entered: true, exited: false, count_changed: false, fields: [] },
     enabled: true,
     lastEvaluatedOp: 0,
     lastRunId: null,
@@ -96,8 +97,9 @@ describe('WatchesPanel pending actions', () => {
     harness.render(<WatchesPanel canEdit />);
     fireEvent.click(await screen.findByRole('button', { name: 'Alert conditions' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'Rows leaving this view' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Check frequency' }), { target: { value: '' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save alerts' }));
-    await waitFor(() => expect(projectApi.updateWatch).toHaveBeenCalledWith(1, { detection_policy: { ...item.detectionPolicy, exited: true } }));
+    await waitFor(() => expect(projectApi.updateWatch).toHaveBeenCalledWith(1, { detection_policy: { ...item.detectionPolicy, exited: true }, schedule: null }));
     expect(projectApi.updateWatch).toHaveBeenCalledTimes(1);
   });
 
@@ -149,6 +151,7 @@ describe('WatchesPanel pending actions', () => {
       name: 'Watch: Current',
       view_id: currentGridDraft.view_id,
       detection_policy: undefined,
+      schedule: '@hourly',
     }));
     expect(await screen.findByTestId('watch-notification-setup-notice')).toHaveTextContent(notificationSetupGuidance);
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss notification setup guidance' }));

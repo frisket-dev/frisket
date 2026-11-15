@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo } from 'react';
+import { gridFromPresentation } from './viewDefinition';
 import { groupManagedHiddenColumnNames } from './workspaceColumnVisibility';
 import type {
   ColumnDef, GridFilterBboxValue, GridFilterEntityValue, GridFilterOperator,
@@ -115,11 +116,9 @@ export function useWorkspaceGridController({
     [activeSavedViewId, sheet, views],
   );
   const activeExactViewColumns = useMemo(() => {
-    const raw = presentationEdited ? null : activeSavedView?.spec?.presentation.columns;
-    return Array.isArray(raw)
-      ? raw.filter((name): name is string => typeof name === 'string')
-      : null;
-  }, [activeSavedView, presentationEdited]);
+    if (!sheet || presentationEdited || !activeSavedView?.spec) return null;
+    return gridFromPresentation(sheet, activeSavedView.spec.presentation).columns;
+  }, [activeSavedView, presentationEdited, sheet]);
   const activeExactHiddenColumns = useMemo(() => {
     if (!sheet || activeExactViewColumns === null) return [];
     return exactViewHiddenColumns(sheet, activeExactViewColumns, groupManagedHiddenColumns);

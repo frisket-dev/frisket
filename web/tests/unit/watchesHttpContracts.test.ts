@@ -48,8 +48,7 @@ const watchRow = {
 
   sheet_id: null,
   view_id: 4,
-  query_version: "frisket.query.v1",
-  query_hash: "sha256:abc",
+  schedule: '@hourly',
   detection_policy: { kind: "conditions", entered: true, exited: false, count_changed: false, fields: [] },
   enabled: true,
   last_evaluated_op: 3,
@@ -139,6 +138,7 @@ const expectedWatch = {
 
   sheetId: null,
   viewId: 4,
+  schedule: '@hourly',
   detectionPolicy: { kind: "conditions", entered: true, exited: false, count_changed: false, fields: [] },
   enabled: true,
   lastEvaluatedOp: 3,
@@ -521,6 +521,19 @@ describe("watchlist generated HTTP transport", () => {
         view_id: 4,
       }),
     );
+  });
+
+  it('preserves manual schedule null on create and patch instead of dropping it', async () => {
+    const { createProjectApi } = await import('../../src/api/real');
+    const projectApi = createProjectApi('manual-alert');
+    const bodies: unknown[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_input, init) => {
+      bodies.push(JSON.parse(init.body));
+      return jsonResponse({ ...watchRow, schedule: null });
+    }));
+    expect((await projectApi.createWatch({ name: 'Manual', view_id: 4, schedule: null })).schedule).toBeNull();
+    expect((await projectApi.updateWatch(1, { schedule: null })).schedule).toBeNull();
+    expect(bodies).toEqual([{ name: 'Manual', view_id: 4, schedule: null }, { schedule: null }]);
   });
 
   it("keeps the plain-string watch error envelope on ApiError", async () => {

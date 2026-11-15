@@ -1,4 +1,4 @@
-import { ViewAlertConditions } from './ViewAlertConditions';
+import { ViewAlertConditions, ViewAlertSchedule } from './ViewAlertConditions';
 import type { ViewAlertConditions as Conditions } from '../api/types';
 import './Modal.css';
 import { Button } from './Button';
@@ -350,7 +350,7 @@ function useWatchesPanelController(canEdit: boolean) {
     patch: WatchPatchInput,
   ) => {
     if (!canEdit) return Promise.resolve(false);
-    const intent: WatchActionIntent = patch.detection_policy ? 'configure' : patch.name === undefined
+    const intent: WatchActionIntent = (patch.detection_policy || patch.schedule !== undefined) ? 'configure' : patch.name === undefined
       ? (patch.enabled ? 'resume' : 'pause')
       : 'rename';
     const claim = watchRunLinkHandle.claimWatchAction(watchId, intent);
@@ -367,7 +367,7 @@ function useWatchesPanelController(canEdit: boolean) {
       .updateWatch(watchId, patch)
       .then((updated) => {
         outcome = {
-          status: patch.detection_policy ? `Saved alerts for ${updated.name}.` : patch.name === undefined
+          status: (patch.detection_policy || patch.schedule !== undefined) ? `Saved alerts for ${updated.name}.` : patch.name === undefined
             ? `${updated.name} is now ${updated.enabled ? 'active' : 'paused'}.`
             : `Renamed Watch to ${updated.name}.`,
           error: null,
@@ -480,7 +480,7 @@ function useWatchesPanelController(canEdit: boolean) {
     invalidateWatchList();
     setPanelState({ creating: true, error: null, errorCode: null, status: 'Creating Watch…' });
     void projectApi
-      .createWatch({ name, view_id: draft.view_id, detection_policy: draft.detection_policy })
+      .createWatch({ name, view_id: draft.view_id, detection_policy: draft.detection_policy, schedule: draft.schedule === undefined ? '@hourly' : draft.schedule })
       .then((watch) => {
         watchRunLinkHandle.settleCreateWatch(action, {
           status: `Created Watch ${watch.name}.`, error: null, errorCode: null, watch, focusWatchId: watch.id,
@@ -497,7 +497,7 @@ function useWatchesPanelController(canEdit: boolean) {
   }, [canEdit, watchRunLinkHandle]);
 
   const updateCreateDraft = useCallback((
-    patch: Partial<Pick<PendingCreateDraft, 'name' | 'detection_policy'>>,
+    patch: Partial<Pick<PendingCreateDraft, 'name' | 'detection_policy' | 'schedule'>>,
   ) => {
     if (!canEdit || watchRunLinkHandle.store.get().pendingCreateAction?.phase === 'pending') return;
     watchRunLinkHandle.updatePendingCreateDraft(patch);
@@ -578,7 +578,7 @@ function WatchCreateComposer({
   draft: PendingCreateDraft;
   onCancel(): void;
   onCreate(): void;
-  onUpdate(patch: Partial<Pick<PendingCreateDraft, 'name' | 'detection_policy'>>): void;
+  onUpdate(patch: Partial<Pick<PendingCreateDraft, 'name' | 'detection_policy' | 'schedule'>>): void;
 }) {
   const trimmedName = draft.name.trim();
   return (
@@ -601,6 +601,8 @@ function WatchCreateComposer({
         />
       </label>
       {!trimmedName && <span id="watch-create-name-error" data-testid="watch-create-name-error">Enter a name to continue.</span>}
+      <ViewAlertSchedule value={draft.schedule === undefined ? '@hourly' : draft.schedule} disabled={creating}
+        onChange={schedule => onUpdate({ schedule })} />
       <ViewAlertConditions value={draft.detection_policy ?? DEFAULT_VIEW_ALERTS} sheetId={draft.sheet_id} disabled={creating}
         onChange={(detection_policy) => onUpdate({ detection_policy })} />
       <div className="panel-notice">
@@ -721,6 +723,7 @@ function WatchItem({
   const [renaming, setRenaming] = useState(false);
   const [configuring, setConfiguring] = useState(false);
   const [conditions, setConditions] = useState(watch.detectionPolicy);
+  const [schedule, setSchedule] = useState(watch.schedule);
   const [renameValue, setRenameValue] = useState(watch.name);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const trimmedRename = renameValue.trim();
@@ -786,11 +789,12 @@ function WatchItem({
       <div className="panel-item-description">
         {watchSummary(watch)}
       </div>
-      {canEdit && <Button type="button" disabled={isPending} onClick={() => { setConditions(watch.detectionPolicy); setConfiguring(!configuring); }}>Alert conditions</Button>}
+      {canEdit && <Button type="button" disabled={isPending} onClick={() => { setConditions(watch.detectionPolicy); setSchedule(watch.schedule); setConfiguring(!configuring); }}>Alert conditions</Button>}
       {configuring && <div className="form-stack">
+        <ViewAlertSchedule value={schedule} onChange={setSchedule} disabled={isPending} />
         <ViewAlertConditions value={conditions} onChange={setConditions} sheetId={watch.sheetId} disabled={isPending} />
         <ListEditorActions busy={isPending} saveLabel="Save alerts" onSave={() => {
-          void onUpdateWatch(watch.id, { detection_policy: conditions }).then((saved) => { if (saved) setConfiguring(false); });
+          void onUpdateWatch(watch.id, { detection_policy: conditions, schedule }).then((saved) => { if (saved) setConfiguring(false); });
         }} onCancel={() => setConfiguring(false)} />
       </div>}
       {!watch.enabled && <div className="control-row"><StatusChip tone="neutral" size="sm" testId="watch-status">Paused</StatusChip></div>}
@@ -928,7 +932,7 @@ function WatchesPanelBody({
   onToggleRuns(watchId: number): void;
   onCancelCreate(): void;
   onCreate(): void;
-  onUpdateCreate(patch: Partial<Pick<PendingCreateDraft, 'name' | 'detection_policy'>>): void;
+  onUpdateCreate(patch: Partial<Pick<PendingCreateDraft, 'name' | 'detection_policy' | 'schedule'>>): void;
   onUpdateWatch(watchId: number, patch: WatchPatchInput): Promise<boolean>;
   onDeleteWatch(watchId: number, focusAfterDeleteId: number | null): Promise<boolean>;
   mutationErrors: Record<number, string>;

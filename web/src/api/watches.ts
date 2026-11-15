@@ -257,6 +257,7 @@ const toWatchInfo = (wire: WatchRowWire): WatchInfo => ({
   name: wire.name,
   viewId: wire.view_id,
   sheetId: wire.sheet_id,
+  schedule: wire.schedule,
   detectionPolicy: wire.detection_policy as unknown as ViewAlertConditions,
   enabled: Boolean(wire.enabled),
   lastEvaluatedOp: wire.last_evaluated_op ?? 0,
@@ -317,6 +318,7 @@ const toWatchRunResult = (wire: WatchRunResultWire): WatchRunResult => ({
 function toWireWatchBody(input: WatchInput): WatchCreateBody {
   return { name: input.name, view_id: input.view_id,
     ...(input.detection_policy ? { detection_policy: toWireJsonObject({ ...input.detection_policy }) } : {}),
+    ...(input.schedule !== undefined ? { schedule: input.schedule } : {}),
     ...(input.enabled !== undefined ? { enabled: input.enabled } : {}) };
 }
 
@@ -324,6 +326,7 @@ function toWireWatchPatch(input: WatchPatchInput): WatchPatchBody {
   const body: WatchPatchBody = {};
   if (input.name !== undefined) body.name = input.name;
   if (input.enabled !== undefined) body.enabled = input.enabled;
+  if (input.schedule !== undefined) body.schedule = input.schedule;
   if (input.detection_policy !== undefined) body.detection_policy = toWireJsonObject({ ...input.detection_policy });
   return body;
 }

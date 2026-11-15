@@ -15424,6 +15424,7 @@ export type HttpWatch = ({
   "last_status": (((string)) | ((null)));
   "latest_run": (((HttpWatch_WatchRun)) | ((null)));
   "name": (string);
+  "schedule": (((string)) | ((null)));
   "sheet_id": (((number)) | ((null)));
   "updated_at": (string);
   "view_id": (number);
@@ -15437,6 +15438,7 @@ export type HttpWatchCreateRequest = ({
 })) | ((null)));
   "enabled"?: (boolean);
   "name": (string);
+  "schedule"?: (((string)) | ((null)));
   "view_id": (number);
 });
 
@@ -15459,6 +15461,7 @@ type HttpWatchList_Watch = ({
   "last_status": (((string)) | ((null)));
   "latest_run": (((HttpWatchList_WatchRun)) | ((null)));
   "name": (string);
+  "schedule": (((string)) | ((null)));
   "sheet_id": (((number)) | ((null)));
   "updated_at": (string);
   "view_id": (number);
@@ -15492,6 +15495,7 @@ export type HttpWatchPatchRequest = ({
 })) | ((null)));
   "enabled"?: (((boolean)) | ((null)));
   "name"?: (((string)) | ((null)));
+  "schedule"?: (((string)) | ((null)));
 });
 
 type HttpWatchRunEventsPage_JsonValue = JsonValue;
@@ -15545,6 +15549,7 @@ type HttpWatchRunResult_Watch = ({
   "last_status": (((string)) | ((null)));
   "latest_run": (((HttpWatchRunResult_WatchRun)) | ((null)));
   "name": (string);
+  "schedule": (((string)) | ((null)));
   "sheet_id": (((number)) | ((null)));
   "updated_at": (string);
   "view_id": (number);

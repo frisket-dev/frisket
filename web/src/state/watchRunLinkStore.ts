@@ -12,6 +12,7 @@ export interface PendingCreateDraft {
   view_id: number;
   sheet_id?: number | null;
   detection_policy?: ViewAlertConditions;
+  schedule?: string | null;
 }
 
 export type WatchActionIntent = 'run' | 'refresh_run' | 'configure' | 'rename' | 'pause' | 'resume' | 'delete';
