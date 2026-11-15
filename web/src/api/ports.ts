@@ -135,7 +135,8 @@ export interface ProjectApiPort extends
   setReviewRunStatus: FrisketApi['setReviewRunStatus'];
   undo: FrisketApi['undo'];
   redo: FrisketApi['redo'];
-  stepTo: FrisketApi['stepTo'];
+  revertOperation: FrisketApi['revertOperation'];
+  restoreOperation: FrisketApi['restoreOperation'];
   deleteProject: FrisketApi['deleteProject'];
   projectExportUrl: FrisketApi['projectExportUrl'];
   sheetDatasetExportUrl: FrisketApi['sheetDatasetExportUrl'];

@@ -18,7 +18,8 @@ export const WorkspaceBottomDockRegion = memo(function WorkspaceBottomDockRegion
   const {
     project,
     bottomDockPluginPanelDescriptors,
-    doStepTo,
+    doRevert,
+    doRestore,
     hideContribution,
     loadHistoryPage,
     refreshSheets,
@@ -113,7 +114,7 @@ export const WorkspaceBottomDockRegion = memo(function WorkspaceBottomDockRegion
             <HistoryWorkbenchPanel
               host="bottomDock"
               history={history}
-              onStepTo={doStepTo}
+              onRevert={doRevert} onRestore={doRestore}
               onLoadPage={loadHistoryPage}
             />
           );
@@ -159,7 +160,8 @@ export const WorkspaceBottomDockRegion = memo(function WorkspaceBottomDockRegion
       actionJobsLoading,
       errorJobs,
       bottomDockPluginPanelDescriptors,
-      doStepTo,
+      doRevert,
+    doRestore,
       history,
       loadHistoryPage,
       refreshSheets,

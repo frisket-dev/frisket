@@ -63,15 +63,9 @@ export const WorkspaceMainViewTabs = memo(function WorkspaceMainViewTabs() {
   const [deleteSheetBusy, setDeleteSheetBusy] = useState(false);
   const [deleteSheetError, setDeleteSheetError] = useState<string | null>(null);
   const deleteSheet = sheets.find((candidate) => candidate.id === deleteSheetId) ?? null;
-  const deleteSheetDependents = deleteSheet
-    ? (deleteSheet.dependentSheetIds ?? []).flatMap((id) => {
-        const dependent = sheets.find((candidate) => candidate.id === id);
-        return dependent ? [dependent.name] : [];
-      })
-    : [];
 
   const confirmDeleteSheet = useCallback(async () => {
-    if (!deleteSheet || deleteSheetBusy || deleteSheetDependents.length > 0) return;
+    if (!deleteSheet || deleteSheetBusy) return;
     setDeleteSheetBusy(true);
     setDeleteSheetError(null);
     try {
@@ -83,7 +77,7 @@ export const WorkspaceMainViewTabs = memo(function WorkspaceMainViewTabs() {
     } finally {
       setDeleteSheetBusy(false);
     }
-  }, [deleteSheet, deleteSheetBusy, deleteSheetDependents.length, projectApi, refreshSheets]);
+  }, [deleteSheet, deleteSheetBusy, projectApi, refreshSheets]);
 
   // Preserve deepest-first cascade order.
   const staleDeepestFirst = staleSheetsDeepestFirst(sheets);
@@ -405,7 +399,6 @@ export const WorkspaceMainViewTabs = memo(function WorkspaceMainViewTabs() {
       {deleteSheet && (
         <ConfirmDeleteSheetModal
           sheetName={deleteSheet.name}
-          dependentSheetNames={deleteSheetDependents}
           busy={deleteSheetBusy}
           error={deleteSheetError}
           onConfirm={() => void confirmDeleteSheet()}

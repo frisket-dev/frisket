@@ -29,16 +29,13 @@ const EMPTY_HISTORY_OPS: HistoryOp[] = [];
 
 export interface HistoryPanelProps {
   history: HistoryState | null;
-  onStepTo(opIndex: number): void;
+  onRevert(opId: string): Promise<void>;
+  onRestore(opId: string): Promise<void>;
   onLoadPage(offset: number, limit: number): Promise<void>;
 }
 
-function opState(op: HistoryOp, pointer: number): 'current' | 'applied' | 'undone' {
-  return op.index === pointer ? 'current' : op.index < pointer ? 'applied' : 'undone';
-}
-
-function opStateLabel(state: ReturnType<typeof opState>): string {
-  return state === 'current' ? 'Current' : state === 'applied' ? 'Applied' : 'Undone';
+function opStateLabel(op: HistoryOp): string {
+  return op.status === 'applied' ? 'Applied' : op.status === 'undone' ? 'Reverted' : 'Archived';
 }
 
 function formatOpTime(at: string): string {
@@ -69,12 +66,12 @@ function outputColumnsSummary(run: HistoryOpRun): string {
 }
 
 /**
- * The OpenRefine-style op log, rendered in the bottom drawer as a list + a
- * right-hand detail pane (the same list/detail template as Jobs). Select any
- * step to inspect it on the right, then explicitly Restore from the detail area.
+ * The change history uses the same list/detail layout as Jobs. Inspect a
+ * change, then explicitly revert or restore it without walking the Undo cursor.
  * Older/Newer paging surfaces above/below the list.
  */
-export function HistoryPanel({ history, onStepTo, onLoadPage }: HistoryPanelProps) {
+export function HistoryPanel({ history, onRevert, onRestore, onLoadPage }: HistoryPanelProps) {
+  const [pendingOperation, setPendingOperation] = useState<string | null>(null);
   const [loadingPage, setLoadingPage] = useState<'older' | 'newer' | null>(null);
   const loadPage = (offset: number, limit: number, direction: 'older' | 'newer') => {
     if (loadingPage !== null) return;
@@ -108,7 +105,7 @@ export function HistoryPanel({ history, onStepTo, onLoadPage }: HistoryPanelProp
           <>
             <span className="history-icon"><Icon size={13} /></span>
             <span className="history-label">{op.label}</span>
-            {op.index === pointer && <span className="history-pointer">now</span>}
+            {op.id === history?.undoTarget?.id && <span className="history-pointer">undo next</span>}
           </>
         );
       },
@@ -135,13 +132,12 @@ export function HistoryPanel({ history, onStepTo, onLoadPage }: HistoryPanelProp
       key: 'state',
       label: 'State',
       defaultWidth: 96,
-      render: (op) => opStateLabel(opState(op, pointer)),
+      render: (op) => opStateLabel(op),
     },
   ];
 
   const renderDetail = (op: HistoryOp): ReactNode => {
-    const state = opState(op, pointer);
-    const stateLabel = opStateLabel(state);
+    const stateLabel = opStateLabel(op);
     const time = formatOpTime(op.at);
     const Icon = opIcon(op);
     const run = op.run;
@@ -240,13 +236,19 @@ export function HistoryPanel({ history, onStepTo, onLoadPage }: HistoryPanelProp
           <button
             type="button"
             className="history-page-button"
-            data-testid={`history-restore-op-${op.id}`}
-            disabled={op.index === pointer}
-            aria-label={`Restore history to ${op.label}`}
-            onClick={() => onStepTo(op.index)}
+            data-testid={`history-${op.status === 'applied' ? 'revert' : 'restore'}-op-${op.id}`}
+            disabled={!op.executable || op.status === 'discarded' || pendingOperation !== null}
+            aria-label={`${op.status === 'applied' ? 'Revert' : 'Restore'} ${op.label}`}
+            onClick={() => {
+              if (pendingOperation !== null) return;
+              setPendingOperation(op.id);
+              const transition = op.status === 'applied' ? onRevert : onRestore;
+              void transition(op.id).finally(() => setPendingOperation(null));
+            }}
           >
-            Restore
+            {pendingOperation === op.id ? 'Working…' : op.status === 'applied' ? 'Revert change' : 'Restore change'}
           </button>
+          {!op.executable && <p>This change is read-only.</p>}
         </section>
       </div>
     );
@@ -308,7 +310,7 @@ export function HistoryPanel({ history, onStepTo, onLoadPage }: HistoryPanelProp
       detailWidthStorageKey="frisket:bottom-dock-detail-width"
       listTestId="history-list"
       rowTestId={(op) => `history-step-op-${op.id}`}
-      rowClassName={(op) => `history-state-${opState(op, pointer)}`}
+      rowClassName={(op) => `history-state-${op.status}`}
       defaultSelectedId={() => currentOpId}
       activeRowId={currentOpId}
       listHeader={listHeader}

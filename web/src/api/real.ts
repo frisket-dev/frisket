@@ -5,9 +5,8 @@
 // Interface mismatches handled here:
 // - getRunProgress(): GET /actions/runs/{id}/status, supplemented with run
 //   context remembered from the runAction() call that started it.
-// - stepTo(globalIndex): the backend has single-step operation controls, so the
-//   history/review owner walks the cursor with operation.undo/operation.redo v1
-//   actions; reviewItem() posts v1 review.decision beside the bundles reads.
+// - History exposes ordinary Undo/Redo and explicit selective Revert/Restore.
+//   reviewItem() posts v1 review.decision beside the bundles reads.
 
 import {
   cancelRunContract,
@@ -1875,8 +1874,12 @@ class RealApi implements FrisketApi {
     return this.historyReview.redo();
   }
 
-  async stepTo(opIndex: number): Promise<HistoryState> {
-    return this.historyReview.stepTo(opIndex);
+  async revertOperation(opId: string): Promise<HistoryState> {
+    return this.historyReview.revertOperation(opId);
+  }
+
+  async restoreOperation(opId: string): Promise<HistoryState> {
+    return this.historyReview.restoreOperation(opId);
   }
 
   async startPreview(req: ActionExecutionRequest): Promise<PreviewStartResult> {

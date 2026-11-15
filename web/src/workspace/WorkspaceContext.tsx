@@ -79,7 +79,8 @@ export interface WorkspaceShellHandle {
   openOcrCompareTab: WorkspaceViewModel['openOcrCompareTab'];
   openActionCompare: WorkspaceViewModel['openActionCompare'];
   returnToActionCompare: WorkspaceViewModel['returnToActionCompare'];
-  doStepTo: WorkspaceViewModel['doStepTo'];
+  doRevert: WorkspaceViewModel['doRevert'];
+  doRestore: WorkspaceViewModel['doRestore'];
   loadHistoryPage: WorkspaceViewModel['loadHistoryPage'];
   pluginManagerOperations: WorkspaceViewModel['pluginManagerOperations'];
   selectBottomDockTab: WorkspaceViewModel['selectBottomDockTab'];

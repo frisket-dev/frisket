@@ -828,7 +828,8 @@ export function SourcesWorkbenchPanel({
 export function HistoryWorkbenchPanel({
   host = 'bottomDock',
   history,
-  onStepTo,
+  onRevert,
+  onRestore,
   onLoadPage,
 }: HistoryWorkbenchPanelProps) {
   const descriptor = HISTORY_DESCRIPTOR;
@@ -840,7 +841,7 @@ export function HistoryWorkbenchPanel({
       host={placement.host}
       className={placement.host === 'bottomDock' ? 'bottom-dock-tab-body' : ''}
     >
-      <HistoryPanel history={history} onStepTo={onStepTo} onLoadPage={onLoadPage} />
+      <HistoryPanel history={history} onRevert={onRevert} onRestore={onRestore} onLoadPage={onLoadPage} />
     </WorkbenchContributionFrame>
   );
 }

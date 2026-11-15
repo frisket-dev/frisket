@@ -54,10 +54,17 @@ describe('normalized controls preserve behavior', () => {
     const { rerender } = render(<ConfirmDialog title="Delete?" busy onConfirm={confirm} onCancel={vi.fn()}>Details</ConfirmDialog>);
     fireEvent.submit(screen.getByRole('dialog').querySelector('form')!);
     expect(confirm).not.toHaveBeenCalled();
-    rerender(<ConfirmDeleteSheetModal sheetName="Source" dependentSheetNames={['Derived']} busy={false} error={null} onConfirm={confirm} onCancel={vi.fn()} />);
+    rerender(<ConfirmDialog title="Delete?" blocked confirmLabel="Delete sheet" onConfirm={confirm} onCancel={vi.fn()}>Blocked</ConfirmDialog>);
     expect(screen.queryByRole('button', { name: 'Delete sheet' })).toBeNull();
     fireEvent.submit(screen.getByRole('dialog').querySelector('form')!);
     expect(confirm).not.toHaveBeenCalled();
+  });
+  it('explains reversible sheet deletion without a dependent-sheet block', () => {
+    const confirm = vi.fn();
+    render(<ConfirmDeleteSheetModal sheetName="Source" busy={false} error={null} onConfirm={confirm} onCancel={vi.fn()} />);
+    expect(screen.getByText(/You can undo this change; other sheets keep their data/)).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete sheet' }));
+    expect(confirm).toHaveBeenCalledOnce();
   });
   it('ignores a nested dialog cancellation bubbling through React portal ancestry', () => {
     const closeParent = vi.fn(), closeChild = vi.fn();

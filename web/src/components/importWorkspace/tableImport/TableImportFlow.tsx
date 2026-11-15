@@ -322,6 +322,13 @@ export function TableImportFlow({
   const scheduleDestination = useCallback((nextDestination: TableImportDestinationConfig, edited?: TableImportDestinationSnapshot | null) => {
     setDestination(nextDestination);
     if (destinationSaveTimer.current !== null) clearTimeout(destinationSaveTimer.current);
+    // Choosing Update is an incomplete form, not a server validation failure.
+    // Preserve the local choice while the user picks its first matching key.
+    if (nextDestination.kind === 'existing' && nextDestination.update && (nextDestination.update.key_source_indices.length === 0 || nextDestination.update.key_source_indices.length >= (latestSnapshot.current?.columns.filter((column) => column.included && column.target_type !== 'omit').length ?? Infinity))) {
+      destinationSaveTimer.current = null;
+      pendingDestinationSave.current = null;
+      return;
+    }
     pendingDestinationSave.current = { destination: nextDestination, edited };
     destinationSaveTimer.current = setTimeout(() => {
       destinationSaveTimer.current = null;

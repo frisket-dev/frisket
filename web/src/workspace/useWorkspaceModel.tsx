@@ -389,9 +389,13 @@ export function useWorkspaceModel({
 
   const doUndo = useCallback(() => { void projectApi.undo().then(afterHistoryChange); }, [afterHistoryChange, projectApi]);
   const doRedo = useCallback(() => { void projectApi.redo().then(afterHistoryChange); }, [afterHistoryChange, projectApi]);
-  const doStepTo = useCallback(
-    (i: number) => { void projectApi.stepTo(i).then(afterHistoryChange); },
-    [afterHistoryChange, projectApi],
+  const doRevert = useCallback(
+    async (id: string) => { await projectApi.revertOperation(id).then(afterHistoryChange).catch((error: Error) => showError(error.message)); },
+    [afterHistoryChange, projectApi, showError],
+  );
+  const doRestore = useCallback(
+    async (id: string) => { await projectApi.restoreOperation(id).then(afterHistoryChange).catch((error: Error) => showError(error.message)); },
+    [afterHistoryChange, projectApi, showError],
   );
   const loadHistoryPage = useCallback(
     (offset: number, limit: number) =>
@@ -1329,7 +1333,8 @@ export function useWorkspaceModel({
     cancelActionCompareSetup: actionCompare.cancelActionCompareSetup,
     startActionCompareSetup: actionCompare.startActionCompareSetup,
     returnToActionCompare: actionCompare.returnToActionCompare,
-    doStepTo,
+    doRevert,
+    doRestore,
     loadHistoryPage,
     pluginManagerOperations,
     selectBottomDockTab,

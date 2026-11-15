@@ -3793,6 +3793,8 @@ export interface HistoryOpRun {
 
 export interface HistoryOp {
   id: string;
+  status: 'applied' | 'undone' | 'discarded';
+  executable: boolean;
   index: number;
   label: string; // e.g. "Classify topic on Articles (10,000 rows)"
   kind: 'import' | 'map' | 'derive' | 'edit' | 'review-batch' | 'sort';
@@ -5010,7 +5012,8 @@ export interface FrisketApi {
   cancelPreview(previewId: string): Promise<void>;
   getHistory(offset?: number | null, limit?: number): Promise<HistoryState>;
   /** Jump the op-log pointer to a global operation index (step back/forward in the panel). */
-  stepTo(opIndex: number): Promise<HistoryState>;
+  revertOperation(opId: string): Promise<HistoryState>;
+  restoreOperation(opId: string): Promise<HistoryState>;
   /** Pending review count, optionally scoped to one action run. */
   getReviewCount(runId?: string): Promise<number>;
   getReviewBundles(

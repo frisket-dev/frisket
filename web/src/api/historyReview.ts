@@ -119,7 +119,8 @@ export interface HistoryReviewDomainApi {
   setReviewRunStatus(runId: string, status: ReviewRunStatus): Promise<ReviewRunStatusResult>;
   undo(): Promise<HistoryState>;
   redo(): Promise<HistoryState>;
-  stepTo(opIndex: number): Promise<HistoryState>;
+  revertOperation(opId: string): Promise<HistoryState>;
+  restoreOperation(opId: string): Promise<HistoryState>;
   setReviewNote(runId: string, rowId: string, note: string | null): Promise<void>;
   reviewItem(
     itemId: string,
@@ -449,6 +450,8 @@ function mapHistoryOp(wire: HistoryWire['ops'][number]): HistoryOp {
   return {
     id: String(wire.id),
     index: wire.index,
+    status: wire.status,
+    executable: wire.executable,
     label: wire.label ?? wire.kind,
     kind: toHistoryKind(wire.kind),
     at: toHistoryIso(wire.created_at),
@@ -645,11 +648,6 @@ function mapReviewRunStatus(wire: ReviewRunStatusWire): ReviewRunStatusResult {
   };
 }
 
-/** The cursor walk is bounded: the backend only exposes single-step operation
- * controls, so a stepTo() that never reaches its target stops rather than
- * posting forever. */
-const MAX_HISTORY_WALK_STEPS = 100;
-
 /** Outcomes the server reports for a step that simply did not happen (the
  * cursor moved underneath us, the operation is gone, or it is irreversible).
  * These leave the cursor where it is instead of failing the caller. */
@@ -716,25 +714,21 @@ export function createHistoryReviewDomainApi(
     );
   };
 
-  const walkHistoryTo = async (
-    opIndex: number,
-    hist: HistoryState,
-    invocation: ResolvedRunActionInvocation,
-    guard = 0,
+  const transitionOperation = async (
+    direction: 'revert' | 'restore', opRef: string,
   ): Promise<HistoryState> => {
-    if (hist.cursorIndex === opIndex || guard >= MAX_HISTORY_WALK_STEPS) return hist;
-    const target = hist.cursorIndex > opIndex ? hist.undoTarget : hist.redoTarget;
-    if (!target) return hist;
-    const moved = hist.cursorIndex > opIndex
-      ? await runOperationStepAction('operation.undo', target.id, invocation)
-      : await runOperationStepAction('operation.redo', target.id, invocation);
-    if (!moved) return hist;
-    return walkHistoryTo(
-      opIndex,
-      await historyForInvocation(invocation, null, hist.limit),
-      invocation,
-      guard + 1,
+    const opId = Number(opRef);
+    if (!Number.isSafeInteger(opId) || opId <= 0) {
+      throw new ApiError(400, `Operation ${opRef} is not a valid operation ref`);
+    }
+    const invocation = resolveRunActionInvocation(undefined, projectId);
+    const spec = v1ActionSession.registeredProjectActionSpec(
+      `operation.${direction}`, { op_id: opId }, invocation.projectId, invocation.signal,
     );
+    await v1ActionSession.withV1ActionResult(spec, (out) => {
+      v1ActionSession.assertCompletedV1ActionResult(out, `Could not ${direction} this change`);
+    }, { postMode: 'operation', operationInvocation: invocation });
+    return historyForInvocation(invocation);
   };
 
   return {
@@ -790,14 +784,8 @@ export function createHistoryReviewDomainApi(
       return historyForInvocation(invocation);
     },
 
-    async stepTo(opIndex) {
-      const invocation = resolveRunActionInvocation(undefined, projectId);
-      return walkHistoryTo(
-        opIndex,
-        await historyForInvocation(invocation),
-        invocation,
-      );
-    },
+    revertOperation: (opId) => transitionOperation('revert', opId),
+    restoreOperation: (opId) => transitionOperation('restore', opId),
 
     async setReviewNote(runId, rowId, note) {
       const ids = [Number(runId), Number(rowId)];

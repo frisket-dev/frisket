@@ -375,7 +375,11 @@
         },
         {
           "kind": "hostCapability",
-          "id": "history.stepTo"
+          "id": "operation.revert"
+        },
+        {
+          "kind": "hostCapability",
+          "id": "operation.restore"
         },
         {
           "kind": "hostCapability",
