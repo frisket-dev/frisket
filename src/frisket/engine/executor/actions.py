@@ -532,6 +532,19 @@ def run_action_spec(
         if typed is None:
             typed = typed_action_for_request(data)
         from .selection_scope import resolve_action_selection
+        from frisket.actions.core import MapBatch, MapRows, ModelRows
+        from frisket.actions.cluster_types import ValueClusterer
+        from frisket.engine.executor.map_rows_action import typed_map_rows_replay_result
+
+        if isinstance(
+            typed.action.definition.run, (MapRows, MapBatch, ModelRows, SemanticJoin)
+        ) or (
+            getattr(typed.action.definition.run, "capabilities", ())
+            == (ValueClusterer,)
+        ):
+            replay = typed_map_rows_replay_result(project, project_id, typed)
+            if replay is not None:
+                return replay
 
         from frisket.execution.action_admission import action_admission_error
         from frisket.authoring.action_metadata import product_edition_from_snapshot

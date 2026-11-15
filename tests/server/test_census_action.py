@@ -128,3 +128,29 @@ def test_preview_of_free_external_effects_is_write_free(census_client):
     assert response.status_code == 202, response.text
     assert not calls
     assert len(project.columns(sheet_id)) == 1
+
+
+def test_completed_direct_replay_does_not_require_current_network_or_key(
+    census_client, monkeypatch
+):
+    from frisket.engine.executor import run_action_spec
+
+    client, project_id, project, _, calls, body = census_client
+    response = client.post(f"/api/projects/{project_id}/actions/v1/run", json=body)
+    assert response.status_code == 200, response.text
+    queued = response.json()
+    drain_queue(client)
+    receipt = ReceiptStore(project).parsed_by_id(queued["receipt_id"])
+    assert receipt.status == "completed"
+    monkeypatch.delenv("CENSUS_API_KEY", raising=False)
+    project.set_network_policy(mode="off")
+    replay = run_action_spec(project, body, project_id=project_id)
+    assert replay.status == "completed", replay.errors
+    assert replay.receipt_id == queued["receipt_id"]
+    assert len(calls) == 2
+    fresh = run_action_spec(
+        project, {**body, "idempotency_key": "new-census"}, project_id=project_id
+    )
+    assert fresh.status == "failed"
+    assert fresh.errors[0].code in {"missing_action_credential", "network_disabled"}
+    assert len(calls) == 2
