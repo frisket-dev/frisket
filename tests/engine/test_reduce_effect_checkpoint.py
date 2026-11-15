@@ -529,7 +529,7 @@ raise RuntimeError('death hook was not reached')
 """)
     child_run = subprocess.run(
         [
-            sys.executable,
+            sys.executable,  # subprocess-boundary: real SIGKILL after a committed batch
             str(child),
             str(path),
             str(sheet_id),
