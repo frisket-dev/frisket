@@ -194,7 +194,11 @@ def test_missing_outputs_publish_explicit_null_or_error(tmp_path: Path) -> None:
                 _LegacyOmissionRecipe(),
                 {"seed": "value"},
                 {"action_kind": "map.extract", "with_error": True},
-                OpContext(project=project, http=None, extras={}),
+                OpContext(
+                    project=project,
+                    http=None,
+                    extras={"preview": True, "cancelled": lambda: False},
+                ),
                 output_field_names=("present", "missing"),
                 required_output_field_names=frozenset({"present", "missing"}),
                 managed_publication=True,
