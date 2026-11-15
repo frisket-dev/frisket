@@ -113,6 +113,8 @@ class SheetDataQuery(NonNullQueryWireModel):
     column_ids: str | None = None
     include_scope_metadata: bool = True
     value_mode: Literal["exact", "bounded"] = "exact"
+    selection: str | None = None
+    view_id: int | None = Field(default=None, gt=0)
 
 
 class CellTextWindowQuery(NonNullQueryWireModel):
@@ -153,6 +155,8 @@ class SheetRowLocationQuery(NonNullQueryWireModel):
     sort: str | None = None
     row_ids: str | None = None
     scope_row_ids: str | None = None
+    selection: str | None = None
+    view_id: int | None = Field(default=None, gt=0)
 
 
 class ActionRunRowsQuery(NonNullQueryWireModel):

@@ -262,6 +262,30 @@ def queued_v1_action_request(
                 ):
                     return None
             assert bound is not None
+            from frisket.actions.types import SheetRows
+
+            if (
+                isinstance(bound.request.scope, SheetRows)
+                and bound.request.scope.selection is not None
+            ):
+                from .selection_scope import (
+                    freeze_action_selection,
+                    resolve_action_selection,
+                )
+
+                if payload is not None:
+                    frozen = payload.get("spec", {}).get("row_ids")
+                    if not isinstance(frozen, list):
+                        return None
+                    bound = freeze_action_selection(bound, frozen)
+                elif initial_typed_plan is not None:
+                    bound = freeze_action_selection(
+                        bound, initial_typed_plan.request.scope.row_ids
+                    )
+                elif project is not None:
+                    bound = resolve_action_selection(project, bound)
+                else:
+                    return None
             from frisket.actions.cluster_types import ValueClusterer
 
             clustering = getattr(bound.action.definition.run, "capabilities", ()) == (

@@ -71,6 +71,8 @@ def register_sheet_grid_routes(
         column_ids: str = Query(default=None),  # type: ignore[assignment]
         include_scope_metadata: bool = True,
         value_mode: Literal["exact", "bounded"] = "exact",
+        selection: str | None = None,
+        view_id: int | None = Query(default=None, gt=0),
     ) -> SheetData:
         reject_unknown_query_parameters(request, SheetDataQuery)
         return SheetData.model_validate(
@@ -87,6 +89,8 @@ def register_sheet_grid_routes(
                 column_ids=column_ids,
                 include_scope_metadata=include_scope_metadata,
                 value_mode=value_mode,
+                selection=selection,
+                view_id=view_id,
             )
         )
 
@@ -240,6 +244,8 @@ def register_sheet_grid_routes(
         sort: str | None = None,
         row_ids: str | None = None,
         scope_row_ids: str | None = None,
+        selection: str | None = None,
+        view_id: int | None = Query(default=None, gt=0),
     ) -> SheetRowLocation:
         reject_unknown_query_parameters(request, SheetRowLocationQuery)
         return SheetRowLocation.model_validate(
@@ -253,5 +259,7 @@ def register_sheet_grid_routes(
                 sort=sort,
                 row_ids=row_ids,
                 scope_row_ids=scope_row_ids,
+                selection=selection,
+                view_id=view_id,
             )
         )

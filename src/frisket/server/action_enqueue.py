@@ -841,6 +841,11 @@ def queue_v1_action_run(
 
         try:
             bound = installed or typed_action_for_request(dict(action_body))
+            from frisket.engine.executor.selection_scope import resolve_action_selection
+
+            bound = resolve_action_selection(
+                project, bound, replay_before_resolution=True
+            )
             from frisket.actions.core import GoogleSheetsExport
             from frisket.actions.find_types import FindScanner
 
@@ -933,6 +938,9 @@ def queue_v1_action_run(
         replay = typed_map_rows_replay_result(project, project_id, bound)
         if replay is not None:
             return replay
+        from frisket.engine.executor.selection_scope import resolve_action_selection
+
+        bound = resolve_action_selection(project, bound)
         recovering_prepared = (
             ReceiptStore(project).find_by_idempotency_key(bound.request.idempotency_key)
             is not None

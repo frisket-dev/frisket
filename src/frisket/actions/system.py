@@ -11,7 +11,7 @@ from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from frisket.actions.core import OutputField, RegisteredAction
 from frisket.actions.registry import ACTION_REGISTRY
-from frisket.actions.types import ActionRequest
+from frisket.actions.types import ActionRequest, SheetRows
 from frisket.contracts.action import (
     ActionCatalog,
     ActionCatalogEntry,
@@ -35,6 +35,7 @@ class BoundTypedActionRequest:
     output_fields: tuple[OutputField, ...] | None
     implementation_identity: Mapping[str, Any] | None = None
     runtime_binding: "RuntimeBindingSpec | None" = None
+    authored_scope: SheetRows | None = None
 
     @classmethod
     def bind(cls, action: RegisteredAction, request: ActionRequest) -> Self:

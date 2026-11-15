@@ -3630,6 +3630,7 @@ class RegisteredAction:
         if (
             isinstance(terminal, _ProjectAction)
             and terminal.capabilities == (EnclosureMaterializer,)
+            and scope.selection is None
             and (scope.row_ids is None or not 1 <= len(scope.row_ids) <= 500)
         ):
             raise ValueError(
@@ -3640,6 +3641,7 @@ class RegisteredAction:
             and SemanticMatchReader in terminal.capabilities
             and isinstance(scope, SheetRows)
             and scope.row_ids is None
+            and scope.selection is None
         ):
             raise ValueError("semantic match tables require an explicit row selection")
         if (
@@ -3649,7 +3651,7 @@ class RegisteredAction:
                 and terminal.capabilities == (ValueClusterer,)
             )
             and self.definition.row_scope is RowScope.ALL_ROWS
-            and scope.row_ids is not None
+            and (scope.row_ids is not None or scope.selection is not None)
         ):
             raise ValueError("action requires all rows")
         validated, output_fields = self.bind_params(
@@ -3668,7 +3670,8 @@ class RegisteredAction:
             or isinstance(terminal, _ProjectAction)
             and terminal.capabilities == (TemporalExtractor,)
         ):
-            validate_transcript_selection_scope(validated, scope)
+            if not isinstance(scope, SheetRows) or scope.selection is None:
+                validate_transcript_selection_scope(validated, scope)
         return validated, output_fields
 
     def bind_params(

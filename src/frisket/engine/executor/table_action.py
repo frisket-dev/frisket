@@ -559,6 +559,9 @@ def prepare_table_producer(
     from frisket.engine.executor.list_table_read import AdmittedListTableReader
     from frisket.engine.executor.sheet_rows_read import AdmittedSheetRowsReader
 
+    from .selection_scope import resolve_action_selection
+
+    bound = resolve_action_selection(project, bound)
     terminal = bound.action.definition.run
     if not isinstance(terminal, CreateSheet):
         raise TypeError("table preparation requires CreateSheet")

@@ -79,6 +79,9 @@ def prepare_cluster_action(project, bound, *, router=None, admission=True):
     from frisket.ai.embeddings.backends import embedder_is_remote, resolve_embedder
     from frisket.engine.runner.validation import NetworkDisabled
 
+    from .selection_scope import resolve_action_selection
+
+    bound = resolve_action_selection(project, bound)
     terminal = bound.action.definition.run
     if not isinstance(terminal, _ProjectAction) or terminal.capabilities != (
         ValueClusterer,

@@ -7,7 +7,7 @@ import math
 import re
 import statistics
 from collections import Counter
-from contextlib import closing
+from contextlib import closing, contextmanager
 from datetime import datetime
 from typing import Any, Callable, Iterator
 
@@ -69,6 +69,44 @@ def sheet_columns_payload(project: Project, sheet_id: int) -> list[dict[str, Any
     )["columns"]
 
 
+@contextmanager
+def _selected_sheet(project, sheet_id, selection, view_id, *, legacy_scope=()):
+    from frisket.features.views.evaluate import open_selection
+    from frisket.contracts.view import ViewSelection
+    from frisket.features.views.specs import stored_selection, SelectionUnavailable
+    from frisket.retrieval.query import RetrievalQueryError
+    from frisket.ai.embeddings.similarity import SimilarityError
+
+    try:
+        if selection is not None and view_id is not None:
+            raise ValueError("Use selection or view_id, not both")
+        if any(value is not None for value in legacy_scope):
+            raise ValueError(
+                "Selection contains its own filters, order and parent scope"
+            )
+        if view_id is not None:
+            view = project.get_view(view_id)
+            if view is None:
+                raise ValueError("View is unavailable")
+            definition = stored_selection(json.loads(view["spec"]))
+        else:
+            definition = (
+                json.loads(selection) if isinstance(selection, str) else selection
+            )
+        validated = ViewSelection.model_validate(definition)
+        if validated.scope.kind != "sheet" or validated.scope.sheet_id != sheet_id:
+            raise ValueError("Selection must target this sheet")
+        with open_selection(project, definition) as selected:
+            yield selected
+    except (
+        ValueError,
+        SelectionUnavailable,
+        RetrievalQueryError,
+        SimilarityError,
+    ) as exc:
+        raise SheetGridRouteError(400, str(exc)) from exc
+
+
 class SheetGridService:
     def __init__(self, workspace: Workspace):
         self._workspace = workspace
@@ -88,8 +126,36 @@ class SheetGridService:
         column_ids: str | None = None,
         include_scope_metadata: bool = True,
         value_mode: str = "exact",
+        selection: str | None = None,
+        view_id: int | None = None,
     ) -> dict:
         project = self._workspace.get(project_id)
+        if selection is not None or view_id is not None:
+            with _selected_sheet(
+                project,
+                sheet_id,
+                selection,
+                view_id,
+                legacy_scope=(parent_row_id, filter_, sort, row_ids, scope_row_ids),
+            ) as selected:
+                snapshot = selected.snapshot
+                columns = _projected_columns(
+                    _visible_sheet_columns(snapshot, sheet_id),
+                    _parse_column_ids_param(column_ids),
+                )
+                return _sheet_data_payload(
+                    snapshot,
+                    sheet_id,
+                    columns,
+                    [
+                        int(hit["row_id"])
+                        for hit in selected.hits(offset=offset, limit=limit)
+                    ],
+                    total=selected.total if include_scope_metadata else None,
+                    cell_projection=column_ids is not None,
+                    include_scope_metadata=include_scope_metadata,
+                    value_mode=value_mode,
+                )
         with read_transaction(project.db):
             visible_columns = _visible_sheet_columns(project, sheet_id)
             projected_columns = _projected_columns(
@@ -354,8 +420,24 @@ class SheetGridService:
         sort: str | None = None,
         row_ids: str | None = None,
         scope_row_ids: str | None = None,
+        selection: str | None = None,
+        view_id: int | None = None,
     ) -> dict[str, Any]:
         project = self._workspace.get(project_id)
+        if selection is not None or view_id is not None:
+            with _selected_sheet(
+                project,
+                sheet_id,
+                selection,
+                view_id,
+                legacy_scope=(parent_row_id, filter_, sort, row_ids, scope_row_ids),
+            ) as selected:
+                return _sheet_row_location_payload(
+                    sheet_id,
+                    row_id,
+                    page_size,
+                    index=selected.index_of(sheet_id=sheet_id, row_id=row_id),
+                )
         require_visible_sheet(project, sheet_id)
         explicit_row_ids = _parse_row_ids_param(row_ids)
         if explicit_row_ids is not None:

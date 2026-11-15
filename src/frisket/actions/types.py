@@ -20,6 +20,8 @@ from typing import (
     TypeVar,
 )
 
+from frisket.contracts.view import ViewSelection
+
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -2195,6 +2197,17 @@ class SheetRows(BaseModel):
     kind: Literal["sheet_rows"] = "sheet_rows"
     sheet_id: int = Field(gt=0, strict=True)
     row_ids: tuple[StrictInt, ...] | None = None
+    selection: ViewSelection | None = None
+
+    @model_validator(mode="after")
+    def _selection_scope(self):
+        if self.selection is not None:
+            if self.row_ids is not None:
+                raise ValueError("Use selection or row_ids, not both")
+            scope = self.selection.scope
+            if scope.kind != "sheet" or scope.sheet_id != self.sheet_id:
+                raise ValueError("Action selection must target the action sheet")
+        return self
 
     @field_validator("row_ids")
     @classmethod

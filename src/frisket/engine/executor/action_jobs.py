@@ -743,6 +743,9 @@ def reserve_typed_action_job(
         raise TypeError(
             "typed action jobs require a supported callable or transcript table"
         )
+    from .selection_scope import authored_request, resolve_action_selection
+
+    bound = resolve_action_selection(project, bound, replay_before_resolution=True)
     request = bound.request
     identity = _TypedProjectEnvelope(
         kind=request.action_id,
@@ -765,7 +768,16 @@ def reserve_typed_action_job(
         params_hash=reservation["params_hash"],
         idempotency_key=request.idempotency_key,
         project_id=project_id,
-        action=request.model_dump(mode="json", exclude_none=True),
+        action=authored_request(bound).model_dump(mode="json", exclude_none=True),
+        resolved_snapshot=(
+            {
+                "selection_scope": request.scope.model_dump(
+                    mode="json", exclude_none=True
+                )
+            }
+            if bound.authored_scope is not None
+            else None
+        ),
         resolve_phase="worker",
     )
 
@@ -790,6 +802,30 @@ def bind_typed_action_job(
             )
         if bound is None:
             bound = typed_action_for_request(dict(envelope.action))
+        if (
+            envelope.resolved_snapshot is not None
+            and "selection_scope" in envelope.resolved_snapshot
+        ):
+            from .selection_scope import freeze_action_selection
+            from frisket.actions.types import SheetRows
+
+            frozen_scope = SheetRows.model_validate(
+                envelope.resolved_snapshot["selection_scope"]
+            )
+            if (
+                frozen_scope.selection is not None
+                or frozen_scope.row_ids is None
+                or frozen_scope.sheet_id != bound.request.scope.sheet_id
+            ):
+                raise ValueError("Frozen action selection scope is invalid")
+            bound = freeze_action_selection(bound, frozen_scope.row_ids)
+        from frisket.actions.types import SheetRows
+
+        if (
+            isinstance(bound.request.scope, SheetRows)
+            and bound.request.scope.selection is not None
+        ):
+            raise ValueError("Queued View selection has no frozen cohort")
         if (
             bound.request.action_id != envelope.action_kind
             or bound.request.idempotency_key != envelope.idempotency_key

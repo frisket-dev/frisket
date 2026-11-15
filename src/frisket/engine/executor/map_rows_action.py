@@ -1651,6 +1651,9 @@ def build_typed_map_rows_plan(
 ) -> TypedMapRowsPlan:
     """Resolve a typed request into a registry-free MapRunner program."""
 
+    from .selection_scope import resolve_action_selection
+
+    bound = resolve_action_selection(project, bound)
     request = bound.request
     evaluation_context = None
     if isinstance(bound.action.definition.run, ModelRows):
@@ -2627,9 +2630,12 @@ def normalized_typed_request_identity(
                 for key in action.definition.run.child_output_keys(bound.params)
             }
         )
+    scope_identity = (bound.authored_scope or request.scope).model_dump(mode="json")
+    if scope_identity.get("selection") is None:
+        scope_identity.pop("selection", None)
     payload = {
         "action_id": action.action_id,
-        "scope": request.scope.model_dump(mode="json"),
+        "scope": scope_identity,
         # Rebinding must preserve supplied-only option semantics, recursively.
         "params": bound.params.model_dump(
             mode="json", by_alias=True, exclude_unset=True
@@ -2764,6 +2770,19 @@ def _typed_replay_error(
             # output to revalidate, but any published refs still take the normal
             # generation/value checks below, including on unsuccessful runs.
             return None
+        requested_rows = request.scope.row_ids
+        if request.scope.selection is not None and receipt.run_id is not None:
+            from frisket.engine.store.runs import RunResultStore
+
+            requested_rows = RunResultStore(project).run_row_scope_if_present(
+                receipt.run_id
+            )
+            if requested_rows is None:
+                return ActionError(
+                    code="stale_replay",
+                    message="The recorded selection cohort is unavailable.",
+                    action_kind=action.action_id,
+                )
         return output_columns_replay_error(
             project,
             receipt,
@@ -2781,9 +2800,7 @@ def _typed_replay_error(
                 project,
                 sheet_id=request.scope.sheet_id,
                 requested_row_ids=(
-                    list(request.scope.row_ids)
-                    if request.scope.row_ids is not None
-                    else None
+                    list(requested_rows) if requested_rows is not None else None
                 ),
             ),
         )

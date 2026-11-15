@@ -292,6 +292,9 @@ def resolve_map_preview(
             typed = bind_installed_action(project, ActionRequest.model_validate(data))
             if typed is None:
                 typed = typed_action_for_request(data)
+            from .selection_scope import resolve_action_selection
+
+            typed = resolve_action_selection(project, typed)
             if isinstance(
                 typed.action.definition.run,
                 (CreateSheet, _ProjectAction, GoogleSheetsExport),
@@ -523,6 +526,9 @@ def run_action_spec(
         typed = bind_installed_action(project, ActionRequest.model_validate(data))
         if typed is None:
             typed = typed_action_for_request(data)
+        from .selection_scope import resolve_action_selection
+
+        typed = resolve_action_selection(project, typed, replay_before_resolution=True)
     except (KeyError, TypeError, ValueError, ValidationError) as exc:
         return _runtime_support._failed_result(
             project_id=project_id,

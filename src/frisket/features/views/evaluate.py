@@ -58,6 +58,14 @@ class SelectionRead:
         ):
             yield dict(row)
 
+    def index_of(self, *, sheet_id: int, row_id: int) -> int | None:
+        """Locate in the complete ordered selection, respecting its top-N cap."""
+        row = self.snapshot.db.execute(
+            f"SELECT selected_index FROM (SELECT row_id,sheet_id,ROW_NUMBER() OVER (ORDER BY {self._order})-1 selected_index FROM {self._relation}) WHERE row_id=? AND sheet_id=? AND selected_index<?",
+            [*self._order_params, *self._params, row_id, sheet_id, self.total],
+        ).fetchone()
+        return None if row is None else int(row[0])
+
 
 def _scope(
     snapshot: Any, selection: dict[str, Any]
