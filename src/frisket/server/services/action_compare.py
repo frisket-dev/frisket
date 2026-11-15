@@ -376,7 +376,7 @@ def _resolve_run_draft(project, *, run_id: int, column_id: int):
                 409, "The current output descriptors no longer match this run."
             )
     bindings_by_logical = {
-        str(logical): by_role[str(role)] for logical, role in stored_names.items()
+        str(logical): by_role[str(logical)] for logical in stored_names
     }
     return rebound, canonical, plan, bindings_by_logical
 

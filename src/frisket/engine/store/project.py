@@ -23,7 +23,7 @@ import threading
 import uuid
 import weakref
 from collections.abc import Mapping
-from contextlib import AbstractContextManager, ExitStack, contextmanager
+from contextlib import AbstractContextManager, ExitStack, contextmanager, nullcontext
 from pathlib import Path
 from typing import Any, Collection, Iterator
 
@@ -136,6 +136,19 @@ class ProjectReadSnapshot:
         if connection is None:
             raise RuntimeError("project read snapshot is closed")
         return connection
+
+    def read_snapshot(self) -> AbstractContextManager[ProjectReadSnapshot]:
+        """Borrow this same read scope without closing its owner's connection."""
+        self.db  # Refuse borrowing an already closed snapshot.
+        return nullcontext(self)
+
+    def pending_replay_values(
+        self, sheet_id: int, column_id: int, row_ids: list[int] | None = None
+    ) -> dict[int, dict[str, Any]]:
+        return cells.pending_replay_values(self, sheet_id, column_id, row_ids)
+
+    def pending_replay_count(self, sheet_id: int, column_id: int) -> int:
+        return cells.pending_replay_count(self, sheet_id, column_id)
 
     def columns(self, sheet_id: int, include_hidden: bool = False) -> list[sqlite3.Row]:
         return cells.columns(self, sheet_id, include_hidden)

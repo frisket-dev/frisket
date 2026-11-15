@@ -140,3 +140,48 @@ def test_large_explicit_view_scope_uses_bounded_sql_parameters(tmp_path):
                 sql, params = selection.ordered_rows_sql()
                 assert len(params) < 10
                 assert len(snapshot.db.execute(sql, params).fetchall()) == 1500
+
+
+def test_view_grid_reads_generated_cells_and_reuses_owned_snapshot(tmp_path):
+    from contextlib import closing
+    from frisket.engine.executor import run_action_spec
+
+    with closing(Project.create(tmp_path / "generated-view.frisket")) as project:
+        sheet = project.add_sheet("Stories")
+        source = project.add_column(sheet, "source")
+        rows = project.add_rows(sheet, [{"source": "one"}], {"source": source})
+        result = run_action_spec(
+            project,
+            {
+                "action_id": "map.template",
+                "scope": {"kind": "sheet_rows", "sheet_id": sheet},
+                "params": {"template": {"text": "{{source}}"}},
+                "output_names": {"rendered": "note"},
+                "idempotency_key": "view-grid-generated",
+            },
+            project_id="p",
+        )
+        assert result.status == "completed", result.errors
+        note = next(c["id"] for c in project.columns(sheet) if c["name"] == "note")
+        project.apply_edits(
+            [{"row_id": rows[0], "column_id": note, "value": "corrected"}]
+        )
+        selection = {
+            "scope": {"kind": "sheet", "sheet_id": sheet},
+            "filters": [],
+            "order": [],
+            "limit": None,
+        }
+        service = SheetGridService(SimpleNamespace(get=lambda _: project))
+        grid = service.sheet_data("p", sheet, selection=json.dumps(selection))
+        assert len(grid["rows"]) == 1
+        from frisket.engine.store.cells import bounded_pending_replay_values
+
+        with project.read_snapshot() as snapshot:
+            with snapshot.read_snapshot() as borrowed:
+                assert borrowed is snapshot
+                bounded_pending_replay_values(
+                    borrowed, sheet, note, rows, include_count=True, byte_limit=1024
+                )
+            # Leaving the nested helper must not close the surrounding View read.
+            assert snapshot.get_values(sheet, note, rows) == {rows[0]: "corrected"}
