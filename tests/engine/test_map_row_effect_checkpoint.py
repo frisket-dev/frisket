@@ -27,7 +27,6 @@ from frisket.engine.runner.validation import (
 )
 from frisket.engine.store import Project
 from frisket.engine.store.output_claims import OutputColumnClaimStore
-from frisket.engine.store.result_generations import GenerationSealedError
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from frisket.execution.runtime_binding import ExecutionRouteVerificationFailed
 from frisket.ops.base import Recipe
@@ -521,7 +520,7 @@ class _AcceptedThenResponseLost:
         )
 
 
-def test_router_ambiguous_failure_keeps_row_effect_reserved_for_reconciliation(
+def test_model_retry_retains_known_usage_without_inventing_lost_response_cost(
     tmp_path, monkeypatch
 ) -> None:
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
@@ -552,17 +551,34 @@ def test_router_ambiguous_failure_keeps_row_effect_reserved_for_reconciliation(
             )
         )
 
-        assert halted.halted_code == "external_effect_reconciliation_required"
-        assert halted.completed == 0
-        assert provider.calls == 1
-        checkpoint = project.db.execute(
-            "SELECT state FROM effect_checkpoints WHERE family='row_effect' "
-            "AND group_key=CAST(? AS TEXT)",
+        assert halted.halted_code is None
+        assert halted.completed == 1
+        assert provider.calls == 2
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM effect_checkpoints WHERE family='row_effect' "
+                "AND group_key=CAST(? AS TEXT)",
+                (run_id,),
+            ).fetchone()[0]
+            == 0
+        )
+        # The lost response carries no known usage. Only the returned successful
+        # request contributes cost; retries cannot fabricate or double its usage.
+        assert project.db.execute(
+            "SELECT cost_actual FROM runs WHERE id=?",
             (run_id,),
-        ).fetchone()
-        assert checkpoint is not None
-        assert checkpoint["state"] == "reserved"
-        assert project.db.execute("SELECT COUNT(*) FROM model_calls").fetchone()[0] == 0
+        ).fetchone()[0] == pytest.approx(0.0001)
+        assert project.db.execute(
+            "SELECT SUM(provider_cost_usd) FROM model_calls WHERE run_id=?",
+            (run_id,),
+        ).fetchone()[0] == pytest.approx(0.0001)
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM results WHERE run_id=?",
+                (run_id,),
+            ).fetchone()[0]
+            == 1
+        )
     finally:
         project.close()
 
@@ -656,7 +672,7 @@ def test_ambiguous_reserved_effect_refuses_resume_instead_of_recalling(
         project.close()
 
 
-def test_cancelled_return_requires_fresh_generation_without_changing_old_accounting(
+def test_normal_cancel_keeps_returned_result_and_fresh_run_buys_new_work(
     tmp_path, monkeypatch
 ) -> None:
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
@@ -697,19 +713,15 @@ def test_cancelled_return_requires_fresh_generation_without_changing_old_account
             "WHERE family='row_effect' AND group_key=CAST(? AS TEXT)",
             (run_id,),
         ).fetchone()
-        assert checkpoint is not None
-        assert dict(checkpoint) == {"state": "returned", "accounting_persisted": 1}
-
-        with pytest.raises(GenerationSealedError, match="fresh explicitly scoped"):
-            asyncio.run(
-                _runner(project, router).run(
-                    confirmed,
-                    program=program,
-                    confirmed=True,
-                    resume_run_id=run_id,
-                    claim_token=claim_token,
-                )
-            )
+        assert checkpoint is None, "completed return was published and retired"
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM results WHERE run_id=?",
+                (run_id,),
+            ).fetchone()[0]
+            == 1
+        )
+        assert first.run_store.get_run(run_id)["status"] == "completed"
 
         assert provider.calls == 1
         run = project.db.execute(
@@ -727,7 +739,7 @@ def test_cancelled_return_requires_fresh_generation_without_changing_old_account
                 "WHERE family='row_effect' AND group_key=CAST(? AS TEXT)",
                 (run_id,),
             ).fetchone()[0]
-            == 1
+            == 0
         )
 
         row_id = int(

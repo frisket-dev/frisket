@@ -956,7 +956,7 @@ class RunResultStore:
             self.write_returned_call_accounting(
                 run_id,
                 batch,
-                writer_attempt_id=writer_attempt_id,
+                writer_attempt_id=authorized_attempt_id or writer_attempt_id,
                 claim_token=claim_token,
                 claimless_direct_effect=claimless_direct_effect,
                 authorized_attempt_id=authorized_attempt_id or writer_attempt_id,
@@ -996,7 +996,7 @@ class RunResultStore:
                 self.write_returned_call_accounting(
                     run_id,
                     batch,
-                    writer_attempt_id=writer_attempt_id,
+                    writer_attempt_id=authorized_attempt_id or writer_attempt_id,
                     claim_token=claim_token,
                     claimless_direct_effect=claimless_direct_effect,
                     authorized_attempt_id=authorized_attempt_id or writer_attempt_id,
@@ -1031,7 +1031,9 @@ class RunResultStore:
         """
         if checkpoint is not None and not checkpoint_action_kind:
             raise ValueError("checkpoint publication requires its action kind")
-        if any(item.get("model_calls") for item in batch):
+        # A replay's immutable fact owner is read by checkpoint consumption;
+        # the current output writer must never re-own that earlier purchase.
+        if checkpoint is None and any(item.get("model_calls") for item in batch):
             self.write_returned_call_accounting(
                 run_id,
                 batch,
@@ -1130,7 +1132,7 @@ class RunResultStore:
                 self.write_returned_call_accounting(
                     run_id,
                     batch,
-                    writer_attempt_id=writer_attempt_id,
+                    writer_attempt_id=fact_owner,
                     claim_token=claim_token,
                     claimless_direct_effect=claimless_direct_effect,
                     authorized_attempt_id=fact_owner,
@@ -2035,21 +2037,9 @@ class RunResultStore:
                     "publication-independent accounting must use the actual writer attempt"
                 )
             self._attempt_for_fact_write(run_id, owner_attempt_id)
-            attempt_state = self.db.execute(
-                "SELECT state FROM execution_attempts WHERE id=? AND run_id=?",
-                (owner_attempt_id, int(run_id)),
-            ).fetchone()
-            if attempt_state is None or str(attempt_state["state"]) not in {
-                "dispatching",
-                "effected",
-                "halted",
-                "abandoned",
-            }:
-                from frisket.execution.attempt import StaleAttemptWriter
+            from frisket.execution.attempt import require_returned_attempt
 
-                raise StaleAttemptWriter(
-                    "returned usage does not belong to a dispatched provider attempt"
-                )
+            require_returned_attempt(self.project, run_id, owner_attempt_id)
         rows: list[tuple[Any, ...]] = []
         candidate_calls: list[dict[str, Any]] = []
         fact_attempt_id = self._attempt_for_fact_write(

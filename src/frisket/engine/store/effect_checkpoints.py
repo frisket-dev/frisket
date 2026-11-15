@@ -506,7 +506,7 @@ class EffectCheckpointStore:
                 identity=identity,
                 expected_state="reserved",
             )
-            self._fence_writer(
+            self._fence_returned(
                 run_id=run_id,
                 writer_attempt_id=writer_attempt_id,
                 claim_token=claim_token,
@@ -559,7 +559,7 @@ class EffectCheckpointStore:
                 identity=identity,
                 expected_state="returned",
             )
-            self._fence_writer(
+            self._fence_returned(
                 run_id=run_id,
                 writer_attempt_id=writer_attempt_id,
                 claim_token=claim_token,
@@ -671,7 +671,8 @@ class EffectCheckpointStore:
             identity=identity,
             expected_state="returned",
         )
-        self._fence_writer(
+        fence = self._fence_returned if finalize is None else self._fence_writer
+        fence(
             run_id=run_id,
             writer_attempt_id=writer_attempt_id,
             claim_token=claim_token,
@@ -922,6 +923,31 @@ class EffectCheckpointStore:
         return decoded
 
     # -- shared verification ----------------------------------------------
+
+    def _fence_returned(
+        self,
+        *,
+        run_id: int | None,
+        writer_attempt_id: str | None,
+        claim_token: str | None,
+        claimless_direct_effect: bool,
+        authorized_attempt_id: str | None,
+    ) -> None:
+        """Retain an already dispatched response without granting publication."""
+        if authorized_attempt_id is None and run_id is None:
+            return
+        from frisket.execution.attempt import (
+            StaleAttemptWriter,
+            require_returned_attempt,
+        )
+
+        if not authorized_attempt_id or writer_attempt_id != authorized_attempt_id:
+            raise StaleAttemptWriter(
+                "returned checkpoint requires its actual authorized attempt"
+            )
+        require_returned_attempt(self, run_id, authorized_attempt_id)
+        if run_id is None and (claim_token is not None or not claimless_direct_effect):
+            raise StaleAttemptWriter("receipt checkpoint requires claimless authority")
 
     def _fence_writer(
         self,

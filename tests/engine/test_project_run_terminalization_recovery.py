@@ -77,6 +77,7 @@ def _seed_orphaned_run(
     *,
     reserved_checkpoint: bool = False,
     include_attempt_evidence: bool = True,
+    request_cancel: bool = True,
 ) -> _OrphanedRun:
     sheet_id = project.add_sheet("Source")
     source_column_id = project.add_column(sheet_id, "source", type="text")
@@ -189,7 +190,8 @@ def _seed_orphaned_run(
     )
     project.db.commit()
     assert abandon_stale_dispatching_attempts(project, run_id) == 1
-    assert RunResultStore(project).request_cancel(run_id)
+    if request_cancel:
+        assert RunResultStore(project).request_cancel(run_id)
     return _OrphanedRun(
         run_id=run_id,
         attempt_id=attempt_id,
@@ -1704,7 +1706,7 @@ def test_abandoned_writer_terminalization_rolls_back_when_claim_release_fails(
 def test_deferred_writer_closes_change_when_terminal_status_is_already_recorded(
     project,
 ):
-    orphan = _seed_orphaned_run(project)
+    orphan = _seed_orphaned_run(project, request_cancel=False)
     project.db.execute("BEGIN IMMEDIATE")
     project.db.execute(
         "UPDATE execution_attempts SET state='dispatching' WHERE id=?",
@@ -1721,6 +1723,7 @@ def test_deferred_writer_closes_change_when_terminal_status_is_already_recorded(
         (orphan.run_id,),
     ).fetchone()[0]
     start_change(project.db, op_id, writing=True)
+    RunResultStore(project).request_cancel(orphan.run_id, commit=False)
     RunResultStore(project).finish_run(
         orphan.run_id,
         "cancelled",

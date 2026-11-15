@@ -530,6 +530,21 @@ def load_attempt(project: Any, attempt_id: str) -> Any:
     ).fetchone()
 
 
+def require_returned_attempt(project: Any, run_id: int | None, attempt_id: str) -> Any:
+    """A returned external fact belongs to its dispatched attempt, not a live claim."""
+    row = load_attempt(project, attempt_id)
+    if (
+        row is None
+        or row["run_id"] != run_id
+        or (run_id is None and row["receipt_id"] is None)
+        or row["state"] not in {"dispatching", "effected", "halted", "abandoned"}
+    ):
+        raise StaleAttemptWriter(
+            "returned usage does not belong to a dispatched provider attempt"
+        )
+    return row
+
+
 def require_receipt_attempt_writer(
     project: Any, receipt_id: str, attempt_id: str, *, state: str = "dispatching"
 ) -> Any:

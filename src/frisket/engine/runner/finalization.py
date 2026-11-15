@@ -15,7 +15,6 @@ from frisket.engine.runner.column_retirement import (
     reveal_recovered_columns,
 )
 from frisket.engine.store import Project
-from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.review_stats import ensure_run_review_stats
 from frisket.engine.store.runs import EXPECTED_ROW_ERROR, RunResultStore
@@ -216,8 +215,11 @@ def finalize_dispatched_run(
 
     try:
         project.db.execute("BEGIN IMMEDIATE")
-        OutputColumnClaimStore.require_current_writer(
-            project.db,
+        from frisket.engine.store.run_lifecycle import require_terminal_writer
+
+        require_terminal_writer(
+            project,
+            terminal_status=str(kwargs["status"]),
             run_id=run_id,
             writer_attempt_id=writer_attempt_id,
             claim_token=claim_token,

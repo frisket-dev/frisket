@@ -918,14 +918,31 @@ class MapRunner:
                     defer_generation_seal=defer_generation_seal,
                     evidence_writer=evidence_writer,
                 )
-            except (ChangePublicationClosed, GenerationStateError) as exc:
+            except (
+                ChangePublicationClosed,
+                GenerationStateError,
+                StaleAttemptWriter,
+            ) as exc:
                 # Source deletion closes publication while requests already in
                 # flight still return. Accounting/checkpoints were committed
                 # before this publication attempt; drain siblings normally.
-                closed = isinstance(exc, ChangePublicationClosed) or isinstance(
-                    exc.__cause__, ChangePublicationClosed
+                closed = isinstance(
+                    exc, (ChangePublicationClosed, StaleAttemptWriter)
+                ) or isinstance(exc.__cause__, ChangePublicationClosed)
+                if not closed:
+                    raise
+                from frisket.engine.store.run_lifecycle import require_terminal_writer
+
+                closed_publication = require_terminal_writer(
+                    self.project,
+                    run_id=run_id,
+                    writer_attempt_id=writer_attempt_id,
+                    claim_token=claim_token,
+                    terminal_status="cancelled",
+                    claimless_direct_effect=self.claimless_direct_effect,
+                    output_column_ids=output_column_ids,
                 )
-                if not closed or not self.run_store.cancellation_requested(run_id):
+                if not closed_publication:
                     raise
                 publication_cancelled = True
                 progress.cancel_requested = True

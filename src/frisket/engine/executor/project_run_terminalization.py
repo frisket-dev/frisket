@@ -433,8 +433,11 @@ def terminalize_project_run(
         if isinstance(authority, CurrentWriterTerminalAuthority):
             authority_attempt_id = authority.writer_attempt_id
             try:
-                OutputColumnClaimStore.require_current_writer(
-                    db,
+                from frisket.engine.store.run_lifecycle import require_terminal_writer
+
+                require_terminal_writer(
+                    project,
+                    terminal_status=terminal_run_status,
                     run_id=run_id,
                     writer_attempt_id=authority.writer_attempt_id,
                     claim_token=authority.claim_token,
@@ -467,22 +470,6 @@ def terminalize_project_run(
                             None if stored_row is None else stored_row.status
                         ),
                         reason=str(exc),
-                    )
-                )
-            if run["current_attempt_id"] != authority.writer_attempt_id:
-                return complete(
-                    _result(
-                        "conflict",
-                        receipt_disposition="write_refused",
-                        run_status=current_status,
-                        receipt_status=(
-                            None if stored_row is None else stored_row.status
-                        ),
-                        reason=(
-                            "current_writer_authority_not_proven: "
-                            f"run holder {run['current_attempt_id']!r} does not "
-                            f"match writer {authority.writer_attempt_id!r}"
-                        ),
                     )
                 )
         elif isinstance(authority, AbandonedAttemptRecoveryAuthority):
