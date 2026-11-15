@@ -1561,10 +1561,9 @@ class MapRunner:
             checkpoint_identity: str | None = None
             checkpoint_created = False
             checkpoint_should_complete = False
-            recovered_response = False
             cloud_request_id: str | None = None
             cloud_llm_coordinator: CloudLLMCheckpointCoordinator | None = None
-            results: dict[str, dict[str, Any]]
+            results: dict[str, dict[str, Any]] | None = None
             cloud_payer = (
                 attempt.routed.binding.facts.cloud_payer
                 if attempt is not None and attempt.routed is not None
@@ -1677,9 +1676,21 @@ class MapRunner:
                                 row_id=row_id,
                                 output_columns=out_cols,
                             )
-                        recovered_response = True
+            unavailable = getattr(values, "unavailable_inputs", ())
+            if results is None and unavailable and checkpoint_id is None:
+                from frisket.engine.store.input_availability import not_completed_result
 
-            if not recovered_response:
+                # Availability is decided before either local or Cloud dispatch.
+                # An existing paid checkpoint must still take its recovery path.
+                results = {
+                    name: not_completed_result(unavailable[0]) for name in out_cols
+                }
+                if consumed_capture is not None:
+                    next(iter(results.values()))["__consumed_sources"] = (
+                        consumed_capture
+                    )
+
+            if results is None:
                 if cloud_payer is not None:
                     if checkpoint_id is None or checkpoint_identity is None:
                         raise RecipeInvocationHalt(

@@ -401,7 +401,7 @@ def test_cloud_first_resolves_target_specific_payer_and_offering():
     )
     assert offering is not None
     assert offering.quote.unit_rate == "0.0025"
-    assert offering.settlement.row_settlement_mode == "quoted_successful_rows"
+    assert offering.settlement.row_settlement_mode == "all_metered"
 
 
 def test_local_first_preserves_existing_local_route():
@@ -1391,8 +1391,10 @@ def test_structured_cloud_llm_action_requires_explicit_unknown_quantity_consent(
     assert cost_claim.basis["pricing_key"] == resolved.cost_basis.pricing_key
 
 
+@pytest.mark.parametrize("with_unavailable_row", [False, True])
 def test_cloud_llm_map_run_uses_routed_transport_and_retires_child_checkpoint(
     tmp_path,
+    with_unavailable_row,
 ):
     from frisket.actions.system import typed_action_for_request
     from frisket.engine.executor.map_rows_action import (
@@ -1445,13 +1447,23 @@ def test_cloud_llm_map_run_uses_routed_transport_and_retires_child_checkpoint(
     sheet_id = project.add_sheet("S")
     source_id = project.add_column(sheet_id, "source", type="text")
     project.add_rows(sheet_id, [{"source": "route this row"}], {"source": source_id})
+    sources = ["source"]
+    unavailable_row = None
+    if with_unavailable_row:
+        number = project.add_column(sheet_id, "number", type="integer")
+        sources.append("number")
+        unavailable_row = project.add_rows(
+            sheet_id,
+            [{"source": "do not buy this row", "number": "invalid"}],
+            {"source": source_id, "number": number},
+        )[0]
     plan = _typed_map_rows_plan(
         typed_action_for_request(
             {
                 "action_id": "map.extract",
                 "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
                 "params": {
-                    "source": ["source"],
+                    "source": sources,
                     "model": "openai/gpt-5-mini",
                     "instruction": "Extract the value",
                     "fields": [{"name": "value", "type": "text"}],
@@ -1528,6 +1540,28 @@ def test_cloud_llm_map_run_uses_routed_transport_and_retires_child_checkpoint(
         assert progress.done is True
         assert progress.halted_code is None, progress.halted_reason
         assert len(transport.calls) == 1
+        if unavailable_row is not None:
+            assert tuple(
+                project.db.execute(
+                    "SELECT outcome,error_code FROM results WHERE run_id=? AND row_id=?",
+                    (progress.run_id, unavailable_row),
+                ).fetchone()
+            ) == ("not_completed", "input_invalid")
+            assert (
+                project.db.execute(
+                    "SELECT count(*) FROM model_calls WHERE run_id=? AND row_id=?",
+                    (progress.run_id, unavailable_row),
+                ).fetchone()[0]
+                == 0
+            )
+            assert (
+                project.db.execute(
+                    "SELECT count(*) FROM effect_checkpoints WHERE family='row_effect' "
+                    "AND group_key=? AND unit_key=?",
+                    (str(progress.run_id), str(unavailable_row)),
+                ).fetchone()[0]
+                == 0
+            )
         [fact] = project.db.execute(
             "SELECT id,provider,credential_source,units,epoch_id FROM model_calls"
         ).fetchall()
