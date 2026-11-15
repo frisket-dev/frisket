@@ -671,7 +671,15 @@ class EffectCheckpointStore:
             identity=identity,
             expected_state="returned",
         )
-        fence = self._fence_returned if finalize is None else self._fence_writer
+        # Accounting may retire a returned fact under its original attempt even
+        # after publication closes. Recovery may instead retire that same fact
+        # under the current same-run writer, without reassigning its ownership.
+        fence = (
+            self._fence_returned
+            if finalize is None
+            and writer_attempt_id == checkpoint["authorized_attempt_id"]
+            else self._fence_writer
+        )
         fence(
             run_id=run_id,
             writer_attempt_id=writer_attempt_id,

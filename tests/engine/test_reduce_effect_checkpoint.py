@@ -183,6 +183,10 @@ def test_returned_reduce_checkpoint_accounts_spend_before_result_commit(
         ).fetchone()[0]
     )
     bound = typed_action_for_request(action)
+    assert op_spec.pop("execution_sources") == {
+        "sheet_ids": [project._sheet_id],
+        "column_ids": [column["id"] for column in project.columns(project._sheet_id)],
+    }
     assert op_spec == bound.request.model_dump(mode="json", exclude={"confirmation"})
     assert typed_action_for_request(op_spec).params == bound.params
     attempt = project.db.execute(

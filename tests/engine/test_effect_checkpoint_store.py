@@ -643,3 +643,80 @@ def test_require_model_call_ids_names_the_refusal() -> None:
         with pytest.raises(ModelCallIdMissing) as refusal:
             require_model_call_ids([{"model_calls": [{"id": bad_id}]}])
         assert refusal.value.code == "model_call_id_missing"
+
+
+@pytest.mark.parametrize("retiring_writer", ["original", "recovery"])
+def test_returned_checkpoint_retirement_preserves_owner_across_recovery(
+    project, store, retiring_writer
+):
+    run_id = _claimless_attempt(project, "original", state="dispatching")
+    unit = {**UNIT, "group_key": str(run_id)}
+    assert store.reserve(
+        "returned",
+        **unit,
+        authorized_attempt_id="original",
+        run_id=run_id,
+        writer_attempt_id="original",
+        claimless_direct_effect=True,
+    )
+    accounted = []
+
+    def accrue(checkpoint):
+        accounted.append(checkpoint["authorized_attempt_id"])
+        return 0.5
+
+    store.complete(
+        "returned",
+        **unit,
+        payload={"cost": 0.5},
+        accrue=accrue,
+        run_id=run_id,
+        writer_attempt_id="original",
+        claimless_direct_effect=True,
+    )
+    project.db.execute(
+        "UPDATE execution_attempts SET state='abandoned' WHERE id='original'"
+    )
+    for seq, name in enumerate(("replaced", "recovery"), start=1):
+        project.db.execute(
+            "INSERT INTO execution_attempts "
+            "(id,run_id,seq,state,action_identity_hash,scope_json,created_at) "
+            "VALUES (?,?,?,?,'recovery','[]',datetime('now'))",
+            (name, run_id, seq, "abandoned" if name == "replaced" else "dispatching"),
+        )
+    project.db.execute(
+        "UPDATE runs SET current_attempt_id='recovery' WHERE id=?", (run_id,)
+    )
+    other_run = _claimless_attempt(project, "other-run", state="dispatching")
+    assert other_run != run_id
+    project.db.commit()
+    for refused in ("missing", "replaced", "other-run"):
+        with pytest.raises(StaleAttemptWriter):
+            store.consume_and_retire(
+                "returned",
+                **unit,
+                run_id=run_id,
+                writer_attempt_id=refused,
+                claimless_direct_effect=True,
+            )
+        assert store.get("returned")["authorized_attempt_id"] == "original"
+    # Original fact authority cannot run a publication callback after losing
+    # its writer; only retirement/accounting remains allowed under that owner.
+    with pytest.raises(StaleAttemptWriter):
+        store.consume_and_retire(
+            "returned",
+            **unit,
+            run_id=run_id,
+            writer_attempt_id="original",
+            claimless_direct_effect=True,
+            finalize=lambda _checkpoint: None,
+        )
+    store.consume_and_retire(
+        "returned",
+        **unit,
+        run_id=run_id,
+        writer_attempt_id=retiring_writer,
+        claimless_direct_effect=True,
+    )
+    assert store.get("returned") is None
+    assert accounted == ["original"]

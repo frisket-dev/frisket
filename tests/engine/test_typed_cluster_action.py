@@ -82,7 +82,7 @@ def test_remote_cluster_exact_consent_accounting_and_cache(
     result = execute(
         router=router, options={"method": "semantic"}, confirmation=confirmed
     )
-    assert result.status == "completed", result.model_dump()
+    assert result.status == "completed", result.model_dump_json(indent=2)
     assert (
         project.db.execute(
             "SELECT publication_closed FROM ops JOIN runs ON runs.op_id=ops.id "
@@ -126,7 +126,7 @@ def test_network_off_keeps_local_clustering(cluster_project, monkeypatch, method
         lambda *a, **kw: (embed, "fastembed/test"),
     )
     result = execute(options={"method": method})
-    assert result.status == "completed", result.model_dump()
+    assert result.status == "completed", result.model_dump_json(indent=2)
 
 
 def test_network_off_refuses_remote_before_any_call(cluster_project, monkeypatch):
@@ -316,7 +316,7 @@ def test_partial_vector_cache_loss_recovers_paid_full_batch(
             options={"method": "semantic"},
             confirmation=result.errors[0].details["promise_set_hash"],
         )
-    assert result.status == "completed", result.model_dump()
+    assert result.status == "completed", result.model_dump_json(indent=2)
     assert len(adapter.calls) == 1
     assert project.db.execute("SELECT count(*) FROM model_calls").fetchone()[0] == 1
     assert (
@@ -367,7 +367,7 @@ def test_cluster_publication_rolls_back_then_retries_without_recomputing(
     assert "value_clusters_result" in staged
     assert "value_clusters_result_storage" not in staged
     result = execute()
-    assert result.status == "completed", result.model_dump()
+    assert result.status == "completed", result.model_dump_json(indent=2)
     assert len(calls) == 1
     terminal = json.loads(
         project.db.execute(
@@ -430,7 +430,7 @@ def test_actual_prepared_call_not_builtin_parameter_names_controls_source(
         None,
         _default_map_runner_factory,
     )
-    assert result.status == "completed", result.model_dump()
+    assert result.status == "completed", result.model_dump_json(indent=2)
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
     fact = next(
         item.ref
