@@ -1,5 +1,6 @@
 """Exercise the application wiring with real staged bytes and queue workers."""
 
+import json
 import sqlite3
 
 import pytest
@@ -169,6 +170,109 @@ def test_table_name_collision_preserves_original_and_import_identity(
     assert replay.json() == imported
     assert len(project.sheets()) == 2
     assert project.db.execute("SELECT count(*) FROM receipts").fetchone()[0] == 1
+    session = client.get(
+        f"{base}/import/files/sessions/{imported['import_ref']}"
+    ).json()
+    assert session["state"] == "completed"
+    assert session["sheet_name"] == imported["sheet_name"]
+    receipt = project.db.execute("SELECT status, body FROM receipts").fetchone()
+    assert receipt["status"] == "completed"
+    assert json.loads(receipt["body"])["outputs"][0]["name"] == imported["sheet_name"]
+
+
+def _ready_paste(tmp_path):
+    app = create_app(tmp_path / "workspace")
+    client = TestClient(app, raise_server_exceptions=False)
+    pid = client.post("/api/projects", json={"name": "Commit recovery"}).json()["id"]
+    drain_queue(client, worker_id="table-setup")
+    project = app.state.workspace.get(pid)
+    base = f"/api/projects/{pid}"
+    response = client.post(
+        f"{base}/import/table-imports/paste",
+        files={"file": ("people.csv", b"name\nImported\n")},
+    )
+    assert response.status_code == 201, response.text
+    draft_url = f"{base}/import/table-imports/{response.json()['draft_id']}"
+    drain_queue(client, worker_id="table-analysis")
+    draft = _review_columns(client, draft_url, client.get(draft_url).json())
+    response = _set_destination(client, draft_url, draft, "Reviewed import")
+    assert response.status_code == 200, response.text
+    request = {
+        "expected_revision": response.json()["revision"],
+        "idempotency_key": "same-import",
+    }
+    return client, project, base, draft_url, request
+
+
+def test_completed_table_import_recovers_unrecorded_commit_response(
+    tmp_path, monkeypatch
+):
+    client, project, base, draft_url, request = _ready_paste(tmp_path)
+    accepted = {}
+
+    def lose_response(self, project_id, draft_id, *, idempotency_key, result):
+        accepted.update(result)
+        raise OSError("commit response could not be recorded")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(TableImportService, "record_commit", lose_response)
+        response = client.post(f"{draft_url}/commit", json=request)
+    assert response.status_code == 500, response.text
+    assert accepted["sheet_name"] == "Reviewed import"
+    drain_queue(client, worker_id="table-commit")
+    session_url = f"{base}/import/files/sessions/{accepted['import_ref']}"
+    before = client.get(session_url).json()
+    assert before["state"] == "completed"
+    assert before["sheet_name"] == accepted["sheet_name"]
+    receipt_before = dict(project.db.execute("SELECT * FROM receipts").fetchone())
+    assert receipt_before["status"] == "completed"
+    assert (
+        json.loads(receipt_before["body"])["outputs"][0]["name"]
+        == accepted["sheet_name"]
+    )
+
+    response = client.post(f"{draft_url}/commit", json=request)
+    assert response.status_code == 200, response.text
+    assert all(response.json()[key] == value for key, value in accepted.items())
+    drain_queue(client, worker_id="table-replay")
+    assert client.get(session_url).json() == before
+    data = client.get(f"{base}/sheets/{accepted['sheet_id']}/data").json()
+    assert len(data["rows"]) == 1
+    assert list(data["rows"][0]["cells"].values()) == ["Imported"]
+    assert len(project.sheets()) == 1
+    receipts = project.db.execute("SELECT * FROM receipts").fetchall()
+    assert [dict(row) for row in receipts] == [receipt_before]
+
+
+def test_cancelled_table_reservation_cannot_be_resurrected(tmp_path, monkeypatch):
+    client, project, base, draft_url, request = _ready_paste(tmp_path)
+
+    def legacy_collision(*args, **kwargs):
+        raise sqlite3.IntegrityError("UNIQUE constraint failed: sheets.name")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(StreamingSheetWriter, "start_session", legacy_collision)
+        response = client.post(f"{draft_url}/commit", json=request)
+    assert response.status_code == 500, response.text
+    response = client.get(f"{base}/import/files/sessions")
+    assert response.status_code == 200, response.text
+    sessions = response.json()["sessions"]
+    assert len(sessions) == 1
+    session_url = f"{base}/import/files/sessions/{sessions[0]['import_ref']}"
+    response = client.post(f"{session_url}/cancel")
+    assert response.status_code == 200, response.text
+    assert response.json()["cancel_requested"]
+    receipt_before = dict(project.db.execute("SELECT * FROM receipts").fetchone())
+    assert receipt_before["status"] == "cancelled"
+
+    response = client.post(f"{draft_url}/commit", json=request)
+    assert response.status_code == 409, response.text
+    drain_queue(client, worker_id="table-cancel-replay")
+    assert project.sheets() == []
+    assert project.db.execute("SELECT count(*) FROM rows").fetchone()[0] == 0
+    receipts = project.db.execute("SELECT * FROM receipts").fetchall()
+    assert [dict(row) for row in receipts] == [receipt_before]
+    assert client.get(session_url).json()["cancel_requested"]
 
 
 def test_reviewed_table_reaches_grid_errors_and_one_undo(tmp_path):
