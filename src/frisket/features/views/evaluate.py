@@ -80,11 +80,12 @@ class SelectionRead:
 
     def index_of(self, *, sheet_id: int, row_id: int) -> int | None:
         """Locate in the complete ordered selection, respecting its top-N cap."""
+        sql, params = self.ordered_rows_sql(include_ordinal=True)
         row = self.snapshot.db.execute(
-            f"SELECT selected_index FROM (SELECT row_id,sheet_id,ROW_NUMBER() OVER (ORDER BY {self._order})-1 selected_index FROM {self._relation}) WHERE row_id=? AND sheet_id=? AND selected_index<?",
-            [*self._order_params, *self._params, row_id, sheet_id, self.total],
+            f"SELECT selection_ordinal FROM ({sql}) WHERE row_id=? AND sheet_id=?",
+            [*params, row_id, sheet_id],
         ).fetchone()
-        return None if row is None else int(row[0])
+        return None if row is None else int(row[0]) - 1
 
 
 def _scope(
