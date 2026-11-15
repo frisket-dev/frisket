@@ -777,7 +777,7 @@ function RunWatcherBody({
               : undefined
           }
           onRetryRows={
-            triageColumn && onRetryFailedRows
+            triageColumn && onRetryFailedRows && run.retrySupported !== false
               ? (outcome) => onRetryFailedRows(triageColumn, outcome)
               : undefined
           }

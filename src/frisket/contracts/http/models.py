@@ -601,6 +601,7 @@ class ActionRunPublicStatus(WireModel):
     """
 
     run_id: int
+    retry_supported: bool = True
     action_kind: str
     action_name: str
     status: str

@@ -644,6 +644,7 @@ function mapReviewRuns(wire: ReviewRunsWire): ReviewRunsPage {
       startedAt: run.started_at,
       running: run.running ?? false,
       reviewStatus: run.review_status,
+      retrySupported: run.retry_supported,
       reviewCompletedAt: run.review_completed_at,
       total: mapReviewRunCounts(run.total),
       fields: run.fields.map((field) => ({

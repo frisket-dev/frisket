@@ -284,6 +284,7 @@ class ReviewRun(WireModel):
     copied_op_id: int | None = Field(default=None, gt=0)
     sheet_id: int = Field(gt=0)
     sheet_name: str
+    retry_supported: bool = True
     action_kind: str
     action_name: str
     model: str | None

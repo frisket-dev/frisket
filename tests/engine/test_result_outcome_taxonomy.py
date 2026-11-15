@@ -79,7 +79,14 @@ def test_outcome_constants_partition_failure_and_terminal() -> None:
     assert "withheld_unverified" in TERMINAL_OUTCOMES
     # a kept-but-uncited research answer: terminal, NOT a failure, value kept.
     assert "unverified_memory" in TERMINAL_OUTCOMES
-    assert set(FAILURE_OUTCOMES) == {"model_error", "invalid_output", "row_error"}
+    # This legacy bucket drives retry/filter eligibility, not failed-row counts:
+    # unavailable inputs can be tried later without claiming a failed attempt.
+    assert set(FAILURE_OUTCOMES) == {
+        "model_error",
+        "invalid_output",
+        "row_error",
+        "not_completed",
+    }
     assert set(TERMINAL_FAILURE_OUTCOMES) == {"empty_output"}
 
 

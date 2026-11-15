@@ -896,22 +896,25 @@ class ResultGenerationStore:
                 )
         # A row's output family is one publication, including explicit errors
         # and nulls. A partial checkpoint stays pending until all siblings exist.
-        complete_keys: list[tuple[int, int]] = []
-        for row_id in sorted({row_id for row_id, _ in active_keys}):
-            present = {
-                int(row[0])
-                for row in self.db.execute(
-                    "SELECT column_id FROM results WHERE run_id=? AND row_id=? "
-                    "AND publication_effect IS NOT NULL",
-                    (int(run_id), row_id),
-                )
-            }
-            if set(bindings) <= present:
-                complete_keys.extend(
-                    (row_id, column_id)
-                    for column_id, binding in bindings.items()
-                    if binding.state == "active"
-                )
+        complete_rows = self.db.execute(
+            "SELECT row_id FROM results WHERE run_id=? "
+            "AND row_id IN (SELECT value FROM json_each(?)) "
+            "AND column_id IN (SELECT value FROM json_each(?)) "
+            "AND publication_effect IS NOT NULL GROUP BY row_id HAVING COUNT(*)=? "
+            "ORDER BY row_id",
+            (
+                int(run_id),
+                json.dumps(sorted({row for row, _ in active_keys})),
+                json.dumps(sorted(bindings)),
+                len(bindings),
+            ),
+        )
+        complete_keys = [
+            (int(row[0]), column_id)
+            for row in complete_rows
+            for column_id, binding in bindings.items()
+            if binding.state == "active"
+        ]
         active_keys = complete_keys
         if not active_keys:
             return 0

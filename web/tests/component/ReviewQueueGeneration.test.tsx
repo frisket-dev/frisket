@@ -67,14 +67,14 @@ afterEach(() => {
 
 const options = { order: 'shuffle' as const };
 
-it('reapplies saved results only after explicit replacement confirmation', async () => {
+it.each([true, false])('reapplies saved results with retry capability %s', async (retrySupported) => {
   const counts = { eligibleCount: 1, reviewedCount: 0, acceptedCount: 0,
     incorrectCount: 0, unreviewedCount: 1, confidenceCount: 1 };
   vi.spyOn(stores.projectApi, 'listReviewRuns').mockResolvedValue({
     schemaVersion: 'frisket.review_runs_page.v1', offset: 0, limit: 50, total: 1,
     hasMore: false, nextOffset: null,
     runs: [{ runId: '9', sourceId: '9', copiedOpId: null, sheetId: '2', sheetName: 'Stories', actionKind: 'map.ask',
-      actionName: 'Ask', model: null, startedAt: '2026-11-14T00:00:00Z',
+      actionName: 'Ask', model: null, retrySupported, startedAt: '2026-11-14T00:00:00Z',
       reviewStatus: 'open', reviewCompletedAt: null, total: counts,
       fields: [{ columnId: '4', columnName: 'Answer', columnType: 'text', ...counts }] }],
   });
@@ -88,6 +88,7 @@ it('reapplies saved results only after explicit replacement confirmation', async
   </WorkspaceStoresContext.Provider>);
   await screen.findByTestId('review-card');
   fireEvent.click(await screen.findByRole('button', { name: 'Results', exact: true }));
+  expect(screen.queryByRole('button', { name: 'Retry unfinished' }) !== null).toBe(retrySupported);
   fireEvent.click(await screen.findByRole('button', { name: 'Reapply saved results' }));
   expect(submit).not.toHaveBeenCalled();
   expect(await screen.findByRole('dialog', { name: 'Reapply saved results?' })).toHaveTextContent('does not call a provider');

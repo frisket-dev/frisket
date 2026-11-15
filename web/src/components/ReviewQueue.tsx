@@ -79,8 +79,8 @@ export function ReviewQueue({ onClose, onChanged, runId, reviewExportUrl }: Revi
         reviewExportUrl={reviewExportUrl}
         onRunStatusChange={(_run, status) => leave(() => { void runs.setRunStatus(status); })}
         resultActions={(close) => selectedRun?.runId && <>
-          <Button type="button" disabled={busy || actionBusy}
-            onClick={() => { close(); leave(() => { void runSavedAction('retry'); }); }}>Retry unfinished</Button>
+          {selectedRun.retrySupported !== false && <Button type="button" disabled={busy || actionBusy}
+            onClick={() => { close(); leave(() => { void runSavedAction('retry'); }); }}>Retry unfinished</Button>}
           <Button type="button" disabled={busy || actionBusy}
             onClick={() => { close(); leave(() => { setActionError(null); setReapplyOpen(true); }); }}>Reapply saved results</Button>
         </>}>

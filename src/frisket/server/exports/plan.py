@@ -285,13 +285,7 @@ def iter_export_row_batches(
         and column.source_column_id is not None
     }
     if plan.selection_read is not None:
-        batches = (
-            [
-                int(hit["row_id"])
-                for hit in plan.selection_read.hits(offset=offset, limit=batch_size)
-            ]
-            for offset in range(0, plan.selection_read.total, batch_size)
-        )
+        batches = _selection_row_batches(plan.selection_read, batch_size)
     else:
         batches = _rowset.iter_row_id_batches(
             project,
@@ -324,6 +318,18 @@ def iter_export_row_batches(
                 ]
             )
         yield ExportRowBatch(row_ids=batch_row_ids, rows=rows)
+
+
+def _selection_row_batches(selection_read, batch_size):
+    # Keep one ordered cursor: repeated OFFSET pages rerun and discard all
+    # preceding rows, making large sorted View exports quadratic.
+    sql, params = selection_read.ordered_rows_sql()
+    cursor = selection_read.snapshot.db.execute(sql, params)
+    try:
+        while rows := cursor.fetchmany(batch_size):
+            yield [int(row["row_id"]) for row in rows]
+    finally:
+        cursor.close()
 
 
 def _cell_for_column(

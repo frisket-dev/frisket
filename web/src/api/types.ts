@@ -3032,6 +3032,7 @@ export interface RunProgress {
   runId: string;
   actionName: string;
   actionKind: string;
+  retrySupported?: boolean;
   sheetId: string;
   targetColumnId: string;
   /** Row scope the run targets (spec.row_ids), remembered client-side at
@@ -3977,6 +3978,7 @@ export interface ReviewRun {
   sheetId: string;
   sheetName: string;
   actionKind: string;
+  retrySupported?: boolean;
   actionName: string;
   model: string | null;
   running?: boolean;

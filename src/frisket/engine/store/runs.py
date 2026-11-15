@@ -181,6 +181,8 @@ def _group_row_errors(
 # Expected data failures stay failed/retryable, without treating a bad row as
 # evidence of an unexpected systemic failure or hiding its diagnostic column.
 EXPECTED_ROW_ERROR = "row_error"
+# Historical retry/filter bucket: includes unavailable work that was never
+# attempted. Failed-row accounting excludes that state below.
 FAILURE_OUTCOMES = (
     "model_error",
     "invalid_output",
@@ -211,9 +213,12 @@ def outcome_sql_list(outcomes: tuple[str, ...]) -> str:
 # "done" for run-completion / backfill scoping: terminal successes AND terminal
 # failures — neither is ever re-run automatically.
 _DONE_OUTCOMES_SQL = outcome_sql_list(TERMINAL_OUTCOMES + TERMINAL_FAILURE_OUTCOMES)
-# "failed" for failed_rows accounting: auto-retryable failures AND terminal
-# failures — an empty_output row is failed honestly, not silently green.
-_FAILED_OUTCOMES_SQL = outcome_sql_list(FAILURE_OUTCOMES + TERMINAL_FAILURE_OUTCOMES)
+# Unavailable inputs remain retryable, but are not failed attempts. Keep the
+# failed-row projection consistent with receipts that report not_completed apart.
+_FAILED_OUTCOMES_SQL = outcome_sql_list(
+    tuple(outcome for outcome in FAILURE_OUTCOMES if outcome != "not_completed")
+    + TERMINAL_FAILURE_OUTCOMES
+)
 # Produced cells still eligible for the human review queue (accept/reject/edit).
 # `unverified_memory` is a kept answer with no source, so it is at least as
 # review-worthy as an `ok` cell — never silently drop it from the queue. Single
@@ -1466,8 +1471,7 @@ class RunResultStore:
         from frisket.engine.store.result_generations import ResultGenerationStore
 
         after_states = self.result_row_failure_states(run_id, rows_in_batch)
-        new_rows = set(after_states) - set(before_states)
-        completed_delta = len(new_rows)
+        completed_delta = len(after_states) - len(before_states)
         failed_delta = sum(after_states.values()) - sum(before_states.values())
         # runs.cost_actual is NOT touched here: it is a projection of this
         # run's model_calls facts, maintained by write_model_calls (the one
@@ -1694,8 +1698,6 @@ class RunResultStore:
     ) -> dict[int, bool]:
         if not row_ids:
             return {}
-        ordered_row_ids = sorted(row_ids)
-        placeholders = ",".join("?" for _ in ordered_row_ids)
         return {
             int(row["row_id"]): bool(row["failed"])
             for row in self.db.execute(
@@ -1703,9 +1705,9 @@ class RunResultStore:
                 f"MAX(CASE WHEN outcome IN ({_FAILED_OUTCOMES_SQL}) "
                 "THEN 1 ELSE 0 END) AS failed "
                 "FROM results "
-                f"WHERE run_id=? AND row_id IN ({placeholders}) "
-                "GROUP BY row_id",
-                (run_id, *ordered_row_ids),
+                "WHERE run_id=? AND row_id IN (SELECT value FROM json_each(?)) "
+                "GROUP BY row_id HAVING MAX(outcome <> 'not_completed')",
+                (run_id, json.dumps(sorted(row_ids))),
             )
         }
 

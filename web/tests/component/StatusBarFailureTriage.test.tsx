@@ -329,3 +329,12 @@ describe('StatusBar review entry point', () => {
     expect(onOpenReview).toHaveBeenCalledOnce();
   });
 });
+
+
+it('keeps unavailable transform rows inspectable without offering row retry', () => {
+  renderBar(finishedRun({ actionKind: 'resolve.fill_missing', retrySupported: false }));
+  fireEvent.click(screen.getByTestId('run-watcher-toggle'));
+  expect(screen.getByTestId('run-failure-triage')).toBeInTheDocument();
+  expect(screen.queryByTestId('run-failure-bucket-retry-model_error')).not.toBeInTheDocument();
+  expect(screen.getByTestId('run-failure-bucket-show-model_error')).toBeInTheDocument();
+});

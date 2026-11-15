@@ -243,7 +243,10 @@ def project_run_status_payload(
     row = status.row
     progress = public_run_progress(row, status.public_status)
     public_status = progress["status"]
+    from frisket.authoring.action_metadata import action_supports_row_retry
+
     payload = {
+        "retry_supported": action_supports_row_retry(run_row_action_kind(row)),
         "run_id": run_id,
         **action_metadata_for_action_kind(run_row_action_kind(row)),
         **progress,

@@ -27,6 +27,7 @@ function mapPublicRunProgress(
     runId: String(status.run_id),
     actionKind: status.action_kind || 'unknown',
     actionName: status.action_name,
+    retrySupported: status.retry_supported,
     sheetId: String(sheetId),
     targetColumnId: '',
     targetRowIds: null,

@@ -165,6 +165,25 @@ def _resolve_backfill_target(
             reverse=True,
         )
         if missing_heads:
+            # Unavailable outcomes deliberately are not published heads, but
+            # their retained owner still identifies a whole-column transform.
+            from frisket.authoring.action_metadata import action_supports_row_retry
+
+            owners = project.db.execute(
+                "SELECT DISTINCT run.action_kind FROM unmodified_cell_heads head "
+                "JOIN runs run ON run.id=head.origin_run_id "
+                "WHERE head.column_id=? AND head.origin_kind='run_result' "
+                "AND head.outcome='not_completed' "
+                "AND head.row_id IN (SELECT value FROM json_each(?))",
+                (column_id, json.dumps(missing_heads)),
+            )
+            if any(not action_supports_row_retry(row[0]) for row in owners):
+                return ActionError(
+                    code="run_required",
+                    message="This action transforms the whole column; run the action again instead of backfilling rows.",
+                    action_kind=action_kind,
+                    field="params.column",
+                )
             return ActionError(
                 code="backfill_source_unavailable",
                 message=(
@@ -210,7 +229,7 @@ def _resolve_backfill_target(
         )
     run_id = source_run_ids[0]
     run_row = project.db.execute(
-        "SELECT id, op_id, params FROM runs WHERE id=?",
+        "SELECT id, op_id, params, action_kind FROM runs WHERE id=?",
         (run_id,),
     ).fetchone()
     if run_row is None:
@@ -220,6 +239,15 @@ def _resolve_backfill_target(
             action_kind=action_kind,
             field="params.column",
             details={"run_id": int(run_id)},
+        )
+    from frisket.authoring.action_metadata import action_supports_row_retry
+
+    if not action_supports_row_retry(run_row["action_kind"]):
+        return ActionError(
+            code="run_required",
+            message="This action transforms the whole column; run the action again instead of backfilling rows.",
+            action_kind=action_kind,
+            field="params.column",
         )
     try:
         runner_spec = json.loads(run_row["params"] or "{}")

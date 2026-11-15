@@ -6,6 +6,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from contextlib import closing
 
 from frisket.engine.store import Project
 from frisket.server.services.sheet_grid import SheetGridService, SheetGridRouteError
@@ -185,3 +186,43 @@ def test_view_grid_reads_generated_cells_and_reuses_owned_snapshot(tmp_path):
                 )
             # Leaving the nested helper must not close the surrounding View read.
             assert snapshot.get_values(sheet, note, rows) == {rows[0]: "corrected"}
+
+
+def test_view_export_uses_one_ordered_cursor_across_batches(tmp_path):
+    from frisket.engine.views.evaluate import open_selection
+    from frisket.server.exports.plan import (
+        build_sheet_export_plan,
+        iter_export_row_batches,
+    )
+
+    with closing(Project.create(tmp_path / "export-cursor.frisket")) as project:
+        sheet = project.add_sheet("Rows")
+        score = project.add_column(sheet, "score", type="integer")
+        project.add_rows(sheet, [{"score": i} for i in range(60)], {"score": score})
+        with open_selection(
+            project,
+            {
+                "scope": {"kind": "sheet", "sheet_id": sheet},
+                "order": [{"column_id": score, "dir": "desc"}],
+                "limit": 51,
+            },
+        ) as selected:
+            plan = build_sheet_export_plan(
+                selected.snapshot, sheet, selection_read=selected
+            )
+            statements = []
+            selected.snapshot.db.set_trace_callback(statements.append)
+            try:
+                batches = list(
+                    iter_export_row_batches(selected.snapshot, plan, batch_size=7)
+                )
+            finally:
+                selected.snapshot.db.set_trace_callback(None)
+        assert [row[0] for batch in batches for row in batch.rows] == list(
+            range(59, 8, -1)
+        )
+        selection_reads = [
+            s for s in statements if s.startswith("SELECT * FROM ") and "ORDER BY" in s
+        ]
+        assert len(selection_reads) == 1
+        assert "OFFSET" not in selection_reads[0]

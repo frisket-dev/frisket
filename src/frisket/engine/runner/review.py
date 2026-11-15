@@ -775,6 +775,7 @@ def review_runs_page(
     """List current review runs, or resolve one explicit historical run."""
 
     from .copied_review import copied_review_source
+    from frisket.authoring.action_metadata import action_supports_row_retry
 
     if copied_op_id is not None:
         if run_id is not None:
@@ -848,6 +849,7 @@ def review_runs_page(
             {
                 **dict(row),
                 "running": bool(row["running"]),
+                "retry_supported": action_supports_row_retry(row["action_kind"]),
                 "review_status": (
                     "complete" if row["review_completed_at"] is not None else "open"
                 ),

@@ -128,6 +128,16 @@ def _resolve_retry(
     ).fetchone()
     if original is None or original["sheet_id"] != scope.sheet_id:
         raise ValueError("Execution does not belong to the selected sheet")
+    from frisket.authoring.action_metadata import action_supports_row_retry
+
+    if not action_supports_row_retry(original["action_kind"]):
+        raise BackfillRefused(
+            ActionError(
+                code="run_required",
+                message="This action transforms the whole column; run the action again instead of retrying rows.",
+                action_kind="run.retry",
+            )
+        )
     original_rows = set(RunResultStore(project).run_row_scope(root_id))
     requested = (
         original_rows.intersection(project.visible_row_ids(scope.sheet_id))

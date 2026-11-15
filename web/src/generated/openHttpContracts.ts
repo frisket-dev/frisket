@@ -3078,6 +3078,7 @@ type HttpActionJob_ActionJobProgress = ({
   "preparation"?: (((HttpActionJob_ActionPreparationHint)) | ((null)));
   "queue"?: (((HttpActionJob_ActionRunQueue)) | ((HttpActionJob_ActionRunMissingQueue)) | ((null)));
   "remaining": (number);
+  "retry_supported"?: (boolean);
   "row_errors"?: (((HttpActionJob_RunRowErrorSummary)) | ((null)));
   "run_id": (number);
   "sheet_id": (number);
@@ -3269,6 +3270,7 @@ type HttpActionJobsPage_ActionJobProgress = ({
   "preparation"?: (((HttpActionJobsPage_ActionPreparationHint)) | ((null)));
   "queue"?: (((HttpActionJobsPage_ActionRunQueue)) | ((HttpActionJobsPage_ActionRunMissingQueue)) | ((null)));
   "remaining": (number);
+  "retry_supported"?: (boolean);
   "row_errors"?: (((HttpActionJobsPage_RunRowErrorSummary)) | ((null)));
   "run_id": (number);
   "sheet_id": (number);
@@ -3708,6 +3710,7 @@ type HttpActionRunStatus_ActionRunPublicStatus = ({
   "preparation"?: (((HttpActionRunStatus_ActionPreparationHint)) | ((null)));
   "queue"?: (((HttpActionRunStatus_ActionRunQueue)) | ((HttpActionRunStatus_ActionRunMissingQueue)) | ((null)));
   "remaining": (number);
+  "retry_supported"?: (boolean);
   "row_errors"?: (((HttpActionRunStatus_RunRowErrorSummary)) | ((null)));
   "run_id": (number);
   "skipped": (number);
@@ -13079,6 +13082,7 @@ type HttpReviewRunsPage_ReviewRun = ({
   "copied_op_id"?: (((number)) | ((null)));
   "fields": (Array<(HttpReviewRunsPage_ReviewRunField)>);
   "model": (((string)) | ((null)));
+  "retry_supported"?: (boolean);
   "review_completed_at": (((string)) | ((null)));
   "review_status": ("open" | "complete") & (string);
   "run_id"?: (((number)) | ((null)));
@@ -13659,6 +13663,7 @@ type HttpSearchPreparationBatch_ActionJobProgress = ({
   "preparation"?: (((HttpSearchPreparationBatch_ActionPreparationHint)) | ((null)));
   "queue"?: (((HttpSearchPreparationBatch_ActionRunQueue)) | ((HttpSearchPreparationBatch_ActionRunMissingQueue)) | ((null)));
   "remaining": (number);
+  "retry_supported"?: (boolean);
   "row_errors"?: (((HttpSearchPreparationBatch_RunRowErrorSummary)) | ((null)));
   "run_id": (number);
   "sheet_id": (number);
@@ -13802,6 +13807,7 @@ type HttpSearchPreparationBatchList_ActionJobProgress = ({
   "preparation"?: (((HttpSearchPreparationBatchList_ActionPreparationHint)) | ((null)));
   "queue"?: (((HttpSearchPreparationBatchList_ActionRunQueue)) | ((HttpSearchPreparationBatchList_ActionRunMissingQueue)) | ((null)));
   "remaining": (number);
+  "retry_supported"?: (boolean);
   "row_errors"?: (((HttpSearchPreparationBatchList_RunRowErrorSummary)) | ((null)));
   "run_id": (number);
   "sheet_id": (number);
