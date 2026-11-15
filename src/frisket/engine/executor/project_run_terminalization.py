@@ -289,6 +289,52 @@ def terminalize_project_run(
                     )
                 )
 
+        current_status = str(run["status"])
+        if (
+            current_status == "running"
+            and run["cancel_requested_at"] is not None
+            and isinstance(authority, CurrentWriterTerminalAuthority)
+            and terminal_run_status == "completed"
+        ):
+            if not commit:
+                # A family publisher may already have staged result DML in
+                # this caller-owned transaction. Refuse its success tuple so
+                # the caller rolls back before the existing cancel owner
+                # closes the receipt; never commit those rows as completed.
+                return complete(
+                    _result(
+                        "conflict",
+                        receipt_disposition="write_refused",
+                        run_status=current_status,
+                        receipt_status=(
+                            None if stored_row is None else stored_row.status
+                        ),
+                        reason="cancel_requested_before_successful_terminalization",
+                    )
+                )
+            status = "cancelled"
+            terminal_run_status = "cancelled"
+            cancellation_error = ActionError(
+                code="cancelled",
+                message="The run was stopped before terminalization.",
+                action_kind=(
+                    terminal_receipt.action_kind
+                    if terminal_receipt is not None
+                    else stored_receipt.action_kind
+                    if stored_receipt is not None
+                    else "unknown"
+                ),
+            )
+            errors = (cancellation_error,)
+            if terminal_receipt is not None:
+                terminal_receipt = terminal_receipt.model_copy(
+                    update={
+                        "status": "cancelled",
+                        "outputs": [],
+                        "errors": list(errors),
+                    }
+                )
+
         if terminal_receipt is not None:
             if (
                 terminal_receipt.receipt_id != receipt_id
@@ -1026,6 +1072,17 @@ def terminalize_project_run(
                     "project-run terminal claim release refused: "
                     f"expected {len(active_claims)}, released {released}"
                 )
+
+        if receipt_disposition != "missing":
+            refresh_targets = db.execute(
+                "SELECT id FROM sheets WHERE refresh_claim_token=? ORDER BY id",
+                (receipt_id,),
+            ).fetchall()
+            if refresh_targets:
+                from .sheet_refresh_ownership import release_refresh_claim
+
+                for target in refresh_targets:
+                    release_refresh_claim(project, int(target["id"]), receipt_id)
 
         final_run = db.execute(
             "SELECT status, finished_at FROM runs WHERE id=?", (run_id,)

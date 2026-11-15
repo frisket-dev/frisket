@@ -1400,7 +1400,6 @@ def _write_reduce_group_summary_result(
                     f"{terminalization.receipt_disposition}"
                 )
             )
-        publication.release_target()
         project.db.commit()
         _write_reduce_group_summary_traces(
             project,

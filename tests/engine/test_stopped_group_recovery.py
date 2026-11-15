@@ -138,6 +138,12 @@ raise RuntimeError('death hook not reached')
             ).fetchone()[0]
             == 1
         )
+        assert (
+            reopened.db.execute(
+                "SELECT refresh_claim_token FROM sheets WHERE id=?", (sheet,)
+            ).fetchone()[0]
+            is None
+        )
 
 
 def test_stale_cleanup_keeps_stopped_owner_with_ambiguous_effect(tmp_path):

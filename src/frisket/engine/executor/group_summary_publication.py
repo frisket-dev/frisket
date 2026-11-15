@@ -78,17 +78,6 @@ class GroupPublication:
         finally:
             self.stage.close()
 
-    def release_target(self):
-        """Release the sheet lease in the terminal receipt transaction."""
-        if not self.project.db.in_transaction:
-            raise RuntimeError("refresh release requires the terminal transaction")
-        if self.params.refresh_target is not None:
-            from .sheet_refresh_ownership import release_refresh_claim
-
-            release_refresh_claim(
-                self.project, self.params.refresh_target.sheet_id, self.receipt_id
-            )
-
     def stopped(self):
         return self.envelope is not None and RunResultStore(
             self.project
@@ -128,7 +117,6 @@ class GroupPublication:
                 raise StaleAttemptWriter(
                     terminal.reason or "cancelled summary could not close"
                 )
-            self.release_target()
             result = _result_from_receipt(
                 ReceiptStore(self.project).parsed_by_id(self.receipt_id)
             )
