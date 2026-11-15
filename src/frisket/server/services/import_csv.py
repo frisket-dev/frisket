@@ -9,11 +9,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from frisket.actions.imports import UpdateCsvParams, import_csv
-from frisket.actions.types import TableError
-from frisket.engine.executor import BoundLocalFile, ExecutorDeps
-from frisket.engine.executor.import_sources import open_local_file_reader
-from frisket.engine.store.artifact_timeline import TimelineError
+from frisket.engine.executor import ExecutorDeps
 from frisket.server.route_errors import RouteError
 from frisket.server.services import import_csv_analysis, import_csv_execute
 from frisket.server.services.action_runs import v1_action_result_http_status
@@ -21,8 +17,6 @@ from frisket.server.services.import_tabular import (
     decode_destination_mapping,
     materialized_sheet_output,
     mutation_row_count,
-    plan_tabular_update,
-    update_preview_payload,
     workload_limit_result,
 )
 from frisket.server.services.import_uploads import AdmittedUpload
@@ -135,80 +129,6 @@ class ImportCsvUploadService:
             "truncated": scan.row_count > len(preview_rows),
         }
 
-    def preview_csv_update(
-        self,
-        project_id: str,
-        *,
-        upload: AdmittedUpload,
-        destination_sheet_id: int,
-        column_mapping: str,
-        key_columns: str,
-        keep_existing_on_blank: bool,
-        update_policy: str = "keep_changes",
-        relationship_id: str | None = None,
-        encoding: str | None = None,
-        deps: ExecutorDeps | None = None,
-    ) -> dict[str, Any]:
-        project = self._workspace.get(project_id)
-        scan = self._scan(upload, encoding=encoding)
-        try:
-            mapping = decode_destination_mapping(
-                project,
-                sheet_id=destination_sheet_id,
-                source_names=scan.fieldnames,
-                column_mapping=column_mapping,
-                key_columns=key_columns,
-            )
-            params = import_csv_execute.params_from_scans(
-                [scan],
-                source_paths=[_source_path(upload)],
-                columns_override=[
-                    column.model_dump(exclude_unset=True) for column in mapping.columns
-                ],
-                key_columns=mapping.key_columns,
-                keep_existing_on_blank=keep_existing_on_blank,
-                update_policy=update_policy,
-                relationship_id=relationship_id,
-            )
-            assert isinstance(params, UpdateCsvParams)
-            with open_local_file_reader(
-                {
-                    _source_path(upload): BoundLocalFile(
-                        upload.source, f"sha256:{upload.sha256}"
-                    )
-                }
-            ) as reader:
-                produced = import_csv(params, reader)
-                max_rows = (
-                    deps.import_workload_limits.max_rows
-                    if deps and deps.import_workload_limits
-                    else None
-                )
-                plan = plan_tabular_update(
-                    project,
-                    sheet_id=destination_sheet_id,
-                    columns=params.columns,
-                    key_columns=params.key_columns,
-                    rows=(row.output.root for row in produced.rows),
-                    keep_existing_on_blank=keep_existing_on_blank,
-                    update_policy=update_policy,
-                    relationship_id=relationship_id,
-                    max_rows=max_rows,
-                )
-        except OverflowError as exc:
-            max_rows = (
-                deps.import_workload_limits.max_rows
-                if deps and deps.import_workload_limits
-                else None
-            )
-            raise ImportCsvRouteError(
-                400,
-                f"import.update_csv row count exceeds the deployment limit of {max_rows}",
-            ) from exc
-        except (TableError, LookupError, TimelineError, ValueError) as exc:
-            raise ImportCsvRouteError(400, str(exc)) from exc
-        return update_preview_payload(plan)
-
     def upload_csv(
         self,
         project_id: str,
@@ -224,7 +144,6 @@ class ImportCsvUploadService:
         keep_existing_on_blank: bool = False,
         update_policy: str = "keep_changes",
         relationship_id: str | None = None,
-        confirmation: str | None = None,
         deps: ExecutorDeps | None = None,
     ) -> ImportCsvUploadResponse:
         project = self._workspace.get(project_id)
@@ -303,7 +222,6 @@ class ImportCsvUploadService:
             keep_existing_on_blank=keep_existing_on_blank,
             update_policy=update_policy,
             relationship_id=relationship_id,
-            confirmation=confirmation,
             router=self._workspace.router_for(project),
         )
         if result.status != "completed":

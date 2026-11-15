@@ -1079,16 +1079,7 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
                 "ambiguous_import_keys",
                 "Duplicate exact keys make this update ambiguous.",
             ),
-            (
-                "stale_import_preview",
-                "The reviewed import preview is no longer current.",
-            ),
             ("sheet_not_found", "The destination sheet was not found or is hidden."),
-            (
-                "derived_update_unsupported",
-                "Derived sheets cannot receive imported updates.",
-            ),
-            ("output_column_busy", "An update column is in use by another action."),
             *_TEMPORAL_PROJECT_ERRORS,
             write_failure="The imported updates and receipt could not be written.",
         ),

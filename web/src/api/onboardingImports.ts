@@ -284,7 +284,6 @@ export interface ImportDraftMapping {
   update?: {
     keyColumns: string[];
     keepExistingOnBlank: boolean;
-    confirmation: string;
   };
 }
 
@@ -661,7 +660,6 @@ export async function submitImportRowsDraft(
       ...(mapping.update ? {
         key_columns: mapping.update.keyColumns,
         keep_existing_on_blank: mapping.update.keepExistingOnBlank,
-        confirmation: mapping.update.confirmation,
       } : {}),
     },
     errorFactory: actionLaunchErrorFromContract,

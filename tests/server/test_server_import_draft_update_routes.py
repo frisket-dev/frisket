@@ -20,7 +20,6 @@ def _reviewed_paste_body(
     draft_id: str,
     destination_sheet_id: int | None = None,
     key_columns: list[str] | None = None,
-    confirmation: str | None = None,
 ) -> ImportPasteConfirmBody:
     return ImportPasteConfirmBody(
         raw=raw,
@@ -32,7 +31,6 @@ def _reviewed_paste_body(
         ],
         destination_sheet_id=destination_sheet_id,
         key_columns=key_columns,
-        confirmation=confirmation,
     )
 
 
@@ -75,3 +73,36 @@ def test_server_paste_refuses_stale_draft_before_action_construction(tmp_path) -
 
     assert raised.value.status_code == 409
     assert client.get(f"/api/projects/{pid}/sheets").json() == []
+
+
+def test_paste_keyed_update_http_needs_no_obsolete_preview_token(tmp_path) -> None:
+    client = TestClient(create_app(tmp_path / "workspace"))
+    pid = client.post("/api/projects", json={"name": "Paste update"}).json()["id"]
+    project = client.app.state.workspace.get(pid)
+    sheet = project.add_sheet("People")
+    columns = {
+        name: project.add_column(sheet, name, type_)
+        for name, type_ in [("id", "text"), ("score", "integer")]
+    }
+    rows = project.add_rows(
+        sheet, [{"id": "a", "score": 1}, {"id": "b", "score": 2}], columns
+    )
+    raw = "id,score,unused\na,7,secret\nmissing,8,secret\n"
+    draft = client.post(f"/api/projects/{pid}/import/drafts/paste", json={"raw": raw})
+    assert draft.status_code == 200, draft.text
+    body = _reviewed_paste_body(
+        raw=raw,
+        draft_id=draft.json()["draft_id"],
+        destination_sheet_id=sheet,
+        key_columns=["id"],
+    ).model_dump(mode="json")
+    body["update_policy"] = "incoming_wins"
+    response = client.post(
+        f"/api/projects/{pid}/import/drafts/paste/confirm", json=body
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["sheet_id"] == sheet
+    assert project.get_values(sheet, columns["score"]) == {rows[0]: 7, rows[1]: 2}
+    replay = client.post(f"/api/projects/{pid}/import/drafts/paste/confirm", json=body)
+    assert replay.json() == response.json()
+    assert project.row_count(sheet) == 2

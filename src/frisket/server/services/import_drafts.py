@@ -20,9 +20,7 @@ from frisket.server.services.import_tabular import (
     decode_destination_mapping,
     materialized_sheet_output,
     mutation_row_count,
-    plan_tabular_update,
     run_tabular_action,
-    update_preview_payload,
     workload_limit_result,
 )
 from frisket.server.workspace import Workspace
@@ -279,43 +277,6 @@ class ImportDraftService:
             raise ImportDraftRouteError(400, str(exc)) from exc
         return project, analysis, params
 
-    def preview_update(
-        self, project_id: str, body: Any, *, deps: ExecutorDeps | None = None
-    ) -> dict[str, Any]:
-        project, _analysis, params = self._prepare(project_id, body)
-        if (
-            not isinstance(params, UpdateRowsParams)
-            or body.destination_sheet_id is None
-        ):
-            raise ImportDraftRouteError(
-                400, "paste update preview requires destination and key columns"
-            )
-        try:
-            max_rows = (
-                deps.import_workload_limits.max_rows
-                if deps and deps.import_workload_limits
-                else None
-            )
-            plan = plan_tabular_update(
-                project,
-                sheet_id=body.destination_sheet_id,
-                columns=params.columns,
-                key_columns=params.key_columns,
-                rows=params.rows,
-                keep_existing_on_blank=params.keep_existing_on_blank,
-                update_policy=params.update_policy,
-                relationship_id=params.relationship_id,
-                max_rows=max_rows,
-            )
-        except OverflowError as exc:
-            raise ImportDraftRouteError(
-                400,
-                f"import.update_rows row count exceeds the deployment limit of {max_rows}",
-            ) from exc
-        except (LookupError, TimelineError, ValueError) as exc:
-            raise ImportDraftRouteError(400, str(exc)) from exc
-        return update_preview_payload(plan)
-
     def confirm(
         self, project_id: str, body: Any, *, deps: ExecutorDeps | None = None
     ) -> ImportDraftConfirmResponse:
@@ -324,10 +285,6 @@ class ImportDraftService:
         update = body.destination_sheet_id is not None and body.key_columns is not None
         if body.destination_sheet_id is None and body.key_columns is not None:
             raise ImportDraftRouteError(400, "key columns require a destination sheet")
-        if update and not body.confirmation:
-            raise ImportDraftRouteError(400, "import update requires confirmation")
-        if not update and body.confirmation is not None:
-            raise ImportDraftRouteError(400, "confirmation requires an update")
         max_rows = (
             executor_deps.import_workload_limits.max_rows
             if executor_deps.import_workload_limits
@@ -381,7 +338,6 @@ class ImportDraftService:
             deps=executor_deps,
             sheet_name=body.sheet_name or "Pasted rows",
             destination_sheet_id=body.destination_sheet_id,
-            confirmation=body.confirmation,
             router=self._workspace.router_for(project),
         )
         if result.status != "completed":

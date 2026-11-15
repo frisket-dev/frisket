@@ -73,7 +73,6 @@ def run_scanned_csv_import(
     keep_existing_on_blank: bool = False,
     update_policy: str = "keep_changes",
     relationship_id: str | None = None,
-    confirmation: str | None = None,
     router: Any | None = None,
     bound_sources: dict[str, BoundLocalFile] | None = None,
 ):
@@ -107,6 +106,5 @@ def run_scanned_csv_import(
         deps=bind_import_sources(deps, local_files=files),
         sheet_name=sheet_name,
         destination_sheet_id=destination_sheet_id,
-        confirmation=confirmation,
         router=router,
     )

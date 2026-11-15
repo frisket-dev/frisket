@@ -410,8 +410,8 @@ def _sheet_row_scope_plan(
         if not row_ids:
             where.append("0=1")
         else:
-            where.append("r.id IN (" + ",".join("?" for _ in row_ids) + ")")
-            where_params.extend(row_ids)
+            where.append("r.id IN (SELECT CAST(value AS INTEGER) FROM json_each(?))")
+            where_params.append(json.dumps(list(row_ids), separators=(",", ":")))
     for filter_item in filters:
         if isinstance(filter_item, RuntimeSheetFilter):
             runtime_sql, runtime_params = _runtime_operator_where(

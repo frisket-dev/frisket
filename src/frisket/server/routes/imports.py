@@ -217,7 +217,6 @@ def register_import_csv_routes(
         keep_existing_on_blank: bool = False,
         update_policy: str = "keep_changes",
         relationship_id: str | None = None,
-        confirmation: str | None = None,
     ) -> dict[str, Any] | Response:
         executor_deps = service.executor_deps_for_request(pid, request)
         response = await await_thread_worker(
@@ -233,7 +232,6 @@ def register_import_csv_routes(
             keep_existing_on_blank=keep_existing_on_blank,
             update_policy=update_policy,
             relationship_id=relationship_id,
-            confirmation=confirmation,
             deps=executor_deps,
         )
         if response.force_json_response:

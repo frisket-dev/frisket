@@ -7,9 +7,7 @@ import pytest
 
 from frisket.actions.imports import UpdateRowsParams
 from frisket.engine.executor.actions import run_action_spec
-from frisket.engine.executor.import_update import plan_import_update
 from frisket.engine.store import Project
-from frisket.features.temporal_ingress import preflight_typed_rows_for_persistence
 
 
 def _seed(project: Project) -> tuple[int, dict[str, int], list[int]]:
@@ -45,15 +43,12 @@ def _params(rows, *, keep=False) -> UpdateRowsParams:
     )
 
 
-def _request(
-    sheet_id: int, params: UpdateRowsParams, confirmation: str, key="update-1"
-):
+def _request(sheet_id: int, params: UpdateRowsParams, key="update-1"):
     return {
         "action_id": "import.update_rows",
         "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
         "params": params.model_dump(mode="json"),
         "idempotency_key": key,
-        "confirmation": confirmation,
     }
 
 
@@ -67,27 +62,8 @@ def test_exact_update_preserves_rows_and_undoes_as_one_edit_op(tmp_path: Path) -
             {"id": "", "name": "Blank", "note": "ignored"},
         ]
     )
-    preview = plan_import_update(
-        project,
-        sheet_id=sheet_id,
-        columns=params.columns,
-        key_columns=params.key_columns,
-        rows=params.rows,
-        keep_existing_on_blank=False,
-        preflight_rows=preflight_typed_rows_for_persistence,
-        update_policy="incoming_wins",
-    )
-    assert (
-        preview.matched,
-        preview.unmatched,
-        preview.blank_keys,
-        preview.ambiguous,
-    ) == (1, 2, 1, 0)
-    assert (preview.changed_cells, preview.cleared_cells) == (2, 1)
 
-    result = run_action_spec(
-        project, _request(sheet_id, params, preview.confirmation), project_id="p"
-    )
+    result = run_action_spec(project, _request(sheet_id, params), project_id="p")
     assert result.status == "completed", result.errors
     op = project.db.execute(
         "SELECT spec FROM ops WHERE id=?", (result.op_ids[0],)
@@ -111,9 +87,7 @@ def test_exact_update_preserves_rows_and_undoes_as_one_edit_op(tmp_path: Path) -
     assert project.get_values(sheet_id, columns["name"])[row_ids[0]] == "Alicia"
 
     # Completed idempotency replay wins even though live target values changed.
-    replay = run_action_spec(
-        project, _request(sheet_id, params, preview.confirmation), project_id="p"
-    )
+    replay = run_action_spec(project, _request(sheet_id, params), project_id="p")
     assert replay.receipt_id == result.receipt_id
 
 
@@ -123,23 +97,11 @@ def test_updates_use_current_cells_and_late_duplicate_group_is_skipped(
     project = Project.create(tmp_path / "stale.frisket", name="Stale")
     sheet_id, columns, row_ids = _seed(project)
     params = _params([{"id": "a", "name": "Alicia", "note": "new"}])
-    preview = plan_import_update(
-        project,
-        sheet_id=sheet_id,
-        columns=params.columns,
-        key_columns=params.key_columns,
-        rows=params.rows,
-        keep_existing_on_blank=False,
-        preflight_rows=preflight_typed_rows_for_persistence,
-        update_policy="incoming_wins",
-    )
     project.apply_edits(
         [{"row_id": row_ids[0], "column_id": columns["note"], "value": "concurrent"}]
     )
     before = project.db.execute("SELECT COUNT(*) FROM edits").fetchone()[0]
-    stale = run_action_spec(
-        project, _request(sheet_id, params, preview.confirmation), project_id="p"
-    )
+    stale = run_action_spec(project, _request(sheet_id, params), project_id="p")
     assert stale.status == "completed"
     assert project.get_values(sheet_id, columns["note"])[row_ids[0]] == "new"
     assert project.db.execute("SELECT COUNT(*) FROM edits").fetchone()[0] == before
@@ -150,22 +112,9 @@ def test_updates_use_current_cells_and_late_duplicate_group_is_skipped(
             {"id": "b", "name": "B2", "note": "two"},
         ]
     )
-    duplicate_preview = plan_import_update(
-        project,
-        sheet_id=sheet_id,
-        columns=duplicate.columns,
-        key_columns=duplicate.key_columns,
-        rows=duplicate.rows,
-        keep_existing_on_blank=False,
-        preflight_rows=preflight_typed_rows_for_persistence,
-        update_policy="incoming_wins",
-    )
-    assert duplicate_preview.ambiguous == 2
     refused = run_action_spec(
         project,
-        _request(
-            sheet_id, duplicate, duplicate_preview.confirmation, "update-duplicate"
-        ),
+        _request(sheet_id, duplicate, "update-duplicate"),
         project_id="p",
     )
     assert refused.status == "completed"
@@ -173,25 +122,11 @@ def test_updates_use_current_cells_and_late_duplicate_group_is_skipped(
     assert project.db.execute("SELECT COUNT(*) FROM edits").fetchone()[0] == before
 
 
-def test_keep_existing_blank_is_bound_and_previewed_as_retained(tmp_path: Path) -> None:
+def test_keep_existing_blank_preserves_current_values(tmp_path: Path) -> None:
     project = Project.create(tmp_path / "blank.frisket", name="Blank")
     sheet_id, columns, row_ids = _seed(project)
     params = _params([{"id": "a", "name": "", "note": None}], keep=True)
-    preview = plan_import_update(
-        project,
-        sheet_id=sheet_id,
-        columns=params.columns,
-        key_columns=params.key_columns,
-        rows=params.rows,
-        keep_existing_on_blank=True,
-        preflight_rows=preflight_typed_rows_for_persistence,
-        update_policy="incoming_wins",
-    )
-    assert preview.changed_cells == 0
-    assert preview.samples[0]["after"] == {"name": "Alice", "note": "keep"}
-    result = run_action_spec(
-        project, _request(sheet_id, params, preview.confirmation), project_id="p"
-    )
+    result = run_action_spec(project, _request(sheet_id, params), project_id="p")
     assert result.status == "completed"
     assert result.op_ids == []
     assert project.get_values(sheet_id, columns["name"])[row_ids[0]] == "Alice"
@@ -212,7 +147,7 @@ def test_whitespace_only_imports_are_blank_without_trimming_nonblank_text(
     after: dict[str, object],
 ) -> None:
     project = Project.create(tmp_path / f"whitespace-{keep}.frisket", name="Whitespace")
-    sheet_id, _columns, _row_ids = _seed(project)
+    sheet_id, columns, row_ids = _seed(project)
     params = _params(
         [
             {"id": "a", "name": " \t", "note": "\u00a0"},
@@ -221,22 +156,12 @@ def test_whitespace_only_imports_are_blank_without_trimming_nonblank_text(
         ],
         keep=keep,
     )
-
-    preview = plan_import_update(
-        project,
-        sheet_id=sheet_id,
-        columns=params.columns,
-        key_columns=params.key_columns,
-        rows=params.rows,
-        keep_existing_on_blank=keep,
-        preflight_rows=preflight_typed_rows_for_persistence,
-        update_policy="incoming_wins",
-    )
-
-    assert (preview.matched, preview.unmatched, preview.blank_keys) == (2, 1, 1)
-    assert (preview.changed_cells, preview.cleared_cells) == (changed, cleared)
-    assert preview.samples[0]["after"] == after
-    assert preview.samples[2]["after"]["name"] == " Bob "
+    result = run_action_spec(project, _request(sheet_id, params), project_id="p")
+    assert result.status == "completed", result.errors
+    assert {
+        name: project.get_values(sheet_id, columns[name])[row_ids[0]] for name in after
+    } == after
+    assert project.get_values(sheet_id, columns["name"])[row_ids[1]] == " Bob "
 
 
 def test_number_keys_use_exact_numeric_semantics_without_text_coercion(
@@ -248,23 +173,16 @@ def test_number_keys_use_exact_numeric_semantics_without_text_coercion(
         "key": project.add_column(sheet_id, "key", "number"),
         "value": project.add_column(sheet_id, "value", "text"),
     }
-    project.add_rows(sheet_id, [{"key": 1, "value": "old"}], columns)
+    row_ids = project.add_rows(sheet_id, [{"key": 1, "value": "old"}], columns)
     params = UpdateRowsParams(
         columns=[{"name": "key", "type": "number"}, {"name": "value", "type": "text"}],
         key_columns=["key"],
         rows=[{"key": 1.0, "value": "new"}],
-    )
-    preview = plan_import_update(
-        project,
-        sheet_id=sheet_id,
-        columns=params.columns,
-        key_columns=params.key_columns,
-        rows=params.rows,
-        keep_existing_on_blank=False,
-        preflight_rows=preflight_typed_rows_for_persistence,
         update_policy="incoming_wins",
     )
-    assert preview.matched == 1
+    result = run_action_spec(project, _request(sheet_id, params), project_id="p")
+    assert result.status == "completed", result.errors
+    assert project.get_values(sheet_id, columns["value"])[row_ids[0]] == "new"
 
 
 def test_update_temporal_value_requires_live_project_anchor(tmp_path: Path) -> None:
@@ -289,7 +207,7 @@ def test_update_temporal_value_requires_live_project_anchor(tmp_path: Path) -> N
     )
     result = run_action_spec(
         project,
-        _request(seeded["sheet_id"], params, "reviewed-but-invalid", "temporal-update"),
+        _request(seeded["sheet_id"], params, "temporal-update"),
         project_id="p",
     )
     assert result.status == "failed"
@@ -315,9 +233,7 @@ def test_custom_rows_updater_uses_same_publication_without_outer_transaction(
         "_actions",
         {**ACTION_REGISTRY._actions, custom.action_id: custom},
     )
-    request = _request(
-        sheet, _params([{"id": "a", "name": "new"}]), "reviewed", "custom"
-    )
+    request = _request(sheet, _params([{"id": "a", "name": "new"}]), "custom")
     request["action_id"] = custom.action_id
     result = run_action_spec(project, request, project_id="p")
     assert result.status == "completed", result.errors
@@ -352,7 +268,6 @@ def test_queued_custom_updater_keeps_original_receipt(tmp_path, monkeypatch):
     request = _request(
         sheet,
         _params([{"id": "a", "note": "from worker"}]),
-        "reviewed",
         "queued-custom",
     )
     request["action_id"] = custom.action_id
@@ -369,9 +284,7 @@ def test_rekey_then_delete_cannot_restore_row_under_old_source_key(tmp_path):
     sheet, columns, rows = _seed(project)
     params = _params([{"id": "a", "name": "from source"}])
     params.relationship_id = "import:rekey"
-    first = run_action_spec(
-        project, _request(sheet, params, "reviewed", "first"), project_id="p"
-    )
+    first = run_action_spec(project, _request(sheet, params, "first"), project_id="p")
     assert first.status == "completed"
     project.apply_edits(
         [{"row_id": rows[0], "column_id": columns["id"], "value": "changed-key"}]
@@ -379,9 +292,7 @@ def test_rekey_then_delete_cannot_restore_row_under_old_source_key(tmp_path):
     with project.db:
         project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (rows[0],))
     params.rows = [{"id": "a", "name": "later source"}]
-    later = run_action_spec(
-        project, _request(sheet, params, "reviewed", "second"), project_id="p"
-    )
+    later = run_action_spec(project, _request(sheet, params, "second"), project_id="p")
     assert later.status == "completed", later.errors
     assert (
         project.db.execute("SELECT hidden FROM rows WHERE id=?", (rows[0],)).fetchone()[
@@ -439,7 +350,6 @@ def test_custom_updater_failure_after_publication_keeps_work_and_records_failure
     request = _request(
         sheet,
         _params([{"id": "a", "name": "published"}]),
-        "reviewed",
         "fail-after-update",
     )
     request["action_id"] = custom.action_id
@@ -470,7 +380,7 @@ def test_large_single_record_exceeds_batch_target_without_new_api_size_limit(
     value = "Long report " * 100
     params = _params([{"id": "a", "name": value}, {"id": "b", "name": "second"}])
     result = run_action_spec(
-        project, _request(sheet, params, "reviewed", "large-record"), project_id="p"
+        project, _request(sheet, params, "large-record"), project_id="p"
     )
     assert result.status == "completed", result.errors
     assert project.get_values(sheet, columns["name"]) == {

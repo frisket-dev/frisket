@@ -138,9 +138,7 @@ def test_observations_advance_when_kept_and_do_not_rewind_with_op_status(tmp_pat
 
 def test_import_update_uses_baseline_and_skips_whole_conflicting_key(tmp_path):
     from frisket.actions.imports import UpdateRowsParams
-    from frisket.engine.executor.import_update import plan_import_update
     from frisket.engine.executor.actions import run_action_spec
-    from frisket.features.temporal_ingress import preflight_typed_rows_for_persistence
 
     project, sheet, key_col, row, op = _project(tmp_path)
     with closing(project):
@@ -160,17 +158,6 @@ def test_import_update_uses_baseline_and_skips_whole_conflicting_key(tmp_path):
                 update_policy=policy,
                 relationship_id=relationship,
             )
-            plan = plan_import_update(
-                project,
-                sheet_id=sheet,
-                columns=params.columns,
-                key_columns=params.key_columns,
-                rows=params.rows,
-                keep_existing_on_blank=False,
-                preflight_rows=preflight_typed_rows_for_persistence,
-                update_policy=policy,
-                relationship_id=relationship,
-            )
             result = run_action_spec(
                 project,
                 {
@@ -178,41 +165,35 @@ def test_import_update_uses_baseline_and_skips_whole_conflicting_key(tmp_path):
                     "scope": {"kind": "sheet_rows", "sheet_id": sheet},
                     "params": params.model_dump(mode="json"),
                     "idempotency_key": f"test-{project.db.execute('SELECT COUNT(*) FROM receipts').fetchone()[0]}",
-                    "confirmation": plan.confirmation,
                 },
                 project_id="p",
             )
             assert result.status == "completed", result.errors
-            return plan, result
+            return result
 
-        first, result = run([{"id": "a", "value": "first"}], relationship="import:test")
-        assert first.changed_cells == 0
+        run([{"id": "a", "value": "first"}], relationship="import:test")
         assert project.get_values(sheet, value_col, [row])[row] == "original"
-        plan, result = run(
+        run(
             [{"id": "a", "value": "second"}],
             policy="incoming_wins",
             relationship="import:test",
         )
-        assert plan.changed_cells == 1
         assert project.get_values(sheet, value_col, [row])[row] == "second"
         project.apply_edits(
             [{"row_id": row, "column_id": value_col, "value": "my edit"}]
         )
-        plan, result = run([{"id": "a", "value": "third"}], relationship="import:test")
-        assert plan.changed_cells == 0
+        run([{"id": "a", "value": "third"}], relationship="import:test")
         assert observation(project.db, "import:test", row)[str(value_col)] == "third"
-        plan, result = run(
+        run(
             [{"id": "a", "value": "third"}],
             policy="incoming_wins",
             relationship="import:test",
         )
-        assert plan.changed_cells == 0
-        plan, result = run(
+        run(
             [{"id": "a", "value": "fourth"}, {"id": "a", "value": "conflict"}],
             policy="incoming_wins",
             relationship="import:test",
         )
-        assert plan.ambiguous == 2
         assert observation(project.db, "import:test", row)[str(value_col)] == "third"
         assert project.get_values(sheet, value_col, [row])[row] == "my edit"
 
