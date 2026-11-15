@@ -543,6 +543,7 @@ def prepare_table_producer(
     inventory_admission: FileInventoryAdmission | None = None,
     publication_resources: ExitStack | None = None,
     join_refresh: JoinRefreshAdmission | None = None,
+    empty_list_schema: tuple[Any, ...] | None = None,
     schema_only: bool = False,
     row_limit: int | None = None,
     cancelled: Callable[[], bool] | None = None,
@@ -749,13 +750,26 @@ def prepare_table_producer(
             plugin_secrets = HostPluginSecrets.from_binding(
                 project, bound.runtime_binding
             )
-        pending = terminal.handler(
-            bound.params,
-            *(
-                plugin_secrets if injection is PluginSecrets else readers[injection]
-                for injection in terminal.injections
-            ),
-        )
+        from frisket.actions.list_table import EmptyListSchema
+
+        try:
+            pending = terminal.handler(
+                bound.params,
+                *(
+                    plugin_secrets if injection is PluginSecrets else readers[injection]
+                    for injection in terminal.injections
+                ),
+            )
+        except EmptyListSchema:
+            reader = readers.get(ListTableReader)
+            if (
+                empty_list_schema is None
+                or reader is None
+                or not reader.facts
+                or reader.facts[-1]["item_count"] != 0
+            ):
+                raise
+            pending = DynamicTableResult(schema=empty_list_schema, rows=())
         produced = producer.resolve(pending)
         producer.own_rows(getattr(produced, "rows", None))
         if inspect.isawaitable(pending):
@@ -1556,6 +1570,21 @@ def _perform_table_in_txn(
     list_reader = resolved.get("list_reader")
     resolved_output_names = resolved.get("resolved_output_names", {})
     roles = resolved.get("source_roles", {})
+    from frisket.engine.store.derived_updates import MaterializedIdentity, join_identity
+
+    refresh_identity = None
+    if resolved.get("joined_tables_reader") is not None:
+        refresh_identity = MaterializedIdentity(
+            "join",
+            [
+                join_identity(
+                    [(source.row_id, roles[source]) for source in lineage.sources]
+                )
+                for lineage in sources
+            ],
+        )
+    elif list_reader is not None:
+        refresh_identity = MaterializedIdentity("list", None)
     write = write_contributor_table(
         cur,
         ContributorTablePlan(
@@ -1564,6 +1593,7 @@ def _perform_table_in_txn(
             target_sheet_name=table.sheet_name,
             parent_sheet_id=parent_sheet_id,
             op_spec={**resolved["op_spec"], "reads": resolved["reads"]},
+            refresh_identity=refresh_identity,
             columns=[
                 MaterializedColumnSpec(
                     name=column.name,

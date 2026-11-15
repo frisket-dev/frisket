@@ -43,17 +43,10 @@ from frisket.engine.executor.embedding_read import TableReadRefused
 from frisket.engine.executor.list_table_grounding import propagate_list_item_evidence
 from frisket.engine.executor.map_rows_action import typed_request_hash
 from frisket.engine.store import Project
-from frisket.engine.store.cell_writes import (
-    BaseCellWrite,
-    create_base_cell_producer,
-    delete_sheet_rows,
-    initialize_base_cells,
-)
 from frisket.engine.store.leases import lease_held
 from frisket.engine.store.materialization import (
     MaterializedColumnSpec,
     SingleParentMaterializedRow,
-    _insert_materialized_row_source,
 )
 from frisket.engine.store.receipts import ReceiptStore
 
@@ -92,13 +85,9 @@ def _sheet_refresh_plan(
     """Classify the same refresh families that `_refresh_sheet` can execute."""
     if sheet["parent_sheet_id"] is None or sheet["parent_op_id"] is None:
         return None
-    managed_column = project.db.execute(
-        "SELECT generation.column_id FROM run_output_generations generation "
-        "JOIN columns column ON column.id=generation.column_id "
-        "WHERE column.sheet_id=? ORDER BY generation.column_id LIMIT 1",
-        (int(sheet["id"]),),
-    ).fetchone()
-    if managed_column is not None:
+    from frisket.engine.store.derived_updates import refresh_config
+
+    if refresh_config(parent_op) is None:
         return None
 
     derive_request = _reconstruct_derive_request(parent_op, idempotency_key)
@@ -379,33 +368,6 @@ def _refresh_sheet(
             field="sheet_id",
             details={"sheet_id": sheet_id},
         )
-    managed_column = cur.execute(
-        "SELECT generation.column_id, column.name FROM run_output_generations generation "
-        "JOIN columns column ON column.id=generation.column_id "
-        "WHERE column.sheet_id=? ORDER BY generation.column_id LIMIT 1",
-        (sheet_id,),
-    ).fetchone()
-    if managed_column is not None:
-        return _fail(
-            project_id=project_id,
-            code="refresh_unsupported",
-            message=(
-                "Cannot refresh this sheet in place because column "
-                f"'{managed_column['name']}' is managed by an action run. Refresh replaces "
-                "child rows and cannot safely preserve generated results and manual edits. "
-                "Create a new derived sheet from the current parent, then rerun "
-                "enrichment and review before replacing the existing sheet. "
-                "The existing child sheet and its copied parent context are unchanged."
-            ),
-            field="sheet_id",
-            details={
-                "sheet_id": sheet_id,
-                "column_id": int(managed_column["column_id"]),
-                "column_name": str(managed_column["name"]),
-                "reason": "generation_managed_rows",
-            },
-        )
-
     # Live refresh lease (embedding_indexes idiom): a non-expired token means
     # another refresh of this sheet is in flight. Expiry compares PARSED
     # datetimes (`lease_held`) — a raw string compare breaks under writer
@@ -481,6 +443,7 @@ def _refresh_sheet(
             },
         )
 
+    update_policy = bound.request.params.get("update_policy", "keep_changes")
     derive_request = refresh_plan.request
     from frisket.engine.executor.table_action import (
         _list_output_ai_generated,
@@ -490,7 +453,29 @@ def _refresh_sheet(
     bound = BoundTypedActionRequest.bind(
         ACTION_REGISTRY.get(derive_request.action_id), derive_request
     )
-    with prepare_table_producer(project, bound, check_sheet_name=False) as prepared:
+    from frisket.actions.types import TableColumn
+
+    config = _current_refresh_config(cur, sheet_id)
+    logical_names = {
+        physical: logical for logical, physical in derive_request.output_names.items()
+    }
+    empty_schema = tuple(
+        TableColumn(
+            key=logical_names.get(name, name),
+            type=column["type"],
+            format=column["format"],
+            hidden=bool(column["hidden"]),
+        )
+        for name, column_id in config["columns"].items()
+        for column in [
+            cur.execute(
+                "SELECT type,format,hidden FROM columns WHERE id=?", (column_id,)
+            ).fetchone()
+        ]
+    )
+    with prepare_table_producer(
+        project, bound, check_sheet_name=False, empty_list_schema=empty_schema
+    ) as prepared:
         reader = prepared.readers[ListTableReader]
         if prepared.parent_sheet_id != int(sheet["parent_sheet_id"]):
             raise TableError(
@@ -519,9 +504,9 @@ def _refresh_sheet(
         }
         if copied_by_output:
             current = {
-                str(column["name"]): column
+                int(column["id"]): column
                 for column in cur.execute(
-                    "SELECT name, type, ai_generated, hidden FROM columns "
+                    "SELECT id, name, type, ai_generated, hidden FROM columns "
                     "WHERE sheet_id=? AND active=1",
                     (sheet_id,),
                 ).fetchall()
@@ -529,7 +514,7 @@ def _refresh_sheet(
             drifted = [
                 name
                 for name, copied in copied_by_output.items()
-                if (existing := current.get(name)) is None
+                if (existing := current.get(config["columns"].get(name))) is None
                 or existing["type"] != canonical_column_type(copied.type)
                 or bool(existing["ai_generated"]) != copied.ai_generated
                 or bool(existing["hidden"])
@@ -564,6 +549,7 @@ def _refresh_sheet(
             parent_sheet_id=int(sheet["parent_sheet_id"]),
             resolved=resolved,
             params_hash=params_hash,
+            policy=update_policy,
         )
         propagate_list_item_evidence(
             project,
@@ -641,6 +627,7 @@ def _refresh_join(
             source_roles=reader.source_roles,
             reads=reads,
             params_hash=params_hash,
+            policy=bound.request.params.get("update_policy", "keep_changes"),
         )
     cur.execute(
         "UPDATE sheets SET last_verified_op_cursor=?, "
@@ -700,91 +687,54 @@ def _rewrite_join_sheet_in_place(
     source_roles: dict[Any, str],
     reads: tuple[dict[str, Any], ...],
     params_hash: str,
+    policy: str = "keep_changes",
 ) -> tuple[int, int]:
-    """Replace joined rows and membership, preserving the sheet and column IDs.
-
-    The enclosing refresh transaction already refuses generation-managed
-    columns. Their ordinary descriptors can therefore follow the current schema
-    atomically with the complete replacement of their cells.
-    """
-    op_spec = {
-        "kind": "sheet.refresh",
-        "sheet_id": sheet_id,
-        "params_hash": params_hash,
-        "materialized_row_count": len(rows),
-        "reads": reads,
-    }
-    cur.execute(
-        "INSERT INTO ops (kind, label, spec, undo_info, barrier) "
-        "VALUES ('sheet.refresh', ?, ?, '{}', 0)",
-        (f"refresh join sheet {sheet_id}", json.dumps(op_spec, sort_keys=True)),
+    from frisket.engine.store.derived_updates import (
+        DerivedRefreshRow,
+        join_identity,
+        publish_refresh,
     )
-    op_id = int(cur.lastrowid)
-    cur.execute("UPDATE meta SET value=? WHERE key='op_cursor'", (str(op_id),))
-    producer_id = create_base_cell_producer(
-        cur.connection, stage_id=f"op:{op_id}", op_id=op_id
-    )
-    column_ids = {
-        row["name"]: int(row["id"])
-        for row in cur.execute(
-            "SELECT id, name FROM columns WHERE sheet_id=? AND active=1", (sheet_id,)
-        ).fetchall()
-    }
-    max_pos = cur.execute(
-        "SELECT COALESCE(MAX(position), 0) FROM columns WHERE sheet_id=?", (sheet_id,)
-    ).fetchone()[0]
-    for column in columns:
-        name = column.name
-        if name in column_ids:
-            cur.execute(
-                "UPDATE columns SET type=?, format=?, hidden=? WHERE id=?",
-                (
-                    canonical_column_type(column.type),
-                    column.format,
-                    column.hidden,
-                    column_ids[name],
-                ),
-            )
-        else:
-            max_pos += 1
-            cur.execute(
-                "INSERT INTO columns (sheet_id, name, type, position, ai_generated, hidden, format) "
-                "VALUES (?, ?, ?, ?, 0, ?, ?)",
-                (
-                    sheet_id,
-                    name,
-                    canonical_column_type(column.type),
-                    max_pos,
-                    column.hidden,
-                    column.format,
-                ),
-            )
-            column_ids[name] = int(cur.lastrowid)
 
-    # Cells, visible projections, and old membership cascade with the rows.
-    delete_sheet_rows(cur.connection, sheet_id=sheet_id, producer_id=producer_id)
-    cell_writes: list[BaseCellWrite] = []
-    for position, (values, lineage) in enumerate(rows, start=1):
-        cur.execute(
-            "INSERT INTO rows (sheet_id, position, parent_row_id) VALUES (?, ?, ?)",
-            (sheet_id, position, lineage.parent.row_id if lineage.parent else None),
+    config = _current_refresh_config(cur, sheet_id)
+    materialized = [
+        DerivedRefreshRow(
+            values=values,
+            key=join_identity(
+                [(source.row_id, source_roles[source]) for source in lineage.sources]
+            ),
+            parent_row_id=lineage.parent.row_id if lineage.parent else None,
+            sources=[
+                (source.row_id, source_roles[source]) for source in lineage.sources
+            ],
         )
-        row_id = int(cur.lastrowid)
-        cell_writes.extend(
-            BaseCellWrite(row_id, column_ids[name], value)
-            for name, value in values.items()
-            if value is not None
+        for values, lineage in rows
+    ]
+    op_id, row_ids = publish_refresh(
+        cur.connection,
+        sheet_id=sheet_id,
+        config=config,
+        columns=columns,
+        rows=materialized,
+        policy=policy,
+        spec={"params_hash": params_hash, "reads": reads},
+    )
+    return op_id, len(row_ids)
+
+
+def _current_refresh_config(cur, sheet_id):
+    from frisket.engine.store.derived_updates import refresh_config
+
+    parent = cur.execute(
+        "SELECT o.* FROM ops o JOIN sheets s ON s.parent_op_id=o.id WHERE s.id=?",
+        (sheet_id,),
+    ).fetchone()
+    config = refresh_config(parent)
+    if config is None:
+        raise TableError(
+            "refresh_unsupported",
+            "This derived sheet predates refresh identity; create a new derived sheet",
         )
-        for source in lineage.sources:
-            _insert_materialized_row_source(
-                cur,
-                materialized_row_id=row_id,
-                source_row_id=source.row_id,
-                op_id=op_id,
-                role=source_roles[source],
-            )
-    initialize_base_cells(cur.connection, producer_id=producer_id, cells=cell_writes)
-    return op_id, len(rows)
+    return config
 
 
 def _rewrite_child_sheet_in_place(
@@ -794,80 +744,19 @@ def _rewrite_child_sheet_in_place(
     parent_sheet_id: int,
     resolved: dict[str, Any],
     params_hash: str,
+    policy: str = "keep_changes",
 ) -> tuple[int, list[int]]:
-    """Replace the child sheet's rows/cells from the freshly-resolved plan, in
-    place. Columns are reconciled by name (missing ones added); existing rows are
-    deleted (cells cascade) and re-inserted. Appends the sheet.refresh op."""
-    op_spec = {
-        "kind": "sheet.refresh",
-        "sheet_id": sheet_id,
-        "params_hash": params_hash,
-        "materialized_row_count": len(resolved["rows"]),
-    }
-    cur.execute(
-        "INSERT INTO ops (kind, label, spec, undo_info, barrier) "
-        "VALUES ('sheet.refresh', ?, ?, '{}', 0)",
-        (f"refresh sheet {sheet_id}", json.dumps(op_spec, sort_keys=True)),
-    )
-    op_id = int(cur.lastrowid)
-    cur.execute("UPDATE meta SET value=? WHERE key='op_cursor'", (str(op_id),))
-    producer_id = create_base_cell_producer(
-        cur.connection, stage_id=f"op:{op_id}", op_id=op_id
-    )
+    from frisket.engine.store.derived_updates import DerivedRefreshRow, publish_refresh
 
-    # Reconcile columns by name.
-    existing_columns = {
-        row["name"]: int(row["id"])
-        for row in cur.execute(
-            "SELECT id, name FROM columns WHERE sheet_id=? AND active=1", (sheet_id,)
-        ).fetchall()
-    }
-    max_pos = cur.execute(
-        "SELECT COALESCE(MAX(position), 0) FROM columns WHERE sheet_id=?", (sheet_id,)
-    ).fetchone()[0]
-    column_ids: dict[str, int] = dict(existing_columns)
-    for column in resolved["columns"]:
-        if column.name in column_ids:
-            continue
-        max_pos += 1
-        cur.execute(
-            "INSERT INTO columns (sheet_id, name, type, position, "
-            "ai_generated, hidden, format) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (
-                sheet_id,
-                column.name,
-                canonical_column_type(column.type),
-                max_pos,
-                int(column.ai_generated),
-                int(column.hidden),
-                column.format,
-            ),
-        )
-        column_ids[column.name] = int(cur.lastrowid)
-
-    # Evidence subjects are not foreign keys; retire links before row IDs can
-    # be reused by the replacement rows. Historical links and spans survive.
-    cur.execute(
-        "UPDATE evidence_links SET status='stale', stale_reason='sheet_refreshed', "
-        "stale_at=datetime('now') WHERE sheet_id=? AND status='active' "
-        "AND row_id IN (SELECT id FROM rows WHERE sheet_id=?)",
-        (sheet_id, sheet_id),
+    return publish_refresh(
+        cur.connection,
+        sheet_id=sheet_id,
+        config=_current_refresh_config(cur, sheet_id),
+        columns=resolved["columns"],
+        rows=[
+            DerivedRefreshRow(values=row.values, parent_row_id=row.parent_row_id)
+            for row in resolved["rows"]
+        ],
+        policy=policy,
+        spec={"params_hash": params_hash},
     )
-    # Cells and visible projections cascade with the replaced rows.
-    delete_sheet_rows(cur.connection, sheet_id=sheet_id, producer_id=producer_id)
-    child_row_ids = []
-    cell_writes: list[BaseCellWrite] = []
-    for idx, row in enumerate(resolved["rows"], start=1):
-        cur.execute(
-            "INSERT INTO rows (sheet_id, position, parent_row_id) VALUES (?, ?, ?)",
-            (sheet_id, idx, int(row.parent_row_id)),
-        )
-        row_id = int(cur.lastrowid)
-        child_row_ids.append(row_id)
-        cell_writes.extend(
-            BaseCellWrite(row_id, column_ids[name], value)
-            for name, value in row.values.items()
-            if value is not None and name in column_ids
-        )
-    initialize_base_cells(cur.connection, producer_id=producer_id, cells=cell_writes)
-    return op_id, child_row_ids

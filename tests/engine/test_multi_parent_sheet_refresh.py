@@ -9,7 +9,6 @@ import pytest
 
 from frisket.engine.executor import actions as executor_actions
 from frisket.engine.store import Project
-from frisket.engine.store.sheet_lifecycle import SheetDeleteBlocked
 from frisket.engine.store.staleness import compute_sync_states
 
 
@@ -179,8 +178,10 @@ def test_empty_or_right_only_join_tracks_both_sources_and_refreshes(tmp_path, ho
         ).fetchone()
         for source in (left, right):
             assert project.dependent_sheets(source) == [{"id": child, "name": "Joined"}]
-            with pytest.raises(SheetDeleteBlocked):
-                project.delete_sheet(source)
+            before_child = _child_table(project, child)
+            project.delete_sheet(source)
+            assert _child_table(project, child) == before_child
+            project.undo()
         edited = _run(
             project,
             _cell_edit(
@@ -197,7 +198,7 @@ def test_empty_or_right_only_join_tracks_both_sources_and_refreshes(tmp_path, ho
         assert _child_table(project, child)["key"] == [1]
         assert (
             project.db.execute(
-                "SELECT parent_row_id FROM rows WHERE sheet_id=?", (child,)
+                "SELECT parent_row_id FROM rows WHERE sheet_id=? AND hidden=0", (child,)
             ).fetchone()[0]
             == left_row
         )
@@ -657,5 +658,97 @@ def test_refresh_nonjoin_multiparent_still_unsupported(tmp_path: Path) -> None:
         )
         assert result.status == "failed"
         assert result.errors[0].code == "refresh_unsupported"
+    finally:
+        project.close()
+
+
+def test_join_refresh_preserves_pair_identity_notes_and_three_way_values(tmp_path):
+    ctx = _seed_join(tmp_path / "keyed-refresh.frisket")
+    project, child = ctx["project"], ctx["child_id"]
+    try:
+        row_ids = project.visible_row_ids(child)
+        columns = {c["name"]: c["id"] for c in project.columns(child)}
+        note = project.add_column(child, "notes", type="text")
+        _run(
+            project,
+            _cell_edit(
+                row_id=row_ids[0], column_id=note, value="check contract", key="note"
+            ),
+        )
+        _run(
+            project,
+            _cell_edit(
+                row_id=row_ids[0],
+                column_id=columns["population"],
+                value=123,
+                key="local-value",
+            ),
+        )
+        extra = project.add_rows(
+            child, [{"notes": "independent row"}], {"notes": note}
+        )[0]
+        _run(
+            project,
+            _cell_edit(
+                row_id=ctx["right_rows"][0],
+                column_id=ctx["right_cols"]["population"],
+                value=999,
+                key="new-source",
+            ),
+        )
+        refreshed = _run(project, _refresh(sheet_id=child, key="keep-local"))
+        assert refreshed.status == "completed", refreshed.errors
+        assert project.visible_row_ids(child) == [*row_ids, extra]
+        assert project.get_values(child, note)[row_ids[0]] == "check contract"
+        assert project.get_values(child, columns["population"])[row_ids[0]] == 123
+        # A distinct source observation can use explicit incoming-wins.
+        _run(
+            project,
+            _cell_edit(
+                row_id=ctx["right_rows"][0],
+                column_id=ctx["right_cols"]["population"],
+                value=1000,
+                key="newer-source",
+            ),
+        )
+        request = _refresh(sheet_id=child, key="incoming")
+        request["params"]["update_policy"] = "incoming_wins"
+        refreshed = _run(project, request)
+        assert refreshed.status == "completed", refreshed.errors
+        assert project.get_values(child, columns["population"])[row_ids[0]] == 1000
+        project.undo()
+        assert project.get_values(child, columns["population"])[row_ids[0]] == 123
+        # Undo is a working edit: unchanged incoming observation stays undone.
+        request = _refresh(sheet_id=child, key="unchanged-after-undo")
+        request["params"]["update_policy"] = "incoming_wins"
+        assert _run(project, request).status == "completed"
+        assert project.get_values(child, columns["population"])[row_ids[0]] == 123
+        assert project.get_values(child, note)[extra] == "independent row"
+    finally:
+        project.close()
+
+
+def test_join_refresh_absence_is_reversible_and_does_not_rehide_undo(tmp_path):
+    ctx = _seed_join(tmp_path / "keyed-absence.frisket")
+    project, child = ctx["project"], ctx["child_id"]
+    try:
+        rows = project.visible_row_ids(child)
+        _run(
+            project,
+            _cell_edit(
+                row_id=ctx["right_rows"][0],
+                column_id=ctx["right_cols"]["state_fips"],
+                value=99,
+                key="drop-pair",
+            ),
+        )
+        refreshed = _run(project, _refresh(sheet_id=child, key="absence"))
+        assert refreshed.status == "completed", refreshed.errors
+        assert project.visible_row_ids(child) == rows[1:]
+        project.undo()
+        assert project.visible_row_ids(child) == rows
+        refreshed = _run(project, _refresh(sheet_id=child, key="absence-unchanged"))
+        assert refreshed.status == "completed", refreshed.errors
+        assert project.visible_row_ids(child) == rows
     finally:
         project.close()

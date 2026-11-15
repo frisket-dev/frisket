@@ -139,11 +139,18 @@ def _is_file_envelope(value: Any) -> bool:
     )
 
 
+class EmptyListSchema(TableError):
+    """Complete list enumeration has no item from which to infer a schema."""
+
+    def __init__(self):
+        super().__init__("invalid_input_ref", "Source column has no list items")
+
+
 def infer_projection(
     items: tuple[ListItem, ...], include_columns: list[str] | None
 ) -> tuple[ListProjectionColumn, ...]:
     if not items:
-        raise TableError("invalid_input_ref", "Source column has no list items")
+        raise EmptyListSchema()
     key_types: dict[str, str | None] = {}
     has_object = any(isinstance(item.value, dict) for item in items)
     if has_object and any(not isinstance(item.value, dict) for item in items):

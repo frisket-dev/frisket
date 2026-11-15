@@ -397,7 +397,7 @@ def test_refresh_of_root_sheet_is_unsupported(tmp_path: Path) -> None:
         project.close()
 
 
-def test_refresh_after_child_enrichment_explains_safe_rebuild_and_preserves_data(
+def test_unkeyed_refresh_retains_enrichment_history_without_guessing_new_row_identity(
     tmp_path: Path,
 ) -> None:
     project = Project.create(tmp_path / "enriched-context.frisket")
@@ -474,53 +474,24 @@ def test_refresh_after_child_enrichment_explains_safe_rebuild_and_preserves_data
             project.get_values(child_id, output_id, apply_edits=False)[child_rows[0]]
             == "Acme"
         )
-        history = {
-            table: [
-                tuple(row)
-                for row in project.db.execute(f"SELECT * FROM {table} ORDER BY 1, 2, 3")
-            ]
-            for table in ("rows", "results", "runs", "run_output_generations", "edits")
-        }
-        cursor = project.op_cursor
-        watermark = project.db.execute(
-            "SELECT last_verified_op_cursor FROM sheets WHERE id=?", (child_id,)
-        ).fetchone()[0]
-        assert sheet_supports_refresh(project, child_id) is False
-        assert compute_sync_states(project)[child_id]["sync_state"] == "stale"
-
-        refused = run_action_spec(
+        assert sheet_supports_refresh(project, child_id) is True
+        refreshed = run_action_spec(
             project,
             _refresh(sheet_id=child_id, key="refresh-enriched-context"),
             project_id="p-ref",
         )
-
-        assert refused.status == "failed"
-        error = refused.errors[0]
-        assert error.code == "refresh_unsupported"
-        assert error.details["reason"] == "generation_managed_rows"
-        assert error.details["column_id"] == output_id
-        assert error.details["column_name"] == "reviewed_vendor"
-        assert "generated results and manual edits" in error.message
-        assert "Create a new derived sheet" in error.message
-        assert "rerun enrichment and review" in error.message
-        assert project.columns(child_id) == columns
-        assert {
-            column["id"]: project.get_values(child_id, column["id"])
-            for column in columns
-        } == values
-        for table, before in history.items():
-            assert [
-                tuple(row)
-                for row in project.db.execute(f"SELECT * FROM {table} ORDER BY 1, 2, 3")
-            ] == before
-        assert project.op_cursor == cursor
-        assert (
-            project.db.execute(
-                "SELECT last_verified_op_cursor FROM sheets WHERE id=?", (child_id,)
-            ).fetchone()[0]
-            == watermark
+        assert refreshed.status == "completed", refreshed.errors
+        assert set(project.visible_row_ids(child_id)).isdisjoint(child_rows)
+        assert all(
+            value is None for value in project.get_values(child_id, output_id).values()
         )
-        assert compute_sync_states(project)[child_id]["sync_state"] == "stale"
+        # Replacement retains history and can restore the old working rows.
+        project.undo()
+        assert project.visible_row_ids(child_id) == child_rows
+        assert (
+            project.get_values(child_id, output_id)[child_rows[0]]
+            == "Reviewed supplier"
+        )
         assert (
             project.get_values(parent["sheet_id"], parent["columns"]["title"])[
                 parent_row
@@ -694,5 +665,36 @@ def test_refresh_multiparent_sheet_is_unsupported(tmp_path: Path) -> None:
         )
         assert result.status == "failed"
         assert result.errors[0].code == "refresh_unsupported"
+    finally:
+        project.close()
+
+
+def test_complete_empty_list_refresh_hides_generated_rows_and_undo_restores(tmp_path):
+    project, parent, source, child, _ = _build(tmp_path)
+    try:
+        old_rows = project.visible_row_ids(child)
+        edited = run_action_spec(
+            project,
+            {
+                "action_id": "cell.edit",
+                "scope": {"kind": "project"},
+                "params": {
+                    "edits": [
+                        {"row_id": row_id, "column_id": source, "value": []}
+                        for row_id in project.visible_row_ids(parent)
+                    ]
+                },
+                "idempotency_key": "empty-lists",
+            },
+            project_id="p-ref",
+        )
+        assert edited.status == "completed", edited.errors
+        result = run_action_spec(
+            project, _refresh(sheet_id=child, key="empty-refresh"), project_id="p-ref"
+        )
+        assert result.status == "completed", result.errors
+        assert project.visible_row_ids(child) == []
+        project.undo()
+        assert project.visible_row_ids(child) == old_rows
     finally:
         project.close()

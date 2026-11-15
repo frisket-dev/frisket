@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS keyed_observations (
   row_id INTEGER NOT NULL REFERENCES rows(id) ON DELETE CASCADE,
   key TEXT NOT NULL,
   record TEXT NOT NULL,
+  observed_present INTEGER NOT NULL DEFAULT 1 CHECK(observed_present IN (0,1)),
   PRIMARY KEY(relationship_id,row_id)
 );
 CREATE INDEX IF NOT EXISTS idx_keyed_observation_key
@@ -286,6 +287,7 @@ def observe(
     row_id: int,
     key: str,
     incoming: Mapping[str, Any],
+    observed_present: bool | None = None,
 ) -> None:
     if not db.in_transaction:
         raise RuntimeError("observation must commit with its publication")
@@ -297,6 +299,12 @@ def observe(
         "ON CONFLICT(relationship_id,row_id) DO UPDATE SET key=excluded.key,record=excluded.record",
         (relationship_id, row_id, key, body),
     )
+
+    if observed_present is not None:
+        db.execute(
+            "UPDATE keyed_observations SET observed_present=? WHERE relationship_id=? AND row_id=?",
+            (int(observed_present), relationship_id, row_id),
+        )
 
 
 def purge_baseline_columns(db: sqlite3.Connection, column_ids: Sequence[int]) -> None:

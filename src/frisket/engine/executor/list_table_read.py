@@ -199,8 +199,6 @@ class AdmittedListTableReader:
                             else value_refs.get(row_id, {}).get("run_id"),
                         ),
                     }
-            if not entries and isinstance(source, ListColumnSource):
-                raise TableError("invalid_input_ref", "Source column has no list items")
             try:
                 encoded = json.dumps(
                     [(row_id, values.get(row_id)) for row_id in row_ids],
