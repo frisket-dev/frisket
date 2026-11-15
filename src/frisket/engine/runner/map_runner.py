@@ -1244,7 +1244,7 @@ class MapRunner:
                 "run_state": {},
             },
         )
-        if attempt is not None and claimed[0]:
+        if attempt is not None:
             from frisket.execution.dispatch_control import dispatch_for_context
 
             ctx.extras["router"] = self.router.for_execution(dispatch_for_context(ctx))

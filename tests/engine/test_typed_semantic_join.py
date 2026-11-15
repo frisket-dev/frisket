@@ -12,6 +12,23 @@ from frisket.engine.store.receipts import ReceiptStore
 def test_semantic_join_publishes_source_and_child_with_feedable_receipt(
     tmp_path, monkeypatch
 ):
+    from contextlib import asynccontextmanager
+    from frisket.ai.llm.execution import ExecutionModelRouter
+    from frisket.engine.executor.semantic_join_program import _SemanticJoinProgram
+
+    original_scope = _SemanticJoinProgram.execution_scope
+    scoped_routers = []
+
+    @asynccontextmanager
+    async def owned_scope(self, spec, ctx, **kwargs):
+        scoped = ctx.extras["router"]
+        assert isinstance(scoped, ExecutionModelRouter)
+        scoped._execution.check()
+        scoped_routers.append(scoped)
+        async with original_scope(self, spec, ctx, **kwargs):
+            yield
+
+    monkeypatch.setattr(_SemanticJoinProgram, "execution_scope", owned_scope)
     vectors = {"ACME": [1.0, 0.0], "Acme": [1.0, 0.0], "Globex": [0.0, 1.0]}
 
     def embed(texts):
@@ -59,6 +76,7 @@ def test_semantic_join_publishes_source_and_child_with_feedable_receipt(
             project, "test", bound, None, _default_map_runner_factory
         )
         assert result.status == "completed", result.model_dump(mode="json")
+        assert scoped_routers
         outputs = {col["name"]: col for col in project.columns(left)}
         assert project.get_values(left, outputs["best"]["id"])[source_row] == "Acme"
         child = next(sheet for sheet in project.sheets() if sheet["name"] == "Matches")
