@@ -344,7 +344,6 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
             "qa_save_skill_proposal",
             "POST",
         ): "tenant.qa_save_skill_proposal.post",
-        ("tenant", "create_lens", "POST"): "tenant.create_lens.post",
         ("tenant", "create_skill", "POST"): "tenant.create_skill.post",
         ("tenant", "upload_skill", "POST"): "tenant.upload_skill.post",
         ("tenant", "update_skill", "PUT"): "tenant.update_skill.put",
@@ -726,7 +725,6 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
         ("tenant", "list_column_types", "GET"): "tenant.list_column_types.get",
         ("tenant", "list_skills", "GET"): "tenant.list_skills.get",
         ("tenant", "list_walkthroughs", "GET"): "tenant.list_walkthroughs.get",
-        ("tenant", "list_lenses", "GET"): "tenant.list_lenses.get",
         (
             "tenant",
             "list_notification_channels",
@@ -805,7 +803,7 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
         ("tenant", "project_diagnose", "GET"): "tenant.project_diagnose.get",
         ("tenant", "project_lineage", "GET"): "tenant.project_lineage.get",
         ("tenant", "provenance", "GET"): "tenant.provenance.get",
-        ("tenant", "resolve_lens", "GET"): "tenant.resolve_lens.get",
+        ("tenant", "resolve_view", "GET"): "tenant.resolve_view.get",
         (
             "tenant",
             "replace_rules_preview",
