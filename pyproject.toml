@@ -69,6 +69,7 @@ dependencies = [
     # PDFium's bitmap adapter writes worker output through Pillow.
     "pillow==12.3.0",
     "python-multipart>=0.0.32",
+    "python-statemachine>=3.2.2,<4",
     "regex>=2026.5.9",
     "sqlalchemy>=2.0.50",
     "trafilatura>=2.1.0",
