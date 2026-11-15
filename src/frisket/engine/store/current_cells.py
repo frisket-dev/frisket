@@ -300,6 +300,44 @@ def refresh_current_cell_pairs(
     return total
 
 
+def initialize_current_cell_pairs(
+    db: sqlite3.Connection, pairs: Collection[tuple[int, int]]
+) -> int:
+    """Project newly initialized base payloads in exact, set-wise row ranges.
+
+    Initial imports already pay for writing these cells. Deferring all their
+    heads makes the first ordinary read rebuild the entire import. Keep that
+    linear work in the writer instead, using the canonical winner definition
+    (an absent base cell can still have an edit or generated contribution).
+    Historical replacement and Undo continue to use bounded dirty scopes.
+    """
+    _require_transaction(db)
+    from .cell_projection import project_region
+
+    rows_by_column: dict[int, set[int]] = {}
+    for row_id, column_id in pairs:
+        rows_by_column.setdefault(int(column_id), set()).add(int(row_id))
+    total = 0
+    for column_id, row_ids in rows_by_column.items():
+        rows = sorted(row_ids)
+        revision = _enqueue_region(db, column_ids=[column_id], row_ids=rows)
+        db.execute(
+            "INSERT INTO cell_authority_revisions(column_id,revision) VALUES (?,?) "
+            "ON CONFLICT(column_id) DO UPDATE SET revision=excluded.revision",
+            (column_id, revision),
+        )
+        # Never turn sparse coordinates into a broad history scan. Bound each
+        # statement to a small consecutive window, even for a large API import.
+        start = end = rows[0]
+        for row_id in rows[1:]:
+            if row_id != end + 1 or row_id - start >= 512:
+                total += project_region(db, column_id, start, end)
+                start = row_id
+            end = row_id
+        total += project_region(db, column_id, start, end)
+    return total
+
+
 def rebuild_current_cells(
     db: sqlite3.Connection, *, invalidate_search: bool = True
 ) -> int:

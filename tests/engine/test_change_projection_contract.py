@@ -85,6 +85,11 @@ def test_dirty_large_text_reads_stay_bounded(tmp_path):
             [{"text": "a" * (5 * 1024 * 1024)}] + [{"text": "small"}] * 519,
             {"text": column},
         )
+        from frisket.engine.store.cell_projection import invalidate_region
+
+        project.db.execute("BEGIN IMMEDIATE")
+        invalidate_region(project.db, column, rows[0], rows[-1])
+        project.db.commit()
         assert project.db.execute("SELECT 1 FROM current_cell_repair").fetchone()
         tracemalloc.start()
         try:

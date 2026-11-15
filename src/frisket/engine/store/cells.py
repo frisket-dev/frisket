@@ -450,7 +450,7 @@ def add_rows(
                 db, stage_id=f"op:{op_id}", op_id=op_id
             )
         from .changes import start_change
-        from .structural_changes import note_row_membership_change
+        from .structural_changes import note_row_additions
 
         owner = db.execute(
             "SELECT op_id FROM base_cell_producers WHERE id=?", (producer_id,)
@@ -458,10 +458,11 @@ def add_rows(
         if owner is not None and owner[0] is not None:
             start_change(db, int(owner[0]), writing=True)
         initialize_base_cells(db, producer_id=producer_id, cells=cell_writes)
-        note_row_membership_change(
+        note_row_additions(
             db,
-            [sheet_id],
-            already_refreshed_columns={cell.column_id for cell in cell_writes},
+            sheet_id,
+            row_ids,
+            initialized_columns={cell.column_id for cell in cell_writes},
         )
         if owned_op:
             from .changes import ChangeStore
@@ -516,7 +517,7 @@ def add_row_with_undo(
         from .changes import start_change
         from .structural_changes import record_structural_changes
 
-        start_change(project.db, op_id)
+        start_change(project.db, op_id, writing=True)
         record_structural_changes(project.db, op_id, {"created_rows": [row_id]})
         producer_id = create_base_cell_producer(
             project.db, stage_id=f"op:{op_id}", op_id=op_id
@@ -530,17 +531,21 @@ def add_row_with_undo(
                 if name in column_ids and value is not None
             ),
         )
-        from .structural_changes import note_row_membership_change
+        from .structural_changes import note_row_additions
 
-        note_row_membership_change(
+        note_row_additions(
             project.db,
-            [sheet_id],
-            already_refreshed_columns={
+            sheet_id,
+            [row_id],
+            initialized_columns={
                 column_ids[name]
                 for name, value in record.items()
                 if name in column_ids and value is not None
             },
         )
+        from .changes import ChangeStore
+
+        ChangeStore(project).close(op_id)
         if owns_transaction:
             project.db.commit()
         return row_id

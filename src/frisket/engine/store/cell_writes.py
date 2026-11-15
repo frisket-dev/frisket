@@ -15,7 +15,11 @@ from collections.abc import Collection, Iterable
 from dataclasses import dataclass
 from typing import Any
 
-from .current_cells import refresh_current_cell_pairs, refresh_current_cells
+from .current_cells import (
+    initialize_current_cell_pairs,
+    refresh_current_cell_pairs,
+    refresh_current_cells,
+)
 from .changes import start_change
 from .import_sessions import (
     ImportInProgress,
@@ -343,7 +347,11 @@ def initialize_base_cells(
     )
     if producing_op_id is not None:
         start_change(db, producing_op_id, writing=True)
-    _refresh_written_region(db, encoded)
+        initialize_current_cell_pairs(
+            db, {(row_id, column_id) for row_id, column_id, _kind, _value in encoded}
+        )
+    else:
+        _refresh_written_region(db, encoded)
     return len(encoded)
 
 

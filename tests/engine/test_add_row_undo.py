@@ -40,6 +40,7 @@ def _seed_ai_column(client: TestClient, pid: str, sheet_id: int) -> int:
         sheet_id,
         "map.classify",
         params={"sheet_id": sheet_id},
+        row_ids=[source_row_id],
         total_rows=1,
     )
     write_claimed_test_results(

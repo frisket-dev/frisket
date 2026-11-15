@@ -25,6 +25,42 @@ def note_row_membership_change(
     refresh_current_cells(db, column_ids=columns)
 
 
+def note_row_additions(
+    db: sqlite3.Connection,
+    sheet_id: int,
+    row_ids: Iterable[int],
+    *,
+    initialized_columns: Iterable[int] = (),
+) -> None:
+    """Invalidate membership/search for fresh IDs without rebuilding old heads.
+
+    The caller just allocated these row IDs in this transaction, so columns
+    without initialized payloads have no contribution at those coordinates.
+    Existing dirty work is untouched; restore/delete still use normal repair.
+    """
+    from .current_cells import _enqueue_region
+
+    if not db.in_transaction:
+        raise RuntimeError("row additions require a caller-owned transaction")
+    rows = sorted(set(row_ids))
+    if not rows:
+        return
+    initialized = set(initialized_columns)
+    columns = [
+        int(row[0])
+        for row in db.execute("SELECT id FROM columns WHERE sheet_id=?", (sheet_id,))
+        if row[0] not in initialized
+    ]
+    if not columns:
+        return
+    revision = _enqueue_region(db, column_ids=columns, row_ids=rows)
+    db.executemany(
+        "INSERT INTO cell_authority_revisions(column_id,revision) VALUES (?,?) "
+        "ON CONFLICT(column_id) DO UPDATE SET revision=excluded.revision",
+        [(column, revision) for column in columns],
+    )
+
+
 STRUCTURAL_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS structural_changes (
   op_id INTEGER NOT NULL REFERENCES ops(id) ON DELETE CASCADE,
