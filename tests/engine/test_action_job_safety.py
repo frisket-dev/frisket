@@ -88,7 +88,7 @@ def test_nonterminal_registered_executor_must_not_publish_completed(tmp_path, st
     registry = HandlerRegistry()
     calls = []
 
-    def executor(project, actual):
+    def executor(project, actual, *, execution):
         calls.append(actual)
         return ActionResult(
             action={"kind": kind, "action_id": actual.action_id},

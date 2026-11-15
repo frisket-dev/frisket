@@ -36,6 +36,31 @@ class TransientDispatch:
 
 
 @dataclass(frozen=True)
+class QueuedDispatch:
+    """Runless action jobs use their existing receipt and queue lifetime."""
+
+    project: Any
+    receipt_id: str
+    cancelled: Callable[[], bool]
+
+    def check(self) -> None:
+        receipt = self.project.db.execute(
+            "SELECT status FROM receipts WHERE id=?", (self.receipt_id,)
+        ).fetchone()
+        if receipt is None or receipt[0] != "running" or self.cancelled():
+            raise asyncio.CancelledError
+
+
+def dispatch_cancelled(execution: DispatchControl) -> bool:
+    """Adapt the explicit owner to existing cooperative producer controls."""
+    try:
+        execution.check()
+    except asyncio.CancelledError:
+        return True
+    return False
+
+
+@dataclass(frozen=True)
 class RunDispatch:
     project: Any
     run_id: int

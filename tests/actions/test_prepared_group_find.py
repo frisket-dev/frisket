@@ -226,7 +226,14 @@ def test_reused_summary_runs_with_actual_action_identity_and_names(source_projec
 
 
 @pytest.mark.parametrize(
-    "change", [None, "actual_instruction", "queue_snapshot", "source_during_scan"]
+    "change",
+    [
+        None,
+        "actual_instruction",
+        "queue_snapshot",
+        "source_during_scan",
+        "cancel_after_return",
+    ],
 )
 def test_find_queue_pins_actual_author_arguments_before_model_calls(
     source_project, monkeypatch, change
@@ -300,9 +307,14 @@ def test_find_queue_pins_actual_author_arguments_before_model_calls(
             resolved_snapshot={**admitted, "confirmation_hash": "different"},
         )
 
+    cancelled = False
+
     class Adapter(_FindAdapter):
         async def complete(self, request, client):
+            nonlocal cancelled
             response = await super().complete(request, client)
+            if change == "cancel_after_return":
+                cancelled = True
             if change == "source_during_scan" and len(self.requests) == 1:
                 body_column = project.db.execute(
                     "SELECT id FROM columns WHERE sheet_id=? AND name='body'",
@@ -320,15 +332,16 @@ def test_find_queue_pins_actual_author_arguments_before_model_calls(
     router = ModelRouter(keys={"anthropic": "test"}, cache=None, cache_mode="off")
     router._adapters["anthropic"] = adapter  # noqa: SLF001
 
-    def execute(project, envelope):
+    def execute(project, envelope, *, execution):
         return run_typed_find_action_job(
-            project, envelope, deps=ExecutorDeps(router=router)
+            project, envelope, execution=execution, deps=ExecutorDeps(router=router)
         )
 
     result = run_action_run_job(
         project,
         {"action_job": envelope.to_json(), "job_id": 12},
         executor_lookup=lambda kind: execute if kind == "custom.find" else None,
+        should_cancel=lambda: cancelled,
     )
     terminal_receipt = ReceiptStore(project).parsed_by_id(envelope.receipt_id)
     retained = next(
@@ -338,7 +351,12 @@ def test_find_queue_pins_actual_author_arguments_before_model_calls(
     )
     assert retained.retention == "pinned"
     assert retained.ref["admission"] == admitted
-    if change is None:
+    if change == "cancel_after_return":
+        assert result.status == terminal_receipt.status == "cancelled"
+        assert len(adapter.requests) == 1
+        assert project.db.execute("SELECT count(*) FROM model_calls").fetchone()[0] == 1
+        assert project.db.execute("SELECT count(*) FROM sheets").fetchone()[0] == 1
+    elif change is None:
         assert result.status == "completed", result.model_dump()
         assert len(adapter.requests) == 2
         output_sheet = next(

@@ -139,20 +139,37 @@ def _assert_backfill_request_confirmation_reaches_its_host_gate(tmp_path, regist
 
     with _client(tmp_path) as client:
         pid, sheet_id = _seed_project(client)
+        project = client.app.state.workspace.get(pid)
+        column = next(
+            col for col in project.columns(sheet_id) if col["name"] == "story"
+        )
+        adapter = client.app.state.workspace._router._adapters["anthropic"]
+        original_complete = adapter.complete
+        if registered.action_id == "run.retry":
+
+            async def fail_second(request, transport):
+                if "second story" in str(request.messages):
+                    raise RuntimeError("test unavailable provider")
+                return await original_complete(request, transport)
+
+            adapter.complete = fail_second
         response = post_v1_action_with_exact_confirmation(
             client, pid, _classify_spec(sheet_id)
         )
         assert response.status_code == 200, response.text
         drain_queue(client)
-        project = client.app.state.workspace.get(pid)
-        column = next(
-            col for col in project.columns(sheet_id) if col["name"] == "story"
-        )
-        project.add_rows(sheet_id, [{"story": "late"}], {"story": column["id"]})
+        run_id = project.db.execute("SELECT MAX(id) FROM runs").fetchone()[0]
+        adapter.complete = original_complete
+        if registered.action_id != "run.retry":
+            project.add_rows(sheet_id, [{"story": "late"}], {"story": column["id"]})
         request = {
             "action_id": registered.action_id,
             "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
-            "params": {"column": "beat"},
+            "params": (
+                {"source_run_id": run_id}
+                if registered.action_id == "run.retry"
+                else {"column": "beat"}
+            ),
             "idempotency_key": "backfill-confirmation-closure",
         }
         router = client.app.state.workspace.router_for(project)
@@ -261,8 +278,8 @@ def _assert_google_request_confirmation_reaches_its_host_gate(tmp_path, register
             project,
             {"action_job": envelope.to_json()},
             executor_lookup=lambda _kind: (
-                lambda project_, envelope_: run_google_sheets_action_job(
-                    project_, envelope_, deps=deps
+                lambda project_, envelope_, *, execution: run_google_sheets_action_job(
+                    project_, envelope_, execution=execution, deps=deps
                 )
             ),
         )

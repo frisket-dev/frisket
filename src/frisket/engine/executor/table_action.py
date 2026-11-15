@@ -1477,16 +1477,23 @@ def _run_reserved_table(
     )
 
 
-def run_typed_table_action_job(project, envelope):
+def run_typed_table_action_job(project, envelope, *, execution):
     from frisket.engine.executor.action_jobs import bind_typed_action_job
 
     bound = bind_typed_action_job(envelope, project=project)
     if isinstance(bound, ActionResult):
         return bound
+    from frisket.execution.dispatch_control import dispatch_cancelled
+
+    execution.check()
     return run_typed_create_sheet_action(
         project,
         envelope.project_id,
         bound,
+        deps=ExecutorDeps(
+            cancelled=lambda: dispatch_cancelled(execution),
+            seal_cancellation=lambda: not dispatch_cancelled(execution),
+        ),
         reserved_action_id=envelope.action_id,
         reserved_receipt_id=envelope.receipt_id,
     )

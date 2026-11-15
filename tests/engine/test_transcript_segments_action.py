@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 
 from pathlib import Path
@@ -1040,7 +1041,7 @@ def test_queued_transcript_failure_leaves_worker_owned_receipt_untouched(
             job_id=None,
         )
         prior = ReceiptStore(project).parsed_by_id(envelope.receipt_id)
-        result = run_typed_table_action_job(project, envelope)
+        result = run_typed_table_action_job(project, envelope, execution=STANDALONE)
         assert result.status == "failed"
         assert result.errors[0].code == "invalid_input_ref"
         assert ReceiptStore(project).parsed_by_id(envelope.receipt_id) == prior

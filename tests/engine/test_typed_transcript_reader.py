@@ -4,6 +4,7 @@ from dataclasses import replace
 
 import pytest
 
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.actions.core import (
     ActionCategory,
     ActionNamespace,
@@ -369,7 +370,9 @@ def test_reserved_worker_rejects_mismatched_identity_without_publishing(source, 
     before = _counts(project)
     if tamper == "intent":
         altered = {**envelope.action, "sheet_name": "Different intent"}
-        result = run_typed_table_action_job(project, replace(envelope, action=altered))
+        result = run_typed_table_action_job(
+            project, replace(envelope, action=altered), execution=STANDALONE
+        )
         assert (
             result.status == "failed"
             and result.errors[0].code == "invalid_action_request"
@@ -377,7 +380,7 @@ def test_reserved_worker_rejects_mismatched_identity_without_publishing(source, 
     else:
         with pytest.raises(ValueError, match="reservation"):
             run_typed_table_action_job(
-                project, replace(envelope, **{tamper: "foreign"})
+                project, replace(envelope, **{tamper: "foreign"}), execution=STANDALONE
             )
     assert _counts(project) == before
     assert ReceiptStore(project).parsed_by_id(envelope.receipt_id) == prior
@@ -649,6 +652,6 @@ def test_completion_cas_loss_rolls_back_projection_and_keeps_reservation(
         ReceiptStore, "update_body_status", lambda *_args, **_kwargs: False
     )
     with pytest.raises(ActionJobTerminalizationError, match="completion did not land"):
-        run_typed_table_action_job(project, envelope)
+        run_typed_table_action_job(project, envelope, execution=STANDALONE)
     assert _counts(project) == before
     assert ReceiptStore(project).parsed_by_id(envelope.receipt_id) == prior

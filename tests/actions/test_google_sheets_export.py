@@ -143,8 +143,8 @@ def test_renamed_derived_params_are_admitted_once_and_pinned_for_worker(export_c
         project,
         {"action_job": envelope.to_json()},
         executor_lookup=lambda _kind: (
-            lambda project_, envelope_: run_google_sheets_action_job(
-                project_, envelope_, deps=deps
+            lambda project_, envelope_, *, execution: run_google_sheets_action_job(
+                project_, envelope_, execution=execution, deps=deps
             )
         ),
     )
@@ -186,7 +186,11 @@ def test_worker_refuses_tampered_queue_authority_before_provider(export_case, ta
         )
     else:
         envelope = replace(envelope, receipt_id="unrelated")
-    result = run_google_sheets_action_job(project, envelope, deps=deps)
+    from frisket.execution.dispatch_control import STANDALONE
+
+    result = run_google_sheets_action_job(
+        project, envelope, execution=STANDALONE, deps=deps
+    )
     assert result.status == "failed"
     assert result.errors[0].code == (
         "irreversible_external_requires_confirmation"

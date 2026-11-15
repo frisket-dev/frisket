@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 from frisket.contracts.action import (
     ActionError,
@@ -27,6 +28,7 @@ from frisket.engine.store.receipts import (
     ReceiptStore,
 )
 from frisket.execution.attempt import StaleAttemptWriter
+from frisket.execution.dispatch_control import DispatchControl
 from frisket.engine.executor.action_specs import declared_queued_action_job_kinds
 
 
@@ -986,7 +988,12 @@ def mark_action_job_enqueued(
 # worker passes the registry lookup into ``run_action_run_job``; the worker
 # owns terminalization, so the executor just resolves+computes and returns its
 # ActionResult (or raises).
-ActionJobExecutor = Callable[[Any, "ActionJobEnvelope"], ActionResult]
+class ActionJobExecutor(Protocol):
+    def __call__(
+        self, project: Any, envelope: ActionJobEnvelope, *, execution: DispatchControl
+    ) -> ActionResult: ...
+
+
 ActionJobExecutorLookup = Callable[[str], ActionJobExecutor | None]
 
 
@@ -1131,8 +1138,12 @@ def run_action_run_job(
     if already_terminal is not None:
         return already_terminal
 
+    from frisket.execution.dispatch_control import QueuedDispatch
+
+    execution = QueuedDispatch(project, receipt_id, should_cancel)
     executor = executor_lookup(action_kind) if executor_lookup is not None else None
     try:
+        execution.check()
         bound = bind_typed_action_job(envelope, project=project)
         if not isinstance(bound, ActionResult):
             from frisket.actions.core import MapBatch
@@ -1146,7 +1157,7 @@ def run_action_run_job(
                 )
                 from frisket.engine.executor.actions import _default_map_runner_factory
 
-                def executor(current, intent):
+                def executor(current, intent, *, execution):
                     return run_inferred_batch(
                         current,
                         intent.project_id,
@@ -1171,7 +1182,7 @@ def run_action_run_job(
                 )
                 from frisket.engine.executor.action_inventory import ExecutorDeps
 
-                def executor(current, intent):
+                def executor(current, intent, *, execution):
                     return run_rows_updater(
                         current,
                         intent.project_id,
@@ -1202,7 +1213,15 @@ def run_action_run_job(
                 action_kind=action_kind,
                 job_id=job_id,
             )
-        result = executor(project, envelope)
+        result = executor(project, envelope, execution=execution)
+    except asyncio.CancelledError:
+        return action_job_cancelled_result(
+            project,
+            project_id=project_id,
+            receipt_id=receipt_id,
+            action_kind=action_kind,
+            job_id=job_id,
+        )
     except ClaimLeaseRenewalFailed:
         # The effect batch and renewal rolled back together. Preserve the
         # running receipt so the queue can retry without buying work again.

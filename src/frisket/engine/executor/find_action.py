@@ -234,7 +234,7 @@ def reserve_typed_find_action_job(
     return replace(envelope, resolved_snapshot=admission)
 
 
-def run_typed_find_action_job(project, envelope, *, deps=None):
+def run_typed_find_action_job(project, envelope, *, execution, deps=None):
     from frisket.ai.llm.router import model_call_cannot_go_live
     from frisket.ai.llm.types import provider_from_model_id
     from frisket.engine.jobs.runs import project_scoped_router
@@ -303,7 +303,10 @@ def run_typed_find_action_job(project, envelope, *, deps=None):
                 action_kind=envelope.action_kind,
             ),
         )
-    router = project_scoped_router(project, getattr(deps, "router", None))
+    execution.check()
+    router = project_scoped_router(
+        project, getattr(deps, "router", None)
+    ).for_execution(execution)
     if not model_call_cannot_go_live(router):
         if (
             project.effective_network_policy() == "off"
@@ -346,6 +349,7 @@ def run_typed_find_action_job(project, envelope, *, deps=None):
             prepared.operation, scan.plans, router=router, record_calls=record_calls
         )
     )
+    execution.check()
     action = _TypedProjectEnvelope(
         bound.action.action_id, bound.request.idempotency_key, bound.request.params
     )
