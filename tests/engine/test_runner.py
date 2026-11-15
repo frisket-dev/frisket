@@ -1191,12 +1191,18 @@ class TestCancel:
         ).fetchone()
         assert run["status"] == "cancelled"
         assert run["completed_rows"] == 0
-        assert project.db.execute(
-            "SELECT COUNT(*) FROM results WHERE run_id=?", (progress.run_id,)
-        ).fetchone()[0] == 0
-        assert project.db.execute(
-            "SELECT COUNT(*) FROM model_calls WHERE run_id=?", (progress.run_id,)
-        ).fetchone()[0] == 1
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM results WHERE run_id=?", (progress.run_id,)
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM model_calls WHERE run_id=?", (progress.run_id,)
+            ).fetchone()[0]
+            == 1
+        )
 
     def test_uncancelled_run_still_completes(self, project, tmp_path):
         sheet, _ = seed_sheet(project, ["a", "b"])

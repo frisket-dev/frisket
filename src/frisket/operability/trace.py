@@ -44,7 +44,15 @@ MAX_OBSERVED_TRACE_PROVIDERS = 64
 MAX_CALL_BODIES = 32
 MAX_CALL_HEADERS = 1024
 MAX_ROW_BYTES = 1024 * 1024
-_CALL_BODY_KEYS = ("prompt", "request", "raw_response", "data", "tool_calls", "events", "returned_calls")
+_CALL_BODY_KEYS = (
+    "prompt",
+    "request",
+    "raw_response",
+    "data",
+    "tool_calls",
+    "events",
+    "returned_calls",
+)
 _CALL_HEADER_KEYS = (
     "model",
     "latency_ms",

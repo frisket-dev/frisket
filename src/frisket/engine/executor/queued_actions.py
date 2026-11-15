@@ -988,10 +988,7 @@ def queued_v1_terminal_receipt_transition(
                 require_cancel_intent=require_cancel_intent,
             )
         elif not has_abandoned_attempt and (
-            (
-                prepared_attempt is not None
-                and prepared_attempt["state"] == "created"
-            )
+            (prepared_attempt is not None and prepared_attempt["state"] == "created")
             or (
                 prepared_attempt is None
                 and latest_attempt is not None
