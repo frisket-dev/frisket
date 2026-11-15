@@ -403,6 +403,7 @@ def _guard_backfill_run_spec(
 
     code_id = str(runner_spec.get("action_kind") or "")
     registered = None
+    binding = None
     if runner_spec.get("implementation_identity") is not None and project is not None:
         from frisket.authoring.workbench.installed_actions import (
             resolve_installed_action,
@@ -410,13 +411,15 @@ def _guard_backfill_run_spec(
 
         installed = resolve_installed_action(project, code_id)
         if installed is not None:
-            registered = installed[0]
+            registered, binding = installed
     if registered is None:
         try:
             registered = ACTION_REGISTRY.get(code_id)
         except KeyError:
             return None  # The typed reconstruction owns unknown action refusal.
-    error = action_admission_error(project, registered, edition=edition)
+    error = action_admission_error(
+        project, registered, edition=edition, runtime_binding=binding
+    )
     if error is not None:
         return error.model_copy(
             update={"action_kind": "run.backfill", "field": "params.column"}

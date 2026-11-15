@@ -1171,6 +1171,7 @@ def run_action_run_job(
                 edition=product_edition_from_snapshot(
                     json.loads(snapshot) if snapshot else None
                 ),
+                runtime_binding=installed[1] if installed is not None else None,
             )
             if refusal is not None:
                 return action_job_failure_result(

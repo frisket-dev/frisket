@@ -1662,7 +1662,9 @@ def build_typed_map_rows_plan(
 
     from frisket.execution.action_admission import action_admission_error
 
-    refusal = action_admission_error(project, bound.action)
+    refusal = action_admission_error(
+        project, bound.action, runtime_binding=bound.runtime_binding
+    )
     if refusal is not None:
         raise TypedMapRowsPlanError(
             refusal.code, refusal.message, field=refusal.field, details=refusal.details
@@ -3661,7 +3663,9 @@ def typed_queued_map_spec(
     ) -> ActionError | None:
         from frisket.execution.action_admission import action_admission_error
 
-        refusal = action_admission_error(project, bound.action)
+        refusal = action_admission_error(
+            project, bound.action, runtime_binding=bound.runtime_binding
+        )
         if refusal is not None:
             return refusal
         expected_ids = payload.get("v1_input_column_ids")

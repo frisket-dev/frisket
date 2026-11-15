@@ -296,7 +296,9 @@ def resolve_map_preview(
 
             from frisket.execution.action_admission import action_admission_error
 
-            refusal = action_admission_error(project, typed.action)
+            refusal = action_admission_error(
+                project, typed.action, runtime_binding=typed.runtime_binding
+            )
             if refusal is not None:
                 return refusal
             typed = resolve_action_selection(project, typed)
@@ -564,6 +566,7 @@ def run_action_spec(
             project,
             typed.action,
             edition=product_edition_from_snapshot(edition_run_context),
+            runtime_binding=typed.runtime_binding,
         )
         if refusal is not None:
             return _runtime_support._failed_result(

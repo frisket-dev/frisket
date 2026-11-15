@@ -18,6 +18,7 @@ from frisket.contracts.action import ActionError
 
 if TYPE_CHECKING:
     from frisket.actions.core import RegisteredAction
+    from frisket.authoring.plugin_registry import RuntimeBindingSpec
     from frisket.engine.store import Project
 
 
@@ -56,6 +57,7 @@ def action_admission_error(
     action: RegisteredAction,
     *,
     edition: str | None = None,
+    runtime_binding: RuntimeBindingSpec | None = None,
 ) -> ActionError | None:
     """Return a refusal before any action effect; None admits declared needs.
 
@@ -84,7 +86,22 @@ def action_admission_error(
         return None
     from frisket.credentials import missing_required_credentials
 
-    missing = missing_required_credentials(project, list(action.required_credentials))
+    if runtime_binding is not None:
+        from frisket.authoring.workbench.plugin_subprocess import (
+            _missing_project_plugin_secrets,
+        )
+
+        # Admission must resolve the same credential owner as the invocation.
+        # A plugin's configured key lives in its own scope, not core secrets.
+        missing = _missing_project_plugin_secrets(
+            project,
+            plugin_id=runtime_binding.plugin,
+            metadata={"requires_secrets": list(action.required_credentials)},
+        )
+    else:
+        missing = missing_required_credentials(
+            project, list(action.required_credentials)
+        )
     if missing:
         return missing_action_credential_error(kind, missing)
     external = next(

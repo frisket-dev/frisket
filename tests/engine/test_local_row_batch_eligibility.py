@@ -31,9 +31,13 @@ BUILTIN_MAP_ROWS = tuple(
 
 def program(registered, *, runtime_binding=None):
     terminal = registered.definition.run
+    examples = registered.catalog_entry()["examples"]
+    params = terminal.params_model.model_validate(
+        examples[0]["params"] if examples else {}
+    )
     return _TypedMapRowsProgram(
         registered,
-        terminal.params_model.model_construct(),
+        params,
         {},
         (),
         (),

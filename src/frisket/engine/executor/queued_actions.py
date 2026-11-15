@@ -178,7 +178,11 @@ class QueuedV1PayloadEnvelope:
             if installed is not None
             else ACTION_REGISTRY.get(self.action.kind)
         )
-        refusal = action_admission_error(project, action)
+        refusal = action_admission_error(
+            project,
+            action,
+            runtime_binding=installed[1] if installed is not None else None,
+        )
         if refusal is not None:
             return refusal
         if self.entry.pre_run_guard is None:

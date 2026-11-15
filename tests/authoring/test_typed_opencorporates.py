@@ -317,13 +317,14 @@ def test_rate_limit_retry_preserves_policy_and_counts_each_response(
     assert len(calls) == 2
 
 
-def test_confirmation_refuses_source_drift_and_wrong_echo_before_http(installed):
-    _, project, project_id, sheet, rows, calls, _ = installed
+def test_confirmation_refuses_wrong_echo_but_reads_current_input(installed):
+    _, project, project_id, sheet, rows, calls, responses = installed
     body, _ = confirm(project, project_id, request(sheet))
     wrong = run_action_spec(
         project, {**body, "confirmation": "wrong"}, project_id=project_id
     )
     assert wrong.status == "needs_confirmation"
+    assert not calls
     number = next(
         column["id"] for column in project.columns(sheet) if column["name"] == "number"
     )
@@ -333,8 +334,41 @@ def test_confirmation_refuses_source_drift_and_wrong_echo_before_http(installed)
         column_id=number,
         value="999",
     )
-    stale = run_action_spec(project, body, project_id=project_id)
-    assert stale.status == "needs_confirmation", stale.model_dump()
+    responses.append(
+        httpx.Response(
+            200,
+            json={
+                "results": {
+                    "company": {
+                        "jurisdiction_code": "gb",
+                        "company_number": "999",
+                        "name": "Changed Ltd",
+                    }
+                }
+            },
+        )
+    )
+    result = run_action_spec(project, body, project_id=project_id)
+    assert result.status == "completed", result.model_dump()
+    assert len(calls) == 1
+    assert calls[0].url.path == "/v0.4/companies/gb/999"
+
+
+def test_declared_plugin_credential_uses_only_its_own_scope(installed):
+    _, project, project_id, sheet, _, calls, _ = installed
+    # The action was configured successfully, but another plugin owning a key
+    # with the same name cannot authorize this plugin's next invocation.
+    project.db.execute(
+        "UPDATE workbench_plugin_env_vars SET plugin_id=? WHERE plugin_id=?",
+        ("test.other_plugin", PLUGIN),
+    )
+    project.db.commit()
+    result = run_action_spec(project, request(sheet), project_id=project_id)
+    assert result.status == "failed", result.model_dump()
+    assert result.errors[0].code == "missing_action_credential"
+    assert result.errors[0].details["missing_credentials"] == [
+        "OPENCORPORATES_API_TOKEN"
+    ]
     assert not calls
 
 
