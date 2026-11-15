@@ -8,6 +8,7 @@ from dataclasses import replace
 
 import pytest
 
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.llm import LLMError, LLMRequest, LLMResponse, ModelRouter, ResponseCache
 from frisket.ai.llm.cache import request_key
 from frisket.ai.llm.structured import StructuredCompleter, StructuredRequest
@@ -104,7 +105,7 @@ async def test_trace_records_prepared_request_on_every_completion_path(
     )
     inner._adapters["openai"] = adapter  # noqa: SLF001 - external transport only
     row = RowTrace(row_id=1, trace_id="prepared")
-    router = TracingRouter(inner, row)
+    router = TracingRouter(inner.for_execution(STANDALONE), row)
     request = LLMRequest(
         model="openai/test",
         messages=[{"role": "user", "content": "original"}],
@@ -186,7 +187,9 @@ async def test_structured_repair_captures_each_prepared_request() -> None:
     inner._adapters["openai"] = adapter  # noqa: SLF001 - external transport only
     row = RowTrace(row_id=1, trace_id="repair")
     try:
-        result = await StructuredCompleter(TracingRouter(inner, row)).complete(
+        result = await StructuredCompleter(
+            TracingRouter(inner.for_execution(STANDALONE), row)
+        ).complete(
             StructuredRequest(
                 model="openai/test",
                 messages=[{"role": "user", "content": "original"}],
@@ -214,7 +217,7 @@ async def test_request_observer_failure_does_not_change_provider_result() -> Non
         raise RuntimeError("diagnostics unavailable")
 
     try:
-        response = await inner.complete_transport(
+        response = await inner.for_execution(STANDALONE).complete_transport(
             LLMRequest(model="openai/test", messages=[]), on_request=refuse_capture
         )
     finally:
@@ -239,7 +242,7 @@ async def test_prepared_capture_redaction_failure_drops_call_without_losing_resp
     inner = FailingRedactionRouter(keys={}, use_env_keys=False, cache_mode="off")
     inner._adapters["openai"] = _Adapter("live")  # noqa: SLF001
     row = RowTrace(row_id=1, trace_id="capture-failed")
-    router = TracingRouter(inner, row)
+    router = TracingRouter(inner.for_execution(STANDALONE), row)
     try:
         response = await router.complete_transport(
             LLMRequest(model="openai/test", messages=[])

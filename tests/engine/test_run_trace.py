@@ -9,6 +9,7 @@ import math
 import pytest
 from fastapi.testclient import TestClient
 
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.llm import LLMError, LLMRequest, LLMResponse, ModelRouter
 from frisket.engine.runner import CostGate, MapRunner
 from frisket.engine.jobs import Worker
@@ -606,9 +607,9 @@ def test_router_trace_collects_cache_and_attempt_events(tmp_path):
 
     async def run() -> tuple[list[dict], list[dict]]:
         miss_events: list[dict] = []
-        await router.complete(req, trace=miss_events)
+        await router.for_execution(STANDALONE).complete(req, trace=miss_events)
         hit_events: list[dict] = []
-        await router.complete(req, trace=hit_events)
+        await router.for_execution(STANDALONE).complete(req, trace=hit_events)
         await router.aclose()
         return miss_events, hit_events
 

@@ -8,6 +8,7 @@ import os
 import httpx
 import pytest
 
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.llm import (
     CacheMiss,
     ChaosConfig,
@@ -317,7 +318,7 @@ class TestRouterFailureMechanics:
             router._adapters["anthropic"] = EchoingAdapter()  # noqa: SLF001
             trace: list[dict] = []
             with pytest.raises(LLMError) as router_error:
-                await router.complete(req(), trace=trace)
+                await router.for_execution(STANDALONE).complete(req(), trace=trace)
             assert secret not in str(router_error.value)
             assert router_error.value.status == 429
             assert router_error.value.retryable is True
@@ -336,7 +337,7 @@ class TestRouterFailureMechanics:
                 max_retries=2,
             )
             with pytest.raises(LLMError) as ei:
-                await router.complete(req())
+                await router.for_execution(STANDALONE).complete(req())
             assert ei.value.status == 500
             # 1 initial + 2 retries, all intercepted before any network call
             assert router.chaos.calls == 3
@@ -352,7 +353,7 @@ class TestRouterFailureMechanics:
                 max_retries=3,
             )
             with pytest.raises(LLMError) as ei:
-                await router.complete(req())
+                await router.for_execution(STANDALONE).complete(req())
             assert ei.value.status == 401
             assert router.chaos.calls == 1
             await router.aclose()
@@ -363,7 +364,9 @@ class TestRouterFailureMechanics:
         async def run():
             router = ModelRouter(keys={"anthropic": "k"})
             with pytest.raises(LLMError, match="no adapter"):
-                await router.complete(req(model="hologram/quantum-9000"))
+                await router.for_execution(STANDALONE).complete(
+                    req(model="hologram/quantum-9000")
+                )
             await router.aclose()
 
         asyncio.run(run())
@@ -390,7 +393,7 @@ class TestRouterFailureMechanics:
             )
             router._adapters["anthropic"] = InvalidStructuredAdapter()  # noqa: SLF001
             with pytest.raises(LLMError) as excinfo:
-                await router.complete(
+                await router.for_execution(STANDALONE).complete(
                     req(schema={"type": "object", "required": ["wanted"]})
                 )
             assert secret not in str(excinfo.value)
@@ -423,7 +426,7 @@ class TestRouterFailureMechanics:
             adapter = FailingEmbeddingAdapter()
             router._adapters["openai"] = adapter  # noqa: SLF001
             with pytest.raises(LLMError) as embed_error:
-                await router.embed(["hello"])
+                await router.for_execution(STANDALONE).embed(["hello"])
             assert secret not in str(embed_error.value)
             router._client = ProbeClient()  # type: ignore[assignment]  # noqa: SLF001
             probe = await router.probe_providers()
@@ -455,7 +458,9 @@ class TestRouterFailureMechanics:
                 transport=httpx.MockTransport(handler)
             )
             with pytest.raises(LLMError) as excinfo:
-                await router.complete(req(model="openai/unpriced-test-model"))
+                await router.for_execution(STANDALONE).complete(
+                    req(model="openai/unpriced-test-model")
+                )
             assert secret not in str(excinfo.value)
             assert "prompt_tokens is not a non-negative integer" in str(excinfo.value)
             await router.aclose()
@@ -470,7 +475,7 @@ class TestRouterFailureMechanics:
                 cache_mode="replay_strict",
             )
             with pytest.raises(CacheMiss, match="FRISKET_CACHE_REFRESH=1"):
-                await router.complete(req("never seen"))
+                await router.for_execution(STANDALONE).complete(req("never seen"))
             await router.aclose()
 
         asyncio.run(run())
@@ -496,7 +501,7 @@ class TestRouterFailureMechanics:
                 cache_mode="replay",
                 chaos=ChaosConfig(seed=1, enabled=True, fail_rate=1.0),
             )
-            out = await router.complete(r)
+            out = await router.for_execution(STANDALONE).complete(r)
             assert out.cached and out.content == "cached answer"
             assert router.chaos.calls == 0
             await router.aclose()
@@ -588,14 +593,14 @@ class TestRoutedProviderStamp:
 
     def test_receipt_provider_is_the_provider_the_router_selected(self):
         router = self._router(cache_mode="off")
-        resp = asyncio.run(router.complete(req()))
+        resp = asyncio.run(router.for_execution(STANDALONE).complete(req()))
         assert resp.provider == "anthropic"
         assert resp.credential_source == router.credential_source_for("anthropic")
 
     def test_a_replayed_response_is_stamped_too(self, tmp_path):
         cache = ResponseCache(tmp_path / "c.db")
         router = self._router(cache=cache, cache_mode="replay")
-        first = asyncio.run(router.complete(req()))
+        first = asyncio.run(router.for_execution(STANDALONE).complete(req()))
         assert first.cached is False and first.provider == "anthropic"
         # A cassette written before the field existed carries no provider;
         # the replay path stamps it rather than trusting the stored body.
@@ -604,7 +609,7 @@ class TestRoutedProviderStamp:
         stored.cost = None
         stored.cost_source = "pricing_data"
         cache.put(request_key(req()), stored)
-        replayed = asyncio.run(router.complete(req()))
+        replayed = asyncio.run(router.for_execution(STANDALONE).complete(req()))
         assert replayed.cached is True
         assert replayed.provider == "anthropic"
         assert replayed.credential_source == "cache"
@@ -620,6 +625,10 @@ class TestRoutedProviderStamp:
         """
         router = self._router(cache_mode="off")
         with pytest.raises(LLMError, match="no adapter for provider 'claude-haiku"):
-            asyncio.run(router.complete(req(model="claude-haiku-4-5")))
+            asyncio.run(
+                router.for_execution(STANDALONE).complete(req(model="claude-haiku-4-5"))
+            )
         router._adapters["bare-model-id"] = self._Stub()  # noqa: SLF001
-        assert asyncio.run(router.embed(["a"], model="bare-model-id")) == [[0.0]]
+        assert asyncio.run(
+            router.for_execution(STANDALONE).embed(["a"], model="bare-model-id")
+        ) == [[0.0]]

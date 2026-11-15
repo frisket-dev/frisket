@@ -6,6 +6,7 @@ import json
 import httpx
 import pytest
 
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.llm import ModelRouter
 from frisket.ai.llm.adapters import _strictify
 from frisket.ai.llm.structured import StructuredCompleter, StructuredRequest
@@ -57,7 +58,7 @@ def complete(model, schema, data, *, params=None):
         router = ModelRouter(keys={provider: "test"}, use_env_keys=False, max_retries=0)
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
             router._client = client
-            return await StructuredCompleter(router).complete(
+            return await StructuredCompleter(router.for_execution(STANDALONE)).complete(
                 StructuredRequest(
                     model=model,
                     schema=schema,

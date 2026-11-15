@@ -10,6 +10,7 @@ from dataclasses import asdict
 import httpx
 import pytest
 
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.llm.cache import ResponseCache, request_key
 from frisket.ai.llm.router import ModelRouter
 from frisket.ai.llm.types import (
@@ -103,7 +104,7 @@ def request(name="openrouter", **kwargs):
 async def test_output_limit_precedes_parsing_and_never_repairs(name, content):
     async with provider((content, "length"), name=name) as (router, bodies, policy):
         with pytest.raises(OutputLimitReached) as raised:
-            await router.complete(request(name))
+            await router.for_execution(STANDALONE).complete(request(name))
     assert len(bodies) == len(policy.responses) == len(raised.value.wire_calls) == 1
     call = raised.value.wire_calls[0]
     assert call.content == content
@@ -127,7 +128,7 @@ async def test_malformed_then_repaired_keeps_both_calls_and_does_not_cache_failu
             name=name,
             cache=cache,
         ) as (router, bodies, policy):
-            result = await router.complete(request(name))
+            result = await router.for_execution(STANDALONE).complete(request(name))
         assert result.data == {"summary": "Recovered"}
         assert len(bodies) == len(policy.responses) == 2
         assert (result.tokens_in, result.tokens_out) == (84, 34)
@@ -152,9 +153,9 @@ async def test_explicit_retry_after_output_limit_reaches_provider(tmp_path):
             cache=cache,
         ) as (router, bodies, policy):
             with pytest.raises(OutputLimitReached):
-                await router.complete(request())
+                await router.for_execution(STANDALONE).complete(request())
             assert cache.get(request_key(request())) is None
-            result = await router.complete(request())
+            result = await router.for_execution(STANDALONE).complete(request())
         assert len(bodies) == len(policy.responses) == 2
         assert result.data == {"summary": "Recovered"}
         assert not result.cached
@@ -167,7 +168,7 @@ async def test_explicit_retry_after_output_limit_reaches_provider(tmp_path):
 async def test_exhausted_malformed_replies_preserve_usage_and_redact_credentials():
     async with provider((f"]]]}}]] {SECRET}", "stop")) as (router, bodies, policy):
         with pytest.raises(SchemaViolation) as raised:
-            await router.complete(request())
+            await router.for_execution(STANDALONE).complete(request())
     assert len(bodies) == len(policy.responses) == len(raised.value.wire_calls) == 2
     assert sum(call.tokens_out for call in raised.value.wire_calls) == 34
     serialized = json.dumps([asdict(call) for call in raised.value.wire_calls])
@@ -185,7 +186,7 @@ async def test_oversized_invalid_data_cannot_break_error_redaction():
     content = json.dumps({"summary": [SECRET] * 300})
     async with provider((content, "stop")) as (router, bodies, policy):
         with pytest.raises(SchemaViolation) as raised:
-            await router.complete(request())
+            await router.for_execution(STANDALONE).complete(request())
     assert len(bodies) == len(policy.responses) == len(raised.value.wire_calls) == 2
     assert sum(call.tokens_out for call in raised.value.wire_calls) == 34
     serialized = json.dumps([asdict(call) for call in raised.value.wire_calls])
@@ -203,7 +204,7 @@ async def test_repair_transport_failure_retains_prior_paid_malformed_call():
         ("]]]}", "stop"), ("provider refused repair", "http-error")
     ) as (router, bodies, policy):
         with pytest.raises(LLMError) as raised:
-            await router.complete(request())
+            await router.for_execution(STANDALONE).complete(request())
     assert len(bodies) == 2
     assert raised.value.status == 400
     assert len(policy.responses) == len(raised.value.wire_calls) == 1
@@ -217,7 +218,9 @@ async def test_only_openrouter_format_requests_require_parameter_support(
     name, mechanism
 ):
     async with provider(('{"summary":"OK"}', "stop"), name=name) as (router, bodies, _):
-        await router.complete(request(name, mechanism=mechanism))
+        await router.for_execution(STANDALONE).complete(
+            request(name, mechanism=mechanism)
+        )
     if name == "openrouter" and mechanism != "prose_json":
         assert bodies[0]["provider"] == {"require_parameters": True}
     else:
@@ -227,7 +230,7 @@ async def test_only_openrouter_format_requests_require_parameter_support(
 @pytest.mark.asyncio
 async def test_openrouter_plain_text_is_not_restricted_to_json_endpoints():
     async with provider(("A plain answer", "stop")) as (router, bodies, _):
-        result = await router.complete(
+        result = await router.for_execution(STANDALONE).complete(
             LLMRequest(model=MODELS["openrouter"], messages=[])
         )
     assert result.content == "A plain answer"
@@ -245,8 +248,8 @@ async def test_plain_text_output_limit_preserves_existing_cache_behavior(tmp_pat
             bodies,
             policy,
         ):
-            first = await router.complete(req)
-            replay = await router.complete(req)
+            first = await router.for_execution(STANDALONE).complete(req)
+            replay = await router.for_execution(STANDALONE).complete(req)
         assert len(bodies) == len(policy.responses) == 1
         assert first.content == replay.content == "A partial answer"
         assert replay.cached

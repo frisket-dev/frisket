@@ -12,6 +12,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.llm import LLMError, ModelRouter
 from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
 from frisket.engine.jobs import model_pull_store
@@ -1191,7 +1192,9 @@ def test_ambient_embedding_key_does_not_unlock_an_unconfigured_effective_router(
     assert router.providers() == []
     with pytest.raises(LLMError, match="no embedding backend"):
         asyncio.run(
-            router.embed_batch(["example"], model="openai/text-embedding-3-small")
+            router.for_execution(STANDALONE).embed_batch(
+                ["example"], model="openai/text-embedding-3-small"
+            )
         )
     client, _workspace, project_id = _app(
         tmp_path / "embedding-router",

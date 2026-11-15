@@ -9,6 +9,7 @@ from typing import Any
 import httpx
 import pytest
 
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.llm import DEFAULT_MAX_OUTPUT_TOKENS
 from frisket.ai.llm.router import ModelRouter
 from frisket.ai.llm.remediation import classify_llm_error
@@ -95,7 +96,7 @@ OBJ_SCHEMA = {
 def test_invalid_then_valid_recovers_via_repair():
     router, adapter = scripted_router([_resp({"age": 5}), _resp({"name": "Ada"})])
     result = run(
-        StructuredCompleter(router).complete(
+        StructuredCompleter(router.for_execution(STANDALONE)).complete(
             StructuredRequest(
                 model="mock/m",
                 messages=[{"role": "user", "content": "go"}],
@@ -132,7 +133,7 @@ def test_public_router_multimodal_repair_explains_data_instance_shape():
     router, adapter = scripted_router([_resp(schema_echo), _resp({"color": "red"})])
 
     response = run(
-        router.complete(
+        router.for_execution(STANDALONE).complete(
             LLMRequest(
                 model="mock/vision",
                 messages=[
@@ -184,7 +185,7 @@ def test_repair_feedback_names_nested_data_path():
     )
 
     result = run(
-        StructuredCompleter(router).complete(
+        StructuredCompleter(router.for_execution(STANDALONE)).complete(
             StructuredRequest(
                 model="mock/m",
                 messages=[{"role": "user", "content": "go"}],
@@ -203,7 +204,7 @@ def test_repair_feedback_names_nested_data_path():
 def test_clean_output_is_one_attempt():
     router, adapter = scripted_router([_resp({"name": "Ada", "age": 3})])
     result = run(
-        StructuredCompleter(router).complete(
+        StructuredCompleter(router.for_execution(STANDALONE)).complete(
             StructuredRequest(
                 model="mock/m",
                 messages=[{"role": "user", "content": "go"}],
@@ -222,7 +223,7 @@ def test_schema_valid_output_limit_fails_without_repair_and_keeps_wire_call():
 
     with pytest.raises(OutputLimitReached) as raised:
         run(
-            StructuredCompleter(router).complete(
+            StructuredCompleter(router.for_execution(STANDALONE)).complete(
                 StructuredRequest(
                     model="mock/m",
                     messages=[{"role": "user", "content": "go"}],
@@ -242,7 +243,7 @@ def test_repair_exhausted_raises_schema_violation():
     router, adapter = scripted_router([_resp({"age": 5}), _resp({"age": 6})])
     with pytest.raises(SchemaViolation, match="name"):
         run(
-            StructuredCompleter(router).complete(
+            StructuredCompleter(router.for_execution(STANDALONE)).complete(
                 StructuredRequest(
                     model="mock/m",
                     messages=[{"role": "user", "content": "go"}],
@@ -258,7 +259,7 @@ def test_fail_hard_repair_attempts_zero():
     router, adapter = scripted_router([_resp({"age": 5})])
     with pytest.raises(SchemaViolation):
         run(
-            StructuredCompleter(router).complete(
+            StructuredCompleter(router.for_execution(STANDALONE)).complete(
                 StructuredRequest(
                     model="mock/m",
                     messages=[{"role": "user", "content": "go"}],
@@ -283,7 +284,7 @@ def test_cost_and_tokens_summed_across_repair_attempts():
         ]
     )
     result = run(
-        StructuredCompleter(router).complete(
+        StructuredCompleter(router.for_execution(STANDALONE)).complete(
             StructuredRequest(
                 model="mock/m",
                 messages=[{"role": "user", "content": "go"}],
@@ -319,7 +320,7 @@ def test_transport_does_not_blind_retry_completer_schema_faults():
         max_retries=3,
     )
     result = run(
-        StructuredCompleter(router).complete(
+        StructuredCompleter(router.for_execution(STANDALONE)).complete(
             StructuredRequest(
                 model="mock/m",
                 messages=[{"role": "user", "content": "go"}],
@@ -346,7 +347,7 @@ def test_repair_does_not_mutate_caller_messages():
     snapshot = json.loads(json.dumps(original))
     router, _ = scripted_router([_resp({"age": 5}), _resp({"name": "Ada"})])
     run(
-        StructuredCompleter(router).complete(
+        StructuredCompleter(router.for_execution(STANDALONE)).complete(
             StructuredRequest(
                 model="mock/m",
                 messages=original,
@@ -380,7 +381,7 @@ def test_top_level_array_schema_wraps_and_unwraps():
     # The provider is asked for {"items": [...]} (the wrap); the completer unwraps.
     router, _ = scripted_router([_resp({"items": entities})])
     result = run(
-        StructuredCompleter(router).complete(
+        StructuredCompleter(router.for_execution(STANDALONE)).complete(
             StructuredRequest(
                 model="mock/m",
                 messages=[{"role": "user", "content": "extract"}],
@@ -397,7 +398,7 @@ def test_top_level_array_item_violation_repairs():
     good = {"items": [{"text": "Ada", "type": "PERSON"}]}
     router, adapter = scripted_router([_resp(bad), _resp(good)])
     result = run(
-        StructuredCompleter(router).complete(
+        StructuredCompleter(router.for_execution(STANDALONE)).complete(
             StructuredRequest(
                 model="mock/m",
                 messages=[{"role": "user", "content": "extract"}],
@@ -448,7 +449,7 @@ def test_anthropic_missing_required_now_raises():
     router = _anthropic_router([_anthropic_tool_wire({"age": 5})])  # no "name"
     with pytest.raises(SchemaViolation, match="name"):
         run(
-            StructuredCompleter(router).complete(
+            StructuredCompleter(router.for_execution(STANDALONE)).complete(
                 StructuredRequest(
                     model="anthropic/claude-x",
                     messages=[{"role": "user", "content": "go"}],
@@ -465,7 +466,7 @@ def test_anthropic_cutover_repair_succeeds():
         [_anthropic_tool_wire({"age": 5}), _anthropic_tool_wire({"name": "Ada"})]
     )
     result = run(
-        StructuredCompleter(router).complete(
+        StructuredCompleter(router.for_execution(STANDALONE)).complete(
             StructuredRequest(
                 model="anthropic/claude-x",
                 messages=[{"role": "user", "content": "go"}],
@@ -483,7 +484,7 @@ def test_anthropic_cutover_repair_exhausts():
     router = _anthropic_router([_anthropic_tool_wire({"age": 5})])
     with pytest.raises(SchemaViolation, match="name"):
         run(
-            StructuredCompleter(router).complete(
+            StructuredCompleter(router.for_execution(STANDALONE)).complete(
                 StructuredRequest(
                     model="anthropic/claude-x",
                     messages=[{"role": "user", "content": "go"}],
@@ -504,7 +505,7 @@ def test_health_snapshot_reports_schema_rejects_per_provider():
         [_anthropic_tool_wire({"age": 5}), _anthropic_tool_wire({"name": "Ada"})]
     )
     run(
-        StructuredCompleter(router).complete(
+        StructuredCompleter(router.for_execution(STANDALONE)).complete(
             StructuredRequest(
                 model="anthropic/claude-x",
                 messages=[{"role": "user", "content": "go"}],
@@ -520,7 +521,7 @@ def test_health_snapshot_reports_schema_rejects_per_provider():
 def test_health_snapshot_schema_rejects_defaults_zero():
     router, _ = scripted_router([_resp({"name": "Ada"})])
     run(
-        StructuredCompleter(router).complete(
+        StructuredCompleter(router.for_execution(STANDALONE)).complete(
             StructuredRequest(
                 model="mock/m",
                 messages=[{"role": "user", "content": "go"}],
@@ -563,7 +564,7 @@ def test_invalid_schema_raises_typed_violation():
     router, _ = scripted_router([_resp({"name": "Ada"})])
     with pytest.raises(SchemaViolation, match="invalid schema"):
         run(
-            StructuredCompleter(router).complete(
+            StructuredCompleter(router.for_execution(STANDALONE)).complete(
                 StructuredRequest(
                     model="mock/m",
                     messages=[{"role": "user", "content": "go"}],
@@ -590,7 +591,7 @@ def test_attempts_counts_translated_schema_fault_wire_calls():
         max_retries=3,
     )
     result = run(
-        StructuredCompleter(router).complete(
+        StructuredCompleter(router.for_execution(STANDALONE)).complete(
             StructuredRequest(
                 model="mock/m",
                 messages=[{"role": "user", "content": "go"}],
@@ -614,7 +615,7 @@ def test_attempts_counts_multiple_translated_faults_then_success():
         max_retries=5,
     )
     result = run(
-        StructuredCompleter(router).complete(
+        StructuredCompleter(router.for_execution(STANDALONE)).complete(
             StructuredRequest(
                 model="mock/m",
                 messages=[{"role": "user", "content": "go"}],
@@ -639,7 +640,7 @@ def test_array_schema_response_data_matches_unwrapped_result_data():
     entities = [{"text": "Ada", "type": "PERSON"}]
     router, _ = scripted_router([_resp({"items": entities})])
     result = run(
-        StructuredCompleter(router).complete(
+        StructuredCompleter(router.for_execution(STANDALONE)).complete(
             StructuredRequest(
                 model="mock/m",
                 messages=[{"role": "user", "content": "extract"}],
@@ -665,7 +666,7 @@ def test_anthropic_exhausted_raw_text_falls_back_to_data_payload():
     router = _anthropic_router([_anthropic_tool_wire({"age": 5})])  # no "name"
     with pytest.raises(SchemaViolation) as exc_info:
         run(
-            StructuredCompleter(router).complete(
+            StructuredCompleter(router.for_execution(STANDALONE)).complete(
                 StructuredRequest(
                     model="anthropic/claude-x",
                     messages=[{"role": "user", "content": "go"}],

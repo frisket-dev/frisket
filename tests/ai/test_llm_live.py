@@ -12,6 +12,7 @@ import os
 
 import pytest
 
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.llm import LLMRequest, ModelRouter, ResponseCache
 from frisket.testing import llm_cache_path
 
@@ -67,7 +68,9 @@ def test_structured_classify(model):
     async def run():
         router = make_router()
         try:
-            resp = await router.complete(classify_request(model))
+            resp = await router.for_execution(STANDALONE).complete(
+                classify_request(model)
+            )
         finally:
             await router.aclose()
         assert resp.data is not None
@@ -85,7 +88,7 @@ def test_plain_text_completion():
     async def run():
         router = make_router()
         try:
-            resp = await router.complete(
+            resp = await router.for_execution(STANDALONE).complete(
                 LLMRequest(
                     model="anthropic/claude-haiku-4-5",
                     messages=[

@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from frisket.execution.dispatch_control import STANDALONE
 from runner_test_helpers import run_action_with_exact_confirmation
 
 pytestmark = pytest.mark.gap
@@ -509,7 +510,7 @@ def test_remote_embedding_batch_and_refresh_receipt_keep_versioned_fact(
     )
     router._adapters["openai"] = _EmbeddingAdapter()  # noqa: SLF001 - hermetic adapter
     batch = asyncio.run(
-        router.embed_batch(
+        router.for_execution(STANDALONE).embed_batch(
             ["A city awarded a no-bid contract."], model="openai/text-embedding-3-small"
         )
     )

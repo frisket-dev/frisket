@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.llm import LLMError, LLMRequest, LLMResponse, ModelRouter
 
 
@@ -78,7 +79,7 @@ async def test_unexpected_transport_failure_marks_the_purchase_once(error):
 
         model_router._adapters["openai"] = SimpleNamespace(complete=complete)
         with pytest.raises(type(error)):
-            await model_router.complete(
+            await model_router.for_execution(STANDALONE).complete(
                 LLMRequest(model="openai/gpt-5-mini", messages=[])
             )
     assert len(policy.admitted) == 1
@@ -112,7 +113,7 @@ async def test_policy_failure_does_not_repurchase(stage, error):
 
         model_router._adapters["openai"] = SimpleNamespace(complete=complete)
         with pytest.raises(type(error)):
-            await model_router.complete(
+            await model_router.for_execution(STANDALONE).complete(
                 LLMRequest(model="openai/gpt-5-mini", messages=[])
             )
     assert len(calls) == (stage == "accounting")
@@ -140,7 +141,8 @@ async def test_embedding_batch_is_one_purchase_with_usage_and_known_vectors(
         model_router._adapters["openai"] = SimpleNamespace(
             embed_with_meta=embed_with_meta
         )
-        method = model_router.embed if vector_only else model_router.embed_batch
+        bound = model_router.for_execution(STANDALONE)
+        method = bound.embed if vector_only else bound.embed_batch
         response = await method(["one", "two"])
     assert calls == [["one", "two"]]
     assert len(policy.admitted) == len(policy.responses) == 1
@@ -170,6 +172,6 @@ async def test_embedding_failure_marks_one_purchase(error):
             embed_with_meta=embed_with_meta
         )
         with pytest.raises(type(error)):
-            await model_router.embed(["one"])
+            await model_router.for_execution(STANDALONE).embed(["one"])
     assert len(policy.admitted) == 1
     assert policy.failed == [error]

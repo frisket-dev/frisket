@@ -30,6 +30,7 @@ import zlib
 import httpx
 import pytest
 
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.llm import LLMError, LLMRequest, ModelRouter
 from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
 
@@ -114,7 +115,7 @@ def test_text_structured_output():
     async def run():
         router = make_router()
         try:
-            resp = await router.complete(
+            resp = await router.for_execution(STANDALONE).complete(
                 LLMRequest(
                     model=f"ollama/@live/{TEXT_MODEL}",
                     messages=[
@@ -179,7 +180,7 @@ def test_vision_image_structured_output():
     async def run():
         router = make_router()
         try:
-            resp = await router.complete(
+            resp = await router.for_execution(STANDALONE).complete(
                 LLMRequest(
                     model=f"ollama/@live/{VL_MODEL}",
                     messages=[
@@ -227,7 +228,7 @@ def test_unknown_model_is_a_typed_error():
         router = make_router()
         try:
             with pytest.raises(LLMError):
-                await router.complete(
+                await router.for_execution(STANDALONE).complete(
                     LLMRequest(
                         model="ollama/@live/frisket-definitely-not-a-model",
                         messages=[{"role": "user", "content": "hello"}],

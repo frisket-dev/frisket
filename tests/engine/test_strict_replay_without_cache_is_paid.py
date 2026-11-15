@@ -30,6 +30,7 @@ import copy
 
 import pytest
 
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.llm import LLMResponse, ModelRouter
 from frisket.ai.llm.cache import ResponseCache
 from frisket.ai.llm.types import LLMRequest
@@ -185,7 +186,7 @@ def test_cacheless_strict_replay_reaches_the_live_adapter() -> None:
     """
     router, adapter = _strict_router(cache=None)
     response = asyncio.run(
-        router.complete(
+        router.for_execution(STANDALONE).complete(
             LLMRequest(model=REMOTE_MODEL, messages=[{"role": "user", "content": "hi"}])
         )
     )
@@ -200,7 +201,7 @@ def test_strict_replay_with_a_cache_raises_instead_of_calling(tmp_path) -> None:
     router, adapter = _strict_router(cache=ResponseCache(tmp_path / "cache.db"))
     with pytest.raises(CacheMiss):
         asyncio.run(
-            router.complete(
+            router.for_execution(STANDALONE).complete(
                 LLMRequest(
                     model=REMOTE_MODEL, messages=[{"role": "user", "content": "hi"}]
                 )

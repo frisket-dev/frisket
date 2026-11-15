@@ -24,6 +24,7 @@ import pytest
 import frisket.ai.embeddings.capabilities as capabilities_module
 import frisket.ai.embeddings.backends as backends_module
 
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.embeddings import (
     ALL_MODALITIES,
     EmbeddingBatchResult,
@@ -374,7 +375,9 @@ async def test_router_embed_batch_returns_metadata_rich_result():
 
     router = ModelRouter()
     router._adapters["openai"] = FakeAdapter()
-    result = await router.embed_batch(["x", "y"], model="openai/text-embedding-3-small")
+    result = await router.for_execution(STANDALONE).embed_batch(
+        ["x", "y"], model="openai/text-embedding-3-small"
+    )
     assert isinstance(result, dict)
     assert result["provider_id"] == "openai"
     assert result["provider_kind"] == "platform_api"
@@ -411,7 +414,9 @@ async def test_router_embed_batch_preserves_hosted_cost_source(
 
     router = ModelRouter()
     router._adapters["openai"] = FakeAdapter()  # noqa: SLF001 - hermetic adapter
-    result = await router.embed_batch(["x"], model="openai/text-embedding-3-small")
+    result = await router.for_execution(STANDALONE).embed_batch(
+        ["x"], model="openai/text-embedding-3-small"
+    )
 
     assert result["provider_reported_cost_usd"] == 0.004
     assert result["provider_cost_usd"] == 0.004
@@ -439,7 +444,7 @@ async def test_canonical_ollama_embedding_mints_known_free_cost():
     local_adapter._adapters["desk"] = FakeAdapter()  # noqa: SLF001
 
     model = "ollama/@desk/nomic-embed-text"
-    result = await router.embed_batch(["x"], model=model)
+    result = await router.for_execution(STANDALONE).embed_batch(["x"], model=model)
 
     assert result["provider_id"] == "ollama"
     assert result["provider_kind"] == "local_http"
@@ -468,7 +473,9 @@ async def test_router_embed_stays_vector_only_for_legacy_callers():
 
     router = ModelRouter()
     router._adapters["openai"] = FakeAdapter()
-    vecs = await router.embed(["x"], model="openai/text-embedding-3-small")
+    vecs = await router.for_execution(STANDALONE).embed(
+        ["x"], model="openai/text-embedding-3-small"
+    )
     assert vecs == [[0.0, 1.0]]  # bare vectors, semantic.py contract intact
     await router.aclose()
 

@@ -6,6 +6,7 @@ import json
 import httpx
 import pytest
 
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.llm import LLMRequest, ModelRouter
 
 
@@ -60,7 +61,7 @@ def test_router_omits_custom_temperature_for_reasoning_models(
             )
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
             router._client = client
-            return await router.complete(
+            return await router.for_execution(STANDALONE).complete(
                 LLMRequest(
                     model=f"openai/{model}",
                     messages=[{"role": "user", "content": "Extract the answer"}],

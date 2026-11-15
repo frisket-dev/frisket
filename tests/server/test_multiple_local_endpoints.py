@@ -6,6 +6,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
 from frisket.ai.llm.router import ModelRouter
 from frisket.ai.llm.types import LLMError, LLMRequest
@@ -293,10 +294,12 @@ async def test_router_sends_qualified_completion_and_embedding_to_selected_endpo
     )
     model_id = "ollama/@studio/qwen3:8b"
     try:
-        response = await router.complete(
+        response = await router.for_execution(STANDALONE).complete(
             LLMRequest(model=model_id, messages=[{"role": "user", "content": "hi"}])
         )
-        vectors = await router.embed(["hello"], model=model_id)
+        vectors = await router.for_execution(STANDALONE).embed(
+            ["hello"], model=model_id
+        )
     finally:
         await router._client.aclose()
 

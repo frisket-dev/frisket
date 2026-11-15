@@ -4,6 +4,7 @@ import asyncio
 
 import pytest
 
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.llm import LLMRequest, ModelRouter
 from frisket.cloud_execution import (
     CloudExecutionRefused,
@@ -394,7 +395,7 @@ def test_router_selects_cloud_only_inside_exact_bound_model_scope(tmp_path):
             with cloud_llm_execution_scope(
                 CloudLLMExecutionBinding(coordinator=coordinator)
             ):
-                response = await router.complete_transport(
+                response = await router.for_execution(STANDALONE).complete_transport(
                     LLMRequest(
                         model=MODEL,
                         messages=[{"role": "user", "content": "hello"}],

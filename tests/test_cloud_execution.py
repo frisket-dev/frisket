@@ -8,6 +8,7 @@ from dataclasses import replace
 import httpx
 import pytest
 
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.cloud_connection import CloudConnectionStore
 from frisket.cloud_execution import (
     CloudExecutionAttempt,
@@ -1314,7 +1315,7 @@ async def test_update_required_keeps_instruction_and_never_retries_cloud_purchas
     try:
         with cloud_llm_execution_scope(CloudLLMExecutionBinding(transport, attempt)):
             with pytest.raises(CloudExecutionRefused) as caught:
-                await router.complete_transport(
+                await router.for_execution(STANDALONE).complete_transport(
                     LLMRequest(
                         model=_payer().engine,
                         messages=[{"role": "user", "content": "hello"}],

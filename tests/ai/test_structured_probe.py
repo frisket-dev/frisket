@@ -8,6 +8,7 @@ from typing import Any
 import httpx
 import pytest
 
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.llm import structured_capabilities as capabilities
 from frisket.ai.llm.adapters import AnthropicAdapter
 from frisket.ai.llm.router import ModelRouter
@@ -100,7 +101,7 @@ OK_SCHEMA = {
 def test_override_succeeds_on_a_capable_model(provider, model, mechanism):
     router, adapter = scripted_router(provider, [_resp({"ok": True})])
     result = run(
-        StructuredCompleter(router).complete(
+        StructuredCompleter(router.for_execution(STANDALONE)).complete(
             StructuredRequest(
                 model=model,
                 messages=[{"role": "user", "content": "go"}],
@@ -132,7 +133,7 @@ def test_override_rejects_a_knowably_incapable_model(provider, model, mechanism)
     router, adapter = scripted_router(provider, [_resp({"ok": True})])
     with pytest.raises(UnsupportedMechanismError, match=mechanism):
         run(
-            StructuredCompleter(router).complete(
+            StructuredCompleter(router.for_execution(STANDALONE)).complete(
                 StructuredRequest(
                     model=model,
                     messages=[{"role": "user", "content": "go"}],
@@ -163,7 +164,7 @@ def test_auto_never_validates_mechanism_support():
     `method=` does."""
     router, adapter = scripted_router("anthropic", [_resp({"ok": True})])
     result = run(
-        StructuredCompleter(router).complete(
+        StructuredCompleter(router.for_execution(STANDALONE)).complete(
             StructuredRequest(
                 model="anthropic/claude-haiku-4-5",
                 messages=[{"role": "user", "content": "go"}],
@@ -186,7 +187,7 @@ def test_untested_model_explicit_override_is_not_rejected():
     not the same as a known dialect incompatibility)."""
     router, adapter = scripted_router("brand-new-provider", [_resp({"ok": True})])
     result = run(
-        StructuredCompleter(router).complete(
+        StructuredCompleter(router.for_execution(STANDALONE)).complete(
             StructuredRequest(
                 model="brand-new-provider/mystery-model",
                 messages=[{"role": "user", "content": "go"}],
@@ -342,7 +343,9 @@ def test_probe_never_runs_as_a_side_effect_of_a_normal_completion(tmp_path):
     store = ProbeStore(tmp_path / "probes.db")
     router, _ = scripted_router("openai", [_resp({"ok": True})])
     run(
-        StructuredCompleter(router, probe_store=store).complete(
+        StructuredCompleter(
+            router.for_execution(STANDALONE), probe_store=store
+        ).complete(
             StructuredRequest(
                 model="openai/gpt-5-mini",
                 messages=[{"role": "user", "content": "go"}],
@@ -375,7 +378,9 @@ def test_a_recorded_unsupported_probe_blocks_a_later_override_without_rerunning_
 
     with pytest.raises(UnsupportedMechanismError):
         run(
-            StructuredCompleter(router, probe_store=store).complete(
+            StructuredCompleter(
+                router.for_execution(STANDALONE), probe_store=store
+            ).complete(
                 StructuredRequest(
                     model="openrouter/some-vendor/model",
                     messages=[{"role": "user", "content": "go"}],
@@ -398,7 +403,9 @@ def test_probe_store_without_recorded_row_does_not_block_the_override():
     store = _PS(":memory:")
     router, adapter = scripted_router("openai", [_resp({"ok": True})])
     result = run(
-        StructuredCompleter(router, probe_store=store).complete(
+        StructuredCompleter(
+            router.for_execution(STANDALONE), probe_store=store
+        ).complete(
             StructuredRequest(
                 model="openai/gpt-5-mini",
                 messages=[{"role": "user", "content": "go"}],
@@ -459,7 +466,7 @@ def test_completer_auto_resolution_only_promotes_with_a_probe_store(tmp_path):
     the recorded-capability layer -- the promotion is never unconditional."""
     router, adapter = scripted_router("openrouter", [_resp({"ok": True})])
     result_default = run(
-        StructuredCompleter(router).complete(
+        StructuredCompleter(router.for_execution(STANDALONE)).complete(
             StructuredRequest(
                 model="openrouter/openai/gpt-5",
                 messages=[{"role": "user", "content": "go"}],
@@ -471,7 +478,9 @@ def test_completer_auto_resolution_only_promotes_with_a_probe_store(tmp_path):
 
     store = ProbeStore(tmp_path / "probes.db")
     result_opted_in = run(
-        StructuredCompleter(router, probe_store=store).complete(
+        StructuredCompleter(
+            router.for_execution(STANDALONE), probe_store=store
+        ).complete(
             StructuredRequest(
                 model="openrouter/openai/gpt-5",
                 messages=[{"role": "user", "content": "go"}],

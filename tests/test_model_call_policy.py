@@ -7,6 +7,7 @@ from dataclasses import replace
 
 import pytest
 
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.llm import LLMError, LLMRequest, LLMResponse, ModelRouter, ResponseCache
 from frisket.ai.llm.cache import request_key
 from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
@@ -141,7 +142,7 @@ async def test_prepare_changes_cache_identity_and_cache_hits_skip_live_callbacks
     router = _router(policy=policy, cache=cache, cache_mode=cache_mode)
 
     try:
-        response = await router.complete_transport(request)
+        response = await router.for_execution(STANDALONE).complete_transport(request)
     finally:
         await router.aclose()
         cache.close()
@@ -163,7 +164,7 @@ async def test_live_policy_order_exposes_stamped_provenance_before_cache_write(
     router._adapters["openai"] = adapter  # noqa: SLF001 - hermetic wire double
 
     try:
-        response = await router.complete_transport(_request())
+        response = await router.for_execution(STANDALONE).complete_transport(_request())
     finally:
         await router.aclose()
         cache.close()
@@ -195,7 +196,7 @@ async def test_before_live_refusal_prevents_the_adapter_attempt() -> None:
 
     try:
         with pytest.raises(RuntimeError, match="policy refused live call"):
-            await router.complete_transport(_request())
+            await router.for_execution(STANDALONE).complete_transport(_request())
     finally:
         await router.aclose()
 
@@ -220,7 +221,7 @@ async def test_after_live_failure_propagates_and_prevents_cache_write(tmp_path) 
 
     try:
         with pytest.raises(RuntimeError, match="policy could not record live response"):
-            await router.complete_transport(_request())
+            await router.for_execution(STANDALONE).complete_transport(_request())
         cached_count = cache.count()
     finally:
         await router.aclose()
@@ -246,7 +247,7 @@ async def test_before_live_runs_for_each_real_retry_but_after_live_runs_once(
 
     monkeypatch.setattr("frisket.ai.llm.router.asyncio.sleep", no_sleep)
     try:
-        await router.complete_transport(_request())
+        await router.for_execution(STANDALONE).complete_transport(_request())
     finally:
         await router.aclose()
 
@@ -279,7 +280,7 @@ def test_project_key_overlay_reconstruction_retains_policy_and_provenance(
         adapter = _Adapter(events)
         composed._adapters["openai"] = adapter  # noqa: SLF001 - hermetic wire double
 
-        asyncio.run(composed.complete_transport(_request()))
+        asyncio.run(composed.for_execution(STANDALONE).complete_transport(_request()))
     finally:
         asyncio.run(base.aclose())
         if "composed" in locals():
@@ -349,7 +350,7 @@ async def test_router_without_a_policy_keeps_existing_transport_behavior() -> No
     adapter = _Adapter(events)
     router._adapters["openai"] = adapter  # noqa: SLF001 - hermetic wire double
     try:
-        response = await router.complete_transport(_request())
+        response = await router.for_execution(STANDALONE).complete_transport(_request())
     finally:
         await router.aclose()
 

@@ -9,6 +9,7 @@ import httpx
 import pytest
 from jsonschema import Draft202012Validator
 
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.llm.adapters import AnthropicAdapter, OpenAICompatAdapter
 from frisket.ai.llm.router import ModelRouter
 from frisket.ai.llm.structured import (
@@ -197,7 +198,7 @@ def _run_target(
     router = ModelRouter(keys={}, max_retries=3)
     router._adapters["mock"] = _ScriptedAdapter(outcomes)
     result = asyncio.run(
-        StructuredCompleter(router).complete(
+        StructuredCompleter(router.for_execution(STANDALONE)).complete(
             StructuredRequest(
                 model="mock/model",
                 messages=[{"role": "user", "content": "go"}],

@@ -6,6 +6,7 @@ import json
 import httpx
 import pytest
 
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.llm import LLMRequest, ModelRouter
 from frisket.ai.llm.structured import (
     StructuredCompleter,
@@ -61,7 +62,7 @@ def test_json_answer_and_confidence_preserve_dynamic_keys_and_local_bounds(model
         router = ModelRouter(keys={provider: "test"}, use_env_keys=False, max_retries=0)
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
             router._client = client
-            return await StructuredCompleter(router).complete(
+            return await StructuredCompleter(router.for_execution(STANDALONE)).complete(
                 StructuredRequest(
                     model=model,
                     schema=ASK_SCHEMA,
@@ -89,7 +90,7 @@ def test_openai_explicit_strict_refuses_open_answer_before_wire():
         router = ModelRouter(keys={"openai": "test"}, use_env_keys=False)
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
             router._client = client
-            return await router.complete_transport(
+            return await router.for_execution(STANDALONE).complete_transport(
                 LLMRequest(
                     model="openai/gpt-6-luna",
                     schema=ASK_SCHEMA,

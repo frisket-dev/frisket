@@ -6,6 +6,7 @@ import time
 import httpx
 import pytest
 
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.llm.router import ModelRouter
 from frisket.ai.llm.types import LLMError, LLMRequest, SchemaViolation
 
@@ -92,7 +93,7 @@ def test_transport_retry_recovers_a_provably_pre_egress_connect_fault():
     router = _router_with(adapter, max_retries=3)
 
     async def run():
-        return await router.complete(req())
+        return await router.for_execution(STANDALONE).complete(req())
 
     resp = asyncio.run(run())
     assert resp.content == "ok"
@@ -124,7 +125,9 @@ def test_retry_is_a_new_purchase_and_preserves_unknown_prior_outcome():
 
     async def run():
         try:
-            assert (await router.complete(req())).content == "ok"
+            assert (
+                await router.for_execution(STANDALONE).complete(req())
+            ).content == "ok"
         finally:
             await router.aclose()
 
@@ -149,7 +152,7 @@ def test_schema_violation_is_never_retried_by_transport_regardless_of_max_retrie
     async def run():
         t0 = time.perf_counter()
         with pytest.raises(SchemaViolation):
-            await router.complete(req())
+            await router.for_execution(STANDALONE).complete(req())
         return time.perf_counter() - t0
 
     elapsed = asyncio.run(run())
@@ -179,7 +182,7 @@ def test_explicit_ambiguous_provider_outcome_survives_retry_exhaustion(
     async def run():
         try:
             with pytest.raises(LLMError) as caught:
-                await router.complete(req())
+                await router.for_execution(STANDALONE).complete(req())
             assert caught.value.post_egress_ambiguous is True
             assert caught.value.retryable is retryable
             assert caught.value.status == status
@@ -210,7 +213,7 @@ def test_provider_transport_diagnostics_keep_kind_at_retry_limit(
     async def run():
         try:
             with pytest.raises(LLMError) as caught:
-                await router.complete(req())
+                await router.for_execution(STANDALONE).complete(req())
             assert caught.value.transport_kind == expected_kind
             assert caught.value.post_egress_ambiguous is True
         finally:

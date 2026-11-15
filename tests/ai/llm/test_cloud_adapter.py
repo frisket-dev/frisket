@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
 from frisket.ai.models.accounting import wire_accounting_meta
 from frisket.cloud_execution import (
@@ -185,7 +186,9 @@ def test_cloud_adapter_round_trips_request_result_and_receipt_accounting():
             with cloud_llm_execution_scope(
                 CloudLLMExecutionBinding(transport, attempt)
             ):
-                result = await router.complete_transport(request)
+                result = await router.for_execution(STANDALONE).complete_transport(
+                    request
+                )
         finally:
             await router.aclose()
 
@@ -288,7 +291,7 @@ def test_cloud_adapter_preserves_ocr_identity_and_token_receipt():
                     capability="ocr",
                 )
             ):
-                result = await router.complete_transport(
+                result = await router.for_execution(STANDALONE).complete_transport(
                     LLMRequest(
                         model=MODEL,
                         messages=[{"role": "user", "content": "Read the image"}],
@@ -332,7 +335,9 @@ def test_cloud_adapter_preserves_tools_and_provider_details():
             with cloud_llm_execution_scope(
                 CloudLLMExecutionBinding(transport, attempt)
             ):
-                result = await router.complete_transport(request)
+                result = await router.for_execution(STANDALONE).complete_transport(
+                    request
+                )
         finally:
             await router.aclose()
 
@@ -356,7 +361,7 @@ def test_public_structured_completion_preserves_cloud_receipt():
             with cloud_llm_execution_scope(
                 CloudLLMExecutionBinding(transport, attempt)
             ):
-                result = await router.complete(
+                result = await router.for_execution(STANDALONE).complete(
                     LLMRequest(
                         model=MODEL,
                         messages=[{"role": "user", "content": "Name the person."}],
@@ -392,7 +397,7 @@ def test_cloud_binding_dispatches_without_overriding_configured_adapter():
             with cloud_llm_execution_scope(
                 CloudLLMExecutionBinding(transport, _attempt())
             ):
-                result = await router.complete_transport(
+                result = await router.for_execution(STANDALONE).complete_transport(
                     LLMRequest(
                         model=MODEL,
                         messages=[{"role": "user", "content": "hello"}],
@@ -417,7 +422,7 @@ def test_cloud_adapter_refuses_receipt_from_another_account():
                 CloudLLMExecutionBinding(transport, attempt)
             ):
                 with pytest.raises(CloudExecutionRefused) as error:
-                    await router.complete_transport(
+                    await router.for_execution(STANDALONE).complete_transport(
                         LLMRequest(
                             model=MODEL,
                             messages=[{"role": "user", "content": "hello"}],
@@ -454,7 +459,7 @@ def test_completed_cloud_output_survives_pending_accounting_without_free_receipt
                     attempt=_attempt(),
                 )
             ):
-                result = await router.complete(
+                result = await router.for_execution(STANDALONE).complete(
                     LLMRequest(
                         model=MODEL,
                         messages=[{"role": "user", "content": "one name"}],

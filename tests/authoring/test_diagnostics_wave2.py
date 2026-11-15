@@ -27,6 +27,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.operability import diagnostics
 from frisket.engine.jobs import open_queue
 from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter, ResponseCache
@@ -126,7 +127,7 @@ def test_replay_mode_report_a_cache_miss_actually_reaches_a_live_provider(tmp_pa
         model="anthropic/claude-haiku-4-5",
         messages=[{"role": "user", "content": "hi"}],
     )
-    resp = asyncio.run(router.complete(req))
+    resp = asyncio.run(router.for_execution(STANDALONE).complete(req))
     assert resp.content == "live-response"
     assert adapter.calls == 1  # the miss really did fall through to a live call
 
