@@ -17,6 +17,7 @@ from frisket.contracts.http.table_imports import (
     TableImportRequestedSettings,
 )
 from frisket.engine.store.import_intake import ImportIntakeHeader
+from frisket.engine.store.sheet_names import available_sheet_name
 from frisket.engine.store.table_import_intake import (
     FrozenTableImport,
     TableImportColumn as FrozenTableImportColumn,
@@ -1072,7 +1073,10 @@ class TableImportService:
             if header["source"]["input_kind"] == "paste"
             else Path(header["source"]["filename"]).stem or "Imported table"
         )
-        header["destination_request"] = new_destination(scan, name[:80])
+        project = self._workspace.get(header["project_id"])
+        header["destination_request"] = new_destination(
+            scan, available_sheet_name(project.db, name)
+        )
         header["destination_reviewed"] = False
         header["state"] = "ready" if complete else "analyzing"
 

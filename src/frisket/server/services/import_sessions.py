@@ -24,6 +24,7 @@ from frisket.engine.executor.action_jobs import (
     action_job_cancelled_result,
     reserve_typed_action_job,
 )
+from frisket.engine.executor.map_rows_action import typed_request_hash
 from frisket.engine.jobs.queue import IMPORT_FILES_PAGE_KIND
 from frisket.engine.jobs.import_table import table_import_dedupe_key
 from frisket.engine.jobs.queue import IMPORT_TABLE_STREAM_KIND
@@ -265,10 +266,40 @@ class ImportSessionService:
                 and current.exact_rows > effective_max_rows
             ):
                 raise ValueError("table import exceeds the configured row limit")
-            reserved = reserve_typed_action_job(project, project_id, bound)
-            if isinstance(reserved, ActionResult):
-                raise ValueError("table import reservation is already terminal")
-            envelope: ActionJobEnvelope = reserved
+            if header.envelope:
+                envelope = ActionJobEnvelope.from_json(header.envelope)
+                if (
+                    envelope.project_id != project_id
+                    or envelope.action_kind != bound.request.action_id
+                    or envelope.idempotency_key != frozen.import_ref
+                    or envelope.params_hash != typed_request_hash(bound)
+                ):
+                    raise ValueError("table import reservation identity changed")
+            else:
+                reserved = reserve_typed_action_job(project, project_id, bound)
+                if isinstance(reserved, ActionResult):
+                    raise ValueError("table import reservation is already terminal")
+                envelope = reserved
+            receipts = ReceiptStore(project)
+            stored = receipts.find_by_id(envelope.receipt_id)
+            if stored is None:
+                raise RuntimeError("table import reservation disappeared")
+            if (
+                stored.action_id != envelope.action_id
+                or stored.action_kind != envelope.action_kind
+                or stored.params_hash != envelope.params_hash
+                or stored.idempotency_key != envelope.idempotency_key
+            ):
+                raise ValueError("table import reservation identity changed")
+            session = ImportSessionStore(project).get(frozen.import_ref)
+            if session is not None and session.receipt_id != envelope.receipt_id:
+                raise ValueError("table import session identity changed")
+            if session is not None and session.state in {"completed", "kept"}:
+                return self._status(project, frozen.import_ref, directory, header)
+            if header.cancel_requested or (
+                session is not None and session.state in {"cancelled", "removed"}
+            ):
+                raise ImportBulkRouteError(409, "This import was cancelled.")
             mark_table_committed(
                 directory,
                 expected_plan_hash=frozen.plan_hash,
@@ -276,10 +307,6 @@ class ImportSessionService:
                 destination_sheet_id=destination_sheet_id,
                 max_rows=effective_max_rows,
             )
-            receipts = ReceiptStore(project)
-            stored = receipts.find_by_id(envelope.receipt_id)
-            if stored is None:
-                raise RuntimeError("table import reservation disappeared")
             if stored.status == "queued":
                 receipts.update_body_status(
                     stored.parsed().model_copy(update={"status": "running"}),
@@ -288,7 +315,6 @@ class ImportSessionService:
             elif stored.status != "running":
                 raise ValueError("table import reservation is already terminal")
 
-            session = ImportSessionStore(project).get(frozen.import_ref)
             if session is None:
                 common = {
                     "project": project,
@@ -305,14 +331,14 @@ class ImportSessionService:
                 }
                 if destination_sheet_id is None:
                     StreamingSheetWriter.start_session(
-                        **common, sheet_name=frozen.plan.sheet_name
+                        **common,
+                        sheet_name=frozen.plan.sheet_name,
+                        allocate_sheet_name=True,
                     ).abort()
                 else:
                     StreamingSheetWriter.start_append_session(
                         **common, sheet_id=destination_sheet_id
                     ).abort()
-            elif session.receipt_id != envelope.receipt_id:
-                raise ValueError("table import session identity changed")
             header = read_import_header(directory)
 
         await self._enqueue_table(project_id, frozen.import_ref)
@@ -1140,6 +1166,13 @@ class ImportSessionService:
                     header.project_id, receipt_id
                 )
             )
+        sheet = (
+            None
+            if session is None or session.sheet_id is None
+            else project.db.execute(
+                "SELECT name FROM sheets WHERE id=?", (session.sheet_id,)
+            ).fetchone()
+        )
         return ImportSessionStatus(
             import_ref=ref,
             intake_kind=header.intake_kind,
@@ -1151,7 +1184,9 @@ class ImportSessionService:
             committed_bytes=0 if session is None else session.committed_bytes,
             sheet_id=None if session is None else session.sheet_id,
             sheet_name=(
-                table_frozen.plan.sheet_name
+                str(sheet["name"])
+                if sheet is not None
+                else table_frozen.plan.sheet_name
                 if table_frozen is not None
                 else str(header.envelope["action"].get("sheet_name") or "files")
             ),
