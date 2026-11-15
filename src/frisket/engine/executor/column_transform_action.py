@@ -43,7 +43,7 @@ from frisket.engine.store.cell_writes import (
     BaseCellWrite,
     create_base_cell_producer,
     initialize_base_cells,
-    remove_base_cells,
+    replace_base_cells,
 )
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.runner.preview import PREVIEW_MAX_ROWS, PreviewColumn, PreviewResult
@@ -431,14 +431,12 @@ def _write_column(
             "WHERE id=?",
             (output_type, column_id),
         )
-        remove_base_cells(
-            db,
-            producer_id=producer_id,
-            column_ids=[column_id],
-        )
-    initialize_base_cells(
+    write_values = initialize_base_cells if hidden is None else replace_base_cells
+    region = {} if hidden is None else {"column_ids": [column_id]}
+    write_values(
         db,
         producer_id=producer_id,
+        **region,
         cells=(
             BaseCellWrite(row_id, column_id, value)
             for row_id, value in values.items()

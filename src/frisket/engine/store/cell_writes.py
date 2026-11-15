@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from uuid import uuid4
 from collections.abc import Collection, Iterable
 from dataclasses import dataclass
 from typing import Any
@@ -117,6 +118,18 @@ def create_base_cell_producer(
         (stage_id, op_id),
     )
     return int(cursor.lastrowid)
+
+
+def _replacement_producer(db: sqlite3.Connection, producing_op_id: int) -> int:
+    """Each source replacement keeps previously consumed references immutable.
+
+    A producer identifies a value version, not just a reusable import session.
+    The session's original producer still authorizes its writes; each revision
+    belongs to that same Change but gets a distinct payload identity.
+    """
+    return create_base_cell_producer(
+        db, stage_id=f"source-version:{uuid4().hex}", op_id=producing_op_id
+    )
 
 
 def bind_base_cell_producer(
@@ -356,10 +369,11 @@ def remove_base_cells(
         where += f" AND row_id IN ({','.join('?' for _ in rows)})"
         params.extend(rows)
     start_change(db, producing_op_id)
+    version_producer_id = _replacement_producer(db, producing_op_id)
     cursor = db.execute(
         "INSERT INTO cells(row_id,column_id,value_kind,value,producer_id) "
         f"SELECT DISTINCT row_id,column_id,'null',NULL,? FROM cells WHERE {where}",
-        [producer_id, *params],
+        [version_producer_id, *params],
     )
     refresh_current_cells(db, column_ids=columns, row_ids=rows)
     return int(cursor.rowcount)
@@ -460,10 +474,11 @@ def replace_base_cells(
         if (int(row[0]), int(row[1])) not in provided
     )
     if encoded:
+        version_producer_id = _replacement_producer(db, producing_op_id)
         db.executemany(
             "INSERT INTO cells (row_id,column_id,value_kind,value,producer_id) "
             "VALUES (?,?,?,?,?)",
-            [(*cell, producer_id) for cell in encoded],
+            [(*cell, version_producer_id) for cell in encoded],
         )
     refresh_current_cells(
         db,

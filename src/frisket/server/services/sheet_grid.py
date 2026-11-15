@@ -1176,7 +1176,7 @@ def _result_metadata(project: Project, column_id: int, row_ids: list[int]) -> di
             "SELECT head.row_id,result.publication_effect,result.confidence,"
             "result.justification,result.error,result.review_state,result.outcome, "
             "result.warnings AS warnings_json "
-            "FROM cell_result_heads head JOIN results result "
+            "FROM current_result_heads head JOIN results result "
             "ON result.run_id=head.run_id AND result.row_id=head.row_id "
             "AND result.column_id=head.column_id "
             f"WHERE head.column_id=? AND head.row_id IN ({placeholders})",

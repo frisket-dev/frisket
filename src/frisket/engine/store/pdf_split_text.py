@@ -140,7 +140,11 @@ def publish_pdf_split_page(
             or source["origin_kind"] != "source_cell"
             or text["origin_kind"] != "source_cell"
             or source["producer_id"] != session.producer_id
-            or text["producer_id"] != session.producer_id
+            or db.execute(
+                "SELECT op_id FROM base_cell_producers WHERE id=?",
+                (text["producer_id"],),
+            ).fetchone()[0]
+            != binding.operation_id
         ):
             db.rollback()
             return False

@@ -322,3 +322,59 @@ def test_output_family_and_evidence_publish_atomically(tmp_path, fail_evidence):
         if other is not None:
             other.close()
         project.close()
+
+
+def test_source_replacements_preserve_consumed_versions_and_allow_repeated_clear(
+    tmp_path,
+):
+    from frisket.engine.store.cell_writes import (
+        BaseCellWrite,
+        replace_base_cells,
+        remove_base_cells,
+    )
+
+    project = Project.create(tmp_path / "versions.frisket")
+    try:
+        sheet = project.add_sheet("Source")
+        column = project.add_column(sheet, "text")
+        row = project.add_rows(sheet, [{"text": "original"}], {"text": column})[0]
+        original = project.get_values_with_refs(sheet, column, [row])[1][row]
+        producer = original["producer_id"]
+        versions = [producer]
+        for value in ("replacement", "another"):
+            project.db.execute("BEGIN")
+            with project.db:
+                replace_base_cells(
+                    project.db,
+                    producer_id=producer,
+                    column_ids=[column],
+                    row_ids=[row],
+                    cells=[BaseCellWrite(row, column, value)],
+                )
+            values, refs = project.get_values_with_refs(sheet, column, [row])
+            assert values[row] == value
+            versions.append(refs[row]["producer_id"])
+        assert len(set(versions)) == 3
+        assert [
+            r[0]
+            for r in project.db.execute(
+                "SELECT value FROM cells WHERE row_id=? AND column_id=? ORDER BY producer_id",
+                (row, column),
+            )
+        ] == ["original", "replacement", "another"]
+        for _ in range(2):
+            project.db.execute("BEGIN")
+            with project.db:
+                remove_base_cells(
+                    project.db, producer_id=producer, column_ids=[column], row_ids=[row]
+                )
+            assert project.get_values_with_refs(sheet, column, [row])[0][row] is None
+        assert (
+            project.db.execute(
+                "SELECT value FROM cells WHERE row_id=? AND column_id=? AND producer_id=?",
+                (row, column, producer),
+            ).fetchone()[0]
+            == "original"
+        )
+    finally:
+        project.close()

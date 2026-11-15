@@ -373,12 +373,13 @@ def publish_import_blobs(
             raise ValueError("prepared PDF page has no admitted text output column")
         column_id = int(column_ids[column_name])
         existing = project.db.execute(
-            "SELECT producer_id FROM cells WHERE row_id=? AND column_id=?",
+            "SELECT base_producer_id FROM effective_current_cells "
+            "WHERE row_id=? AND column_id=? AND origin_kind='source_cell'",
             (cell.row_id, column_id),
         ).fetchone()
         if existing is None:
             raise ValueError("prepared PDF page text cell was not materialized")
-        key = (int(existing["producer_id"]), column_id)
+        key = (int(existing["base_producer_id"]), column_id)
         replacements.setdefault(key, []).append(
             BaseCellWrite(cell.row_id, column_id, prepared_ref)
         )
@@ -488,7 +489,8 @@ def publish_import_blobs(
                     )
                 source_column_id = int(column_ids[blob.source_link_column_name])
                 producer = project.db.execute(
-                    "SELECT producer_id FROM cells WHERE row_id=? AND column_id=?",
+                    "SELECT base_producer_id FROM effective_current_cells "
+                    "WHERE row_id=? AND column_id=? AND origin_kind='source_cell'",
                     (cell.row_id, column_id),
                 ).fetchone()
                 if producer is None:

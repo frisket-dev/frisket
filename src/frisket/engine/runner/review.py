@@ -20,7 +20,7 @@ from frisket.server.paging import offset_page_payload
 
 
 _ACTIVE_HEAD_JOIN = (
-    "LEFT JOIN cell_result_heads active_head "
+    "LEFT JOIN current_result_heads active_head "
     "ON active_head.column_id=res.column_id "
     "AND active_head.row_id=res.row_id AND active_head.run_id=res.run_id"
 )
@@ -229,7 +229,7 @@ def review_queue(
                res.confidence, res.justification, res.error,
                res.review_decision, res.review_note,
                review_field.column_name, c.sheet_id, runs.action_kind, runs.model,
-               EXISTS (SELECT 1 FROM cell_result_heads head JOIN ops applied ON applied.id=runs.op_id
+               EXISTS (SELECT 1 FROM current_result_heads head JOIN ops applied ON applied.id=runs.op_id
                  WHERE head.run_id=res.run_id AND head.row_id=res.row_id AND head.column_id=res.column_id
                  AND applied.status='applied') AS applied
         FROM results res

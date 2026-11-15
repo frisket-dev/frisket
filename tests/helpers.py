@@ -48,6 +48,10 @@ def replace_test_source_cell(
     )
 
     target_db = project.db if db is None else db
+    if db is not None:
+        from frisket.engine.store.current_cells import register_current_cell_functions
+
+        register_current_cell_functions(target_db)
 
     def write() -> int:
         if target_db is project.db:

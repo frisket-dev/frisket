@@ -30,7 +30,7 @@ def prepared_source_readiness_ctes(*, scope_relation: str, schema: str = "") -> 
       JOIN {prefix}current_cell_values AS live
         ON live.column_id=output_column.id
        AND live.row_id=readiness_scope.row_id
-      LEFT JOIN {prefix}cell_result_heads AS generated_head
+      LEFT JOIN {prefix}current_result_heads AS generated_head
         ON generated_head.column_id=live.column_id
        AND generated_head.row_id=live.row_id
        AND live.origin_kind='manual_edit'

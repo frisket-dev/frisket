@@ -36,7 +36,7 @@ def current_review_run_predicate(
         f"{terminal}"
         f"EXISTS (SELECT 1 FROM ops review_op WHERE review_op.id={run}.op_id "
         "AND review_op.status='applied') AND ("
-        "EXISTS (SELECT 1 FROM cell_result_heads review_head "
+        "EXISTS (SELECT 1 FROM current_result_heads review_head "
         "JOIN columns review_column ON review_column.id=review_head.column_id "
         "JOIN sheets review_sheet ON review_sheet.id=review_column.sheet_id "
         f"WHERE review_head.run_id={run}.id AND review_column.active=1 "

@@ -433,7 +433,7 @@ def _next_revision(
     if revises_col is None:
         return 1
     n = project.db.execute(
-        "SELECT COUNT(*) FROM cells c JOIN rows r ON r.id = c.row_id "
+        "SELECT COUNT(*) FROM current_cell_values c JOIN rows r ON r.id = c.row_id "
         "WHERE r.sheet_id=? AND c.column_id=? "
         "AND c.value_kind='text' AND c.value=?",
         (sheet_id, revises_col, guid),
