@@ -529,6 +529,8 @@ class InputReference:
     accepted_column_types: tuple[str, ...] | None = None
     ai_generated_only: bool = False
     preserve_invalid: bool = False
+    required: bool = True
+    allow_missing: bool = False
 
 
 @dataclass(frozen=True)
@@ -1449,6 +1451,17 @@ def column_ref_types(annotation: type[ColumnRef[Any]]) -> tuple[str, ...] | None
     return _exclude_ref_types(annotation, accepted)
 
 
+def column_ref_required(annotation: type) -> bool:
+    explicit = getattr(annotation, "required_input", None)
+    if isinstance(explicit, bool):
+        return explicit
+    args = getattr(annotation, "__pydantic_generic_metadata__", {}).get("args", ())
+    if not args:
+        return True
+    value_type = args[0]
+    return value_type is not Any and type(None) not in typing.get_args(value_type)
+
+
 class ColumnRef(_SemanticText[T], Generic[T]):
     @property
     def name(self) -> str:
@@ -1460,6 +1473,8 @@ class ColumnRef(_SemanticText[T], Generic[T]):
                 self.root,
                 column_ref_types(type(self)),
                 preserve_invalid=bool(getattr(type(self), "preserve_invalid", False)),
+                required=column_ref_required(type(self)),
+                allow_missing=bool(getattr(type(self), "allow_missing_input", False)),
             ),
         )
 
@@ -1477,6 +1492,8 @@ class GeneratedColumnRef(ColumnRef[T], Generic[T]):
                 column_ref_types(type(self)),
                 ai_generated_only=True,
                 preserve_invalid=bool(getattr(type(self), "preserve_invalid", False)),
+                required=column_ref_required(type(self)),
+                allow_missing=bool(getattr(type(self), "allow_missing_input", False)),
             ),
         )
 
@@ -1498,7 +1515,11 @@ class Template(BaseModel, Generic[T]):
 
     def references(self) -> tuple[InputReference, ...]:
         return tuple(
-            InputReference(name, template_ref_types(type(self)))
+            InputReference(
+                name,
+                template_ref_types(type(self)),
+                allow_missing=bool(getattr(type(self), "allow_missing_input", True)),
+            )
             for name in column_template_names(self.text)
         )
 
@@ -1536,6 +1557,7 @@ class Formula(BaseModel):
                     "date",
                     "datetime",
                 ),
+                allow_missing=True,
             )
             for name in self.compiled.columns
         )
@@ -1646,6 +1668,9 @@ def discover_references(value: Any) -> tuple[InputReference, ...]:
                         preserve_invalid=(
                             current.preserve_invalid or reference.preserve_invalid
                         ),
+                        required=current.required or reference.required,
+                        allow_missing=(not current.required or current.allow_missing)
+                        and (not reference.required or reference.allow_missing),
                     )
         elif isinstance(item, BaseModel):
             for child in item.__class__.model_fields:

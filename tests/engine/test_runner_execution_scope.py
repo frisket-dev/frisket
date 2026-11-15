@@ -88,17 +88,25 @@ def test_all_empty_probe_pages_large_explicit_scope() -> None:
     class ProjectProbe:
         chunk_sizes: list[int] = []
 
-        def get_values(
+        def get_values_with_refs(
             self,
             sheet_id: int,
             column_id: int,
             *,
             row_ids: list[int],
-        ) -> dict[int, None]:
+            include_validity: bool,
+        ):
             assert sheet_id == 7
             assert column_id == 8
+            assert include_validity
             self.chunk_sizes.append(len(row_ids))
-            return {row_id: None for row_id in row_ids}
+            return (
+                {row_id: None for row_id in row_ids},
+                {
+                    row_id: {"validity": "missing", "outcome": "completed"}
+                    for row_id in row_ids
+                },
+            )
 
     project = ProjectProbe()
     assert validation_module.source_values_all_empty(

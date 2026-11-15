@@ -543,12 +543,17 @@ async def run_preview(
                 raw_results: dict[int, Any] = {}
             else:
                 try:
-                    async with recipe.execution_scope(
-                        spec, ctx, expected_rows=len(row_ids)
-                    ):
-                        raw_results = await recipe.execute_batch(
-                            values_by_row, spec, ctx
-                        )  # type: ignore[attr-defined]
+                    ready = {
+                        row: values
+                        for row, values in values_by_row.items()
+                        if not getattr(values, "unavailable_inputs", ())
+                    }
+                    raw_results = {}
+                    if ready:
+                        async with recipe.execution_scope(
+                            spec, ctx, expected_rows=len(ready)
+                        ):
+                            raw_results = await recipe.execute_batch(ready, spec, ctx)  # type: ignore[attr-defined]
                 except (SandboxTeardownError, StaleAttemptWriter):
                     raise
                 except (ValueError, RuntimeError) as e:
@@ -563,12 +568,23 @@ async def run_preview(
             for row_id in row_ids:
                 if is_cancelled() and row_id not in raw_results:
                     break
-                cells, _failed, _cost = normalize_batch_row(
-                    raw_results.get(row_id),
-                    field_names,
-                    required_field_names=required_field_names,
-                    managed_publication=managed_publication,
-                )
+                unavailable = getattr(values_by_row[row_id], "unavailable_inputs", ())
+                if unavailable:
+                    from frisket.engine.store.input_availability import (
+                        not_completed_result,
+                    )
+
+                    cells = {
+                        name: not_completed_result(unavailable[0])
+                        for name in field_names
+                    }
+                else:
+                    cells, _failed, _cost = normalize_batch_row(
+                        raw_results.get(row_id),
+                        field_names,
+                        required_field_names=required_field_names,
+                        managed_publication=managed_publication,
+                    )
                 record_row(row_id, cells)
                 values[row_id] = {
                     name: {

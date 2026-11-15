@@ -199,3 +199,43 @@ def test_batch_evidence_failure_rolls_back_result_batch(tmp_path: Path) -> None:
         )
     finally:
         project.close()
+
+
+def test_batch_preview_and_publication_never_dispatch_unavailable_required_rows(
+    tmp_path,
+):
+    project, sheet, rows = _project(tmp_path)
+    recipe = _EvidenceBatchRecipe()
+    source = next(
+        column["id"] for column in project.columns(sheet) if column["name"] == "source"
+    )
+    project.set_column_type(source, "integer")
+    calls = []
+
+    async def never_dispatch(*args, **kwargs):
+        calls.append(True)
+        raise AssertionError("unavailable inputs reached the batch handler")
+
+    recipe.execute_batch = never_dispatch
+    try:
+        preview = asyncio.run(
+            _runner(project).preview({**_spec(sheet), "row_ids": rows}, program=recipe)
+        )
+        assert all(
+            preview.values[row]["output"]["outcome"] == "not_completed" for row in rows
+        )
+        progress = asyncio.run(
+            run_with_output_claim(
+                _runner(project), _spec(sheet), program=recipe, confirmed=True
+            )
+        )
+        assert calls == []
+        saved = project.db.execute(
+            "SELECT outcome,error_code FROM results WHERE run_id=? ORDER BY row_id",
+            (progress.run_id,),
+        ).fetchall()
+        assert [tuple(row) for row in saved] == [
+            ("not_completed", "input_invalid")
+        ] * len(rows)
+    finally:
+        project.close()

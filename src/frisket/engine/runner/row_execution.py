@@ -165,6 +165,11 @@ async def _execute_row(
         else [f["name"] for f in recipe.output_fields(spec)]
     )
     # Do not ask a plain LLM to fabricate output from an empty source row.
+    unavailable = getattr(values, "unavailable_inputs", ())
+    if unavailable:
+        from frisket.engine.store.input_availability import not_completed_result
+
+        return {name: not_completed_result(unavailable[0]) for name in field_names}
     if (
         recipe.is_llm(spec)
         and not hasattr(recipe, "run_agent")

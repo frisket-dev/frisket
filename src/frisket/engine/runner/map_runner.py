@@ -1536,6 +1536,10 @@ class MapRunner:
                 raise TypeError("admitted Cloud payer has an invalid type")
             if (
                 row_effect_spends_or_meters(recipe, spec, self.router)
+                and (
+                    not getattr(values, "unavailable_inputs", ())
+                    or self.run_store.row_effect_checkpoint(run_id, row_id) is not None
+                )
                 and getattr(recipe, "row_effect_checkpoint_owner", "runner") == "runner"
             ):
                 checkpoint_id, checkpoint_identity = _row_effect_identity(
@@ -1941,7 +1945,8 @@ class MapRunner:
                 )
                 if threshold is not None:
                     streak_outcomes[seq] = any(
-                        p.get("outcome") != EXPECTED_ROW_ERROR for p in failed_results
+                        p.get("outcome") not in {EXPECTED_ROW_ERROR, "not_completed"}
+                        for p in failed_results
                     )
                     while streak_next[0] in streak_outcomes:
                         failed_here = streak_outcomes.pop(streak_next[0])
@@ -2483,10 +2488,17 @@ class MapRunner:
             raw_results: dict[int, Any] = {}
         else:
             try:
-                async with recipe.execution_scope(
-                    spec, ctx, expected_rows=len(row_ids)
-                ):
-                    raw_results = await recipe.execute_batch(values_by_row, spec, ctx)  # type: ignore[attr-defined]
+                ready = {
+                    row: values
+                    for row, values in values_by_row.items()
+                    if not getattr(values, "unavailable_inputs", ())
+                }
+                raw_results = {}
+                if ready:
+                    async with recipe.execution_scope(
+                        spec, ctx, expected_rows=len(ready)
+                    ):
+                        raw_results = await recipe.execute_batch(ready, spec, ctx)  # type: ignore[attr-defined]
             except SandboxTeardownError:
                 raise
             except StaleAttemptWriter:
@@ -2511,13 +2523,22 @@ class MapRunner:
             if cancelled and cancelled() and row_id not in raw_results:
                 continue
             missing_is_error = not (bool(cancelled) and progress.cancelled)
-            cells, failed, cost = normalize_batch_row(
-                raw_results.get(row_id),
-                field_names,
-                missing_is_error=missing_is_error,
-                required_field_names=required_field_names,
-                managed_publication=True,
-            )
+            unavailable = getattr(values_by_row[row_id], "unavailable_inputs", ())
+            if unavailable:
+                from frisket.engine.store.input_availability import not_completed_result
+
+                cells = {
+                    name: not_completed_result(unavailable[0]) for name in field_names
+                }
+                failed, cost = True, 0.0
+            else:
+                cells, failed, cost = normalize_batch_row(
+                    raw_results.get(row_id),
+                    field_names,
+                    missing_is_error=missing_is_error,
+                    required_field_names=required_field_names,
+                    managed_publication=True,
+                )
             for name, cell in cells.items():
                 payload = {"row_id": row_id, "column_id": out_cols[name], **cell}
                 # One shared fingerprint for all outputs of this batch. Rows

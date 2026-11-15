@@ -776,19 +776,28 @@ def source_values_all_empty(
     source_names: list[str],
     row_ids: list[int],
 ) -> bool:
-    """True only when EVERY named source column's value is empty for
-    EVERY target row (EmptyInputColumns' all-empty gate — partial
-    emptiness returns False as soon as one non-empty value turns up)."""
+    """Only genuinely empty sources qualify for the all-empty precheck.
+
+    Unusable versions retain their per-row reason at dispatch; they are not
+    proof that an input column was never populated.
+    """
     for name in source_names:
         column_id = col_map.get(name)
         if column_id is None:
             continue
         for start in range(0, len(row_ids), 500):
-            values = project.get_values(
+            values, refs = project.get_values_with_refs(
                 sheet_id,
                 column_id,
                 row_ids=row_ids[start : start + 500],
+                include_validity=True,
             )
+            if any(
+                ref.get("validity") == "invalid"
+                or ref.get("outcome") in {"pending", "failed", "not_completed"}
+                for ref in refs.values()
+            ):
+                return False
             if any(not _is_empty_cell_value(v) for v in values.values()):
                 return False
     return True

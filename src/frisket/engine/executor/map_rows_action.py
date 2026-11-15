@@ -292,6 +292,12 @@ class _TypedMapRowsProgram(Recipe):
         self.name = action.action_id
         self.description = action.definition.description
         self._terminal = action.definition.run
+        self.required_source_columns = frozenset(
+            ref.column for ref in discover_references(params) if ref.required
+        )
+        self.missing_capable_source_columns = frozenset(
+            ref.column for ref in discover_references(params) if ref.allow_missing
+        )
         self.preserve_invalid_source_columns = frozenset(
             preserve_invalid_source_columns
         )
@@ -318,7 +324,10 @@ class _TypedMapRowsProgram(Recipe):
             for cap in self._file_capabilities
         )
         if PythonEvaluator in getattr(self._terminal, "capabilities", ()):
-            self.allow_all_empty_input = False
+            self.allow_all_empty_input = all(
+                not ref.required or ref.allow_missing
+                for ref in discover_references(params)
+            )
         self.capture_source_cells = any(
             cap in getattr(self._terminal, "capabilities", ())
             for cap in (

@@ -108,11 +108,13 @@ class RowInputValues(dict[str, Any]):
         source_cells_empty: bool,
         source_cells: Mapping[str, Mapping[str, Any]] | None = None,
         consumed_capture: Mapping[str, Any] | None = None,
+        unavailable_inputs: tuple[Mapping[str, str], ...] = (),
     ):
         super().__init__(values)
         self.source_cells_empty = source_cells_empty
         self.source_cells = source_cells
         self.consumed_capture = consumed_capture
+        self.unavailable_inputs = unavailable_inputs
 
 
 def row_source_values_empty(values: Mapping[str, Any]) -> bool:
@@ -142,7 +144,12 @@ class RowSourcePage:
         if sheet_id != self.sheet_id or row_id not in self.row_ids:
             raise ValueError("row is outside the local source page")
         values, refs = self.columns[column_id]
-        return values.get(row_id), refs.get(row_id)
+        ref = refs.get(row_id)
+        return values.get(row_id), (
+            {key: value for key, value in ref.items() if key != "validity"}
+            if ref is not None
+            else None
+        )
 
 
 def read_source_page(
@@ -169,6 +176,7 @@ def read_source_page(
                 sheet_id,
                 column_id,
                 row_ids=row_ids,
+                include_validity=True,
                 **({"preserve_invalid": True} if column_id in preserved else {}),
             )
             for column_id in column_ids
@@ -215,6 +223,13 @@ def row_values(
         col_types = {c["name"]: c["type"] for c in project.columns(spec["sheet_id"])}
     values: dict[str, Any] = {}
     source_names = [str(name) for name in recipe.source_columns(spec)]
+    required_sources = frozenset(
+        getattr(recipe, "required_source_columns", source_names)
+    )
+    missing_capable_sources = frozenset(
+        getattr(recipe, "missing_capable_source_columns", ())
+    )
+    unavailable_inputs = []
     preserve_invalid_names = frozenset(
         getattr(recipe, "preserve_invalid_source_columns", ())
     )
@@ -228,6 +243,17 @@ def row_values(
             continue
         if source_page is not None:
             val, ref = source_page.cell(spec["sheet_id"], cid, row_id)
+            from frisket.engine.store.input_availability import input_unavailability
+
+            reason = input_unavailability(
+                name,
+                source_page.columns[cid][1].get(row_id),
+                required=name in required_sources,
+                preserve_invalid=name in preserve_invalid_names,
+                allow_missing=name in missing_capable_sources,
+            )
+            if reason is not None:
+                unavailable_inputs.append(reason)
         elif capture is None:
             read_options = (
                 {"preserve_invalid": True} if name in preserve_invalid_names else {}
@@ -345,6 +371,7 @@ def row_values(
             source_cells_empty=source_cells_empty,
             source_cells=capture,
             consumed_capture=consumed_capture,
+            unavailable_inputs=tuple(unavailable_inputs),
         )
     if for_model:
         inject_grounding_segments(project, spec, row_id, values)
@@ -353,4 +380,5 @@ def row_values(
         source_cells_empty=source_cells_empty,
         source_cells=capture,
         consumed_capture=consumed_capture,
+        unavailable_inputs=tuple(unavailable_inputs),
     )
