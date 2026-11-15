@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import math
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -105,6 +106,27 @@ _TRANSCRIPTION_REQUEST_BUILDERS: dict[str, TranscriptionRequestBuilder] = {
 def _safe_remote_exception(prefix: str, error: BaseException, key: str) -> str:
     cause_detail = redact_text(error, secret_values=(key,), max_chars=300)
     return redact_text(f"{prefix}{cause_detail}", secret_values=(key,), max_chars=300)
+
+
+def _estimate_transcription_cost(
+    model_id: str, duration_seconds: float | None
+) -> float | None:
+    """Rough purchase headroom; the response's measured usage owns settlement."""
+    price = audio_price(model_id)
+    if price is None or duration_seconds is None:
+        return None
+    if "per_second" in price:
+        return duration_seconds * price["per_second"]
+    if "input_per_token" in price and "output_per_token" in price:
+        # Deliberately approximate audio encoding and transcript density. These
+        # are admission estimates, never billable usage or a whole-run ceiling.
+        audio_tokens = math.ceil(duration_seconds * 25)
+        transcript_tokens = math.ceil(duration_seconds * 5)
+        return (
+            audio_tokens * price["input_per_token"]
+            + transcript_tokens * price["output_per_token"]
+        )
+    return None
 
 
 def _remote_response_accounting(
@@ -221,38 +243,72 @@ class OpenAITranscriptionAdapter:
             if isinstance(media, dict) and media.get("mime")
             else "application/octet-stream"
         )
+        file_bytes = Path(path).read_bytes()
+        payload = (
+            request_builder(
+                data,
+                path,
+                fname,
+                content_type,
+                spec,
+                transcribe_engine_capabilities(model_id),
+            )
+            if request_builder is not None
+            else None
+        )
+        policy = getattr(router, "model_call_policy", None) or ctx.extras.get(
+            "service_operation_policy"
+        )
+        operation_id = None
+        if policy is not None and provider != "ollama":
+            from hashlib import sha256
+            from frisket.ops.media_probe import probe_for_ingest
+
+            digest = sha256(file_bytes).hexdigest()
+            duration = probe_for_ingest(Path(path), digest=digest).get(
+                "duration_seconds"
+            )
+            operation_id = policy.admit_external_service(
+                provider=provider,
+                capability="transcribe",
+                engine=model_id,
+                prepared={
+                    "audio_digest": digest,
+                    "mime": content_type,
+                    "request": data,
+                    "options": spec,
+                    "audio_seconds": duration,
+                },
+                credential_source=selected_source,
+                estimated_cost_usd=_estimate_transcription_cost(model_id, duration),
+                context=ctx,
+            )
         try:
-            if request_builder is not None:
-                payload = request_builder(
-                    data,
-                    path,
-                    fname,
-                    content_type,
-                    spec,
-                    transcribe_engine_capabilities(model_id),
-                )
-                resp = await ctx.http.post(
-                    f"{base.rstrip('/')}/audio/transcriptions",
-                    json=payload,
-                    headers={"Authorization": f"Bearer {key}"},
-                    timeout=600.0,
-                )
-            else:
-                resp = await ctx.http.post(
-                    f"{base.rstrip('/')}/audio/transcriptions",
-                    data=data,
-                    files={"file": (fname, Path(path).read_bytes(), content_type)},
-                    headers={"Authorization": f"Bearer {key}"},
-                    timeout=600.0,
-                )
-        except (httpx.HTTPError, OSError) as error:
-            raise RuntimeError(
-                _safe_remote_exception(
-                    "remote transcription transport error: ", error, key
-                )
-            ) from None
+            resp = await ctx.http.post(
+                f"{base.rstrip('/')}/audio/transcriptions",
+                **(
+                    {"json": payload}
+                    if payload is not None
+                    else {
+                        "data": data,
+                        "files": {"file": (fname, file_bytes, content_type)},
+                    }
+                ),
+                headers={"Authorization": f"Bearer {key}"},
+                timeout=600.0,
+            )
+        except BaseException as error:
+            if operation_id is not None:
+                policy.fail_service(operation_id, error)
+            if isinstance(error, (httpx.HTTPError, OSError)):
+                raise RuntimeError(
+                    _safe_remote_exception(
+                        "remote transcription transport error: ", error, key
+                    )
+                ) from None
+            raise
         if resp.status_code != 200:
-            raise _RemoteTranscriptionResponseError(
+            error = _RemoteTranscriptionResponseError(
                 code="http",
                 message=redact_text(
                     f"remote transcription failed ({resp.status_code}): {resp.text}",
@@ -268,15 +324,17 @@ class OpenAITranscriptionAdapter:
                     response=resp,
                     warning=f"{provider} returned HTTP {resp.status_code}; request cost is unknown",
                 ),
-            ) from None
+            )
+            error.status_code = resp.status_code
+            if operation_id is not None:
+                policy.fail_service(operation_id, error)
+            raise error from None
+        operation_finished = False
         try:
             out = resp.json()
             if not isinstance(out, dict):
                 raise TypeError("response is not an object")
             raw_segments = out.get("segments") or []
-            if not isinstance(raw_segments, list):
-                raise TypeError("segments is not a list")
-            segments = [_segment_with_speaker(segment) for segment in raw_segments]
             usage = out.get("usage") or {}
             if not isinstance(usage, dict):
                 raise TypeError("usage is not an object")
@@ -284,8 +342,13 @@ class OpenAITranscriptionAdapter:
             cost: float | None = None
             if price and "per_second" in price:
                 seconds = out.get("duration") or usage.get("seconds")
-                if seconds is None and segments:
-                    seconds = segments[-1]["end"]
+                if (
+                    seconds is None
+                    and isinstance(raw_segments, list)
+                    and raw_segments
+                    and isinstance(raw_segments[-1], dict)
+                ):
+                    seconds = raw_segments[-1].get("end")
                 if price["per_second"] == 0:
                     cost = 0.0
                 elif seconds is not None:
@@ -296,6 +359,22 @@ class OpenAITranscriptionAdapter:
                     + usage.get("output_tokens", 0) * price["output_per_token"],
                     6,
                 )
+            if operation_id is not None:
+                policy.finish_service(
+                    operation_id,
+                    result=out,
+                    usage={
+                        **usage,
+                        "audio_seconds": out.get("duration") or usage.get("seconds"),
+                    },
+                    provider_cost_micro=None
+                    if cost is None
+                    else round(cost * 1_000_000),
+                )
+                operation_finished = True
+            if not isinstance(raw_segments, list):
+                raise TypeError("segments is not a list")
+            segments = [_segment_with_speaker(segment) for segment in raw_segments]
         except (
             ValueError,
             TypeError,
@@ -304,7 +383,7 @@ class OpenAITranscriptionAdapter:
             AttributeError,
             OverflowError,
         ) as error:
-            raise _RemoteTranscriptionResponseError(
+            failure = _RemoteTranscriptionResponseError(
                 code="invalid_response",
                 message=_safe_remote_exception(
                     "malformed remote transcription response: ", error, key
@@ -317,7 +396,10 @@ class OpenAITranscriptionAdapter:
                     response=resp,
                     warning=f"{provider} returned an unusable transcription response; request cost is unknown",
                 ),
-            ) from None
+            )
+            if operation_id is not None and not operation_finished:
+                policy.fail_service(operation_id, failure)
+            raise failure from None
         return {
             "text": str(out.get("text", "")).strip(),
             "segments": segments_with_index(segments),

@@ -382,8 +382,8 @@ async def test_router_embed_batch_returns_metadata_rich_result():
     assert result["actual_model_id"] == "text-embedding-3-small-resolved"
     assert result["dimension"] == 2
     assert result["vectors"] == [[1.0, 0.0], [1.0, 0.0]]
-    assert result["provider_cost_usd"] is None
-    assert result["cost_source"] == "unknown"
+    assert result["provider_cost_usd"] == pytest.approx(3 * 0.02 / 1_000_000)
+    assert result["cost_source"] == "pricing_data"
     await router.aclose()
 
 

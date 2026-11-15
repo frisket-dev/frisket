@@ -188,6 +188,7 @@ class ReviewBundleItem(WireModel):
     role: Literal["field", "evidence"]
     chore: bool
     changed: bool = False
+    applied: bool = False
     can_edit: bool
 
 
@@ -202,6 +203,7 @@ class ReviewBundleSource(WireModel):
 
 
 class ReviewBundle(WireModel):
+    execution_run_id: int | None = None
     id: str
     run_id: int
     row_id: int

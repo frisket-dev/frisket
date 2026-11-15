@@ -43,6 +43,9 @@ class UsagePolicy:
     def before_live(self, request, credential_source):
         pass
 
+    def failed_live(self, request, error, credential_source):
+        pass
+
     def after_live(self, request, response, credential_source):
         self.responses.append(response)
 

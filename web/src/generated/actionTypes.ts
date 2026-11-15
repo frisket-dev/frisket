@@ -1521,6 +1521,14 @@ export type BackfillParams = ({
   "column": (BackfillParams_ColumnRef_Any_);
 });
 
+export type ReapplyParams = ({
+  "source_run_id": (number);
+});
+
+export type RetryParams = ({
+  "source_run_id": (number);
+});
+
 export type RefreshParams = ({
   "sheet_id": (number);
 });
@@ -1735,6 +1743,8 @@ export interface GeneratedActionParams {
   'row.add': RowAddParams;
   'row.delete': RowDeleteParams;
   'run.backfill': BackfillParams;
+  'run.reapply': ReapplyParams;
+  'run.retry': RetryParams;
   'sheet.refresh': RefreshParams;
   'source.check': SourceCheckParams;
   'source.create': SourceCreateIntent;

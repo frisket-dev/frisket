@@ -132,7 +132,13 @@ class ScratchActionPreviewRunContext:
         binding = self._cloud_binding()
         ctx = self._op_context(binding, http=http)
         if binding is None or binding.llm_binding is None:
-            yield ctx
+            from contextlib import nullcontext
+
+            capture = getattr(
+                getattr(self.router, "model_call_policy", None), "operation_scope", None
+            )
+            with capture(ctx) if capture is not None else nullcontext():
+                yield ctx
             return
         from frisket.cloud_execution import cloud_llm_execution_scope
 

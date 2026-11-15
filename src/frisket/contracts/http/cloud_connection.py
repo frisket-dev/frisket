@@ -16,6 +16,10 @@ from frisket.contracts.http.models import WireModel
 from frisket.contracts.transcription_sidecar import TranscriptionOptions
 
 
+# Bump only for breaking Desktop/Cloud execution protocol changes, not releases.
+CLOUD_PROTOCOL_REVISION = "1"
+
+
 CloudAccountKind = Literal["personal", "organization"]
 CloudCapability = Literal["llm.complete", "ocr", "transcribe", "document.convert"]
 CloudLane = Literal["account_key", "frisket_credits"]
@@ -472,12 +476,19 @@ class CloudErrorResponse(WireModel):
     execution_id: str | None = None
 
 
+class CloudExecutionAccounting(WireModel):
+    status: Literal["open", "pending", "settled", "absorbed"]
+    usage: CloudExecutionUsage | None = None
+    provider_cost_micro: int | None = Field(default=None, ge=0)
+
+
 class CloudExecutionResponse(WireModel):
     execution_id: str = Field(min_length=1)
     status: CloudExecutionStatus
     route: CloudCapabilityRoute
     result: CloudExecutionResult | None
     receipt: CloudExecutionReceipt | None
+    accounting: CloudExecutionAccounting | None = None
     error: CloudErrorResponse | None = None
 
 

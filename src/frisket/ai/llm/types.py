@@ -150,9 +150,15 @@ class LLMActualAccounting:
             self.receipts, tuple
         ):
             raise TypeError("actual LLM accounting facts must be immutable tuples")
-        if not self.model_calls or len(self.model_calls) != len(self.receipts):
+        pending = sum(
+            call.get("units", {}).get("cloud_accounting_status") == "pending"
+            for call in self.model_calls
+        )
+        if not self.model_calls or len(self.model_calls) - pending != len(
+            self.receipts
+        ):
             raise ValueError(
-                "actual LLM accounting requires one receipt per model-call fact"
+                "actual LLM accounting requires a receipt or pending Cloud obligation per fact"
             )
         if not all(isinstance(item, dict) for item in self.model_calls + self.receipts):
             raise TypeError("actual LLM accounting entries must be dictionaries")
@@ -163,11 +169,15 @@ class LLMActualAccounting:
         *,
         cost: float | None,
         model_call: dict[str, Any],
-        receipt: dict[str, Any],
+        receipt: dict[str, Any] | None,
     ) -> LLMActualAccounting:
         """Build the common one-execution carrier without a listly call site."""
 
-        return cls(cost=cost, model_calls=(model_call,), receipts=(receipt,))
+        return cls(
+            cost=cost,
+            model_calls=(model_call,),
+            receipts=() if receipt is None else (receipt,),
+        )
 
 
 @dataclass

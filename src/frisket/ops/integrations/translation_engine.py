@@ -231,35 +231,70 @@ class TranslationEngine:
             source_code = None
             if source and source.lower() != "auto":
                 source_code = normalize_language(engine, source, "source")
-            if engine == "deepl":
-                from frisket.ops.integrations.deepl import deepl_translate
-
-                results = await deepl_translate(
-                    ctx.http,
-                    credential.value,
-                    [text],
-                    target,
-                    source_code,
+            policy = getattr(
+                ctx.extras.get("router"), "model_call_policy", None
+            ) or ctx.extras.get("service_operation_policy")
+            operation_id = None
+            if policy is not None:
+                operation_id = policy.admit_external_service(
+                    provider="deepl" if engine == "deepl" else "google",
+                    capability="translate",
+                    engine=engine,
+                    prepared={
+                        "text": text,
+                        "source_language": source_code,
+                        "target_language": target,
+                    },
                     credential_source=credential.source,
+                    estimated_cost_usd=hosted_translate_cost(engine, len(text)),
+                    context=ctx,
                 )
-                # DeepL reports its own billed characters; fall back to source
-                # length only if the field is absent.
-                billed = results[0].get("billed_characters") if results else None
-                char_count = billed if isinstance(billed, int) else len(text)
-            else:
-                from frisket.ops.integrations.google_translate import google_translate
+            try:
+                if engine == "deepl":
+                    from frisket.ops.integrations.deepl import deepl_translate
 
-                results = await google_translate(
-                    ctx.http,
-                    credential.value,
-                    [text],
-                    target,
-                    source_code,
-                    credential_source=credential.source,
+                    results = await deepl_translate(
+                        ctx.http,
+                        credential.value,
+                        [text],
+                        target,
+                        source_code,
+                        credential_source=credential.source,
+                    )
+                    # DeepL reports its own billed characters; fall back to source
+                    # length only if the field is absent.
+                    billed = results[0].get("billed_characters") if results else None
+                    char_count = billed if isinstance(billed, int) else len(text)
+                else:
+                    from frisket.ops.integrations.google_translate import (
+                        google_translate,
+                    )
+
+                    results = await google_translate(
+                        ctx.http,
+                        credential.value,
+                        [text],
+                        target,
+                        source_code,
+                        credential_source=credential.source,
+                    )
+                    # Google's v2 response has no billed field; it bills source
+                    # characters, so the source length is the count.
+                    char_count = len(text)
+            except BaseException as error:
+                if operation_id is not None:
+                    policy.fail_service(operation_id, error)
+                raise
+            if operation_id is not None:
+                actual_cost = hosted_translate_cost(engine, char_count)
+                policy.finish_service(
+                    operation_id,
+                    result=results,
+                    usage={"characters": char_count},
+                    provider_cost_micro=None
+                    if actual_cost is None
+                    else round(actual_cost * 1_000_000),
                 )
-                # Google's v2 response has no billed field; it bills source
-                # characters, so the source length is the count.
-                char_count = len(text)
             first = results[0] if results else {}
             # Detected language: when an explicit source was given and the
             # provider omits detection (Google's explicit-source responses do),

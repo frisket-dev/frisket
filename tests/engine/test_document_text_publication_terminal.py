@@ -6,7 +6,6 @@ from contextlib import closing
 import pytest
 
 from frisket.engine.jobs.worker import Worker
-from frisket.engine.jobs.ports import WorkerPorts
 from frisket.engine.store import Project
 from frisket.engine.store.cell_writes import EditCellWrite, insert_edits
 from frisket.engine.store.document_text import (
@@ -56,24 +55,9 @@ def test_source_changed_publication_refusal_closes_exact_worker(
                 sheet_id, [{"source": original_value}], {"source": source_id}
             )
 
-    settled = []
-
-    class SettlementObserver:
-        def settle_run(self, *, project, run_id, terminal_status, **_kwargs):
-            settled.append(
-                (
-                    terminal_status,
-                    RunResultStore(project).get_run(run_id)["cost_actual"],
-                )
-            )
-
-        def settle_action_receipt(self, **_kwargs):
-            pytest.fail("PDF text preparation must settle its run")
-
     workspace = Workspace(
         root,
         enable_local_model_pull=False,
-        worker_ports=WorkerPorts(settlement_port=SettlementObserver()),
     )
     service = ActionRunService(workspace)
     declare = ResultGenerationStore.declare
@@ -224,7 +208,6 @@ def test_source_changed_publication_refusal_closes_exact_worker(
             assert len(RunResultStore(project).model_calls(run_id)) == 2
             assert run["cost_actual"] == pytest.approx(0.25)
             assert project.provider_spend_state("anthropic").spent_micro == 250_000
-            assert settled == [("failed", 0.25)]
         receipt = receipts.find_by_id(receipt_id).parsed()
         assert receipt.status == "failed" and receipt.provider_use == provider_use
         assert receipt.errors[0].code == "source_changed"

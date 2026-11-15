@@ -58,7 +58,6 @@ from frisket.execution.targets import CAPABILITY_LLM
 from frisket.engine.store import Project
 from frisket.engine.store.import_intake import import_intake_dir
 from frisket.engine.store.receipts import (
-    FINISHED_RECEIPT_STATUSES,
     ReceiptStore,
     StoredReceipt,
 )
@@ -744,7 +743,6 @@ class ActionRunService:
         schedule_search = getattr(project, "_frisket_schedule_search_index", None)
         if callable(schedule_search):
             schedule_search()
-        self._settle_direct_terminal_receipt(project, project_id, result)
         self._enqueue_completed_v1_source_poll_enclosures(project, project_id, result)
         self._trigger_completed_v1_source_poll_watches(project, project_id, result)
         if self._workspace.require_explicit_provider_keys and any(
@@ -755,32 +753,6 @@ class ActionRunService:
                 payload=result.model_dump(mode="json"),
             )
         return _action_run_response(result)
-
-    def _settle_direct_terminal_receipt(
-        self,
-        project: Project,
-        project_id: str,
-        result: V1ActionResult,
-    ) -> None:
-        """Invoke edition settlement only across a durable terminal boundary.
-
-        Completed and failed receipt replays return the original receipt id,
-        so the same callback also closes a process-death window without
-        provider re-egress. Receiptless refusals and replay-validation errors
-        deliberately do not authorize settlement.
-        """
-
-        port = self._workspace.direct_action_receipt_settlement_port
-        if port is None or result.receipt_id is None:
-            return
-        stored = ReceiptStore(project).find_by_id(result.receipt_id)
-        if stored is None or stored.status not in FINISHED_RECEIPT_STATUSES:
-            return
-        port.settle_action_receipt(
-            project=project,
-            project_id=project_id,
-            receipt_id=stored.id,
-        )
 
     def _edition_unavailable_result(
         self,

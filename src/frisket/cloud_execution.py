@@ -30,6 +30,7 @@ import httpx
 from pydantic import ValidationError
 
 from frisket.contracts.http.cloud_connection import (
+    CLOUD_PROTOCOL_REVISION,
     CloudDocumentConvertOptions,
     CloudDocumentExecutionMetadata,
     CloudErrorResponse,
@@ -117,9 +118,10 @@ class CloudQuoteAuthority:
     """Existing local consent that may answer one exact Cloud quote.
 
     Presence means the action/Ask gate already authorized this route.
-    ``maximum_charge_micro=None`` is an explicitly authorized unbounded spend,
-    distinct from an absent authority. For a credits lane this bounds the
-    Frisket charge; for an account-key lane it bounds the provider-direct cost.
+    Ordinary approximate approval has ``maximum_charge_micro=None``, distinct
+    from absent authority. A numeric maximum is reserved for a separately
+    requested research budget, never the displayed action estimate. Such an
+    explicit budget bounds Frisket charges or account-key provider-direct cost.
     The transport still compares every quote payer/route field to
     :class:`CloudPayerSubject` before echoing it.
     """
@@ -331,11 +333,10 @@ def cloud_quote_authority_for_row(
     *,
     row_id: int,
 ) -> CloudQuoteAuthority:
-    """Project an admitted row's exact spend ceiling into Cloud units.
+    """Carry approximate approval to Cloud without turning its estimate into a cap.
 
-    The attempt cost basis is already consent-bound. Cloud receives only the
-    allocation for this row, so a multi-row aggregate can never authorize one
-    row to consume another row's allowance.
+    The selected cohort remains fixed; Cloud checks actual funds independently
+    for every purchase. Explicit research budgets use a separate numeric authority.
     """
 
     from frisket.execution.promise_compiler import (
@@ -346,31 +347,17 @@ def cloud_quote_authority_for_row(
 
     if isinstance(cost_basis, PricedCostBasis):
         quantities = cost_basis.row_quote_quantities
-        if quantities is None:
-            if cost_basis.estimated_quantity is None:
-                # Reaching this effect site means the unbounded cost claim was
-                # already admitted. Preserve that explicit authority without
-                # inventing a numeric ceiling for an unmeasurable row.
-                return CloudQuoteAuthority(maximum_charge_micro=None)
-            raise CloudExecutionRefused(
-                "cloud_quote_unbound",
-                "Cloud execution requires an exact per-row quote allocation",
-            )
-        quantity = next(
-            (Decimal(raw) for candidate, raw in quantities if candidate == row_id),
-            None,
-        )
-        if quantity is None:
+        if quantities is not None and not any(
+            candidate == row_id for candidate, _ in quantities
+        ):
             raise CloudExecutionRefused(
                 "cloud_quote_unbound",
                 "Cloud execution row is absent from its admitted quote",
             )
-        rate_micro = Decimal(cost_basis.unit_rate) * Decimal(1_000_000)
-        micro = (rate_micro * quantity).to_integral_value(rounding=ROUND_CEILING)
-        maximum = 0 if rate_micro == 0 else max(1, int(micro))
-        return CloudQuoteAuthority(maximum_charge_micro=maximum)
+        return CloudQuoteAuthority(maximum_charge_micro=None)
     if isinstance(cost_basis, UnpriceableCost):
         return CloudQuoteAuthority(maximum_charge_micro=None)
+
     if isinstance(cost_basis, OperatorBorneZeroCost):
         raise CloudExecutionRefused(
             "cloud_quote_unbound",
@@ -642,6 +629,7 @@ class HttpCloudExecutionTransport:
         token = self._access_token(attempt)
         headers = {
             "Accept": "application/json",
+            "X-Frisket-Cloud-Protocol": CLOUD_PROTOCOL_REVISION,
             "Authorization": f"Bearer {token}",
             "Idempotency-Key": attempt.request_id,
         }
@@ -863,6 +851,12 @@ class HttpCloudExecutionTransport:
         accounting = (
             cloud_execution_accounting(attempt, response, capability=capability)
             if response.receipt is not None
+            or (
+                response.status == "failed"
+                and response.accounting is not None
+                and response.accounting.status == "pending"
+                and response.accounting.usage is not None
+            )
             else None
         )
         unresolved = response.status == "reconciliation_required"
@@ -894,18 +888,23 @@ class HttpCloudExecutionTransport:
 
     @staticmethod
     def _raise_error(response: httpx.Response) -> None:
+        update_required = response.status_code == 426
         try:
             error = CloudErrorResponse.model_validate(response.json())
         except (ValueError, TypeError, ValidationError):
             raise CloudExecutionRefused(
-                "cloud_unavailable",
-                "Frisket Cloud could not complete the request",
-                retryable=response.status_code >= 500,
+                "desktop_update_required" if update_required else "cloud_unavailable",
+                "Update Frisket Desktop at https://frisket.dev/ before using Frisket Cloud."
+                if update_required
+                else "Frisket Cloud could not complete the request",
+                retryable=False if update_required else response.status_code >= 500,
             ) from None
         raise CloudExecutionRefused(
-            error.error,
+            "desktop_update_required" if update_required else error.error,
             error.message,
-            retryable=error.retryable or response.status_code >= 500,
+            retryable=False
+            if update_required
+            else error.retryable or response.status_code >= 500,
         )
 
 
@@ -1045,10 +1044,76 @@ def cloud_execution_accounting(
     """
 
     receipt = response.receipt
+    pending = response.accounting
     if receipt is None:
-        raise CloudExecutionRefused(
-            "cloud_receipt_missing", "Cloud execution returned no accounting receipt"
+        if (
+            pending is None
+            or pending.status != "pending"
+            or pending.usage is None
+            or response.status not in {"completed", "failed"}
+        ):
+            raise CloudExecutionRefused(
+                "cloud_receipt_missing",
+                "Cloud execution returned no accounting receipt",
+            )
+        payer = attempt.payer
+        route = response.route
+        if (
+            route.lane != payer.lane
+            or route.provider != payer.provider
+            or route.engine != payer.engine
+            or route.route_revision != payer.route_revision
+            or route.capability != capability
+            or pending.usage.kind != capability
+        ):
+            raise CloudExecutionRefused(
+                "route_changed",
+                "Cloud accounting differs from the admitted payer route",
+            )
+        from frisket.ai.models.metadata import ModelCallMeta
+
+        provider_cost = (
+            pending.provider_cost_micro / 1_000_000
+            if pending.provider_cost_micro is not None
+            else None
         )
+        units = pending.usage.model_dump(
+            mode="json", exclude={"kind"}, exclude_none=True
+        )
+        units.update(
+            {
+                "requests": 1,
+                "cloud_user_id": payer.user_id,
+                "cloud_account_id": payer.account_id,
+                "cloud_lane": payer.lane,
+                "cloud_accounting_status": "pending",
+            }
+        )
+        fact = ModelCallMeta(
+            id=response.execution_id,
+            capability=capability,
+            engine=payer.engine,
+            provider=payer.provider,
+            provider_kind="platform_api",
+            model_ids=[payer.engine],
+            credential_source="org_byok"
+            if payer.lane == "account_key"
+            else "platform_key",
+            provider_reported_cost_usd=provider_cost,
+            provider_cost_usd=provider_cost,
+            cost_source="provider_reported" if provider_cost is not None else "unknown",
+            units=units,
+            request_id=response.execution_id,
+            warnings=["Cloud accounting is pending"],
+            duration_ms=None,
+        ).as_dict()
+        return {
+            "cost": None,
+            "cost_source": "unknown",
+            "model_calls": [fact],
+            "cloud_receipt": None,
+            "cloud_accounting_status": "pending",
+        }
     payer = attempt.payer
     route = response.route
     if (

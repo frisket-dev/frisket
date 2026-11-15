@@ -536,13 +536,6 @@ class ActionPreviewRunService:
         receipt.status = finished.status
         receipt.run_id = finished.run_id
         receipt.provider_use = finished.provider_use
-        port = self._workspace.direct_action_receipt_settlement_port
-        if port is not None:
-            port.settle_action_receipt(
-                project=project,
-                project_id=project_id,
-                receipt_id=receipt.receipt_id,
-            )
 
     def start_preview(
         self,

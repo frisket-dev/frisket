@@ -30,19 +30,48 @@ async def ocr_sidecar(engine: str, pages: list[Path], ctx: OpContext) -> list[di
     connection = (
         admission.binding.connection if admission is not None else preview.connection
     )
-    body = await sidecar_post(
-        ctx,
-        "/ocr",
-        files=files,
-        data={"engine": engine},
-        op="ocr",
-        light_engine=LIGHT_ENGINE,
-        timeout=httpx.Timeout(
-            connect=float(connection.connect_timeout_seconds or 10.0),
-            read=float(connection.timeout_seconds or 3600.0),
-            write=300.0,
-            pool=10.0,
-        ),
-        connection=connection,
-    )
-    return body["pages"]
+    policy = getattr(
+        ctx.extras.get("router"), "model_call_policy", None
+    ) or ctx.extras.get("service_operation_policy")
+    operation_id = None
+    if policy is not None:
+        import hashlib
+
+        operation_id = policy.admit_ocr(
+            engine=engine,
+            prepared={
+                "engine": engine,
+                "pages": [hashlib.sha256(data[1][1]).hexdigest() for data in files],
+            },
+            page_count=len(pages),
+            context=ctx,
+        )
+    try:
+        body = await sidecar_post(
+            ctx,
+            "/ocr",
+            files=files,
+            data={"engine": engine},
+            op="ocr",
+            light_engine=LIGHT_ENGINE,
+            timeout=httpx.Timeout(
+                connect=float(connection.connect_timeout_seconds or 10.0),
+                read=float(connection.timeout_seconds or 3600.0),
+                write=300.0,
+                pool=10.0,
+            ),
+            connection=connection,
+        )
+        returned_pages = body.get("pages") if isinstance(body, dict) else None
+        if not isinstance(returned_pages, list):
+            raise ValueError("OCR sidecar response must contain a pages list")
+        returned_page_count = len(returned_pages)
+    except BaseException as error:
+        if operation_id is not None:
+            policy.fail_service(operation_id, error)
+        raise
+    if operation_id is not None:
+        policy.finish_service(
+            operation_id, result=body, usage={"pages": returned_page_count}
+        )
+    return returned_pages

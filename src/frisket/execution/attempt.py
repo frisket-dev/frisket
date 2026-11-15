@@ -1277,16 +1277,17 @@ def _apply_quoted_row_settlement(
     return receipt
 
 
-def run_attempt_receipts(project: Any, run_id: int) -> list[dict[str, Any]]:
-    """Every attempt on one run, newest first. A retry mints a new attempt
-    rather than mutating the old one, so this is also how a user sees two
-    attempts covering a row that was paid for twice (§1.5).
+def run_attempt_receipts(
+    project: Any, run_id: int, *, attempt_only: bool = False
+) -> list[dict[str, Any]]:
+    """Attempts across an execution, or one generation for detailed inspection."""
+    from frisket.engine.store.execution_groups import execution_runs
 
-    ``WHERE run_id=?`` by construction, which is why it cannot reach a
-    COMPACTION-ORPHANED attempt: see ``project_attempt_receipts``."""
+    ids = [run_id] if attempt_only else execution_runs(project, run_id)[1]
+    ph = ",".join("?" for _ in ids)
     rows = project.db.execute(
-        "SELECT id FROM execution_attempts WHERE run_id=? ORDER BY seq DESC",
-        (run_id,),
+        f"SELECT id FROM execution_attempts WHERE run_id IN ({ph}) ORDER BY run_id DESC,seq DESC",
+        ids,
     ).fetchall()
     receipts = [attempt_receipt(project, str(row["id"])) for row in rows]
     return [receipt for receipt in receipts if receipt is not None]

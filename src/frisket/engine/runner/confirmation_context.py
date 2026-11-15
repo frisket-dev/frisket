@@ -577,8 +577,21 @@ def mint_confirmation_hash(
     this function's returns — that no family mints its own.
     """
 
+    payload = context.model_dump(mode="json")
+    if (
+        isinstance(context, MoneyConfirmationContext)
+        and isinstance(context.scope, RunnerScope)
+        and (context.scope.work_scope or {}).get("schema_version")
+        == "frisket.work-scope-selection.v2"
+    ):
+        # The saved quote remains the number the user saw. Approval binds the
+        # selected work and pricing policy, not a maximum sampled input cost.
+        # Actual prepared operations acquire their own current budget hold.
+        payload["schema_version"] = "frisket.approximate-confirmation.v2"
+        payload["quote"].pop("cost", None)
+        payload["quote"].pop("billed_cost", None)
     encoded = json.dumps(
-        context.model_dump(mode="json"),
+        payload,
         sort_keys=True,
         separators=(",", ":"),
         allow_nan=False,

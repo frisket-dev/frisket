@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import {
   ApiError, MAX_LENS_VIEW_ROWS, freshActionRequestKey,
-  type ActionExecutionRequest, type GridFilterSpec, type LensResolved,
+  type ActionExecutionRequest, type LensResolved,
   type PreviewSampleResult, type RegisteredActionRequest, type SheetMeta,
 } from '../api/open';
 import { backfillWithConfirmation } from '../api/backfillWithConfirmation';
+import { retryWithConfirmation, retryFailedRowsWithConfirmation } from '../api/retryWithConfirmation';
 import { useDetailHandle } from '../bind/useDetailHandle';
 import { useGridViewHandle } from '../bind/useGridViewHandle';
 import { useJobsHandle } from '../bind/useJobsHandle';
@@ -183,30 +184,22 @@ export function useWorkspaceActionController({
     [runColumnBackfill, sheet],
   );
 
-  const resumeHaltedRun = runColumnBackfill;
+  const resumeHaltedRun = useCallback(async (sheetId: string, sourceRunId: string) => {
+    try {
+      const result = await retryWithConfirmation(projectApi, requestCostConfirmation, sheetId, sourceRunId);
+      if (result?.runId) afterBackfill(result.runId);
+    } catch (error) { showError(error instanceof Error ? error.message : String(error)); }
+  }, [afterBackfill, projectApi, requestCostConfirmation, showError]);
 
   const retryFailedRows = useCallback(
     async (targetColumnName: string, outcome: string): Promise<void> => {
       if (!sheet) return;
       try {
-        const filter: GridFilterSpec = { [targetColumnName]: { failed: outcome } };
-        const pageSize = 1000;
-        const rowIds: number[] = [];
-        for (let offset = 0; ; ) {
-          const page = await projectApi.getSheetData(sheet.id, offset, pageSize, { filter, columnIds: [], valueMode: 'bounded' });
-          for (const row of page.rows) rowIds.push(Number(row.id));
-          offset += page.rows.length;
-          if (page.rows.length === 0 || offset >= page.total) break;
-        }
-        if (rowIds.length === 0) return;
-        const result = await backfillWithConfirmation(
-          projectApi,
-          requestCostConfirmation,
-          sheet.id,
-          targetColumnName,
-          rowIds,
+        const column = sheet.columns.find((candidate) => candidate.name === targetColumnName);
+        if (!column) return;
+        await retryFailedRowsWithConfirmation(
+          projectApi, requestCostConfirmation, sheet.id, column, outcome, afterBackfill,
         );
-        if (result) afterBackfill(result.runId);
       } catch (e: unknown) {
         showError(e instanceof Error ? e.message : String(e));
       }

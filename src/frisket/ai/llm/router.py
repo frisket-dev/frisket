@@ -13,7 +13,7 @@ import os
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import replace
-from typing import TYPE_CHECKING, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 import httpx
 
@@ -49,7 +49,7 @@ CACHE_MODES: tuple[CacheMode, ...] = ("replay", "fresh", "replay_strict", "off")
 
 
 class ModelCallPolicy(Protocol):
-    """Optional neutral observer around a real model transport call."""
+    """Admission and accounting around each real provider purchase."""
 
     def prepare(self, request: LLMRequest, credential_source: str) -> LLMRequest: ...
 
@@ -61,6 +61,62 @@ class ModelCallPolicy(Protocol):
         response: LLMResponse,
         credential_source: str,
     ) -> None: ...
+
+    def failed_live(
+        self, request: LLMRequest, error: BaseException, credential_source: str
+    ) -> None: ...
+
+    def admit_external_service(
+        self,
+        *,
+        provider: str,
+        capability: str,
+        engine: str,
+        prepared: dict,
+        credential_source: str,
+        estimated_cost_usd: float | None,
+        context: Any,
+    ) -> str: ...
+
+    def admit_search(
+        self,
+        *,
+        prepared: dict,
+        quote: Any,
+        credential_source: str,
+        context: Any = None,
+    ) -> str: ...
+
+    def finish_search(self, operation_id: str, response: Any, error: Any) -> None: ...
+
+    def admit_ocr(
+        self,
+        *,
+        engine: str,
+        prepared: dict,
+        page_count: int,
+        context: Any,
+    ) -> str: ...
+
+    def admit_transcription(
+        self,
+        *,
+        engine: str,
+        prepared: dict,
+        audio_seconds: float,
+        context: Any,
+    ) -> str: ...
+
+    def finish_service(
+        self,
+        operation_id: str,
+        *,
+        result: Any,
+        usage: dict,
+        provider_cost_micro: int | None = None,
+    ) -> None: ...
+
+    def fail_service(self, operation_id: str, error: BaseException | None) -> None: ...
 
 
 def live_calls_possible(cache_mode: CacheMode) -> bool:
@@ -644,15 +700,9 @@ class ModelRouter:
             self.cache_misses += 1
             raise CacheMiss(key)
 
-        try:
-            resp = await self._call_with_retry(
-                req, credential_source=credential_source, trace=trace
-            )
-        except LLMError as error:
-            for response in getattr(error, "wire_calls", []):
-                self._finish_live_response(req, response, credential_source)
-            raise
-        self._finish_live_response(req, resp, credential_source)
+        resp = await self._call_with_retry(
+            req, credential_source=credential_source, trace=trace
+        )
         if (
             self.cache is not None
             and self.cache_mode in ("replay", "fresh")
@@ -738,6 +788,7 @@ class ModelRouter:
 
         for attempt in range(self.max_retries + 1):
             t0 = time.perf_counter()
+            admitted = False
             try:
                 if self.chaos is not None:
                     fabricated = await self.chaos.intercept(req)
@@ -748,6 +799,7 @@ class ModelRouter:
                         return fabricated
                 if self.model_call_policy is not None:
                     self.model_call_policy.before_live(req, credential_source)
+                admitted = True
                 if provider == "ollama" and cloud_adapter is None:
                     assert isinstance(adapter, OpenAICompatAdapter)
                     resp = await adapter.complete(
@@ -757,16 +809,14 @@ class ModelRouter:
                     )
                 else:
                     resp = await adapter.complete(wire_req, self.client)
-                if provider == "ollama" and cloud_adapter is None:
-                    resp.model = req.model
-                resp.duration_ms = _record(attempt, t0, outcome="ok")
-                return resp
             except LLMError as e:
                 safe_error = self._safe_llm_error(e, secret_values)
                 last = safe_error
                 chaos_error = bool(
                     self.chaos is not None and str(safe_error).startswith("chaos:")
                 )
+                if not admitted and not chaos_error:
+                    raise safe_error from None
                 retry_is_proven_safe = not safe_error.post_egress_ambiguous and (
                     chaos_error
                     or safe_error.transport_kind == "connect"
@@ -790,26 +840,22 @@ class ModelRouter:
                 for response in getattr(safe_error, "wire_calls", []):
                     response.duration_ms = duration_ms
                     response.model = req.model
-                # A SchemaViolation is never blind-retried here with the
-                # identical body (`SchemaViolation.retryable=False`) — the
-                # StructuredCompleter owns schema repair for every
-                # schema-bearing caller, so a transport-level retry could
-                # never fix it anyway.  More generally, ``retryable`` is an
-                # eventual-resume classification, not proof that another
-                # immediate wire call is safe: an adapter can raise after the
-                # provider accepted work but before its response was decoded.
-                # Only a pre-egress connect/chaos failure or a categorical
-                # rate-limit rejection may be retried inside the router.
-                if (
-                    not safe_error.retryable
-                    or not retry_is_proven_safe
-                    or attempt == self.max_retries
-                ):
+                for response in getattr(safe_error, "wire_calls", []):
+                    self._finish_live_response(req, response, credential_source)
+                if admitted and self.model_call_policy is not None:
+                    self.model_call_policy.failed_live(
+                        req, safe_error, credential_source
+                    )
+                # Bounded inference retry is a distinct purchase, not settlement
+                # recovery. Ambiguous expense remains explicitly unknown.
+                if not safe_error.retryable or attempt == self.max_retries:
                     raise safe_error from None
                 await asyncio.sleep(
                     min(2**attempt * 0.5, 8.0) * (1.0 if self.chaos else 1.0)
                 )
             except httpx.HTTPError as e:
+                if not admitted:
+                    raise
                 last = self._safe_transport_error(e, secret_values)
                 detail = str(last)
                 _record(
@@ -819,14 +865,23 @@ class ModelRouter:
                     error=detail,
                     retryable=True,
                 )
-                # ConnectError proves no connection was established. Other
-                # transport failures (read timeout, protocol disconnect,
-                # partial write) may occur after accepted provider work and
-                # therefore stay with the durable row reservation for
-                # reconciliation rather than buying the row again.
-                if last.transport_kind != "connect" or attempt == self.max_retries:
+                if admitted and self.model_call_policy is not None:
+                    self.model_call_policy.failed_live(req, last, credential_source)
+                if attempt == self.max_retries:
                     raise last from None
                 await asyncio.sleep(min(2**attempt * 0.5, 8.0))
+            except BaseException as error:
+                if admitted and self.model_call_policy is not None:
+                    self.model_call_policy.failed_live(req, error, credential_source)
+                raise
+            else:
+                if provider == "ollama" and cloud_adapter is None:
+                    resp.model = req.model
+                resp.duration_ms = _record(attempt, t0, outcome="ok")
+                # A returned purchase must never enter the transport retry loop,
+                # even when saving its accounting facts fails.
+                self._finish_live_response(req, resp, credential_source)
+                return resp
         raise LLMError(redact_text(f"exhausted retries: {last}")) from None
 
     def has_embedding_backend(self) -> bool:
@@ -849,30 +904,8 @@ class ModelRouter:
         Vector-only by design: this is the seam the shared embedding backend already
         depends on. Native embeddings call :meth:`embed_batch` for the
         metadata-rich result."""
-        provider = provider_from_model_id(model)
-        adapter = self._adapters.get(provider)
-        requested = model.split("/", 1)[-1]
-        if provider == "ollama":
-            _endpoint, adapter, requested = self.resolve_local_model(model)
-        if adapter is None or not hasattr(adapter, "embed"):
-            raise LLMError(
-                f"no embedding backend for '{provider}' "
-                f"(configured: {', '.join(self._adapters)})"
-            )
-        # Fresh per-call client: the sync embedding seam runs each call in its own
-        # asyncio.run loop, so reusing the router's persistent client would bind a
-        # pooled connection to a dead loop ("Event loop is closed") on the next call.
-        async with httpx.AsyncClient() as client:
-            try:
-                return await adapter.embed(texts, requested, client)
-            except LLMError as error:
-                raise self._safe_llm_error(
-                    error, self._adapter_secret_values(adapter)
-                ) from None
-            except httpx.HTTPError as error:
-                raise self._safe_transport_error(
-                    error, self._adapter_secret_values(adapter)
-                ) from None
+        result = await self.embed_batch(texts, model=model)
+        return result["vectors"]
 
     async def embed_batch(
         self,
@@ -885,7 +918,11 @@ class ModelRouter:
         embedding spaces need (actual model id, provider id/kind, dimension,
         usage). The metadata-loss in :meth:`embed` is why this exists; existing
         vector-only callers stay on ``embed``."""
-        from frisket.ai.embeddings import build_batch_result
+        from frisket.ai.embeddings import (
+            build_batch_result,
+            resolve_embedding_capability,
+        )
+        from .pricing import estimate_tokens
 
         provider = provider_from_model_id(model)
         requested = model.split("/", 1)[-1]
@@ -897,26 +934,78 @@ class ModelRouter:
                 f"no embedding backend for '{provider}' "
                 f"(configured: {', '.join(self._adapters)})"
             )
-        # fresh per-call client — see embed() above (asyncio.run-per-call must not
-        # reuse a pooled connection bound to a closed loop).
+        credential_source = self.credential_source_for(provider)
+        capability = resolve_embedding_capability(
+            modality=modality,
+            provider=provider,
+            model=requested,
+            router=self,
+            local_available=False,
+            env={},
+        )
+        pricing = capability.get("pricing") if capability is not None else None
+        input_rate = (pricing or {}).get("input_usd_per_million_tokens")
+        estimated_cost = (
+            None
+            if input_rate is None
+            else sum(estimate_tokens(text) for text in texts) * input_rate / 1_000_000
+        )
+        operation_id = None
+        policy = self.model_call_policy
+        if policy is not None and credential_source not in {"none", "local", "cache"}:
+            operation_id = policy.admit_external_service(
+                provider=provider,
+                capability="embedding",
+                engine=model,
+                prepared={"model": requested, "input": texts},
+                credential_source=credential_source,
+                estimated_cost_usd=estimated_cost,
+                context=None,
+            )
+        # Fresh per-call clients support the sync asyncio.run embedding seam.
         async with httpx.AsyncClient() as client:
             try:
                 vectors, meta = await adapter.embed_with_meta(texts, requested, client)
-            except LLMError as error:
-                raise self._safe_llm_error(
-                    error, self._adapter_secret_values(adapter)
-                ) from None
-            except httpx.HTTPError as error:
-                raise self._safe_transport_error(
-                    error, self._adapter_secret_values(adapter)
-                ) from None
-        provider_cost_usd = (
-            0.0 if provider == "ollama" else meta.get("provider_cost_usd")
-        )
+            except BaseException as error:
+                if isinstance(error, LLMError):
+                    error = self._safe_llm_error(
+                        error, self._adapter_secret_values(adapter)
+                    )
+                elif isinstance(error, httpx.HTTPError):
+                    error = self._safe_transport_error(
+                        error, self._adapter_secret_values(adapter)
+                    )
+                if operation_id is not None:
+                    policy.fail_service(operation_id, error)
+                raise error from None
+        usage = dict(meta.get("usage") or {})
+        input_tokens = usage.get("prompt_tokens", usage.get("total_tokens"))
+        provider_cost = meta.get("provider_cost_usd")
+        cost_source = meta.get("cost_source")
+        if (
+            provider_cost is None
+            and input_rate is not None
+            and input_tokens is not None
+        ):
+            provider_cost = input_tokens * input_rate / 1_000_000
+            cost_source = "pricing_data"
+        if operation_id is not None:
+            import math
+
+            # Save the actual vectors and usage before derived space validation.
+            policy.finish_service(
+                operation_id,
+                result={"vectors": vectors, "metadata": meta},
+                usage=usage,
+                provider_cost_micro=None
+                if provider_cost is None
+                else math.ceil(provider_cost * 1_000_000),
+            )
+        provider_cost_usd = 0.0 if provider == "ollama" else provider_cost
         cost_source = (
             "free_local"
             if provider == "ollama"
-            else meta.get("cost_source")
+            else cost_source
             or ("provider_reported" if provider_cost_usd is not None else "unknown")
         )
         return build_batch_result(

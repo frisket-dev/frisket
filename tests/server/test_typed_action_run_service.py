@@ -16,26 +16,16 @@ from frisket.server.services.action_runs import ActionRunService
 from frisket.server.workspace import Workspace
 
 
-class _RecordingSettlement:
-    def __init__(self) -> None:
-        self.receipt_ids: list[str] = []
-
-    def settle_action_receipt(self, **kwargs: Any) -> None:
-        self.receipt_ids.append(str(kwargs["receipt_id"]))
-
-
 def _seed_workspace(
     root: Path,
     *,
     executor_deps_factory: Any = None,
-    settlement: Any = None,
     action_observer: ActionObserver | None = None,
 ) -> tuple[Workspace, int, list[int]]:
     workspace = Workspace(
         root,
         enable_local_model_pull=False,
         executor_deps_factory=executor_deps_factory,
-        direct_action_receipt_settlement_port=settlement,
         action_observer=action_observer,
     )
     workspace.create("Typed actions", project_id="typed-actions")
@@ -143,7 +133,6 @@ def test_typed_action_uses_request_deps_and_root_dispatch(
     request_context = object()
     deps_contexts: list[Any] = []
     runner_routers: list[Any] = []
-    settlement = _RecordingSettlement()
     validations = 0
     bind_request = RegisteredAction.bind_request
 
@@ -167,7 +156,6 @@ def test_typed_action_uses_request_deps_and_root_dispatch(
     workspace, sheet_id, row_ids = _seed_workspace(
         tmp_path / "workspace",
         executor_deps_factory=deps_factory,
-        settlement=settlement,
     )
 
     monkeypatch.setattr(RegisteredAction, "bind_request", count_validation)
@@ -191,10 +179,6 @@ def test_typed_action_uses_request_deps_and_root_dispatch(
     assert replay.payload == first.payload
     assert deps_contexts == [request_context]
     assert len(runner_routers) == 1
-    assert settlement.receipt_ids == [
-        first.payload["receipt_id"],
-        first.payload["receipt_id"],
-    ]
     assert validations == 2
 
     project = workspace.get("typed-actions")

@@ -98,22 +98,19 @@ class _SnapshotCloudConnectionStore:
 
 
 @runtime_checkable
-class DirectActionReceiptSettlementPort(Protocol):
-    """Edition-owned settlement after a direct receipt is durable and terminal.
+class ImportChildAdmissionPort(Protocol):
+    """Edition-owned admission for an already-consented deferred import child."""
 
-    Unlike the worker ``SettlementPort``, this boundary has no queue row and
-    therefore no ``job.org_id`` authority.  The composing edition validates
-    its own opaque context from the receipt sidecar; public code supplies only
-    the already-open project and the durable receipt identity.
-    """
-
-    def settle_action_receipt(
+    def admit_import_child(
         self,
         *,
         project: Any,
         project_id: str,
-        receipt_id: str,
-    ) -> None: ...
+        parent_receipt_id: str,
+        child_key: str,
+        quote: Mapping[str, Any],
+        receipt_id: str | None = None,
+    ) -> Any: ...
 
 
 class DataRootUnwritable(RuntimeError):
@@ -185,8 +182,7 @@ class Workspace:
         models_gateway_connection_resolver: Callable[[], ModelsGatewayConnection | None]
         | None = None,
         action_observer: ActionObserver | None = None,
-        direct_action_receipt_settlement_port: DirectActionReceiptSettlementPort
-        | None = None,
+        import_child_admission_port: ImportChildAdmissionPort | None = None,
         project_qa_runtime_port: ProjectQARuntimePort | None = None,
         plugin_composition_policy: PluginCompositionPolicy | None = None,
         edition: str = "solo",
@@ -252,17 +248,14 @@ class Workspace:
         self.action_observer = action_observer
         self.search_preparation_import_completed = None
         self.search_preparation_enclosure_downloaded = None
-        if direct_action_receipt_settlement_port is not None and not isinstance(
-            direct_action_receipt_settlement_port,
-            DirectActionReceiptSettlementPort,
+        if import_child_admission_port is not None and not isinstance(
+            import_child_admission_port,
+            ImportChildAdmissionPort,
         ):
             raise TypeError(
-                "direct action receipt settlement port must satisfy "
-                "DirectActionReceiptSettlementPort"
+                "import child admission port must satisfy ImportChildAdmissionPort"
             )
-        self.direct_action_receipt_settlement_port = (
-            direct_action_receipt_settlement_port
-        )
+        self.import_child_admission_port = import_child_admission_port
         self.project_secret_fallback_resolver = project_secret_fallback_resolver
         self.project_blob_store_factory = project_blob_store_factory
         self.project_opener = project_opener or self._derived_project_opener()
@@ -280,12 +273,7 @@ class Workspace:
             control_database_url=control_database_url,
             executor_deps_factory=self.executor_deps_factory,
             notification_delivery_runtime=self.notification_delivery_runtime,
-            # Edition ports for this workspace's in-process worker. None for the
-            # open/local server (open defaults: no settlement, no admission).
-            # An external managed composition injects its settlement +
-            # spend-capped credential ports here — the funding
-            # reconcile used to be hardwired into the shared handler, so this is
-            # where it stays wired for that composition.
+            # Edition credentials and admission for this in-process worker.
             worker_ports=worker_ports,
             require_storage_identity=require_storage_identity,
             # Declared storage posture, not path inference: an external managed
@@ -507,7 +495,9 @@ class Workspace:
             return local_search_service(self.root)
         else:
             keys = {}
-        return configured_search_service(self.root, effective_keys=keys)
+        return configured_search_service(
+            self.root, effective_keys=keys, credential_source="org_byok"
+        )
 
     def router_for(self, project: Project) -> ModelRouter:
         """Return the ordinary workspace router for non-action consumers."""

@@ -72,8 +72,8 @@ export const WorkspaceBottomDockRegion = memo(function WorkspaceBottomDockRegion
   const resumeHaltedDockJob = useCallback(
     (job: DockActionJob) => {
       const progress = job.progress;
-      if (!progress?.sheetId || !progress.targetColumnId) return;
-      void resumeHaltedRun(progress.sheetId, progress.targetColumnId);
+      if (!progress?.sheetId || !progress.runId) return;
+      void resumeHaltedRun(progress.sheetId, progress.runId);
     },
     [resumeHaltedRun],
   );

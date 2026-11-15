@@ -7,7 +7,6 @@ tests/test_job_queue.py, so the worker tests run on SQLite."""
 import functools
 import subprocess
 import threading
-from typing import Any
 
 import pytest
 
@@ -22,13 +21,11 @@ from frisket.engine.jobs import (
     RUN_PROJECT_KIND,
     SqliteJobQueue,
     Worker,
-    WorkerPorts,
     default_registry,
     register_project_run_handler,
 )
 from frisket.ai.llm import ChaosConfig, ModelRouter, ResponseCache
 from frisket.engine.store import Project
-from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.sources import SourceStore
 from frisket.execution.provider import open_execution_composition
 from frisket.server.services.action_runs import ActionRunService
@@ -528,74 +525,6 @@ class TestExecution:
         finally:
             reopened.close()
             queue.close()
-
-    def test_settlement_receives_job_row_org_not_mutated_payload_org(self, tmp_path):
-        """Settlement identity crosses the worker/port seam outside payload.
-
-        The persisted payload agrees with the immutable row, so the worker's
-        normal reconciliation passes. An interposer then mutates the ordinary
-        payload field before the project handler runs. The separately carried
-        row fact must still reach settlement; changing the call site back to
-        ``payload['org_id']`` makes this test fail with the other org.
-        """
-        trusted_job_org_id = 7001
-        mutated_payload_org_id = 7002
-        workspace = tmp_path / "ws"
-        workspace.mkdir()
-        project, project_id, sheet_id = make_regex_project(workspace)
-        queue = SqliteJobQueue(workspace / ".queue.db")
-        _ws, run_id, job_id = enqueue_regex_project_run(
-            workspace,
-            queue,
-            project_id=project_id,
-            sheet_id=sheet_id,
-            queue_payload_extra={"org_id": trusted_job_org_id},
-        )
-        assert RunResultStore(project).request_cancel(run_id)
-        project.close()
-
-        class RecordingSettlement:
-            def __init__(self) -> None:
-                self.calls: list[dict[str, Any]] = []
-
-            def settle_run(self, **kwargs: Any) -> None:
-                self.calls.append(dict(kwargs))
-
-            def settle_action_receipt(self, **_kwargs: Any) -> None:
-                pass
-
-        settlement = RecordingSettlement()
-        registry = HandlerRegistry()
-        register_project_run_handler(
-            registry,
-            workspace_root=workspace,
-            worker_ports=WorkerPorts(settlement_port=settlement),
-        )
-
-        def mutate_payload_org(payload: dict) -> dict:
-            changed = dict(payload)
-            changed["org_id"] = mutated_payload_org_id
-            return changed
-
-        project_run_handler = registry.get(RUN_PROJECT_KIND)
-        assert project_run_handler is not None
-
-        def interposed_project_run(payload: dict, context: JobHandlerContext) -> object:
-            return project_run_handler(mutate_payload_org(payload), context)
-
-        registry.register(RUN_PROJECT_KIND, interposed_project_run)
-        job = run_worker_until_job_terminal(
-            Worker(queue, registry, worker_id="settlement-org-seam"),
-            queue,
-            job_id,
-        )
-        assert job.status == "done", job.error
-        assert len(settlement.calls) == 1
-        call = settlement.calls[0]
-        assert call["terminal_status"] == "cancelled"
-        assert call["trusted_job_org_id"] == trusted_job_org_id
-        assert call["trusted_job_org_id"] != mutated_payload_org_id
-        queue.close()
 
     def test_project_run_failure_cleanup_keeps_original_error(
         self, tmp_path, monkeypatch

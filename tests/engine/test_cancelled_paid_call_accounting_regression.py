@@ -1,7 +1,7 @@
 """Regression proof: cancellation must not erase a provider call that returned.
 
-The result cell may remain resumable when cancellation wins the post-execute
-fence, but the already-incurred provider spend is a ledger fact, not a cell.
+The returned result and incurred usage survive a cooperative cancellation;
+only unfinished work remains eligible for a later retry.
 """
 
 from __future__ import annotations
@@ -110,6 +110,10 @@ def test_cancel_after_paid_call_returns_keeps_usage_cost_and_project_spend(
 
         assert progress.cancelled is True
         assert adapter.calls == 1
+        output = next(
+            column for column in project.columns(sheet) if column["name"] == "relevance"
+        )
+        assert list(project.get_values(sheet, output["id"]).values()) == [7]
         assert {
             "provider_calls": persisted_calls,
             "run_cost": row["cost_actual"],

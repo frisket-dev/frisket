@@ -29,6 +29,7 @@ from frisket.contracts.http.cloud_connection import (
     CloudAccount,
     CloudCapabilityRoute,
     CloudExecutionQuote,
+    CloudExecutionAccounting,
     CloudErrorResponse,
     CloudLLMOptionSupport,
     CloudLLMResult,
@@ -129,7 +130,7 @@ def test_cloud_ocr_usage_accepts_exactly_one_page_or_token_shape():
             CloudOCRUsage.model_validate(usage)
 
 
-def test_cloud_row_quote_authority_uses_only_the_admitted_row_allocation():
+def test_cloud_row_quote_authority_keeps_cohort_without_price_cap():
     basis = PricedCostBasis(
         pricing_key="cloud.ocr",
         unit_rate="0.0025",
@@ -148,7 +149,7 @@ def test_cloud_row_quote_authority_uses_only_the_admitted_row_allocation():
 
     authority = cloud_quote_authority_for_row(basis, row_id=11)
 
-    assert authority.maximum_charge_micro == 5_000
+    assert authority.maximum_charge_micro is None
 
 
 def test_cloud_unknown_cost_consent_is_explicitly_unbounded():
@@ -178,7 +179,7 @@ def test_cloud_priced_unknown_quantity_consent_is_explicitly_unbounded():
     assert authority.maximum_charge_micro is None
 
 
-def test_cloud_fractional_unit_quote_matches_server_ceiling_rounding():
+def test_cloud_fractional_unit_approval_does_not_become_a_price_cap():
     basis = PricedCostBasis(
         pricing_key="cloud.transcribe",
         unit_rate="0.000133",
@@ -197,7 +198,7 @@ def test_cloud_fractional_unit_quote_matches_server_ceiling_rounding():
 
     authority = cloud_quote_authority_for_row(basis, row_id=11)
 
-    assert authority.maximum_charge_micro == 1_397
+    assert authority.maximum_charge_micro is None
 
 
 @pytest.mark.parametrize("name", ["../secret.pdf", "folder/audio.wav", "", ".."])
@@ -264,6 +265,7 @@ async def test_cloud_pdf_companion_http_poll_and_recovery_keep_one_purchase(tmp_
 
     async def handler(request):
         assert request.headers.get("X-Frisket-OCR-Contract") == "pdf-v1"
+        assert request.headers.get("X-Frisket-Cloud-Protocol") == "1"
         assert request.headers["Idempotency-Key"] == "one-pdf-purchase"
         requests.append(request.method)
         if request.method == "POST":
@@ -272,7 +274,7 @@ async def test_cloud_pdf_companion_http_poll_and_recovery_keep_one_purchase(tmp_
             assert b'"pdf_dpi":200' in body
             running = {**payload, "status": "running", "result": None, "receipt": None}
             return httpx.Response(202, json=running)
-        assert request.method == "GET"
+        assert request.method in {"GET", "DELETE"}
         return httpx.Response(200, json=payload)
 
     transport = HttpCloudExecutionTransport(
@@ -296,7 +298,8 @@ async def test_cloud_pdf_companion_http_poll_and_recovery_keep_one_purchase(tmp_
     )
     recovered = await transport.recover(attempt, result.execution_id)
     assert recovered == result
-    assert requests == ["POST", "GET", "GET"]
+    assert await transport.cancel(attempt, result.execution_id) == result
+    assert requests == ["POST", "GET", "GET", "DELETE"]
     assert recovered.receipt.usage.pages == 2
     assert recovered.result.pages[1].width == 200
 
@@ -1268,3 +1271,103 @@ async def test_cloud_known_execution_survives_standalone_network_failure(
     assert caught.value.post_egress_ambiguous is True
     assert caught.value.accounting is None
     assert seen == (["GET"] if method == "recover" else ["DELETE"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body_kind", ["valid", "html", "malformed_json"])
+async def test_update_required_keeps_instruction_and_never_retries_cloud_purchase(
+    tmp_path,
+    body_kind,
+):
+    from frisket.ai.llm import LLMRequest, ModelRouter
+
+    seen = []
+    message = (
+        "Update Frisket Desktop at https://frisket.dev/ before using Frisket Cloud."
+    )
+
+    if body_kind == "valid":
+        message = (
+            "Update Frisket Desktop at https://frisket.dev/ to use this Cloud release."
+        )
+
+    def handler(request):
+        seen.append(request)
+        if body_kind == "html":
+            return httpx.Response(426, text="<html>Upgrade required</html>")
+        if body_kind == "malformed_json":
+            return httpx.Response(426, json={"detail": "Upgrade required"})
+        return httpx.Response(
+            426,
+            json={"error": "invalid_request", "message": message, "retryable": False},
+        )
+
+    transport = HttpCloudExecutionTransport(
+        _store(tmp_path),
+        "https://cloud.example.test",
+        http_transport=httpx.MockTransport(handler),
+    )
+    attempt = CloudExecutionAttempt(
+        "update-required", _payer(), CloudQuoteAuthority(None)
+    )
+    router = ModelRouter(use_env_keys=False, cache_mode="off", max_retries=3)
+    try:
+        with cloud_llm_execution_scope(CloudLLMExecutionBinding(transport, attempt)):
+            with pytest.raises(CloudExecutionRefused) as caught:
+                await router.complete_transport(
+                    LLMRequest(
+                        model=_payer().engine,
+                        messages=[{"role": "user", "content": "hello"}],
+                        max_tokens=128,
+                    )
+                )
+    finally:
+        await router.aclose()
+    assert caught.value.code == "desktop_update_required"
+    assert str(caught.value) == message
+    assert caught.value.retryable is False
+    assert len(seen) == 1
+    assert seen[0].headers["X-Frisket-Cloud-Protocol"] == "1"
+
+
+@pytest.mark.asyncio
+async def test_failed_cloud_purchase_preserves_usage_while_accounting_is_pending(
+    tmp_path,
+):
+    terminal = _llm_response().model_copy(
+        update={
+            "status": "failed",
+            "receipt": None,
+            "accounting": CloudExecutionAccounting(
+                status="pending",
+                usage=CloudLLMUsage(kind="llm.complete", tokens_in=20, tokens_out=5),
+                provider_cost_micro=25000,
+            ),
+            "error": CloudErrorResponse(
+                error="provider_failed",
+                message="Provider failed after usage",
+                retryable=False,
+            ),
+        }
+    )
+    transport = HttpCloudExecutionTransport(
+        _store(tmp_path),
+        "https://cloud.example.test",
+        http_transport=httpx.MockTransport(
+            lambda _request: httpx.Response(200, json=terminal.model_dump(mode="json"))
+        ),
+    )
+    with pytest.raises(CloudExecutionRefused) as caught:
+        await transport.execute_llm(
+            CloudExecutionAttempt("failed-known-usage", _payer(), None), _llm_request()
+        )
+    error = caught.value
+    assert error.code == "provider_failed"
+    assert error.accounting is not None
+    assert error.accounting["cloud_accounting_status"] == "pending"
+    assert error.accounting["cloud_receipt"] is None
+    assert error.accounting["cost"] is None
+    [call] = error.accounting["model_calls"]
+    assert call["units"]["tokens_in"] == 20
+    assert call["units"]["tokens_out"] == 5
+    assert call["provider_cost_usd"] == 0.025

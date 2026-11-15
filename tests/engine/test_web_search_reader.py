@@ -228,3 +228,42 @@ def test_search_service_dependency_reaches_map_runner_context() -> None:
     assert runner.op_context_extras["search_service_factory"] is factory
     assert runner.op_context_extras["url_capture_browser"] is browser
     assert "existing" in runner.op_context_extras
+
+
+def test_paid_search_keeps_returned_receipt_when_accounting_write_fails(monkeypatch):
+    events = []
+
+    class Policy:
+        def admit_search(self, **kwargs):
+            events.append("admitted")
+            return "search-operation"
+
+        def finish_search(self, operation_id, response, error):
+            assert response is not None
+            events.append("accounting")
+            raise RuntimeError("accounting write unavailable")
+
+    def transport(request):
+        events.append("provider")
+        return httpx.Response(200, json={"results": [], "usage": {"credits": 1}})
+
+    def record(self, attempt, *, response, error, quote):
+        assert response is not None
+        events.append("receipt")
+
+    monkeypatch.setattr(AdmittedWebSearcher, "_record", record)
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(transport)) as http:
+            service = SearchService(
+                preference="tavily", effective_keys={"tavily": "fixture"}, http=http
+            )
+            reader = AdmittedWebSearcher(
+                _context(service_operation_policy=Policy()), search_service=service
+            )
+            with pytest.raises(RuntimeError, match="accounting write unavailable"):
+                await reader.search("query", max_results=1)
+            await reader.aclose()
+
+    asyncio.run(run())
+    assert events == ["admitted", "provider", "receipt", "accounting"]

@@ -1056,7 +1056,7 @@ class TestCancel:
         assert progress.cancelled is True
         assert progress.done is True
         assert recipe.calls == 1
-        assert progress.completed == 0
+        assert progress.completed == 1
         assert progress.writer_attempt_id is not None
         assert progress.writer_attempt_claimed is True
         run = project.db.execute(
@@ -1157,16 +1157,10 @@ class TestCancel:
             == "admitted"
         )
 
-    def test_cancel_one_row_at_fence_finalizes_cancelled_zero_completed(
+    def test_cancel_after_only_row_returns_keeps_completed_work(
         self, project, monkeypatch
     ):
-        """sandbox-cancellation contract: a cancellation observed AFTER a row's
-        result is ready but before it is accepted drops the row at the lock's
-        fence — no result/error/completed progress. The provider cost that was
-        already incurred remains accounting truth. A one-row run therefore
-        finalizes with zero completed/failed rows and status 'cancelled' (the
-        row stays resumable via backfill), instead of the old unconditional
-        completed++ that made a cancelled one-row run look completed."""
+        """Cancellation retains an already-returned result and its usage."""
         monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
         sheet, _ = seed_sheet(project, ["only row"])
         spec = classify_spec(sheet)
@@ -1180,9 +1174,7 @@ class TestCancel:
             authority=UnroutedOnlyAuthority(project),
             allow_action_lifecycle_only_recipes=True,
         )
-        # Cancel becomes observable only once the row's model call has run, so
-        # the row executes and is dropped at the post-execute fence rather than
-        # at the queue-drain check.
+        # Cancellation becomes observable after submission; no new work starts.
         runner.should_cancel = lambda run_id: adapter.calls >= 1
 
         confirmed_spec = confirm_remote_spec(runner, spec)
@@ -1190,14 +1182,14 @@ class TestCancel:
             run_with_output_claim(runner, confirmed_spec, confirmed=True)
         )
         assert progress.cancelled and progress.done
-        assert progress.completed == 0 and progress.failed == 0
+        assert progress.completed == 1 and progress.failed == 0
         assert progress.cost == 0.0001
-        assert adapter.calls == 1  # the row DID run; its result was just dropped
+        assert adapter.calls == 1
         run = project.db.execute(
             "SELECT status, completed_rows FROM runs WHERE id=?", (progress.run_id,)
         ).fetchone()
-        assert run["status"] == "cancelled"
-        assert run["completed_rows"] == 0
+        assert run["status"] == "completed"
+        assert run["completed_rows"] == 1
 
     def test_uncancelled_run_still_completes(self, project, tmp_path):
         sheet, _ = seed_sheet(project, ["a", "b"])

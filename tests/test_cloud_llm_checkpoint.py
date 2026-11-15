@@ -16,6 +16,7 @@ from frisket.cloud_llm_checkpoint import CloudLLMCheckpointCoordinator
 from frisket.contracts.http.cloud_connection import (
     CloudCapabilityRoute,
     CloudExecutionReceipt,
+    CloudExecutionAccounting,
     CloudExecutionResponse,
     CloudLLMOptionSupport,
     CloudLLMRequest,
@@ -393,5 +394,90 @@ def test_router_selects_cloud_only_inside_exact_bound_model_scope(tmp_path):
 
         assert response.content == "answer"
         assert len(transport.calls) == 1
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("ceiling", [None, 100])
+def test_pending_accounting_does_not_block_next_approved_call(tmp_path, ceiling):
+    async def scenario():
+        project = Project.create(tmp_path / "pending.frisket")
+        pending = _response(execution_id="first").model_copy(
+            update={
+                "receipt": None,
+                "accounting": CloudExecutionAccounting(
+                    status="pending",
+                    usage=CloudLLMUsage(kind="llm.complete", tokens_in=2, tokens_out=1),
+                    provider_cost_micro=10,
+                ),
+            }
+        )
+        transport = _Transport([pending, _response(execution_id="second")])
+        coordinator = _coordinator(project, transport, ceiling=ceiling)
+        await coordinator.execute(_request(message="first"))
+        await coordinator.execute(_request(message="second"))
+        assert len(transport.calls) == 2
+        assert coordinator.returned_accounting[0]["cost"] is None
+        assert (
+            coordinator.returned_accounting[0]["cloud_accounting_status"] == "pending"
+        )
+        assert [
+            call[0].quote_authority.maximum_charge_micro for call in transport.calls
+        ] == ([None, None] if ceiling is None else [100, 99])
+        # The explicit agent budget reserves a provisional estimate only; it
+        # never turns that estimate into a settled charge or receipt.
+        assert coordinator.returned_accounting[0]["cloud_receipt"] is None
+        project.close()
+
+    asyncio.run(scenario())
+
+
+def test_pending_pdf_without_page_metadata_refuses_budget_continuation_clearly(
+    tmp_path,
+):
+    async def scenario():
+        project = Project.create(tmp_path / "pending-pdf.frisket")
+        try:
+            pending = _response(execution_id="first").model_copy(
+                update={
+                    "receipt": None,
+                    "accounting": CloudExecutionAccounting(
+                        status="pending",
+                        usage=CloudLLMUsage(
+                            kind="llm.complete", tokens_in=2, tokens_out=1
+                        ),
+                    ),
+                }
+            )
+            transport = _Transport([pending, _response(execution_id="second")])
+            coordinator = _coordinator(project, transport, ceiling=100)
+            pdf = _request().model_copy(
+                update={
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "document",
+                                    "media_type": "application/pdf",
+                                    "data": "cGRm",
+                                }
+                            ],
+                        }
+                    ]
+                }
+            )
+            await coordinator.execute(pdf)
+            with pytest.raises(CloudExecutionRefused) as caught:
+                await coordinator.execute(_request(message="next call"))
+            assert caught.value.code == "external_effect_reconciliation_required"
+            assert "research budget" in str(caught.value)
+            assert "accounting" in str(caught.value)
+            assert caught.value.retryable is False
+            assert len(transport.calls) == 1
+            assert len(coordinator.returned_checkpoints) == 1
+            assert coordinator.returned_accounting[0]["cloud_receipt"] is None
+        finally:
+            project.close()
 
     asyncio.run(scenario())

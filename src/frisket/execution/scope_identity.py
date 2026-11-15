@@ -1,11 +1,9 @@
 """Canonical identity of the live rows a paid/egressing action will read.
 
 Action identity answers *what operation is this?*  This module answers the
-orthogonal authorization question *which current data does this invocation
-cover?*  The returned object contains no source values: it carries a digest
-over canonical row ids, source-column identity, each live value's stable
-hash, and the value ref that names the revision currently winning the cell
-overlay.
+orthogonal authorization question *which selected rows and columns does this
+invocation cover?* Inputs are read coherently when each bounded batch runs.
+This selection contains no values, revisions, or per-row quote allocations.
 """
 
 from __future__ import annotations
@@ -13,52 +11,11 @@ from __future__ import annotations
 from typing import Any, Mapping, Sequence
 
 
-WORK_SCOPE_SCHEMA_VERSION = "frisket.work-scope-binding.v1"
+WORK_SCOPE_SCHEMA_VERSION = "frisket.work-scope-selection.v2"
 
 
 class AdmittedWorkScopeSnapshot(dict[str, Any]):
-    """An attempt-owned snapshot with a derived, nonserialized cell index.
-
-    Admission owns this payload; after admission it is read-only. The index
-    borrows its existing cell mappings instead of copying the input roster or
-    retaining snapshots beyond the lifetime of their attempt.
-    """
-
-    def __init__(self, snapshot: Mapping[str, Any]):
-        super().__init__(snapshot)
-        self._source_cells: list[
-            tuple[list[Any] | None, dict[Any, Mapping[str, Any]]]
-        ] = []
-        sources = self.get("sources")
-        if not isinstance(sources, list):
-            return
-        for source in sources:
-            cells = source.get("cells") if isinstance(source, Mapping) else None
-            cells = cells if isinstance(cells, list) else None
-            by_row: dict[Any, Mapping[str, Any]] = {}
-            if isinstance(cells, list):
-                for cell in cells:
-                    if isinstance(cell, Mapping):
-                        try:
-                            # Preserve the linear lookup's first-match behavior.
-                            by_row.setdefault(cell.get("row_id"), cell)
-                        except TypeError:
-                            # An unhashable malformed ID cannot match a row ID.
-                            continue
-            self._source_cells.append((cells, by_row))
-
-    def source_cell(
-        self, source_index: int, cells: list[Any], row_id: int
-    ) -> Mapping[str, Any] | None:
-        if not 0 <= source_index < len(self._source_cells):
-            return None
-        original_cells, by_row = self._source_cells[source_index]
-        if cells is not original_cells:
-            return None
-        cell = by_row.get(row_id)
-        # Never use another row's expected facts if a malformed caller mutates
-        # a cell after the derived index was built.
-        return cell if cell is not None and cell.get("row_id") == row_id else None
+    """Fixed row/column selection, with no source values or revision archive."""
 
 
 def canonical_work_scope_binding(
@@ -124,79 +81,27 @@ def canonical_work_scope_binding_for_columns(
         column_id = int(raw_column_id) if raw_column_id is not None else None
         canonical_sources.append((name, column_id))
 
-    # Reuse the store's canonical JSON-value digest. It is already the
-    # durable identity used when a generated cell is accepted/dismissed, so
-    # consent and the cell overlay cannot disagree about value equality.
     from frisket.engine.store.cells import replay_generated_value_hash
 
-    sources: list[dict[str, Any]] = []
-    source_summary: list[dict[str, Any]] = []
-    for name, column_id in canonical_sources:
-        source_summary.append({"name": name, "column_id": column_id})
-        if column_id is None:
-            sources.append(
-                {
-                    "name": name,
-                    "column_id": None,
-                    "cells": [
-                        {
-                            "row_id": row_id,
-                            "value_hash": replay_generated_value_hash(None),
-                            "value_ref": {
-                                "kind": "missing_column",
-                                "row_id": row_id,
-                                "column_id": None,
-                            },
-                        }
-                        for row_id in canonical_row_ids
-                    ],
-                }
-            )
-            continue
-        values, refs = project.get_values_with_refs(
-            sheet_id,
-            column_id,
-            row_ids=canonical_row_ids,
-        )
-        cells = []
-        for row_id in canonical_row_ids:
-            ref = refs.get(row_id)
-            cells.append(
-                {
-                    "row_id": row_id,
-                    "value_hash": replay_generated_value_hash(values.get(row_id)),
-                    "value_ref": dict(ref) if isinstance(ref, Mapping) else None,
-                }
-            )
-        sources.append(
-            {
-                "name": name,
-                "column_id": column_id,
-                "cells": cells,
-            }
-        )
-
+    # Approval describes fixed configuration/selection, not a frozen dataset.
+    # No source values, revisions or per-cell allocation are materialized here.
     manifest = {
         "schema_version": WORK_SCOPE_SCHEMA_VERSION,
         "sheet_id": sheet_id,
         "row_ids": canonical_row_ids,
-        "sources": sources,
+        "sources": [
+            {"name": name, "column_id": cid} for name, cid in canonical_sources
+        ],
     }
     if snapshot is not None:
-        # This is the exact cell-identity material that produced ``identity``
-        # below.  Attempt admission keeps it in memory (never in a receipt)
-        # so the row dispatcher can compare the value/ref pair it is about to
-        # use with the pair admission actually verified.  Merely recomputing
-        # the aggregate identity here and throwing the cells away left a
-        # check/use window between ``AttemptAuthority.mint`` and egress.
         snapshot.clear()
         snapshot.update(manifest)
     return {
-        "schema_version": WORK_SCOPE_SCHEMA_VERSION,
+        "schema_version": manifest["schema_version"],
         "identity": replay_generated_value_hash(manifest),
         "sheet_id": sheet_id,
         "row_count": len(canonical_row_ids),
-        "source_columns": source_summary,
+        "source_columns": manifest["sources"],
     }
 
 

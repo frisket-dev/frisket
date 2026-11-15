@@ -137,8 +137,11 @@ def register_project_entity_review_routes(
         pid: str,
         sheet_id: int | None = None,
         run_id: int | None = Query(default=None, ge=1),
+        attempt_only: bool = False,
     ) -> list[dict[str, Any]]:
-        return service.review_queue(pid, sheet_id=sheet_id, run_id=run_id)
+        return service.review_queue(
+            pid, sheet_id=sheet_id, run_id=run_id, attempt_only=attempt_only
+        )
 
     @app.get(
         "/api/projects/{pid}/review/bundles",

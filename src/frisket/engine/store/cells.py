@@ -641,6 +641,33 @@ def get_values_with_refs(
                 ),
                 **({"validity": row["validity"]} if include_validity else {}),
             }
+        # Reapplication is an ordinary edit overlay with a retained immutable
+        # result reference. Keep that provenance visible to citation readers.
+        operation_specs = {}
+        for ref in refs.values():
+            op_id = ref.get("op_id")
+            if ref["kind"] != "manual_edit" or op_id is None:
+                continue
+            if op_id not in operation_specs:
+                op = project.db.execute(
+                    "SELECT spec FROM ops WHERE id=?", (op_id,)
+                ).fetchone()
+                operation_specs[op_id] = json.loads(op["spec"] or "{}") if op else {}
+            spec = operation_specs[op_id]
+            if spec.get("action_kind") == "run.reapply":
+                saved = next(
+                    (
+                        item
+                        for item in spec.get("result_refs", [])
+                        if item["row_id"] == ref["row_id"]
+                        and item["target_column_id"] == column_id
+                    ),
+                    None,
+                )
+                if saved is not None:
+                    ref["retained_result"] = {
+                        key: saved[key] for key in ("run_id", "row_id", "column_id")
+                    }
         return values, refs
     if row_ids is not None and not row_ids:
         return {}, {}

@@ -164,58 +164,6 @@ def read_source_page(
     return RowSourcePage(sheet_id, frozenset(row_ids), columns)
 
 
-def _refuse_changed_admitted_input(name: str, row_id: int) -> None:
-    from frisket.ops.base import RecipeInvocationHalt
-
-    raise RecipeInvocationHalt(
-        "promise_violation",
-        "the source value or revision for "
-        f"{name!r} on row {row_id} changed after attempt admission; "
-        "nothing was sent. Review and confirm the current work scope before "
-        "resuming",
-    )
-
-
-def _expected_source_cell(
-    snapshot: Mapping[str, Any],
-    *,
-    source_index: int,
-    name: str,
-    column_id: int | None,
-    row_id: int,
-) -> Mapping[str, Any]:
-    from frisket.execution.scope_identity import AdmittedWorkScopeSnapshot
-
-    sources = snapshot.get("sources")
-    if not isinstance(sources, list) or source_index >= len(sources):
-        _refuse_changed_admitted_input(name, row_id)
-    source = sources[source_index]
-    if (
-        not isinstance(source, Mapping)
-        or source.get("name") != name
-        or source.get("column_id") != column_id
-    ):
-        _refuse_changed_admitted_input(name, row_id)
-    cells = source.get("cells")
-    if not isinstance(cells, list):
-        _refuse_changed_admitted_input(name, row_id)
-    expected = (
-        snapshot.source_cell(source_index, cells, row_id)
-        if isinstance(snapshot, AdmittedWorkScopeSnapshot)
-        else next(
-            (
-                cell
-                for cell in cells
-                if isinstance(cell, Mapping) and cell.get("row_id") == row_id
-            ),
-            None,
-        )
-    )
-    if expected is None:
-        _refuse_changed_admitted_input(name, row_id)
-    return expected
-
-
 def row_values(
     project: Project,
     recipe: Recipe,
@@ -229,8 +177,23 @@ def row_values(
     admitted_work_scope: Mapping[str, Any] | None = None,
     source_page: RowSourcePage | None = None,
 ) -> dict[str, Any]:
-    if source_page is not None and (for_model or admitted_work_scope is not None):
-        raise ValueError("admitted/model rows require live source reads")
+    if admitted_work_scope is not None and row_id not in admitted_work_scope.get(
+        "row_ids", ()
+    ):
+        raise ValueError("row is outside the admitted selection")
+    if source_page is None:
+        names = recipe.source_columns(spec)
+        source_page = read_source_page(
+            project,
+            spec["sheet_id"],
+            [col_map[name] for name in names if name in col_map],
+            [row_id],
+            preserve_invalid_column_ids=[
+                col_map[name]
+                for name in getattr(recipe, "preserve_invalid_source_columns", ())
+                if name in col_map
+            ],
+        )
     if capture is None and (
         source_page is not None or getattr(recipe, "capture_source_cells", False)
     ):
@@ -249,21 +212,11 @@ def row_values(
     prompt_source_names = set(getattr(recipe, "prompt_source_columns", source_names))
     for source_index, name in enumerate(source_names):
         cid = col_map.get(name)
-        if admitted_work_scope is not None:
-            expected = _expected_source_cell(
-                admitted_work_scope,
-                source_index=source_index,
-                name=name,
-                column_id=cid,
-                row_id=row_id,
-            )
-        else:
-            expected = None
         if cid is None:
             continue
         if source_page is not None:
             val, ref = source_page.cell(spec["sheet_id"], cid, row_id)
-        elif capture is None and expected is None:
+        elif capture is None:
             read_options = (
                 {"preserve_invalid": True} if name in preserve_invalid_names else {}
             )
@@ -283,15 +236,6 @@ def row_values(
             )
             val = got.get(row_id)
             ref = refs.get(row_id)
-        if expected is not None:
-            from frisket.engine.store.cells import replay_generated_value_hash
-
-            canonical_ref = dict(ref) if isinstance(ref, Mapping) else None
-            if (
-                expected.get("value_hash") != replay_generated_value_hash(val)
-                or expected.get("value_ref") != canonical_ref
-            ):
-                _refuse_changed_admitted_input(name, row_id)
         if capture is not None:
             capture[name] = {
                 "column_id": cid,

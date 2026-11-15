@@ -320,7 +320,7 @@ def compile_route_promises(
             )
         )
     if isinstance(cost, PricedCostBasis):
-        bound = cost.bound
+        bound = cost.bound if cost.ceiling_mode == "consented_quantity" else None
         rows.append(
             Promise.make(
                 "cost",
@@ -329,7 +329,9 @@ def compile_route_promises(
                 basis={
                     "pricing_key": cost.pricing_key,
                     "unit_rate": cost.unit_rate,
-                    "estimated_quantity": cost.estimated_quantity,
+                    "estimated_quantity": cost.estimated_quantity
+                    if cost.ceiling_mode == "consented_quantity"
+                    else None,
                     "quantity_unit": cost.quantity_unit,
                     "terms_version": cost.terms_version,
                     "quantity_rounding_mode": cost.quantity_rounding_mode,

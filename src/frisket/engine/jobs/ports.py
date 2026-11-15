@@ -1,25 +1,9 @@
-"""The worker's explicit ports.
+"""Explicit edition credentials and admission for the worker.
 
-The open worker runs jobs. Three decisions around a job are EDITION policy, not
-worker mechanics, so each is a port the composition injects rather than an
-import the worker reaches for (the public/private package boundary rejects
-monkey-patching and import-time side effects as seam mechanisms):
-
-* credential — which provider keys may this run use?
-* admission  — may this body execute at all?
-* settlement — what does the run's outcome cost, and who pays?
-
-Only `credential` has an OPEN default (`OrgKeyCredentialPort`): the open team
-worker resolves org BYOK keys from the identity control plane. `admission` and
-`settlement` default to ABSENT, which is what the open team edition wants — a
-trusted local/team worker admits every action it is asked to run, and has no
-commerce to settle. An external edition injects all three from its own worker
-composition.
-
-Ports are structural (`typing.Protocol`), so an edition never subclasses
-anything from here; it just supplies an object with the right method. A carrier
-that does not satisfy its protocol is REFUSED at composition time (TypeError) —
-a worker never silently ignores a port it cannot understand.
+The open default resolves org keys from its identity control plane and admits
+local actions. Hosted composition supplies its own credential and admission
+ports. Provider purchases own their accounting independently of job completion.
+Ports are checked structurally at composition time.
 """
 
 from __future__ import annotations
@@ -27,7 +11,7 @@ from __future__ import annotations
 import dataclasses
 import enum
 from collections.abc import Mapping
-from typing import Any, Literal, NewType, Protocol, runtime_checkable
+from typing import Any, NewType, Protocol, runtime_checkable
 
 from frisket.execution.credential_use import ActionCredentialResolver
 from frisket.ai.models.gateway_config import (
@@ -93,7 +77,7 @@ TrustedJobOrgId = NewType("TrustedJobOrgId", int)
 class TrustedJobOrgUnavailable(enum.Enum):
     """Why a handler invocation has no org attested by a claimed job row.
 
-    Neither arm authorizes a settlement adapter to recover an identity from
+    Neither arm authorizes an execution adapter to recover an identity from
     the handler payload, the storage owner, or ambient process state. A hosted
     adapter that requires a funding org must refuse before an effect or ledger
     mutation unless its separate, typed non-queued contract proves one.
@@ -150,49 +134,6 @@ class JobHandlerContext:
         return cls(TrustedJobOrgUnavailable.NO_JOB_ROW)
 
 
-@runtime_checkable
-class SettlementPort(Protocol):
-    """Settles terminal run and runless-receipt outcomes.
-
-    Optional by construction: the open editions never settle anything, so
-    this port is OMISSIBLE and the worker simply skips settlement when it is
-    absent. The port itself is omissible; its identity FACT is not:
-    ``trusted_job_org_id`` is a required argument. A positive id is minted from
-    the normalized immutable ``job.org_id`` column. An unavailable arm means
-    no row-backed funding identity exists and is never permission to infer one
-    from payload, storage ownership, or ambient state.
-    """
-
-    def settle_run(
-        self,
-        *,
-        project: Any,
-        project_id: str,
-        run_id: int,
-        trusted_job_org_id: TrustedJobOrg,
-        control_database_url: str | None,
-        key_providers: set[str],
-        terminal_status: Literal["completed", "failed", "cancelled"],
-    ) -> None: ...
-
-    def settle_action_receipt(
-        self,
-        *,
-        project: Any,
-        project_id: str,
-        receipt_id: str,
-        trusted_job_org_id: TrustedJobOrg,
-        control_database_url: str | None,
-    ) -> None:
-        """Settle one durably terminal runless action receipt.
-
-        The receipt owns its terminal posture and exact neutral provider-fact
-        links. The adapter receives only its id plus immutable queue-backed
-        tenant identity; it must not infer either identity from payload data.
-        """
-        ...
-
-
 class OrgKeyCredentialPort:
     """The OPEN default: org BYOK keys read from the identity control plane.
 
@@ -242,7 +183,6 @@ class WorkerPorts:
         default_factory=OrgKeyCredentialPort
     )
     admission_port: AdmissionPort | None = None
-    settlement_port: SettlementPort | None = None
     models_gateway_port: ModelsGatewayPort | None = dataclasses.field(
         default_factory=EnvironmentModelsGatewayPort
     )
@@ -266,7 +206,6 @@ class WorkerPorts:
             "models gateway",
         )
         _require_port(self.admission_port, AdmissionPort, "admission")
-        _require_port(self.settlement_port, SettlementPort, "settlement")
 
     def credentials(self) -> CredentialPort:
         """The credential port, falling back to the OPEN default."""

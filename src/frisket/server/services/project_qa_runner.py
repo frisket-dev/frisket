@@ -24,7 +24,7 @@ from frisket.ai.llm.structured import FrisketRouterModel
 from frisket.ai.llm.router import model_call_cannot_go_live
 from frisket.ai.llm.types import LLMRequest, LLMResponse, provider_from_model_id
 from frisket.ai.models.accounting import wire_accounting_meta
-from frisket.ai.research.row_answer import fetch_page, search_web_results
+from frisket.ai.research.row_answer import fetch_page
 from frisket.authoring.project_ask import (
     ProjectAskRegisteredActionDraft,
     default_project_ask_model,
@@ -95,6 +95,30 @@ async def _complete_before_cancellation(awaitable: Awaitable[Any]) -> Any:
     if cancelled:
         raise asyncio.CancelledError
     return result
+
+
+async def _search_with_purchase(
+    service, query, *, policy=None, call_scope=None, quote=None, **kwargs
+):
+    """Own the paid search scope in the task that actually sends the request."""
+    quote = quote or service.quote(max_results=kwargs.get("max_results", 6))
+    with call_scope() if call_scope is not None else nullcontext():
+        operation_id = None
+        if policy is not None and quote.provider != "ddgs":
+            operation_id = policy.admit_search(
+                prepared={"query": query, "max_results": kwargs.get("max_results", 6)},
+                quote=quote,
+                credential_source=service.credential_source,
+            )
+        try:
+            response = await service.search(query, quote=quote, **kwargs)
+        except BaseException as error:
+            if operation_id is not None:
+                policy.finish_search(operation_id, None, error)
+            raise
+        if operation_id is not None:
+            policy.finish_search(operation_id, response, None)
+        return response
 
 
 async def run_turn(
@@ -415,11 +439,22 @@ async def run_turn(
         await progress("search_web", "started", query=query)
         try:
             async with tool_lock:
+                service = search_service or SearchService(effective_keys={})
+
+                async def purchased_search(query, **kwargs):
+                    return await _search_with_purchase(
+                        service,
+                        query,
+                        policy=getattr(router, "model_call_policy", None),
+                        call_scope=call_scope,
+                        **kwargs,
+                    )
+
                 if research is not None:
                     # Budget/approval waits are outside the per-network-call
                     # timeout. Only the real search request has that timeout.
                     response = await research.search(
-                        search_service or SearchService(effective_keys={}), query
+                        service, query, search=purchased_search
                     )
 
                     async def search_response(*args, **kwargs):
@@ -427,9 +462,7 @@ async def run_turn(
 
                     search = search_response
                 else:
-                    search = (
-                        search_service.search if search_service else search_web_results
-                    )
+                    search = purchased_search
                 result = await search_public_web(
                     query,
                     search=search,
