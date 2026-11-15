@@ -11,6 +11,8 @@ stays duck-typed (``Any``) so this leaf never re-imports the facade module."""
 
 from __future__ import annotations
 
+from .cell_reference import current_value_ref
+
 import hashlib
 import json
 import sqlite3
@@ -682,31 +684,9 @@ def get_values_with_refs(
             else row["value"],
             tolerate_errors=tolerate_decode_errors,
         )
-        refs[row_id] = {
-            "kind": row["origin_kind"] or "missing",
-            "op_id": row["origin_op_id"],
-            "row_id": row_id,
-            "column_id": column_id,
-            "run_id": row["origin_run_id"],
-            "outcome": row["outcome"],
-            **(
-                {"producer_id": int(row["base_producer_id"])}
-                if row["base_producer_id"] is not None
-                else {}
-            ),
-            **(
-                {"prepared_ref_id": int(row["prepared_ref_id"])}
-                if row["prepared_ref_id"] is not None
-                else {}
-            ),
-            **({"validity": row["validity"]} if include_validity else {}),
-        }
-        if row["copied_run_id"] is not None:
-            refs[row_id]["retained_result"] = {
-                "run_id": int(row["copied_run_id"]),
-                "row_id": int(row["copied_row_id"]),
-                "column_id": int(row["copied_column_id"]),
-            }
+        refs[row_id] = current_value_ref(
+            row, row_id=row_id, column_id=column_id, include_validity=include_validity
+        )
     return values, refs
 
 

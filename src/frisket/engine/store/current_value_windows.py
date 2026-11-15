@@ -8,6 +8,8 @@ including the canonical two-newline separators between physical pages.
 
 from __future__ import annotations
 
+from .cell_reference import current_value_ref
+
 import codecs
 import hashlib
 import json
@@ -590,25 +592,7 @@ def read_current_column(
             stored_kind = row["stored_kind"]
             stored_value = row["bounded_value"]
             revision = row["retrieval_revision"]
-            ref = {
-                "kind": row["origin_kind"] or "missing",
-                "op_id": row["origin_op_id"],
-                "row_id": row_id,
-                "column_id": column_id,
-                "run_id": row["origin_run_id"],
-                "outcome": row["outcome"],
-                **(
-                    {"producer_id": int(row["base_producer_id"])}
-                    if row["base_producer_id"] is not None
-                    else {}
-                ),
-            }
-            if row["copied_run_id"] is not None:
-                ref["retained_result"] = {
-                    "run_id": int(row["copied_run_id"]),
-                    "row_id": int(row["copied_row_id"]),
-                    "column_id": int(row["copied_column_id"]),
-                }
+            ref = current_value_ref(row, row_id=row_id, column_id=column_id)
             preview: BoundedValuePreview | None = None
             value_present = row["outcome"] in (None, "completed")
             if stored_kind == "prepared_content_ref" and stored_value is not None:
