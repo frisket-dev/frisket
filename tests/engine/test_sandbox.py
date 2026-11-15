@@ -37,6 +37,7 @@ from frisket.engine.sandbox.shim import (
     run_sandboxed_stdout_lines,
 )
 from frisket.runtime.launch import worker_argv
+from frisket.execution.dispatch_control import STANDALONE
 
 
 @pytest.fixture
@@ -507,7 +508,7 @@ class TestBroker:
                 cache_mode="replay_strict",
             )
             sock = str(sock_dir / "broker.sock")
-            broker = KeyBroker(router, sock)
+            broker = KeyBroker(router.for_execution(STANDALONE), sock)
             await broker.start()
             try:
                 code = CLIENT_SNIPPET + (
@@ -537,7 +538,7 @@ class TestBroker:
         async def run():
             router = ModelRouter(keys={"anthropic": "k"})
             sock = str(sock_dir / "b.sock")
-            broker = KeyBroker(router, sock)
+            broker = KeyBroker(router.for_execution(STANDALONE), sock)
             await broker.start()
             try:
                 code = CLIENT_SNIPPET + (

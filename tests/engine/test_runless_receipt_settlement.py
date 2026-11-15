@@ -278,7 +278,12 @@ def _runless_handler_case(
     settlement = _ReceiptObservation()
     registry = HandlerRegistry()
 
-    def executor(target: Project, env: ActionJobEnvelope) -> ActionResult:
+    def executor(target: Project, env: ActionJobEnvelope, *, execution) -> ActionResult:
+        from frisket.execution.dispatch_control import QueuedDispatch
+
+        assert isinstance(execution, QueuedDispatch)
+        assert execution.project is target and execution.receipt_id == env.receipt_id
+        execution.check()
         assert not replay
         write_provider_facts(
             target,

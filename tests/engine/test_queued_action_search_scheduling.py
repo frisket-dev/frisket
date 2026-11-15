@@ -56,8 +56,13 @@ def _reserve_action(
 
 
 def _completed_child_result(
-    project: Project, envelope: ActionJobEnvelope
+    project: Project, envelope: ActionJobEnvelope, *, execution
 ) -> ActionResult:
+    from frisket.execution.dispatch_control import QueuedDispatch
+
+    assert isinstance(execution, QueuedDispatch)
+    assert execution.project is project and execution.receipt_id == envelope.receipt_id
+    execution.check()
     sheet_id = project.add_sheet("People")
     value_column = project.add_column(sheet_id, "value", "text")
     project.add_rows(
@@ -206,9 +211,9 @@ def test_cancelled_claim_does_not_enqueue_search_after_effect(
     )
 
     def publish_then_cancel(
-        project: Project, claimed: ActionJobEnvelope
+        project: Project, claimed: ActionJobEnvelope, *, execution
     ) -> ActionResult:
-        result = _completed_child_result(project, claimed)
+        result = _completed_child_result(project, claimed, execution=execution)
         assert queue.cancel(launched.job_id) is True
         return result
 
