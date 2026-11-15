@@ -504,6 +504,12 @@ def test_youtube_channel_source_poll_materializes_metadata_rows_and_dedupes(
             "chanbeta22",
         ]
 
+        stable_rows = dict(
+            project.db.execute(
+                "SELECT dedupe_key,row_id FROM source_items WHERE source_id=?",
+                (source_id,),
+            )
+        )
         third = run_action_spec(
             project,
             _source_poll_action(
@@ -525,22 +531,26 @@ def test_youtube_channel_source_poll_materializes_metadata_rows_and_dedupes(
         assert third_run["new_rows"] == 1
         assert third_run["skipped_rows"] == 1
         assert third_run["changed_rows"] == 1
-        assert third_run["revisions"] == 1
+        assert third_run["revisions"] == 0
+        after_rows = dict(
+            project.db.execute(
+                "SELECT dedupe_key,row_id FROM source_items WHERE source_id=?",
+                (source_id,),
+            )
+        )
+        assert {key: after_rows[key] for key in stable_rows} == stable_rows
         rows = _rows(project, sheet_id)
         assert [row["title"] for row in rows] == [
             "Alpha channel upload",
-            "Beta channel upload",
             "Beta channel upload revised",
             "Gamma channel upload",
         ]
-        assert rows[2]["_revises"] == "youtube:video:chanbeta22"
-        assert rows[2]["_revision"] == 1
         beta_item = project.db.execute(
             "SELECT revision FROM source_items WHERE source_id=? AND dedupe_key=?",
             (source_id, "youtube:video:chanbeta22"),
         ).fetchone()
         assert beta_item is not None
-        assert beta_item["revision"] == 1
+        assert beta_item["revision"] == 0
         assert _table_count(project, "source_items") == 3
         assert _table_count(project, "blobs") == 0
     finally:

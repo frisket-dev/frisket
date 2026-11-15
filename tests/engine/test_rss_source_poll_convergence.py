@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from frisket.engine.executor.actions import run_action_spec
 from frisket.server.sources.rss import (
     RssPoller,
@@ -159,8 +161,8 @@ def test_source_poll_rss_uses_source_items_and_generic_enclosure_refs(
         register_rss_poller(replace=True)
 
 
-def _duplicate_key_feed() -> str:
-    """Two entries share one guid and differ in content.
+def _duplicate_key_feed(*, conflicting: bool = True) -> str:
+    """Two entries share one guid, with either identical or conflicting content.
 
     Malformed-but-real feeds do this (a republished item keeping its guid, a
     generator that omits guid so `link` becomes the key). Both entries map to
@@ -176,10 +178,12 @@ def _duplicate_key_feed() -> str:
                 "description": "First body",
             },
             {
-                "title": "Same guid, second copy",
+                "title": "Same guid, second copy"
+                if conflicting
+                else "Same guid, first copy",
                 "link": "https://example.test/dup",
                 "guid": "dup-1",
-                "description": "Second body",
+                "description": "Second body" if conflicting else "First body",
             },
         ]
     )
@@ -191,8 +195,10 @@ def _sheet_row_count(project: Project) -> int:
     )
 
 
+@pytest.mark.parametrize("conflicting", [False, True])
 def test_repeated_polls_do_not_grow_rows_when_a_batch_repeats_a_dedupe_key(
     tmp_path: Path,
+    conflicting: bool,
 ) -> None:
     """A same-batch duplicate must not make every later poll append a row.
 
@@ -202,7 +208,7 @@ def test_repeated_polls_do_not_grow_rows_when_a_batch_repeats_a_dedupe_key(
     stored item_hash between the two bodies, appending one revision row per
     poll with zero new items: 2, 3, 4, ... 9 over eight polls.
     """
-    feed = _duplicate_key_feed()
+    feed = _duplicate_key_feed(conflicting=conflicting)
     register_source_poller(RssPoller(fetch=lambda _url: feed), replace=True)
     project = Project.create(tmp_path / "rss-dup-key.frisket", name="RSS dup")
     try:
@@ -220,12 +226,12 @@ def test_repeated_polls_do_not_grow_rows_when_a_batch_repeats_a_dedupe_key(
         )
         source_id = int(source_ref["source_id"])
 
-        # One dedupe_key -> one source_items row -> one materialized row.
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM source_items").fetchone()[0] == 1
-        )
+        # Identical keys collapse; conflicting groups are skipped as ambiguous.
+        assert project.db.execute("SELECT COUNT(*) FROM source_items").fetchone()[
+            0
+        ] == (0 if conflicting else 1)
         after_first = _sheet_row_count(project)
-        assert after_first == 1
+        assert after_first == (0 if conflicting else 1)
 
         counts = [after_first]
         for poll in range(1, 9):
@@ -241,9 +247,9 @@ def test_repeated_polls_do_not_grow_rows_when_a_batch_repeats_a_dedupe_key(
             counts.append(_sheet_row_count(project))
 
         assert counts == [after_first] * 9, counts
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM source_items").fetchone()[0] == 1
-        )
+        assert project.db.execute("SELECT COUNT(*) FROM source_items").fetchone()[
+            0
+        ] == (0 if conflicting else 1)
     finally:
         project.close()
         register_rss_poller(replace=True)
@@ -258,7 +264,7 @@ def test_same_batch_duplicate_dedupe_key_is_collapsed_not_appended(
     two entries in, one row out, and the poll reports the drop rather than
     silently double-writing.
     """
-    feed = _duplicate_key_feed()
+    feed = _duplicate_key_feed(conflicting=False)
     register_source_poller(RssPoller(fetch=lambda _url: feed), replace=True)
     project = Project.create(tmp_path / "rss-dup-fence.frisket", name="RSS dup fence")
     try:
@@ -283,7 +289,7 @@ def test_same_batch_duplicate_dedupe_key_is_collapsed_not_appended(
         items = project.db.execute("SELECT * FROM source_items").fetchall()
         assert len(items) == 1
         assert items[0]["dedupe_key"] == "dup-1"
-        # The surviving row is the last copy in feed order.
+        # Equal records collapse; conflicting records are rejected as a group.
         row_id = int(items[0]["row_id"])
         title_column_id = next(
             int(column["id"])
@@ -292,7 +298,7 @@ def test_same_batch_duplicate_dedupe_key_is_collapsed_not_appended(
         )
         assert (
             project.get_values(sheet_id, title_column_id, row_ids=[row_id])[row_id]
-            == "Same guid, second copy"
+            == "Same guid, first copy"
         )
     finally:
         project.close()

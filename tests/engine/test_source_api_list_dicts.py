@@ -306,6 +306,12 @@ def test_api_list_dicts_source_poll_materializes_rows_dedupes_and_drifts(
             "case-2",
         ]
 
+        stable_rows = dict(
+            project.db.execute(
+                "SELECT dedupe_key,row_id FROM source_items WHERE source_id=?",
+                (source_id,),
+            )
+        )
         third = run_action_spec(
             project,
             _source_poll_action(
@@ -327,17 +333,21 @@ def test_api_list_dicts_source_poll_materializes_rows_dedupes_and_drifts(
         assert third_run["new_rows"] == 1
         assert third_run["skipped_rows"] == 1
         assert third_run["changed_rows"] == 1
-        assert third_run["revisions"] == 1
+        assert third_run["revisions"] == 0
+        after_rows = dict(
+            project.db.execute(
+                "SELECT dedupe_key,row_id FROM source_items WHERE source_id=?",
+                (source_id,),
+            )
+        )
+        assert {key: after_rows[key] for key in stable_rows} == stable_rows
         rows = _rows(project, sheet_id)
         assert [row["name"] for row in rows] == [
             "Alpha",
-            "Beta",
             "Beta revised",
             "Gamma",
         ]
-        assert rows[2]["_revises"] == "case-2"
-        assert rows[2]["_revision"] == 1
-        assert rows[2]["agency"] == "Records Office"
+        assert rows[1]["agency"] == "Records Office"
         assert "agency" in _columns(project, sheet_id)
         assert _table_count(project, "source_items") == 3
     finally:
