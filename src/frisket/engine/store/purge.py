@@ -697,10 +697,13 @@ def _retained_descriptor_info():
         "column_semantic_types_after",
         "column_hidden_after",
     )
+    values = {
+        "column_hidden_after": "json(CASE type WHEN 'true' THEN 'true' ELSE 'false' END)",
+    }
     return (
         "json_object("
         + ",".join(
-            f"'{field}',json((SELECT json_group_object(key,value) FROM json_each(ops.undo_info,'$.{field}') WHERE CAST(key AS INTEGER) NOT IN (SELECT object_id FROM project_purge_targets WHERE kind='column')))"
+            f"'{field}',json((SELECT json_group_object(key,{values.get(field, 'value')}) FROM json_each(ops.undo_info,'$.{field}') WHERE CAST(key AS INTEGER) NOT IN (SELECT object_id FROM project_purge_targets WHERE kind='column')))"
             for field in fields
         )
         + ")"

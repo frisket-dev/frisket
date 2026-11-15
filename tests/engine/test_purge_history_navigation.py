@@ -221,3 +221,57 @@ def test_partly_purged_sheet_creator_keeps_exact_restore_name_guard(
         assert project.db.execute(
             "SELECT active,hidden FROM columns WHERE sheet_id=?", (sheet,)
         ).fetchone()[:] == (1, 0)
+
+
+@pytest.mark.parametrize("purge_after_undo", [False, True])
+def test_partly_purged_group_creation_restores_retained_generated_rows(
+    tmp_path, purge_after_undo
+):
+    from frisket.engine.executor.group_summary_action import (
+        run_typed_group_summary_action,
+    )
+    from tests.engine.test_reduce_group_summary_executor import (
+        _seed,
+        _reduce_action,
+        _bound_request,
+        _summary_router,
+    )
+
+    path = tmp_path / "groups.frisket"
+    with closing(Project.create(path)) as project:
+        seeded = _seed(project, tmp_path)
+        router, _adapter = _summary_router()
+        result = run_typed_group_summary_action(
+            project,
+            "p",
+            _bound_request(_reduce_action(seeded["sheet_id"])),
+            router,
+        )
+        assert result.status == "completed", result.errors
+        sheet = result.outputs[0].sheet_id
+        doomed, kept = project.visible_row_ids(sheet)
+        creator = project.op_cursor
+        column = next(c["id"] for c in project.columns(sheet) if c["name"] == "summary")
+        expected = project.get_values(sheet, column)[kept]
+        if purge_after_undo:
+            assert project.undo() == creator
+    with closing(Project(path, maintenance=True)) as project:
+        finish_purge(project, begin_purge(project, row_ids=[doomed]))
+    with closing(Project(path)) as project:
+        if not purge_after_undo:
+            assert project.undo() == creator
+        assert project.redo() == creator
+        assert project.visible_row_ids(sheet) == [kept]
+        assert project.get_values(sheet, column)[kept] == expected
+        assert (
+            project.db.execute(
+                "SELECT hidden FROM rows WHERE id=?", (doomed,)
+            ).fetchone()[0]
+            == 1
+        )
+        assert (
+            project.db.execute(
+                "SELECT publication_closed FROM ops WHERE id=?", (creator,)
+            ).fetchone()[0]
+            == 1
+        )

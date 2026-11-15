@@ -279,7 +279,10 @@ def _require_restoration_targets(project, op_id, info, *, reverting):
             "SELECT 1 FROM destinations target LEFT JOIN rows row ON row.id=target.row_id "
             "LEFT JOIN columns col ON col.id=target.column_id LEFT JOIN sheets sheet ON sheet.id=col.sheet_id "
             "WHERE (row.id IS NULL OR col.id IS NULL OR sheet.id IS NULL "
-            "OR (row.hidden=1 AND row.id NOT IN (SELECT value FROM json_each(?))) "
+            "OR (row.hidden=1 AND row.id NOT IN (SELECT value FROM json_each(?)) "
+            "AND NOT EXISTS (SELECT 1 FROM structural_changes creation WHERE "
+            "creation.kind='row' AND creation.object_id=row.id AND creation.op_id=? "
+            "AND creation.before_visible=0 AND creation.after_visible=1)) "
             "OR (col.active=0 AND col.id NOT IN (SELECT value FROM json_each(?))) "
             "OR (sheet.hidden=1 AND sheet.id NOT IN (SELECT value FROM json_each(?)))) "
             "AND NOT EXISTS (SELECT 1 FROM project_purge_targets purged WHERE "
@@ -291,6 +294,7 @@ def _require_restoration_targets(project, op_id, info, *, reverting):
                 op_id,
                 op_id,
                 json.dumps(restoring_rows),
+                op_id,
                 json.dumps(restoring_columns),
                 json.dumps(restoring_sheets),
             ),
