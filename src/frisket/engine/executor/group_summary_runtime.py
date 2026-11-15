@@ -4,13 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+import asyncio
 import hashlib
 import json
 import logging
 from functools import partial
 from typing import Any
-
-from frisket.local_model_ids import bare_model_name
 
 from frisket.contracts.action import (
     ActionError,
@@ -50,12 +49,13 @@ from frisket.engine.store.materialization import (
     materialized_row_sources_ref_matches,
 )
 from frisket.ai.llm import LLMRequest, ModelRouter
+from frisket.ai.llm.types import wire_responses
+from frisket.ai.models.accounting import wire_accounting_meta
 from frisket.ops.group_summary import (
     estimate_group_summary,
     group_summary_messages,
     group_summary_rows,
 )
-from frisket.ai.models.metadata import ModelCallMeta
 from frisket.engine.store import Project
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
@@ -523,6 +523,9 @@ def _reduce_group_summary_failure_computation(
         endpoint_origin=router.local_endpoint_url_for_model(params.model),
         model=params.model,
     )
+    accounting = wire_accounting_meta(
+        params.model, list(getattr(exc, "wire_calls", ()) or ())
+    )
     return {
         "summary": None,
         "error": remediated.message[:500],
@@ -531,7 +534,19 @@ def _reduce_group_summary_failure_computation(
         "tokens_in": None,
         "tokens_out": None,
         "cost": 0.0,
-        "model_call": None,
+        "model_calls": [],
+        **(accounting if accounting["model_calls"] else {}),
+    }
+
+
+def _reduce_group_summary_response_computation(model, response):
+    summary = response.content
+    if summary is None:
+        summary = json.dumps(response.data or {}, sort_keys=True)
+    return {
+        "summary": summary,
+        "error": None,
+        **wire_accounting_meta(model, [response]),
     }
 
 
@@ -792,19 +807,10 @@ async def _complete_reduce_group_summaries_unfenced(
             if not publication.publish(computations[-1]):
                 break
             continue
-        summary = response.content
-        if summary is None:
-            summary = json.dumps(response.data or {}, sort_keys=True)
-        effective_cost = 0.0 if response.cached else response.cost
         computations.append(
             {
                 "group": group,
-                "summary": summary,
-                "error": None,
-                "tokens_in": response.tokens_in,
-                "tokens_out": response.tokens_out,
-                "cost": effective_cost,
-                "model_call": _reduce_group_summary_model_call(params.model, response),
+                **_reduce_group_summary_response_computation(params.model, response),
                 "direct_effect": envelope,
                 "consumed_capture": resolved["consumed_capture"],
                 "_trace_record": trace_record[0],
@@ -1055,6 +1061,7 @@ async def _reduce_group_summary_checkpointed_loop(
             messages=plan["messages"],
         )
         trace_record: list[dict[str, Any] | None] = [None]
+        unresolved = False
         try:
             from frisket.engine.store.source_dependencies import (
                 require_execution_sources,
@@ -1067,63 +1074,66 @@ async def _reduce_group_summary_checkpointed_loop(
                 request,
                 trace_record,
             )
-        except Exception as exc:  # noqa: BLE001 - per-group failure is persisted
-            # The call may have reached the provider; the failure is durable
-            # truth for THIS request and replays as the same failed group on
-            # resume.  It is retired with the result write, so a later fresh
-            # action with the same params buys the group again normally.
-            failure = _reduce_group_summary_failure_computation(params, router, exc)
-            failure["consumed_capture"] = plan["consumed_capture"]
-            store.complete(
-                checkpoint_id,
-                family=_REDUCE_EFFECT_FAMILY,
-                group_key=group_key,
-                unit_key=plan["unit_key"],
-                action_kind=params.action_kind,
-                identity=plan["identity"],
-                payload={"effect": envelope, "computation": failure},
-                run_id=int(envelope["run_id"]),
-                writer_attempt_id=str(envelope["attempt_id"]),
-                claim_token=publication.claim_token,
-                claimless_direct_effect=False,
+        except (Exception, asyncio.CancelledError) as exc:
+            unresolved = bool(getattr(exc, "post_egress_ambiguous", False))
+            wires = list(getattr(exc, "wire_calls", ()) or ())
+            if isinstance(exc, asyncio.CancelledError):
+                if not wires:
+                    raise
+                computation = {
+                    "summary": None,
+                    "error": "Run stopped before the next model request.",
+                    "error_code": "cancelled",
+                    **wire_accounting_meta(params.model, wires),
+                }
+            else:
+                computation = _reduce_group_summary_failure_computation(
+                    params, router, exc
+                )
+        else:
+            wires = wire_responses([response])
+            computation = _reduce_group_summary_response_computation(
+                params.model, response
             )
-            computation = {"group": plan["group"], **failure}
-            computation["effect"] = {**unit_effect, "checkpoint_id": checkpoint_id}
-            computation["_trace_record"] = trace_record[0]
-            computations.append(computation)
-            if not publication.publish(computation):
-                break
-            continue
-
-        summary = response.content
-        if summary is None:
-            summary = json.dumps(response.data or {}, sort_keys=True)
-        call = _reduce_group_summary_model_call(params.model, response)
-        # The durable, deterministic call id minted at call time: replay
-        # dedup (INSERT OR IGNORE by id) is what makes a crash-replayed
-        # accounting batch charge the key exactly once.  The run id keeps it
-        # unique per purchase — a later action that legitimately re-buys the
-        # same content mints a distinct fact.
-        if response.actual_accounting is None:
-            call["id"] = f"reduce_group_summary_{int(envelope['run_id'])}_" + (
-                hashlib.sha256(
-                    f"{group_key}|{plan['unit_key']}|{plan['identity']}".encode("utf-8")
-                ).hexdigest()
-            )
-        call["run_id"] = int(envelope["run_id"])
-        accounting_batch = [{"row_id": None, "column_id": None, "model_calls": [call]}]
+        # Every known purchase is accrued in this same returned checkpoint,
+        # including a paid failure. Replay contains no second charge/fact.
+        preserved = {
+            call["id"]
+            for wire in wires
+            if wire.actual_accounting is not None
+            for call in wire.actual_accounting.model_calls
+        }
+        calls = computation.get("model_calls", [])
+        base_id = (
+            f"reduce_group_summary_{int(envelope['run_id'])}_"
+            + hashlib.sha256(
+                f"{group_key}|{plan['unit_key']}|{plan['identity']}".encode("utf-8")
+            ).hexdigest()
+        )
+        for number, call in enumerate(calls):
+            if call["id"] not in preserved:
+                call["id"] = f"{base_id}_{number}"
+            call["run_id"] = int(envelope["run_id"])
+        accounting_batch = [{"row_id": None, "column_id": None, "model_calls": calls}]
         require_model_call_ids(accounting_batch)
-        # The stored replay carries zero row cost and no fact: spend and the
-        # provider fact become durable HERE, in the checkpoint transaction,
-        # so the later result transaction can never book them again.
+        if unresolved:
+            # Earlier known usage is independent of the unresolved final request.
+            # Keep its reservation so recovery cannot buy that request again.
+            run_store.write_returned_call_accounting(
+                int(envelope["run_id"]),
+                accounting_batch,
+                writer_attempt_id=str(envelope["attempt_id"]),
+                authorized_attempt_id=str(envelope["attempt_id"]),
+                claim_token=publication.claim_token,
+            )
+            return _reduce_effect_reconciliation_error(
+                "The provider may have accepted this group's final request; known returned usage was retained, but refusing another submission until the unresolved request is reconciled."
+            )
         replay_computation = {
+            **computation,
             "consumed_capture": plan["consumed_capture"],
-            "summary": summary,
-            "error": None,
-            "tokens_in": response.tokens_in,
-            "tokens_out": response.tokens_out,
             "cost": 0.0,
-            "model_call": None,
+            "model_calls": [],
         }
 
         def accrue(
@@ -1163,43 +1173,6 @@ async def _reduce_group_summary_checkpointed_loop(
         if not publication.publish(computation):
             break
     return computations
-
-
-def _reduce_group_summary_model_call(model: str, response: Any) -> dict[str, Any]:
-    model_id = bare_model_name(model)
-    units = {"tokens_in": response.tokens_in, "tokens_out": response.tokens_out}
-    if response.cached:
-        return ModelCallMeta.cache_hit(
-            capability="llm.complete",
-            engine=model,
-            provider=response.provider,
-            provider_kind="chat_api",
-            model_ids=[model_id or model],
-            units=units,
-            warnings=[],
-        ).as_dict()
-    if response.actual_accounting is not None:
-        if len(response.actual_accounting.model_calls) != 1:
-            raise RuntimeError(
-                "group summary requires one accounting fact per model response"
-            )
-        return dict(response.actual_accounting.model_calls[0])
-    return ModelCallMeta.provider_call(
-        capability="llm.complete",
-        engine=model,
-        provider=response.provider,
-        provider_kind="chat_api",
-        model_ids=[model_id or model],
-        credential_source=response.credential_source,
-        provider_reported_cost_usd=response.cost,
-        provider_cost_usd=response.cost,
-        units=units,
-        cost_source=response.cost_source,
-        warnings=[],
-        # The router already measured this live wire call; carry it by
-        # value rather than reporting an honest-looking but false NULL.
-        duration_ms=response.duration_ms,
-    ).as_dict()
 
 
 def _write_reduce_group_summary_result(

@@ -103,3 +103,56 @@ def agent_context(tmp_path):
             project=project,
             extras={"run_id": run_id, "row_id": row_id, ATTEMPT_EXTRA: attempt},
         )
+
+
+@pytest.mark.asyncio
+async def test_retry_then_agent_schema_repair_failure_records_each_leaf_once(
+    monkeypatch, agent_context
+):
+    from frisket.ai.llm import LLMError, ModelRouter
+    from frisket.ai.llm.structured import StructuredCompleter, StructuredRequest
+    from frisket.execution.dispatch_control import dispatch_for_context
+    from tests.ai.test_retry_returned_usage import ReturnedAdapter
+
+    persisted = []
+
+    class Store:
+        def __init__(self, project):
+            pass
+
+        def write_returned_call_accounting(self, run_id, batch, **kwargs):
+            persisted.extend(copy.deepcopy(batch))
+
+    monkeypatch.setattr(
+        "frisket.engine.executor.agent_model_calls.RunResultStore", Store
+    )
+    adapter = ReturnedAdapter(["paid_error", "invalid", "paid_error", "paid_error"])
+    inner = ModelRouter(keys={"anthropic": "test-key"}, cache=None, max_retries=1)
+    inner._adapters["anthropic"] = adapter
+    ctx = agent_context
+    accounting = {}
+    router = AccountedAgentRouter(
+        inner.for_execution(dispatch_for_context(ctx)),
+        ctx,
+        "anthropic/test",
+        accounting,
+    )
+    with pytest.raises(LLMError) as caught:
+        await StructuredCompleter(router).complete(
+            StructuredRequest(
+                model="anthropic/test",
+                messages=[{"role": "user", "content": "answer"}],
+                schema={
+                    "type": "object",
+                    "properties": {"answer": {"type": "string"}},
+                    "required": ["answer"],
+                },
+                repair_attempts=1,
+            )
+        )
+    facts = [call for batch in persisted for call in batch["model_calls"]]
+    assert adapter.calls == len(facts) == len({call["id"] for call in facts}) == 4
+    assert accounting[ctx.extras["row_id"]]["cost"] == pytest.approx(0.1)
+    router.retain_unrecorded_error_calls(caught.value)
+    assert caught.value.wire_calls == []
+    await inner.aclose()

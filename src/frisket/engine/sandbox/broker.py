@@ -48,7 +48,11 @@ from urllib.parse import quote
 
 from frisket.ai.model_defaults import DEFAULT_MAX_OUTPUT_TOKENS
 from frisket.ai.llm import LLMError, LLMRequest, ModelRouter
-from frisket.ai.llm.structured import StructuredCompleter, StructuredRequest
+from frisket.ai.llm.structured import (
+    StructuredCompleter,
+    StructuredRequest,
+    _sum_response,
+)
 
 # Hard ceiling on a broker-supplied repair_attempts — op code is
 # untrusted, unlike every other StructuredCompleter caller.
@@ -170,8 +174,11 @@ class KeyBroker:
                         max_tokens=payload.get("max_tokens", DEFAULT_MAX_OUTPUT_TOKENS),
                         temperature=payload.get("temperature", 0.0),
                     )
-                    resp = await self.router.complete(req)
-                out = {"ok": True, "response": asdict(resp)}
+                    returned = await self.router.complete(req)
+                    resp = _sum_response(req.model, [returned], returned.data)
+                payload = asdict(resp)
+                payload.pop("prior_wire_calls", None)
+                out = {"ok": True, "response": payload}
             except LLMError as e:
                 out = {"ok": False, "error": str(e), "status": e.status}
             except KeyError as e:

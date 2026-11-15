@@ -14,6 +14,7 @@ from frisket.ai.llm import LLMResponse, ModelRouter, RemediatedError, classify_l
 from frisket.ai.llm.adapters import OpenAICompatAdapter
 from frisket.ai.llm.remediation import INVALID_OUTPUT
 from frisket.ai.llm.types import SchemaViolation
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.engine.sandbox.broker import (
     BROKER_MAX_REPAIR_ATTEMPTS,
     CLIENT_SNIPPET,
@@ -222,7 +223,7 @@ def test_broker_routes_schema_bearing_request_through_completer_and_repairs(
         adapter = _RepairingAdapter()
         router._adapters["anthropic"] = adapter  # noqa: SLF001
         sock = str(sock_dir / "broker.sock")
-        broker = KeyBroker(router, sock)
+        broker = KeyBroker(router.for_execution(STANDALONE), sock)
         await broker.start()
         try:
             code = CLIENT_SNIPPET + (
@@ -254,7 +255,7 @@ def test_broker_schemaless_request_still_bypasses_completer(sock_dir):
         router = ModelRouter(keys={"anthropic": "k"})
         router._adapters["anthropic"] = adapter  # noqa: SLF001
         sock = str(sock_dir / "broker.sock")
-        broker = KeyBroker(router, sock)
+        broker = KeyBroker(router.for_execution(STANDALONE), sock)
         await broker.start()
         try:
             code = CLIENT_SNIPPET + (
@@ -322,7 +323,7 @@ def test_broker_clamps_repair_attempts_server_side(sock_dir):
         router = ModelRouter(keys={"anthropic": "k"})
         router._adapters["anthropic"] = adapter  # noqa: SLF001
         sock = str(sock_dir / "broker.sock")
-        broker = KeyBroker(router, sock)
+        broker = KeyBroker(router.for_execution(STANDALONE), sock)
         await broker.start()
         try:
             code = CLIENT_SNIPPET + (
@@ -363,7 +364,7 @@ def test_broker_wraps_structurally_invalid_schema_as_schema_violation(sock_dir):
         router = ModelRouter(keys={"anthropic": "k"})
         router._adapters["anthropic"] = _AlwaysBadAdapter()  # never reached
         sock = str(sock_dir / "broker.sock")
-        broker = KeyBroker(router, sock)
+        broker = KeyBroker(router.for_execution(STANDALONE), sock)
         await broker.start()
         try:
             code = CLIENT_SNIPPET + (
@@ -397,3 +398,32 @@ def test_structural_schema_violation_is_classified_invalid_output():
     result = classify_llm_error(exc)
     assert isinstance(result, RemediatedError)
     assert result.code == INVALID_OUTPUT
+
+
+def test_schemaless_broker_sums_returned_retry_usage_without_exposing_carrier(sock_dir):
+    from tests.ai.test_retry_returned_usage import ReturnedAdapter
+
+    adapter = ReturnedAdapter(["paid_error", "ok"])
+
+    async def run():
+        router = ModelRouter(keys={"anthropic": "test-key"}, max_retries=1)
+        router._adapters["anthropic"] = adapter
+        broker = KeyBroker(
+            router.for_execution(STANDALONE), str(sock_dir / "retry.sock")
+        )
+        await broker.start()
+        try:
+            code = CLIENT_SNIPPET + (
+                "\nimport json\nresp = frisket_complete('anthropic/test',"
+                " [{'role': 'user', 'content': 'go'}])\nprint(json.dumps(resp))\n"
+            )
+            return await run_python_op(code, {}, broker_endpoint=broker.endpoint)
+        finally:
+            await broker.stop()
+            await router.aclose()
+
+    response = asyncio.run(run())
+    assert adapter.calls == 2
+    assert response["tokens_in"] == 30
+    assert response["cost"] == pytest.approx(0.03)
+    assert "prior_wire_calls" not in response

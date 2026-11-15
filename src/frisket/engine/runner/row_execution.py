@@ -198,6 +198,27 @@ async def _execute_row(
         if recorder and row_trace:
             recorder.write_row(router.record(data=data, meta=meta, error=error))
 
+    def retain_returned_before_halt(error):
+        paid = list(getattr(error, "wire_calls", ()) or ())
+        if not paid:
+            return
+        from frisket.execution.attempt import attempt_in_scope
+        from frisket.engine.store.runs import RunResultStore
+
+        attempt = attempt_in_scope(ctx.extras)
+        if attempt is None:
+            return
+        accounting = wire_accounting_meta(spec.get("model") or paid[-1].model, paid)
+        RunResultStore(project).write_returned_call_accounting(
+            attempt.run_id,
+            [{"row_id": row_id, "column_id": None, **accounting}],
+            writer_attempt_id=attempt.attempt_id,
+            authorized_attempt_id=attempt.attempt_id,
+            claim_token=ctx.extras.get("claim_token"),
+            claimless_direct_effect=ctx.extras.get("claim_token") is None,
+            receipt_id=attempt.receipt_id if attempt.run_id is None else None,
+        )
+
     meta: dict[str, Any] | None = None
     try:
         if hasattr(recipe, "run_agent"):
@@ -343,11 +364,28 @@ async def _execute_row(
                 cell["tokens_out"] = None
                 cell.pop("model_calls", None)
         return out
-    except asyncio.CancelledError:
+    except asyncio.CancelledError as exc:
         persist_trace(error="cancelled: row execution cancelled")
-        raise
+        paid = list(getattr(exc, "wire_calls", ()) or ())
+        if not paid or not field_names:
+            raise
+        returned = {
+            name: {
+                "value": None,
+                "error": "Run stopped before the next model request.",
+                "error_code": "cancelled",
+                "outcome": "not_completed",
+                "publication_effect": "retain",
+            }
+            for name in field_names
+        }
+        returned[field_names[0]].update(
+            wire_accounting_meta(spec.get("model") or paid[-1].model, paid)
+        )
+        return returned
     except RecipeInvocationHalt as e:
         persist_trace(error=safe_error(e.code, e, max_chars=500).text)
+        retain_returned_before_halt(e)
         raise
     except SandboxTeardownError as e:
         persist_trace(
@@ -424,6 +462,7 @@ async def _execute_row(
     except (LLMError, CacheMiss, ValueError, RuntimeError) as e:
         persist_trace(error=safe_error("model_error", e, max_chars=500).text)
         if isinstance(e, LLMError) and e.post_egress_ambiguous:
+            retain_returned_before_halt(e)
             # Ambiguous egress keeps its reservation until reconciliation.
             raise RecipeInvocationHalt(
                 "external_effect_reconciliation_required",

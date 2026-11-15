@@ -221,6 +221,23 @@ class LLMResponse:
     # authority. Generic consumers use this fact verbatim instead of deriving
     # payer, provider cost, or charge from the requested model.
     actual_accounting: LLMActualAccounting | None = None
+    # Earlier returned purchases from this bounded transport invocation. These
+    # are flat leaf responses, never cached content or an aggregate/self.
+    prior_wire_calls: tuple[LLMResponse, ...] = field(
+        default=(), repr=False, compare=False
+    )
+
+
+def wire_responses(responses) -> list[LLMResponse]:
+    """Expand bounded retry carriers into their original, unique leaf facts."""
+    result = []
+    seen = set()
+    for response in responses:
+        for wire in (*response.prior_wire_calls, response):
+            if id(wire) not in seen:
+                seen.add(id(wire))
+                result.append(wire)
+    return result
 
 
 def provider_from_model_id(model: str) -> str:

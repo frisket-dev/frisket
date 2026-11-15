@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from frisket.ai.llm import LLMResponse
+from frisket.ai.llm.types import wire_responses as expand_wire_responses
 from frisket.ai.models.metadata import ModelCallMeta
 from frisket.local_model_ids import bare_model_name
 
@@ -14,6 +15,7 @@ def wire_accounting_meta(
 ) -> dict[str, Any]:
     """Build durable provider facts and aggregate usage from returned wires."""
 
+    wire_responses = expand_wire_responses(wire_responses)
     model_id = bare_model_name(model_name)
     calls: list[dict[str, Any]] = []
     execution_receipts: list[dict[str, Any]] = []

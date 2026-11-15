@@ -613,3 +613,101 @@ raise RuntimeError('death hook was not reached')
             == 2
         )
         assert reopened.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 2
+
+
+@pytest.mark.parametrize("terminal_error", [False, True])
+def test_group_retry_keeps_every_paid_wire_in_checkpoint_and_replays_once(
+    project, monkeypatch, terminal_error
+):
+    from frisket.ai.llm import LLMError
+
+    project.set_provider_key(
+        provider="anthropic",
+        encrypted=encrypt_secret("sk-ant-test"),
+        hint=key_hint("sk-ant-test"),
+        spend_cap_micro=500_000,
+    )
+
+    class RetryAdapter(_CountingSummaryAdapter):
+        async def complete(self, req, client, **kwargs):
+            response = await super().complete(req, client, **kwargs)
+            odd = len(self.requests) % 2 == 1
+            if odd or terminal_error:
+                response.tokens_in, response.tokens_out = (11, 3) if odd else (19, 5)
+                response.cost = 0.002 if odd else 0.004
+                error = LLMError("returned malformed output", retryable=odd)
+                error.wire_calls = [response]
+                raise error
+            return response
+
+    adapter = RetryAdapter()
+    router = _project_key_router(adapter)
+    router.max_retries = 1
+    action = _action(project._sheet_id, key=f"retry-paid-{terminal_error}")
+    original = reduces._write_reduce_group_summary_result
+    crashes = [True]
+
+    def crash_once(*args, **kwargs):
+        if crashes.pop() if crashes else False:
+            raise RuntimeError("after retry checkpoints")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(reduces, "_write_reduce_group_summary_result", crash_once)
+    first = _run(project, action, router)
+    assert first.status == "failed"
+    assert len(adapter.requests) == 4
+    run_id = project.db.execute("SELECT MAX(id) FROM runs").fetchone()[0]
+    calls = RunResultStore(project).model_calls(run_id)
+    assert len(calls) == len({call["id"] for call in calls}) == 4
+    expected = 0.012 if terminal_error else 0.016
+    assert sum(call["provider_cost_usd"] for call in calls) == pytest.approx(expected)
+    # Incremental publication has already retired each returned checkpoint;
+    # the injected failure happened before the final receipt, not row writes.
+    assert project.db.execute("SELECT state FROM effect_checkpoints").fetchall() == []
+    recovered = _run(project, action, router)
+    assert recovered.status == ("failed" if terminal_error else "completed"), (
+        recovered.errors
+    )
+    assert len(adapter.requests) == 4
+    assert len(RunResultStore(project).model_calls(run_id)) == 4
+    assert project.db.execute(
+        "SELECT cost_actual FROM runs WHERE id=?", (run_id,)
+    ).fetchone()[0] == pytest.approx(expected)
+
+
+def test_group_known_retry_usage_survives_unknown_final_request_without_rebuy(project):
+    from frisket.ai.llm import LLMError
+
+    class Adapter(_CountingSummaryAdapter):
+        async def complete(self, req, client, **kwargs):
+            response = await super().complete(req, client, **kwargs)
+            error = LLMError(
+                "unresolved response",
+                retryable=len(self.requests) == 1,
+                post_egress_ambiguous=len(self.requests) > 1,
+            )
+            if len(self.requests) == 1:
+                response.cost = 0.002
+                error.wire_calls = [response]
+            raise error
+
+    provider = Adapter()
+    router = _project_key_router(provider)
+    router.max_retries = 1
+    action = _action(project._sheet_id, key="known-then-unknown")
+    first = _run(project, action, router)
+    assert first.status == "failed"
+    assert any(
+        error.code == "external_effect_reconciliation_required"
+        for error in first.errors
+    ), first.errors
+    run_id = project.db.execute("SELECT MAX(id) FROM runs").fetchone()[0]
+    calls = RunResultStore(project).model_calls(run_id)
+    assert len(calls) == 1 and calls[0]["provider_cost_usd"] == pytest.approx(0.002)
+    assert [
+        row[0] for row in project.db.execute("SELECT state FROM effect_checkpoints")
+    ] == ["reserved"]
+    again = _run(project, action, router)
+    assert again.status == "failed"
+    assert len(provider.requests) == 2
+    assert len(RunResultStore(project).model_calls(run_id)) == 1

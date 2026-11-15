@@ -121,6 +121,7 @@ class ResponseCache:
         # content. A replay is accounted as a cache hit and must not repeat a
         # prior user's payer/charge evidence.
         payload["actual_accounting"] = None
+        payload.pop("prior_wire_calls", None)
         self.db.execute(
             "INSERT INTO llm_cache (key, model, response) VALUES (?,?,?) "
             "ON CONFLICT(key) DO UPDATE SET response=excluded.response",

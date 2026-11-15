@@ -590,7 +590,7 @@ class GroupPublication:
             "tokens_in": result["tokens_in"],
             "tokens_out": result["tokens_out"],
             "cost": 0.0,
-            "model_call": None,
+            "model_calls": [],
             "consumed_capture": self.saved_capture,
             "direct_effect": self.envelope,
         }
@@ -605,15 +605,15 @@ class GroupPublication:
         db.execute("BEGIN IMMEDIATE")
         try:
             if self.stopped():
-                call = computation.get("model_call")
-                if isinstance(call, dict):
+                calls = computation.get("model_calls", [])
+                if calls:
                     store.write_returned_call_accounting(
                         run_id,
                         [
                             {
                                 "row_id": row_id,
                                 "column_id": column_id,
-                                "model_calls": [call],
+                                "model_calls": calls,
                             }
                         ],
                         writer_attempt_id=attempt,
@@ -622,7 +622,7 @@ class GroupPublication:
                         authorized_attempt_id=attempt,
                         commit=False,
                     )
-                    computation["model_call"] = None
+                    computation["model_calls"] = []
                 db.commit()
                 return False
             self._require_writer()
@@ -671,14 +671,10 @@ class GroupPublication:
                 "cost": float(computation.get("cost") or 0),
                 "publication_effect": effect,
             }
-            if isinstance(computation.get("model_call"), dict):
+            if computation.get("model_calls"):
                 result["model_calls"] = [
-                    {
-                        **computation["model_call"],
-                        "run_id": run_id,
-                        "row_id": row_id,
-                        "column_id": column_id,
-                    }
+                    {**call, "run_id": run_id, "row_id": row_id, "column_id": column_id}
+                    for call in computation["model_calls"]
                 ]
 
             def publish_result(checkpoint=None):

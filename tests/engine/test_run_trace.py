@@ -618,3 +618,31 @@ def test_router_trace_collects_cache_and_attempt_events(tmp_path):
     assert ("cache", False, None) in kinds
     assert ("attempt", None, "ok") in kinds
     assert hit_events[0]["event"] == "cache" and hit_events[0]["hit"] is True
+
+
+def test_tracing_execution_view_preserves_calls_secrets_and_owner():
+    import asyncio
+    from frisket.execution.dispatch_control import TransientDispatch
+
+    async def run():
+        router = ModelRouter(keys={"anthropic": "provider-key"}, cache=None)
+        router._adapters["anthropic"] = _StubAdapter({"answer": "ok"})
+        row = RowTrace(row_id=1, trace_id="bound-row")
+        traced = TracingRouter(router.for_execution(STANDALONE), row)
+        traced.add_secret_values(["selected-row-secret"])
+        bound = traced.for_execution(STANDALONE)
+        await bound.complete(
+            LLMRequest(
+                model="anthropic/test", messages=[{"role": "user", "content": "hello"}]
+            )
+        )
+        # The outer row owner finalizes the same trace after an inner adapter
+        # borrows a bound view, including its selected redaction values.
+        record = traced.record(data={"secret": "selected-row-secret"})
+        assert len(record["calls"]) == 1
+        assert "selected-row-secret" not in json.dumps(record)
+        with pytest.raises(ValueError, match="cannot change execution owner"):
+            bound.for_execution(TransientDispatch(lambda: False))
+        await router.aclose()
+
+    asyncio.run(run())

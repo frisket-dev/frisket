@@ -96,6 +96,7 @@ from .types import (
     SchemaViolation,
     provider_from_model_id,
     has_document_content,
+    wire_responses,
 )
 
 # Mechanism ids — the closed vocabulary (NOT a registry). Re-exported from
@@ -457,10 +458,12 @@ class FrisketRouterModel(Model):
             if self.wire_calls:
                 error.wire_calls = list(self.wire_calls)
             raise
-        self.wire_calls.append(resp)
-        self.attempts += 1
+        returned = wire_responses([resp])
+        self.wire_calls.extend(returned)
+        self.attempts += len(returned)
         if self._on_response is not None:
-            await self._on_response(resp)
+            for response in returned:
+                await self._on_response(response)
         if resp.output_limited:
             raise OutputLimitReached(
                 "model output stopped at the provider output limit",
@@ -1012,6 +1015,7 @@ def _sum_response(
     the completer's FINAL unwrapped value — the receipt's ``.data`` always
     matches ``StructuredResult.data``, never the raw (possibly wrapped) last
     wire call's payload."""
+    wire_calls = wire_responses(wire_calls)
     if not wire_calls:
         return LLMResponse(
             content=None,

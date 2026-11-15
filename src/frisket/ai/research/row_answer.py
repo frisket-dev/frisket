@@ -13,7 +13,7 @@ from pydantic_ai.exceptions import UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.usage import UsageLimits
 
 from frisket.ai.llm.structured import FrisketRouterModel, _content_to_pai
-from frisket.ai.llm.types import LLMResponse
+from frisket.ai.llm.types import LLMResponse, wire_responses
 from frisket.ai.models.metadata import ModelCallMeta, PROVIDER_KIND
 from frisket.ai.research.recorder import ResearchRecorder, redact_research_text
 from frisket.ai.research.search import (
@@ -333,6 +333,7 @@ def model_call_accounting(engine: str, wire_calls: list[LLMResponse]) -> dict[st
     """Every wire attempt this run made (``FrisketRouterModel.wire_calls``)
     becomes the same ``model_calls``/tokens/cost receipt shape the old
     per-step loop built inline, now built once after the run completes."""
+    wire_calls = wire_responses(wire_calls)
     model_id = bare_model_name(engine)
     tokens = {"in": 0, "out": 0, "cost": 0.0}
     model_calls: list[dict[str, Any]] = []

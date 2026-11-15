@@ -807,105 +807,124 @@ class ModelRouter:
             # fact cannot disagree with the trace line beside it.
             return latency_ms
 
-        for attempt in range(self.max_retries + 1):
-            _execution.check()
-            t0 = time.perf_counter()
-            admitted = False
-            try:
-                if self.chaos is not None:
-                    fabricated = await self.chaos.intercept(req)
-                    if fabricated is not None:
-                        fabricated.duration_ms = _record(
-                            attempt, t0, outcome="chaos_fabricated"
-                        )
-                        return fabricated
+        returned_calls: list[LLMResponse] = []
+        try:
+            for attempt in range(self.max_retries + 1):
                 _execution.check()
-                if self.model_call_policy is not None:
-                    self.model_call_policy.before_live(req, credential_source)
-                admitted = True
-                if provider == "ollama" and cloud_adapter is None:
-                    assert isinstance(adapter, OpenAICompatAdapter)
-                    resp = await adapter.complete(
-                        wire_req,
-                        self.client,
-                        cost_model=req.model,
+                t0 = time.perf_counter()
+                admitted = False
+                try:
+                    if self.chaos is not None:
+                        fabricated = await self.chaos.intercept(req)
+                        if fabricated is not None:
+                            fabricated.duration_ms = _record(
+                                attempt, t0, outcome="chaos_fabricated"
+                            )
+                            fabricated.prior_wire_calls = tuple(returned_calls)
+                            return fabricated
+                    _execution.check()
+                    if self.model_call_policy is not None:
+                        self.model_call_policy.before_live(req, credential_source)
+                    admitted = True
+                    if provider == "ollama" and cloud_adapter is None:
+                        assert isinstance(adapter, OpenAICompatAdapter)
+                        resp = await adapter.complete(
+                            wire_req,
+                            self.client,
+                            cost_model=req.model,
+                        )
+                    else:
+                        resp = await adapter.complete(wire_req, self.client)
+                except LLMError as e:
+                    safe_error = self._safe_llm_error(e, secret_values)
+                    last = safe_error
+                    chaos_error = bool(
+                        self.chaos is not None and str(safe_error).startswith("chaos:")
                     )
-                else:
-                    resp = await adapter.complete(wire_req, self.client)
-            except LLMError as e:
-                safe_error = self._safe_llm_error(e, secret_values)
-                last = safe_error
-                chaos_error = bool(
-                    self.chaos is not None and str(safe_error).startswith("chaos:")
-                )
-                if not admitted and not chaos_error:
-                    raise safe_error from None
-                retry_is_proven_safe = not safe_error.post_egress_ambiguous and (
-                    chaos_error
-                    or safe_error.transport_kind == "connect"
-                    # A provider response that categorically rejected the
-                    # request is not an ambiguous accepted completion.
-                    or safe_error.status == 429
-                )
-                safe_error.post_egress_ambiguous = bool(
-                    safe_error.post_egress_ambiguous
-                    or (safe_error.retryable and not retry_is_proven_safe)
-                )
-                duration_ms = _record(
-                    attempt,
-                    t0,
-                    outcome="error",
-                    error=str(safe_error),
-                    status=safe_error.status,
-                    retryable=safe_error.retryable,
-                    chaos=chaos_error,
-                )
-                for response in getattr(safe_error, "wire_calls", []):
-                    response.duration_ms = duration_ms
-                    response.model = req.model
-                for response in getattr(safe_error, "wire_calls", []):
-                    self._finish_live_response(req, response, credential_source)
-                if admitted and self.model_call_policy is not None:
-                    self.model_call_policy.failed_live(
-                        req, safe_error, credential_source
+                    if not admitted and not chaos_error:
+                        raise safe_error from None
+                    retry_is_proven_safe = not safe_error.post_egress_ambiguous and (
+                        chaos_error
+                        or safe_error.transport_kind == "connect"
+                        # A provider response that categorically rejected the
+                        # request is not an ambiguous accepted completion.
+                        or safe_error.status == 429
                     )
-                # Bounded inference retry is a distinct purchase, not settlement
-                # recovery. Ambiguous expense remains explicitly unknown.
-                if not safe_error.retryable or attempt == self.max_retries:
-                    raise safe_error from None
-                await asyncio.sleep(
-                    min(2**attempt * 0.5, 8.0) * (1.0 if self.chaos else 1.0)
-                )
-            except httpx.HTTPError as e:
-                if not admitted:
+                    safe_error.post_egress_ambiguous = bool(
+                        safe_error.post_egress_ambiguous
+                        or (
+                            safe_error.retryable
+                            and not retry_is_proven_safe
+                            and not getattr(safe_error, "wire_calls", ())
+                        )
+                    )
+                    duration_ms = _record(
+                        attempt,
+                        t0,
+                        outcome="error",
+                        error=str(safe_error),
+                        status=safe_error.status,
+                        retryable=safe_error.retryable,
+                        chaos=chaos_error,
+                    )
+                    for response in getattr(safe_error, "wire_calls", []):
+                        response.duration_ms = duration_ms
+                        response.model = req.model
+                    for response in getattr(safe_error, "wire_calls", []):
+                        returned_calls.append(response)
+                        self._finish_live_response(req, response, credential_source)
+                    if admitted and self.model_call_policy is not None:
+                        self.model_call_policy.failed_live(
+                            req, safe_error, credential_source
+                        )
+                    # Bounded inference retry is a distinct purchase, not settlement
+                    # recovery. Ambiguous expense remains explicitly unknown.
+                    if not safe_error.retryable or attempt == self.max_retries:
+                        raise safe_error from None
+                    await asyncio.sleep(
+                        min(2**attempt * 0.5, 8.0) * (1.0 if self.chaos else 1.0)
+                    )
+                except httpx.HTTPError as e:
+                    if not admitted:
+                        raise
+                    last = self._safe_transport_error(e, secret_values)
+                    detail = str(last)
+                    _record(
+                        attempt,
+                        t0,
+                        outcome="error",
+                        error=detail,
+                        retryable=True,
+                    )
+                    if admitted and self.model_call_policy is not None:
+                        self.model_call_policy.failed_live(req, last, credential_source)
+                    if attempt == self.max_retries:
+                        raise last from None
+                    await asyncio.sleep(min(2**attempt * 0.5, 8.0))
+                except BaseException as error:
+                    if admitted and self.model_call_policy is not None:
+                        self.model_call_policy.failed_live(
+                            req, error, credential_source
+                        )
                     raise
-                last = self._safe_transport_error(e, secret_values)
-                detail = str(last)
-                _record(
-                    attempt,
-                    t0,
-                    outcome="error",
-                    error=detail,
-                    retryable=True,
-                )
-                if admitted and self.model_call_policy is not None:
-                    self.model_call_policy.failed_live(req, last, credential_source)
-                if attempt == self.max_retries:
-                    raise last from None
-                await asyncio.sleep(min(2**attempt * 0.5, 8.0))
-            except BaseException as error:
-                if admitted and self.model_call_policy is not None:
-                    self.model_call_policy.failed_live(req, error, credential_source)
-                raise
-            else:
-                if provider == "ollama" and cloud_adapter is None:
-                    resp.model = req.model
-                resp.duration_ms = _record(attempt, t0, outcome="ok")
-                # A returned purchase must never enter the transport retry loop,
-                # even when saving its accounting facts fails.
-                self._finish_live_response(req, resp, credential_source)
-                return resp
-        raise LLMError(redact_text(f"exhausted retries: {last}")) from None
+                else:
+                    if provider == "ollama" and cloud_adapter is None:
+                        resp.model = req.model
+                    resp.duration_ms = _record(attempt, t0, outcome="ok")
+                    # A returned purchase must never enter the transport retry loop,
+                    # even when saving its accounting facts fails.
+                    prior = tuple(returned_calls)
+                    returned_calls.append(resp)
+                    self._finish_live_response(req, resp, credential_source)
+                    resp.prior_wire_calls = prior
+                    return resp
+            raise LLMError(redact_text(f"exhausted retries: {last}")) from None
+        except BaseException as error:
+            # Cancellation, admission refusal and later transport failures must
+            # not erase responses already returned by earlier purchases.
+            if returned_calls:
+                error.wire_calls = list(returned_calls)
+            raise
 
     def has_embedding_backend(self) -> bool:
         """True when a provider that can serve embeddings is configured.
