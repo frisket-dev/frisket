@@ -8,7 +8,7 @@ vi.mock('pluralize', () => ({
   }),
 }));
 
-import { ApiError, cancelImportSession, chunkImportFiles, confirmImportRowsDraft, createImportSession, detectPastedRowsDraft, importCsv, importFiles, importPdf, importXlsx, importUrls, listImportSessions, prepareImportFiles, prepareImportUrls, previewCsv, previewImportRowUpdates, resolveImportSession, resumeImportSession, sealImportSession, seedSampleProject, snapshotImportFiles, uploadFilesToImportSession, uploadImportSessionFiles } from '../../src/api/open';
+import { ApiError, cancelImportSession, chunkImportFiles, confirmImportRowsDraft, createImportSession, detectPastedRowsDraft, importCsv, importFiles, importPdf, importXlsx, importUrls, listImportSessions, prepareImportFiles, prepareImportUrls, previewCsv, resolveImportSession, resumeImportSession, sealImportSession, seedSampleProject, snapshotImportFiles, uploadFilesToImportSession, uploadImportSessionFiles } from '../../src/api/open';
 import {
   createOnboardingImportsApi,
   type OnboardingImportOptions,
@@ -598,42 +598,6 @@ describe('onboarding/import generated HTTP contracts', () => {
         { source_name: 'note', name: null, type: 'text' },
       ],
     });
-  });
-
-  it('sends the same reviewed source and mapping for update preview and confirmation', async () => {
-    const preview = {
-      matched: 1, unmatched: 0, blank_keys: 0, ambiguous: 0,
-      changed_cells: 1, cleared_cells: 0, samples: [], confirmation: 'sha256:preview',
-    };
-    const fetch = vi.fn().mockResolvedValueOnce(jsonResponse(preview))
-      .mockResolvedValueOnce(jsonResponse({ sheet_id: 23, rows: 1, columns: ['Email', 'Score'] }));
-    vi.stubGlobal('fetch', fetch);
-    const raw = 'email,score\nada@example.test,7\n';
-    const columns = [
-      { key: 'email', name: 'Email', type: 'text', include: true, updatePolicy: 'match' as const },
-      { key: 'score', name: 'Score', type: 'integer', include: true, updatePolicy: 'update' as const },
-    ];
-    await expect(previewImportRowUpdates('project-a', {
-      raw, draftId: 'paste@draft', destinationSheetId: 23, columns,
-      keyColumns: ['Email'], keepExistingOnBlank: false,
-    })).resolves.toEqual(preview);
-    await confirmImportRowsDraft('project-a', { ...pasteDraftResponse(), raw, draft_id: 'paste@draft' }, {
-      sheetName: 'Ignored', destination: { kind: 'existing_sheet', sheetId: 23 }, columns,
-      update: { keyColumns: ['Email'], keepExistingOnBlank: false, confirmation: preview.confirmation },
-    });
-    const previewBody = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
-    const confirmBody = JSON.parse(String(fetch.mock.calls[1]?.[1]?.body));
-    expect(previewBody).toEqual({
-      raw, draft_id: 'paste@draft', destination_sheet_id: 23,
-      columns: [
-        { source_name: 'email', name: 'Email', type: 'text' },
-        { source_name: 'score', name: 'Score', type: 'integer' },
-      ],
-      key_columns: ['Email'], keep_existing_on_blank: false,
-    });
-    expect(confirmBody).toMatchObject({ ...previewBody, confirmation: preview.confirmation });
-    expect(confirmBody).not.toHaveProperty('rows');
-    expect(confirmBody).not.toHaveProperty('idempotency_key');
   });
 
   it('normalizes the required paste-draft core while preserving recursive producer extensions and format omission', async () => {

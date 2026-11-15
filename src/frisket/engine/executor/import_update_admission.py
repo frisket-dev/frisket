@@ -182,7 +182,12 @@ def admit_typed_update(
                 ):
                     count += 1
                     if max_rows is not None and count > max_rows:
-                        raise ValueError("import exceeds the deployment row limit")
+                        from frisket.actions.types import TableError
+
+                        raise TableError(
+                            "import_workload_limit_exceeded",
+                            "import exceeds the deployment row limit",
+                        )
                     normalized = {
                         name: (
                             None

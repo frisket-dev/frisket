@@ -3,7 +3,6 @@ import type {
   HttpContractOperationMap,
   HttpImportSessionList,
   HttpImportSessionStatus,
-  HttpImportUpdatePreviewResponse,
 } from '../generated/openHttpContracts';
 import {
   ApiError,
@@ -287,17 +286,6 @@ export interface ImportDraftMapping {
     keepExistingOnBlank: boolean;
     confirmation: string;
   };
-}
-
-export type ImportUpdatePreview = HttpImportUpdatePreviewResponse;
-
-export interface ImportUpdatePreviewInput {
-  destinationSheetId: number;
-  columns: ImportDraftMappingColumn[];
-  keyColumns: string[];
-  raw: string;
-  draftId: string;
-  keepExistingOnBlank: boolean;
 }
 
 export interface OnboardingImportsApi {
@@ -678,111 +666,6 @@ export async function submitImportRowsDraft(
     },
     errorFactory: actionLaunchErrorFromContract,
   }), (result) => ({ result: 'success', rows: result.rows, columns: result.columns.length }));
-}
-
-function updatePreviewError(status: number, payload: unknown): Error {
-  return actionLaunchErrorFromContract(status, payload);
-}
-
-export async function previewImportRowUpdates(
-  projectId: string,
-  input: ImportUpdatePreviewInput,
-  options: OnboardingImportOptions = {},
-): Promise<ImportUpdatePreview> {
-  const body = {
-    raw: input.raw,
-    draft_id: input.draftId,
-    destination_sheet_id: input.destinationSheetId,
-    columns: reviewedDraftColumns(input.columns),
-    key_columns: input.keyColumns,
-    keep_existing_on_blank: input.keepExistingOnBlank,
-  };
-  const payload: unknown = await httpContract('tenant.import_update_preview.post', {
-    pathParams: { pid: projectId }, query: {}, body,
-    signal: options.signal, headers: options.headers, errorFactory: updatePreviewError,
-  });
-  if (!payload || typeof payload !== 'object') {
-    throw new ApiError(500, 'Unexpected update preview response');
-  }
-  const preview = payload as Partial<ImportUpdatePreview>;
-  const counts = [
-    preview.matched, preview.unmatched, preview.blank_keys, preview.ambiguous,
-    preview.changed_cells, preview.cleared_cells,
-  ];
-  if (
-    counts.some((count) => typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0)
-    || !Array.isArray(preview.samples)
-    || typeof preview.confirmation !== 'string'
-    || !preview.confirmation
-  ) {
-    throw new ApiError(500, 'Unexpected update preview response');
-  }
-  return preview as ImportUpdatePreview;
-}
-
-export async function previewImportedFileUpdates(
-  projectId: string,
-  file: File,
-  format: 'csv' | 'xlsx',
-  input: {
-    destinationSheetId: number;
-    columnMapping: Record<string, string | null>;
-    keyColumns: string[];
-    keepExistingOnBlank: boolean;
-    encoding?: string;
-  },
-  options: OnboardingImportOptions = {},
-): Promise<ImportUpdatePreview> {
-  const body = new FormData();
-  body.append('file', file);
-  body.append('destination_sheet_id', String(input.destinationSheetId));
-  body.append('column_mapping', JSON.stringify(input.columnMapping));
-  body.append('key_columns', JSON.stringify(input.keyColumns));
-  body.append('keep_existing_on_blank', String(input.keepExistingOnBlank));
-  const payload: unknown = await httpContract(
-    format === 'xlsx' ? 'tenant.import_xlsx_update_preview.post' : 'tenant.import_csv_update_preview.post',
-    {
-      pathParams: { pid: projectId },
-      query: input.encoding ? { encoding: input.encoding } : {},
-      body,
-      signal: options.signal,
-      errorFactory: updatePreviewError,
-    },
-  );
-  return payload as ImportUpdatePreview;
-}
-
-export async function updateRowsFromImportedFile(
-  projectId: string,
-  file: File,
-  format: 'csv' | 'xlsx',
-  input: {
-    destinationSheetId: number;
-    columnMapping: Record<string, string | null>;
-    keyColumns: string[];
-    keepExistingOnBlank: boolean;
-    confirmation: string;
-    requestKey: string;
-    encoding?: string;
-  },
-): Promise<{ sheet_id: number; rows: number; columns: string[] }> {
-  const body = new FormData();
-  body.append('file', file);
-  body.append('destination_sheet_id', String(input.destinationSheetId));
-  body.append('column_mapping', JSON.stringify(input.columnMapping));
-  body.append('key_columns', JSON.stringify(input.keyColumns));
-  body.append('keep_existing_on_blank', String(input.keepExistingOnBlank));
-  body.append('confirmation', input.confirmation);
-  body.append('update_request_key', input.requestKey);
-  return httpContract(
-    format === 'xlsx' ? 'tenant.update_xlsx.post' : 'tenant.update_csv.post',
-    {
-      pathParams: { pid: projectId },
-      query: input.encoding ? { encoding: input.encoding } : {},
-      body,
-      errorFactory: updatePreviewError,
-    },
-  );
 }
 
 export function seedSampleProject(projectId: string): Promise<SampleProjectSeedResult> {

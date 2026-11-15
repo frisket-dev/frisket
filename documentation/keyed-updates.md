@@ -32,3 +32,8 @@ Updates never infer deletion from a record absent in the incoming file. Reversib
 row deletion and permanent purge are distinct: a retained hidden association can
 be restored by a changed incoming record under `incoming_wins`; purge removes the
 association. It does not suppress future source polling.
+
+The older CSV/XLSX update-upload and update-preview HTTP routes are retired.
+HTTP clients use `/actions/v1/run` or the reviewed `/import/table-imports` workflow.
+A preview fingerprint is not a second update authority: publication checks the
+frozen input plan and current target keys, then applies the selected source policy.
