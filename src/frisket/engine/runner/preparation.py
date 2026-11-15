@@ -757,6 +757,7 @@ def prepare_validated(
             model=recipe.run_provenance_model(spec),
             prompt_hash=prompt_hash_of(recipe, persisted_spec),
             params=persisted_spec,
+            execution_root_run_id=spec.get("execution_root_run_id"),
             total_rows=len(row_ids),
             cost_estimate=est["cost"] if est is not None else None,
             row_ids=row_ids,

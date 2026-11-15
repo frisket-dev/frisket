@@ -796,7 +796,7 @@ def review_runs_page(
     else:
         _ensure_current_review_stats(project, sheet_id=sheet_id)
     filters = [
-        "COALESCE(json_extract(runs.params,'$.execution_root_run_id'),runs.id)=runs.id",
+        "runs.execution_root_run_id IS NULL",
     ]
     params: list[Any] = []
     if sheet_id is not None:
@@ -808,7 +808,7 @@ def review_runs_page(
     filters.append(
         "EXISTS (SELECT 1 FROM run_review_fields review_field "
         "JOIN runs member ON member.id=review_field.run_id "
-        "WHERE COALESCE(json_extract(member.params,'$.execution_root_run_id'),member.id)=runs.id "
+        "WHERE (member.id=runs.id OR member.execution_root_run_id=runs.id) "
         "AND review_field.is_primary=1 AND review_field.eligible_count>0)"
     )
     where = " AND ".join(f"({item})" for item in filters)
@@ -899,7 +899,7 @@ def set_review_run_status(
                 SELECT 1
                 FROM run_review_fields review_field
                 JOIN runs member ON member.id=review_field.run_id
-                WHERE COALESCE(json_extract(member.params, '$.execution_root_run_id'), member.id)=runs.id
+                WHERE (member.id=runs.id OR member.execution_root_run_id=runs.id)
                   AND review_field.is_primary=1
                   AND review_field.eligible_count>0
             )

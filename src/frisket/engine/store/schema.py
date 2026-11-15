@@ -28,6 +28,7 @@ from .structural_changes import STRUCTURAL_SCHEMA_SQL
 from .citation_text import CITATION_TEXT_SCHEMA_SQL
 from .extraction_layouts import EXTRACTION_LAYOUTS_SCHEMA_SQL
 from .evaluation import EVALUATION_SCHEMA_SQL
+from .execution_groups import EXECUTION_GROUP_SCHEMA_SQL
 from .action_submissions import ACTION_SUBMISSIONS_SCHEMA_SQL
 from .pdf_split_schema import PDF_SPLIT_SCHEMA_SQL
 from .document_text import (
@@ -259,6 +260,9 @@ CREATE TABLE IF NOT EXISTS runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   op_id INTEGER NOT NULL REFERENCES ops(id),
   sheet_id INTEGER NOT NULL REFERENCES sheets(id),
+  -- Content-free immutable identity survives payload purges. NULL is a root
+  -- (including migrated historical singleton runs); retries name that root.
+  execution_root_run_id INTEGER REFERENCES runs(id) ON DELETE RESTRICT,
   -- Canonical action identity. There is deliberately no persisted runner
   -- implementation alias or compatibility column.
   action_kind TEXT NOT NULL,
@@ -2504,6 +2508,7 @@ SCHEMA += "\n" + DOCUMENT_TEXT_SELECTION_VIEW_SQL + "\n"
 SCHEMA += "\n" + PDF_SPLIT_SCHEMA_SQL + "\n"
 SCHEMA += "\n" + COPIED_RESULTS_SCHEMA_SQL + "\n"
 SCHEMA += CONSUMED_SOURCE_SCHEMA_SQL + PURGE_SCHEMA_SQL + "\n"
+SCHEMA += "\n" + EXECUTION_GROUP_SCHEMA_SQL + "\n"
 SCHEMA += "\n" + CHANGE_SCHEMA_SQL + "\n"
 SCHEMA += "\n" + KEYED_UPDATE_SCHEMA + "\n"
 SCHEMA += "\n" + DESCRIPTOR_SCHEMA_SQL + STRUCTURAL_SCHEMA_SQL + "\n"

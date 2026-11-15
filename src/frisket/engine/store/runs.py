@@ -302,6 +302,7 @@ class RunResultStore:
         model: str | None = None,
         prompt_hash: str | None = None,
         params: dict | None = None,
+        execution_root_run_id: int | None = None,
         total_rows: int = 0,
         cost_estimate: float | None = None,
         row_ids: list[int] | None = None,
@@ -309,14 +310,16 @@ class RunResultStore:
     ) -> int:
         if action_kind != action_kind.strip() or "." not in action_kind:
             raise ValueError(f"action kind {action_kind!r} is not canonical")
+        stored_params = dict(params or {})
+        stored_params.pop("execution_root_run_id", None)
         try:
             if commit:
                 self.db.execute("BEGIN IMMEDIATE")
             cur = self.db.execute(
                 "INSERT INTO runs (op_id, sheet_id, action_kind, action_version, "
                 "model, prompt_hash, params, total_rows, "
-                "cost_estimate) "
-                "VALUES (?,?,?,?,?,?,?,?,?)",
+                "cost_estimate,execution_root_run_id) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (
                     op_id,
                     sheet_id,
@@ -324,9 +327,10 @@ class RunResultStore:
                     action_version,
                     model,
                     prompt_hash,
-                    json.dumps(params or {}, sort_keys=True),
+                    json.dumps(stored_params, sort_keys=True),
                     total_rows,
                     cost_estimate,
+                    execution_root_run_id,
                 ),
             )
             run_id = int(cur.lastrowid)

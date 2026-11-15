@@ -357,6 +357,14 @@ def migrate_domain(db: sqlite3.Connection) -> None:
         db.execute(
             "ALTER TABLE results ADD COLUMN published INTEGER NOT NULL DEFAULT 0 CHECK(published IN (0,1))"
         )
+        # The released schema had no combined execution groups. Keep those
+        # histories as singletons; never infer identity from purgeable params.
+        db.execute(
+            "ALTER TABLE runs ADD COLUMN execution_root_run_id INTEGER REFERENCES runs(id) ON DELETE RESTRICT"
+        )
+        from .execution_groups import EXECUTION_GROUP_SCHEMA_SQL
+
+        _execute_ddl(db, EXECUTION_GROUP_SCHEMA_SQL)
         _retain_output_descriptors(db)
         _rebuild_table(db, "current_cells")
         _execute_ddl(db, COPIED_RESULTS_SCHEMA_SQL)

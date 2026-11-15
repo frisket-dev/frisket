@@ -204,7 +204,7 @@ def test_completion_never_stitches_successful_siblings_from_different_attempts(w
             "map.extract",
             row_ids=[rows[0]],
             total_rows=1,
-            params={} if root is None else {"execution_root_run_id": root},
+            execution_root_run_id=root,
         )
         root = root or run_id
         run_ids.append(run_id)

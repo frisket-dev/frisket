@@ -119,6 +119,11 @@ def _acquire_output_claims_for_runner(
     output_names = [str(field["name"]) for field in output_fields]
     if not output_names:
         return None
+    execution_root = runner_spec.get("execution_root_run_id")
+    if execution_root is not None:
+        from frisket.engine.store.execution_groups import execution_runs
+
+        execution_root, _ = execution_runs(project, int(execution_root))
     _claims, conflict = OutputColumnClaimStore(project).acquire(
         sheet_id=sheet_id,
         output_names=output_names,
@@ -129,8 +134,8 @@ def _acquire_output_claims_for_runner(
         details={
             "idempotency_key": action.idempotency_key,
             **(
-                {"execution_root_run_id": runner_spec["execution_root_run_id"]}
-                if runner_spec.get("execution_root_run_id") is not None
+                {"execution_root_run_id": execution_root}
+                if execution_root is not None
                 else {}
             ),
             # Freeze the producer descriptors with the claim. Queue recovery

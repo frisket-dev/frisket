@@ -393,3 +393,32 @@ def test_cutover_retains_data_when_optional_output_metadata_is_malformed(
         == DOMAIN_TO_DIGEST
     )
     assert db.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+def test_released_runs_migrate_as_singleton_execution_identities(old_db):
+    from types import SimpleNamespace
+    from frisket.engine.store.domain_migration import migrate_domain
+    from frisket.engine.store.execution_groups import execution_runs
+
+    db = old_db
+    db.executemany(
+        "INSERT INTO runs(id,op_id,sheet_id,action_kind,params,status) "
+        "VALUES (?,1,1,'map.ask',?,'completed')",
+        [(1, "{}"), (2, '{"execution_root_run_id":1,"question":"historical data"}')],
+    )
+    _stamp_old(db)
+    migrate_domain(db)
+    project = SimpleNamespace(db=db)
+    assert execution_runs(project, 1) == (1, [1])
+    assert execution_runs(project, 2) == (2, [2])
+    assert [row[0] for row in db.execute("SELECT execution_root_run_id FROM runs")] == [
+        None,
+        None,
+    ]
+    assert (
+        json.loads(db.execute("SELECT params FROM runs WHERE id=2").fetchone()[0])[
+            "question"
+        ]
+        == "historical data"
+    )
+    assert db.execute("PRAGMA foreign_key_check").fetchall() == []
